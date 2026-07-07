@@ -12,11 +12,13 @@ toward root.
 These tests pin the contract that those targets are all flagged as outside
 the workspace, while legitimate in-workspace rm commands remain allowed.
 """
-# pylint: disable=protected-access
+
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
@@ -28,19 +30,24 @@ from qwenpaw.security.tool_guard.guardians.rule_guardian import (
 
 
 @pytest.fixture
-def workspace(tmp_path: Path) -> Path:
+def workspace(tmp_path: Path) -> Iterator[Path]:
     """A tmp workspace; rm below this root is legitimate."""
     ws = tmp_path / "ws"
     ws.mkdir()
     home = tmp_path / "fake-home"
     home.mkdir()
-    with patch(
-        "qwenpaw.config.context.get_current_workspace_dir",
-        return_value=ws,
-    ), patch(
-        "qwenpaw.security.tool_guard.guardians.rule_guardian._get_workspace_root",
-        return_value=ws,
-    ), patch.dict(os.environ, {"HOME": str(home), "USERPROFILE": str(home)}):
+    with (
+        patch(
+            "qwenpaw.config.context.get_current_workspace_dir",
+            return_value=ws,
+        ),
+        patch(
+            "qwenpaw.security.tool_guard.guardians."
+            "rule_guardian._get_workspace_root",
+            return_value=ws,
+        ),
+        patch.dict(os.environ, {"HOME": str(home), "USERPROFILE": str(home)}),
+    ):
         yield ws
 
 
@@ -144,7 +151,7 @@ def test_command_prefix_rm_blocked(workspace: Path) -> None:
 
 
 def test_env_prefix_rm_blocked(workspace: Path) -> None:
-    """Regression for #5090: ``env rm -rf /`` must be normalised and flagged."""
+    """Regression for #5090: ``env rm -rf /`` must be normalised."""
     has_outside, _ = _check_rm_targets_outside_workspace("env rm -rf /")
     assert has_outside is True
 

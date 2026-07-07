@@ -8,7 +8,8 @@ the working dir must contain a valid, parseable ``config.json`` and the
 FastAPI application must be importable and serve its critical routes
 (GET /, GET /api/version) without raising Internal Server Error.
 """
-# pylint: disable=protected-access,import-outside-toplevel,redefined-outer-name
+
+# pylint: disable=protected-access,import-outside-toplevel,redefined-outer-name,unused-argument,consider-using-from-import  # noqa: E501
 
 from __future__ import annotations
 
@@ -38,7 +39,12 @@ def isolated_working_dir(
     # ``config.utils`` imports WORKING_DIR symbol at module load — patch the
     # reference there too so ``get_config_path()`` returns the tmp path.
     if hasattr(config_utils, "WORKING_DIR"):
-        monkeypatch.setattr(config_utils, "WORKING_DIR", work_dir, raising=True)
+        monkeypatch.setattr(
+            config_utils,
+            "WORKING_DIR",
+            work_dir,
+            raising=True,
+        )
     monkeypatch.setenv("QWENPAW_WORKING_DIR", str(work_dir))
     return work_dir
 

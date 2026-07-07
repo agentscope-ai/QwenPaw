@@ -20,6 +20,7 @@ Rule format (one YAML file per threat category)::
       description: "Piping downloaded content directly to a shell"
       remediation: "Download to a file first and inspect before execution"
 """
+
 from __future__ import annotations
 
 import logging

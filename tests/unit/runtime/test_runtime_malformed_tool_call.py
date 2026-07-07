@@ -14,14 +14,14 @@ These tests pin that contract: malformed input is coerced/dropped in a
 single pass (no retry loop), the function returns a finite list, and the
 executor's ``_parse_tool_input`` returns ``{}`` rather than recursing.
 """
-# pylint: disable=protected-access
+
+# pylint: disable=protected-access,unused-import,use-implicit-booleaness-not-comparison,unused-argument  # noqa: E501
 
 from __future__ import annotations
 
 import json
 from types import SimpleNamespace
 
-import pytest
 from agentscope.message import ToolCallBlock
 
 from qwenpaw.agents.utils.tool_message_utils import (
@@ -55,7 +55,11 @@ def test_malformed_truncated_json_is_dropped_in_single_pass() -> None:
     result = _coerce_tool_inputs_to_json([msg])
 
     # The malformed block must have been dropped (no tool_call blocks remain).
-    remaining = [b for b in result[0].content if _block_attr(b, "type") in ("tool_call", "tool_use")]
+    remaining = [
+        b
+        for b in result[0].content
+        if _block_attr(b, "type") in ("tool_call", "tool_use")
+    ]
     assert remaining == [], "malformed tool_call block should be dropped"
 
 
@@ -119,7 +123,9 @@ def test_malformed_block_does_not_corrupt_adjacent_blocks() -> None:
     result = _coerce_tool_inputs_to_json([msg])
 
     remaining = [
-        b for b in result[0].content if _block_attr(b, "type") in ("tool_call", "tool_use")
+        b
+        for b in result[0].content
+        if _block_attr(b, "type") in ("tool_call", "tool_use")
     ]
     ids = [_block_attr(b, "id") for b in remaining]
     assert ids == ["good-1", "good-2"]

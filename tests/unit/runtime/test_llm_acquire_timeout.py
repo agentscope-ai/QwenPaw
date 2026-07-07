@@ -10,6 +10,7 @@ slot it never took, and leave no pending asyncio task behind. Before the
 #5411 fix, a leaked semaphore slot from a prior cancelled stream could hang
 the agent until the 300s default ``acquire_timeout`` elapsed.
 """
+
 # pylint: disable=protected-access,too-few-public-methods
 
 from __future__ import annotations
