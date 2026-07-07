@@ -2665,7 +2665,8 @@
     "openDirLoading": "Loading...",
     "openDirEmpty": "No subdirectories here",
     "openDirHome": "Home",
-    "openDirRefresh": "Refresh"
+    "openDirRefresh": "Refresh",
+    "openDirHiddenFolders": "Hidden Folders"
   },
   "market": {
     "searchPlaceholder": "Search skills across platforms",

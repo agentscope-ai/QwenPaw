@@ -695,7 +695,14 @@
     "workspaceDesc": "Dùng thư mục workspace của agent hiện tại",
     "cloneUrl": "URL Git Repository",
     "cloneUrlPlaceholder": "https://github.com/user/repo.git",
-    "cloneName": "Tên dự án (tùy chọn)"
+    "cloneName": "Tên dự án (tùy chọn)",
+    "openDirDesc": "Mở thư mục cục bộ hiện có — không sao chép tệp",
+    "openDirBtn": "Mở Thư Mục Này",
+    "openDirLoading": "Đang tải...",
+    "openDirEmpty": "Không có thư mục con",
+    "openDirHome": "Trang chủ",
+    "openDirRefresh": "Làm mới",
+    "openDirHiddenFolders": "Thư mục ẩn"
   },
   "agentConfig": {
     "title": "Cấu hình",

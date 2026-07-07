@@ -2539,7 +2539,8 @@
     "openDirLoading": "読み込み中...",
     "openDirEmpty": "サブディレクトリがありません",
     "openDirHome": "ホーム",
-    "openDirRefresh": "更新"
+    "openDirRefresh": "更新",
+    "openDirHiddenFolders": "隠しフォルダ"
   },
   "market": {
     "searchPlaceholder": "プラットフォームを横断してスキルを検索",

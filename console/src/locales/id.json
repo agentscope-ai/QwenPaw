@@ -1009,7 +1009,8 @@
     "openDirLoading": "Memuat...",
     "openDirEmpty": "Tidak ada subdirektori",
     "openDirHome": "Beranda",
-    "openDirRefresh": "Segarkan"
+    "openDirRefresh": "Segarkan",
+    "openDirHiddenFolders": "Folder Tersembunyi"
   },
   "market": {
     "searchPlaceholder": "Cari skill di berbagai platform",

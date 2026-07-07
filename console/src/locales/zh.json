@@ -2684,7 +2684,8 @@
     "openDirLoading": "加载中...",
     "openDirEmpty": "此目录下没有子目录",
     "openDirHome": "主目录",
-    "openDirRefresh": "刷新"
+    "openDirRefresh": "刷新",
+    "openDirHiddenFolders": "隐藏文件夹"
   },
   "market": {
     "searchPlaceholder": "在多平台中搜索技能",

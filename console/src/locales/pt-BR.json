@@ -2596,7 +2596,8 @@
     "openDirLoading": "Carregando...",
     "openDirEmpty": "Sem subdiretórios",
     "openDirHome": "Início",
-    "openDirRefresh": "Atualizar"
+    "openDirRefresh": "Atualizar",
+    "openDirHiddenFolders": "Pastas Ocultas"
   },
   "market": {
     "searchPlaceholder": "Buscar habilidades em várias plataformas",
