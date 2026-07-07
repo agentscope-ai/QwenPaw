@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.agents.tools.file_search import (
+    _compile_search_pattern,
     _is_text_file,
     _MAX_MATCHES,
     _MAX_OUTPUT_CHARS,
@@ -47,6 +48,38 @@ class FakeCancelAfter(FakeCancel):
     def is_set(self) -> bool:
         self._checks += 1
         return self._checks > self.after
+
+
+# ---------------------------------------------------------------------------
+# _compile_search_pattern tests
+# ---------------------------------------------------------------------------
+
+
+def test_compile_search_pattern_literal():
+    regex = _compile_search_pattern("hello", is_regex=False, flags=0)
+    assert regex.search("hello world")
+    assert not regex.search("hi world")
+
+
+def test_compile_search_pattern_pipe_alternatives():
+    pattern = "服务期|服务期限|合同有效期|合同期限|协议期限|供应有效期|有效直至|服务周期|履约期限"
+    regex = _compile_search_pattern(pattern, is_regex=False, flags=0)
+    assert regex.search("本合同保持其有效直至")
+    assert regex.search("合同有效期为一年")
+    assert not regex.search("完全不相关的内容")
+
+
+def test_compile_search_pattern_pipe_preserves_regex_metacharacters():
+    regex = _compile_search_pattern("a.b|c.d", is_regex=False, flags=0)
+    assert regex.search("a.b")
+    assert regex.search("c.d")
+    assert not regex.search("axb")
+
+
+def test_compile_search_pattern_regex_mode():
+    regex = _compile_search_pattern(r"foo|bar", is_regex=True, flags=0)
+    assert regex.search("foo")
+    assert regex.search("bar")
 
 
 # ---------------------------------------------------------------------------
@@ -682,6 +715,24 @@ def test_walk_and_grep_context_line_at_file_end_edge(temp_dir):
         "---",
     ]
     assert matches == expected
+
+
+def test_walk_and_grep_pipe_alternatives_literal(temp_dir):
+    """Pipe-separated literals should match any alternative."""
+    (temp_dir / "file.txt").write_text(
+        "本合同保持其有效直至\n合同有效期为一年\n",
+    )
+    pattern = "服务期|服务期限|有效直至|合同有效期"
+    regex = _compile_search_pattern(pattern, is_regex=False, flags=0)
+    matches, status = _walk_and_grep(
+        temp_dir / "file.txt",
+        regex,
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert len(matches) == 2
 
 
 def test_walk_and_grep_regex_metacharacters(temp_dir):
