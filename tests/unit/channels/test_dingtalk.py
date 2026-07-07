@@ -2767,16 +2767,16 @@ class TestDingTalkSendMethodsExtended:
         dingtalk_channel,
         mock_http_session,
     ):
-        """Open API fallback returning False should fail the send."""
+        """Open API transport failure should fail explicit sends."""
         dingtalk_channel._http = mock_http_session
 
         with patch.object(
             dingtalk_channel,
-            "_send_via_open_api",
+            "_send_robot_message",
             new_callable=AsyncMock,
             return_value=False,
         ):
-            with pytest.raises(ChannelError, match="Open API fallback"):
+            with pytest.raises(ChannelError, match="Open API send failed"):
                 await dingtalk_channel.send(
                     to_handle="unknown_handle",
                     text="Test message",

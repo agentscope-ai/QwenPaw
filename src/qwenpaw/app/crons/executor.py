@@ -34,7 +34,6 @@ class CronExecutor:
         target_session_id = job.dispatch.target.session_id
         target_channel = job.dispatch.channel
         dispatch_meta: Dict[str, Any] = dict(job.dispatch.meta or {})
-        dispatch_meta["_strict_delivery_errors"] = True
         if job.task_type == "agent":
             # Agent cron replies still print to the console channel, but
             # should not raise frontend push bubbles (Inbox remains opt-in).
