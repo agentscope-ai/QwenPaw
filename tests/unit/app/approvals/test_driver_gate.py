@@ -9,7 +9,7 @@ that fires when a Driver replays the same tool call.
 
 from __future__ import annotations
 
-# pylint: disable=protected-access,redefined-outer-name,unused-argument,unused-import
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,unused-import  # noqa: E501
 
 import asyncio
 
@@ -218,7 +218,8 @@ async def test_request_approval_with_tool_target_uses_target_name_in_summary(
         # Sanity: the summary mentions the tool, not just the driver label.
         assert "run_shell" in pending.result_summary
         await svc.resolve_request(
-            pending.request_id, ApprovalDecision.APPROVED
+            pending.request_id,
+            ApprovalDecision.APPROVED,
         )
 
     asyncio.create_task(_approver())

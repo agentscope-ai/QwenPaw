@@ -12,7 +12,7 @@ here.
 
 from __future__ import annotations
 
-# pylint: disable=protected-access,redefined-outer-name,unused-argument,unused-variable
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,unused-variable  # noqa: E501
 
 import asyncio
 import time
@@ -265,7 +265,7 @@ async def test_get_pending_by_session_returns_oldest_first():
         svc,
         _make_pending("old", session_id="s", created_at=10.0),
     )
-    newer = _seed_pending(
+    _seed_pending(
         svc,
         _make_pending("new", session_id="s", created_at=20.0),
     )
@@ -276,7 +276,7 @@ async def test_get_pending_by_session_returns_oldest_first():
 
 async def test_get_pending_by_session_skips_resolved():
     svc = ApprovalService()
-    p1 = _seed_pending(svc, _make_pending("p1", session_id="s"))
+    _seed_pending(svc, _make_pending("p1", session_id="s"))
     await svc.resolve_request("p1", ApprovalDecision.APPROVED)
     _seed_pending(svc, _make_pending("p2", session_id="s"))
     found = await svc.get_pending_by_session("s")
