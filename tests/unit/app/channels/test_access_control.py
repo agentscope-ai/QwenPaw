@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import  # noqa: E501
 
 import json
 import time
@@ -272,7 +272,10 @@ class TestAccessControlStore:
         store: AccessControlStore,
     ):
         store.add_pending(
-            "console", "u1", username="alice", first_message="hi"
+            "console",
+            "u1",
+            username="alice",
+            first_message="hi",
         )
         assert store.approve_pending("console", "u1", remark="ok")
         assert store.is_whitelisted("console", "u1")
@@ -319,7 +322,8 @@ class TestAccessControlStore:
         )
 
     def test_get_all_pending_sorted_descending(
-        self, store: AccessControlStore
+        self,
+        store: AccessControlStore,
     ):
         store.add_pending("console", "u1")
         time.sleep(0.005)

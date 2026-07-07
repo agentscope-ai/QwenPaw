@@ -12,7 +12,7 @@ Covers:
 
 from __future__ import annotations
 
-# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import  # noqa: E501
 
 import asyncio
 import os
@@ -146,9 +146,6 @@ class TestMessageToParts:
             [TextContent(text="x"), RefusalContent(refusal="no")],
         )
         parts = r.message_to_parts(msg)
-        texts = [
-            p for p in parts if getattr(p, "type", None) == ContentType.TEXT
-        ]
         refusals = [
             p for p in parts if getattr(p, "type", None) == ContentType.REFUSAL
         ]

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import  # noqa: E501
 
 import pytest
 
@@ -98,7 +98,8 @@ class TestChannelMessageConverterProtocol:
 
     def test_protocol_methods_exist(self):
         assert hasattr(
-            ChannelMessageConverter, "build_agent_request_from_native"
+            ChannelMessageConverter,
+            "build_agent_request_from_native",
         )
         assert hasattr(ChannelMessageConverter, "send_response")
 

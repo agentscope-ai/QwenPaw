@@ -8,7 +8,7 @@ elsewhere; here we exercise pure helpers and async lifecycle methods.
 
 from __future__ import annotations
 
-# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import  # noqa: E501
 
 import asyncio
 from pathlib import Path
