@@ -13,6 +13,7 @@ import {
 } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 import { isDesktopTauriRuntime } from "../../../utils/openExternalLink";
+import { parseErrorDetail } from "../../../utils/error";
 import { ACPCard } from "./components/ACPCard";
 import {
   ACPDrawer,
@@ -57,13 +58,48 @@ function formatNodeOption(
     NODE_RUNTIME_LABEL_KEYS[candidate.key] || NODE_RUNTIME_LABEL_KEYS.custom,
   );
   const version = candidate.node_version ? ` (${candidate.node_version})` : "";
-  const detail =
-    candidate.node_path ||
-    t(
-      NODE_RUNTIME_REASON_KEYS[candidate.reason_code] ||
-        "acp.nodeRuntimeReason.unavailable",
-    );
+  const reason = formatNodeReason(candidate.reason_code, t);
+  const detail = candidate.available
+    ? candidate.node_path
+    : [candidate.node_path, reason].filter(Boolean).join(" - ");
   return `${label}${version}${detail ? `  ${detail}` : ""}`;
+}
+
+function formatNodeReason(reasonCode: string, t: TFunction): string {
+  return t(
+    NODE_RUNTIME_REASON_KEYS[reasonCode] ||
+      "acp.nodeRuntimeReason.unavailable",
+  );
+}
+
+function getNodeRuntimeErrorMessage(error: unknown, t: TFunction): string {
+  const detail = parseErrorDetail(error);
+  const reasonCode =
+    typeof detail?.reason_code === "string" ? detail.reason_code : "";
+  const reasonKey = NODE_RUNTIME_REASON_KEYS[reasonCode];
+  return reasonKey ? t(reasonKey) : t("acp.nodeSaveFailed");
+}
+
+function sameNodePath(left: string, right: string): boolean {
+  if (!left || !right) return false;
+  const normalize = (value: string) =>
+    value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return normalize(left) === normalize(right);
+}
+
+function getSelectedNodeValue(
+  status: ACPNodeRuntimeStatus | null,
+): string | undefined {
+  if (!status) return undefined;
+  if (status.node_path) {
+    const configured = status.candidates.find(
+      (candidate) =>
+        sameNodePath(candidate.node_path, status.node_path) ||
+        candidate.key === "custom",
+    );
+    return configured?.node_path || status.node_path;
+  }
+  return status.effective_node_path || undefined;
 }
 
 function ACPPage() {
@@ -160,6 +196,11 @@ function ACPPage() {
     [nodeRuntime, t],
   );
 
+  const selectedNodeValue = useMemo(
+    () => getSelectedNodeValue(nodeRuntime),
+    [nodeRuntime],
+  );
+
   const pickNodePath = useCallback(async () => {
     if (isDesktopTauriRuntime()) {
       const { open } = await import("@tauri-apps/plugin-dialog");
@@ -194,7 +235,7 @@ function ACPPage() {
         message.success(t("acp.nodeSaved"));
       } catch (error) {
         console.error("Failed to update ACP Node runtime:", error);
-        message.error(t("acp.nodeSaveFailed"));
+        message.error(getNodeRuntimeErrorMessage(error, t));
         void fetchNodeRuntime();
       } finally {
         setNodeRuntimeSaving(false);
@@ -407,7 +448,7 @@ function ACPPage() {
         <div className={stylesACP.nodeSettings}>
           <label className={stylesACP.nodeLabel}>{t("acp.nodePath")}</label>
           <Select
-            value={nodeRuntime?.effective_node_path || undefined}
+            value={selectedNodeValue}
             options={nodeOptions}
             loading={nodeRuntimeLoading || nodeRuntimeSaving}
             onChange={(value) => saveNodePath(String(value))}

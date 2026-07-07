@@ -135,11 +135,36 @@ def build_acp_process_env(base_env: dict[str, str]) -> dict[str, str]:
     from ...config import load_config
 
     env = dict(base_env)
-    status = get_node_runtime_status(load_config().acp.node_path)
-    if status.effective_node_path:
-        env = _prepend_path(env, Path(status.effective_node_path).parent)
+    node_path = _effective_node_path_for_process(
+        load_config().acp.node_path,
+        env,
+    )
+    if node_path:
+        env = _prepend_path(env, node_path.parent)
     env.setdefault(NPM_CACHE_ENV, str(WORKING_DIR / "npm-cache"))
     return env
+
+
+def _effective_node_path_for_process(
+    node_path: str,
+    env: dict[str, str],
+) -> Path | None:
+    configured = node_path.strip()
+    if configured:
+        node = _normalize_node_path(configured)
+        if _runtime_files_available(node):
+            return node
+
+    bundled = _bundled_node_path()
+    if _runtime_files_available(bundled):
+        return bundled
+
+    system_node = shutil.which("node", path=env.get(_path_env_key(env)))
+    if system_node:
+        node = _normalize_node_path(system_node)
+        if _runtime_files_available(node):
+            return node
+    return None
 
 
 def _effective_node_path(
@@ -192,6 +217,10 @@ def _npx_path(node: Path) -> Path | None:
             return candidate
     found = shutil.which("npx", path=str(node.parent))
     return Path(found) if found else None
+
+
+def _runtime_files_available(node: Path | None) -> bool:
+    return bool(node and node.is_file() and _npx_path(node))
 
 
 def _prepend_path(env: dict[str, str], path: Path) -> dict[str, str]:

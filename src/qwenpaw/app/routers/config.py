@@ -463,7 +463,13 @@ async def put_acp_node_runtime(
     if node_path:
         candidate = resolve_node_runtime(node_path)
         if not candidate.available:
-            raise HTTPException(status_code=400, detail=candidate.reason)
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "reason_code": candidate.reason_code,
+                    "reason": candidate.reason,
+                },
+            )
 
     config = load_config()
     config.acp.node_path = node_path
