@@ -609,11 +609,17 @@ class PluginLoader:
     async def load_all_plugins(
         self,
         configs: Optional[Dict[str, Dict]] = None,
+        types: Optional[List[str]] = None,
     ) -> Dict[str, PluginRecord]:
         """Discover and load all plugins.
 
         Args:
             configs: Optional dictionary of plugin_id -> config
+            types: Optional list of plugin types to load (e.g.
+                ``["channel"]``).  When ``None``, all types are loaded.
+                Plugins already loaded are always skipped (see
+                :meth:`load_plugin`), so calling this twice — first
+                with ``types`` then without — is safe.
 
         Returns:
             Dictionary of plugin_id -> PluginRecord
@@ -621,6 +627,8 @@ class PluginLoader:
         discovered = self.discover_plugins()
 
         for manifest, plugin_dir in discovered:
+            if types is not None and manifest.plugin_type not in types:
+                continue
             config = configs.get(manifest.id) if configs else None
 
             try:

@@ -46,7 +46,7 @@ def get_tool_config(tool_name: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-class PluginApi:
+class PluginApi:  # pylint: disable=too-many-public-methods
     """Plugin API - Interface for plugin developers.
 
     This class provides the API that plugins use to register their

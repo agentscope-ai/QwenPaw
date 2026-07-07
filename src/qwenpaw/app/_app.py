@@ -487,12 +487,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
-            # Start all configured agents (truly parallel now)
-            await workspace_registry.start_all_configured_agents()
-
-            provider_manager.start_local_model_resume(local_model_manager)
-
-            # ---- Plugin System ----
+            # ---- Plugin System (phase 1: channel plugins) ----
+            # Load channel-type plugins *before* agents start so that
+            # ChannelManager discovers them via get_channel_registry()
+            # on first creation — no reload needed afterwards.
             logger.debug("Initializing plugin system...")
 
             from ..plugins.loader import PluginLoader
@@ -515,6 +513,20 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
 
+            # Phase 1: load channel plugins before agents start
+            await plugin_loader.load_all_plugins(
+                configs=plugin_configs,
+                types=["channel"],
+            )
+            logger.debug("Phase 1: channel plugins loaded")
+
+            # Start all configured agents (truly parallel now)
+            await workspace_registry.start_all_configured_agents()
+
+            provider_manager.start_local_model_resume(local_model_manager)
+
+            # Phase 2: load remaining plugins (channel plugins already
+            # loaded — load_plugin skips them automatically)
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
             )
@@ -605,24 +617,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                         f"from plugin '{hook.plugin_id}': {e}",
                         exc_info=True,
                     )
-
-            # ---- Reload agents if plugin channels were registered ----
-            # Plugins load after agents start, so ChannelManager may
-            # have missed plugin-registered channels. Trigger reload
-            # for all running agents to pick them up.
-            if plugin_loader.registry.get_registered_channels():
-                logger.debug(
-                    "Plugin channels detected, reloading agents to "
-                    "pick up new channels...",
-                )
-                for agent_id in multi_agent_manager.list_loaded_agents():
-                    try:
-                        await multi_agent_manager.reload_agent(agent_id)
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to reload agent '{agent_id}' "
-                            f"for plugin channels: {e}",
-                        )
 
             # ---- Approval Service ----
             try:

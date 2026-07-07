@@ -1428,26 +1428,26 @@ etc.) and can be configured, enabled, and disabled the same way.
 #### 1. Create Plugin Directory
 
 ```bash
-mkdir slack-channel-plugin && cd slack-channel-plugin
+mkdir sample-channel-plugin && cd sample-channel-plugin
 ```
 
 #### 2. Create plugin.json
 
 ```json
 {
-  "id": "slack-channel",
-  "name": "Slack Channel",
+  "id": "sample-channel",
+  "name": "Sample Channel",
   "version": "1.0.0",
   "type": "channel",
-  "description": "Slack workspace integration for QwenPaw",
+  "description": "Sample messaging channel integration for QwenPaw",
   "author": "Your Name",
   "entry": {
     "backend": "plugin.py"
   },
-  "dependencies": ["slack-sdk>=3.0.0"],
+  "dependencies": ["sample-sdk>=1.0.0"],
   "min_version": "1.1.5",
   "meta": {
-    "channel_key": "slack"
+    "channel_key": "sample"
   }
 }
 ```
@@ -1466,7 +1466,7 @@ methods are:
 
 ```python
 # -*- coding: utf-8 -*-
-"""Slack channel implementation."""
+"""Sample channel implementation."""
 
 import logging
 from pathlib import Path
@@ -1481,10 +1481,10 @@ from qwenpaw.app.channels.base import (
 logger = logging.getLogger(__name__)
 
 
-class SlackChannel(BaseChannel):
-    """Slack messaging channel."""
+class SampleChannel(BaseChannel):
+    """Sample messaging channel."""
 
-    channel = "slack"  # unique key, must match config key
+    channel = "sample"  # unique key, must match config key
 
     def __init__(
         self,
@@ -1521,7 +1521,7 @@ class SlackChannel(BaseChannel):
         filter_tool_messages: bool = False,
         filter_thinking: bool = False,
         workspace_dir: Optional[Path] = None,
-    ) -> "SlackChannel":
+    ) -> "SampleChannel":
         """Create from config.
 
         Note: for plugin channels, ``config`` is a
@@ -1541,18 +1541,18 @@ class SlackChannel(BaseChannel):
         )
 
     async def start(self):
-        """Start the Slack event listener."""
-        logger.info("Slack channel starting (token=%s...)", self.bot_token[:8])
-        # Start Slack Socket Mode client here
+        """Start the sample event listener."""
+        logger.info("Sample channel starting (token=%s...)", self.bot_token[:8])
+        # Start your platform's API client here
 
     async def stop(self):
-        """Stop the Slack event listener."""
-        logger.info("Slack channel stopping")
+        """Stop the sample event listener."""
+        logger.info("Sample channel stopping")
 
     async def send(self, to_handle: str, text: str, meta=None):
-        """Send a message to a Slack user or channel."""
-        logger.info("Sending to Slack %s: %s", to_handle, text[:50])
-        # Use slack-sdk to post messages
+        """Send a message to a sample user or channel."""
+        logger.info("Sending to sample %s: %s", to_handle, text[:50])
+        # Use sample-sdk to post messages
 ```
 
 > **Important: `config` parameter type** — For plugin channels, the
@@ -1566,7 +1566,7 @@ class SlackChannel(BaseChannel):
 
 ```python
 # -*- coding: utf-8 -*-
-"""Slack Channel Plugin Entry Point."""
+"""Sample Channel Plugin Entry Point."""
 
 import logging
 from qwenpaw.plugins.api import PluginApi
@@ -1574,32 +1574,32 @@ from qwenpaw.plugins.api import PluginApi
 logger = logging.getLogger(__name__)
 
 
-class SlackChannelPlugin:
-    """Slack Channel Plugin."""
+class SampleChannelPlugin:
+    """Sample Channel Plugin."""
 
     def register(self, api: PluginApi):
-        """Register the Slack channel."""
-        from .channel import SlackChannel
+        """Register the sample channel."""
+        from .channel import SampleChannel
 
         api.register_channel(
-            channel_class=SlackChannel,
-            label="Slack",
-            description="Slack workspace integration",
+            channel_class=SampleChannel,
+            label="Sample",
+            description="Sample messaging channel integration",
             config_fields=[
                 {
                     "name": "bot_token",
                     "label": "Bot Token",
                     "type": "password",
                     "required": True,
-                    "placeholder": "xoxb-...",
-                    "help": "Slack Bot User OAuth Token",
+                    "placeholder": "your-bot-token-here",
+                    "help": "Bot access token",
                 },
                 {
                     "name": "signing_secret",
                     "label": "Signing Secret",
                     "type": "password",
                     "required": True,
-                    "help": "Slack app Signing Secret",
+                    "help": "Signing secret for request verification",
                 },
                 {
                     "name": "default_channel",
@@ -1610,46 +1610,46 @@ class SlackChannelPlugin:
                 },
             ],
         )
-        logger.info("✓ Slack channel registered")
+        logger.info("✓ Sample channel registered")
 
 
-plugin = SlackChannelPlugin()
+plugin = SampleChannelPlugin()
 ```
 
 #### 5. Install and Use
 
 ```bash
-qwenpaw plugin install slack-channel-plugin
+qwenpaw plugin install sample-channel-plugin
 qwenpaw app
 ```
 
-After starting, go to **Control → Channels** in the Console. The Slack
+After starting, go to **Control → Channels** in the Console. The sample
 channel card will appear alongside built-in channels. Click it to fill in
 credentials and enable it.
 
 #### 6. Adding Webhook Endpoints (Optional)
 
-If your channel needs to receive HTTP callbacks (e.g. Slack Events API),
-register a FastAPI router in the same plugin:
+If your channel needs to receive HTTP callbacks (e.g. your platform's
+events API), register a FastAPI router in the same plugin:
 
 ```python
 from fastapi import APIRouter
 
 def register(self, api: PluginApi):
-    from .channel import SlackChannel
+    from .channel import SampleChannel
 
-    api.register_channel(channel_class=SlackChannel, ...)
+    api.register_channel(channel_class=SampleChannel, ...)
 
-    # Mount webhook endpoint at /api/slack/events
+    # Mount webhook endpoint at /api/sample/events
     router = APIRouter()
 
     @router.post("/events")
-    async def slack_events(request):
+    async def sample_events(request):
         body = await request.json()
-        # Handle Slack event verification and messages
+        # Handle event verification and messages
         return {"ok": True}
 
-    api.register_http_router(router, prefix="/slack", tags=["slack"])
+    api.register_http_router(router, prefix="/sample", tags=["sample"])
 ```
 
 **Key points:**
