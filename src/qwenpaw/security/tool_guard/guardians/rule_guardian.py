@@ -637,7 +637,8 @@ class RuleBasedToolGuardian(BaseToolGuardian):
 
                     # Enhanced description for rm commands
                     description = (
-                        f"规则 {rule.id} 匹配了工具 '{tool_name}' 的参数 '{param_name}'"
+                        f"Rule {rule.id} matched parameter "
+                        f"'{param_name}' of tool '{tool_name}'."
                     )
                     remediation = rule.remediation
 
