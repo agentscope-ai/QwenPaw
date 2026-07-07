@@ -6,14 +6,16 @@ source (ToolGuard, driver policy, IM channels, …) feeds into the central
 ``ApprovalService``.  We pin field names, defaults and immutability so a
 downstream refactor cannot silently break the contract.
 """
+
 from __future__ import annotations
+
+# pylint: disable=use-implicit-booleaness-not-comparison,unused-argument
 
 import dataclasses
 
 import pytest
 
 from qwenpaw.app.approvals.models import ApprovalRequestSummary
-
 
 # ---------------------------------------------------------------------------
 # Defaults

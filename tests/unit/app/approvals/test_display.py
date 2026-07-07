@@ -8,7 +8,10 @@ remaining branches of ``approval_display_fields``: non-dict ``display``
 payloads, partial overrides and the ``tool_name`` / ``tool_source``
 fallbacks.
 """
+
 from __future__ import annotations
+
+# pylint: disable=use-implicit-booleaness-not-comparison,unused-argument
 
 from qwenpaw.app.approvals.display import approval_display_fields
 

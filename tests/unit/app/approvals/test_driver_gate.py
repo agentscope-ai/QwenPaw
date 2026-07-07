@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Unit tests for :class:`qwenpaw.app.approvals.driver_gate.QwenPawDriverApprovalGate`.
+"""Unit tests for the driver approval gate.
 
 The gate bridges a Driver policy ``ask`` outcome into the central
 ``ApprovalService`` Future flow.  These tests exercise the allow path, the
 deny path, the missing-session-id guard and the stale-pending eviction
 that fires when a Driver replays the same tool call.
 """
+
 from __future__ import annotations
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,unused-import
 
 import asyncio
-from typing import Any
 
 import pytest
 
@@ -27,7 +27,6 @@ from qwenpaw.drivers.errors import (
 from qwenpaw.drivers.policy_types import PolicyTarget
 from qwenpaw.drivers.policy import DriverInvocationContext
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -86,7 +85,9 @@ def _ctx(
 # ---------------------------------------------------------------------------
 
 
-async def test_request_approval_allow_path_resolves_and_returns(svc: ApprovalService):
+async def test_request_approval_allow_path_resolves_and_returns(
+    svc: ApprovalService,
+):
     """When the user approves, the gate returns normally and the pending
     record is removed from the store."""
     gate = QwenPawDriverApprovalGate()
@@ -167,7 +168,11 @@ async def test_request_approval_stale_pending_cancelled_before_new_created(
         created_at=0.0,
         future=asyncio.get_event_loop().create_future(),
         extra={
-            "tool_call": {"id": "tc-3", "name": "driver:http:Bash", "input": {}},
+            "tool_call": {
+                "id": "tc-3",
+                "name": "driver:http:Bash",
+                "input": {},
+            },
         },
     )
     svc._pending["orphan"] = orphan

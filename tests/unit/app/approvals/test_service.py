@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Unit tests for :class:`qwenpaw.app.approvals.service.ApprovalService`.
+"""Unit tests for ``ApprovalService``.
 
 Covers the full approval lifecycle (create → resolve / cancel / timeout /
 GC) and the cross-session / cross-agent scoping rules that prevent an
@@ -9,9 +9,10 @@ Scope plumbing (EXACT vs SIMILAR) is exercised in
 ``tests/unit/app/test_approval_scope.py`` and intentionally not repeated
 here.
 """
+
 from __future__ import annotations
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,unused-variable
 
 import asyncio
 import time
@@ -32,7 +33,6 @@ from qwenpaw.security.tool_guard.models import (
     GuardThreatCategory,
     ToolGuardResult,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -410,7 +410,7 @@ async def test_cancel_stale_pending_for_tool_call_matches_only_same_id():
     assert cancelled == 1
     remaining = await svc.get_all_pending_by_session("s1")
     assert {p.request_id for p in remaining} == {"p2", "p3"}
-    # The cancelled record was popped, marked superseded, future resolved TIMEOUT.
+    # Cancelled record popped, marked superseded, future resolved TIMEOUT.
     assert svc._pending.get("p1") is None
     assert p1.status == "superseded"
     assert p1.future.done()
