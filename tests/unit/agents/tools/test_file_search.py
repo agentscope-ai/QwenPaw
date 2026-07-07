@@ -734,3 +734,89 @@ def test_walk_and_grep_first_match_exceeds_output_limit(temp_dir):
         assert len(matches) == 0
     finally:
         fs._MAX_OUTPUT_CHARS = original_limit
+
+
+def test_walk_and_grep_show_file_default_unchanged(temp_dir):
+    """Default show_file=True keeps the existing per-line path format."""
+    (temp_dir / "file.txt").write_text("line one\nline two\nline three\n")
+    regex = re.compile(r"two")
+    matches, status = _walk_and_grep(
+        temp_dir / "file.txt",
+        regex,
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches == ["file.txt:2:> line two"]
+
+
+def test_walk_and_grep_show_file_false_single_file(temp_dir):
+    """show_file=False on a single file omits path prefix and headers."""
+    (temp_dir / "file.txt").write_text("line one\nline two\nline three\n")
+    regex = re.compile(r"two")
+    matches, status = _walk_and_grep(
+        temp_dir / "file.txt",
+        regex,
+        0,
+        FakeCancel(),
+        None,
+        show_file=False,
+    )
+    assert status == "ok"
+    assert matches == ["2:> line two"]
+
+
+def test_walk_and_grep_show_file_false_multi_file(temp_dir):
+    """show_file=False groups multi-file results with one header per file."""
+    (temp_dir / "a.txt").write_text("match_a\n")
+    (temp_dir / "b.txt").write_text("match_b\n")
+    regex = re.compile(r"match_")
+    matches, status = _walk_and_grep(
+        temp_dir,
+        regex,
+        0,
+        FakeCancel(),
+        None,
+        show_file=False,
+    )
+    assert status == "ok"
+    assert matches == [
+        "a.txt",
+        "1:> match_a",
+        "---",
+        "b.txt",
+        "1:> match_b",
+    ]
+
+
+def test_walk_and_grep_show_file_false_with_context(temp_dir):
+    """show_file=False with context uses --- within and between file groups."""
+    (temp_dir / "a.txt").write_text(
+        "line zero\nline one\nline two HIT\nline three\nline four\n",
+    )
+    (temp_dir / "b.txt").write_text("aaa\nbbb HIT\nccc\n")
+    regex = re.compile(r"HIT")
+    matches, status = _walk_and_grep(
+        temp_dir,
+        regex,
+        2,
+        FakeCancel(),
+        None,
+        show_file=False,
+    )
+    assert status == "ok"
+    assert matches == [
+        "a.txt",
+        "1:  line zero",
+        "2:  line one",
+        "3:> line two HIT",
+        "4:  line three",
+        "5:  line four",
+        "---",
+        "b.txt",
+        "1:  aaa",
+        "2:> bbb HIT",
+        "3:  ccc",
+        "---",
+    ]

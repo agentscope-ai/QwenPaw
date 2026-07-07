@@ -260,6 +260,7 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
   - `case_sensitive`: Case-sensitive matching (default True)
   - `context_lines`: Context lines before/after match (default 0, max 5)
   - `include_pattern`: Filter by filename, e.g. "\*.py"
+  - `show_file`: Include file path on every output line (default True). When False, multi-file results group by file with the path shown once per file and `---` between file groups
 - `glob_search`: Supports recursive patterns like `**/*.json`
 
 **Command Execution**
