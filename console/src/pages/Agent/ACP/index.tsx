@@ -67,8 +67,7 @@ function formatNodeOption(
 
 function formatNodeReason(reasonCode: string, t: TFunction): string {
   return t(
-    NODE_RUNTIME_REASON_KEYS[reasonCode] ||
-      "acp.nodeRuntimeReason.unavailable",
+    NODE_RUNTIME_REASON_KEYS[reasonCode] || "acp.nodeRuntimeReason.unavailable",
   );
 }
 
