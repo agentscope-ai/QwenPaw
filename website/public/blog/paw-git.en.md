@@ -25,8 +25,8 @@ Your natural instinct is: open a new window. But you hesitate immediately. A new
 
 So you're stuck in an uncomfortable place:
 
-> The current session is no longer clean.  
-> But starting a new one is too "expensive."  
+> The current session is no longer clean.
+> But starting a new one is too "expensive."
 > What you really want isn't a full restart—it's to go back to a point that was still clean.
 
 That's the problem PawGit is built to solve.
@@ -219,8 +219,8 @@ Normal rewind is deliberately narrow. It only restores the current session's ses
 
 It solves a very specific problem:
 
-> I don't want a new window.  
-> I don't want to keep carrying dirty context.  
+> I don't want a new window.
+> I don't want to keep carrying dirty context.
 > I just want this session back at a clean point from before.
 
 That's one of the biggest differences from ordinary Git. Git manages project file history. PawGit manages Agent session state history. They complement each other—they're not the same thing.
@@ -283,7 +283,7 @@ pawgit(action="gc", dry_run=true)
 
 But there's a hard line:
 
-> Agent tools can dry-run rewind, not execute real rewind.  
+> Agent tools can dry-run rewind, not execute real rewind.
 > If the Agent tries a real rollback, PawGit requires a slash command.
 
 That matters because real rewind changes the session state the Agent depends on. If tools could rewrite that context mid-reasoning, you get a recursive risk: it thinks while swapping out the basis for why it's thinking that way.
