@@ -193,6 +193,74 @@ _MSG_TYPE_LABEL: Dict[str, str] = {
 }
 
 
+_MARKDOWN_IMAGE_RE = re.compile(
+    r"!\[(?P<alt>[^\]\n]*)\]\("
+    r"\s*(?P<url><[^>\n]+>|[^)\s]+)"
+    r"(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*\)",
+)
+
+
+def _normalize_markdown_image_url(raw_url: str) -> str:
+    """Return the image destination from a Markdown image link."""
+    url = (raw_url or "").strip()
+    if url.startswith("<") and url.endswith(">"):
+        url = url[1:-1].strip()
+    return url
+
+
+def _is_sendable_image_url(url: str) -> bool:
+    """Only extract image links that Feishu's image sender can resolve."""
+    if url.startswith(("http://", "https://", "file://", "data:")):
+        return True
+    try:
+        return Path(url).expanduser().exists()
+    except (OSError, ValueError):
+        return False
+
+
+def _extract_markdown_image_parts(
+    text: str,
+) -> Tuple[str, List[OutgoingContentPart]]:
+    """Split sendable Markdown image links out of a text body."""
+    if "![" not in text:
+        return text, []
+
+    image_parts: List[OutgoingContentPart] = []
+    chunks: List[str] = []
+    cursor = 0
+
+    def append_text_chunk(chunk: str) -> None:
+        if (
+            chunks
+            and chunk[:1] in (" ", "\t")
+            and chunks[-1].endswith((" ", "\t"))
+        ):
+            chunk = chunk.lstrip(" \t")
+        chunks.append(chunk)
+
+    for match in _MARKDOWN_IMAGE_RE.finditer(text):
+        url = _normalize_markdown_image_url(match.group("url"))
+        if not url or not _is_sendable_image_url(url):
+            continue
+        append_text_chunk(text[cursor : match.start()])
+        image_parts.append(
+            ImageContent(
+                type=ContentType.IMAGE,
+                image_url=url,
+            ),
+        )
+        cursor = match.end()
+
+    if not image_parts:
+        return text, []
+
+    append_text_chunk(text[cursor:])
+    cleaned = "".join(chunks)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned, image_parts
+
+
 class FeishuChannel(BaseChannel):
     """Feishu/Lark channel: WebSocket receive, Open API send.
 
@@ -1207,9 +1275,11 @@ class FeishuChannel(BaseChannel):
             quoted_lines.append(f"[quoted {label}]")
         for hint in error_hints:
             quoted_lines.append(
-                f"[quoted {hint[1:]}"
-                if hint.startswith("[")
-                else f"[quoted {hint}]",
+                (
+                    f"[quoted {hint[1:]}"
+                    if hint.startswith("[")
+                    else f"[quoted {hint}]"
+                ),
             )
         # Prepend all quoted lines before existing text_parts.
         text_parts[:0] = quoted_lines
@@ -1933,7 +2003,13 @@ class FeishuChannel(BaseChannel):
                 p.get("refusal") if isinstance(p, dict) else None
             )
             if t == ContentType.TEXT and text_val:
-                text_parts.append(text_val or "")
+                (
+                    cleaned_text,
+                    markdown_image_parts,
+                ) = _extract_markdown_image_parts(str(text_val))
+                if cleaned_text:
+                    text_parts.append(cleaned_text)
+                media_parts.extend(markdown_image_parts)
             elif t == ContentType.REFUSAL and refusal_val:
                 text_parts.append(refusal_val or "")
             elif t in (
