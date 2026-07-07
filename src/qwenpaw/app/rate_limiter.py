@@ -2,7 +2,7 @@
 """Rate limiting utilities for authentication endpoints."""
 import time
 from collections import defaultdict, deque
-from typing import Dict, Deque, Tuple, Optional
+from typing import Dict, Deque
 
 
 class LoginRateLimiter:
@@ -10,9 +10,9 @@ class LoginRateLimiter:
     to prevent brute-force attacks."""
 
     def __init__(self):
-        # Track login attempts by IP address: {ip: [(timestamp, success), ...]}
+        # Track login attempts
         self.ip_attempts: Dict[str, Deque[tuple]] = defaultdict(
-            lambda: deque(maxlen=100),
+            lambda: deque(maxlen=300),
         )
 
         # Track locked IPs: {ip: unlock_timestamp}
@@ -27,14 +27,15 @@ class LoginRateLimiter:
         # Track locked users: {username: unlock_timestamp}
         self.locked_users: Dict[str, float] = {}
 
-        # Configuration
-        self.max_attempts_per_minute = (
-            10  # Max attempts per minute per IP/user
-        )
-        self.lock_duration = 15 * 60  # Lock duration in seconds (15 minutes)
-        self.max_attempts_before_lock = (
-            5  # Lock after this many failed attempts
-        )
+        # Configuration - Account dimension
+        self.user_max_failed_attempts = 5  # Lock account after 5 failures
+        self.user_lock_duration = 15 * 60  # 15 minutes
+
+        # Configuration - IP dimension
+        self.ip_max_failed_per_minute = 50  # Rule 1: Max failed attempts
+        self.ip_max_total_per_minute = 200  # Rule 2: Max total requests
+        self.ip_max_usernames_per_minute = 30  # Rule 3: Max unique usernames
+        self.ip_lock_duration = 15 * 60  # 15 minutes
 
     def _cleanup_old_attempts(self, attempts_deque: Deque[tuple]) -> None:
         """Remove attempts older than 1 minute."""
@@ -42,39 +43,57 @@ class LoginRateLimiter:
         while attempts_deque and attempts_deque[0][0] < cutoff_time:
             attempts_deque.popleft()
 
-    def is_ip_limited(self, ip_address: str) -> bool:
-        """Check if an IP is currently rate-limited or locked."""
-        # Check if IP is locked
+    def is_ip_locked(self, ip_address: str) -> bool:
+        """Check if an IP is currently locked."""
         if ip_address in self.locked_ips:
             if time.time() < self.locked_ips[ip_address]:
                 return True
             else:
                 # Lock expired, remove from locked list
                 del self.locked_ips[ip_address]
+        return False
 
+    def is_ip_rate_limited(self, ip_address: str) -> bool:
+        """Check if an IP violates any of the three rate limiting rules."""
         # Clean up old attempts
         self._cleanup_old_attempts(self.ip_attempts[ip_address])
 
-        # Count recent attempts
-        recent_attempts = len(self.ip_attempts[ip_address])
-        return recent_attempts >= self.max_attempts_per_minute
+        attempts = list(self.ip_attempts[ip_address])
+        if not attempts:
+            return False
 
-    def is_user_limited(self, username: str) -> bool:
-        """Check if a user is currently rate-limited or locked."""
-        # Check if user is locked
+        # Rule 1: Check failed attempts count
+        failed_count = sum(1 for _, success, _ in attempts if not success)
+        if failed_count >= self.ip_max_failed_per_minute:
+            return True
+
+        # Rule 2: Check total request frequency
+        total_count = len(attempts)
+        if total_count >= self.ip_max_total_per_minute:
+            return True
+
+        # Rule 3: Check unique usernames count
+        unique_usernames = set(username for _, _, username in attempts)
+        if len(unique_usernames) >= self.ip_max_usernames_per_minute:
+            return True
+
+        return False
+
+    def is_ip_limited(self, ip_address: str) -> bool:
+        """Check if an IP is currently rate-limited or locked."""
+        return self.is_ip_locked(ip_address) or self.is_ip_rate_limited(
+            ip_address,
+        )
+
+    def is_user_locked(self, username: str) -> bool:
+        """Check if a user account is locked due to failed login attempts."""
         if username in self.locked_users:
             if time.time() < self.locked_users[username]:
                 return True
             else:
                 # Lock expired, remove from locked list
                 del self.locked_users[username]
-
-        # Clean up old attempts
-        self._cleanup_old_attempts(self.user_attempts[username])
-
-        # Count recent attempts
-        recent_attempts = len(self.user_attempts[username])
-        return recent_attempts >= self.max_attempts_per_minute
+        return False
 
     def record_login_attempt(
         self,
@@ -85,135 +104,50 @@ class LoginRateLimiter:
         """Record a login attempt."""
         timestamp = time.time()
 
-        # Record attempt for IP
-        self.ip_attempts[ip_address].append((timestamp, success))
+        # Record attempt for IP (with username for tracking unique accounts)
+        self.ip_attempts[ip_address].append((timestamp, success, username))
 
         # Record attempt for user
         self.user_attempts[username].append((timestamp, success))
 
-        # If login failed, check if we need to lock the IP or user
-        if not success:
-            # Count failed attempts in last minute for IP
-            self._cleanup_old_attempts(self.ip_attempts[ip_address])
-            recent_failed_attempts_ip = len(
-                [
-                    ts_success
-                    for ts, ts_success in self.ip_attempts[ip_address]
-                    if not ts_success
-                ],
-            )
-
-            # Count failed attempts in last minute for user
+        if success:
+            # On successful login, clear failed attempts for this user
             self._cleanup_old_attempts(self.user_attempts[username])
-            recent_failed_attempts_user = len(
+            self.user_attempts[username] = deque(
                 [
-                    ts_success
-                    for ts, ts_success in self.user_attempts[username]
-                    if not ts_success
+                    (ts, succ)
+                    for ts, succ in self.user_attempts[username]
+                    if succ
                 ],
+                maxlen=100,
+            )
+            # Remove user lock if exists
+            self.locked_users.pop(username, None)
+        else:
+            # On failed login, check if we need to lock the user
+            self._cleanup_old_attempts(self.user_attempts[username])
+            recent_failed_attempts_user = sum(
+                1 for _, succ in self.user_attempts[username] if not succ
             )
 
-            # Lock if too many failed attempts
-            if recent_failed_attempts_ip >= self.max_attempts_before_lock:
-                self.locked_ips[ip_address] = timestamp + self.lock_duration
+            # Lock user account if too many failed attempts
+            if recent_failed_attempts_user >= self.user_max_failed_attempts:
+                self.locked_users[username] = (
+                    timestamp + self.user_lock_duration
+                )
 
-            if recent_failed_attempts_user >= self.max_attempts_before_lock:
-                self.locked_users[username] = timestamp + self.lock_duration
+            # Check if IP should be locked based on rate limiting rules
+            if self.is_ip_rate_limited(ip_address):
+                self.locked_ips[ip_address] = timestamp + self.ip_lock_duration
 
-    def get_remaining_attempts(
-        self,
-        ip_address: str,
-        username: str,
-    ) -> tuple[int, int]:
-        """Get remaining attempts for IP and user."""
-        # Clean up old attempts
-        self._cleanup_old_attempts(self.ip_attempts[ip_address])
+    def clear_user_failed_attempts(self, username: str) -> None:
+        """Clear failed login attempts for a user."""
         self._cleanup_old_attempts(self.user_attempts[username])
-
-        ip_remaining = max(
-            0,
-            self.max_attempts_per_minute - len(self.ip_attempts[ip_address]),
+        self.user_attempts[username] = deque(
+            [(ts, succ) for ts, succ in self.user_attempts[username] if succ],
+            maxlen=100,
         )
-        user_remaining = max(
-            0,
-            self.max_attempts_per_minute - len(self.user_attempts[username]),
-        )
-
-        return ip_remaining, user_remaining
-
-    def get_lock_info(
-        self,
-        ip_address: str,
-        username: str,
-    ) -> Tuple[
-        bool,
-        Optional[int],
-        Optional[int],
-        Optional[int],
-        Optional[int],
-    ]:
-        """
-        Get detailed lock information.
-
-        Returns:
-        - bool: Whether the entity is locked
-        - Optional[int]: Seconds until IP unlock (or None if not locked)
-        - Optional[int]: Failed IP attempts remaining until lock
-        - Optional[int]: Seconds until user unlock (or None if not locked)
-        - Optional[int]: Failed user attempts remaining until lock
-        """
-        # Check IP lock status
-        ip_locked_until = None
-        if ip_address in self.locked_ips:
-            remaining_time = int(self.locked_ips[ip_address] - time.time())
-            if remaining_time > 0:
-                ip_locked_until = remaining_time
-            else:
-                del self.locked_ips[ip_address]  # Clean up expired lock
-
-        # Check user lock status
-        user_locked_until = None
-        if username in self.locked_users:
-            remaining_time = int(self.locked_users[username] - time.time())
-            if remaining_time > 0:
-                user_locked_until = remaining_time
-            else:
-                del self.locked_users[username]  # Clean up expired lock
-
-        # Calculate attempts remaining until lock
-        self._cleanup_old_attempts(self.ip_attempts[ip_address])
-        recent_failed_attempts_ip = len(
-            [
-                ts_success
-                for ts, ts_success in self.ip_attempts[ip_address]
-                if not ts_success
-            ],
-        )
-        ip_attempts_until_lock = max(
-            0,
-            self.max_attempts_before_lock - recent_failed_attempts_ip,
-        )
-
-        self._cleanup_old_attempts(self.user_attempts[username])
-        recent_failed_attempts_user = len(
-            [
-                ts_success
-                for ts, ts_success in self.user_attempts[username]
-                if not ts_success
-            ],
-        )
-        user_attempts_until_lock = max(
-            0,
-            self.max_attempts_before_lock - recent_failed_attempts_user,
-        )
-
-        return (
-            bool(ip_locked_until or user_locked_until),
-            ip_locked_until,
-            ip_attempts_until_lock,
-            user_locked_until,
-            user_attempts_until_lock,
-        )
+        self.locked_users.pop(username, None)
 
 
 # Global rate limiter instance

@@ -2,16 +2,13 @@ import { Button, Tooltip } from "@agentscope-ai/design";
 import {
   CloseOutlined,
   DeleteOutlined,
-  DownloadOutlined,
-  ImportOutlined,
-  PlusOutlined,
   ReloadOutlined,
   SwapOutlined,
-  UploadOutlined,
   EyeOutlined,
   EyeInvisibleOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
+import { AddSkillDropdown } from "./AddSkillDropdown";
 import styles from "../index.module.less";
 
 interface HeaderActionsProps {
@@ -33,6 +30,7 @@ interface HeaderActionsProps {
   onUploadClick: () => void;
   onImportHub: () => void;
   onCreate: () => void;
+  onBrowseMarket: () => void;
   onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
@@ -55,6 +53,7 @@ export function HeaderActions({
   onUploadClick,
   onImportHub,
   onCreate,
+  onBrowseMarket,
   onFileChange,
 }: HeaderActionsProps) {
   const { t } = useTranslation();
@@ -132,16 +131,6 @@ export function HeaderActions({
                 disabled={loading}
               />
             </Tooltip>
-            <Tooltip title={t("skills.downloadFromPoolHint")}>
-              <Button
-                type="default"
-                className={styles.primaryTransferButton}
-                onClick={onOpenDownloadPool}
-                icon={<DownloadOutlined />}
-              >
-                {t("skills.downloadFromPool")}
-              </Button>
-            </Tooltip>
             <Tooltip title={t("skills.uploadToPoolHint")}>
               <Button
                 type="default"
@@ -154,41 +143,17 @@ export function HeaderActions({
             </Tooltip>
           </div>
           <div className={styles.headerActionsRight}>
-            <Tooltip title={t("skills.uploadZipHint")}>
-              <Button
-                type="default"
-                className={styles.creationActionButton}
-                onClick={onUploadClick}
-                icon={<UploadOutlined />}
-                loading={uploading}
-                disabled={uploading}
-              >
-                {t("skills.uploadZip")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skills.importHubHint")}>
-              <Button
-                type="default"
-                className={styles.creationActionButton}
-                onClick={onImportHub}
-                icon={<ImportOutlined />}
-              >
-                {t("skills.importHub")}
-              </Button>
-            </Tooltip>
             <Button type="primary" onClick={onToggleBatchMode}>
               {t("skills.batchOperation")}
             </Button>
-            <Tooltip title={t("skills.createSkillHint")}>
-              <Button
-                type="primary"
-                className={styles.primaryActionButton}
-                onClick={onCreate}
-                icon={<PlusOutlined />}
-              >
-                {t("skills.createSkill")}
-              </Button>
-            </Tooltip>
+            <AddSkillDropdown
+              onCreate={onCreate}
+              onFromPool={onOpenDownloadPool}
+              onUploadZip={onUploadClick}
+              onFromUrl={onImportHub}
+              onBrowseMarket={onBrowseMarket}
+              uploading={uploading}
+            />
           </div>
         </>
       )}

@@ -16,22 +16,116 @@ subcommands stay fast.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import shlex
+import subprocess
 import sys
 
 import click
 
+from ...constant import WORKING_DIR
+
 
 def _resolve_project_dir(project: str | None) -> str | None:
     """Return an absolute project directory path for a TUI code session."""
-    if not project:
-        return None
-    project_path = Path(project).expanduser().resolve()
+    project_path = Path(project).expanduser() if project else Path.cwd()
+    project_path = project_path.resolve()
     if not project_path.is_dir():
-        raise click.ClickException(
-            f"Project path is not a directory: {project}",
-        )
+        label = project or str(project_path)
+        raise click.ClickException(f"Project path is not a directory: {label}")
     return str(project_path)
+
+
+def _resolve_workspace_dir(agent: str | None) -> str:
+    """Return the workspace directory shown in the TUI welcome message."""
+    fallback_agent = agent or "default"
+    try:
+        config_path = WORKING_DIR / "config.json"
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        agents = data.get("agents") if isinstance(data, dict) else None
+        if isinstance(agents, dict):
+            agent_id = agent or agents.get("active_agent") or "default"
+            fallback_agent = str(agent_id)
+            profiles = agents.get("profiles")
+            if isinstance(profiles, dict):
+                profile = profiles.get(agent_id)
+                if profile is None and agent is None:
+                    profile = profiles.get("default")
+                if isinstance(profile, dict):
+                    workspace_dir = profile.get("workspace_dir")
+                    if isinstance(workspace_dir, str) and workspace_dir:
+                        return str(
+                            Path(workspace_dir).expanduser().resolve(),
+                        )
+    except (OSError, ValueError, TypeError):
+        pass
+    return str((WORKING_DIR / "workspaces" / fallback_agent).resolve())
+
+
+def _quote_windows_arg(arg: str, *, force: bool = False) -> str:
+    """Render one Windows shell argument.
+
+    ``subprocess.list2cmdline`` only adds quotes when Windows argv parsing
+    requires them. For a pasteable shell command, project paths also need
+    quotes around characters like ``&`` that cmd.exe treats as separators.
+    """
+    rendered = subprocess.list2cmdline([arg])
+    if not force or rendered.startswith('"'):
+        return rendered
+
+    escaped: list[str] = []
+    backslashes = 0
+    for char in arg:
+        if char == "\\":
+            backslashes += 1
+            continue
+        if char == '"':
+            escaped.append("\\" * (backslashes * 2 + 1))
+            escaped.append('"')
+        else:
+            escaped.append("\\" * backslashes)
+            escaped.append(char)
+        backslashes = 0
+    escaped.append("\\" * (backslashes * 2))
+    return f'"{"".join(escaped)}"'
+
+
+def _resume_command(
+    session_id: str,
+    *,
+    agent: str | None,
+    project_dir: str | None,
+) -> str:
+    parts = ["qwenpaw", "tui"]
+    if agent:
+        parts.extend(["--agent", agent])
+    parts.extend(["--resume", session_id])
+    if sys.platform == "win32":
+        rendered = [_quote_windows_arg(part) for part in parts]
+        if project_dir:
+            rendered.append(_quote_windows_arg(project_dir, force=True))
+        return " ".join(rendered)
+    if project_dir:
+        parts.append(project_dir)
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def _print_resume_hint(
+    session_id: str | None,
+    *,
+    agent: str | None,
+    project_dir: str | None,
+) -> None:
+    if not session_id:
+        click.echo("Bye!")
+        return
+    command = _resume_command(
+        session_id,
+        agent=agent,
+        project_dir=project_dir,
+    )
+    click.echo(f"Bye! To resume this session, run: {command}")
 
 
 def _build_transport(
@@ -86,12 +180,20 @@ def run_tui(
 
     from .app import PawApp
 
+    project_dir = getattr(transport, "_project_dir", None)
     PawApp(
         transport,
         agent=agent or "default",
         target=description,
         resume_session_id=resume,
+        workspace_dir=_resolve_workspace_dir(agent),
+        project_dir=project_dir,
     ).run()
+    _print_resume_hint(
+        transport.session_id,
+        agent=agent,
+        project_dir=project_dir,
+    )
 
 
 @click.command(

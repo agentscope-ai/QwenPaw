@@ -1538,14 +1538,14 @@ To add a new platform (e.g. WeCom, Slack), implement a subclass of **BaseChannel
 
 ### Data flow and queue
 
-- **ChannelManager** keeps one queue per channel that uses it. When a message arrives, the channel calls **`self._enqueue(payload)`** (injected by the manager at startup); the manager’s consumer loop then calls **`channel.consume_one(payload)`**.
-- The base class implements a **default `consume_one`**: turn payload into `AgentRequest`, run `_process`, call `send_message_content` for each completed message, and `_on_consume_error` on failure. Most channels only need to implement “incoming → request” and “response → outgoing”; they do not override `consume_one`.
+- **ChannelManager** keeps one queue per channel that uses it. When a message arrives, the channel calls **`self._enqueue(payload)`** (injected by the manager at startup); the manager's consumer loop then calls **`channel.consume_one(payload)`**.
+- The base class implements a **default `consume_one`**: turn payload into `AgentRequest`, run `_process`, call `send_message_content` for each completed message, and `_on_consume_error` on failure. Most channels only need to implement "incoming → request" and "response → outgoing"; they do not override `consume_one`.
 
 ### Subclass must implement
 
 | Method                                                  | Purpose                                                                                                                                                            |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `build_agent_request_from_native(self, native_payload)` | Convert the channel’s native message to `AgentRequest` (using runtime `Message` / `TextContent` / `ImageContent` etc.) and set `request.channel_meta` for sending. |
+| `build_agent_request_from_native(self, native_payload)` | Convert the channel's native message to `AgentRequest` (using runtime `Message` / `TextContent` / `ImageContent` etc.) and set `request.channel_meta` for sending. |
 | `from_env` / `from_config`                              | Build instance from environment or config.                                                                                                                         |
 | `async start()` / `async stop()`                        | Lifecycle (connect, subscribe, cleanup).                                                                                                                           |
 | `async send(self, to_handle, text, meta=None)`          | Send one text (and optional attachments).                                                                                                                          |
@@ -1663,97 +1663,39 @@ def build_agent_request_from_native(self, native_payload):
     return request
 ```
 
-### Custom channel directory and CLI
+### Adding custom channels via plugins
 
-- **Directory**: Channels under the working dir at `custom_channels/` (default `~/.qwenpaw/custom_channels/`) are loaded at runtime. The manager scans `.py` files and packages (subdirs with `__init__.py`), loads `BaseChannel` subclasses, and registers them by the class’s `channel` attribute.
-- **Install**: `qwenpaw channels install <key>` creates a template `<key>.py` in `custom_channels/` for you to edit, or use `--path <local path>` / `--url <URL>` to copy a channel module from disk or the web. `qwenpaw channels add <key>` does the same and also adds a default entry to config (with optional `--path`/`--url`).
-- **Remove**: `qwenpaw channels remove <key>` deletes that channel’s module from `custom_channels/` (custom channels only; built-ins cannot be removed). By default it also removes the key from `channels` in `config.json`; use `--keep-config` to leave config unchanged.
-- **Config**: `ChannelConfig` uses `extra="allow"`, so any channel key can appear under `channels` in `config.json`. Use `qwenpaw channels config` for interactive setup or edit config by hand.
+Custom channels are now registered through the **plugin system**. See the
+[Plugin System — Example 8: Register a Custom Channel](./plugins) for a
+complete tutorial.
 
-### HTTP route registration
+To add a custom channel:
 
-For channels that require webhook callbacks (e.g., WeChat, Slack, LINE), you can register custom HTTP routes by exporting a `register_app_routes` callable in your module — no changes to QwenPaw's core source required.
+1. Create a plugin with `type: "channel"` in `plugin.json`
+2. Implement a `BaseChannel` subclass with a unique `channel` class attribute
+3. Call `api.register_channel(...)` in your plugin's `register()` method
+4. Install with `qwenpaw plugin install <path>`
 
-At startup, QwenPaw scans modules in `custom_channels/` for a `register_app_routes` export. If found, it is called with the FastAPI `app` instance, allowing the channel to register any routes it needs.
+Plugin channels appear in the Console UI alongside built-in channels, with
+full support for enable/disable, config fields, and access control.
 
-**Route prefix behavior**:
+For channels that need webhook HTTP endpoints, use `api.register_http_router()`
+in the same plugin to mount routes under `/api`.
 
-| Prefix      | Behavior                                   |
-| ----------- | ------------------------------------------ |
-| `/api/`     | Silent registration                        |
-| Other paths | Prints a warning at startup (non-blocking) |
-
-**Interface — `register_app_routes(app)`**
-
-- **Parameter**: `app` — FastAPI application instance
-- **Returns**: None
-- **Scope**: Register routes, middleware, or startup/shutdown events
-- **Error isolation**: A single channel's registration failure does not affect other channels
-
-**Minimal example — Echo channel**:
-
-```
-<workspace>/
-└── custom_channels/
-    └── my_echo/
-        └── __init__.py
-```
-
-```python
-# custom_channels/my_echo/__init__.py
-from qwenpaw.app.channels.base import BaseChannel
-
-class MyEchoChannel(BaseChannel):
-    """A minimal channel that echoes messages back."""
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    async def _listen(self):
-        pass  # Receive messages via HTTP callback
-
-    async def _send(self, target, content, **kwargs):
-        self.logger.info(f"Would send to {target}: {content}")
-
-
-def register_app_routes(app):
-    """Register HTTP routes for this channel."""
-
-    @app.post("/api/my-echo/callback")
-    async def echo_callback(request):
-        """Webhook entry point."""
-        body = await request.json()
-
-        from qwenpaw.app.channels.base import TextContent
-        channel = MyEchoChannel()
-        channel.enqueue_user_message(
-            user_id=body.get("user_id", "anonymous"),
-            session_id=body.get("session_id", "default"),
-            content=[TextContent(type="text", text=body.get("text", ""))],
-        )
-
-        return {"status": "ok"}
-```
-
-```json
-{
-  "channels": {
-    "my_echo": {
-      "enabled": true
-    }
-  }
-}
-```
-
-Test after startup:
-
-```bash
-curl -X POST http://localhost:8088/api/my-echo/callback \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": "test", "session_id": "test", "text": "Hello!"}'
-```
-
-**Real-world example**: WeChat ClawBot integration ([PR #2140](https://github.com/agentscope-ai/QwenPaw/pull/2140), [Issue #2043](https://github.com/agentscope-ai/QwenPaw/issues/2043)) uses this mechanism to register the `/api/wechat/callback` route with Tencent's official SDK for message delivery.
+> **Migration from `custom_channels/`**: The legacy `custom_channels/`
+> directory and `qwenpaw channels install/add/remove` CLI commands have been
+> removed. If you have existing custom channels under `custom_channels/`,
+> migrate them to the plugin system:
+>
+> 1. Create a plugin directory with `plugin.json` (set `"type": "channel"`)
+> 2. Move your `BaseChannel` subclass into the plugin directory
+> 3. Create a `plugin.py` that calls `api.register_channel(...)` with your
+>    channel class and `config_fields`
+> 4. If your channel used `register_app_routes(app)`, replace it with
+>    `api.register_http_router(router, prefix="/your-channel")` using a
+>    FastAPI `APIRouter`
+> 5. Install the plugin: `qwenpaw plugin install <path>`
+> 6. Remove the old module from `custom_channels/`
 
 ---
 

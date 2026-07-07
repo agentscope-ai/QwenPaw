@@ -25,7 +25,6 @@ import {
   SparkAgentLine,
   SparkBarChartLine,
   SparkBrowseLine,
-  SparkCardLine,
   SparkDataLine,
   SparkDateLine,
   SparkDebugLine,
@@ -216,15 +215,6 @@ export const BUILTIN_MENU: MenuItem[] = [
     icon: SparkOtherLine,
     route: "core.skill-pool",
     order: 30,
-  },
-  {
-    id: "core.market",
-    location: "primary.settings",
-    parentId: "core.settings-group",
-    label: navLabel("nav.market", "Skill Market"),
-    icon: SparkCardLine,
-    route: "core.market",
-    order: 40,
   },
   {
     id: "core.environments",

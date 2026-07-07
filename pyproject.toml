@@ -22,7 +22,7 @@ dependencies = [
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    "reme-ai==0.4.0.5",
+    "reme-ai==0.4.0.7",
     "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
     "python-socks>=2.5.3",
@@ -48,7 +48,7 @@ dependencies = [
     "modelscope>=1.35.0",
     "huggingface_hub>=0.20.0",
     "pillow>=10.0.0",
-    "agent-client-protocol>=0.9.0",
+    "agent-client-protocol>=0.9.0,<0.11.0",
     # Streaming-markdown terminal UI for the bundled `qwenpaw` TUI
     # (v4+ adds the streaming Markdown widget). 8.2.8 fixes parsing of
     # multi-codepoint Kitty "associated text" so input methods (Chinese,
@@ -88,6 +88,7 @@ include-package-data = true
     "security/skill_scanner/rules/**",
     "security/skill_scanner/data/**",
     "docs/*.md",
+    "app/channels/yuanbao/proto/**",
 ]
 
 [build-system]
@@ -117,9 +118,6 @@ dev = [
 ]
 local = [
     "huggingface_hub>=0.20.0",
-]
-adbpg = [
-    "psycopg2-binary==2.9.10",
 ]
 whisper = [
     "openai-whisper>=20231117",

@@ -13,6 +13,7 @@ import {
 } from "antd";
 import { Download, ExternalLink, Package, RefreshCw } from "lucide-react";
 import type { MarketPluginEntry } from "@/api/modules/pluginMarket";
+import { openExternalLink } from "@/utils/openExternalLink";
 import { useMarketPlugins } from "../hooks/useMarketPlugins";
 import styles from "./OfficialPluginList.module.less";
 import marketStyles from "./MarketPluginList.module.less";
@@ -225,7 +226,7 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
                     type="default"
                     size="small"
                     icon={<ExternalLink size={14} />}
-                    onClick={() => window.open(entry.details_url!, "_blank")}
+                    onClick={() => openExternalLink(entry.details_url!)}
                   >
                     {t("pluginManager.marketDetails")}
                   </Button>

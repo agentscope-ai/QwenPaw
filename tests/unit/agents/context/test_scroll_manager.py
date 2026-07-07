@@ -20,6 +20,8 @@ from agentscope.message import (
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
 from qwenpaw.agents.context.types import LogEntry
+from qwenpaw.agents.memory.base_memory_manager import BaseMemoryManager
+from qwenpaw.constant import AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY
 
 # -- fixtures ---------------------------------------------------------------
 
@@ -98,6 +100,22 @@ class FakeAgent:
         return (self.state.context[:-1], self.state.context[-1:])
 
 
+class AutoMemoryMsgBuilder(BaseMemoryManager):
+    """Concrete memory manager used only to build synthetic memory messages."""
+
+    async def start(self) -> None:
+        pass
+
+    async def close(self) -> bool:
+        return True
+
+    def get_memory_prompt(self) -> str:
+        return ""
+
+    def list_memory_tools(self) -> list:
+        return []
+
+
 @pytest.fixture
 def store(tmp_path: Path) -> HistoryStore:
     h = HistoryStore(tmp_path / "history.db")
@@ -109,6 +127,17 @@ def make_manager(store: HistoryStore, **kw) -> ScrollContextManager:
     kw.setdefault("session_id", "s1")
     kw.setdefault("agent_id", "ag1")
     return ScrollContextManager(history=store, **kw)
+
+
+def auto_memory_search_msg(*, query: str, max_results: int, text: str) -> Msg:
+    return AutoMemoryMsgBuilder(
+        working_dir="",
+        agent_id="ag1",
+    )._build_auto_memory_search_msg(
+        query=query,
+        max_results=max_results,
+        text=text,
+    )
 
 
 # -- write-through dedup -----------------------------------------------------
@@ -143,6 +172,52 @@ def test_tool_result_persisted_under_tool_call_id(store: HistoryStore):
     ).fetchall()
     assert len(rows) == 1
     assert rows[0]["content"] == "big output"
+
+
+def test_auto_memory_search_message_not_persisted(store: HistoryStore):
+    """Auto-search context is live-only and must not pollute history.db."""
+    mgr = make_manager(store)
+    auto_msg = auto_memory_search_msg(
+        query="deploy plan",
+        max_results=2,
+        text="remembered deployment notes",
+    )
+    agent = FakeAgent([user("what was the deploy plan?"), auto_msg])
+
+    mgr._persist_new(agent)
+
+    rows = store._conn.execute(
+        "SELECT kind, name, content FROM conversation_history ORDER BY seq",
+    ).fetchall()
+    assert [(r["kind"], r["name"], r["content"]) for r in rows] == [
+        ("context_msg", None, "what was the deploy plan?"),
+    ]
+
+
+def test_auto_memory_search_blocks_stripped_from_mixed_message(
+    store: HistoryStore,
+):
+    """If a real Msg also carries auto-search blocks, keep only real blocks."""
+    mgr = make_manager(store)
+    real_block = TextBlock(type="text", text="real reply")
+    synthetic_block = TextBlock(type="text", text="synthetic memory context")
+    msg = Msg(
+        name="a",
+        role="assistant",
+        content=[real_block, synthetic_block],
+        metadata={
+            AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [synthetic_block.id],
+        },
+    )
+
+    mgr._persist_new(FakeAgent([msg]))
+
+    rows = store._conn.execute(
+        "SELECT kind, content, metadata FROM conversation_history",
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "model_turn"
+    assert rows[0]["content"] == "real reply"
 
 
 # -- resume: a restored window is not re-appended ---------------------------
@@ -295,6 +370,21 @@ def test_on_save_swallows_write_failure(store: HistoryStore, monkeypatch):
     monkeypatch.setattr(store, "append", boom)
     mgr.on_save(agent, None)  # must not raise
     assert store.degraded is True
+
+
+def test_on_save_after_close_is_quiet_noop(store: HistoryStore):
+    """Teardown race: an on_save after close is skipped quietly, not reported
+    as degraded durability."""
+    mgr = make_manager(store)
+    agent = FakeAgent([user("hi"), assistant("there", headline="h")])
+    store.close()
+    assert store.closed is True
+
+    mgr.on_save(agent, None)  # must not raise "closed database"
+    # Skipped, not failed: durability stays healthy and nothing was persisted.
+    assert store.degraded is False
+    assert store.write_failures == 0
+    assert mgr._persisted_ids == set()
 
 
 # -- optional dialog offload (offload_dialog opt-in) ------------------------

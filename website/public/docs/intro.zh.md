@@ -24,6 +24,8 @@ QwenPaw 由 [AgentScope 团队](https://github.com/agentscope-ai) 基于
 [AgentScope Runtime](https://github.com/agentscope-ai/agentscope-runtime) 与
 [ReMe](https://github.com/agentscope-ai/ReMe) 构建。
 
+想了解 QwenPaw 的整体设计——Agent OS 架构及其 AgentScope 基础，参见 [架构设计](./architecture)。
+
 ---
 
 ## 你怎么用 QwenPaw？

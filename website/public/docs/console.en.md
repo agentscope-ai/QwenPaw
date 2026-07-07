@@ -269,36 +269,27 @@ Click a skill card for the full description.
 **Edit a skill:**
 Click a skill card → turn off content preview → edit → **Save**.
 
-**Create a custom skill:**
+**Add a skill:**
 
-1. Click **Create Skill**.
-2. Enter a skill name (e.g. `weather_query`) and skill content in Markdown (must
-   include `name` and `description`).
-3. Click **Create**; the new skill appears in the list.
+The **Add Skill** dropdown at the top right is the unified entry for every way
+of adding a skill:
 
-**Load from skill pool:**
-
-1. Click **Load from skill pool**.
-2. In the dialog, pick skills to add to the current agent.
-3. Click **Confirm**.
+- **Create Skill**: enter a skill name (e.g. `weather_query`) and skill content
+  in Markdown (must include `name` and `description`), then click **Create**.
+- **Load from Skill Pool**: pick skills to add to the current agent in the
+  dialog, then click **Confirm**.
+- **Upload via Zip**: choose a local skill **zip** file to import.
+- **Upload via URL**: paste a skill URL (the dialog lists supported sources
+  with example URLs — click one to fill it in), then click **Confirm**.
+- **Browse Market**: the page switches to the embedded Skill Market; search or
+  filter by category, then click **Save** on a card to install it into the
+  current agent. Click **Back** (or use browser back) to return to the list.
 
 **Sync to skill pool:**
 
-1. Click **Sync to skill pool**.
+1. Click **Sync to Skill Pool**.
 2. Select skills to push to the pool.
 3. Click **Confirm**.
-
-**Upload a skill:**
-
-1. Click **Upload via zip**.
-2. Choose a skill **zip** file.
-3. Click **Open**; on success the skill appears in the list.
-
-**Import from Skills Hub:**
-
-1. Click **Import from Skills Hub** at the top.
-2. Enter the skill URL, then import.
-3. Wait for completion; the skill appears enabled in the list.
 
 **Delete a skill:**
 Click **Delete** on the card and confirm. If the skill is enabled, it is
@@ -400,9 +391,9 @@ On this page you can:
 
 - Broadcast skills to specific agents
 - Update built-in skills to the latest version
-- Upload skills via zip
-- Import skills from Skills Hub
-- Create skills
+- Add skills through the **Add Skill** entry: Create Skill, Upload via
+  Zip, Upload via URL, or Browse Market (clicking **Save** in the market saves
+  into the pool)
 - Edit skills
 - Delete skills
 
@@ -508,7 +499,7 @@ model (same settings apply to voice input in chat and channel voice messages).
 | Cron Jobs             | Control → Cron Jobs            | Create/edit/delete, run now                    |
 | Heartbeat             | Control → Heartbeat            | Interval, delivery target, active hours        |
 | Files                 | Workspace → Files              | Persona files, memory, upload/download         |
-| Skills                | Workspace → Skills             | Enable/disable, Hub/upload/custom              |
+| Skills                | Workspace → Skills             | Enable/disable, create/zip/URL/market add      |
 | Tools                 | Workspace → Tools              | Toggle built-in tools by name                  |
 | MCP                   | Workspace → MCP                | MCP clients                                    |
 | Configuration         | Workspace → Configuration      | Iterations, context, retries, compaction, etc. |

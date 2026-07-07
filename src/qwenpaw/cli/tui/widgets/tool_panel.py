@@ -3,17 +3,20 @@
 
 The panel is expanded while the tool is pending/running so the user can watch
 it, then auto-collapses to a one-line summary once it completes or fails. The
-header (status, title, params summary) stays visible; the body (params +
-output) can be re-opened on demand.
+header (status, title, params summary) stays visible; the body — labelled
+``input`` (params) and ``output`` sections — can be re-opened on demand and
+scrolls in place when the content is taller than the panel's height cap.
 """
 
 from __future__ import annotations
 
 from rich.text import Text
+from textual.containers import VerticalScroll
 from textual.content import Content
 from textual.widgets import Collapsible, Static
 
 from ._anim import TICK, pulse, spinner
+from ._format import summarize_params
 
 _STATUS_GLYPH = {
     "pending": ("◌", "#8a8a8a"),
@@ -24,9 +27,31 @@ _STATUS_GLYPH = {
 
 _TERMINAL = ("completed", "failed")
 
+# Cap per body section (input / output). Generous enough to inspect real
+# params and results, small enough that a huge payload (a base64 image, a
+# full build log) can't stall the renderer.
+_MAX_SECTION_CHARS = 10_000
+
+
+def _clip(text: str) -> str:
+    if len(text) <= _MAX_SECTION_CHARS:
+        return text
+    hidden = len(text) - _MAX_SECTION_CHARS
+    return f"{text[:_MAX_SECTION_CHARS]}\n… (+{hidden:,} more chars)"
+
 
 class ToolPanel(Collapsible):
     """One tool call. Updated in place as ACP sends progress events."""
+
+    # The body scrolls in place beyond the height cap, so a long tool output
+    # stays inspectable without swallowing the whole transcript.
+    DEFAULT_CSS = """
+    ToolPanel .tool-body {
+        height: auto;
+        max-height: 16;
+        scrollbar-size-vertical: 1;
+    }
+    """
 
     def __init__(
         self,
@@ -45,7 +70,7 @@ class ToolPanel(Collapsible):
         self._timer = None
         self._body = Static(self._render_body())
         super().__init__(
-            self._body,
+            VerticalScroll(self._body, classes="tool-body"),
             title=self._render_title(),
             collapsed=False,
             classes="tool",
@@ -72,6 +97,7 @@ class ToolPanel(Collapsible):
         status: str | None = None,
         output: str | None = None,
         params: str | None = None,
+        auto_collapse: bool = True,
     ) -> None:
         prev = self._status
         if title:
@@ -87,9 +113,12 @@ class ToolPanel(Collapsible):
         self.title = self._render_title()
         self._body.update(self._render_body())
         # Auto-collapse once on the transition to a terminal state; leave the
-        # user free to re-open it afterwards, and stop the spinner.
+        # user free to re-open it afterwards, and stop the spinner. The app
+        # passes ``auto_collapse=False`` in inspection mode, where finished
+        # tools should stay open with their params + output on show.
         if self._status in _TERMINAL and prev not in _TERMINAL:
-            self.collapsed = True
+            if auto_collapse:
+                self.collapsed = True
             if self._timer is not None:
                 self._timer.stop()
                 self._timer = None
@@ -113,10 +142,7 @@ class ToolPanel(Collapsible):
 
     def _summary(self) -> str:
         """A compact one-line gist of the params (e.g. the actual command)."""
-        if not self._params:
-            return ""
-        first = self._params.strip().splitlines()[0].strip()
-        return first[:72] + " …" if len(first) > 72 else first
+        return summarize_params(self._params)
 
     def _render_title(self) -> Content:
         # The glyph + colour already encode status, so we drop the redundant
@@ -138,22 +164,19 @@ class ToolPanel(Collapsible):
         return Content.assemble(*parts)
 
     def _render_body(self) -> Text:
-        segments: list[Text] = []
-        if self._params:
-            params = self._params.strip()
-            if len(params) > 600:
-                params = params[:600] + " …"
-            segments.append(Text(params, style="#7fb7d9"))
-        if self._output:
-            snippet = self._output.strip()
-            if len(snippet) > 600:
-                snippet = snippet[:600] + " …"
-            segments.append(Text(snippet, style="#b0b0b0"))
-        if not segments:
+        params = (self._params or "").strip()
+        output = (self._output or "").strip()
+        if not params and not output:
             return Text("(no output)", style="#5a5a5a")
         out = Text()
-        for i, seg in enumerate(segments):
-            if i:
+        if params:
+            out.append("input", style="bold italic #8a8a8a")
+            out.append("\n")
+            out.append(_clip(params), style="#7fb7d9")
+        if output:
+            if params:
                 out.append("\n")
-            out.append_text(seg)
+            out.append("output", style="bold italic #8a8a8a")
+            out.append("\n")
+            out.append(_clip(output), style="#b0b0b0")
         return out

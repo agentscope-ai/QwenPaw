@@ -394,18 +394,28 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **Embedding 配置（`reme_light_memory_config.embedding_model_config` 对象）：**
 
-| 字段               | 类型   | 默认值     | 说明                                                |
-| ------------------ | ------ | ---------- | --------------------------------------------------- |
-| `backend`          | string | `"openai"` | Embedding 后端类型（如 `"openai"`）                 |
-| `api_key`          | string | `""`       | Embedding 提供商的 API Key                          |
-| `base_url`         | string | `""`       | 自定义 API 地址（可选）                             |
-| `model_name`       | string | `""`       | Embedding 模型名称（如 `"text-embedding-3-small"`） |
-| `dimensions`       | int    | `1024`     | Embedding 向量维度                                  |
-| `enable_cache`     | bool   | `true`     | 是否启用 Embedding 缓存                             |
-| `use_dimensions`   | bool   | `false`    | 是否使用自定义维度                                  |
-| `max_cache_size`   | int    | `3000`     | 最大缓存大小                                        |
-| `max_input_length` | int    | `8192`     | Embedding 的最大输入长度                            |
-| `max_batch_size`   | int    | `10`       | 批处理的最大批量大小                                |
+| 字段               | 类型   | 默认值     | 说明                                                                                  |
+| ------------------ | ------ | ---------- | ------------------------------------------------------------------------------------- |
+| `backend`          | string | `"openai"` | Embedding 后端类型：`openai`、`dashscope`、`dashscope_multimodal`、`gemini`、`ollama` |
+| `api_key`          | string | `""`       | Embedding 提供商的 API Key。OpenAI 兼容和 Gemini 后端必填                             |
+| `base_url`         | string | `""`       | OpenAI 兼容后端的可选自定义 API 地址；Ollama 后端会作为 host 传递                     |
+| `model_name`       | string | `""`       | Embedding 模型名称（如 `"text-embedding-3-small"`）                                   |
+| `dimensions`       | int    | `1024`     | Embedding 向量维度                                                                    |
+| `enable_cache`     | bool   | `true`     | 是否启用 Embedding 缓存                                                               |
+| `use_dimensions`   | bool   | `false`    | 是否使用自定义维度                                                                    |
+| `max_cache_size`   | int    | `10000`    | 最大缓存大小                                                                          |
+| `max_input_length` | int    | `8192`     | Embedding 的最大输入长度                                                              |
+| `max_batch_size`   | int    | `10`       | 批处理的最大批量大小                                                                  |
+
+向量检索只有在当前后端具备最低可运行配置时才会启用；这些条件与 AgentScope credential 要求保持一致：
+
+| 后端                                            | 启用条件                         | Credential 映射                |
+| ----------------------------------------------- | -------------------------------- | ------------------------------ |
+| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` 和 `api_key` 均非空 | `api_key`；可选 `base_url`     |
+| `gemini`                                        | `model_name` 和 `api_key` 均非空 | `api_key`                      |
+| `ollama`                                        | `model_name` 非空                | 可选 `host`（来自 `base_url`） |
+
+不满足启用条件时，ReMe 仍会保留关键词索引和 wikilink 图谱索引，但不会启用 embedding 向量索引。
 
 这些配置也可以在控制台的 **智能体 → 运行配置** 页面中修改。保存后会对新的 LLM 请求生效，不需要重启服务。
 

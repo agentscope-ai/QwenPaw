@@ -28,6 +28,9 @@ class PluginType(str, Enum):
     COMMAND = "command"
     """Registers one or more /slash control commands."""
 
+    CHANNEL = "channel"
+    """Registers a custom messaging channel."""
+
     FRONTEND = "frontend"
     """Ships a frontend JS bundle loaded dynamically by the UI."""
 
@@ -62,7 +65,7 @@ def _coerce_manifest_str(value: Any) -> str:
     return str(value) if value is not None else ""
 
 
-def _infer_type_from_meta(
+def _infer_type_from_meta(  # pylint: disable=too-many-return-statements
     meta: Dict[str, Any],
     entry: PluginEntryPoints,
 ) -> PluginType:
@@ -87,6 +90,8 @@ def _infer_type_from_meta(
         return PluginType.HOOK
     if meta.get("command_name") or meta.get("commands"):
         return PluginType.COMMAND
+    if meta.get("channel"):
+        return PluginType.CHANNEL
     if entry.frontend:
         return PluginType.FRONTEND
     return PluginType.GENERAL

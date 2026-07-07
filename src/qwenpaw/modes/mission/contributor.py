@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """Mission mode prompt contributor.
 
-Delegates to ``agents/mission/prompts.py``.
+NOTE: ``build_mission_system_prompt`` was removed
+(dead code — never existed in prompts.py).  This
+contributor is retained as a no-op placeholder for
+the MissionMode prompt contributor registry.
 """
 
 from __future__ import annotations
@@ -20,7 +23,7 @@ logger = logging.getLogger(__name__)
 class MissionPromptContributor(SyncPromptContributor):
     """Inject mission guidance into the system prompt.
 
-    Used when mission is active.
+    Currently a no-op; real implementation pending.
     """
 
     name = "mission_prompt"
@@ -29,26 +32,11 @@ class MissionPromptContributor(SyncPromptContributor):
     def __init__(self, owner_mode: "AgentMode") -> None:
         self.owner_mode = owner_mode
 
-    def contribute_sync(self, ctx: object) -> str | None:
-        from ...runtime.hooks import HookContext
-
-        if not isinstance(ctx, HookContext):
-            return None
-        if not self.owner_mode.is_active(ctx):
-            return None
-        ms = (ctx.mode_state.get("mission") or {}).get("state")
-        if ms is None:
-            return None
-        try:
-            # pylint: disable-next=no-name-in-module
-            from ...agents.mission.prompts import (
-                build_mission_system_prompt,
-            )
-
-            return build_mission_system_prompt(ms)
-        except Exception:
-            logger.debug("mission_prompt: contribute failed", exc_info=True)
-            return None
+    def contribute_sync(
+        self,
+        ctx: object,  # pylint: disable=unused-argument
+    ) -> str | None:
+        return None
 
 
 __all__ = ["MissionPromptContributor"]

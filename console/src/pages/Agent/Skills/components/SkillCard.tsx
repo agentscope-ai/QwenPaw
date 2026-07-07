@@ -269,9 +269,6 @@ export const SkillCard = React.memo(function SkillCard({
 
       {/* Description */}
       <div className={styles.descriptionSection}>
-        <span className={styles.descriptionSectionLabel}>
-          {t("skills.skillDescription")}
-        </span>
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 

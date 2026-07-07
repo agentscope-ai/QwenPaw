@@ -5,10 +5,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Type
-from pydantic import BaseModel, Field
-from pydantic import ConfigDict
 
 from agentscope.model import ChatModelBase
+from pydantic import BaseModel, ConfigDict, Field
+
 from qwenpaw.exceptions import ProviderError
 
 if TYPE_CHECKING:
@@ -60,6 +60,45 @@ class ModelInfo(BaseModel):
         default_factory=dict,
         description="Per-model generation parameters that override "
         "provider-level generate_kwargs.",
+    )
+    preserve_thinking: bool = Field(
+        default=True,
+        description="Whether to relay reasoning_content (thinking traces) "
+        "back in subsequent turns. When False the formatter omits "
+        "reasoning_content from assistant wire messages.",
+    )
+    thinking_enabled: bool | None = Field(
+        default=None,
+        description="Tri-state thinking toggle: None=auto (don't send, "
+        "use model default), True=enable, False=disable. "
+        "Provider-specific mapping applies.",
+    )
+    thinking_budget: int | None = Field(
+        default=None,
+        ge=1,
+        description="Token budget for thinking. Provider-specific: "
+        "DashScope/Anthropic use thinking_budget, Gemini uses "
+        "thinking_config.thinking_budget.",
+    )
+    reasoning_effort: str | None = Field(
+        default=None,
+        description="Reasoning effort level: 'low', 'medium', 'high'. "
+        "Used by OpenAI-family providers.",
+    )
+    thinking_param_style: str | None = Field(
+        default=None,
+        description="Override provider-level thinking_param_style for this "
+        "model. 'budget' shows Slider, 'effort' shows Select.",
+    )
+    reasoning_effort_options: List[str] | None = Field(
+        default=None,
+        description="Override provider-level reasoning_effort_options for "
+        "this model.",
+    )
+    thinking_budget_range: List[int] | None = Field(
+        default=None,
+        description="Override provider-level thinking_budget_range [min, max] "
+        "for this model.",
     )
 
 
@@ -114,6 +153,14 @@ class ProviderInfo(BaseModel):
     api_key_prefix: str = Field(
         default="",
         description="Expected prefix for the API key (e.g., 'sk-')",
+    )
+    api_key_prefixes: List[str] = Field(
+        default_factory=list,
+        description=(
+            "List of accepted API key prefixes. "
+            "When non-empty, validation accepts any prefix in this list; "
+            "otherwise it falls back to api_key_prefix."
+        ),
     )
     is_local: bool = Field(
         default=False,
@@ -184,6 +231,27 @@ class ProviderInfo(BaseModel):
     provider_variant: str = Field(
         default="",
         description="Variant identifier within a group",
+    )
+    thinking_param_style: str | None = Field(
+        default=None,
+        description="Which thinking-parameter UI to show: "
+        "'budget' (Slider) or 'effort' (Select). "
+        "None means the provider does not support thinking config.",
+    )
+    reasoning_effort_options: List[str] = Field(
+        default_factory=lambda: [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+        ],
+        description="Valid reasoning_effort values for this provider.",
+    )
+    thinking_budget_range: List[int] = Field(
+        default_factory=lambda: [1, 81920],
+        description="[min, max] range for thinking_budget Slider.",
     )
     meta: Dict[str, Any] = Field(
         default_factory=dict,
@@ -266,6 +334,13 @@ class Provider(ProviderInfo, ABC):
             self.chat_model = str(config["chat_model"])
         if "api_key_prefix" in config and config["api_key_prefix"] is not None:
             self.api_key_prefix = str(config["api_key_prefix"])
+        if (
+            "api_key_prefixes" in config
+            and config["api_key_prefixes"] is not None
+        ):
+            self.api_key_prefixes = [
+                str(p) for p in config["api_key_prefixes"] if p is not None
+            ]
         if (
             "generate_kwargs" in config
             and config["generate_kwargs"] is not None
@@ -376,6 +451,28 @@ class Provider(ProviderInfo, ABC):
                     and config["max_input_length"] is not None
                 ):
                     model.max_input_length = int(config["max_input_length"])
+                if (
+                    "preserve_thinking" in config
+                    and config["preserve_thinking"] is not None
+                ):
+                    model.preserve_thinking = bool(config["preserve_thinking"])
+                if "thinking_enabled" in config:
+                    model.thinking_enabled = (
+                        bool(config["thinking_enabled"])
+                        if config["thinking_enabled"] is not None
+                        else None
+                    )
+                if "thinking_budget" in config:
+                    model.thinking_budget = (
+                        int(config["thinking_budget"])
+                        if config["thinking_budget"] is not None
+                        else None
+                    )
+                if "reasoning_effort" in config:
+                    val = config["reasoning_effort"]
+                    model.reasoning_effort = (
+                        str(val) if val is not None else None
+                    )
                 return True
         return False
 
@@ -391,6 +488,40 @@ class Provider(ProviderInfo, ABC):
             if model.id == model_id:
                 return model
         return None
+
+    def _get_preserve_thinking(self, model_id: str) -> bool:
+        """Return the ``preserve_thinking`` flag for *model_id* (default
+        True)."""
+        model_info = self.get_model_info(model_id)
+        if model_info is not None:
+            return model_info.preserve_thinking
+        return True
+
+    def _get_thinking_config(
+        self,
+        model_id: str,
+    ) -> tuple[bool | None, int | None, str | None]:
+        """Return ``(thinking_enabled, thinking_budget, reasoning_effort)``."""
+        info = self.get_model_info(model_id)
+        if info is None:
+            return None, None, None
+        return (
+            info.thinking_enabled,
+            info.thinking_budget,
+            info.reasoning_effort,
+        )
+
+    def _apply_thinking_config(
+        self,
+        model_id: str,
+        effective: dict,
+    ) -> None:
+        """Inject per-model thinking fields into *effective* kwargs.
+
+        Subclasses override to implement provider-specific mapping.
+        The base implementation is a no-op so providers that don't
+        support thinking are unaffected.
+        """
 
     def _get_context_size(self, model_id: str) -> int:
         """Return the context size for *model_id* from ``ModelInfo``.
@@ -434,11 +565,23 @@ class Provider(ProviderInfo, ABC):
 
     async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
         """Return a ProviderInfo instance with the provider's details."""
-        api_key = (
-            self.api_key_prefix + "*" * 6
-            if mock_secret and self.api_key
-            else self.api_key
-        )
+        if mock_secret and self.api_key:
+            # Determine which prefix to show in the masked key.
+            # If api_key_prefixes is set, pick the one matching the
+            # actual key; otherwise fall back to api_key_prefix.
+            prefix_for_mask = self.api_key_prefix
+            if self.api_key_prefixes:
+                prefix_for_mask = next(
+                    (
+                        p
+                        for p in self.api_key_prefixes
+                        if self.api_key.startswith(p)
+                    ),
+                    self.api_key_prefix,
+                )
+            api_key = prefix_for_mask + "*" * 6
+        else:
+            api_key = self.api_key
         # Serialize models/extra_models to plain dicts so that
         # ProviderInfo constructs fresh ModelInfo instances using
         # the class in its own module scope.  This avoids pydantic
@@ -454,6 +597,7 @@ class Provider(ProviderInfo, ABC):
             models=[m.model_dump() for m in self.models],
             extra_models=[m.model_dump() for m in self.extra_models],
             api_key_prefix=self.api_key_prefix,
+            api_key_prefixes=self.api_key_prefixes,
             is_local=self.is_local,
             is_custom=self.is_custom,
             support_model_discovery=self.support_model_discovery,
@@ -472,5 +616,8 @@ class Provider(ProviderInfo, ABC):
             provider_group=self.provider_group,
             provider_group_name=self.provider_group_name,
             provider_variant=self.provider_variant,
+            thinking_param_style=self.thinking_param_style,
+            reasoning_effort_options=self.reasoning_effort_options,
+            thinking_budget_range=self.thinking_budget_range,
             meta=meta,
         )

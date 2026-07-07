@@ -41,6 +41,19 @@ Page custom QWENPAW_CLI_PATH_PAGE QWENPAW_CLI_PATH_PAGE_LEAVE
   ${EndIf}
 !macroend
 
+!macro QWENPAW_INSTALL_DEBUG_LAUNCHER
+  SetOutPath "$INSTDIR"
+  File /oname=qwenpaw-desktop-debug.cmd "..\..\..\..\nsis\qwenpaw-desktop-debug.cmd"
+  File /oname=qwenpaw-desktop-debug.ps1 "..\..\..\..\nsis\qwenpaw-desktop-debug.ps1"
+  CreateShortcut "$SMPROGRAMS\QwenPaw Desktop (Debug).lnk" "$INSTDIR\qwenpaw-desktop-debug.cmd" "" "$INSTDIR\qwenpaw-desktop.exe" 0
+!macroend
+
+!macro QWENPAW_REMOVE_DEBUG_LAUNCHER
+  Delete "$SMPROGRAMS\QwenPaw Desktop (Debug).lnk"
+  Delete "$INSTDIR\qwenpaw-desktop-debug.cmd"
+  Delete "$INSTDIR\qwenpaw-desktop-debug.ps1"
+!macroend
+
 Function QWENPAW_CLI_PATH_PAGE
   ${GetOptions} $CMDLINE "/NO_QWENPAW_PATH" $0
   ${IfNot} ${Errors}
@@ -120,9 +133,11 @@ FunctionEnd
 
 !macro NSIS_HOOK_POSTINSTALL
   !insertmacro QWENPAW_ADD_CLI_PATH_IF_SELECTED
+  !insertmacro QWENPAW_INSTALL_DEBUG_LAUNCHER
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
   !insertmacro QWENPAW_STOP_BACKEND_SIDECAR
+  !insertmacro QWENPAW_REMOVE_DEBUG_LAUNCHER
   !insertmacro QWENPAW_REMOVE_CLI_PATH
 !macroend

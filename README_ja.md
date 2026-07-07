@@ -290,20 +290,20 @@ QwenPaw を Alibaba Cloud（ECS）で実行するには、ワンクリックデ�
 
 #### ダウンロード
 
-[公式ダウンロードページ](https://qwenpaw.agentscope.io/downloads) からデスクトップアプリをダウンロード:
-- **Windows**: `QwenPaw-Setup-<version>.exe`
-- **macOS**: `QwenPaw-<version>-macOS.zip` (Apple Silicon 推奨)
+[公式ダウンロードページ](https://qwenpaw.agentscope.io/downloads) からデスクトップアプリ（Tauri 版）をダウンロード:
+- **Windows**: `QwenPaw-Tauri-<version>-Windows-setup.exe`
+- **macOS**: `QwenPaw-Tauri-<version>-macOS.zip` (Apple Silicon 推奨)
 
 #### 特徴
 
 - ✅ **ゼロ設定**: ダウンロードしてダブルクリックするだけで実行可能、Python のインストールや環境変数の設定は不要
 - ✅ **クロスプラットフォーム**: Windows 10+ と macOS 14+ に対応
-- ✅ **ビジュアルインターフェース**: ブラウザインターフェースが自動的に開き、手動でアドレスを入力する必要はありません
+- ✅ **ビジュアルインターフェース**: アプリのウィンドウが自動的に開き、手動でアドレスを入力する必要はありません
 - ⚠️ **Beta 段階**: 機能は継続的に改善中、フィードバックを歓迎します
 
 #### 初回起動
 
-**重要**: 初回起動には 10〜60 秒かかる場合があります（システム構成によります）。アプリケーションは Python 環境の初期化と依存関係の読み込みが必要です。ブラウザウィンドウが自動的に開くまでお待ちください。
+**重要**: 初回起動には 10〜60 秒かかる場合があります（システム構成によります）。アプリケーションは Python 環境の初期化と依存関係の読み込みが必要です。ウィンドウが自動的に開くまでお待ちください。
 
 #### macOS: システムセキュリティ制限の回避
 
@@ -317,7 +317,7 @@ Releases から QwenPaw macOS アプリをダウンロードすると、macOS �
 
 - **検疫属性の削除（ほとんどのユーザーには非推奨）**
   ターミナルで実行:
-  `xattr -cr /Applications/QwenPaw.app`
+  `xattr -cr "/Applications/QwenPaw Desktop.app"`
   （または解凍後の `.app` へのパスを使用）。これにより「インターネットからダウンロードされた」検疫フラグがクリアされ、通常は警告が表示されなくなりますが、**右クリック → 開く** を使用するよりも安全性と制御性が低くなります。
 
 詳細な使用方法、トラブルシューティング、よくある問題については、[デスクトップアプリケーションガイド](https://qwenpaw.agentscope.io/docs/desktop) を参照してください。
@@ -384,7 +384,7 @@ QwenPaw は **QwenPaw-Flash** シリーズも提供 — エージェントシナ
 
 QwenPaw には 4 つのコアセキュリティレイヤーが含まれています：
 
-- **Sandbox** — macOS では Seatbelt、Linux では Bubblewrap / Landlock によるカーネルレベルの実行分離。シェルコマンドは制限されたファイルシステムビュー内で実行されます。
+- **Sandbox** — macOS では Seatbelt、Linux では Bubblewrap / Landlock、Windows では AppContainer によるカーネルレベルの実行分離。シェルコマンドは制限されたファイルシステムビュー内で実行されます。
 - **Tool Guard** — YAML ルールエンジンと `ShellEvasionGuardian` が実行前にすべてのツール呼び出しを検査し、コマンドインジェクション、パストラバーサル、リバースシェル、難読化攻撃を検出。承認レベル設定可能：STRICT / SMART / AUTO / OFF。
 - **File Guard** — Tool Guard とは独立；エージェントの機密ファイル・ディレクトリへのアクセスをブロック（デフォルトで `~/.qwenpaw.secret/`、`~/.ssh` などを保護）。
 - **Skill Scanner** — block / warn / off モードとホワイトリスト対応の事前アクティベーションスキャン。プロンプトインジェクション、ハードコードされた秘密情報、データ流出などを検出。

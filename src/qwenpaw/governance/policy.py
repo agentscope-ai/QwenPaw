@@ -48,10 +48,16 @@ class GovernanceDecision:
     sandbox_config: SandboxConfig | None = None
     findings: list[Any] | None = None  # GuardFinding list for approval card
     # Origin of the decision, surfaced as the "Source" line on the approval
-    # card. Values: "builtin-rules", "user-rules", or a tool-guard threat
-    # category string (e.g. "command_injection", "sensitive_file_access")
-    # when the decision was driven by a deep-scan finding.
-    source: str = "builtin-rules"
+    # card. Identifies which policy mechanism drove the decision:
+    #   "builtin_rules"         — Phase 2 DEFAULT_BUILTIN_RULES hit
+    #   "user_rules"            — Phase 2 user_rules hit
+    #   "sensitive_paths"       — Phase 1 finding (sensitive_path_detector)
+    #   "detection_rules"       — Phase 1 finding (pattern_detector)
+    #   "shell_evasion_checks"  — Phase 1 finding (shell_evasion_detector)
+    #   "shell_danger_keywords" — Phase 1.5 hardcoded shell-danger regex
+    #   "sandbox"               — Phase 3 shell sandbox fallback
+    #   "No rule hit"           — Phase 3 fallback (no rule/finding matched)
+    source: str = "No rule hit"
 
 
 class ToolCallSpec:
@@ -119,7 +125,13 @@ class GovernanceRule:
         """wcmatch globmatch with directory self-match support."""
         from wcmatch import glob
 
-        flags = glob.GLOBSTAR | glob.BRACE | glob.NEGATE | glob.SPLIT
+        flags = (
+            glob.GLOBSTAR
+            | glob.BRACE
+            | glob.NEGATE
+            | glob.SPLIT
+            | glob.DOTGLOB
+        )
         if glob.globmatch(target, pattern, flags=flags):
             return True
         if pattern.endswith("/**"):
@@ -487,6 +499,12 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         action=GovernanceAction.ALLOW,
         reason="Scratch directory access for tmp",
     ),
+    # Coding Mode, project dir
+    GovernanceRule(
+        match="*(CODING_PROJECT_DIR/**)",
+        action=GovernanceAction.ALLOW,
+        reason="Coding project dir",
+    ),
 ]
 
 
@@ -563,7 +581,7 @@ class GovernancePolicy:
         """
         return list(self.builtin_rules) + list(self.user_rules)
 
-    def evaluate(  # pylint: disable=too-many-return-statements
+    def evaluate(  # noqa: E501  pylint: disable=too-many-return-statements,too-many-branches
         self,
         tc_spec: ToolCallSpec,
     ) -> GovernanceDecision:
@@ -586,12 +604,16 @@ class GovernancePolicy:
             return GovernanceDecision(
                 action=GovernanceAction.DENY,
                 reason=f"Unregistered tool: {tc_spec.tool_name}",
+                source="unknown tool",
             )
         if tool_type == "internal":
-            return GovernanceDecision(action=GovernanceAction.ALLOW, reason="")
+            return GovernanceDecision(
+                action=GovernanceAction.ALLOW,
+                reason="internal",
+            )
 
         # execution_level == OFF → skip Phase 1, go to Phase 2
-        skip_deep_scan = self.execution_level == "off"
+        skip_deep_scan = self.execution_level.lower() == "off"
 
         # ── Phase 1: Deep security scan ──
         findings: list[Any] = []
@@ -599,14 +621,10 @@ class GovernancePolicy:
             findings = self._deep_security_scan(tc_spec, tool_type)
             # CRITICAL findings → immediate DENY
             if any(getattr(f, "severity", "") == "CRITICAL" for f in findings):
-                reasons = [
-                    getattr(f, "title", "")
-                    for f in findings
-                    if getattr(f, "severity", "") == "CRITICAL"
-                ]
+                top = _top_finding(findings)
                 return GovernanceDecision(
                     action=GovernanceAction.DENY,
-                    reason="Critical security finding: " + "; ".join(reasons),
+                    reason=getattr(top, "description", "") or top.title,
                     findings=findings,
                     source=_findings_source(findings),
                 )
@@ -621,19 +639,33 @@ class GovernancePolicy:
                     action=GovernanceAction.DENY,
                     reason=danger_reason,
                     findings=findings,
+                    source="shell_danger_keywords",
                 )
 
         # ── Phase 2: builtin_rules + user_rules (first-match-wins) ──
+        is_strict = self.execution_level == "strict"
+
         for rule in self.builtin_rules:
             if rule.matches_tool_call(
                 tc_spec,
                 tool_type=tool_type,
             ):
+                action = GovernanceAction(rule.action.value)
+                # STRICT mode: override ALLOW → ASK so every tool
+                # call requires approval (DENY still honoured).
+                if action == GovernanceAction.ALLOW and is_strict:
+                    return GovernanceDecision(
+                        action=GovernanceAction.ASK,
+                        reason="STRICT mode: all tool calls "
+                        "require approval",
+                        findings=findings or None,
+                        source="STRICT mode",
+                    )
                 return GovernanceDecision(
-                    action=GovernanceAction(rule.action.value),
+                    action=action,
                     reason=rule.reason,
                     findings=findings or None,
-                    source="builtin-rules",
+                    source="builtin_rules",
                 )
 
         for rule in self.user_rules:
@@ -641,15 +673,32 @@ class GovernancePolicy:
                 tc_spec,
                 tool_type=tool_type,
             ):
+                action = GovernanceAction(rule.action.value)
+                if action == GovernanceAction.ALLOW and is_strict:
+                    return GovernanceDecision(
+                        action=GovernanceAction.ASK,
+                        reason="STRICT mode: all tool calls "
+                        "require approval",
+                        findings=findings or None,
+                        source="STRICT mode",
+                    )
                 return GovernanceDecision(
-                    action=GovernanceAction(rule.action.value),
+                    action=action,
                     reason=rule.reason,
                     findings=findings or None,
-                    source="user-rules",
+                    source="user_rules",
                 )
 
         # ── Phase 3: Fallback + execution_level threshold ──
         if tool_type == "shell":
+            # STRICT mode: shell commands also require approval
+            if is_strict:
+                return GovernanceDecision(
+                    action=GovernanceAction.ASK,
+                    reason="STRICT mode: all tool calls " "require approval",
+                    findings=findings or None,
+                    source="STRICT mode",
+                )
             return GovernanceDecision(
                 action=GovernanceAction.SANDBOX_FALLBACK,
                 reason="sandbox fallback",
@@ -693,67 +742,80 @@ class GovernancePolicy:
     ) -> GovernanceDecision:
         """Apply execution_level threshold to determine final decision.
 
-        - OFF: should not reach here (scan skipped, but rules didn't match)
-        - AUTO: ASK for guarded tools, ALLOW for others
-        - SMART: LOW/INFO findings → ALLOW; MEDIUM+ → ASK
-        - STRICT: any findings → ASK
+        Reached only when no builtin/user rule matched ("No rule hit"):
+        neither an explicit ALLOW/ASK (user_rules) nor an implicit one
+        (builtin_rules) fired. The decision then depends on the deep-scan
+        findings and the execution_level threshold.
+
+        No findings (nothing matched, nothing flagged):
+            - STRICT: ASK (all tools require approval)
+            - OTHERS: ASK (no allow rule hit).
+        Has findings:
+            - STRICT: ASK (any finding triggers approval)
+            - SMART: INFO/LOW → ALLOW; MEDIUM+ → ASK
+            - AUTO / OFF: ASK (a finding surfaced despite the relaxed scan)
         """
         level = self.execution_level
 
         if not findings:
-            # No findings and no rule hit
+            # No findings and no rule hit.
             if level == "strict":
                 return GovernanceDecision(
                     action=GovernanceAction.ASK,
                     reason="STRICT mode: all tool calls require approval",
-                    source="STRICT mode",
+                    source="fallback",
                 )
             return GovernanceDecision(
                 action=GovernanceAction.ASK,
-                reason="No rule hit",
-                source="No rule hit",
+                reason=f"{level.upper()} mode: no allow rule hit.",
+                source="fallback",
             )
 
-        # Has findings — decide based on execution_level
+        # Has findings — decide based on execution_level.
+        # source is the policy key of the top finding; reason is that
+        # finding's own description (no mode shell).
+        top = _top_finding(findings)
+        finding_reason = getattr(top, "description", "") or top.title
+        finding_source = _findings_source(findings)
         max_sev = _max_severity(findings)
 
         if level == "strict":
             return GovernanceDecision(
                 action=GovernanceAction.ASK,
-                reason=f"STRICT mode: findings detected (max={max_sev})",
+                reason=finding_reason,
                 findings=findings,
-                source=_findings_source(findings),
+                source=finding_source,
             )
 
         if level == "smart":
             if max_sev in ("INFO", "LOW"):
                 return GovernanceDecision(
                     action=GovernanceAction.ALLOW,
-                    reason=f"SMART mode: auto-allowed ({max_sev})",
+                    reason=finding_reason,
                     findings=findings,
-                    source=_findings_source(findings),
+                    source=finding_source,
                 )
             return GovernanceDecision(
                 action=GovernanceAction.ASK,
-                reason=f"SMART mode: {max_sev} finding requires approval",
+                reason=finding_reason,
                 findings=findings,
-                source=_findings_source(findings),
+                source=finding_source,
             )
 
-        # AUTO / OFF fallback
+        # AUTO / OFF: a finding surfaced, so ask.
         return GovernanceDecision(
             action=GovernanceAction.ASK,
-            reason="No rule hit",
-            findings=findings or None,
-            source=_findings_source(findings),
+            reason=finding_reason,
+            findings=findings,
+            source=finding_source,
         )
 
     def evaluate_source(self, tc_spec: ToolCallSpec) -> str:
         """Determine which rule source a tool call matches.
 
         Returns:
-            "builtin"  — matched builtin_rules (no rule recorded on approve)
-            "user"     — matched user_rules (rule can be recorded on approve)
+            "builtin_rules"  — matched builtin_rules
+            "user_rules"     — matched user_rules
             "fallback" — no match, global fallback
         """
         tool_type = self._registry.get_type(tc_spec.tool_name)
@@ -762,13 +824,13 @@ class GovernancePolicy:
                 tc_spec,
                 tool_type=tool_type,
             ):
-                return "builtin"
+                return "builtin_rules"
         for rule in self.user_rules:
             if rule.matches_tool_call(
                 tc_spec,
                 tool_type=tool_type,
             ):
-                return "user"
+                return "user_rules"
         return "fallback"
 
     # ------------------------------------------------------------------
@@ -822,27 +884,6 @@ class GovernancePolicy:
 
 
 # ---------------------------------------------------------------------------
-# Rule generalization
-# ---------------------------------------------------------------------------
-
-
-def generalize_rule_match(tool_name: str, target: str) -> str:
-    """Construct a match string from an approved rule.
-
-    Current strategy: no generalization, always record exact match
-    to avoid security risks from wildcards.
-
-    Args:
-        tool_name: policy tool name, e.g. "Bash"
-        target: tool's target argument value
-
-    Returns:
-        match string, e.g. "Bash(git status)"
-    """
-    return f"{tool_name}({target})"
-
-
-# ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
 
@@ -867,6 +908,16 @@ def _parse_match(match_str: str) -> tuple[str, str]:
 
 _SEVERITY_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
 
+# Map a GuardFinding's ``detector`` field to the policy.yaml key that
+# drives it. Used so ``GovernanceDecision.source`` reports which policy
+# section produced a finding-driven decision, rather than the threat
+# category.
+_DETECTOR_TO_SOURCE: dict[str, str] = {
+    "sensitive_path_detector": "sensitive_paths",
+    "pattern_detector": "detection_rules",
+    "shell_evasion_detector": "shell_evasion_checks",
+}
+
 
 def _max_severity(findings: list[Any]) -> str:
     """Return the highest severity string from a list of findings."""
@@ -878,26 +929,30 @@ def _max_severity(findings: list[Any]) -> str:
     return "SAFE"
 
 
-def _findings_source(findings: list[Any]) -> str:
-    """Pick the approval-card ``source`` for a finding-driven decision.
-
-    Returns the threat category of the highest-severity finding (e.g.
-    ``"command_injection"``), falling back to ``"builtin-rules"`` when no
-    finding carries a category.
-    """
-    if not findings:
-        return "builtin-rules"
+def _top_finding(findings: list[Any]) -> Any:
+    """Return the highest-severity finding (ties → first encountered)."""
     for sev in _SEVERITY_ORDER:
         for f in findings:
             if getattr(f, "severity", "") == sev:
-                category = getattr(f, "category", None)
-                if category:
-                    return (
-                        category.value
-                        if hasattr(category, "value")
-                        else str(category)
-                    )
-    return "builtin-rules"
+                return f
+    return findings[0]
+
+
+def _findings_source(findings: list[Any]) -> str:
+    """Pick the approval-card ``source`` for a finding-driven decision.
+
+    Returns the policy key of the highest-severity finding, derived from
+    its ``detector`` field (e.g. ``"detection_rules"``). Falls back to
+    ``"detection_rules"`` when a finding carries no recognisable
+    detector, and to ``"builtin_rules"`` when there are no findings.
+    """
+    if not findings:
+        return "builtin_rules"
+    top = _top_finding(findings)
+    detector = getattr(top, "detector", None)
+    if detector:
+        return _DETECTOR_TO_SOURCE.get(detector, "detection_rules")
+    return "detection_rules"
 
 
 # ---------------------------------------------------------------------------
@@ -908,27 +963,30 @@ def _findings_source(findings: list[Any]) -> str:
 def load_governance_policy(
     policy_dir: str,
     workspace_dir: str,
+    coding_project_dir: str = "",
 ) -> GovernancePolicy:
     """Load from policy_dir/policy.yaml; return default policy if missing.
 
     Args:
         policy_dir: directory containing policy.yaml
         workspace_dir: used to replace WORKSPACE_DIR placeholders in rules
+        coding_project_dir: used to replace CODING_PROJECT_DIR placeholders
+            in rules; defaults to ``workspace_dir`` when empty
 
     Supports both v1.0 and v2.0 YAML formats.
     """
     path = Path(policy_dir) / "policy.yaml"
     if not path.exists():
-        return _create_default_policy(workspace_dir)
+        return _create_default_policy(workspace_dir, coding_project_dir)
 
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
     except Exception:
-        return _create_default_policy(workspace_dir)
+        return _create_default_policy(workspace_dir, coding_project_dir)
 
     if not isinstance(data, dict):
-        return _create_default_policy(workspace_dir)
+        return _create_default_policy(workspace_dir, coding_project_dir)
 
     version = data.get("version", "1.0")
     audit_level = data.get("audit_level", "all")
@@ -984,10 +1042,11 @@ def load_governance_policy(
         data.get("detection_rules", []),
     )
 
-    # ── Replace WORKSPACE_DIR with actual path ──
+    # ── Replace WORKSPACE_DIR / CODING_PROJECT_DIR with actual paths ──
+    cpd = coding_project_dir or workspace_dir
     if workspace_dir:
-        _resolve_workspace_dir(builtin_rules, workspace_dir)
-        _resolve_workspace_dir(user_rules, workspace_dir)
+        _resolve_placeholders(builtin_rules, workspace_dir, cpd)
+        _resolve_placeholders(user_rules, workspace_dir, cpd)
 
     return GovernancePolicy(
         version=version,
@@ -1006,6 +1065,7 @@ def save_governance_policy(
     policy: GovernancePolicy,
     policy_dir: str,
     workspace_dir: str = "",
+    coding_project_dir: str = "",
 ) -> None:
     """Write policy.yaml (v2.0 format).
 
@@ -1014,14 +1074,17 @@ def save_governance_policy(
         policy_dir: directory to write policy.yaml
         workspace_dir: workspace path, used to restore actual paths back to
                        WORKSPACE_DIR placeholders (keeps yaml portable)
+        coding_project_dir: coding project path, used to restore actual
+                       paths back to CODING_PROJECT_DIR placeholders
     """
     builtin_rules = copy.deepcopy(policy.builtin_rules)
     user_rules = copy.deepcopy(policy.user_rules)
 
-    # ── Restore actual paths to WORKSPACE_DIR placeholders ──
+    # ── Restore actual paths to WORKSPACE_DIR / CODING_PROJECT_DIR ──
     if workspace_dir:
-        _unresolve_workspace_dir(builtin_rules, workspace_dir)
-        _unresolve_workspace_dir(user_rules, workspace_dir)
+        cpd = coding_project_dir or workspace_dir
+        _unresolve_placeholders(builtin_rules, workspace_dir, cpd)
+        _unresolve_placeholders(user_rules, workspace_dir, cpd)
 
     path = Path(policy_dir) / "policy.yaml"
     # NOTE: builtin_rules are NOT written to YAML. They are always loaded
@@ -1088,13 +1151,17 @@ _DEFAULT_SENSITIVE_PATHS: List[str] = [
 ]
 
 
-def _create_default_policy(workspace_dir: str = "") -> GovernancePolicy:
+def _create_default_policy(
+    workspace_dir: str = "",
+    coding_project_dir: str = "",
+) -> GovernancePolicy:
     """Create a policy with full default rules (cold start, v2.0)."""
     builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
     user_rules = copy.deepcopy(DEFAULT_USER_RULES)
     if workspace_dir:
-        _resolve_workspace_dir(builtin_rules, workspace_dir)
-        _resolve_workspace_dir(user_rules, workspace_dir)
+        cpd = coding_project_dir or workspace_dir
+        _resolve_placeholders(builtin_rules, workspace_dir, cpd)
+        _resolve_placeholders(user_rules, workspace_dir, cpd)
     return GovernancePolicy(
         version="2.0",
         builtin_rules=builtin_rules,
@@ -1106,18 +1173,49 @@ def _create_default_policy(workspace_dir: str = "") -> GovernancePolicy:
     )
 
 
-def _resolve_workspace_dir(rules: List[GovernanceRule], workspace_dir: str):
-    """Replace WORKSPACE_DIR in rules with actual paths (in-place)."""
+def _resolve_placeholders(
+    rules: List[GovernanceRule],
+    workspace_dir: str,
+    coding_project_dir: str = "",
+):
+    """Replace WORKSPACE_DIR / CODING_PROJECT_DIR placeholders in rules
+    with the actual paths (in-place)."""
     for rule in rules:
-        if "WORKSPACE_DIR" in rule.match:
+        if workspace_dir and "WORKSPACE_DIR" in rule.match:
             rule.match = rule.match.replace("WORKSPACE_DIR", workspace_dir)
+        if coding_project_dir and "CODING_PROJECT_DIR" in rule.match:
+            rule.match = rule.match.replace(
+                "CODING_PROJECT_DIR",
+                coding_project_dir,
+            )
 
 
-def _unresolve_workspace_dir(rules: List[GovernanceRule], workspace_dir: str):
-    """Restore actual paths in rules back to WORKSPACE_DIR placeholders."""
+def _unresolve_placeholders(
+    rules: List[GovernanceRule],
+    workspace_dir: str,
+    coding_project_dir: str = "",
+):
+    """Restore actual paths in rules back to WORKSPACE_DIR /
+    CODING_PROJECT_DIR placeholders (in-place).
+
+    When ``coding_project_dir`` coincides with ``workspace_dir`` the two
+    cannot be distinguished in an already-resolved pattern, so the shared
+    path is restored as ``WORKSPACE_DIR`` (the coding dir is still covered
+    by the workspace rules in that case).
+    """
+    # Build (actual_path, placeholder) pairs, longest path first.
+    # avoiding CODING_PROJECT_DIR is substring of WORKSPACE_DIR
+    pairs: list[tuple[str, str]] = []
+    if coding_project_dir and coding_project_dir != workspace_dir:
+        pairs.append((coding_project_dir, "CODING_PROJECT_DIR"))
+    if workspace_dir:
+        pairs.append((workspace_dir, "WORKSPACE_DIR"))
+    pairs.sort(key=lambda pair: len(pair[0]), reverse=True)
+
     for rule in rules:
-        if workspace_dir in rule.match:
-            rule.match = rule.match.replace(workspace_dir, "WORKSPACE_DIR")
+        for actual, placeholder in pairs:
+            if actual and actual in rule.match:
+                rule.match = rule.match.replace(actual, placeholder)
 
 
 def _parse_rules(

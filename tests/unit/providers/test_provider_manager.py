@@ -6,23 +6,23 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from qwenpaw.exceptions import (
-    ModelNotFoundException,
-)
 
 import qwenpaw.providers.provider_manager as provider_manager_module
-from qwenpaw.exceptions import ProviderError
-from qwenpaw.providers.anthropic_provider import AnthropicProvider
 from qwenpaw.config.config import ModelSlotConfig
+from qwenpaw.exceptions import ModelNotFoundException, ProviderError
+from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
+from qwenpaw.providers.anthropic_provider import AnthropicProvider
 from qwenpaw.providers.capping_formatter import (
     _CappingAnthropicFormatter,
     _CappingGeminiFormatter,
     _CappingOpenAIFormatter,
 )
-from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.openai_provider import (
+    GitHubModelsProvider,
+    OpenAIProvider,
+)
 from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.provider_manager import ProviderManager
-from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
 
 LEGACY_PROVIDER = {
     "providers": {
@@ -795,3 +795,42 @@ def test_max_inline_media_bytes_defaults_when_absent(
     model = provider.get_chat_model_instance(model_id)
     assert isinstance(model.formatter, formatter_cls)
     assert model.formatter.max_bytes == 2 * 1024 * 1024
+
+
+async def test_github_models_provider_uses_new_endpoint_and_prefixes(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("github-models")
+
+    assert provider is not None
+    assert isinstance(provider, OpenAIProvider)
+    assert isinstance(provider, GitHubModelsProvider)
+    assert provider.base_url == "https://models.github.ai/inference"
+    assert provider.freeze_url is False
+    assert provider.api_key_prefix == "ghp_"
+    assert provider.api_key_prefixes == ["ghp_", "github_pat_"]
+
+    info = await provider.get_info()
+    assert info.base_url == "https://models.github.ai/inference"
+    assert info.freeze_url is False
+    assert info.api_key_prefix == "ghp_"
+    assert info.api_key_prefixes == ["ghp_", "github_pat_"]
+
+
+async def test_update_config_persists_api_key_prefixes(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("github-models")
+    assert provider is not None
+
+    manager.update_provider(
+        "github-models",
+        {"api_key_prefixes": ["ghp_", "github_pat_"]},
+    )
+
+    provider = manager.get_provider("github-models")
+    assert provider.api_key_prefixes == ["ghp_", "github_pat_"]
+    info = await provider.get_info()
+    assert info.api_key_prefixes == ["ghp_", "github_pat_"]

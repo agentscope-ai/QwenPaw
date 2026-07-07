@@ -82,7 +82,12 @@ async def test_start_and_basic_turn():
     # ACP sends a start (carries the title) then an update (carries status/
     # output) sharing one tool_call_id; the UI merges them by id.
     tools = [e for e in events if isinstance(e, ToolCall)]
-    assert any(t.title == "read_file" and t.kind == "read" for t in tools)
+    assert any(
+        t.title == "read_file"
+        and t.kind == "read"
+        and t.params == "path: README.md"
+        for t in tools
+    )
     assert any(
         t.tool_call_id == "t2"
         and t.status == "completed"

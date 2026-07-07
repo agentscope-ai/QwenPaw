@@ -685,16 +685,16 @@ class FeishuChannel(BaseChannel):
             while len(self._processed_message_ids) > FEISHU_PROCESSED_IDS_MAX:
                 self._processed_message_ids.popitem(last=False)
 
-            sender_type = getattr(sender, "sender_type", "") or ""
-            if sender_type == "bot":
-                return
-
             sender_id_obj = getattr(sender, "sender_id", None)
             sender_id = ""
             if sender_id_obj and getattr(sender_id_obj, "open_id", None):
                 sender_id = str(getattr(sender_id_obj, "open_id", "")).strip()
             if not sender_id:
                 sender_id = f"unknown_{message_id[:8]}"
+
+            sender_type = getattr(sender, "sender_type", "") or ""
+            if sender_type == "bot" and sender_id == self._bot_open_id:
+                return
 
             nickname = (
                 getattr(sender, "name", None)

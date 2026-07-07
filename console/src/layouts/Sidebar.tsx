@@ -28,6 +28,10 @@ import SidebarSettingsPanel from "./SidebarSettingsPanel";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import api from "../api";
+import {
+  syncSessionsGlobal,
+  type ExtendedSession,
+} from "../stores/sessionListStore";
 import { useCodingMode } from "../stores/codingModeStore";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
 import { buildSessionPath, getSessionIdFromPath } from "../utils/sessionRoute";
@@ -218,6 +222,33 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     return () => window.clearInterval(timer);
   }, []);
 
+  // ── Pre-fetch sessions on mount ───────────────────────────────────────────
+  // On mobile the sidebar starts collapsed so SidebarSessionList is unmounted
+  // and never fetches.  When the user expands the sidebar the list mounts fresh
+  // but the Zustand store may still be empty (ChatSessionInitializer may not
+  // have synced yet).  Proactively fetch sessions into the store so the data
+  // is ready the moment the user expands.  Fire on mount regardless of
+  // sidebar mode (the default "full" mode also benefits from this).
+  // Uses sessionApi.getSessionList() instead of raw api.listChats() to ensure
+  // the same data processing pipeline (dedup, realId, generating state) as
+  // the desktop ChatSessionDrawer.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await sessionApi.getSessionList();
+        if (!cancelled && list.length > 0) {
+          syncSessionsGlobal(list as ExtendedSession[]);
+        }
+      } catch {
+        // Best-effort: let SidebarSessionList retry on its own.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // ── Adapter: convert MenuItem trees to antd, with inbox badge decoration.
 
   /** Wrap the inbox label with the unread-Badge while keeping all other labels intact. */
@@ -395,7 +426,9 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   // `renderIcon` retained for tree-shaking awareness.
   void renderIcon;
 
-  const isSimpleExpanded = sidebarMode === "simple" && !collapsed;
+  // On mobile, the expanded sidebar shows sessions (like simple mode) instead
+  // of the full menu — matching the desktop history panel UX.
+  const isSimpleExpanded = (sidebarMode === "simple" || isMobile) && !collapsed;
 
   return (
     <Sider

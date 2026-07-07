@@ -217,23 +217,23 @@ docker run -p 127.0.0.1:8088:8088 \
 
 - ✅ **零配置**：下载后双击即可运行，无需安装 Python 或配置环境变量
 - ✅ **跨平台**：支持 Windows 10+ 和 macOS 14+ (推荐 Apple Silicon)
-- ✅ **可视化**：自动打开浏览器界面，无需手动输入地址
+- ✅ **可视化**：自动打开应用界面，无需手动输入地址
 
 ### 下载与使用
 
 1. **下载安装包**
-   前往 [GitHub Releases](https://github.com/agentscope-ai/QwenPaw/releases) 下载对应系统的版本：
+   前往 [GitHub Releases](https://github.com/agentscope-ai/QwenPaw/releases) 下载对应系统的 Tauri 版本：
 
-   - Windows: `QwenPaw-Setup-<version>.exe`
-   - macOS: `QwenPaw-<version>-macOS.zip`
+   - Windows: `QwenPaw-Tauri-<version>-Windows-setup.exe`
+   - macOS: `QwenPaw-Tauri-<version>-macOS.zip`
 
 2. **安装并启动**
 
    - **Windows**: 双击 `.exe` 文件按向导安装，完成后双击桌面快捷方式启动
-   - **macOS**: 解压 `.zip` 得到 `QwenPaw.app`，首次需右键选择"打开"以绕过系统安全限制
+   - **macOS**: 解压 `.zip` 得到 `QwenPaw Desktop.app`，首次需右键选择"打开"以绕过系统安全限制
 
 3. **首次启动提示**
-   首次启动可能需要 10-60 秒（取决于系统配置），应用需要初始化 Python 环境和加载依赖，请耐心等待浏览器窗口自动打开。
+   首次启动可能需要 10-60 秒（取决于系统配置），应用需要初始化 Python 环境和加载依赖，请耐心等待窗口自动打开。
 
 ### 完整使用指南
 

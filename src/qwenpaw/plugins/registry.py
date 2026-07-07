@@ -93,6 +93,18 @@ class MiddlewareRegistration:
 
 
 @dataclass
+class ChannelRegistration:
+    """Channel registration record from a plugin."""
+
+    plugin_id: str
+    channel_key: str
+    channel_class: Type
+    label: str = ""
+    description: str = ""
+    config_fields: List[Dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
 class HttpRouterRegistration:
     """HTTP routes contributed by a backend plugin under ``/api``."""
 
@@ -141,6 +153,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._uninstall_hooks: List[HookRegistration] = []
         self._workspace_created_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
+        self._channels: Dict[str, ChannelRegistration] = {}
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
         self._middleware_registrations: List[MiddlewareRegistration] = []
@@ -149,6 +162,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._http_prefix_to_plugin: Dict[str, str] = {}
         self._prompt_sections: List[PromptSectionRegistration] = []
         self._prompt_section_names: set = set()
+        self._workspace_manager: Optional[Any] = None
 
         self._initialized = True
 
@@ -384,6 +398,74 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             RuntimeHelpers instance or None
         """
         return self._runtime_helpers
+
+    def set_workspace_manager(self, manager) -> None:
+        """Set the workspace manager reference.
+
+        Called once during app lifespan startup so plugins can
+        access workspace instances for registration.
+
+        Args:
+            manager: MultiAgentManager / WorkspaceRegistry instance
+        """
+        self._workspace_manager = manager
+
+    def get_workspace_manager(self):
+        """Get the workspace manager.
+
+        Returns:
+            MultiAgentManager instance or None
+        """
+        return self._workspace_manager
+
+    @classmethod
+    def get_stop_handlers(
+        cls,
+        agent_id: "str | None" = None,
+    ) -> list:
+        """Collect stop handlers.
+
+        Args:
+            agent_id: If provided, only return handlers
+                registered on that workspace. Otherwise
+                return handlers from all workspaces.
+
+        Returns:
+            List of StopHandlerRegistration objects.
+        """
+        inst = cls._instance
+        if inst is None:
+            return []
+        mgr = inst.get_workspace_manager()
+        if mgr is None:
+            return []
+        workspaces = getattr(
+            mgr,
+            "agents",
+            getattr(mgr, "workspaces", {}),
+        )
+        if agent_id is not None:
+            ws = workspaces.get(agent_id)
+            if ws is None:
+                return []
+            plugins = getattr(ws, "plugins", None)
+            if plugins is None:
+                return []
+            return list(
+                getattr(plugins, "stop_handlers", []),
+            )
+        handlers: list = []
+        for ws in workspaces.values():
+            plugins = getattr(ws, "plugins", None)
+            if plugins is None:
+                continue
+            ws_handlers = getattr(
+                plugins,
+                "stop_handlers",
+                [],
+            )
+            handlers.extend(ws_handlers)
+        return handlers
 
     def register_startup_hook(
         self,
@@ -662,6 +744,144 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._control_commands.copy()
 
+    def register_channel(
+        self,
+        plugin_id: str,
+        channel_key: str,
+        channel_class: Type,
+        label: str = "",
+        description: str = "",
+        config_fields: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        """Register a custom channel from a plugin.
+
+        Args:
+            plugin_id: Owning plugin id.
+            channel_key: Unique channel identifier (e.g. "slack").
+            channel_class: Channel class (must be a BaseChannel subclass).
+            label: Human-readable display name for the channel.
+            description: Short description shown in the UI.
+            config_fields: List of configuration field descriptors for
+                the frontend form. Each dict should have at least
+                ``name``, ``label``, ``type`` keys. Supported types:
+                text, password, number, switch, select.
+
+        Raises:
+            ValueError: If channel_key is already registered or invalid.
+            TypeError: If channel_class is not a BaseChannel subclass.
+        """
+        from ..app.channels.base import BaseChannel
+        from ..app.channels.registry import BUILTIN_CHANNEL_KEYS
+
+        if not channel_key or not channel_key.strip():
+            raise ValueError("channel_key must be a non-empty string")
+
+        normalized_key = channel_key.strip().lower()
+
+        if normalized_key != channel_key:
+            logger.warning(
+                "Channel key %r is not normalized (lowercase, no "
+                "spaces); auto-normalizing to %r. Please update "
+                "the channel class attribute to match.",
+                channel_key,
+                normalized_key,
+            )
+            setattr(channel_class, "channel", normalized_key)
+
+        # Validate config_fields structure
+        required_field_keys = {"name", "label", "type"}
+        valid_field_types = {"text", "password", "number", "switch", "select"}
+        for field_def in config_fields or []:
+            missing = required_field_keys - field_def.keys()
+            if missing:
+                raise ValueError(
+                    f"config_field missing required keys: {missing}",
+                )
+            if field_def["type"] not in valid_field_types:
+                raise ValueError(
+                    f"unsupported config_field type: {field_def['type']}; "
+                    f"must be one of {valid_field_types}",
+                )
+
+        # Prevent overriding built-in channels
+        if normalized_key in BUILTIN_CHANNEL_KEYS:
+            raise ValueError(
+                f"Channel '{normalized_key}' conflicts with a built-in "
+                f"channel and cannot be registered by a plugin",
+            )
+
+        if normalized_key in self._channels:
+            owner = self._channels[normalized_key].plugin_id
+            raise ValueError(
+                f"Channel '{normalized_key}' is already registered "
+                f"by plugin '{owner}'",
+            )
+
+        if not (
+            isinstance(channel_class, type)
+            and issubclass(channel_class, BaseChannel)
+            and channel_class is not BaseChannel
+        ):
+            raise TypeError(
+                f"channel_class must be a concrete BaseChannel subclass, "
+                f"got {channel_class!r}",
+            )
+
+        self._channels[normalized_key] = ChannelRegistration(
+            plugin_id=plugin_id,
+            channel_key=normalized_key,
+            channel_class=channel_class,
+            label=label or normalized_key,
+            description=description,
+            config_fields=config_fields or [],
+        )
+        logger.info(
+            f"Registered channel '{normalized_key}' from plugin "
+            f"'{plugin_id}'",
+        )
+
+    def get_registered_channels(self) -> Dict[str, ChannelRegistration]:
+        """Get all plugin-registered channels.
+
+        Returns:
+            Dictionary of channel_key -> ChannelRegistration.
+        """
+        return self._channels.copy()
+
+    def get_channel_registration(
+        self,
+        channel_key: str,
+    ) -> Optional[ChannelRegistration]:
+        """Get a single channel registration by key.
+
+        Args:
+            channel_key: Channel identifier.
+
+        Returns:
+            ChannelRegistration or None.
+        """
+        return self._channels.get(channel_key)
+
+    def _unregister_plugin_channels(self, plugin_id: str) -> None:
+        """Remove all channels registered by a plugin (used on unload).
+
+        Note: This only removes the registration from the registry.
+        Already-instantiated channel instances in ChannelManager are
+        cleaned up when the workspace triggers a config reload
+        (schedule_agent_reload), which rebuilds the ChannelManager.
+        """
+        to_remove = [
+            key
+            for key, reg in self._channels.items()
+            if reg.plugin_id == plugin_id
+        ]
+        for key in to_remove:
+            del self._channels[key]
+            logger.info(
+                f"Unregistered channel '{key}' (plugin '{plugin_id}' "
+                f"unloaded)",
+            )
+
     def register_plugin_manifest(
         self,
         plugin_id: str,
@@ -701,7 +921,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
     def unregister_plugin(self, plugin_id: str) -> None:
         """Remove all in-memory registrations for a plugin.
 
-        Clears manifest, providers, hooks, and control commands
+        Clears manifest, providers, hooks, channels, and control commands
         that were registered under the given plugin_id.  Does not
         touch disk or agent configurations.
 
@@ -709,6 +929,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             plugin_id: Plugin identifier to remove
         """
         self._unregister_plugin_http_routes(plugin_id)
+        self._unregister_plugin_channels(plugin_id)
 
         self._plugin_manifests.pop(plugin_id, None)
 
