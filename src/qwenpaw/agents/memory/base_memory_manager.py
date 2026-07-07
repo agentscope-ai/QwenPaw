@@ -27,6 +27,7 @@ from ..utils.registry import Registry
 
 logger = logging.getLogger(__name__)
 AUTO_MEMORY_TURN_STATE_TTL_SECONDS = 24 * 60 * 60
+MAX_QUERY_CHARS = 50
 
 
 class BaseMemoryManager(ABC):
@@ -294,7 +295,7 @@ class BaseMemoryManager(ABC):
                 continue
             text = (msg.get_text_content() or "").strip()
             if text:
-                return text
+                return text[:MAX_QUERY_CHARS]
         return ""
 
     async def auto_memory(

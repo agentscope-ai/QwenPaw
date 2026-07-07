@@ -12,6 +12,7 @@ from typing import Any
 
 from qwenpaw.config.config import AgentProfileConfig, EmbeddingModelConfig
 
+# Keep in sync with ReMeLightMemoryCard.tsx OPENAI_COMPAT_EMBEDDING_BACKENDS.
 _OPENAI_COMPAT_EMBEDDING_BACKENDS = {
     "openai",
     "dashscope",
