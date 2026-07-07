@@ -7,6 +7,7 @@ Covers: append_event, list_events filters/pagination, mark_read,
 mark_all_read, delete_event (incl. run_id reference tracking), and the
 5000-event cap.
 """
+
 from __future__ import annotations
 
 import json

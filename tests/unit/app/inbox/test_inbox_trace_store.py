@@ -10,6 +10,7 @@ parse_session_timestamp, read_session_messages (with a fake runner),
 append_trace_from_session_delta (baseline→delta calc), finalize_trace,
 get_trace, delete_trace, and low-level _to_jsonable / _read_trace edges.
 """
+
 from __future__ import annotations
 
 import json
