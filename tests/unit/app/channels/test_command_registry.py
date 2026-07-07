@@ -127,7 +127,7 @@ class TestLookupAndConflictResolution:
         assert registry.get_priority_level("") == 20
 
     def test_none_query_returns_default(self, registry: CommandRegistry):
-        assert registry.get_priority_level(None) == 20  # type: ignore[arg-type]
+        assert registry.get_priority_level(None) == 20  # noqa
 
     def test_non_string_query_returns_default(
         self,
