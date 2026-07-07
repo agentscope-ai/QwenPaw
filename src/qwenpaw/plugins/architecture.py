@@ -90,7 +90,7 @@ def _infer_type_from_meta(  # pylint: disable=too-many-return-statements
         return PluginType.HOOK
     if meta.get("command_name") or meta.get("commands"):
         return PluginType.COMMAND
-    if meta.get("channel_key") or meta.get("channel"):
+    if meta.get("channel"):
         return PluginType.CHANNEL
     if entry.frontend:
         return PluginType.FRONTEND

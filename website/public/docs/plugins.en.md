@@ -1445,9 +1445,9 @@ mkdir sample-channel-plugin && cd sample-channel-plugin
     "backend": "plugin.py"
   },
   "dependencies": ["sample-sdk>=1.0.0"],
-  "min_version": "1.1.5",
-  "meta": {
-    "channel_key": "sample"
+  "qwenpaw_version": {
+    "min": "1.1.5",
+    "max": "2.1.0"
   }
 }
 ```

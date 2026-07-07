@@ -778,6 +778,16 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
 
         normalized_key = channel_key.strip().lower()
 
+        if normalized_key != channel_key:
+            logger.warning(
+                "Channel key %r is not normalized (lowercase, no "
+                "spaces); auto-normalizing to %r. Please update "
+                "the channel class attribute to match.",
+                channel_key,
+                normalized_key,
+            )
+            setattr(channel_class, "channel", normalized_key)
+
         # Validate config_fields structure
         required_field_keys = {"name", "label", "type"}
         valid_field_types = {"text", "password", "number", "switch", "select"}
