@@ -2205,6 +2205,7 @@
       "descriptions": {
         "TOOL_CMD_DANGEROUS_RM": "检测可能导致数据丢失的 rm 命令",
         "TOOL_CMD_DANGEROUS_MV": "检测可能意外移动或覆盖文件的 mv 命令",
+        "TOOL_CMD_FIND_DELETE": "检测可能导致数据丢失的 find -delete 命令",
         "TOOL_CMD_FS_DESTRUCTION": "检测低级别磁盘格式化或擦除命令",
         "TOOL_CMD_DOS_FORK_BOMB": "检测经典 Bash Fork 炸弹和批量进程终止",
         "TOOL_CMD_PIPE_TO_SHELL": "检测通过 'curl | bash' 模式下载并立即执行远程载荷的行为",
