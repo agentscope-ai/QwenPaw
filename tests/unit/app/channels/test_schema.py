@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """Unit tests for qwenpaw.app.channels.schema."""
+
 from __future__ import annotations
+
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import
 
 import pytest
 
@@ -37,15 +40,11 @@ class TestChannelAddress:
         assert addr.to_handle() == "discord:ch:999"
 
     def test_to_handle_extra_without_to_handle_key(self):
-        addr = ChannelAddress(
-            kind="dm", id="u1", extra={"foo": "bar"}
-        )
+        addr = ChannelAddress(kind="dm", id="u1", extra={"foo": "bar"})
         assert addr.to_handle() == "dm:u1"
 
     def test_to_handle_extra_to_handle_non_string(self):
-        addr = ChannelAddress(
-            kind="dm", id="u1", extra={"to_handle": 42}
-        )
+        addr = ChannelAddress(kind="dm", id="u1", extra={"to_handle": 42})
         assert addr.to_handle() == "42"
 
     def test_to_handle_empty_id(self):

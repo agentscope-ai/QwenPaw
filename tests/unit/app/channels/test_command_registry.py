@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """Unit tests for qwenpaw.app.channels.command_registry."""
+
 from __future__ import annotations
+
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import
 
 import pytest
 

@@ -9,7 +9,10 @@ Covers:
   BaseChannel._on_stream_content_delta). The streaming logic lives in
   BaseChannel, exercised here through ConsoleChannel which inherits it.
 """
+
 from __future__ import annotations
+
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import
 
 import asyncio
 import os
@@ -38,7 +41,6 @@ from qwenpaw.schemas import (
     TextContent,
     VideoContent,
 )
-
 
 # ---------------------------------------------------------------------------
 # Style helpers
@@ -145,9 +147,7 @@ class TestMessageToParts:
         )
         parts = r.message_to_parts(msg)
         texts = [p for p in parts if getattr(p, "type", None) == ContentType.TEXT]
-        refusals = [
-            p for p in parts if getattr(p, "type", None) == ContentType.REFUSAL
-        ]
+        refusals = [p for p in parts if getattr(p, "type", None) == ContentType.REFUSAL]
         assert len(refusals) == 1
         assert refusals[0].refusal == "no"
 
@@ -162,33 +162,25 @@ class TestMessageToParts:
         r = MessageRenderer()
         msg = _mk_message([ImageContent(image_url="http://x/a.png")])
         parts = r.message_to_parts(msg)
-        assert any(
-            getattr(p, "type", None) == ContentType.IMAGE for p in parts
-        )
+        assert any(getattr(p, "type", None) == ContentType.IMAGE for p in parts)
 
     def test_video_content_passthrough(self):
         r = MessageRenderer()
         msg = _mk_message([VideoContent(video_url="http://x/v.mp4")])
         parts = r.message_to_parts(msg)
-        assert any(
-            getattr(p, "type", None) == ContentType.VIDEO for p in parts
-        )
+        assert any(getattr(p, "type", None) == ContentType.VIDEO for p in parts)
 
     def test_audio_content_passthrough(self):
         r = MessageRenderer()
         msg = _mk_message([AudioContent(data="http://x/a.mp3")])
         parts = r.message_to_parts(msg)
-        assert any(
-            getattr(p, "type", None) == ContentType.AUDIO for p in parts
-        )
+        assert any(getattr(p, "type", None) == ContentType.AUDIO for p in parts)
 
     def test_file_content_passthrough(self):
         r = MessageRenderer()
         msg = _mk_message([FileContent(file_url="http://x/f.txt")])
         parts = r.message_to_parts(msg)
-        assert any(
-            getattr(p, "type", None) == ContentType.FILE for p in parts
-        )
+        assert any(getattr(p, "type", None) == ContentType.FILE for p in parts)
 
     def test_filter_thinking_drops_reasoning(self):
         r = MessageRenderer(RenderStyle(filter_thinking=True))
@@ -258,6 +250,7 @@ class TestPartsToText:
 # We spawn ConsoleChannel with a tmp work dir; streaming logic is on
 # BaseChannel and inherited. Override async hooks to capture segment
 # boundaries.
+
 
 @pytest.fixture
 def streaming_channel(tmp_path):
@@ -498,15 +491,21 @@ class TestStreamingChunkSplitting:
 
         # First segment, index 0
         await streaming_channel._on_stream_content_delta(
-            req, "u",
+            req,
+            "u",
             SimpleNamespace(delta=True, msg_id="m1", index=0, text="a"),
-            send_meta, msg_id_to_stream_type, buffers,
+            send_meta,
+            msg_id_to_stream_type,
+            buffers,
         )
         # Move to index 1 → triggers split
         await streaming_channel._on_stream_content_delta(
-            req, "u",
+            req,
+            "u",
             SimpleNamespace(delta=True, msg_id="m1", index=1, text="b"),
-            send_meta, msg_id_to_stream_type, buffers,
+            send_meta,
+            msg_id_to_stream_type,
+            buffers,
         )
         ends_after_first_split = len(streaming_channel.end_calls)
 
@@ -515,9 +514,12 @@ class TestStreamingChunkSplitting:
         # split fires only when buffer is non-empty.
         # Move to index 0 → should split again (buffer "b" non-empty)
         await streaming_channel._on_stream_content_delta(
-            req, "u",
+            req,
+            "u",
             SimpleNamespace(delta=True, msg_id="m1", index=0, text="c"),
-            send_meta, msg_id_to_stream_type, buffers,
+            send_meta,
+            msg_id_to_stream_type,
+            buffers,
         )
         assert len(streaming_channel.end_calls) == ends_after_first_split + 1
         assert buffers["message"] == "c"

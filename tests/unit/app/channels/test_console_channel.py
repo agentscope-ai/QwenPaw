@@ -5,7 +5,10 @@ Focuses on the *local* ConsoleChannel helpers (start/stop/send, session
 resolution, parts rendering). Heavy streaming pipeline behavior is covered
 elsewhere; here we exercise pure helpers and async lifecycle methods.
 """
+
 from __future__ import annotations
+
+# pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import
 
 import asyncio
 from pathlib import Path
@@ -105,7 +108,10 @@ class TestPartsToText:
         console_channel.bot_prefix = "Bot:"
         parts = [TextContent(text="hello")]
         # meta carries bot_prefix → should override instance prefix
-        assert console_channel._parts_to_text(parts, {"bot_prefix": "Meta:"}) == "Meta:  hello"
+        assert (
+            console_channel._parts_to_text(parts, {"bot_prefix": "Meta:"})
+            == "Meta:  hello"
+        )
 
 
 # ---------------------------------------------------------------------------
