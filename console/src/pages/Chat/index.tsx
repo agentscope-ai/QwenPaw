@@ -57,6 +57,7 @@ import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
 import { applyApprovalLevelToRequestBody } from "./approvalPayload";
+import { LocalPathLinkifier } from "../../components/Chat/LocalPathLinks";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -3064,6 +3065,8 @@ export default function ChatPage() {
             key={refreshKey}
             options={options}
           />
+          {/* Post-processes rendered markdown to linkify local paths */}
+          <LocalPathLinkifier />
         </div>
 
         {/* Rate-limit guidance banner */}
