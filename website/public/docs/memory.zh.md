@@ -228,11 +228,11 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 
 向量检索只有在当前后端具备最低可运行配置时才会启用；这些条件与 AgentScope credential 要求保持一致：
 
-| 后端                                            | 启用条件                                                   | Credential 映射                           |
-| ----------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------- |
-| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` 和 `api_key` 均非空 | `api_key`；可选 `base_url` |
-| `gemini`                                        | `model_name` 和 `api_key` 均非空 | `api_key`                 |
-| `ollama`                                        | `model_name` 非空                    | 可选 `host`（来自 `base_url`） |
+| 后端                                            | 启用条件                         | Credential 映射                |
+| ----------------------------------------------- | -------------------------------- | ------------------------------ |
+| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` 和 `api_key` 均非空 | `api_key`；可选 `base_url`     |
+| `gemini`                                        | `model_name` 和 `api_key` 均非空 | `api_key`                      |
+| `ollama`                                        | `model_name` 非空                | 可选 `host`（来自 `base_url`） |
 
 ### 索引行为
 

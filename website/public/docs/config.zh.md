@@ -409,11 +409,11 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 向量检索只有在当前后端具备最低可运行配置时才会启用；这些条件与 AgentScope credential 要求保持一致：
 
-| 后端                                            | 启用条件                                                   | Credential 映射                           |
-| ----------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------- |
-| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` 和 `api_key` 均非空 | `api_key`；可选 `base_url` |
-| `gemini`                                        | `model_name` 和 `api_key` 均非空 | `api_key`                 |
-| `ollama`                                        | `model_name` 非空                    | 可选 `host`（来自 `base_url`） |
+| 后端                                            | 启用条件                         | Credential 映射                |
+| ----------------------------------------------- | -------------------------------- | ------------------------------ |
+| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` 和 `api_key` 均非空 | `api_key`；可选 `base_url`     |
+| `gemini`                                        | `model_name` 和 `api_key` 均非空 | `api_key`                      |
+| `ollama`                                        | `model_name` 非空                | 可选 `host`（来自 `base_url`） |
 
 不满足启用条件时，ReMe 仍会保留关键词索引和 wikilink 图谱索引，但不会启用 embedding 向量索引。
 

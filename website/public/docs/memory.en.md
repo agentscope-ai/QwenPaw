@@ -262,26 +262,26 @@ calls in the same tool loop until normal context management evicts them.
 
 Embedding configuration for vector semantic search, located in `running.reme_light_memory_config.embedding_model_config`:
 
-| Field              | Description                                                                                                  | Default  |
-| ------------------ | ------------------------------------------------------------------------------------------------------------ | -------- |
-| `backend`          | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`                    | `openai` |
-| `api_key`          | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends                       | ``       |
-| `base_url`         | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host               | ``       |
-| `model_name`       | Embedding model name                                                                                         | ``       |
-| `dimensions`       | Vector dimensions for initializing vector DB                                                                 | `1024`   |
-| `enable_cache`     | Whether to enable Embedding cache                                                                            | `true`   |
-| `use_dimensions`   | Whether to pass dimensions parameter in API                                                                  | `false`  |
-| `max_cache_size`   | Maximum Embedding cache entries                                                                              | `10000`  |
-| `max_input_length` | Maximum input length per Embedding request                                                                   | `8192`   |
-| `max_batch_size`   | Maximum batch size for Embedding requests                                                                    | `10`     |
+| Field              | Description                                                                                    | Default  |
+| ------------------ | ---------------------------------------------------------------------------------------------- | -------- |
+| `backend`          | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`      | `openai` |
+| `api_key`          | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends         | ``       |
+| `base_url`         | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host | ``       |
+| `model_name`       | Embedding model name                                                                           | ``       |
+| `dimensions`       | Vector dimensions for initializing vector DB                                                   | `1024`   |
+| `enable_cache`     | Whether to enable Embedding cache                                                              | `true`   |
+| `use_dimensions`   | Whether to pass dimensions parameter in API                                                    | `false`  |
+| `max_cache_size`   | Maximum Embedding cache entries                                                                | `10000`  |
+| `max_input_length` | Maximum input length per Embedding request                                                     | `8192`   |
+| `max_batch_size`   | Maximum batch size for Embedding requests                                                      | `10`     |
 
 > `use_dimensions` is for cases where some vLLM models don't support the dimensions parameter. Set to `false` to skip it.
 
 Vector retrieval is enabled only when the selected backend has the minimum runnable configuration. These conditions are aligned with AgentScope credential requirements:
 
-| Backend                                         | Enable condition                                                           | Credential mapping                              |
-| ----------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------- |
-| `openai` / `dashscope` / `dashscope_multimodal` | Both `model_name` and `api_key` are non-empty | `api_key`; optional `base_url`   |
+| Backend                                         | Enable condition                              | Credential mapping              |
+| ----------------------------------------------- | --------------------------------------------- | ------------------------------- |
+| `openai` / `dashscope` / `dashscope_multimodal` | Both `model_name` and `api_key` are non-empty | `api_key`; optional `base_url`  |
 | `gemini`                                        | Both `model_name` and `api_key` are non-empty | `api_key`                       |
 | `ollama`                                        | `model_name` is non-empty                     | optional `host` from `base_url` |
 
