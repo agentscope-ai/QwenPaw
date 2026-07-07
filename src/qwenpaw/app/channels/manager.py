@@ -35,6 +35,10 @@ OnLastDispatch = Optional[Callable[[str, str, str], None]]
 # Default max size per channel queue
 _CHANNEL_QUEUE_MAXSIZE = 1000
 
+# Hard cap for one per-session batch. This keeps a hung LLM/tool call from
+# blocking all later messages in the same queue indefinitely.
+_PROCESS_BATCH_TIMEOUT_S = 300.0
+
 
 async def _process_batch(ch: BaseChannel, batch: List[Any]) -> None:
     """Merge if needed and process one payload (native or request)."""
@@ -438,8 +442,24 @@ class ChannelManager:
                     except asyncio.QueueEmpty:
                         break
 
-                # Process batch (with merge logic)
-                await _process_batch(ch, batch)
+                # Process batch (with merge logic). A stuck LLM/tool call
+                # must not block this per-session queue forever.
+                try:
+                    await asyncio.wait_for(
+                        _process_batch(ch, batch),
+                        timeout=_PROCESS_BATCH_TIMEOUT_S,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "Consumer batch timeout after %.1fs: "
+                        "channel=%s session=%s priority=%s batch_size=%s",
+                        _PROCESS_BATCH_TIMEOUT_S,
+                        channel_id,
+                        session_id[:30],
+                        priority_level,
+                        len(batch),
+                    )
+                    continue
 
                 # Update processed count
                 if self._queue_manager is not None:
