@@ -106,11 +106,15 @@ def _get_openai_retryable() -> tuple[type[Exception], ...]:
         try:
             import openai
 
-            _openai_retryable = (
-                openai.RateLimitError,
-                openai.APITimeoutError,
-                openai.APIConnectionError,
-                openai.InternalServerError,
+            _openai_retryable = tuple(
+                cls
+                for cls in (
+                    openai.RateLimitError,
+                    openai.APITimeoutError,
+                    openai.APIConnectionError,
+                    getattr(openai, "InternalServerError", None),
+                )
+                if cls is not None
             )
         except ImportError:
             _openai_retryable = ()

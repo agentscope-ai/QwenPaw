@@ -8,6 +8,7 @@ from typing import Any, AsyncGenerator, cast
 import pytest
 
 from qwenpaw.providers.model_capability_cache import get_capability_cache
+from qwenpaw.providers.rate_limiter import _limiters
 from qwenpaw.providers.retry_chat_model import (
     RETRYABLE_STATUS_CODES,
     RetryChatModel,
@@ -116,19 +117,47 @@ def test_is_retryable_streaming_openai_api_error_with_body_status() -> None:
         request=None,
         body=body,
     )
-    assert getattr(exc, "status_code", None) is None
+    assert _is_retryable(exc) is True
+
+
+def test_is_retryable_streaming_openai_api_error_504_timeout() -> None:
+    openai = pytest.importorskip("openai")
+
+    body = {
+        "error": {
+            "message": "Request timeout: WriteTimeout",
+            "type": "timeout_error",
+            "code": 504,
+            "request_id": "1408263304014e1c90a09e1990d79c0a",
+        },
+        "status_code": 504,
+    }
+    exc = openai.APIError(
+        'API错误(504): {"error": {...}, "status_code": 504}',
+        request=None,
+        body=body,
+    )
+    assert _extract_status_code(exc) == 504
     assert _is_retryable(exc) is True
 
 
 def test_is_retryable_openai_internal_server_error() -> None:
     openai = pytest.importorskip("openai")
     httpx = pytest.importorskip("httpx")
+    internal_server_error = getattr(openai, "InternalServerError", None)
+    if internal_server_error is None:
+        pytest.skip("openai.InternalServerError unavailable")
+    assert internal_server_error is not None
 
     response = httpx.Response(
         502,
         request=httpx.Request("POST", "http://example.com/v1/chat"),
     )
-    exc = openai.InternalServerError("bad gateway", response=response, body=None)
+    exc = internal_server_error(
+        "bad gateway",
+        response=response,
+        body=None,
+    )
     assert _is_retryable(exc) is True
 
 
@@ -173,30 +202,35 @@ class _TransientStreamRetryModel:
 
 @pytest.mark.asyncio
 async def test_stream_retries_transient_openai_api_error() -> None:
-    inner = _TransientStreamRetryModel()
-    model = RetryChatModel(
-        inner,  # type: ignore[arg-type]
-        retry_config=RetryConfig(
-            enabled=True,
-            max_retries=2,
-            backoff_base=0.01,
-            backoff_cap=0.01,
-        ),
-        rate_limit_config=RateLimitConfig(
-            max_concurrent=1,
-            max_qpm=0,
-            pause_seconds=1.0,
-            jitter_range=0.0,
-            acquire_timeout=10.0,
-        ),
-    )
+    pytest.importorskip("openai")
+    _limiters.clear()
+    try:
+        inner = _TransientStreamRetryModel()
+        model = RetryChatModel(
+            inner,  # type: ignore[arg-type]
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=2,
+                backoff_base=0.01,
+                backoff_cap=0.01,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+        )
 
-    result = await model(messages=[{"role": "user", "content": "hi"}])
-    stream = cast(AsyncGenerator[Any, None], result)
-    chunks = [chunk async for chunk in stream]
+        result = await model(messages=[{"role": "user", "content": "hi"}])
+        stream = cast(AsyncGenerator[Any, None], result)
+        chunks = [chunk async for chunk in stream]
 
-    assert [chunk.content for chunk in chunks] == ["partial", "ok"]
-    assert inner.calls == 2
+        assert [chunk.content for chunk in chunks] == ["partial", "ok"]
+        assert inner.calls == 2
+    finally:
+        _limiters.clear()
 
 
 # ---------------------------------------------------------------------------
