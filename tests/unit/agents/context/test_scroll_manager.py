@@ -100,6 +100,22 @@ class FakeAgent:
         return (self.state.context[:-1], self.state.context[-1:])
 
 
+class AutoMemoryMsgBuilder(BaseMemoryManager):
+    """Concrete memory manager used only to build synthetic memory messages."""
+
+    async def start(self) -> None:
+        pass
+
+    async def close(self) -> bool:
+        return True
+
+    def get_memory_prompt(self) -> str:
+        return ""
+
+    def list_memory_tools(self) -> list:
+        return []
+
+
 @pytest.fixture
 def store(tmp_path: Path) -> HistoryStore:
     h = HistoryStore(tmp_path / "history.db")
@@ -111,6 +127,17 @@ def make_manager(store: HistoryStore, **kw) -> ScrollContextManager:
     kw.setdefault("session_id", "s1")
     kw.setdefault("agent_id", "ag1")
     return ScrollContextManager(history=store, **kw)
+
+
+def auto_memory_search_msg(*, query: str, max_results: int, text: str) -> Msg:
+    return AutoMemoryMsgBuilder(
+        working_dir="",
+        agent_id="ag1",
+    )._build_auto_memory_search_msg(
+        query=query,
+        max_results=max_results,
+        text=text,
+    )
 
 
 # -- write-through dedup -----------------------------------------------------
@@ -150,7 +177,7 @@ def test_tool_result_persisted_under_tool_call_id(store: HistoryStore):
 def test_auto_memory_search_message_not_persisted(store: HistoryStore):
     """Auto-search context is live-only and must not pollute history.db."""
     mgr = make_manager(store)
-    auto_msg = BaseMemoryManager._build_auto_memory_search_msg(
+    auto_msg = auto_memory_search_msg(
         query="deploy plan",
         max_results=2,
         text="remembered deployment notes",

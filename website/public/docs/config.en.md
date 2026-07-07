@@ -444,8 +444,8 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | Field              | Type   | Default    | Description                                                                                              |
 | ------------------ | ------ | ---------- | -------------------------------------------------------------------------------------------------------- |
 | `backend`          | string | `"openai"` | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`                |
-| `api_key`          | string | `""`       | API key for the embedding provider. Required for Gemini; usually required for OpenAI-compatible backends |
-| `base_url`         | string | `""`       | Custom API URL. For Ollama, this is passed as the host; when empty, the default local service is used    |
+| `api_key`          | string | `""`       | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends                  |
+| `base_url`         | string | `""`       | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host          |
 | `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`)                                                  |
 | `dimensions`       | int    | `1024`     | Embedding vector dimensions                                                                              |
 | `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                                                                        |
@@ -454,13 +454,13 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `max_input_length` | int    | `8192`     | Maximum input length for embeddings                                                                      |
 | `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                                                                  |
 
-Vector retrieval is enabled only when the selected backend has the minimum runnable configuration:
+Vector retrieval is enabled only when the selected backend has the minimum runnable configuration. These conditions are aligned with AgentScope credential requirements:
 
 | Backend                                         | Enable condition                                                           | Credential mapping                              |
 | ----------------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------- |
-| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` is non-empty, and either `api_key` or `base_url` is non-empty | `api_key`, `base_url`                           |
-| `gemini`                                        | Both `model_name` and `api_key` are non-empty                              | `api_key`                                       |
-| `ollama`                                        | `model_name` is non-empty                                                  | `host` from `base_url`; default host when empty |
+| `openai` / `dashscope` / `dashscope_multimodal` | Both `model_name` and `api_key` are non-empty | `api_key`; optional `base_url`                  |
+| `gemini`                                        | Both `model_name` and `api_key` are non-empty | `api_key`                                      |
+| `ollama`                                        | `model_name` is non-empty                     | optional `host` from `base_url`                |
 
 When the enable condition is not met, ReMe still keeps keyword indexes and wikilink graph indexes, but the embedding vector index is disabled.
 
@@ -682,17 +682,11 @@ Memory files are stored in the agent workspace:
 
 ### Embedding Configuration
 
-Memory search relies on vector embeddings for semantic retrieval. Configuration priority: **config file > env var > default**.
+Memory search relies on vector embeddings for semantic retrieval.
 
-Recommended to configure in `agent.json` under `running.reme_light_memory_config.embedding_model_config`, which supports more parameters (e.g., `use_dimensions`). Environment variables serve as fallback only:
+Configure embeddings in `agent.json` under `running.reme_light_memory_config.embedding_model_config`, which supports backend selection and parameters such as `use_dimensions`:
 
-| Variable (Fallback)    | Description                       | Default |
-| ---------------------- | --------------------------------- | ------- |
-| `EMBEDDING_API_KEY`    | API key for the embedding service | ``      |
-| `EMBEDDING_BASE_URL`   | Embedding service URL             | ``      |
-| `EMBEDDING_MODEL_NAME` | Embedding model name              | ``      |
-
-> The exact vector-search enable condition depends on `embedding_model_config.backend`: OpenAI-compatible backends use `model_name` plus `api_key` or `base_url`; Gemini uses `model_name` plus `api_key`; Ollama only requires `model_name`. See [Memory](./memory#embedding-configuration-optional) for full configuration details.
+> The vector-search enable condition is aligned with AgentScope credential requirements: OpenAI-compatible and Gemini backends require `model_name` plus `api_key`; Ollama only requires `model_name`. `base_url` is optional for OpenAI-compatible endpoints and is used as Ollama `host` when set. See [Memory](./memory#embedding-configuration-optional) for full configuration details.
 
 ---
 

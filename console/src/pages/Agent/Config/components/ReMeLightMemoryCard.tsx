@@ -29,13 +29,13 @@ function isEmbeddingEnabled(
   backend: string,
   modelName?: string,
   apiKey?: string,
-  baseUrl?: string,
 ) {
   if (!modelName?.trim()) {
     return false;
   }
+  // Keep enablement aligned with AgentScope credential requirements.
   if (OPENAI_COMPAT_EMBEDDING_BACKENDS.has(backend)) {
-    return !!(apiKey?.trim() || baseUrl?.trim());
+    return !!apiKey?.trim();
   }
   if (backend === "gemini") {
     return !!apiKey?.trim();
@@ -52,11 +52,6 @@ export function ReMeLightMemoryCard() {
       "embedding_model_config",
       "backend",
     ]) || "openai";
-  const baseUrl = Form.useWatch([
-    "reme_light_memory_config",
-    "embedding_model_config",
-    "base_url",
-  ]);
   const apiKey = Form.useWatch([
     "reme_light_memory_config",
     "embedding_model_config",
@@ -75,7 +70,6 @@ export function ReMeLightMemoryCard() {
     normalizedBackend,
     modelName,
     apiKey,
-    baseUrl,
   );
 
   return (

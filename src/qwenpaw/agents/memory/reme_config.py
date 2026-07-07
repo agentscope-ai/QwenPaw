@@ -666,12 +666,10 @@ def _is_embedding_enabled(embedding_config: EmbeddingModelConfig) -> bool:
     if not embedding_config.model_name.strip():
         return False
 
+    # Keep enablement aligned with AgentScope credential requirements.
     backend = embedding_config.backend
     if backend in _OPENAI_COMPAT_EMBEDDING_BACKENDS:
-        return bool(
-            embedding_config.api_key.strip()
-            or embedding_config.base_url.strip(),
-        )
+        return bool(embedding_config.api_key.strip())
     if backend == "gemini":
         return bool(embedding_config.api_key.strip())
     if backend == "ollama":
@@ -681,18 +679,20 @@ def _is_embedding_enabled(embedding_config: EmbeddingModelConfig) -> bool:
 
 def _embedding_credential(
     embedding_config: EmbeddingModelConfig,
-) -> dict[str, str | None]:
+) -> dict[str, str]:
     """Build the AgentScope credential payload for the selected backend."""
     backend = embedding_config.backend
     if backend in _OPENAI_COMPAT_EMBEDDING_BACKENDS:
-        return {
-            "api_key": embedding_config.api_key,
-            "base_url": embedding_config.base_url,
-        }
+        credential = {"api_key": embedding_config.api_key}
+        if embedding_config.base_url.strip():
+            credential["base_url"] = embedding_config.base_url.strip()
+        return credential
     if backend == "gemini":
         return {"api_key": embedding_config.api_key}
     if backend == "ollama":
-        return {"host": embedding_config.base_url.strip() or None}
+        if embedding_config.base_url.strip():
+            return {"host": embedding_config.base_url.strip()}
+        return {}
     return {}
 
 

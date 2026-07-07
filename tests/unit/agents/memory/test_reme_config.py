@@ -26,11 +26,24 @@ def _config_for_embedding(embedding: EmbeddingModelConfig) -> dict:
     )
 
 
-def test_openai_compatible_embedding_keeps_base_url_credential() -> None:
+def test_openai_compatible_embedding_requires_api_key() -> None:
     cfg = _config_for_embedding(
         EmbeddingModelConfig(
             backend="openai",
             api_key="",
+            base_url="http://localhost:1234/v1",
+            model_name="local-embedding",
+        ),
+    )
+
+    assert cfg["components"]["file_store"]["default"]["embedding_store"] == ""
+
+
+def test_openai_compatible_embedding_keeps_base_url_credential() -> None:
+    cfg = _config_for_embedding(
+        EmbeddingModelConfig(
+            backend="openai",
+            api_key="local-key",
             base_url="http://localhost:1234/v1",
             model_name="local-embedding",
         ),
@@ -43,8 +56,23 @@ def test_openai_compatible_embedding_keeps_base_url_credential() -> None:
     as_embedding = cfg["components"]["as_embedding"]["default"]
     assert as_embedding["backend"] == "openai"
     assert as_embedding["credential"] == {
-        "api_key": "",
+        "api_key": "local-key",
         "base_url": "http://localhost:1234/v1",
+    }
+
+
+def test_openai_compatible_embedding_omits_blank_base_url() -> None:
+    cfg = _config_for_embedding(
+        EmbeddingModelConfig(
+            backend="openai",
+            api_key="openai-key",
+            base_url="",
+            model_name="text-embedding-3-small",
+        ),
+    )
+
+    assert cfg["components"]["as_embedding"]["default"]["credential"] == {
+        "api_key": "openai-key",
     }
 
 
@@ -112,6 +140,4 @@ def test_ollama_embedding_without_host_still_enables_with_model() -> None:
         cfg["components"]["file_store"]["default"]["embedding_store"]
         == "default"
     )
-    assert cfg["components"]["as_embedding"]["default"]["credential"] == {
-        "host": None,
-    }
+    assert cfg["components"]["as_embedding"]["default"]["credential"] == {}

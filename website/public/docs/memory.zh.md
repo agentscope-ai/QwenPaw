@@ -214,8 +214,8 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 | 配置项             | 说明                                                                                  | 默认值   |
 | ------------------ | ------------------------------------------------------------------------------------- | -------- |
 | `backend`          | Embedding 后端类型：`openai`、`dashscope`、`dashscope_multimodal`、`gemini`、`ollama` | `openai` |
-| `api_key`          | Embedding 服务的 API Key。Gemini 必填；OpenAI 兼容后端通常也需要                      | ``       |
-| `base_url`         | Embedding 服务的 URL；Ollama 后端会作为 host 传递，留空则使用默认本地服务             | ``       |
+| `api_key`          | Embedding 服务的 API Key。OpenAI 兼容和 Gemini 后端必填                               | ``       |
+| `base_url`         | OpenAI 兼容后端的可选自定义 API 地址；Ollama 后端会作为 host 传递                     | ``       |
 | `model_name`       | Embedding 模型名称                                                                    | ``       |
 | `dimensions`       | 向量维度，用于初始化向量数据库                                                        | `1024`   |
 | `enable_cache`     | 是否启用 Embedding 缓存                                                               | `true`   |
@@ -226,13 +226,13 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 
 > `use_dimensions` 用于某些 vLLM 模型不支持 dimensions 参数的情况，设为 `false` 可跳过该参数。
 
-向量检索只有在当前后端具备最低可运行配置时才会启用：
+向量检索只有在当前后端具备最低可运行配置时才会启用；这些条件与 AgentScope credential 要求保持一致：
 
 | 后端                                            | 启用条件                                                   | Credential 映射                           |
 | ----------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------- |
-| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` 非空，且 `api_key` 或 `base_url` 至少一个非空 | `api_key`、`base_url`                     |
-| `gemini`                                        | `model_name` 和 `api_key` 均非空                           | `api_key`                                 |
-| `ollama`                                        | `model_name` 非空                                          | `host`（来自 `base_url`，留空时使用默认） |
+| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` 和 `api_key` 均非空 | `api_key`；可选 `base_url` |
+| `gemini`                                        | `model_name` 和 `api_key` 均非空 | `api_key`                 |
+| `ollama`                                        | `model_name` 非空                    | 可选 `host`（来自 `base_url`） |
 
 ### 索引行为
 

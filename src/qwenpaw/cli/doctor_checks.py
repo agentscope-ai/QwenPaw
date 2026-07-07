@@ -648,13 +648,7 @@ def security_baseline_notes(cfg: Config) -> list[str]:
 def _embedding_has_credentials(backend: str, emb_api_key: str) -> bool:
     if backend == "ollama":
         return True
-    if (emb_api_key or "").strip():
-        return True
-    if backend == "gemini":
-        return bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
-    return bool(
-        os.getenv("OPENAI_API_KEY") or os.getenv("DASHSCOPE_API_KEY"),
-    )
+    return bool((emb_api_key or "").strip())
 
 
 def memory_embedding_notes(cfg: Config) -> list[str]:
