@@ -97,7 +97,9 @@ class TestChannelMessageConverterProtocol:
         assert isinstance(ChannelMessageConverter, type)
 
     def test_protocol_methods_exist(self):
-        assert hasattr(ChannelMessageConverter, "build_agent_request_from_native")
+        assert hasattr(
+            ChannelMessageConverter, "build_agent_request_from_native"
+        )
         assert hasattr(ChannelMessageConverter, "send_response")
 
     def test_object_satisfying_protocol(self):

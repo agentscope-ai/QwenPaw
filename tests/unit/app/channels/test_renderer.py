@@ -146,8 +146,12 @@ class TestMessageToParts:
             [TextContent(text="x"), RefusalContent(refusal="no")],
         )
         parts = r.message_to_parts(msg)
-        texts = [p for p in parts if getattr(p, "type", None) == ContentType.TEXT]
-        refusals = [p for p in parts if getattr(p, "type", None) == ContentType.REFUSAL]
+        texts = [
+            p for p in parts if getattr(p, "type", None) == ContentType.TEXT
+        ]
+        refusals = [
+            p for p in parts if getattr(p, "type", None) == ContentType.REFUSAL
+        ]
         assert len(refusals) == 1
         assert refusals[0].refusal == "no"
 
@@ -162,19 +166,25 @@ class TestMessageToParts:
         r = MessageRenderer()
         msg = _mk_message([ImageContent(image_url="http://x/a.png")])
         parts = r.message_to_parts(msg)
-        assert any(getattr(p, "type", None) == ContentType.IMAGE for p in parts)
+        assert any(
+            getattr(p, "type", None) == ContentType.IMAGE for p in parts
+        )
 
     def test_video_content_passthrough(self):
         r = MessageRenderer()
         msg = _mk_message([VideoContent(video_url="http://x/v.mp4")])
         parts = r.message_to_parts(msg)
-        assert any(getattr(p, "type", None) == ContentType.VIDEO for p in parts)
+        assert any(
+            getattr(p, "type", None) == ContentType.VIDEO for p in parts
+        )
 
     def test_audio_content_passthrough(self):
         r = MessageRenderer()
         msg = _mk_message([AudioContent(data="http://x/a.mp3")])
         parts = r.message_to_parts(msg)
-        assert any(getattr(p, "type", None) == ContentType.AUDIO for p in parts)
+        assert any(
+            getattr(p, "type", None) == ContentType.AUDIO for p in parts
+        )
 
     def test_file_content_passthrough(self):
         r = MessageRenderer()

@@ -231,7 +231,9 @@ class TestAccessControlStore:
     def test_update_remark_blacklist(self, store: AccessControlStore):
         store.add_to_blacklist("console", "u1")
         assert store.update_remark("console", "u1", "blocked")
-        assert store.get_acl("console")["blacklist"]["u1"]["remark"] == "blocked"
+        assert (
+            store.get_acl("console")["blacklist"]["u1"]["remark"] == "blocked"
+        )
 
     def test_update_remark_unknown_user(self, store: AccessControlStore):
         assert not store.update_remark("console", "nobody", "x")
@@ -269,17 +271,23 @@ class TestAccessControlStore:
         self,
         store: AccessControlStore,
     ):
-        store.add_pending("console", "u1", username="alice", first_message="hi")
+        store.add_pending(
+            "console", "u1", username="alice", first_message="hi"
+        )
         assert store.approve_pending("console", "u1", remark="ok")
         assert store.is_whitelisted("console", "u1")
-        assert store.get_acl("console")["whitelist"]["u1"]["username"] == "alice"
+        assert (
+            store.get_acl("console")["whitelist"]["u1"]["username"] == "alice"
+        )
         assert store.get_all_pending() == []
 
     def test_deny_pending_moves_to_blacklist(self, store: AccessControlStore):
         store.add_pending("console", "u1", username="alice")
         assert store.deny_pending("console", "u1")
         assert store.is_blacklisted("console", "u1")
-        assert store.get_acl("console")["blacklist"]["u1"]["username"] == "alice"
+        assert (
+            store.get_acl("console")["blacklist"]["u1"]["username"] == "alice"
+        )
         assert store.get_all_pending() == []
 
     def test_dismiss_pending_removes_without_listing(
@@ -305,9 +313,14 @@ class TestAccessControlStore:
         store.add_pending("console", "u1")
         store.update_pending_remark("console", "u1", "from-pending")
         store.approve_pending("console", "u1")
-        assert store.get_acl("console")["whitelist"]["u1"]["remark"] == "from-pending"
+        assert (
+            store.get_acl("console")["whitelist"]["u1"]["remark"]
+            == "from-pending"
+        )
 
-    def test_get_all_pending_sorted_descending(self, store: AccessControlStore):
+    def test_get_all_pending_sorted_descending(
+        self, store: AccessControlStore
+    ):
         store.add_pending("console", "u1")
         time.sleep(0.005)
         store.add_pending("console", "u2")
