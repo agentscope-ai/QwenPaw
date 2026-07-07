@@ -139,7 +139,7 @@ def store(tmp_path: Path) -> AccessControlStore:
     return AccessControlStore(tmp_path / ACCESS_CONTROL_FILE)
 
 
-class TestAccessControlStore:
+class TestAccessControlStore:  # pylint: disable=too-many-public-methods
     def test_whitelist_add_and_query(self, store: AccessControlStore):
         store.add_to_whitelist("console", "u1")
         assert store.is_whitelisted("console", "u1")
