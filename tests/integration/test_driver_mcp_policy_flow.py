@@ -135,3 +135,43 @@ async def test_driver_mcp_policy_ask_approve_resumes_client_call(
     assert result.ok is True
     assert result.value == {"echo": {"text": "ok"}}
     assert FakeStdIOClient.instances[0].calls == [("echo", {"text": "ok"})]
+
+
+@pytest.mark.asyncio
+async def test_driver_mcp_policy_ask_is_auto_allowed_when_approval_level_off(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_mcp_runtime_clients(monkeypatch)
+    service = ApprovalService()
+    monkeypatch.setattr(
+        "qwenpaw.app.approvals.get_approval_service",
+        lambda: service,
+    )
+    manager = await _registry_with_policy(
+        tmp_path,
+        [PolicyRule(subject="*", effect="ask")],
+    )
+    capability = next(
+        item
+        for item in await manager.list_capabilities(kind="tool")
+        if item.name == "echo"
+    )
+
+    result = await manager.invoke_capability(
+        DriverInvocation(
+            capability.capability_id,
+            {"text": "ok"},
+            {
+                "session_id": "s1",
+                "agent_id": "agent",
+                "user_id": "alice",
+                "approval_level": "OFF",
+            },
+        ),
+    )
+
+    assert result.ok is True
+    assert result.value == {"echo": {"text": "ok"}}
+    assert FakeStdIOClient.instances[0].calls == [("echo", {"text": "ok"})]
+    assert service._pending == {}

@@ -39,6 +39,39 @@ from .time import current_policy_time
 logger = logging.getLogger(__name__)
 
 
+def _approval_level_disables_approval(
+    request_context: dict[str, str] | None,
+) -> bool:
+    """Return True when the active tool approval level is OFF."""
+    if not request_context:
+        return False
+
+    from ..security.tool_guard.execution_level import ToolExecutionLevel
+
+    session_raw = request_context.get("approval_level")
+    if session_raw:
+        return ToolExecutionLevel.from_config(str(session_raw)).is_disabled()
+
+    agent_id = str(request_context.get("agent_id") or "")
+    if not agent_id:
+        return False
+    try:
+        from ..config.config import load_agent_config
+
+        profile = load_agent_config(agent_id)
+        return ToolExecutionLevel.from_config(
+            getattr(profile, "approval_level", None),
+        ).is_disabled()
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning(
+            "DriverHandler: failed to resolve approval_level for agent=%s "
+            "(%s); keeping Driver policy approval enabled",
+            agent_id,
+            exc,
+        )
+        return False
+
+
 class DriverHandler(ABC):
     def __init__(
         self,
@@ -128,6 +161,13 @@ class DriverHandler(ABC):
                 operation,
             )
         if effect == POLICY_EFFECT_ASK:
+            if _approval_level_disables_approval(context.request_context):
+                logger.info(
+                    "DriverHandler: auto-allowing Driver policy ASK for "
+                    "%s because approval_level=OFF",
+                    self._card.name,
+                )
+                return context
             await self._request_approval(context)
         return context
 
