@@ -8,6 +8,7 @@ degraded-durability fail-safe (no eviction when a write fails), and retention.
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from agentscope.message import (
@@ -606,6 +607,201 @@ async def test_empty_middle_still_compacts_index_under_pressure(
     )
     # The active turn is still live, after the placeholder.
     assert agent.state.context[-1].id == ctx[-1].id
+
+
+# -- generated headlines for un-headlined evicted spans ---------------------
+
+
+class _CallableModel(FakeModel):
+    """A ``FakeModel`` that is also callable as a chat model.
+
+    ``reply`` is the text an index call returns (``<n>: headline`` section
+    lines by convention); set it to an ``Exception`` instance to have the call
+    raise (to exercise the fallback). ``call_count`` records how many times it
+    was invoked as a chat model — so a test can assert the index path was (or
+    was not) taken. ``last_body`` captures the user message (the numbered
+    sections the harness assembled) of the last call."""
+
+    def __init__(self, tokens, reply="1: a legacy 1.x decision", **kw):
+        super().__init__(tokens, **kw)
+        self._reply = reply
+        self.call_count = 0
+        self.last_body = ""
+
+    async def __call__(self, messages, *args, **kwargs):
+        self.call_count += 1
+        self.last_body = messages[-1].get_text_content()
+        if isinstance(self._reply, Exception):
+            raise self._reply
+        return SimpleNamespace(text=self._reply)
+
+
+def _agent_with_callable_model(
+    ctx,
+    reply="1: a legacy 1.x decision",
+    tokens=200,
+):
+    agent = FakeAgent(ctx, tokens=tokens)
+    agent.model = _CallableModel(tokens, reply=reply)
+    return agent
+
+
+def _index_headline_lines(mgr) -> list[str]:
+    """The ``·`` headline lines of the eviction-index map (text after ⟦)."""
+    return [ln for ln in mgr._index.describe().splitlines() if "·" in ln]
+
+
+async def test_unheadlined_span_gets_generated_summary(store: HistoryStore):
+    """An evicted span with no headline is labelled by the model's synthesized
+    headline instead of the bare ``(no milestone)`` marker."""
+    ctx = [
+        user("what was the old plan"),
+        assistant("we shipped v1 without milestones"),  # NO headline
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    agent = _agent_with_callable_model(
+        ctx,
+        reply="1: shipped v1 sans milestones",
+    )
+    agent._split_return = (ctx[:2], ctx[2:])
+    await mgr.compress(agent)
+    index = mgr._index.describe()
+    assert "shipped v1 sans milestones" in index
+    assert "(no milestone)" not in index
+    assert agent.model.call_count == 1
+
+
+async def test_unheadlined_span_tiled_into_multiple_headlines(
+    store: HistoryStore,
+):
+    """A longer un-headlined span is tiled into several harness-addressed
+    headlines, each its own ``·`` line — structurally like real milestones.
+    The model only writes ``<n>: headline``; the seqs are the harness's."""
+    ctx = [
+        user("q1 about billing"),
+        assistant("answered billing"),  # NO headline
+        user("q2 about shipping"),
+        assistant("answered shipping"),  # NO headline
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    agent = _agent_with_callable_model(
+        ctx,
+        reply=(
+            "1: billing question resolved\n" "2: shipping question resolved"
+        ),
+    )
+    agent._split_return = (ctx[:4], ctx[4:])
+    await mgr.compress(agent)
+    index = mgr._index.describe()
+    assert "billing question resolved" in index
+    assert "shipping question resolved" in index
+    # Two distinct headline lines, not one coarse summary.
+    assert len(_index_headline_lines(mgr)) == 2
+    # The harness split the span into numbered sections for the model.
+    assert "[1]" in agent.model.last_body
+    assert "[2]" in agent.model.last_body
+
+
+async def test_skipped_section_keeps_extractive_fallback(store: HistoryStore):
+    """A section the model omits is still labelled — the harness fills it with
+    an extractive fallback drawn from that section's own text, never
+    ``(no milestone)`` for a section that had content."""
+    ctx = [
+        user("distinctive-billing-question"),
+        assistant("answered billing"),  # NO headline
+        user("distinctive-shipping-question"),
+        assistant("answered shipping"),  # NO headline
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    # Model labels section 1 only; section 2 must fall back to its own content.
+    agent = _agent_with_callable_model(ctx, reply="1: billing resolved")
+    agent._split_return = (ctx[:4], ctx[4:])
+    await mgr.compress(agent)
+    index = mgr._index.describe()
+    assert "billing resolved" in index  # model's headline for section 1
+    assert "distinctive-shipping-question" in index  # fallback for section 2
+    assert len(_index_headline_lines(mgr)) == 2
+
+
+async def test_bare_reply_lines_map_positionally(store: HistoryStore):
+    """A reply without ``<n>:`` prefixes still lines up: bare headline lines
+    are assigned to sections in order."""
+    ctx = [
+        user("old thing"),
+        assistant("did old thing"),  # NO headline
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    agent = _agent_with_callable_model(
+        ctx,
+        reply="This stretch was about the old thing",
+    )
+    agent._split_return = (ctx[:2], ctx[2:])
+    await mgr.compress(agent)
+    index = mgr._index.describe()
+    assert "This stretch was about the old thing" in index
+    assert "(no milestone)" not in index
+    assert len(_index_headline_lines(mgr)) == 1
+
+
+async def test_headlined_span_never_calls_summary_model(store: HistoryStore):
+    """A span that already has a headline uses it as the leaf — no index
+    call is made (leaves present)."""
+    ctx = [
+        user("task"),
+        assistant("step", headline="did-step"),
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    agent = _agent_with_callable_model(ctx)
+    agent._split_return = (ctx[:2], ctx[2:])
+    await mgr.compress(agent)
+    assert "did-step" in mgr._index.describe()
+    assert agent.model.call_count == 0
+
+
+async def test_unheadlined_span_falls_back_when_summary_fails(
+    store: HistoryStore,
+):
+    """A model/timeout error must never abort eviction — the span keeps the
+    ``(no milestone)`` marker and the evicted count is unaffected."""
+    ctx = [
+        user("old thing"),
+        assistant("did old thing"),  # NO headline
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    agent = _agent_with_callable_model(ctx, reply=RuntimeError("model down"))
+    agent._split_return = (ctx[:2], ctx[2:])
+    await mgr.compress(agent)
+    assert "(no milestone)" in mgr._index.describe()
+    assert mgr.last_compress["evicted"] == 2
+
+
+async def test_summary_disabled_keeps_no_milestone(store: HistoryStore):
+    """With the flag off the span stays ``(no milestone)`` and the model is
+    never called — the default behaviour is preserved."""
+    ctx = [
+        user("old thing"),
+        assistant("did old thing"),  # NO headline
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=False)
+    agent = _agent_with_callable_model(ctx)
+    agent._split_return = (ctx[:2], ctx[2:])
+    await mgr.compress(agent)
+    assert "(no milestone)" in mgr._index.describe()
+    assert agent.model.call_count == 0
 
 
 def test_seq_by_tcid_round_trips_through_checkpoint(store: HistoryStore):

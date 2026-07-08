@@ -125,19 +125,28 @@ class EvictionIndex:
         *,
         seq_lo: int,
         seq_hi: int,
+        fallback_lines: list[Line] | None = None,
     ) -> None:
         """Drop one eviction onto Tier 0 as a new block, then run the carry.
 
         ``leaves`` are the evicted milestone turns; ``seq_lo``/``seq_hi`` is
         the *full* evicted span (tool results and unheadlined turns
         included) so a range query recovers everything.
+
+        ``fallback_lines`` stands in for a span that produced no ``leaves`` (a
+        legacy 1.x span, or a tool-heavy stretch the model never headlined):
+        generated ``Line`` entries — each a seq sub-range with a synthesized
+        headline — that tile the span the way real milestones would. Empty or
+        ``None`` keeps the bare ``(no milestone)`` marker. The full turns stay
+        recoverable by the block's seq span either way.
         """
         lines = [
             Line(lf.seq, lf.seq, lf.headline, lf.headline) for lf in leaves
         ]
         if not lines:
-            # An eviction with no headlined turns is still addressable by span.
-            lines = [Line(seq_lo, seq_hi, "(no milestone)", "(no milestone)")]
+            lines = fallback_lines or [
+                Line(seq_lo, seq_hi, "(no milestone)", "(no milestone)"),
+            ]
         if not self._tiers:
             self._tiers.append([])
         self._tiers[0].append(Block(seq_lo, seq_hi, lines))
