@@ -661,7 +661,14 @@ class ReMeLightMemoryConfig(BaseModel):
     )
     session_dir: str = Field(
         default="mem_session",
-        description="Subdirectory for persisted agent sessions",
+        description=(
+            "Subdirectory for ReMe source conversation logs used by "
+            "auto-memory"
+        ),
+    )
+    mem_session_dir: str = Field(
+        default="mem_agent",
+        description="Subdirectory for ReMe internal memory-agent sessions",
     )
     resource_dir: str = Field(
         default="resource",

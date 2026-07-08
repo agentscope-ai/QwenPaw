@@ -87,13 +87,6 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 | `QWENPAW_TOOL_GUARD_ENABLED` | `true`  | 是否启用工具守卫                         |
 | `QWENPAW_SKILL_SCAN_MODE`    | `warn`  | 技能扫描模式（`block` / `warn` / `off`） |
 
-**记忆与检索：**
-
-| 变量                   | 默认值 | 说明                                                   |
-| ---------------------- | ------ | ------------------------------------------------------ |
-| `FTS_ENABLED`          | `true` | 是否启用 BM25 全文检索                                 |
-| `MEMORY_STORE_BACKEND` | `auto` | 记忆存储后端（`auto` / `local` / `chroma` / `sqlite`） |
-
 ---
 
 ## 配置文件结构
@@ -374,23 +367,28 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **ReMeLight 记忆配置（`reme_light_memory_config` 对象）：**
 
-| 字段                            | 类型        | 默认值         | 说明                                                                     |
-| ------------------------------- | ----------- | -------------- | ------------------------------------------------------------------------ |
-| `summarize_when_compact`        | bool        | `true`         | 是否在上下文压缩时启用记忆总结                                           |
-| `auto_memory_interval`          | int \| null | `1`            | 每隔 N 次用户查询触发自动记忆。`1` 表示每条用户消息后触发；null 表示禁用 |
-| `dream_cron`                    | string      | `"0 23 * * *"` | 梦境记忆优化任务的 Cron 表达式（空字符串禁用）                           |
-| `rebuild_memory_index_on_start` | bool        | `false`        | 启动时是否重建记忆搜索索引                                               |
-| `recursive_file_watcher`        | bool        | `false`        | 是否递归监控记忆目录                                                     |
-| `auto_memory_search_config`     | object      | _（见下方）_   | 自动记忆搜索配置                                                         |
-| `embedding_model_config`        | object      | _（见下方）_   | Embedding 模型配置                                                       |
+| 字段                            | 类型        | 默认值           | 说明                                                                 |
+| ------------------------------- | ----------- | ---------------- | -------------------------------------------------------------------- |
+| `metadata_dir`                  | string      | `"mem_metadata"` | ReMe 持久状态子目录                                                  |
+| `session_dir`                   | string      | `"mem_session"`  | ReMe auto-memory 使用的来源对话日志子目录                            |
+| `mem_session_dir`               | string      | `"mem_agent"`    | ReMe 内部 memory-agent 会话子目录                                    |
+| `resource_dir`                  | string      | `"resource"`     | 外部资源子目录                                                       |
+| `daily_dir`                     | string      | `"memory"`       | 每日记忆子目录                                                       |
+| `digest_dir`                    | string      | `"digest"`       | digest 记忆子目录                                                    |
+| `enable_search_raw_log`         | bool        | `false`          | 是否启用原始日志搜索                                                 |
+| `summarize_when_compact`        | bool        | `true`           | 是否在上下文压缩时启用记忆总结                                       |
+| `auto_memory_interval`          | int \| null | `5`              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆 |
+| `dream_cron`                    | string      | `"0 23 * * *"`   | 梦境记忆优化任务的 Cron 表达式（空字符串禁用）                       |
+| `auto_memory_search_config`     | object      | _（见下方）_     | 自动记忆搜索配置                                                     |
+| `embedding_model_config`        | object      | _（见下方）_     | Embedding 模型配置                                                   |
+| `rebuild_memory_index_on_start` | bool        | `false`          | Agent 启动时是否清空并重建记忆搜索索引；否则只监控并索引新的文件变化 |
 
 **自动记忆搜索配置（`reme_light_memory_config.auto_memory_search_config` 对象）：**
 
-| 字段          | 类型  | 默认值  | 说明                             |
-| ------------- | ----- | ------- | -------------------------------- |
-| `enabled`     | bool  | `false` | 是否在每轮对话时自动执行记忆搜索 |
-| `max_results` | int   | `1`     | 自动搜索时最多返回的结果数       |
-| `timeout`     | float | `10.0`  | 自动搜索超时时间（秒）           |
+| 字段          | 类型 | 默认值  | 说明                             |
+| ------------- | ---- | ------- | -------------------------------- |
+| `enabled`     | bool | `false` | 是否在每轮对话时自动执行记忆搜索 |
+| `max_results` | int  | `2`     | 自动搜索时最多返回的结果数       |
 
 **Embedding 配置（`reme_light_memory_config.embedding_model_config` 对象）：**
 
@@ -417,7 +415,8 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 不满足启用条件时，ReMe 仍会保留关键词索引和 wikilink 图谱索引，但不会启用 embedding 向量索引。
 
-这些配置也可以在控制台的 **智能体 → 运行配置** 页面中修改。保存后会对新的 LLM 请求生效，不需要重启服务。
+这些配置也可以在控制台的 **智能体 → 运行配置** 页面中修改。直接从 `agent.json` 读取的字段，例如自动记忆间隔和自动搜索条数，
+保存后会在后续对话轮次生效。目录和 Embedding 等嵌入式 ReMe 组件配置需要重启 Agent 进程，让 ReMe 应用用新配置重新构造。
 
 ---
 
