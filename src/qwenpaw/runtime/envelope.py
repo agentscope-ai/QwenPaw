@@ -777,6 +777,55 @@ class Envelope:
         yield self._tag_seq(self._response)
         self._finalized = True
 
+    # ------------------------------------------------------------------
+    # Partial content extraction (used by cancel-save)
+    # ------------------------------------------------------------------
+
+    def collect_partial_blocks(self) -> list[tuple[str, str]]:
+        """Return ``(block_type, content)`` tuples for streaming content
+        accumulated in this envelope that has **not** been finalized.
+
+        * ``("thinking", text)`` — from reasoning blocks whose envelope
+          status is still ``InProgress`` (i.e. the interrupted iteration).
+        * ``("text", text)`` — from text blocks (reset on every tool-call
+          start, so they belong to the current iteration only).
+
+        This is a public-API entry point so that callers (e.g.
+        ``Runtime._try_save_on_cancel``) do not need to reach into
+        private state.
+        """
+        from ..schemas import RunStatus
+
+        result: list[tuple[str, str]] = []
+
+        for state in self._reasoning_blocks.values():
+            env = state.get("envelope")
+            if env is not None and env.status == RunStatus.Completed:
+                continue
+            text = state.get("text", "")
+            if text:
+                result.append(("thinking", text))
+
+        for state in self._text_blocks.values():
+            text = state.get("text", "")
+            if text:
+                result.append(("text", text))
+
+        return result
+
+    def collect_tool_output(self) -> dict[str, str]:
+        """Return ``{call_id: accumulated_output}`` for tool calls that
+        received partial results before the stream was interrupted.
+
+        Only includes entries where ``output_text_acc`` is non-empty.
+        """
+        result: dict[str, str] = {}
+        for call_id, state in self._tool_calls.items():
+            output = state.get("output_text_acc", "")
+            if output:
+                result[call_id] = output
+        return result
+
     @property
     def response(self) -> Any:
         return self._response

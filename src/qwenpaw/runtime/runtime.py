@@ -56,6 +56,7 @@ class Runtime:
         hooks = self.workspace.plugins.hook_registry
 
         envelope = Envelope(session_id=ctx.session_id)
+        ctx._envelope = envelope  # pylint: disable=protected-access
         skip_agent = False
 
         try:
@@ -199,6 +200,10 @@ class Runtime:
     async def _try_save_on_cancel(self, ctx: HookContext) -> None:
         """Best-effort session save on cancellation.
 
+        Before snapshotting, any partial streaming content accumulated in
+        the ``Envelope`` is injected into the agent's context so the
+        interrupted turn's text is not lost on reload.
+
         ``state_dict()`` is called synchronously to snapshot the agent
         state *before* any further event-loop iteration.  The I/O write
         is wrapped in ``asyncio.shield`` so it completes even when the
@@ -216,6 +221,10 @@ class Runtime:
         if session is None:
             return
         try:
+            envelope = getattr(ctx, "_envelope", None)
+            if envelope is not None:
+                self._inject_partial_response(agent, envelope)
+
             from ._state_utils import StateProxy
 
             proxy = StateProxy()
@@ -236,8 +245,6 @@ class Runtime:
                 ctx.session_id,
             )
         except asyncio.CancelledError:
-            # The outer await was re-cancelled, but the shielded inner
-            # task is still running and will likely complete successfully.
             logger.info(
                 "cancel-save: outer await re-cancelled, inner save "
                 "continues in background (session=%s)",
@@ -249,6 +256,160 @@ class Runtime:
                 ctx.session_id,
                 exc_info=True,
             )
+
+    # pylint: disable=too-many-branches
+    @staticmethod
+    def _inject_partial_response(agent: Any, envelope: Any) -> None:
+        """Inject accumulated streaming content from *envelope* into the
+        agent's context so a cancel-save includes the partial response.
+
+        Two responsibilities:
+
+        1. **Partial text/thinking** — uses ``Envelope.collect_partial_blocks``
+           to obtain content from the *interrupted* reasoning iteration, with
+           a deduplication guard against double-saving.
+
+        2. **Dangling tool calls** — AgentScope's
+           ``_close_unfinished_tool_calls`` normally patches the context in a
+           ``finally`` block, but its ``yield`` statements fail when the
+           generator is being closed.  We replicate the context-mutation logic
+           here (without yields) so that every tool call has a matching
+           ``ToolResultBlock`` on reload.
+        """
+        # pylint: disable=too-many-nested-blocks
+        try:
+            from agentscope.message import TextBlock, ThinkingBlock
+
+            # --- 1) Partial text/thinking injection ---
+            partial = envelope.collect_partial_blocks()
+            injected = 0
+
+            if partial:
+                agent_state = getattr(agent, "state", None)
+                ctx_list = (
+                    getattr(agent_state, "context", None)
+                    if agent_state
+                    else None
+                )
+                existing_texts: set[str] = set()
+                if ctx_list and len(ctx_list) > 0:
+                    last = ctx_list[-1]
+                    if getattr(last, "role", None) == "assistant":
+                        for blk in getattr(last, "content", []) or []:
+                            if getattr(blk, "type", None) == "text":
+                                existing_texts.add(
+                                    getattr(blk, "text", ""),
+                                )
+                            elif getattr(blk, "type", None) == "thinking":
+                                existing_texts.add(
+                                    getattr(blk, "thinking", ""),
+                                )
+
+                blocks: list = []
+                for btype, content in partial:
+                    if content in existing_texts:
+                        continue
+                    if btype == "thinking":
+                        blocks.append(ThinkingBlock(thinking=content))
+                    else:
+                        blocks.append(TextBlock(text=content))
+                if blocks:
+                    # pylint: disable=protected-access
+                    agent._save_to_context(blocks)
+                injected = len(blocks)
+
+            # --- 2) Close dangling tool calls ---
+            closed = Runtime._close_dangling_tool_calls(agent, envelope)
+
+            if injected or closed:
+                logger.info(
+                    "cancel-save: injected %d partial block(s), "
+                    "closed %d dangling tool call(s)",
+                    injected,
+                    closed,
+                )
+        except Exception:
+            logger.debug(
+                "cancel-save: partial response injection failed",
+                exc_info=True,
+            )
+
+    @staticmethod
+    def _close_dangling_tool_calls(agent: Any, envelope: Any) -> int:
+        """Ensure every ``ToolCallBlock`` in the context has a matching
+        ``ToolResultBlock``.
+
+        AgentScope's ``_close_unfinished_tool_calls`` patches the context
+        inside a generator ``finally`` block, but its ``yield`` statements
+        trigger ``RuntimeError`` when the generator is being torn down.
+        We replicate the mutation-only logic so dangling tool calls are
+        properly closed before ``state_dict()`` is called.
+
+        Returns the number of tool calls closed.
+        """
+        from agentscope.message import (
+            ToolCallBlock,
+            ToolCallState,
+            ToolResultBlock,
+            ToolResultState,
+        )
+
+        state = getattr(agent, "state", None)
+        context = getattr(state, "context", None) if state else None
+        if not context:
+            return 0
+
+        last_msg = context[-1]
+        if getattr(last_msg, "role", None) != "assistant":
+            return 0
+        if getattr(last_msg, "name", None) != getattr(agent, "name", ""):
+            return 0
+
+        content = getattr(last_msg, "content", None)
+        if not isinstance(content, list):
+            return 0
+
+        # Find tool calls without matching results.
+        awaiting: dict[str, int] = {}
+        for idx, block in enumerate(content):
+            if isinstance(block, ToolCallBlock):
+                awaiting[block.id] = idx
+            elif isinstance(block, ToolResultBlock):
+                awaiting.pop(block.id, None)
+
+        if not awaiting:
+            return 0
+
+        # Incorporate any partial output accumulated in the envelope.
+        envelope_tool_output = envelope.collect_tool_output()
+
+        interruption_msg = (
+            "<system-reminder>The tool call has been interrupted by "
+            "the user.</system-reminder>"
+        )
+
+        closed = 0
+        for call_id, idx in awaiting.items():
+            block = content[idx]
+            block.state = ToolCallState.FINISHED
+
+            output = envelope_tool_output.get(call_id, "")
+            if output:
+                output += "\n" + interruption_msg
+            else:
+                output = interruption_msg
+
+            content.append(
+                ToolResultBlock(
+                    id=call_id,
+                    name=block.name,
+                    output=output,
+                    state=ToolResultState.INTERRUPTED,
+                ),
+            )
+            closed += 1
+
+        return closed
 
     @staticmethod
     def _normalize(request: Any) -> Any:
