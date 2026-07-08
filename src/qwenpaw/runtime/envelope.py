@@ -756,15 +756,31 @@ class Envelope:
             yield obj
 
     async def _finalize_response(self) -> AsyncGenerator[Any, None]:
-        from ..schemas import RunStatus
+        from ..schemas import ContentType, RunStatus, TextContent
 
         if self._finalized:
             return
 
         if self._message_started:
-            self._completed_message.status = RunStatus.Completed
-            self._response.output.append(self._completed_message)
-            yield self._tag_seq(self._completed_message)
+            # Back-fill any partially accumulated text blocks that were
+            # not finalized (TEXT_BLOCK_END never fired, e.g. on cancel).
+            if not self._completed_message.content:
+                for state in self._text_blocks.values():
+                    text = state.get("text", "")
+                    if text:
+                        self._completed_message.content.append(
+                            TextContent(
+                                type=ContentType.TEXT,
+                                text=text,
+                                delta=False,
+                                index=state.get("index", 0),
+                            ),
+                        )
+
+            if self._completed_message.content:
+                self._completed_message.status = RunStatus.Completed
+                self._response.output.append(self._completed_message)
+                yield self._tag_seq(self._completed_message)
 
         if self._error_text:
             self._response.status = RunStatus.Failed
