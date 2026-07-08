@@ -26,6 +26,7 @@ export interface ChannelSchema {
   plugin_id: string;
   config_fields: ChannelConfigField[];
   icon?: string;
+  doc_url?: LocalizedText;
 }
 
 export const channelApi = {

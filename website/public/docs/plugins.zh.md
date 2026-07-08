@@ -1569,6 +1569,10 @@ class SampleChannelPlugin:
             label="Sample",
             description="Sample messaging channel integration",
             icon="https://example.com/sample-icon.png",  # 可选：卡片图标（仅 http/https）
+            doc_url={  # 可选：文档链接，支持纯字符串或本地化字典（仅 http/https）
+                "zh": "https://example.com/docs?lang=zh",
+                "en": "https://example.com/docs?lang=en",
+            },
             config_fields=[
                 {
                     "name": "bot_token",
@@ -1653,6 +1657,10 @@ def register(self, api: PluginApi):
   时不会显示为空白。
 - `icon`（可选）为频道卡片自定义图标 URL，仅支持 `http`/`https` 链接；其他值
   会被忽略并回退到默认图标。
+- `doc_url`（可选）为频道文档链接，可以是纯字符串，也可以是本地化字典
+  （如 `{"zh": "...", "en": "..."}`，键的长短码规则同 `label`）。仅支持
+  `http`/`https` 链接；控制台设置面板标题栏会显示一个 “Doc” 按钮，点击按当前
+  语言跳转，值非法或缺失时不显示按钮。
 - 插件频道与内置频道共享启用/禁用、访问控制、`bot_prefix` 等功能。
 - 如果插件频道 key 与内置频道冲突，内置频道优先，插件频道会被跳过并打印警告。
 - 对于基于 webhook 的频道，可在同一个插件中组合 `register_channel` 和

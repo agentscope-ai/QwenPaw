@@ -36,15 +36,23 @@ class AzureBotChannelPlugin:
                 "https://img.alicdn.com/imgextra/i2/"
                 "O1CN01eo8rBj1pCuCWPQRrz_!!6000000005325-2-tps-3000-3000.png"
             ),
+            doc_url={
+                "zh": (
+                    "https://qwenpaw.agentscope.io/docs/channels/"
+                    "?lang=zh#Azure-BotMicrosoft-机器人服务"
+                ),
+                "en": (
+                    "https://qwenpaw.agentscope.io/docs/channels/"
+                    "?lang=en#Azure-Bot-Microsoft-Bot-Service"
+                ),
+            },
             config_fields=[
                 {
                     "name": "app_id",
                     "label": "App ID",
                     "type": "text",
                     "required": True,
-                    "placeholder": (
-                        "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                    ),
+                    "placeholder": ("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"),
                 },
                 {
                     "name": "app_password",
@@ -58,9 +66,7 @@ class AzureBotChannelPlugin:
                     "label": "Tenant ID",
                     "type": "text",
                     "required": True,
-                    "placeholder": (
-                        "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                    ),
+                    "placeholder": ("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"),
                 },
                 {
                     "name": "http_host",
@@ -108,10 +114,7 @@ class AzureBotChannelPlugin:
                     "required": False,
                     "default": False,
                     "help": {
-                        "zh-CN": (
-                            "启用时，群内所有成员共享同一会话上下文；"
-                            "禁用时，每位成员维护各自独立的会话。"
-                        ),
+                        "zh-CN": ("启用时，群内所有成员共享同一会话上下文；" "禁用时，每位成员维护各自独立的会话。"),
                         "en-US": (
                             "When enabled, all group members share the "
                             "same conversation context. When disabled, "
@@ -168,10 +171,7 @@ class AzureBotChannelPlugin:
                             "When enabled, only whitelisted users can "
                             "interact with the bot in direct messages"
                         ),
-                        "ja-JP": (
-                            "有効にすると、ホワイトリストのユーザーのみ"
-                            "DMでBotと対話できます"
-                        ),
+                        "ja-JP": ("有効にすると、ホワイトリストのユーザーのみ" "DMでBotと対話できます"),
                         "ru-RU": (
                             "При включении только пользователи из "
                             "белого списка могут общаться с ботом "
@@ -215,8 +215,7 @@ class AzureBotChannelPlugin:
                             "interact with the bot in group chats"
                         ),
                         "ja-JP": (
-                            "有効にすると、ホワイトリストのユーザーのみ"
-                            "グループチャットでBotと対話できます"
+                            "有効にすると、ホワイトリストのユーザーのみ" "グループチャットでBotと対話できます"
                         ),
                         "ru-RU": (
                             "При включении только пользователи из "
@@ -261,8 +260,7 @@ class AzureBotChannelPlugin:
                             "chats when explicitly @mentioned"
                         ),
                         "ja-JP": (
-                            "有効にすると、グループチャットでは"
-                            "明示的に@メンションされた場合のみ応答します"
+                            "有効にすると、グループチャットでは" "明示的に@メンションされた場合のみ応答します"
                         ),
                         "ru-RU": (
                             "Бот отвечает в групповых чатах только "

@@ -364,6 +364,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         description: str = "",
         config_fields: Optional[List[Dict[str, Any]]] = None,
         icon: str = "",
+        doc_url: Any = "",
     ) -> None:
         """Register a custom messaging channel.
 
@@ -390,6 +391,10 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             icon: Optional channel card icon URL. The Console falls back
                 to the default icon when it is empty or not a usable
                 http(s) URL.
+            doc_url: Optional documentation link. May be a plain http(s)
+                URL string, or a localized mapping such as
+                ``{"zh": "...", "en": "..."}``. The Console shows a "Doc"
+                button only when it resolves to a usable http(s) URL.
 
         Example:
             >>> api.register_channel(
@@ -434,6 +439,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             description=description,
             config_fields=config_fields,
             icon=icon,
+            doc_url=doc_url,
         )
         logger.info(
             f"Plugin '{self.plugin_id}' registered channel "

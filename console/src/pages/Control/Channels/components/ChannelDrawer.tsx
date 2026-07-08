@@ -1523,6 +1523,28 @@ export function ChannelDrawer({
             {label} Doc
           </Button>
         )}
+      {/* Plugin channels: doc button driven by schema.doc_url.
+          Guarded so built-in channels (present in the maps above) never
+          reach this branch, keeping their behavior byte-for-byte. */}
+      {(() => {
+        if (!activeKey) return null;
+        if (CHANNEL_DOC_EN_URLS[activeKey] || CHANNEL_DOC_ZH_URLS[activeKey])
+          return null;
+        const url = resolveLocalized(channelSchema?.doc_url);
+        if (!/^https?:\/\//i.test(url)) return null;
+        return (
+          <Button
+            type="text"
+            size="small"
+            icon={<LinkOutlined />}
+            onClick={() => openExternalLink(url)}
+            className={styles.dingtalkDocBtn}
+            style={{ color: "#FF7F16" }}
+          >
+            {label} Doc
+          </Button>
+        );
+      })()}
       {activeKey === "voice" && (
         <Button
           type="text"
