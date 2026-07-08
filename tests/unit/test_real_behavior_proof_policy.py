@@ -5,19 +5,21 @@ Ported from openclaw's ``real-behavior-proof-policy.test.ts`` and adapted
 to QwenPaw's Python implementation.
 """
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=wrong-import-position,line-too-long
+# flake8: noqa: E501
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-import pytest
-
 # Add scripts/github to path so we can import the policy module.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "github"))
+sys.path.insert(
+    0,
+    str(Path(__file__).resolve().parents[2] / "scripts" / "github"),
+)
 
 from real_behavior_proof_policy import (  # noqa: E402
     NEEDS_PR_CONTEXT_LABEL,
-    PROOF_OVERRIDE_LABEL,
     PROOF_SUFFICIENT_LABEL,
     ProofStatus,
     _has_real_content,
@@ -38,7 +40,10 @@ def _external_pr(body: str, **overrides) -> dict:
     return pr
 
 
-def _proof_body(evidence: str, problem: str = "The gateway crashed on startup.") -> str:
+def _proof_body(
+    evidence: str,
+    problem: str = "The gateway crashed on startup.",
+) -> str:
     return f"""## Description
 
 {problem}
@@ -56,7 +61,9 @@ class TestExternalPrPass:
     def test_passes_with_screenshot_evidence():
         ev = evaluate_pull_request_context(
             **_external_pr(
-                _proof_body("![after](https://github.com/user-attachments/assets/abc123)"),
+                _proof_body(
+                    "![after](https://github.com/user-attachments/assets/abc123)",
+                ),
             ),
         )
         assert ev.status == ProofStatus.PASSED

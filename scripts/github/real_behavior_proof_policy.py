@@ -68,7 +68,12 @@ def _normalize_line_endings(text: str = "") -> str:
 def _mask_html_comments(text: str) -> str:
     """Replace HTML comment content with spaces so commented-out template
     text does not count as authored content."""
-    return re.sub(r"<!--.*?-->", lambda m: " " * len(m.group(0)), text, flags=re.DOTALL)
+    return re.sub(
+        r"<!--.*?-->",
+        lambda m: " " * len(m.group(0)),
+        text,
+        flags=re.DOTALL,
+    )
 
 
 def _strip_code_fences(text: str) -> str:

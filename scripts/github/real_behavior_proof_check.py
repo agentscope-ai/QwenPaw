@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# pylint: disable=wrong-import-position
 """CI check entry point: evaluate real-behavior-proof for the current PR.
 
 Reads PR metadata from the GitHub Actions event payload, runs the policy
@@ -24,8 +25,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from real_behavior_proof_policy import (  # noqa: E402
-    NEEDS_PR_CONTEXT_LABEL,
-    PROOF_SUFFICIENT_LABEL,
     ProofStatus,
     evaluate_pull_request_context,
 )
@@ -43,19 +42,16 @@ def main() -> int:
     event = _load_event()
     pr = event.get("pull_request") or {}
 
-    body = pr.get("body") or os.environ.get("PR_BODY", "")
-    author_association = (
-        pr.get("author_association")
-        or os.environ.get("PR_AUTHOR_ASSOC", "CONTRIBUTOR")
+    body: str = pr.get("body") or os.environ.get("PR_BODY", "")
+    author_association: str = pr.get("author_association") or os.environ.get(
+        "PR_AUTHOR_ASSOC",
+        "CONTRIBUTOR",
     )
-    author_type = (
-        (pr.get("user") or {}).get("type")
-        or os.environ.get("PR_AUTHOR_TYPE", "User")
+    author_type = (pr.get("user") or {}).get("type") or os.environ.get(
+        "PR_AUTHOR_TYPE",
+        "User",
     )
-    labels = [
-        lbl.get("name", "")
-        for lbl in (pr.get("labels") or [])
-    ] or [
+    labels = [lbl.get("name", "") for lbl in (pr.get("labels") or [])] or [
         name.strip()
         for name in os.environ.get("PR_LABELS", "").split(",")
         if name.strip()
@@ -95,7 +91,7 @@ def main() -> int:
     print()
     for section in evaluation.missing_sections:
         print(f"  ## {section}")
-        print(f"  [Describe/show real behavior — not template comments]")
+        print("  [Describe/show real behavior — not template comments]")
         print()
     print("See the PR template for guidance. Template HTML comments do NOT")
     print("count as authored content.")
