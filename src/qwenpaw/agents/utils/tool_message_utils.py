@@ -34,19 +34,48 @@ def _is_tool_result(block: Any) -> bool:
     return _block_attr(block, "type") in _TOOL_RESULT_TYPES
 
 
-def _tool_call_json_error_text(block: Any) -> dict[str, str]:
+def _tool_call_json_error_text(block: Any) -> str:
     """Build model-visible feedback for an invalid tool-call input."""
     name = str(_block_attr(block, "name") or "unknown")
-    call_id = str(_block_attr(block, "id") or "unknown")
-    return {
-        "type": "text",
-        "text": (
-            f"Tool call `{name}` was not executed because its JSON "
-            "arguments were invalid or incomplete. Please retry with valid "
-            "JSON arguments, and split large payloads into smaller tool "
-            f"calls if needed. (tool_call_id: `{call_id}`)"
-        ),
-    }
+    return (
+        f"Tool call `{name}` was not executed because its JSON "
+        "arguments were invalid or incomplete. Please retry with valid "
+        "JSON arguments, and split large payloads into smaller tool calls "
+        "if needed."
+    )
+
+
+def _mark_tool_call_as_failed(block: Any) -> None:
+    """Keep a failed tool_call in the request with safe empty input."""
+    if isinstance(block, dict):
+        block["input"] = "{}"
+        block["state"] = "finished"
+        return
+
+    from agentscope.message import ToolCallState
+
+    block.input = "{}"
+    block.state = ToolCallState.FINISHED
+
+
+def _tool_call_json_error_result(block: Any) -> Any | None:
+    """Build a synthetic error result for an invalid tool-call input."""
+    call_id = _block_attr(block, "id")
+    if not call_id:
+        return None
+
+    from agentscope.message import TextBlock, ToolResultBlock, ToolResultState
+
+    name = str(_block_attr(block, "name") or "unknown")
+    return ToolResultBlock(
+        type="tool_result",
+        id=str(call_id),
+        name=name,
+        output=[
+            TextBlock(type="text", text=_tool_call_json_error_text(block)),
+        ],
+        state=ToolResultState.ERROR,
+    )
 
 
 def _coerce_raw_tool_input(raw: str, block: Any) -> str | None:
@@ -72,7 +101,7 @@ def _coerce_raw_tool_input(raw: str, block: Any) -> str | None:
         except (json.JSONDecodeError, ValueError):
             logger.warning(
                 "tool_call input is not valid JSON; "
-                "replacing block with feedback: id=%r, name=%r, "
+                "marking call failed with synthetic result: id=%r, name=%r, "
                 "input_preview=%s",
                 _block_attr(block, "id"),
                 _block_attr(block, "name"),
@@ -410,17 +439,20 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
     * ``dict`` / ``list`` → ``json.dumps``.
     * Empty string ``""`` → ``"{}"`` (treat as no-args call).
     * Non-empty non-JSON string (e.g. truncated streaming artefact) →
-      replace the tool call with model-visible text feedback so the next
-      request can see the failed call.  Replacing with ``{}`` would cause the
-      tool to be called with wrong/empty arguments, which is worse.
+      keep the call with safe empty input and append a synthetic error
+      ``tool_result`` so the next request sees a normal tool_call/tool_result
+      pair instead of retrying the bad arguments.
     """
+    malformed_tool_ids: set[str] = set()
+    kept_msgs: list = []
+
     for msg in msgs:
         if not isinstance(getattr(msg, "content", None), list):
+            kept_msgs.append(msg)
             continue
 
         new_blocks: list = []
         changed_this_msg = False
-        malformed_tool_ids: set[str] = set()
 
         for block in msg.content:
             if (
@@ -462,7 +494,11 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
                 block_id = _block_attr(block, "id")
                 if block_id:
                     malformed_tool_ids.add(block_id)
-                new_blocks.append(_tool_call_json_error_text(block))
+                _mark_tool_call_as_failed(block)
+                new_blocks.append(block)
+                error_result = _tool_call_json_error_result(block)
+                if error_result is not None:
+                    new_blocks.append(error_result)
                 changed_this_msg = True
                 continue
 
@@ -477,8 +513,12 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
 
         if changed_this_msg:
             msg.content = new_blocks
+            if not new_blocks:
+                continue
 
-    return msgs
+        kept_msgs.append(msg)
+
+    return kept_msgs if len(kept_msgs) != len(msgs) else msgs
 
 
 def _sanitize_tool_messages(msgs: list) -> list:
