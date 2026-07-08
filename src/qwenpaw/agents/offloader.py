@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 import uuid
 from datetime import datetime, timedelta
@@ -24,6 +25,39 @@ if TYPE_CHECKING:
     from agentscope.message import Msg, ToolResultBlock
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Secret sanitization — redact known API-key / token patterns from dialog
+# logs before persisting to disk, preventing permanent leakage through
+# tool-result passthrough (e.g. grep_search → agent.json keys).
+# ---------------------------------------------------------------------------
+
+_SECRET_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"sk-[a-zA-Z0-9]{20,}"), "sk-xxxxxxxxxxxx"),
+    (re.compile(r"ghp_[a-zA-Z0-9]{30,}"), "ghp_xxxxxxxxxxxx"),
+    (re.compile(r"github_pat_[a-zA-Z0-9_]{50,}"), "github_pat_xxxxxxxxxxxx"),
+    (re.compile(r"tvly-(dev-)?[a-zA-Z0-9_-]{20,}"), "tvly-xxxxxxxxxxxx"),
+    (re.compile(r"mkt_[a-zA-Z0-9]{20,}"), "mkt_xxxxxxxxxxxx"),
+    (re.compile(r"agent-world-[a-zA-Z0-9]{30,}"), "agent-world-xxxxxxxxxxxx"),
+    (re.compile(r"dashscope-[a-zA-Z0-9]{30,}"), "dashscope-xxxxxxxxxxxx"),
+]
+
+
+def _sanitize_secrets(data: object) -> object:
+    """Recursively redact known secret patterns in string values.
+
+    Dict keys, non-string values, and strings that do not match any
+    pattern are passed through unchanged.
+    """
+    if isinstance(data, dict):
+        return {k: _sanitize_secrets(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_sanitize_secrets(x) for x in data]
+    if isinstance(data, str):
+        for pattern, replacement in _SECRET_PATTERNS:
+            data = pattern.sub(replacement, data)
+        return data
+    return data
 
 
 class QwenPawOffloader:
@@ -91,7 +125,11 @@ class QwenPawOffloader:
             ) as f:
                 for msg in sorted_msgs:
                     await f.write(
-                        json.dumps(msg.to_dict(), ensure_ascii=False) + "\n",
+                        json.dumps(
+                            _sanitize_secrets(msg.to_dict()),
+                            ensure_ascii=False,
+                        )
+                        + "\n",
                     )
             last_path = filepath
             logger.info(
@@ -133,7 +171,7 @@ class QwenPawOffloader:
             content = str(output)
 
         async with aiofiles.open(filepath, mode="w", encoding="utf-8") as f:
-            await f.write(content)
+            await f.write(_sanitize_secrets(content))
 
         logger.info("Offloaded tool result to %s", filepath)
         return filepath

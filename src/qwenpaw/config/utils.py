@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import plistlib
+import re
 import shutil
 import socket
 import subprocess
@@ -80,6 +81,43 @@ def _normalize_working_dir_bound_paths(data: object) -> object:
             return [_walk(x, key) for x in obj]
         if key in {"workspace_dir", "media_dir"}:
             return _rewrite_path_value(obj)
+        return obj
+
+    return _walk(data, None)
+
+
+_ENV_VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
+
+
+def _resolve_env_vars(data: object) -> object:
+    """Recursively resolve ``${ENV_VAR}`` placeholders in string values.
+
+    Non-string values and strings without ``${...}`` patterns are left
+    unchanged for backward compatibility. Environment variables that
+    are not set are logged as warnings and left unsubstituted so the
+    user has an explicit signal.
+    """
+
+    def _walk(obj: object, _key: str | None = None) -> object:
+        if isinstance(obj, dict):
+            return {k: _walk(v, str(k)) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_walk(x, _key) for x in obj]
+        if isinstance(obj, str) and "${" in obj:
+
+            def _replacer(m: re.Match) -> str:
+                var_name = m.group(1)
+                val = os.environ.get(var_name)
+                if val is None:
+                    logger.warning(
+                        "Environment variable '%s' referenced in config "
+                        "but not set; keeping placeholder.",
+                        var_name,
+                    )
+                    return m.group(0)
+                return val
+
+            return _ENV_VAR_PATTERN.sub(_replacer, obj)
         return obj
 
     return _walk(data, None)
@@ -551,6 +589,7 @@ def _load_and_validate_config(
 ) -> Config:
     """Load and validate config data, handling validation errors."""
     data = _normalize_working_dir_bound_paths(data)
+    data = _resolve_env_vars(data)
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
         la = data.setdefault("last_api", {})
@@ -645,6 +684,7 @@ def strict_validate_config_file(
         return False, f"unreadable or invalid JSON — {config_path}"
 
     data = _normalize_working_dir_bound_paths(data)
+    data = _resolve_env_vars(data)
     if "last_api_host" in data or "last_api_port" in data:
         la = data.setdefault("last_api", {})
         if "host" not in la and "last_api_host" in data:
