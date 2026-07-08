@@ -1820,6 +1820,7 @@
     "description": "私はあなたの質問をサポートするAIアシスタントです。",
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
+    "longTextUploadPrompt": "アップロードされたプロンプトファイルを読み、その内容に基づいて回答してください。",
     "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド（承認時は\"/approve\"または\"/deny\"）",
     "emptyOutputError": "アシスタントが空のレスポンスを返しました。",
     "commands": {

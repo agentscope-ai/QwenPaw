@@ -172,6 +172,7 @@
     "description": "Saya asisten yang dapat membantu menjawab pertanyaan Anda.",
     "prompt1": "Mari mulai perjalanan baru!",
     "prompt2": "Bisa jelaskan skill apa saja yang Anda miliki?",
+    "longTextUploadPrompt": "Harap baca file prompt yang diunggah dan jawab berdasarkan isinya.",
     "inputPlaceholder": "\"↑↓\" untuk navigasi pesan · \"/\" untuk perintah cepat (\"/approve\" atau \"/deny\" saat approval)",
     "emptyOutputError": "Asisten mengembalikan respons kosong.",
     "commands": {
