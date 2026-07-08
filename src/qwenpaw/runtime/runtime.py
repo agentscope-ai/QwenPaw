@@ -154,6 +154,11 @@ class Runtime:
                     "re-cancellation (session=%s)",
                     getattr(ctx, "session_id", ""),
                 )
+
+            # Persist agent state so the interrupted turn is not lost.
+            # asyncio.shield protects the save from task re-cancellation.
+            await self._try_save_on_cancel(ctx)
+
             async for ev in envelope.cancel_envelope():
                 yield ev
             raise
@@ -190,6 +195,60 @@ class Runtime:
             await hooks.run(Phase.FINALLY, ctx)
 
     # ----------------------------------------------------------------- helpers
+
+    async def _try_save_on_cancel(self, ctx: HookContext) -> None:
+        """Best-effort session save on cancellation.
+
+        ``state_dict()`` is called synchronously to snapshot the agent
+        state *before* any further event-loop iteration.  The I/O write
+        is wrapped in ``asyncio.shield`` so it completes even when the
+        outer task's ``_must_cancel`` flag triggers a re-cancellation on
+        the next ``await``.  In that case the shielded inner task still
+        runs to completion in the background; the ``proxy`` owns an
+        independent copy of the data so ``agent.close()`` in the
+        ``finally`` block cannot corrupt it.
+        """
+        agent = getattr(ctx, "agent", None)
+        if agent is None:
+            return
+        workspace = getattr(ctx, "workspace", None)
+        session = getattr(workspace, "session", None) if workspace else None
+        if session is None:
+            return
+        try:
+            from ._state_utils import StateProxy
+
+            proxy = StateProxy()
+            proxy.data = agent.state_dict()
+            request = ctx.request
+            user_id = getattr(request, "user_id", "") or ctx.session_id
+            channel = getattr(request, "channel", "") or ""
+            await asyncio.shield(
+                session.save_session_state(
+                    session_id=ctx.session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    agent=proxy,
+                ),
+            )
+            logger.info(
+                "cancel-save: persisted interrupted turn (session=%s)",
+                ctx.session_id,
+            )
+        except asyncio.CancelledError:
+            # The outer await was re-cancelled, but the shielded inner
+            # task is still running and will likely complete successfully.
+            logger.info(
+                "cancel-save: outer await re-cancelled, inner save "
+                "continues in background (session=%s)",
+                ctx.session_id,
+            )
+        except Exception:
+            logger.debug(
+                "cancel-save: failed (session=%s)",
+                ctx.session_id,
+                exc_info=True,
+            )
 
     @staticmethod
     def _normalize(request: Any) -> Any:
