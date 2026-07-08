@@ -5,10 +5,7 @@ description = "QwenPaw is a **personal assistant** that runs in your own environ
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "agentscope==2.0.2",
-    # agentscope-runtime is no longer needed: agentscope 2.0 ships the
-    # runtime (`agentscope.app`, `agentscope.session`, `agentscope.app._schema`)
-    # in-tree, replacing the standalone agentscope-runtime package.
+    "agentscope==2.0.4",
     "httpx>=0.27.0",
     "packaging>=24.0",
     "discord-py>=2.3",
@@ -22,7 +19,7 @@ dependencies = [
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    "reme-ai==0.4.0.7",
+    "reme-ai==0.4.0.9",
     "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
     "python-socks>=2.5.3",

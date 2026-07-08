@@ -109,6 +109,7 @@ def _get_default_acp_agents() -> Dict[str, ACPAgentConfig]:
 class ACPConfig(BaseModel):
     """ACP (Agent Communication Protocol) configuration."""
 
+    node_path: str = ""
     agents: Dict[str, ACPAgentConfig] = Field(
         default_factory=_get_default_acp_agents,
     )
@@ -661,7 +662,14 @@ class ReMeLightMemoryConfig(BaseModel):
     )
     session_dir: str = Field(
         default="mem_session",
-        description="Subdirectory for persisted agent sessions",
+        description=(
+            "Subdirectory for ReMe source conversation logs used by "
+            "auto-memory"
+        ),
+    )
+    mem_session_dir: str = Field(
+        default="mem_agent",
+        description="Subdirectory for ReMe internal memory-agent sessions",
     )
     resource_dir: str = Field(
         default="resource",

@@ -14,6 +14,7 @@
     "desktop-updater-check",
     "desktop-updater-install",
     "devtools",
+    "dialog:allow-open",
     "dialog:allow-save",
     "open-external-link",
     "tray"

@@ -236,6 +236,7 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 | ------------------------------- | ------------------------------------------------------------------------------ | ---------------- |
 | `metadata_dir`                  | ReMe persistent state directory for indexes, catalogs, graph data, and caches  | `"mem_metadata"` |
 | `session_dir`                   | Directory for saved source conversations                                       | `"mem_session"`  |
+| `mem_session_dir`               | Directory for ReMe internal memory-agent sessions                              | `"mem_agent"`    |
 | `resource_dir`                  | Directory watched by `auto_resource`                                           | `"resource"`     |
 | `daily_dir`                     | Directory for daily memory notes                                               | `"memory"`       |
 | `digest_dir`                    | Directory for dream/digest memory                                              | `"digest"`       |
@@ -268,7 +269,7 @@ Embedding configuration for vector semantic search, located in `running.reme_lig
 | `api_key`          | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends         | ``       |
 | `base_url`         | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host | ``       |
 | `model_name`       | Embedding model name                                                                           | ``       |
-| `dimensions`       | Vector dimensions for initializing vector DB                                                   | `1024`   |
+| `dimensions`       | Embedding vector dimensions                                                                    | `1024`   |
 | `enable_cache`     | Whether to enable Embedding cache                                                              | `true`   |
 | `use_dimensions`   | Whether to pass dimensions parameter in API                                                    | `false`  |
 | `max_cache_size`   | Maximum Embedding cache entries                                                                | `10000`  |

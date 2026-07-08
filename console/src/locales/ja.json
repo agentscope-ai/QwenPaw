@@ -1820,7 +1820,6 @@
     "description": "私はあなたの質問をサポートするAIアシスタントです。",
     "prompt1": "新しい旅を始めましょう！",
     "prompt2": "あなたのスキルを教えてください。",
-    "longTextUploadPrompt": "アップロードされたプロンプトファイルを読み、その内容に基づいて回答してください。",
     "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド（承認時は\"/approve\"または\"/deny\"）",
     "emptyOutputError": "アシスタントが空のレスポンスを返しました。",
     "commands": {
@@ -2225,7 +2224,27 @@
     "deleteTitle": "{{name}} を削除",
     "deleteConfirm": "この ACP Agent を削除しますか？この操作は元に戻せません。",
     "deleteSuccess": "ACP Agent を削除しました",
-    "deleteFailed": "ACP Agent の削除に失敗しました"
+    "deleteFailed": "ACP Agent の削除に失敗しました",
+    "nodeSettings": "Node 設定",
+    "nodePath": "Node パス",
+    "chooseOtherNode": "別の Node を選択...",
+    "selectNodePath": "Node パスを選択",
+    "nodePathPrompt": "node 実行ファイルのパスを入力してください",
+    "nodeSaved": "Node 設定を保存しました",
+    "nodeLoadFailed": "Node 設定の読み込みに失敗しました",
+    "nodeSaveFailed": "Node パスを利用できません",
+    "nodeRuntime": {
+      "bundled": "同梱 Node",
+      "system": "システム Node",
+      "custom": "カスタム Node"
+    },
+    "nodeRuntimeReason": {
+      "systemNodeMissing": "システム Node が検出されませんでした",
+      "nodeMissing": "Node パスが存在しません",
+      "npxMissing": "npx が見つかりません",
+      "versionCheckFailed": "バージョン確認に失敗しました",
+      "unavailable": "利用不可"
+    }
   },
   "backup": {
     "title": "バックアップ",

@@ -144,6 +144,11 @@ echo "== Staging bundled Python runtime =="
     --dest "${BINARIES_DIR}/python-runtime"
 echo ""
 
+echo "== Staging bundled Node runtime =="
+"$PYTHON_BIN" "${REPO_ROOT}/scripts/pack-tauri/stage_node_runtime.py" \
+    --dest "${BINARIES_DIR}/node-runtime"
+echo ""
+
 echo "========================================="
 echo "PyInstaller Build Complete!"
 echo "========================================="

@@ -186,6 +186,7 @@ graph LR
 | ------------------------------- | ------------------------------------------------------------------------ | ---------------- |
 | `metadata_dir`                  | ReMe 持久状态目录，用于保存索引、catalog、graph 和缓存                   | `"mem_metadata"` |
 | `session_dir`                   | 来源对话保存目录                                                         | `"mem_session"`  |
+| `mem_session_dir`               | ReMe 内部 memory-agent 会话目录                                          | `"mem_agent"`    |
 | `resource_dir`                  | `auto_resource` 监听的资源目录                                           | `"resource"`     |
 | `daily_dir`                     | 每日记忆目录                                                             | `"memory"`       |
 | `digest_dir`                    | dream/digest 记忆目录                                                    | `"digest"`       |
@@ -217,7 +218,7 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 | `api_key`          | Embedding 服务的 API Key。OpenAI 兼容和 Gemini 后端必填                               | ``       |
 | `base_url`         | OpenAI 兼容后端的可选自定义 API 地址；Ollama 后端会作为 host 传递                     | ``       |
 | `model_name`       | Embedding 模型名称                                                                    | ``       |
-| `dimensions`       | 向量维度，用于初始化向量数据库                                                        | `1024`   |
+| `dimensions`       | Embedding 向量维度                                                                    | `1024`   |
 | `enable_cache`     | 是否启用 Embedding 缓存                                                               | `true`   |
 | `use_dimensions`   | 是否在 API 请求中传递 dimensions 参数                                                 | `false`  |
 | `max_cache_size`   | Embedding 缓存最大条目数                                                              | `10000`  |
