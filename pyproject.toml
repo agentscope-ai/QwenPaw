@@ -70,6 +70,12 @@ dependencies = [
     "ast-grep-cli>=0.20",
 ]
 
+[project.urls]
+Homepage = "https://qwenpaw.agentscope.io/"
+Repository = "https://github.com/agentscope-ai/QwenPaw"
+Documentation = "https://qwenpaw.agentscope.io/docs/"
+Issues = "https://github.com/agentscope-ai/QwenPaw/issues"
+
 [tool.setuptools.dynamic]
 version = {attr = "qwenpaw.__version__.__version__"}
 

@@ -828,7 +828,7 @@ class ScrollContextConfig(BaseModel):
     Only consulted when ``LightContextConfig.strategy == "scroll"``. The
     durable history lives at ``{working_dir}/{db_filename}``; evicted turns
     fold into an in-context eviction index recallable from the sandboxed
-    ``execute_python`` REPL.
+    ``recall_history_python`` REPL.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -847,21 +847,12 @@ class ScrollContextConfig(BaseModel):
         ),
     )
 
-    pinned: int = Field(
-        default=1,
-        ge=0,
-        description=(
-            "Leading messages never evicted: the first user request (the "
-            "task). The first agent reply is intentionally NOT pinned — it "
-            "can be a huge multi-tool turn, and pinning it would make "
-            "/compact unable to reclaim it."
-        ),
-    )
-
     repl_timeout_s: int = Field(
         default=300,
         ge=1,
-        description="Per-call timeout for the execute_python REPL tool.",
+        description=(
+            "Per-call timeout for the recall_history_python REPL tool."
+        ),
     )
 
     history_retention_days: int = Field(
@@ -878,7 +869,7 @@ class ScrollContextConfig(BaseModel):
     allow_unsandboxed: bool = Field(
         default=False,
         description=(
-            "UNSAFE escape hatch. The execute_python recall REPL runs "
+            "UNSAFE escape hatch. The recall_history_python recall REPL runs "
             "model-authored Python and is only isolated by the sandbox; the "
             "sandbox config is injected by the governance layer. When that "
             "layer is degraded the tool fails closed and refuses to run. Set "
@@ -910,7 +901,7 @@ class LightContextConfig(BaseModel):
         description=(
             "Context management strategy. 'native' = AgentScope compression; "
             "'scroll' = retrieval-driven history.db + eviction index with a "
-            "sandboxed execute_python recall REPL (the default)."
+            "sandboxed recall_history_python recall REPL (the default)."
         ),
     )
 
@@ -2576,9 +2567,13 @@ def migrate_legacy_config_to_multi_agent() -> bool:
 def get_model_max_input_length(
     agent_config: "AgentProfileConfig",
 ) -> int:
-    """Return ``max_input_length`` from the active model's ``ModelInfo``.
+    """Return the active model's resolved context window.
 
-    Falls back to 128 * 1024 (131072) if model info is unavailable.
+    Delegates to ``Provider.get_context_size`` — the SAME resolution the
+    compaction trigger uses (explicit ``max_input_length`` > static
+    context-window catalog > 128k default) — so /history, usage%%, and
+    daemon status can never disagree with when compression actually fires.
+    Falls back to 128 * 1024 (131072) if the provider is unavailable.
     Accepts an already-loaded *agent_config* to avoid redundant file I/O
     on hot paths (pre_reasoning, compact_context, summarize, etc.).
     """
@@ -2598,9 +2593,7 @@ def get_model_max_input_length(
             manager = ProviderManager.get_instance()
             provider = manager.get_provider(model_slot.provider_id)
             if provider:
-                model_info = provider.get_model_info(model_slot.model)
-                if model_info is not None:
-                    return model_info.max_input_length
+                return provider.get_context_size(model_slot.model)
         except Exception:
             pass
     logger.debug(

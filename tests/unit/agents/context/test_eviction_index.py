@@ -26,7 +26,7 @@ def test_empty_index():
     idx = EvictionIndex(session_id="s")
     assert idx.is_empty
     # render still produces the constant recall preamble.
-    assert "recall_history_python" in idx.render()
+    assert "recall_history" in idx.render()
 
 
 def test_single_eviction_is_addressable():

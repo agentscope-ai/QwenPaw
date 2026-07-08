@@ -7,6 +7,7 @@ import json
 import logging
 import sqlite3
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,9 +25,11 @@ _BUSY_TIMEOUT_MS = 5000
 # tracebacks), drowning the real content: a self-pollution feedback loop. So
 # these rows stay durable + recallable by ``seq``, but are kept OUT of the FTS
 # index (and out of ``search`` — see ``MemorySpace``). Must match the recall
-# tool name in ``repl.py``; the legacy "execute_python" name is kept so rows
-# written before the rename stay excluded.
-_RECALL_TOOL_NAMES = ("recall_history_python", "execute_python")
+# tool names in ``repl.py`` and ``recall_tool.py``.
+_RECALL_TOOL_NAMES = (
+    "recall_history_python",
+    "recall_history",
+)
 
 # Columns of conversation_history, in INSERT order (minus the
 # autoincrement seq).
@@ -65,6 +68,11 @@ class HistoryStore:
     def __init__(self, db_path: str | Path) -> None:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        # Serializes the single connection across threads: ``compress`` writes
+        # from a worker thread (``asyncio.to_thread``, to spare the event loop)
+        # while ``on_save`` writes on the loop thread. Both share this
+        # connection, so every access takes ``self._lock``.
+        self._lock = threading.Lock()
         self.quarantined_to: Path | None = None
         # Durability health: flipped True the first time a write-through fails
         # (disk/SQLite error). The durability promise no longer holds while
@@ -84,7 +92,13 @@ class HistoryStore:
             self._open_and_init()
 
     def _open_and_init(self) -> None:
-        self._conn = sqlite3.connect(str(self._path))
+        # check_same_thread=False: used from both loop and worker threads;
+        # ``self._lock`` provides the serialization SQLite would get from
+        # same-thread affinity.
+        self._conn = sqlite3.connect(
+            str(self._path),
+            check_same_thread=False,
+        )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
@@ -252,7 +266,7 @@ class HistoryStore:
             dedup_key,
         )
         placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
-        with self._conn:
+        with self._lock, self._conn:
             cur = self._conn.execute(
                 f"INSERT INTO conversation_history "
                 f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders}) "
@@ -303,7 +317,7 @@ class HistoryStore:
         # Recall-tool rows are never FTS-indexed (see ``_RECALL_TOOL_NAMES``),
         # so don't touch the index for them on update either.
         fts_sync = self._fts and name not in _RECALL_TOOL_NAMES
-        with self._conn:
+        with self._lock, self._conn:
             old_content = None
             if fts_sync:
                 r = self._conn.execute(
@@ -343,12 +357,13 @@ class HistoryStore:
     # --- read path -----------------------------------------------------
 
     def count(self, session_id: str) -> int:
-        cur = self._conn.execute(
-            "SELECT COUNT(*) AS n FROM conversation_history "
-            "WHERE session_id = ?",
-            (session_id,),
-        )
-        return int(cur.fetchone()["n"])
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT COUNT(*) AS n FROM conversation_history "
+                "WHERE session_id = ?",
+                (session_id,),
+            )
+            return int(cur.fetchone()["n"])
 
     @staticmethod
     def _purge_where(
@@ -387,7 +402,7 @@ class HistoryStore:
         show before an operator commits a purge, so they never delete blindly.
         """
         where, params = self._purge_where(before, kinds)
-        with self._conn:
+        with self._lock, self._conn:
             row = self._conn.execute(
                 "SELECT COUNT(*) AS rows, "
                 "COALESCE(SUM(LENGTH(content)), 0) AS content_bytes "
@@ -424,7 +439,7 @@ class HistoryStore:
         but the file does not shrink on disk until a separate vacuum.
         """
         where, params = self._purge_where(before, kinds)
-        with self._conn:
+        with self._lock, self._conn:
             doomed = self._conn.execute(
                 "SELECT seq, content FROM conversation_history WHERE " + where,
                 params,
@@ -457,8 +472,9 @@ class HistoryStore:
         """
         # VACUUM cannot run inside an open transaction; sqlite3 in its default
         # isolation mode opens one implicitly on writes, so commit first.
-        self._conn.commit()
-        self._conn.execute("VACUUM")
+        with self._lock:
+            self._conn.commit()
+            self._conn.execute("VACUUM")
 
     def note_write_failure(self, exc: BaseException) -> None:
         """Record a write-through failure — durability is now degraded.
@@ -482,10 +498,11 @@ class HistoryStore:
 
     def close(self) -> None:
         self._closed = True
-        try:
-            self._conn.close()
-        except sqlite3.Error:
-            pass
+        with self._lock:
+            try:
+                self._conn.close()
+            except sqlite3.Error:
+                pass
 
     def __repr__(self) -> str:
         return f"<HistoryStore path={self._path}>"

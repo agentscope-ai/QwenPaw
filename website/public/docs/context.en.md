@@ -10,11 +10,11 @@ The old AgentScope-native compression path is still available with `strategy: "n
 
 QwenPaw organizes memory into three complementary systems, loosely mirroring human memory, each owned by a different subsystem:
 
-| System              | What it is                                                                                                              | Documented in                   |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| **Working memory**  | The live prompt window. Older turns evict into a compact, expandable index — never summarized.                          | [Context Management](./context) |
-| **Episodic memory** | A durable, verbatim record of every turn across sessions, recalled on demand via `recall_history_python`.               | [Context Management](./context) |
-| **Semantic memory** | Distilled facts, preferences, and knowledge; ReMe consolidates daily notes into `digest/`, searched by `memory_search`. | [Long-term Memory](./memory)    |
+| System              | What it is                                                                                                                               | Documented in                   |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| **Working memory**  | The live prompt window. Older turns evict into a compact, expandable index — never summarized.                                           | [Context Management](./context) |
+| **Episodic memory** | A durable, verbatim record of every turn across sessions, recalled on demand via `recall_history` (or the `recall_history_python` REPL). | [Context Management](./context) |
+| **Semantic memory** | Distilled facts, preferences, and knowledge; ReMe consolidates daily notes into `digest/`, searched by `memory_search`.                  | [Long-term Memory](./memory)    |
 
 Two of these — **working** and **episodic** memory — are implemented by the **scroll** context manager (`ScrollContextManager`). The third — **semantic** memory — is implemented by **ReMe**. They are deliberately orthogonal: scroll keeps raw history verbatim and never summarizes, while ReMe distills reusable knowledge and never touches the live window or the verbatim history store.
 
@@ -27,20 +27,23 @@ flowchart LR
     A[New turn enters context] --> B[Write-through to history.db]
     B --> C{Live context over trigger ratio?}
     C -->|No| D[Keep current window]
-    C -->|Yes| E[Keep pinned head + recent tail]
-    E --> F[Evict middle turns]
+    C -->|Yes| E[Protect the active turn + recent tail]
+    E --> F[Evict finished middle turns]
     F --> G[Add seq span to eviction index]
     G --> H[Rebuild live context with one index message]
-    H --> I[Recall later with recall_history_python]
+    H --> I{Still over the reserve?}
+    I -->|Yes| J[Compact the index, then fold active-turn tool results to recall stubs]
+    I -->|No| K[Recall later with recall_history]
 ```
 
 Key properties:
 
 - **Durable first**: `ScrollContextManager` persists live turns to `{working_dir}/history.db` before any eviction.
+- **Active turn protected**: the latest user request and its in-progress tool chain are never evicted mid-task, so a compression that fires in the middle of a long tool run cannot make the model lose (and answer past) the current request.
 - **No summary bottleneck**: evicted content is represented by an `EvictionIndex`, not by a generated summary.
-- **Recallable raw history**: each index line carries a `seq` span. The agent can run `recall_history_python` and call `ms.expand(lo, hi)` to read the full original rows.
+- **Recallable raw history**: each index line carries a `seq` span. The agent can call `recall_history(op="expand", lo, hi)` to read the full original rows (or `ms.expand(lo, hi)` in the `recall_history_python` REPL).
 - **Cross-session memory**: history rows include `session_id` and `agent_id`, so recall can search this agent's past sessions and, when explicitly widened, other agents in the same workspace.
-- **Fallback-safe**: if scroll cannot be wired or its recall tool cannot run safely, QwenPaw falls back to native context management instead of evicting history that cannot be recalled.
+- **Fallback-safe**: if scroll cannot be wired or its recall tools cannot run safely, QwenPaw falls back to native context management instead of evicting history that cannot be recalled.
 
 ## Storage Layout
 
@@ -84,20 +87,33 @@ Scroll's defining choice is that it **does not compress context by asking the mo
 After eviction, the live context is rebuilt as:
 
 ```text
-Pinned head
-  Usually the first user task, controlled by scroll_config.pinned.
-
 Eviction index (a placeholder message named "memory")
   One synthetic message scroll injects to stand in for all the evicted turns
   (not a real conversation turn). It carries the whole eviction index: a
   [context compressed] header, then tiered headlines + seq spans, plus how to
-  recall the originals. Detailed in the next section, "Eviction Index".
+  recall the originals. Detailed in the section "Eviction Index" below.
 
-Recent tail
-  The newest turns selected by AgentScope's pairing-safe split.
+Recent tail — always including the active turn
+  The newest turns selected by AgentScope's pairing-safe split, plus the
+  ACTIVE TURN: the latest real user request and everything after it, kept
+  live in full even when the token-based split would have evicted it.
 ```
 
 The split uses AgentScope's token accounting and pairing-safe compression helpers, so it preserves tool-call/tool-result alignment at the live-window boundary.
+
+### Active-Turn Protection and the Pressure Pipeline
+
+A long tool-running turn (a `/heartbeat` cron run, a multi-search task) can exceed the reserve budget by itself, and the token-based split would then evict the **current request** along with old history — leaving the model staring at an old message plus an index, and answering the wrong thing. Scroll therefore relieves pressure in three escalating stages, each engaging only if the previous one wasn't enough:
+
+1. **Evict** — finished turns before the active turn fold into the eviction index (the normal case).
+2. **Compact** — if the window still overflows the reserve, the index itself rolls up tier by tier toward a single line.
+3. **Fold** — still overflowing (typically: the active turn _is_ the whole context), the active turn's completed tool results are replaced **in place** with one-line recall stubs:
+
+   ```text
+   [scroll folded] full result stored in history — re-read it with recall_history(op="expand", lo=184, hi=184)
+   ```
+
+   The request text, tool calls, reasoning, and the newest tool result stay verbatim — the turn itself remains a readable progress record, and every folded output is one `recall_history` call away (it was persisted before folding, like everything else). The stub points at the structured tool on purpose: it runs in-process without a sandbox, so the re-read works even on platforms where the Python REPL cannot run.
 
 ### Eviction Index
 
@@ -113,7 +129,7 @@ Example shape:
 <system-info>
 [context compressed] The turns below were evicted ...
 
-Re-expand a span inside recall_history_python: ms.expand(lo, hi)
+Re-expand a span with the recall_history tool: recall_history(op="expand", lo, hi)
 
 ===== Tier 1 (older msgs) =====
   [seq 10-80]
@@ -125,7 +141,7 @@ Re-expand a span inside recall_history_python: ms.expand(lo, hi)
 </system-info>
 ```
 
-Each `⟦ … ⟧` leaf in the index is the model-written headline from the previous section. The model should not answer from a headline alone. A headline is only a pointer; the full evidence comes from `ms.expand`, `ms.search`, or another recall helper.
+Each `⟦ … ⟧` leaf in the index is the model-written headline from the previous section. The model should not answer from a headline alone. A headline is only a pointer; the full evidence comes from `recall_history` (`expand` / `search`) or another recall helper.
 
 ## Episodic Memory
 
@@ -133,9 +149,19 @@ Each `⟦ … ⟧` leaf in the index is the model-written headline from the prev
 
 ### Recall API
 
-The recall API is the interface to episodic memory: it reads back the durable, verbatim history that working-memory eviction left behind. When scroll is active, QwenPaw injects a sandbox-capable tool named `recall_history_python`. The Python cell already defines `ms`, a `MemorySpace` object.
+The recall API is the interface to episodic memory: it reads back the durable, verbatim history that working-memory eviction left behind. When scroll is active, QwenPaw injects two tools:
 
-Common helpers:
+- **`recall_history`** — the structured front door for the common reads. Each call is a bound, read-only query executed in-process, so it needs no sandbox and no approval on any platform:
+
+  ```text
+  recall_history(op="expand", lo=81, hi=96)          # re-expand an indexed span
+  recall_history(op="search", query="deployment decision", k=20)
+  recall_history(op="recall_tool", tool_call_id="tool-call-id")
+  ```
+
+- **`recall_history_python`** — the sandboxed Python REPL for everything beyond those reads (listing sessions, custom SQL aggregation, scratch tables). The cell already defines `ms`, a `MemorySpace` object.
+
+Common `ms` helpers in the REPL:
 
 ```python
 # Re-expand an indexed span.
@@ -159,7 +185,11 @@ print(ms.agents())
 
 Recall is read-only for durable history: `history.db` is attached as SQLite schema `hist` in read-only mode. The model can write only to its scratch `main` database.
 
-Security note: `recall_history_python` runs model-authored Python. It normally requires sandbox injection from the governance layer. If no sandbox is available, it fails closed unless both are true:
+A failed cell is unmistakable: the observation leads with a `RECALL FAILED — the history was NOT read` banner, and an exit-0 cell that printed nothing says explicitly that silence is not evidence of an empty history — so an execution error can never be misread as "there is no such history".
+
+Search (both `recall_history(op="search")` and `ms.search`) also never echoes the agent back at itself: the recall tool's own source/output rows are kept out of the results, and so is the current **active turn** (the latest user request and the reply being written) — otherwise a multi-round recall would top-k-match the previous round's quoted findings instead of the real history. Earlier evicted turns of the same session remain searchable, and `ms.expand` / `ms.recall_tool` stay unfiltered (verbatim replay is their point).
+
+Security note: `recall_history_python` runs model-authored Python. It normally requires sandbox injection from the governance layer. (`recall_history` is unaffected: it never executes model-authored code, so it runs everywhere — including on platforms without a sandbox, such as Windows without WSL2.) If no sandbox is available, the REPL fails closed unless both are true:
 
 - environment variable `QWENPAW_ALLOW_UNSANDBOXED_RECALL` is truthy
 - `running.light_context_config.scroll_config.allow_unsandboxed = true`
@@ -170,10 +200,10 @@ Unsandboxed recall executes arbitrary host Python as the agent user and should o
 
 There are two related mechanisms:
 
-| Mechanism                     | Default                                            | What it does                                                                                                                                                                                                |
-| ----------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ToolResultCapMiddleware`     | active with scroll                                 | If one tool result exceeds `scroll_config.tool_output_token_cap`, the full output is written to `history.db`, while the live context keeps a bounded preview and an `ms.recall_tool(tool_call_id)` pointer. |
-| `ToolResultPruningMiddleware` | controlled by `tool_result_pruning_config.enabled` | Legacy tiered byte pruning for tool results, with optional file cache under `tool_results/`.                                                                                                                |
+| Mechanism                     | Default                                            | What it does                                                                                                                                                                                                                   |
+| ----------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ToolResultCapMiddleware`     | active with scroll                                 | If one tool result exceeds `scroll_config.tool_output_token_cap`, the full output is written to `history.db`, while the live context keeps a bounded preview and a `recall_history(op="recall_tool", tool_call_id=…)` pointer. |
+| `ToolResultPruningMiddleware` | controlled by `tool_result_pruning_config.enabled` | Legacy tiered byte pruning for tool results, with optional file cache under `tool_results/`.                                                                                                                                   |
 
 The scroll cap is token-based and uses durable recall. The legacy pruning middleware is byte-based and keeps compatibility with the previous tool-result offload behavior.
 
@@ -207,7 +237,6 @@ Relevant configuration is under `running.light_context_config`:
       "scroll_config": {
         "db_filename": "history.db",
         "tool_output_token_cap": 3000,
-        "pinned": 1,
         "repl_timeout_s": 300,
         "history_retention_days": 30,
         "allow_unsandboxed": false,
@@ -235,7 +264,6 @@ Important fields:
 | `context_compact_config.reserve_threshold_ratio` | `0.1`          | Recent tail budget kept after eviction.                                                          |
 | `scroll_config.db_filename`                      | `"history.db"` | SQLite filename relative to the workspace.                                                       |
 | `scroll_config.tool_output_token_cap`            | `3000`         | Token cap for one live tool result preview.                                                      |
-| `scroll_config.pinned`                           | `1`            | Number of leading messages never evicted.                                                        |
 | `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                                    |
 | `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                              |
 | `scroll_config.offload_dialog`                   | `false`        | Also write legacy `dialog/*.jsonl` archive. `history.db` remains the source of truth.            |

@@ -258,13 +258,20 @@ class EvictionIndex:
             "window but remain durable in conversation_history. This is their "
             "index: read it top (oldest) to bottom (most recently "
             "compressed); "
-            "the pinned task is above and the recent live turns follow. Each "
+            "the recent live turns follow below. Each "
             "'·' line is a seq span you can re-expand.",
             "",
-            "Re-expand a span inside recall_history_python: ms.expand(lo, hi) "
-            "for the full turns (seq is a globally-unique address, so a span "
-            "needs no other filter). Other recall helpers (search, sessions, "
-            "…) are in the recall_history_python tool description.",
+            "Re-expand a span with the recall_history tool: "
+            'recall_history(op="expand", lo, hi) for the full turns (seq is '
+            "a globally-unique address, so a span needs no other filter); "
+            'op="search" finds a seq by keywords. For advanced recall '
+            "(sessions, custom SQL) use a more advanced Python recall tool "
+            "if one is available to you.",
+            "",
+            "If the user's CURRENT request is not visible among the live "
+            "turns below, do NOT answer an older visible message as if it "
+            "were the request — recall the missing span first; if recall "
+            "cannot retrieve it, say so explicitly instead of guessing.",
             "",
         ]
         out.extend(self._tier_lines())

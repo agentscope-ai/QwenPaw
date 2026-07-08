@@ -7,27 +7,39 @@ two delegated hooks.
 
 * :meth:`on_save` — every live turn is persisted to the durable
   ``conversation_history`` as it enters the window (write-through).
-* :meth:`compress` — past the token threshold, keep a pinned head + recent tail
-  and fold the evicted middle into an in-context :class:`EvictionIndex`. No
+* :meth:`compress` — past the token threshold, keep the recent tail (and the
+  active turn) and fold the evicted middle into an in-context
+  :class:`EvictionIndex`. No
   summarization, nothing lost — every node points to a ``seq`` span recallable
-  via the sandboxed ``recall_history_python`` REPL.
+  via the structured ``recall_history`` tool (or the sandboxed
+  ``recall_history_python`` REPL).
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from agentscope.message import Msg, UserMsg
+from agentscope.message import Msg, TextBlock, UserMsg
 
+from ....constant import (
+    QWENPAW_MESSAGE_TAG_KEY,
+    SYNTHETIC_USER_MESSAGE_TAGS,
+)
 from . import _as_internals as as_internals
 from .eviction_index import EvictionIndex, Leaf
 from .history import HistoryStore
 from .serialize import msg_to_entries
 
 logger = logging.getLogger(__name__)
+
+# Prefix of an in-place folded tool result (the last-resort pressure valve).
+# Doubles as the idempotence marker: an output starting with it is already a
+# stub and is never folded (or counted as reclaimable) again.
+_FOLD_MARK = "[scroll folded]"
 
 
 class ScrollContextManager:
@@ -45,14 +57,12 @@ class ScrollContextManager:
         history: HistoryStore,
         session_id: str,
         agent_id: str | None = None,
-        pinned: int = 1,
         capped_results: dict[str, int] | None = None,
         offloader: Any = None,
     ) -> None:
         self._history = history
         self._session_id = session_id
         self._agent_id = agent_id
-        self._pinned = pinned
         # Dialog archive: when an offloader is wired (``offload_dialog``, on by
         # default), evicted turns are also written to ``dialog/{date}.jsonl``
         # for external consumers. ``history.db`` remains the source of truth.
@@ -68,6 +78,10 @@ class ScrollContextManager:
         self._persisted_tcids: set[
             str
         ] = set()  # tool_call_ids whose result row is stored
+        self._seq_by_tcid: dict[
+            str,
+            int,
+        ] = {}  # tool_call_id -> its result row's seq (fold stubs point here)
         self._synthetic_ids: set[str] = set()  # placeholder msgs we inserted
         self._seq_by_id: dict[
             str,
@@ -83,6 +97,17 @@ class ScrollContextManager:
         ] = {}  # msg.id -> #non-result blocks persisted
         self._leaf_by_id: dict[str, Leaf] = {}  # msg.id -> its index leaf
         self._index = EvictionIndex(session_id=session_id, agent_id=agent_id)
+        # What the most recent compress() actually did — /compact reads this
+        # to report honestly (an in-place fold changes no message count, so
+        # the reply can't infer it from a before/after len()). Transient, not
+        # checkpointed.
+        self.last_compress: dict[str, int] = {
+            "evicted": 0,
+            "compacted": 0,
+            "folded": 0,
+        }
+        # Warn once per overflow episode, not once per reasoning step.
+        self._overflow_warned = False
 
     # -- delegated hooks -----------------------------------------------------
 
@@ -105,8 +130,16 @@ class ScrollContextManager:
         Returns ``True`` on success, ``False`` if a write outage was caught and
         recorded as degraded durability. Any other exception is a real bug and
         is left to propagate. Shared by :meth:`on_save` (which ignores the
-        result — best-effort) and :meth:`compress` (which must NOT evict when
-        this returns ``False``, or it would drop un-persisted turns).
+        result — best-effort) and :meth:`compress` (via
+        :meth:`_persist_guarded_async`, which must NOT evict when this returns
+        ``False``, or it would drop un-persisted turns).
+
+        The SQLite writes are synchronous. ``on_save`` runs this directly on
+        the event loop because its AgentScope hook is synchronous and its
+        write is incremental (one turn); ``compress`` instead offloads it to a
+        worker thread (see :meth:`_persist_guarded_async`) so the larger
+        whole-window persist never blocks the loop. ``HistoryStore`` serializes
+        both paths on its own lock.
         """
         # Teardown race: a stop/cancel can close the store while a final
         # ``on_save`` is still in flight. The connection was retired on
@@ -120,6 +153,17 @@ class ScrollContextManager:
             self._history.note_write_failure(exc)
             logger.exception("ScrollContextManager write-through failed")
             return False
+
+    async def _persist_guarded_async(self, agent: Any) -> bool:
+        """Run :meth:`_persist_guarded` off the event loop.
+
+        ``compress`` is async and can persist the whole live window, which is
+        the write worth keeping off the loop. The synchronous SQLite work runs
+        in a worker thread; ``HistoryStore``'s connection is opened
+        ``check_same_thread=False`` and every access is serialized by its lock,
+        so this coexists safely with a concurrent on-loop ``on_save``.
+        """
+        return await asyncio.to_thread(self._persist_guarded, agent)
 
     async def _offload_dialog(self, middle: list[Msg]) -> None:
         """Best-effort legacy ``dialog/*.jsonl`` archive of evicted turns.
@@ -138,35 +182,50 @@ class ScrollContextManager:
     async def compress(self, agent: Any, context_config: Any = None) -> None:
         """Evict the middle into the index; roll the index up under pressure.
 
+        A single pressure pipeline — step 5 engages while the context still
+        overflows the reserve, step 6 only while it still overflows the
+        TRIGGER, so "nothing evictable" (a single-request session whose
+        active turn IS the whole context) is just step 4 running empty, not
+        a special case:
+
         1. persist     — every live turn is now durable.
         2. trigger     — under the token threshold? nothing to do.
-        3. split       — pinned head | evictable middle | recent tail.
-        4. add_eviction— fold the middle into the index as a new Tier 0 block,
-                         rebuild context = head + [index] + tail.
-        5. compact     — while the rebuilt context still overflows, shrink the
-                         index one step and rebuild. Always progresses.
+        3. split       — evictable middle | recent tail (+ active turn).
+        4. add_eviction— fold the middle (if any) into the index as a new
+                         Tier 0 block, rebuild context = [index] + tail.
+        5. compact     — while the rebuilt context still overflows the
+                         reserve, shrink the index one step and rebuild.
+                         Always progresses.
+        6. fold        — still past the compression TRIGGER even with
+                         everything evicted and the index compacted: stub
+                         the active turn's completed tool results in place
+                         (last resort; the request and the newest result
+                         stay verbatim).
         """
         cfg = context_config or agent.context_config
+        self.last_compress = {"evicted": 0, "compacted": 0, "folded": 0}
 
         # 1) Durability first — everything in the window is now in the DB. If
         #    the write-through failed (degraded durability), do NOT evict: the
         #    middle isn't durable, so folding it in would leave seq pointers to
-        #    rows that don't exist. Keep it live instead.
-        if not self._persist_guarded(agent):
+        #    rows that don't exist. Keep it live instead. Offloaded to a worker
+        #    thread so the whole-window persist never blocks the event loop.
+        if not await self._persist_guarded_async(agent):
             return
 
-        # 2) Trigger check (reuse AgentScope's own token accounting).
+        # 2) Trigger check (reuse AgentScope's own token accounting). The
+        #    count is kept — while nothing below rebuilds the context it is
+        #    still exact, so the steady state pays ONE count per compress.
         kwargs = await as_internals.prepare_model_input(agent)
-        if (
-            await agent.model.count_tokens(**kwargs)
-            < cfg.trigger_ratio * agent.model.context_size
-        ):
+        trigger = cfg.trigger_ratio * agent.model.context_size
+        tokens = await agent.model.count_tokens(**kwargs)
+        if tokens < trigger:
+            self._overflow_warned = False
             return
-        if len(agent.state.context) <= self._pinned + 1:
+        if len(agent.state.context) <= 1:
             return
 
-        # 3) Pairing-safe split; keep pinned head + recent tail, evict the
-        #    middle.
+        # 3) Pairing-safe split; keep the recent tail, evict the middle.
         reserve = cfg.reserve_ratio * agent.model.context_size
         to_compress, to_reserve = await as_internals.split_for_compression(
             agent,
@@ -176,7 +235,6 @@ class ScrollContextManager:
         real = lambda msgs: [
             m for m in msgs if m.id not in self._synthetic_ids
         ]
-        head = real(to_compress[: self._pinned])
         tail = real(to_reserve)
         # AgentScope's pairing-safe split deep-copies the *boundary* Msg into
         # BOTH halves under the SAME id (its blocks divided between compress
@@ -186,35 +244,75 @@ class ScrollContextManager:
         # visible, so it isn't evicted yet. It gets indexed in a later round
         # once it moves fully onto the compress side.
         tail_ids = {m.id for m in tail}
+        active_tail = self._active_turn_tail(agent)
+        active_ids = {m.id for m in active_tail}
         middle = [
             m
-            for m in real(to_compress[self._pinned :])
-            if m.id not in tail_ids
+            for m in real(to_compress)
+            if m.id not in tail_ids and m.id not in active_ids
         ]
-        if not middle:
-            return
+        if active_tail:
+            # Replace any partial boundary deep-copy in the tail with the
+            # full live Msg from the context.
+            tail = [m for m in tail if m.id not in active_ids]
+            tail.extend(active_tail)
 
-        # 3b) Optional legacy archive of the evicted turns (opt-in). The full
-        #     turns are already durable in history.db; this is a redundant
-        #     dialog/*.jsonl copy for external consumers. A write failure must
-        #     never abort compaction.
-        await self._offload_dialog(middle)
+        if middle:
+            # 3b) Optional legacy archive of the evicted turns (opt-in). The
+            #     full turns are already durable in history.db; this is a
+            #     redundant dialog/*.jsonl copy for external consumers. A
+            #     write failure must never abort compaction.
+            await self._offload_dialog(middle)
 
-        # 4) Fold the evicted middle into the index as a new Tier 0 block.
-        self._index_evicted(middle)
-        self._rebuild_context(agent, head, tail)
+            # 4) Fold the evicted middle into the index as a new Tier 0
+            #    block.
+            self._index_evicted(middle)
+            self._rebuild_context(agent, tail)
+            self.last_compress["evicted"] = len(middle)
+            tokens = await self._live_tokens(agent)
 
         # 5) Pressure-triggered compaction: shrink the index one step at a
         #    time until we fit (or it collapses to a single line). Always
-        #    terminates.
-        while (
-            await agent.model.count_tokens(
-                **(await as_internals.prepare_model_input(agent)),
-            )
-            > reserve
-            and self._index.compact()
-        ):
-            self._rebuild_context(agent, head, tail)
+        #    terminates. Runs even when nothing was evicted this round — an
+        #    empty middle must not leave an already-built index uncompacted.
+        while tokens > reserve and self._index.compact():
+            self._rebuild_context(agent, tail)
+            self.last_compress["compacted"] += 1
+            tokens = await self._live_tokens(agent)
+
+        # 6) Last resort — even with the middle evicted and the index
+        #    compacted, the window is STILL past the compression trigger, so
+        #    the pressure is the active turn itself (e.g. a single-request
+        #    cron run with a long tool chain). Stub its completed tool
+        #    results in place. Gated on the TRIGGER, not the reserve: the
+        #    reserve is a soft target, and an active turn slightly over it
+        #    still has most of the window as headroom — folding there would
+        #    snatch results the model fetched seconds ago in perfectly
+        #    ordinary long chats.
+        if tokens > trigger:
+            folded = self._fold_active_turn_results(agent)
+            if folded:
+                self.last_compress["folded"] = folded
+                tokens = await self._live_tokens(agent)
+        if tokens > trigger:
+            # Once per overflow episode, not once per reasoning step — the
+            # stuck state repeats every step until the turn ends.
+            if not self._overflow_warned:
+                self._overflow_warned = True
+                logger.warning(
+                    "scroll: context still over the compression trigger "
+                    "(%d > %d) after compaction and active-turn fold",
+                    tokens,
+                    trigger,
+                )
+        else:
+            self._overflow_warned = False
+
+    async def _live_tokens(self, agent: Any) -> int:
+        """Token count of the live context as the model would receive it."""
+        return await agent.model.count_tokens(
+            **(await as_internals.prepare_model_input(agent)),
+        )
 
     # -- write-through -------------------------------------------------------
 
@@ -269,6 +367,7 @@ class ScrollContextManager:
                             dedup_key=tcid,
                         )
                     self._persisted_tcids.add(tcid)
+                    self._seq_by_tcid[tcid] = seq
                 else:
                     nblk = len(entry.blocks or ())
                     if mid in self._persisted_ids:
@@ -325,17 +424,139 @@ class ScrollContextManager:
 
     # -- eviction ------------------------------------------------------------
 
+    @staticmethod
+    def _is_continuation_stub(msg: Any) -> bool:
+        """True for runtime-injected user-role messages that extend a turn.
+
+        Loop gates and stop handlers append tagged ``role="user"`` stubs
+        ("Continue working on the task.") to keep a turn going. They are NOT
+        new requests: anchoring the active turn on one would make the REAL
+        request evictable middle again — the #5746 failure, loop-session
+        flavor.
+        """
+        metadata = getattr(msg, "metadata", None)
+        if not isinstance(metadata, dict):
+            return False
+        tag = metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+        return tag in SYNTHETIC_USER_MESSAGE_TAGS
+
+    def _active_turn_tail(self, agent: Any) -> list[Msg]:
+        """Return the current user turn and its in-progress assistant tail.
+
+        AgentScope's token-based split may evict the latest user request when
+        a long tool-running turn exceeds the reserve budget. Under scroll that
+        is unsafe: the model then only sees the eviction index and may answer
+        an older visible message instead of the active task. Keep the latest
+        real user message and everything after it live until the turn
+        finishes. Continuation stubs the runtime injects mid-turn are skipped
+        when anchoring — the extended turn stays anchored on the real request
+        that started it.
+        """
+        context = list(getattr(agent.state, "context", []) or [])
+        for idx in range(len(context) - 1, -1, -1):
+            msg = context[idx]
+            mid = getattr(msg, "id", None)
+            if mid in self._synthetic_ids:
+                continue
+            if getattr(msg, "role", None) != "user":
+                continue
+            if self._is_continuation_stub(msg):
+                continue
+            return [
+                m
+                for m in context[idx:]
+                if getattr(m, "id", None) not in self._synthetic_ids
+            ]
+        return []
+
+    def _fold_active_turn_results(self, agent: Any) -> int:
+        """Stub the active turn's completed tool results in place; returns
+        how many were folded.
+
+        Last-resort pressure valve: eviction and index compaction have run
+        and the window is still past the compression TRIGGER, so the bulk
+        is the active turn itself. The request text, tool calls, and
+        reasoning stay
+        verbatim — only tool_result outputs (all durable since step 1, and
+        typically the token mass) are replaced with a one-line recall
+        pointer. The newest result is kept live: it is the one the next
+        reasoning step most likely consumes.
+
+        Blocks are mutated in place, so the Msg object and its id are
+        untouched — the runtime keeps extending the same message, and the
+        write-through stays consistent (result rows are keyed by
+        tool_call_id and never re-persisted; the model_turn row tracks only
+        non-result blocks). compress() runs only between reasoning steps,
+        when every tool call already has its result, so pairing is never
+        broken.
+        """
+        results = [
+            block
+            for msg in self._active_turn_tail(agent)
+            for block in getattr(msg, "content", None) or []
+            if getattr(block, "type", None) == "tool_result"
+        ]
+        folded = 0
+        for block in results[:-1]:  # keep the newest result verbatim
+            if self._is_folded_stub(block):
+                continue
+            tcid = getattr(block, "id", None)
+            seq = self._seq_by_tcid.get(tcid) if tcid else None
+            # Point at the structured recall_history tool (in-process, no
+            # sandbox — works even where the Python REPL can't run); the
+            # REPL's ms.* helpers accept the same values.
+            if seq is not None:
+                where = f'recall_history(op="expand", lo={seq}, hi={seq})'
+            elif tcid:
+                where = (
+                    f'recall_history(op="recall_tool", '
+                    f"tool_call_id={tcid!r})"
+                )
+            else:
+                where = 'recall_history(op="search", query=...)'
+            block.output = [
+                TextBlock(
+                    type="text",
+                    text=(
+                        f"{_FOLD_MARK} full result stored in history — "
+                        f"re-read it with {where}"
+                    ),
+                ),
+            ]
+            folded += 1
+        if folded:
+            logger.info(
+                "scroll: folded %d completed tool result(s) of the active "
+                "turn to recall stubs",
+                folded,
+            )
+        return folded
+
+    @staticmethod
+    def _is_folded_stub(block: Any) -> bool:
+        """True if this result's output is already a fold stub."""
+        out = getattr(block, "output", None)
+        if isinstance(out, str):
+            return out.startswith(_FOLD_MARK)
+        if isinstance(out, list) and out:
+            first = out[0]
+            text = (
+                first.get("text", "")
+                if isinstance(first, dict)
+                else getattr(first, "text", "") or ""
+            )
+            return str(text).startswith(_FOLD_MARK)
+        return False
+
     def _rebuild_context(
         self,
         agent: Any,
-        head: list[Msg],
         tail: list[Msg],
     ) -> None:
-        """state.context = pinned head + the single index placeholder +
-        tail."""
+        """state.context = the single index placeholder + tail."""
         placeholder = UserMsg(name="memory", content=self._index.render())
         self._synthetic_ids.add(placeholder.id)
-        agent.state.context = head + [placeholder] + tail
+        agent.state.context = [placeholder] + tail
 
     def _index_evicted(self, middle: list[Msg]) -> None:
         """Append the evicted middle to the index as one fresh Tier 0 block.
@@ -383,6 +604,7 @@ class ScrollContextManager:
         return {
             "persisted_ids": sorted(self._persisted_ids),
             "persisted_tcids": sorted(self._persisted_tcids),
+            "seq_by_tcid": dict(self._seq_by_tcid),
             "synthetic_ids": sorted(self._synthetic_ids),
             "seq_by_id": {
                 k: [lo, hi] for k, (lo, hi) in self._seq_by_id.items()
@@ -403,6 +625,7 @@ class ScrollContextManager:
             return
         self._persisted_ids = set(data.get("persisted_ids", ()))
         self._persisted_tcids = set(data.get("persisted_tcids", ()))
+        self._seq_by_tcid = dict(data.get("seq_by_tcid", {}))
         self._synthetic_ids = set(data.get("synthetic_ids", ()))
         self._seq_by_id = {
             k: (lo, hi) for k, (lo, hi) in data.get("seq_by_id", {}).items()

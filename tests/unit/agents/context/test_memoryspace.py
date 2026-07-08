@@ -140,8 +140,7 @@ def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
         ),
     )
     # The agent's own recall call (its Python source) and its printed output —
-    # both carry the searched keywords and both must be excluded. The output
-    # row uses the legacy "execute_python" name to also cover pre-rename rows.
+    # both carry the searched keywords and both must be excluded.
     h.append(
         session_id="s1",
         agent_id="ag1",
@@ -160,7 +159,7 @@ def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
         entry=LogEntry(
             kind="tool_result",
             role="assistant",
-            name="execute_python",  # legacy name, still excluded
+            name="recall_history",
             content="stdout: searching for car service ...",
             tool_call_id="t1",
         ),
@@ -175,6 +174,129 @@ def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
         hits = space.search("car service")
         contents = [r["content"] for r in hits]
         assert contents == ["the car needs service after 10000 miles"]
+    finally:
+        space.close()
+
+
+def test_search_excludes_the_active_turn(tmp_path: Path):
+    """The current request and its in-progress reply must not surface as
+    hits: they are already in the live window, and a second recall round
+    would otherwise top-k-match the previous round's quoted findings
+    (echo loop). Earlier turns of the SAME session stay searchable."""
+    h = HistoryStore(tmp_path / "history.db")
+    rows = [
+        ("old_u", "context_msg", "user", "tanks question from earlier"),
+        ("old_a", "model_turn", "assistant", "tanks were parked at base"),
+        # The ACTIVE turn: the latest user request + the reply being written.
+        ("cur_u", "context_msg", "user", "tanks question retried"),
+        ("cur_a", "model_turn", "assistant", "tanks quote from last recall"),
+    ]
+    for key, kind, role, content in rows:
+        h.append(
+            session_id="s1",
+            agent_id="ag1",
+            dedup_key=key,
+            entry=LogEntry(kind=kind, role=role, content=content),
+        )
+    h.append(  # another session is untouched by the exclusion
+        session_id="s2",
+        agent_id="ag1",
+        dedup_key="other",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="tanks moved in another session",
+        ),
+    )
+    h.close()
+    space = MemorySpace(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="s1",
+        agent_id="ag1",
+    )
+    try:
+        expected = {
+            "tanks question from earlier",
+            "tanks were parked at base",
+            "tanks moved in another session",
+        }
+        assert {r["content"] for r in space.search("tanks", k=10)} == expected
+        # The LIKE fallback applies the same exclusion.
+        like = space._search_like("tanks", [("agent_id", "ag1")], None, 10)
+        got = {r["content"] for r in like if r["kind"] != "_notice"}
+        assert got == expected
+    finally:
+        space.close()
+
+
+def test_active_turn_floor_is_computed_once_per_instance(
+    ms: MemorySpace,
+    monkeypatch,
+):
+    """The MAX(seq) scan behind the active-turn exclusion is memoized: a
+    single search consults the floor twice (FTS path + LIKE fallback) and the
+    read-only history can't change under the instance, so it must run at most
+    once — the cost that accrues on large histories in the recall subprocess.
+    """
+    calls = {"n": 0}
+    real = ms._compute_active_turn_floor
+
+    def counting():
+        calls["n"] += 1
+        return real()
+
+    monkeypatch.setattr(ms, "_compute_active_turn_floor", counting)
+
+    # Consult it across every path that would otherwise re-query.
+    ms.search("tanks", k=5)
+    ms._search_like("tanks", [("agent_id", "ag1")], None, 5)
+    ms._active_turn_floor()
+
+    assert calls["n"] == 1
+
+
+def test_active_turn_floor_ignores_continuation_stubs(tmp_path: Path):
+    """A loop-continuation stub row (user-role, tagged) must not move the
+    active-turn floor: the floor anchors on the REAL request that started
+    the turn, so the whole still-live extended turn stays excluded from
+    search instead of leaking back in as echo."""
+    h = HistoryStore(tmp_path / "history.db")
+    rows = [
+        ("old", "model_turn", "assistant", "tanks parked at base", None),
+        ("req", "context_msg", "user", "tanks question", None),
+        ("a1", "model_turn", "assistant", "tanks quote from recall", None),
+        (
+            "stub",
+            "context_msg",
+            "user",
+            "Continue working on the task.",
+            {"qwenpaw_tag": "loop_continuation"},
+        ),
+        ("a2", "model_turn", "assistant", "tanks continued reply", None),
+    ]
+    for key, kind, role, content, metadata in rows:
+        h.append(
+            session_id="s1",
+            agent_id="ag1",
+            dedup_key=key,
+            entry=LogEntry(
+                kind=kind,
+                role=role,
+                content=content,
+                metadata=metadata or {},
+            ),
+        )
+    h.close()
+    space = MemorySpace(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="s1",
+        agent_id="ag1",
+    )
+    try:
+        # Floor = the real request's seq (NOT the stub's): everything from
+        # the request onward is active-turn and excluded from search.
+        hits = {r["content"] for r in space.search("tanks", k=10)}
+        assert hits == {"tanks parked at base"}
     finally:
         space.close()
 
