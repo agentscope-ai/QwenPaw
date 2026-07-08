@@ -92,38 +92,33 @@ class AzureBotChannelPlugin:
                     "required": False,
                     "help": {
                         "zh-CN": (
-                            "留空时默认存储于当前 agent 工作区下的 "
-                            "media 目录（<工作区>/<agent_id>/media）。"
+                            "默认为当前 agent 工作区下的 media "
+                            "目录（workspaces/<agent_id>/media）。"
                         ),
                         "en-US": (
-                            "When empty, media is stored in the current "
-                            "agent's workspace media directory "
-                            "(<workspace>/<agent_id>/media)."
+                            "Defaults to the current agent's workspace "
+                            "media directory (workspaces/<agent_id>/media)."
                         ),
                         "ja-JP": (
-                            "空欄の場合、現在のエージェントのワークスペース内の "
-                            "media ディレクトリ（<workspace>/<agent_id>/media）"
-                            "に保存されます。"
+                            "デフォルトは現在のエージェントのワークスペース内の "
+                            "media ディレクトリ（workspaces/<agent_id>/media）です。"
                         ),
                         "ru-RU": (
-                            "Если оставить пустым, медиафайлы сохраняются "
-                            "в каталоге media рабочей области текущего "
-                            "агента (<workspace>/<agent_id>/media)."
+                            "По умолчанию — каталог media рабочей области "
+                            "текущего агента (workspaces/<agent_id>/media)."
                         ),
                         "pt-BR": (
-                            "Quando vazio, a mídia é armazenada no diretório "
-                            "media do espaço de trabalho do agente atual "
-                            "(<workspace>/<agent_id>/media)."
+                            "Padrão: diretório media do espaço de trabalho "
+                            "do agente atual (workspaces/<agent_id>/media)."
                         ),
                         "vi-VN": (
-                            "Khi để trống, media được lưu trong thư mục "
-                            "media thuộc workspace của agent hiện tại "
-                            "(<workspace>/<agent_id>/media)."
+                            "Mặc định là thư mục media trong workspace "
+                            "của agent hiện tại (workspaces/<agent_id>/media)."
                         ),
                         "id-ID": (
-                            "Jika kosong, media disimpan di direktori media "
-                            "pada workspace agen saat ini "
-                            "(<workspace>/<agent_id>/media)."
+                            "Default-nya adalah direktori media pada "
+                            "workspace agen saat ini "
+                            "(workspaces/<agent_id>/media)."
                         ),
                     },
                 },
