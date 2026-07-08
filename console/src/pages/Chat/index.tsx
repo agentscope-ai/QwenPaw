@@ -2394,6 +2394,11 @@ export default function ChatPage() {
     const i18nConfig = getDefaultConfig(t);
     const commandSuggestions: CommandSuggestion[] = [
       {
+        command: "/new",
+        value: "new",
+        description: "",
+      },
+      {
         command: "/clear",
         value: "clear",
         description: t("chat.commands.clear.description"),
@@ -2420,7 +2425,7 @@ export default function ChatPage() {
       },
     ];
     const reservedCommands = new Set(
-      commandSuggestions.map((item) => item.value.trim()),
+      commandSuggestions.map((item) => item.command.slice(1).trim()),
     );
     const loopSkillNames = new Set(
       useLoopStore.getState().availableSkills.map((s) => s.name),
