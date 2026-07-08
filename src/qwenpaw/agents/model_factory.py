@@ -603,12 +603,73 @@ def _fix_image_mime_types(messages: list[dict]) -> None:
 
 _MEDIA_BLOCK_TYPES = ("image", "audio", "video")
 
-# Block types the upstream agentscope OpenAI / Gemini formatters silently
-# drop.  Tracked here so ``aligned_reasoning`` can predict which assistant
-# messages will vanish from the formatted output and stay in sync.  Keep
-# this in lockstep with the ``else: logger.warning("Unsupported block
-# type ...")`` branch in agentscope's ``_openai_formatter``.
-_FORMATTER_SKIPPED_TYPES = frozenset({"thinking", "file"})
+# Block types that the base OpenAI / Gemini formatter processes into
+# ``content_blocks`` or ``tool_calls``, guaranteeing the assistant
+# message survives formatting.
+_SURVIVOR_BLOCK_TYPES = frozenset({"text", "tool_use", "tool_call"})
+
+# Block types the base formatter silently skips.  A message consisting
+# entirely of these (plus any ``DataBlock`` with unsupported media)
+# will be discarded.  Used by ``_is_block_dropped_by_formatter``
+# to predict which assistant messages vanish from the formatted output.
+#
+# ``file`` is kept for completeness but is effectively dead code:
+# ``_fixup_media_list`` converts file blocks to ``TextBlock`` before
+# the prediction runs.
+_ALWAYS_DROPPED_TYPES = frozenset({"thinking", "file", "hint"})
+
+
+def _is_block_dropped_by_formatter(
+    block: Any,
+    formatter: "FormatterBase",
+) -> bool:
+    """Predict whether the base formatter silently skips *block*.
+
+    The base ``OpenAIChatFormatter.format()`` only adds a block to
+    ``content_blocks`` (text, DataBlock with supported media) or
+    ``tool_calls`` (ToolCallBlock).  Everything else — ThinkingBlock,
+    HintBlock, unknown types, and DataBlock with unsupported media — is
+    skipped.  If **all** blocks in an assistant message are skipped, the
+    message itself is discarded (see ``_openai_formatter.py:360``).
+
+    This function returns ``True`` when a block is predicted to be
+    skipped, enabling ``aligned_reasoning`` to correctly predict message
+    drops and stay in sync with the formatted output.  #5858
+    """
+    btype = (
+        block.get("type")
+        if isinstance(block, dict)
+        else getattr(block, "type", None)
+    )
+
+    if btype in _SURVIVOR_BLOCK_TYPES:
+        return False
+
+    if btype in _ALWAYS_DROPPED_TYPES:
+        return True
+
+    if btype == "data":
+        source = getattr(block, "source", None)
+        media_type = (
+            (getattr(source, "media_type", "") or "") if source else ""
+        )
+        supported = getattr(formatter, "supported_input_media_types", [])
+        if not supported:
+            return True
+        from fnmatch import fnmatch
+
+        return not any(fnmatch(media_type, pat) for pat in supported)
+
+    # tool_result produces a separate ``role="tool"`` message but causes
+    # a flush of current content — it does NOT contribute to assistant
+    # ``content_blocks`` itself.  Treat it the same as a dropped block
+    # for assistant-survival prediction (the assistant message is
+    # preserved only if it has other survivor blocks).
+    if btype == "tool_result":
+        return True
+
+    # Unknown block type — the base formatter logs a warning and skips.
+    return True
 
 
 # pylint: disable=too-many-branches
@@ -908,17 +969,16 @@ def _create_file_block_support_formatter(
                 for m in (
                     msg for msg in normalized_msgs if msg.role == "assistant"
                 ):
-                    types = (
-                        [_battr(b, "type") for b in m.content]
-                        if isinstance(m.content, list)
-                        else []
+                    blocks = (
+                        list(m.content) if isinstance(m.content, list) else []
                     )
-                    # Drop prediction: a Msg whose blocks are *entirely*
-                    # in the skip set vanishes from formatter output
-                    # (currently {thinking, file}).  See
-                    # ``_FORMATTER_SKIPPED_TYPES``.
-                    is_dropped_by_formatter = bool(types) and all(
-                        t in _FORMATTER_SKIPPED_TYPES for t in types
+                    types = [_battr(b, "type") for b in blocks]
+                    # Drop prediction: a message is discarded when
+                    # *every* block is skipped by the base formatter
+                    # (thinking, hint, file, DataBlock with unsupported
+                    # media, unknown types).  See #5858.
+                    is_dropped_by_formatter = bool(blocks) and all(
+                        _is_block_dropped_by_formatter(b, self) for b in blocks
                     )
                     if is_dropped_by_formatter:
                         continue
@@ -958,7 +1018,8 @@ def _create_file_block_support_formatter(
                         "(%d expected survivors, %d actual). "
                         "Skipping reasoning_content injection for this turn. "
                         "A block type may be dropped by the base formatter "
-                        "without being listed in _FORMATTER_SKIPPED_TYPES, "
+                        "without being handled by "
+                        "_is_block_dropped_by_formatter, "
                         "or a new split pattern needs to be predicted.",
                         len(aligned_reasoning),
                         len(out_assistant),
