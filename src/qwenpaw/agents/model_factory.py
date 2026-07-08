@@ -901,7 +901,7 @@ def _create_file_block_support_formatter(
                 and getattr(
                     self,
                     "relay_reasoning_content",
-                    True,
+                    False,
                 )
             ):
                 aligned_reasoning = []

@@ -82,7 +82,7 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
     """
 
     max_bytes: int = Field(default=MAX_INLINE_MEDIA_BYTES, ge=0)
-    relay_reasoning_content: bool = Field(default=True)
+    relay_reasoning_content: bool = Field(default=False)
 
     @staticmethod
     def _inline_media_size(source: Any) -> int | None:

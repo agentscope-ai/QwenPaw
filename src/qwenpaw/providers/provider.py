@@ -64,10 +64,14 @@ class ModelInfo(BaseModel):
         "provider-level generate_kwargs.",
     )
     preserve_thinking: bool = Field(
-        default=True,
+        default=False,
         description="Whether to relay reasoning_content (thinking traces) "
         "back in subsequent turns. When False the formatter omits "
-        "reasoning_content from assistant wire messages.",
+        "reasoning_content from assistant wire messages. Defaults to "
+        "False: reasoning models are trained to drop prior-turn "
+        "chain-of-thought from history, and relaying it back causes "
+        "reflux loops (repeated/near-identical tool calls). Set True "
+        "per-model only if a model requires reasoning_content continuity.",
     )
     thinking_enabled: bool | None = Field(
         default=None,
@@ -493,11 +497,11 @@ class Provider(ProviderInfo, ABC):
 
     def _get_preserve_thinking(self, model_id: str) -> bool:
         """Return the ``preserve_thinking`` flag for *model_id* (default
-        True)."""
+        False)."""
         model_info = self.get_model_info(model_id)
         if model_info is not None:
             return model_info.preserve_thinking
-        return True
+        return False
 
     def _get_thinking_config(
         self,

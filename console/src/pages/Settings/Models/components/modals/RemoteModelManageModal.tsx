@@ -85,7 +85,7 @@ function ModelConfigEditor({
     model.max_input_length ?? 131072,
   );
   const [preserveThinking, setPreserveThinking] = useState<boolean>(
-    model.preserve_thinking ?? true,
+    model.preserve_thinking ?? false,
   );
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean | null>(
     model.thinking_enabled ?? null,
@@ -112,7 +112,7 @@ function ModelConfigEditor({
     setText(initialText);
     setMaxTokens(model.max_tokens ?? 8192);
     setMaxInputLength(model.max_input_length ?? 131072);
-    setPreserveThinking(model.preserve_thinking ?? true);
+    setPreserveThinking(model.preserve_thinking ?? false);
     setThinkingEnabled(model.thinking_enabled ?? null);
     setThinkingBudget(model.thinking_budget ?? null);
     setReasoningEffort(model.reasoning_effort ?? null);
