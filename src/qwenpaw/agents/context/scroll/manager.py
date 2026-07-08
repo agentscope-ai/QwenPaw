@@ -31,6 +31,7 @@ from ....constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
+from ....utils.model_response import consume_model_response
 from . import _as_internals as as_internals
 from .eviction_index import EvictionIndex, Leaf, Line
 from .history import HistoryStore
@@ -106,50 +107,6 @@ def _headlines_by_section(raw: str, count: int) -> dict[int, str]:
         if head and 1 <= n <= count:
             out.setdefault(n, head)
     return out
-
-
-def _safe_attr(obj: Any, name: str) -> Any:
-    """``getattr`` that returns ``None`` instead of raising for
-    ``ChatResponse`` (a dict whose ``__getattr__`` is ``dict.__getitem__``)."""
-    if isinstance(obj, dict):
-        return obj.get(name)
-    try:
-        return getattr(obj, name, None)
-    except (AttributeError, KeyError, TypeError):
-        return None
-
-
-def _response_text(obj: Any) -> str:
-    """Best-effort text from a ``ChatResponse``-like object or stream chunk."""
-    if obj is None or isinstance(obj, str):
-        return obj or ""
-    text = _safe_attr(obj, "text")
-    if isinstance(text, str) and text:
-        return text
-    content = _safe_attr(obj, "content")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        for item in content:
-            got = (
-                item.get("text")
-                if isinstance(item, dict)
-                else _safe_attr(item, "text")
-            )
-            if isinstance(got, str) and got:
-                return got
-    return ""
-
-
-async def _consume_model_response(model: Any, messages: list) -> str:
-    """Await ``model(messages)`` and return its text, streaming or not."""
-    response = await model(messages)
-    if not hasattr(response, "__aiter__"):
-        return _response_text(response)
-    text = ""
-    async for chunk in response:
-        text = _response_text(chunk) or text
-    return text
 
 
 class ScrollContextManager:
@@ -748,7 +705,7 @@ class ScrollContextManager:
         ]
         try:
             raw = await asyncio.wait_for(
-                _consume_model_response(model, messages),
+                consume_model_response(model, messages),
                 timeout=self._summarize_timeout_s,
             )
         except Exception:  # noqa: BLE001 - cosmetic label, never break evict
