@@ -180,8 +180,7 @@ class DriverHandler(ABC):
             context.request_context,
         )
         needs_approval = (
-            effect == POLICY_EFFECT_ASK
-            and not execution_level.is_disabled()
+            effect == POLICY_EFFECT_ASK and not execution_level.is_disabled()
         ) or (
             effect == POLICY_EFFECT_ALLOW
             and execution_level.requires_approval_for_all_tools()
