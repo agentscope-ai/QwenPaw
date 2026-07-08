@@ -38,6 +38,31 @@ def test_single_eviction_is_addressable():
     assert "seq 5" in out
 
 
+def test_render_closes_with_live_turn_banner():
+    """The seam banner is the structural anchor: it must be the LAST thing in
+    the placeholder (after every tier), so it sits right before the live tail —
+    telling the model the request is below, not a headline in the map above."""
+    idx = EvictionIndex(session_id="s")
+    _add(idx, 5, "old headline")
+    out = idx.render()
+    assert "CURRENT LIVE TURN" in out
+    assert "END OF ARCHIVED INDEX" in out
+    # The banner comes after the archived turns, not before them.
+    assert out.index("old headline") < out.index("CURRENT LIVE TURN")
+    # And it stays inside the system-info envelope, last before the close tag.
+    assert out.index("CURRENT LIVE TURN") < out.index("</system-info>")
+
+
+def test_describe_omits_the_model_facing_banner():
+    """``describe()`` feeds the user-facing /compact reply — it should show the
+    tier/span map only, not the model-only 'answer THIS' banner."""
+    idx = EvictionIndex(session_id="s")
+    _add(idx, 5, "old headline")
+    described = idx.describe()
+    assert "old headline" in described
+    assert "CURRENT LIVE TURN" not in described
+
+
 def test_eviction_without_headline_still_has_a_span():
     idx = EvictionIndex(session_id="s")
     idx.add_eviction([], seq_lo=10, seq_hi=14)
