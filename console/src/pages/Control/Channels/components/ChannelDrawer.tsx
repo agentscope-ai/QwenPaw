@@ -1326,6 +1326,39 @@ export function ChannelDrawer({
 
   // ── Custom channel fields (key-value editor) ─────────────────────────────
 
+  // Resolve a plugin-provided localized text (string or locale->string dict)
+  // against the current UI language, with graceful fallback so a missing
+  // locale never renders as blank. Both long codes ("zh-CN") and short
+  // codes ("zh") are supported on either side via prefix matching:
+  //   exact locale -> short code -> prefix match (short<->long) ->
+  //   English -> Chinese -> first non-empty.
+  const resolveLocalized = (value: unknown): string => {
+    if (value == null) return "";
+    if (typeof value === "string") return value;
+    if (typeof value === "object") {
+      const dict = value as Record<string, string>;
+      const lang = i18n.language || "en";
+      const short = lang.split("-")[0].toLowerCase();
+      // Prefix match so UI short code "zh" hits dict long key "zh-CN"
+      // (and vice versa), regardless of which style the plugin used.
+      const prefixKey = Object.keys(dict).find(
+        (k) => k.split("-")[0].toLowerCase() === short && !!dict[k],
+      );
+      return (
+        dict[lang] ||
+        dict[short] ||
+        (prefixKey ? dict[prefixKey] : "") ||
+        dict["en-US"] ||
+        dict["en"] ||
+        dict["zh-CN"] ||
+        dict["zh"] ||
+        Object.values(dict).find((v) => !!v) ||
+        ""
+      );
+    }
+    return String(value);
+  };
+
   const renderCustomExtraFields = (
     values: Record<string, unknown> | undefined,
   ) => {
@@ -1339,8 +1372,11 @@ export function ChannelDrawer({
             </div>
           )}
           {channelSchema.config_fields.map((field) => {
+            const fieldLabel = resolveLocalized(field.label);
+            const fieldHelp = resolveLocalized(field.help) || undefined;
+            const fieldPlaceholder = resolveLocalized(field.placeholder);
             const rules = field.required
-              ? [{ required: true, message: `Please enter ${field.label}` }]
+              ? [{ required: true, message: `Please enter ${fieldLabel}` }]
               : undefined;
 
             switch (field.type) {
@@ -1349,12 +1385,12 @@ export function ChannelDrawer({
                   <Form.Item
                     key={field.name}
                     name={field.name}
-                    label={field.label}
+                    label={fieldLabel}
                     rules={rules}
-                    tooltip={field.help}
+                    tooltip={fieldHelp}
                     initialValue={field.default}
                   >
-                    <Input.Password placeholder={field.placeholder} />
+                    <Input.Password placeholder={fieldPlaceholder} />
                   </Form.Item>
                 );
               case "number":
@@ -1362,14 +1398,14 @@ export function ChannelDrawer({
                   <Form.Item
                     key={field.name}
                     name={field.name}
-                    label={field.label}
+                    label={fieldLabel}
                     rules={rules}
-                    tooltip={field.help}
+                    tooltip={fieldHelp}
                     initialValue={field.default}
                   >
                     <InputNumber
                       style={{ width: "100%" }}
-                      placeholder={field.placeholder}
+                      placeholder={fieldPlaceholder}
                     />
                   </Form.Item>
                 );
@@ -1378,9 +1414,9 @@ export function ChannelDrawer({
                   <Form.Item
                     key={field.name}
                     name={field.name}
-                    label={field.label}
+                    label={fieldLabel}
                     valuePropName="checked"
-                    tooltip={field.help}
+                    tooltip={fieldHelp}
                     initialValue={field.default}
                   >
                     <Switch />
@@ -1391,13 +1427,13 @@ export function ChannelDrawer({
                   <Form.Item
                     key={field.name}
                     name={field.name}
-                    label={field.label}
+                    label={fieldLabel}
                     rules={rules}
-                    tooltip={field.help}
+                    tooltip={fieldHelp}
                     initialValue={field.default}
                   >
                     <Select
-                      placeholder={field.placeholder}
+                      placeholder={fieldPlaceholder}
                       options={(field.options || []).map((opt) => ({
                         label: opt,
                         value: opt,
@@ -1410,12 +1446,12 @@ export function ChannelDrawer({
                   <Form.Item
                     key={field.name}
                     name={field.name}
-                    label={field.label}
+                    label={fieldLabel}
                     rules={rules}
-                    tooltip={field.help}
+                    tooltip={fieldHelp}
                     initialValue={field.default}
                   >
-                    <Input placeholder={field.placeholder} />
+                    <Input placeholder={fieldPlaceholder} />
                   </Form.Item>
                 );
             }
