@@ -316,6 +316,19 @@ async def _policy_tool_check_permissions(
             message="governance: sandbox fallback.",
         )
     elif decision.action is GovernanceAction.ASK:
+        # Auto-approve when request_context signals unattended execution
+        # (e.g. cron jobs with tool_safety disabled). DENY rules are still
+        # enforced above; only the interactive approval prompt is skipped.
+        if request_ctx.get("auto_approve") == "true":
+            logger.info(
+                "PolicyGuardedTool: auto-approving ASK for '%s' "
+                "(auto_approve=true)",
+                getattr(self, "name", "Unknown"),
+            )
+            return PermissionDecision(
+                behavior=PermissionBehavior.ALLOW,
+                message="governance: auto-approved (unattended mode).",
+            )
         # Requires user confirmation
         self._qp_policy_decision = decision
 
@@ -402,6 +415,18 @@ async def _policy_tool_call(
                 ),
             ],
         )
+
+    # Auto-approve sandbox violations in unattended mode (e.g. cron
+    # with tool_safety disabled). Retry immediately without sandbox.
+    if request_context.get("auto_approve") == "true":
+        logger.info(
+            "PolicyGuardedTool: auto-approving sandbox violation for "
+            "'%s' (auto_approve=true)",
+            getattr(self, "name", "Unknown"),
+        )
+        kwargs.pop("sandbox_config", None)
+        self._qp_sandbox_mode = False
+        return await FunctionTool.__call__(self, *args, **kwargs)
 
     # Trigger approval flow — reuse tc_spec from check_permissions
     tc_spec = getattr(self, "_qp_tc_spec", None)
