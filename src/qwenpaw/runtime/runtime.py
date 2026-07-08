@@ -212,6 +212,24 @@ class Runtime:
         runs to completion in the background; the ``proxy`` owns an
         independent copy of the data so ``agent.close()`` in the
         ``finally`` block cannot corrupt it.
+
+        .. note:: Why hardcoded instead of a hook?
+
+           This runs *outside* the ``try/except`` that wraps
+           ``hooks.run(Phase.ON_ERROR)``, so it executes even when
+           re-cancellation skips all ON_ERROR hooks.  The synchronous
+           parts (inject + state_dict) complete before any ``await``,
+           and ``asyncio.shield`` protects the I/O — guarantees that a
+           generic hook framework cannot provide.
+
+        TODO: Currently only ``SessionSaveHook`` has a cancel-path
+         equivalent here.  Other ``POST_RESPONSE`` hooks (e.g.
+         ``CronMemoryRestoreHook``) and plugin-registered hooks are
+         skipped on /stop.  A future improvement should unify the
+         cancel and normal paths — e.g. via a dedicated ``ON_CANCEL``
+         phase with per-hook shield execution — so plugins can
+         participate in the cancel lifecycle.  ``ctx._envelope`` should
+         also be promoted to a first-class ``HookContext`` field.
         """
         agent = getattr(ctx, "agent", None)
         if agent is None:
