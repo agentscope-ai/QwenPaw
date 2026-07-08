@@ -31,6 +31,11 @@ def build_search_answer(candidates: list[dict]) -> str:
         text content...
 
     Missing score components are rendered as ``<key>=-``.
+
+    Each candidate is expected to have ``path``, ``start_line``, ``end_line``,
+    ``text``, and optionally ``scores`` — these are the fields ReMe 0.4's
+    ``memory_search`` returns in ``metadata["results"]``.  ``.get()`` is used
+    so that missing fields produce a degraded entry rather than a crash.
     """
     lines: list[str] = []
     for c in candidates:
@@ -39,12 +44,15 @@ def build_search_answer(candidates: list[dict]) -> str:
         for key in ("vector", "keyword", "rerank"):
             val = scores.get(key)
             parts.append(f"{key}={val:.4f}" if val is not None else f"{key}=-")
+        path = c.get("path", "?")
+        start = c.get("start_line", "?")
+        end = c.get("end_line", "?")
         header = (
-            f"========== {c['path']}:{c['start_line']}-{c['end_line']}"
+            f"========== {path}:{start}-{end}"
             f" [{' '.join(parts)}] =========="
         )
         lines.append(header)
-        lines.append(c["text"])
+        lines.append(c.get("text", ""))
     return "\n".join(lines)
 
 

@@ -448,7 +448,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not memory_cfg.auto_memory_search_config.enabled:
             return None
 
-        reranker_config = _load_reranker_config(self.agent_id)
+        reranker_config = memory_cfg.reranker_config
+        if not (reranker_config and reranker_config.enabled and reranker_config.model_name):
+            reranker_config = None
 
         msgs = [messages] if isinstance(messages, Msg) else list(messages)
         query = self._build_query(msgs)
@@ -466,7 +468,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         response = await self._run_reme_job(
             "search",
             query=query,
-            limit=max_results,
+            limit=fetch_limit,
             min_score=0,
         )
         if response is None or not response.success:

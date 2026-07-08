@@ -274,9 +274,13 @@ class TestManagerRerankIntegration:
         reranker_cfg.endpoint_url = "https://api.example.com/v1/rerank"
         reranker_cfg.model_name = "bge-reranker"
 
+        auto_cfg = MagicMock()
+        auto_cfg.enabled = True
+        auto_cfg.max_results = 3
+
         reme_cfg = MagicMock()
         reme_cfg.reranker_config = reranker_cfg
-        reme_cfg.auto_memory_search_config.enabled = False
+        reme_cfg.auto_memory_search_config = auto_cfg
 
         running_cfg = MagicMock()
         running_cfg.reme_light_memory_config = reme_cfg
@@ -408,10 +412,6 @@ class TestManagerRerankIntegration:
         mock_msg = MagicMock()
         mock_msg.role = "user"
         mock_msg.get_text_content.return_value = "hello"
-
-        auto_cfg = MagicMock()
-        auto_cfg.enabled = True
-        auto_cfg.max_results = 3
 
         with (
             patch.object(
