@@ -54,7 +54,7 @@ export function ApprovalCard({
   similarTarget,
   onApprove,
   onDeny,
-  onCancel,
+  onCancel: _onCancel,
   onAcknowledge,
 }: ApprovalCardProps) {
   const { t } = useTranslation();
@@ -337,24 +337,13 @@ export function ApprovalCard({
           </>
         ) : (
           <>
-            {onCancel && (
-              <Button
-                type="default"
-                onClick={() => {
-                  console.log("[ApprovalCard] Cancel task button clicked");
-                  onCancel();
-                }}
-                disabled={loading !== null}
-              >
-                {t("approval.cancelTask", "Cancel Task")}
-              </Button>
-            )}
             <Button
               danger
               icon={<X size={14} />}
               onClick={handleDeny}
               loading={loading === "deny"}
               disabled={loading !== null}
+              className={styles.denyButton}
             >
               {t("approval.deny", "Deny")}
             </Button>
@@ -364,8 +353,9 @@ export function ApprovalCard({
                   onClick={() => handleApprove("exact")}
                   loading={loading === "approve-exact"}
                   disabled={loading !== null}
+                  className={styles.approveOnceButton}
                 >
-                  {t("approval.approveExact", "Approve Exact")}
+                  {t("approval.approveExact", "Just Once")}
                 </Button>
                 <Button
                   type="primary"
@@ -373,8 +363,9 @@ export function ApprovalCard({
                   onClick={() => handleApprove("similar")}
                   loading={loading === "approve-pattern"}
                   disabled={loading !== null}
+                  className={styles.approveAlwaysButton}
                 >
-                  {t("approval.approvePattern", "Approve Pattern")}
+                  {t("approval.approvePattern", "Always Allow")}
                 </Button>
               </>
             ) : (
@@ -386,6 +377,7 @@ export function ApprovalCard({
                   loading === "approve-exact" || loading === "approve-pattern"
                 }
                 disabled={loading !== null}
+                className={styles.approveAlwaysButton}
               >
                 {t("approval.approve", "Approve")}
               </Button>

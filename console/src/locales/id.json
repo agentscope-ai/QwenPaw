@@ -1326,10 +1326,12 @@
     "approved": "Panggilan alat disetujui",
     "denied": "Panggilan alat ditolak",
     "approveFailed": "Gagal menyetujui",
-    "cancelTask": "Batalkan Tugas",
     "denyFailed": "Gagal menolak",
     "timeoutAutoDenied": "Waktu habis, otomatis ditolak",
-    "acknowledge": "Mengerti"
+    "acknowledge": "Mengerti",
+    "approvePattern": "Selalu Izinkan",
+    "approveExact": "Hanya Sekali Ini",
+    "approvalScope": "Lingkup Persetujuan"
   },
   "account": {
     "title": "Akun",

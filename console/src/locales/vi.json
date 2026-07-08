@@ -646,7 +646,7 @@
     "period": "Khoảng thời gian"
   },
   "approval": {
-    "title": "Yêu cầu phê duyệt",
+    "title": "Yêu cầu phê duyệt bảo mật",
     "description": "Agent đang yêu cầu phê duyệt để thực thi hành động sau:",
     "approve": "Phê duyệt",
     "deny": "Từ chối",
@@ -654,7 +654,24 @@
     "denySuccess": "Đã từ chối",
     "expired": "Yêu cầu đã hết hạn",
     "tool": "Công cụ",
-    "arguments": "Tham số"
+    "arguments": "Tham số",
+    "approvePattern": "Luôn Cho Phép",
+    "approveExact": "Chỉ Lần Này",
+    "approvalScope": "Phạm vi phê duyệt",
+    "ownerAgent": "Agent Chủ Sở Hữu",
+    "executingAgent": "Agent Đang Thực Thi",
+    "severity": "Mức Độ Nghiêm Trọng",
+    "findings": "Phát Hiện",
+    "parameters": "Tham Số",
+    "source": "Nguồn",
+    "builtinSource": "Tích Hợp",
+    "subSession": "Sub-Agent",
+    "approved": "Đã phê duyệt lệnh gọi công cụ",
+    "denied": "Đã từ chối lệnh gọi công cụ",
+    "approveFailed": "Không thể phê duyệt",
+    "denyFailed": "Không thể từ chối",
+    "timeoutAutoDenied": "Hết thời gian, tự động từ chối",
+    "acknowledge": "Đã Hiểu"
   },
   "preview": {
     "error": {

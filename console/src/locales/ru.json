@@ -2400,8 +2400,15 @@
     "approved": "Вызов инструмента подтвержден",
     "denied": "Вызов инструмента отклонен",
     "approveFailed": "Не удалось подтвердить",
-    "cancelTask": "Отменить задачу",
-    "denyFailed": "Не удалось отклонить"
+    "denyFailed": "Не удалось отклонить",
+    "approvePattern": "Всегда Разрешить",
+    "approveExact": "Только Сейчас",
+    "approvalScope": "Область подтверждения",
+    "timeoutAutoDenied": "Время истекло, автоматически отклонено",
+    "acknowledge": "Понятно",
+    "builtinSource": "Встроенный",
+    "ownerAgent": "Владелец агента",
+    "executingAgent": "Исполняющий агент"
   },
   "pluginManager": {
     "title": "Менеджер плагинов",

@@ -2439,9 +2439,16 @@
     "subSession": "Sub-Agent",
     "approved": "Tool call approved",
     "denied": "Tool call denied",
-    "approveFailed": "Falhou to approve",
-    "cancelTask": "Cancelar Task",
-    "denyFailed": "Falhou to deny"
+    "approveFailed": "Falhou ao aprovar",
+    "denyFailed": "Falhou ao negar",
+    "approvePattern": "Sempre Permitir",
+    "approveExact": "Apenas Desta Vez",
+    "approvalScope": "Escopo de aprovação",
+    "timeoutAutoDenied": "Tempo esgotado, negado automaticamente",
+    "acknowledge": "Entendi",
+    "builtinSource": "Integrado",
+    "ownerAgent": "Agente Proprietário",
+    "executingAgent": "Agente Executando"
   },
   "pluginManager": {
     "title": "Gerenciador de Plugins",

@@ -2586,12 +2586,11 @@
     "approved": "已批准工具调用",
     "denied": "已拒绝工具调用",
     "approveFailed": "批准失败",
-    "cancelTask": "取消任务",
     "denyFailed": "拒绝失败",
     "timeoutAutoDenied": "已超时，自动拒绝",
     "acknowledge": "我知道了",
-    "approvePattern": "批准通用规则",
-    "approveExact": "仅批准原文",
+    "approvePattern": "总是允许",
+    "approveExact": "仅本次",
     "approvalScope": "批准范围"
   },
   "pluginManager": {
