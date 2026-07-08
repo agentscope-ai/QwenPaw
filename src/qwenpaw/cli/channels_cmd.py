@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from pathlib import Path
 from typing import Optional
 
 import click
@@ -12,11 +11,6 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
-from ..config import (
-    get_config_path,
-    load_config,
-    save_config,
-)
 from ..config.config import (
     Config,
     ConsoleConfig,
@@ -35,11 +29,7 @@ from ..config.config import (
 from .utils import prompt_confirm, prompt_path, prompt_select
 from .http import client, print_json, resolve_base_url
 from ..config import get_available_channels
-from ..constant import CUSTOM_CHANNELS_DIR
-from ..app.channels.registry import (
-    BUILTIN_CHANNEL_KEYS,
-    get_channel_registry,
-)
+from ..app.channels.registry import get_channel_registry
 
 # Fields that contain secrets — display masked in ``list``
 _SECRET_FIELDS = {
@@ -65,105 +55,6 @@ _ALL_CHANNEL_NAMES = {
 }
 # Public alias for tests and external use.
 CHANNEL_NAMES = _ALL_CHANNEL_NAMES
-
-# Template for `qwenpaw channels install <key>` stub (channel key substituted).
-CHANNEL_TEMPLATE = '''# -*- coding: utf-8 -*-
-"""Custom channel: {key}. Edit and implement required methods."""
-from __future__ import annotations
-
-import os
-from typing import Any
-
-from qwenpaw.schemas import (
-    TextContent,
-    ContentType,
-)
-
-from qwenpaw.app.channels.base import BaseChannel
-from qwenpaw.app.channels.schema import ChannelType
-
-
-class CustomChannel(BaseChannel):
-    channel: ChannelType = "{key}"
-
-    def __init__(
-        self,
-        process,
-        enabled=True,
-        bot_prefix="",
-        on_reply_sent=None,
-        show_tool_details=True,
-        filter_tool_messages=False,
-        filter_thinking=False,
-        **kwargs,
-    ):
-        super().__init__(
-            process,
-            on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
-        )
-        self.enabled = enabled
-        self.bot_prefix = bot_prefix or ""
-
-    @classmethod
-    def from_config(
-        cls,
-        process,
-        config,
-        on_reply_sent=None,
-        show_tool_details=True,
-        **kwargs,
-    ):
-        return cls(
-            process=process,
-            enabled=getattr(config, "enabled", True),
-            bot_prefix=getattr(config, "bot_prefix", ""),
-            on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=kwargs.get(
-                "filter_tool_messages",
-                getattr(config, "filter_tool_messages", False),
-            ),
-            filter_thinking=kwargs.get(
-                "filter_thinking",
-                getattr(config, "filter_thinking", False),
-            ),
-        )
-
-    @classmethod
-    def from_env(cls, process, on_reply_sent=None):
-        return cls(process=process, on_reply_sent=on_reply_sent)
-
-    def build_agent_request_from_native(self, native_payload: Any):
-        payload = native_payload if isinstance(native_payload, dict) else {{}}
-        channel_id = payload.get("channel_id") or self.channel
-        sender_id = payload.get("sender_id") or ""
-        meta = payload.get("meta") or {{}}
-        session_id = self.resolve_session_id(sender_id, meta)
-        text = payload.get("text", "")
-        content_parts = [TextContent(type=ContentType.TEXT, text=text)]
-        request = self.build_agent_request_from_user_content(
-            channel_id=channel_id,
-            sender_id=sender_id,
-            session_id=session_id,
-            content_parts=content_parts,
-            channel_meta=meta,
-        )
-        request.channel_meta = meta
-        return request
-
-    async def start(self):
-        pass
-
-    async def stop(self):
-        pass
-
-    async def send(self, to_handle: str, text: str, meta=None):
-        # Implement: send text to the channel (e.g. HTTP API).
-        pass
-'''
 
 
 def _get_channel_names() -> dict[str, str]:
@@ -1233,8 +1124,6 @@ def remove_cmd(key: str, keep_config: bool) -> None:
                 new_cfg = Config.model_validate(data)
                 save_config(new_cfg, config_path)
                 click.echo(f"✓ Removed '{key}' from config.")
-
-
 @channels_group.command("config")
 @click.option(
     "--agent-id",

@@ -1,10 +1,31 @@
 import { request } from "../request";
 import type { ChannelConfig, SingleChannelConfig } from "../types";
 
+export interface ChannelConfigField {
+  name: string;
+  label: string;
+  type: "text" | "password" | "number" | "switch" | "select";
+  required?: boolean;
+  placeholder?: string;
+  help?: string;
+  default?: unknown;
+  options?: string[];
+}
+
+export interface ChannelSchema {
+  label: string;
+  description: string;
+  plugin_id: string;
+  config_fields: ChannelConfigField[];
+}
+
 export const channelApi = {
   listChannelTypes: () => request<string[]>("/config/channels/types"),
 
   listChannels: () => request<ChannelConfig>("/config/channels"),
+
+  listChannelSchemas: () =>
+    request<Record<string, ChannelSchema>>("/config/channels/schemas"),
 
   updateChannels: (body: ChannelConfig) =>
     request<ChannelConfig>("/config/channels", {

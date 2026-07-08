@@ -126,6 +126,30 @@ async def list_channel_types() -> List[str]:
     return list(get_available_channels())
 
 
+@router.get(
+    "/channels/schemas",
+    summary="Get plugin channel config schemas",
+    description=(
+        "Return config_fields metadata for plugin-registered channels "
+        "so the frontend can render dynamic forms."
+    ),
+)
+async def list_channel_schemas() -> dict:
+    """Return plugin channel schemas for frontend form rendering."""
+    from ...plugins.registry import PluginRegistry
+
+    registry = PluginRegistry()
+    result: dict = {}
+    for key, reg in registry.get_registered_channels().items():
+        result[key] = {
+            "label": reg.label,
+            "description": reg.description,
+            "plugin_id": reg.plugin_id,
+            "config_fields": reg.config_fields,
+        }
+    return result
+
+
 @router.put(
     "/channels",
     response_model=ChannelConfig,

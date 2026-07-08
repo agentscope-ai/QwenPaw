@@ -23,11 +23,21 @@ _DEFAULT_ROW_CAP = 1000
 # durable but must never surface as *search hits* — otherwise a query matches
 # the agent's own earlier queries/tracebacks (self-pollution). New rows are
 # already kept out of the FTS index (see ``history._RECALL_TOOL_NAMES``); this
-# filter also hides any legacy rows indexed before that, and covers the LIKE
-# fallback. Must match the recall tool name in ``repl.py``; the legacy
-# "execute_python" name is kept so pre-rename rows stay excluded.
-_RECALL_TOOL_NAMES = ("recall_history_python", "execute_python")
+# filter also covers the LIKE fallback. Must match the recall tool names in
+# ``repl.py`` and ``recall_tool.py``.
+_RECALL_TOOL_NAMES = (
+    "recall_history_python",
+    "recall_history",
+)
 _RECALL_EXCL_PLACEHOLDERS = ", ".join("?" for _ in _RECALL_TOOL_NAMES)
+
+# User-role stub rows the runtime injects to keep a turn going ("Continue
+# working on the task."). They are not real requests: the active-turn floor
+# must anchor on the request that STARTED the turn, or the floor jumps to the
+# stub and the real request becomes searchable mid-turn again (echo loop).
+# Values must match SYNTHETIC_USER_MESSAGE_TAGS in qwenpaw.constant (this
+# module stays stdlib-only for the sandboxed REPL, so no import).
+_SYNTHETIC_USER_TAGS = ("loop_continuation", "auto_continue")
 
 _DATE_RE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
 
@@ -144,6 +154,12 @@ class MemorySpace:
         self._agent_id = agent_id
         self._session_suffix = sanitize_suffix(session_id)
         self._fts_ok: bool | None = None  # cached FTS5-availability check
+        # Cached active-turn floor. ``hist`` is attached read-only, so
+        # MAX(seq) can't change over this instance's life — compute it once.
+        # A separate flag distinguishes "not computed yet" from a real
+        # ``None`` result (no session / no active user turn).
+        self._floor_cache: int | None = None
+        self._floor_computed: bool = False
         if history_db_path is not None:
             abs_path = Path(history_db_path).expanduser().resolve()
             self._conn.execute(
@@ -349,6 +365,73 @@ class MemorySpace:
             return [("agent_id", self._agent_id)]
         return []
 
+    def _active_turn_floor(self) -> int | None:
+        """Seq of the current session's latest real user message, or None.
+
+        Everything at or after it is the ACTIVE TURN — the request the agent
+        is answering right now plus its in-progress reply, all still in the
+        live window (folded tool results carry their own expand
+        address). ``search`` excludes that span: without it, a second recall
+        round top-k-matches the agent's OWN in-progress turn — the previous
+        round's quoted findings and the request itself — and the echoes drown
+        the real hits. ``expand`` / ``recall_tool`` / ``session`` stay
+        unfiltered (verbatim replay is their point).
+
+        Memoized per instance: a single ``search`` can consult the floor twice
+        (the FTS path and the LIKE fallback), and the underlying ``hist`` is
+        read-only, so the MAX(seq) scan runs at most once per MemorySpace
+        rather than once per call site — the cost that matters on large
+        histories in the recall subprocess.
+        """
+        if not self._floor_computed:
+            self._floor_cache = self._compute_active_turn_floor()
+            self._floor_computed = True
+        return self._floor_cache
+
+    def _compute_active_turn_floor(self) -> int | None:
+        """Uncached MAX(seq) scan behind :meth:`_active_turn_floor`.
+
+        Anchors on the latest REAL user request: runtime continuation stubs
+        (tagged user-role rows) extend a turn rather than starting one, so
+        they never move the floor.
+        """
+        if not self._session_id:
+            return None
+        where = ["session_id = ?", "kind = 'context_msg'", "role = 'user'"]
+        params: list = [self._session_id]
+        if self._agent_id:
+            where.append("agent_id = ?")
+            params.append(self._agent_id)
+        for tag in _SYNTHETIC_USER_TAGS:
+            where.append("(metadata IS NULL OR metadata NOT LIKE ?)")
+            params.append(f'%"{tag}"%')
+        try:
+            row = self._conn.execute(
+                "SELECT MAX(seq) AS s FROM hist.conversation_history "
+                "WHERE " + " AND ".join(where),
+                tuple(params),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None  # no hist attached
+        return row["s"] if row and row["s"] is not None else None
+
+    def _active_turn_exclusion(
+        self,
+        prefix: str = "",
+    ) -> tuple[str, list] | None:
+        """``(clause, params)`` excluding the active turn from a search."""
+        floor = self._active_turn_floor()
+        if floor is None:
+            return None
+        conds = [f"{prefix}session_id = ?"]
+        params: list = [self._session_id]
+        if self._agent_id:
+            conds.append(f"{prefix}agent_id = ?")
+            params.append(self._agent_id)
+        conds.append(f"{prefix}seq >= ?")
+        params.append(floor)
+        return "NOT (" + " AND ".join(conds) + ")", params
+
     def search(
         self,
         query: str,
@@ -374,6 +457,12 @@ class MemorySpace:
         punctuation is treated as word separators (so ``C++`` searches the
         term ``C``), not FTS5 operators. Falls back to a LIKE scan if this
         SQLite lacks FTS5 or the query has no word tokens.
+
+        The agent's current ACTIVE TURN (the latest user request of this
+        session and everything after it) never appears in the hits — it is
+        already in the live window, and matching it would only echo the
+        previous recall round back. Earlier evicted turns of this session
+        remain searchable.
         """
         targets = self._scope_filters(all_agents, session_id, agent_id)
         # FTS5 MATCH takes a query grammar, not plain text. Sanitize first; an
@@ -391,6 +480,10 @@ class MemorySpace:
             f"({_RECALL_EXCL_PLACEHOLDERS}))",
         ]
         params: list = [match, *_RECALL_TOOL_NAMES]
+        excl = self._active_turn_exclusion("ch.")
+        if excl:
+            where.append(excl[0])
+            params.extend(excl[1])
         for col, val in targets:
             where.append(f"ch.{col} = ?")
             params.append(val)
@@ -441,6 +534,10 @@ class MemorySpace:
             f"(name IS NULL OR name NOT IN ({_RECALL_EXCL_PLACEHOLDERS}))",
         ]
         params: list = [f"%{query}%", *_RECALL_TOOL_NAMES]
+        excl = self._active_turn_exclusion()
+        if excl:
+            where.append(excl[0])
+            params.extend(excl[1])
         for col, val in targets:
             where.append(f"{col} = ?")
             params.append(val)

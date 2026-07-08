@@ -94,6 +94,9 @@ def _sanitize_schema_for_gemini(schema: Any) -> Any:
     - ``{"type": "null"}`` appearing as a standalone schema: replaced with
       ``{"type": "object"}`` because the Gemini API (and many third-party
       proxies) do not accept ``null`` as a functionDeclaration property type.
+    - ``const``: not supported by the Gemini SDK's ``Schema`` pydantic
+      model (raises ``extra_forbidden``); rewritten to an ``enum`` with a
+      single value, which is semantically equivalent and is supported.
     - All nested sub-schemas are processed recursively.
     """
     if not isinstance(schema, dict):
@@ -111,6 +114,14 @@ def _sanitize_schema_for_gemini(schema: Any) -> Any:
         schema["type"] = "object"
 
     schema.pop("additionalProperties", None)
+
+    # JSON Schema ``const`` is not a recognized field on the Gemini SDK's
+    # ``Schema`` pydantic model and triggers an ``extra_forbidden``
+    # validation error. Rewrite it as a single-value ``enum``, which is
+    # semantically equivalent and is supported by Gemini.
+    if "const" in schema:
+        const_value = schema.pop("const")
+        schema.setdefault("enum", [const_value])
 
     if "anyOf" in schema and isinstance(schema["anyOf"], list):
         any_of = schema["anyOf"]

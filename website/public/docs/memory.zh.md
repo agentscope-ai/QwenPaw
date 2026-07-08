@@ -199,32 +199,40 @@ graph LR
 
 在 `running.reme_light_memory_config.auto_memory_search_config` 中配置：
 
-| 配置项               | 说明                                                     | 默认值  |
-| -------------------- | -------------------------------------------------------- | ------- |
-| `enabled`            | 是否在每次对话时自动执行记忆搜索                         | `false` |
-| `max_results`        | 自动搜索时最多返回的结果数                               | `2`     |
-| `persist_to_context` | 是否将自动搜索注入的 tool call/result 保留在对话上下文中 | `false` |
+启用后，搜索结果会作为已完成的 `memory_search` 交互注入当前 live context。
+同一轮工具循环里的后续模型调用仍可读取这些结果，直到常规上下文管理将其驱逐。
+
+| 配置项        | 说明                             | 默认值  |
+| ------------- | -------------------------------- | ------- |
+| `enabled`     | 是否在每次对话时自动执行记忆搜索 | `false` |
+| `max_results` | 自动搜索时最多返回的结果数       | `2`     |
 
 ### Embedding 配置（可选）
 
 Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_config.embedding_model_config`：
 
-| 配置项             | 说明                                  | 默认值   |
-| ------------------ | ------------------------------------- | -------- |
-| `backend`          | Embedding 后端类型                    | `openai` |
-| `api_key`          | Embedding 服务的 API Key              | ``       |
-| `base_url`         | Embedding 服务的 URL                  | ``       |
-| `model_name`       | Embedding 模型名称                    | ``       |
-| `dimensions`       | 向量维度，用于初始化向量数据库        | `1024`   |
-| `enable_cache`     | 是否启用 Embedding 缓存               | `true`   |
-| `use_dimensions`   | 是否在 API 请求中传递 dimensions 参数 | `false`  |
-| `max_cache_size`   | Embedding 缓存最大条目数              | `10000`  |
-| `max_input_length` | 单次 Embedding 最大输入长度           | `8192`   |
-| `max_batch_size`   | Embedding 批处理最大数量              | `10`     |
+| 配置项             | 说明                                                                                  | 默认值   |
+| ------------------ | ------------------------------------------------------------------------------------- | -------- |
+| `backend`          | Embedding 后端类型：`openai`、`dashscope`、`dashscope_multimodal`、`gemini`、`ollama` | `openai` |
+| `api_key`          | Embedding 服务的 API Key。OpenAI 兼容和 Gemini 后端必填                               | ``       |
+| `base_url`         | OpenAI 兼容后端的可选自定义 API 地址；Ollama 后端会作为 host 传递                     | ``       |
+| `model_name`       | Embedding 模型名称                                                                    | ``       |
+| `dimensions`       | 向量维度，用于初始化向量数据库                                                        | `1024`   |
+| `enable_cache`     | 是否启用 Embedding 缓存                                                               | `true`   |
+| `use_dimensions`   | 是否在 API 请求中传递 dimensions 参数                                                 | `false`  |
+| `max_cache_size`   | Embedding 缓存最大条目数                                                              | `10000`  |
+| `max_input_length` | 单次 Embedding 最大输入长度                                                           | `8192`   |
+| `max_batch_size`   | Embedding 批处理最大数量                                                              | `10`     |
 
 > `use_dimensions` 用于某些 vLLM 模型不支持 dimensions 参数的情况，设为 `false` 可跳过该参数。
 
-> `base_url` 和 `model_name` 都非空才能开启混合检索中的向量检索（`api_key` 不参与判断）。
+向量检索只有在当前后端具备最低可运行配置时才会启用；这些条件与 AgentScope credential 要求保持一致：
+
+| 后端                                            | 启用条件                         | Credential 映射                |
+| ----------------------------------------------- | -------------------------------- | ------------------------------ |
+| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` 和 `api_key` 均非空 | `api_key`；可选 `base_url`     |
+| `gemini`                                        | `model_name` 和 `api_key` 均非空 | `api_key`                      |
+| `ollama`                                        | `model_name` 非空                | 可选 `host`（来自 `base_url`） |
 
 ### 索引行为
 
@@ -234,7 +242,7 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 | ---------- | ------------------------------------------------------------------------------------------ |
 | File store | ReMe 本地文件存储，持久状态位于 `mem_metadata/`                                            |
 | 关键词索引 | 默认启用 BM25 关键词索引                                                                   |
-| 向量索引   | 仅当 `embedding_model_config.base_url` 和 `model_name` 均非空时启用                        |
+| 向量索引   | 仅当 `embedding_model_config` 满足当前 `backend` 的启用条件时启用                          |
 | 监听目录   | 默认监听 `daily_dir` 和 `digest_dir`；`enable_search_raw_log=true` 时也索引 `resource_dir` |
 | 监听后缀   | 默认索引 `md`；启用 raw-log search 后包含 `jsonl`                                          |
 
@@ -268,13 +276,13 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 > 会被忽略；请改为配置 `rest_base_url` 和 `rest_api_key`，保存后重启
 > QwenPaw。
 
-| 配置项                      | 说明                                                                    | 默认值                                                             |
-| --------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `rest_base_url`             | ADBPG 记忆服务的 REST API 地址                                          | `""`                                                               |
-| `rest_api_key`              | REST API 的访问密钥                                                     | `""`                                                               |
-| `memory_isolation`          | 记忆隔离模式，`true` 为每个 Agent 独立，`false` 为共享                  | `true`                                                             |
-| `search_timeout`            | 记忆搜索超时时间（秒）                                                  | `10.0`                                                             |
-| `auto_memory_search_config` | 自动记忆搜索配置，结构与 ReMe Light 的 `auto_memory_search_config` 一致 | `{"enabled": true, "max_results": 3, "persist_to_context": false}` |
+| 配置项                      | 说明                                                                    | 默认值                                |
+| --------------------------- | ----------------------------------------------------------------------- | ------------------------------------- |
+| `rest_base_url`             | ADBPG 记忆服务的 REST API 地址                                          | `""`                                  |
+| `rest_api_key`              | REST API 的访问密钥                                                     | `""`                                  |
+| `memory_isolation`          | 记忆隔离模式，`true` 为每个 Agent 独立，`false` 为共享                  | `true`                                |
+| `search_timeout`            | 记忆搜索超时时间（秒）                                                  | `10.0`                                |
+| `auto_memory_search_config` | 自动记忆搜索配置，结构与 ReMe Light 的 `auto_memory_search_config` 一致 | `{"enabled": true, "max_results": 3}` |
 
 **配置示例：**
 
@@ -291,8 +299,7 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
       "search_timeout": 10.0,
       "auto_memory_search_config": {
         "enabled": true,
-        "max_results": 3,
-        "persist_to_context": false
+        "max_results": 3
       }
     }
   }

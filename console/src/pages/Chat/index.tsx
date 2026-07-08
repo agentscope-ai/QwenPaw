@@ -105,6 +105,7 @@ import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import MessageQueuePanel from "./components/MessageQueuePanel";
 import ApprovalLevelToggle, {
+  normalizeLevel,
   type ToolExecutionLevel,
 } from "./components/ApprovalLevelToggle";
 import {
@@ -1140,7 +1141,8 @@ export default function ChatPage() {
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
-  const queueSessionId = chatId ?? "new";
+  // Use sessionApi.lastActiveChatId when available to avoid "new" collision
+  const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
   const queueSessionIdRef = useRef(queueSessionId);
   queueSessionIdRef.current = queueSessionId;
   const messageQueue =
@@ -1151,6 +1153,27 @@ export default function ChatPage() {
   const prevQueueLenRef = useRef(messageQueue.length);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
+  const [runningConfigApprovalLevel, setRunningConfigApprovalLevel] =
+    useState<ToolExecutionLevel>("AUTO");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const config = await agentApi.getAgentRunningConfig();
+        if (!cancelled) {
+          setRunningConfigApprovalLevel(normalizeLevel(config.approval_level));
+        }
+      } catch {
+        if (!cancelled) {
+          setRunningConfigApprovalLevel("AUTO");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent, refreshKey]);
 
   // Track pending attachments for queue support
   const pendingFileListRef = useRef<
@@ -2260,7 +2283,7 @@ export default function ChatPage() {
         }
       }
 
-      // Inject session-level approval_level into request_context
+      // Session override only; otherwise backend uses running-config approval_level
       const sessionLevel = sessionApprovalLevelRef.current;
       if (sessionLevel) {
         const rc =
@@ -2787,9 +2810,10 @@ export default function ChatPage() {
         ),
         actionAffix: (
           <ApprovalLevelToggle
-            chatId={chatId}
-            onChange={(level) => {
-              sessionApprovalLevelRef.current = level;
+            sessionId={queueSessionId}
+            runningConfigApprovalLevel={runningConfigApprovalLevel}
+            onChange={(sessionOverride) => {
+              sessionApprovalLevelRef.current = sessionOverride;
             }}
           />
         ),
@@ -2996,6 +3020,8 @@ export default function ChatPage() {
     scheduleHistoryClear,
     consoleSkills,
     selectedAgent,
+    runningConfigApprovalLevel,
+    queueSessionId,
     onFileCardClick,
     whisperChecked,
     whisperEnabled,

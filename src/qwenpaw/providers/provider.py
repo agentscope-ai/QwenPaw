@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from qwenpaw.exceptions import ProviderError
 
+from .context_windows import DEFAULT_CONTEXT_WINDOW, resolve_context_window
+
 if TYPE_CHECKING:
     from .multimodal_prober import ProbeResult
 
@@ -51,7 +53,7 @@ class ModelInfo(BaseModel):
         "response. Merged into generate_kwargs unless explicitly overridden.",
     )
     max_input_length: int = Field(
-        default=128 * 1024,
+        default=DEFAULT_CONTEXT_WINDOW,
         ge=1000,
         description="Maximum input context window size (tokens). "
         "Controls when context compaction is triggered.",
@@ -523,17 +525,41 @@ class Provider(ProviderInfo, ABC):
         support thinking are unaffected.
         """
 
-    def _get_context_size(self, model_id: str) -> int:
-        """Return the context size for *model_id* from ``ModelInfo``.
+    def _context_catalog_enabled(self) -> bool:
+        """Whether the static context-window catalog applies here.
 
-        Used when constructing AgentScope chat model instances so that
-        ``model.context_size`` (which drives automatic context compression)
-        matches the user-configured ``max_input_length``.
+        Local-serving providers (Ollama) override this to ``False``: a model
+        family's cloud window says nothing about a local serve that
+        truncates at ``num_ctx`` — assuming 262k for a local
+        ``qwen3-coder:30b`` would disable compression while the server
+        silently drops the prompt head.
+        """
+        return True
+
+    def get_context_size(self, model_id: str) -> int:
+        """Resolve the context window for *model_id*.
+
+        Feeds ``model.context_size`` (which drives automatic context
+        compression) AND the display/usage path
+        (``config.get_model_max_input_length``) — both MUST go through this
+        method so the reported usage%% and the compaction trigger never
+        diverge. Resolution lives in
+        :func:`.context_windows.resolve_context_window`:
+        explicitly configured ``max_input_length`` > static catalog (unless
+        :meth:`_context_catalog_enabled` opts out) > 128k default.
         """
         model_info = self.get_model_info(model_id)
-        if model_info is not None:
-            return model_info.max_input_length
-        return ModelInfo.model_fields["max_input_length"].default
+        return resolve_context_window(
+            model_id,
+            configured=(
+                model_info.max_input_length if model_info is not None else None
+            ),
+            use_catalog=self._context_catalog_enabled(),
+        )
+
+    def _get_context_size(self, model_id: str) -> int:
+        """Alias of :meth:`get_context_size` kept for provider internals."""
+        return self.get_context_size(model_id)
 
     @abstractmethod
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:

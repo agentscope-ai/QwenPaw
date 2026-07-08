@@ -6,7 +6,15 @@ mod external_link;
 mod updates;
 mod tray;
 
-use tauri::{Manager, RunEvent, WindowEvent};
+use tauri::{Manager, RunEvent, WebviewWindow, WindowEvent};
+
+/// Opens the WebView DevTools. Gated by the hidden 8-click logo gesture in the
+/// frontend so end users cannot open DevTools via the default context menu or
+/// keyboard shortcuts in production builds.
+#[tauri::command]
+fn open_devtools(window: WebviewWindow) {
+    window.open_devtools();
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Build the desktop app, wire native plugins/commands, and stop the backend on exit.
@@ -16,6 +24,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            open_devtools,
             backend_download::download_backend_file,
             backend::backend_port,
             backend::backend_startup_error,

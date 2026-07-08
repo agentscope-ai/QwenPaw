@@ -8,16 +8,13 @@ Context compaction is handled natively by AgentScope's
 memory storage and retrieval.
 """
 import asyncio
-import json
 import logging
-import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from agentscope.message import Msg, TextBlock
-from agentscope.message import ToolCallBlock, ToolCallState
-from agentscope.message import ToolResultBlock, ToolResultState
+from agentscope.message import ToolResultState
 from agentscope.tool import ToolChunk
 
 from .adbpg_client import (
@@ -27,15 +24,9 @@ from .adbpg_client import (
 from .adbpg_prompts import ADBPG_MEMORY_GUIDANCE_EN, ADBPG_MEMORY_GUIDANCE_ZH
 from .base_memory_manager import BaseMemoryManager, memory_registry
 from ...config.config import load_agent_config
-from ...constant import (
-    AUTO_MEMORY_SEARCH_MESSAGE_TAG,
-    AUTO_MEMORY_SEARCH_TEXT,
-    QWENPAW_MESSAGE_TAG_KEY,
-)
 from ...exceptions import ConfigurationException as ConfigurationError
 
 logger = logging.getLogger(__name__)
-MAX_QUERY_CHARS = 50
 
 
 @memory_registry.register("adbpg")
@@ -190,6 +181,7 @@ class ADBPGMemoryManager(BaseMemoryManager):
         **kwargs: Any,
     ) -> dict | None:
         """Auto-search ADBPG memory before the model call."""
+        del agent_name
         del kwargs
         if self._client is None:
             return None
@@ -213,46 +205,15 @@ class ADBPGMemoryManager(BaseMemoryManager):
         if not text or text == "No relevant memories found.":
             return None
 
-        tool_call_id = uuid.uuid4().hex
-        tool_input = {
-            "query": query,
-            "max_results": max_results,
-        }
-        assistant_msg = Msg(
-            name=agent_name or self.agent_id,
-            role="assistant",
-            metadata={
-                QWENPAW_MESSAGE_TAG_KEY: AUTO_MEMORY_SEARCH_MESSAGE_TAG,
-            },
-            content=[
-                TextBlock(text=AUTO_MEMORY_SEARCH_TEXT),
-                ToolCallBlock(
-                    id=tool_call_id,
-                    name="memory_search",
-                    input=json.dumps(tool_input, ensure_ascii=False),
-                    state=ToolCallState.FINISHED,
-                ),
-            ],
-        )
-        tool_result_msg = Msg(
-            name=agent_name or self.agent_id,
-            role="assistant",
-            metadata={
-                QWENPAW_MESSAGE_TAG_KEY: AUTO_MEMORY_SEARCH_MESSAGE_TAG,
-            },
-            content=[
-                ToolResultBlock(
-                    id=tool_call_id,
-                    name="memory_search",
-                    output=[TextBlock(text=text)],
-                    state=ToolResultState.SUCCESS,
-                ),
-            ],
+        assistant_msg = self._build_auto_memory_search_msg(
+            query=query,
+            max_results=max_results,
+            text=text,
         )
         return {
             "query": query,
             "text": text,
-            "msg": msgs + [assistant_msg, tool_result_msg],
+            "msg": msgs + [assistant_msg],
         }
 
     async def auto_memory(
@@ -267,6 +228,8 @@ class ADBPGMemoryManager(BaseMemoryManager):
         """
         if self._client is None:
             return
+
+        all_messages = self._messages_without_auto_memory_search(all_messages)
 
         # Only persist messages not already sent
         new_messages = [
@@ -372,23 +335,6 @@ class ADBPGMemoryManager(BaseMemoryManager):
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _build_query(messages: list[Msg]) -> str:
-        parts = []
-        total = 0
-        for msg in reversed(messages):
-            if msg.role not in {"user", "assistant"}:
-                continue
-            text = (msg.get_text_content() or "").strip()
-            if not text:
-                continue
-            remaining = MAX_QUERY_CHARS - total - (1 if parts else 0)
-            if remaining <= 0:
-                break
-            parts.insert(0, text[-remaining:])
-            total += min(len(text), remaining) + (1 if len(parts) > 1 else 0)
-        return " ".join(parts).strip()
 
     @staticmethod
     def _tool_chunk_text(chunk: ToolChunk) -> str:

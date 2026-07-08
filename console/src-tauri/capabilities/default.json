@@ -4,14 +4,16 @@
   "description": "enables the default permissions",
   "windows": ["main"],
   "remote": {
-    "urls": ["http://127.0.0.1:*"]
+    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
   },
   "permissions": [
     "backend",
     "backend-download",
     "core:default",
+    "core:webview:allow-internal-toggle-devtools",
     "desktop-updater-check",
     "desktop-updater-install",
+    "devtools",
     "dialog:allow-save",
     "open-external-link",
     "tray"

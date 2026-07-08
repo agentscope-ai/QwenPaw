@@ -7,6 +7,7 @@ in-place ``update_entry`` with FTS sync, retention ``purge``, the degraded
 durability flag, and corruption quarantine.
 """
 
+import asyncio
 import logging
 import sqlite3
 from pathlib import Path
@@ -292,6 +293,49 @@ def test_note_write_failure_sets_degraded(store: HistoryStore):
     assert store.write_failures == 1
     store.note_write_failure(OSError("still bad"))
     assert store.write_failures == 2  # counted, stays degraded
+
+
+def test_append_works_from_a_worker_thread(store: HistoryStore):
+    """The write-through in compress is offloaded via asyncio.to_thread, so
+    the connection (opened check_same_thread=False, guarded by its lock) must
+    be usable from a thread other than the one that created it — a plain
+    sqlite3 connection would raise ProgrammingError here."""
+    store.append(session_id="s", dedup_key="loop", entry=_entry("on-thread"))
+
+    async def drive():
+        # Runs the blocking append on a worker thread, exactly as
+        # ScrollContextManager._persist_guarded_async does.
+        return await asyncio.to_thread(
+            store.append,
+            session_id="s",
+            dedup_key="worker",
+            entry=_entry("off-thread"),
+        )
+
+    seq = asyncio.run(drive())
+    assert seq > 0
+    assert store.count("s") == 2
+
+
+def test_concurrent_threaded_appends_are_serialized(store: HistoryStore):
+    """The lock must let many worker-thread appends land without corruption or
+    a cross-thread SQLite error — every distinct dedup_key gets its own row."""
+
+    async def drive():
+        await asyncio.gather(
+            *(
+                asyncio.to_thread(
+                    store.append,
+                    session_id="s",
+                    dedup_key=f"k{i}",
+                    entry=_entry(f"row-{i}"),
+                )
+                for i in range(25)
+            ),
+        )
+
+    asyncio.run(drive())
+    assert store.count("s") == 25
 
 
 def test_corrupt_db_is_quarantined_and_recreated(tmp_path: Path):

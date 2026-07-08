@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Literal, Optional, Union
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.events import (
     EVENT_JOB_MAX_INSTANCES,
@@ -462,7 +463,7 @@ class CronManager(ManagerBase):
         self._states[job.id] = st
 
         record = CronExecutionRecord(
-            run_at=datetime.now(timezone.utc),
+            run_at=self._now_in_job_timezone(job),
             status="skipped",
             error=error_msg,
             trigger="scheduled",
@@ -591,11 +592,27 @@ class CronManager(ManagerBase):
             job,
             trigger="scheduled",
         )
+
         # refresh next_run
         aps_job = self._scheduler.get_job(job_id)
         st = self._states.get(job_id, CronJobState())
         st.next_run_at = aps_job.next_run_time if aps_job else None
         self._states[job_id] = st
+
+    @staticmethod
+    def _now_in_job_timezone(job: CronJobSpec) -> datetime:
+        tz_name = job.schedule.timezone or "UTC"
+        try:
+            tz = ZoneInfo(tz_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            logger.warning(
+                "Invalid cron job timezone, using UTC: job_id=%s "
+                "timezone=%s",
+                job.id,
+                tz_name,
+            )
+            tz = timezone.utc
+        return datetime.now(tz)
 
     async def _heartbeat_callback(self) -> None:
         """Run one heartbeat (HEARTBEAT.md as query, optional dispatch)."""
@@ -688,7 +705,7 @@ class CronManager(ManagerBase):
                 )
                 raise
             finally:
-                st.last_run_at = datetime.now(timezone.utc)
+                st.last_run_at = self._now_in_job_timezone(job)
                 self._states[job.id] = st
                 record = CronExecutionRecord(
                     run_at=st.last_run_at,

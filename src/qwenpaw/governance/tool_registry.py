@@ -29,6 +29,10 @@ class ToolRegistry:
         # (e.g. Glob: pattern is a file glob, so path+pattern
         # forms a complete filesystem path pattern for rule matching).
         self._pattern_params: Dict[str, str] = {}
+        # Tools that refuse to run (fail closed) unless a sandbox_config is
+        # supplied — as opposed to shell tools like Bash that execute directly
+        # when unsandboxed. See ``requires_sandbox`` for why this matters.
+        self._sandbox_required: Dict[str, bool] = {}
 
     def register(
         self,
@@ -36,6 +40,7 @@ class ToolRegistry:
         tool_type: str,
         target_param: str,
         pattern_param: str = "",
+        sandbox_required: bool = False,
     ) -> None:
         """Register a tool.
 
@@ -46,11 +51,21 @@ class ToolRegistry:
             pattern_param: for file-search tools (e.g. Glob), the parameter
                 name holding the glob pattern. When set, ``extract_target``
                 combines path + pattern into a single filesystem path pattern.
+            sandbox_required: ``True`` for tools that **fail closed** without a
+                ``sandbox_config`` (e.g. ``recall_history_python``, which runs
+                model-authored Python and returns ``DENIED`` when no sandbox is
+                supplied). Distinct from mere shell-type: ``Bash`` is shell but
+                fail-*open* — it executes unsandboxed when no config is given.
+                Consumed by the approval_level=OFF path, which must still
+                compile a sandbox for these tools instead of letting them dead
+                -end in a sandbox-violation → approval loop.
         """
         self._types[tool_name] = tool_type
         self._target_params[tool_name] = target_param
         if pattern_param:
             self._pattern_params[tool_name] = pattern_param
+        if sandbox_required:
+            self._sandbox_required[tool_name] = True
 
     def register_python_name(self, python_name: str, policy_name: str) -> None:
         """Register a python function name → policy tool name mapping."""
@@ -66,6 +81,15 @@ class ToolRegistry:
         Returns "" if not registered.
         """
         return self._target_params.get(tool_name, "")
+
+    def requires_sandbox(self, tool_name: str) -> bool:
+        """Whether the tool fails closed without a ``sandbox_config``.
+
+        ``True`` only for tools that refuse to run unsandboxed (the REPL).
+        Returns ``False`` for unregistered tools and for fail-open shell
+        tools like ``Bash`` that execute directly when no sandbox is given.
+        """
+        return self._sandbox_required.get(tool_name, False)
 
     def python_to_policy_name(self, python_name: str) -> str:
         """Map a python function name to a policy tool name.
@@ -155,7 +179,12 @@ def _register_builtin_tools(r: ToolRegistry) -> None:
     # ── Network / Shell ──
     r.register("Browser", "network", "url")
     r.register("Bash", "shell", "command")
-    r.register("RecallHistoryPython", "shell", "source")
+    # Fail-closed: the REPL runs model-authored Python and returns DENIED
+    # unless a sandbox_config is supplied (unlike Bash, which is fail-open).
+    r.register("RecallHistoryPython", "shell", "source", sandbox_required=True)
+    # Structured recall: bound-parameter read-only queries over history.db —
+    # the model supplies scalars, never code, so no sandbox/approval needed.
+    r.register("RecallHistory", "internal", "op")
 
     # ── Internal tools ──
     for name, param in [
