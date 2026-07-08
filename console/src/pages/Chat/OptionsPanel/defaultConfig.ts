@@ -17,7 +17,7 @@ const defaultConfig = {
   },
   sender: {
     attachments: true,
-    maxLength: 200,
+    maxLength: 2000,
     longTextUpload: {
       enabled: true,
     },
