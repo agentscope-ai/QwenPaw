@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button, Card, Tag, Typography, Space } from "antd";
-import { Shield, Check, X, Clock, Copy } from "lucide-react";
+import { Shield, Check, X, Clock, Copy, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../stores/agentStore";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
@@ -275,21 +275,6 @@ export function ApprovalCard({
           </div>
         )}
 
-        {findingsSummary && (
-          <div className={styles.summaryBox}>
-            <Text className={styles.summaryText}>{findingsSummary}</Text>
-            <button
-              className={`${styles.copyButton} ${
-                copiedField === "summary" ? styles.copied : ""
-              }`}
-              onClick={() => handleCopy(findingsSummary, "summary")}
-              title={t("common.copy", "Copy")}
-            >
-              <Copy size={12} />
-            </button>
-          </div>
-        )}
-
         {toolParams && Object.keys(toolParams).length > 0 && (
           <details className={styles.paramsDetails}>
             <summary className={styles.paramsSummary}>
@@ -306,6 +291,27 @@ export function ApprovalCard({
                 onClick={() =>
                   handleCopy(JSON.stringify(toolParams, null, 2), "params")
                 }
+                title={t("common.copy", "Copy")}
+              >
+                <Copy size={12} />
+              </button>
+            </div>
+          </details>
+        )}
+
+        {findingsSummary && (
+          <details className={styles.detailsSection}>
+            <summary className={styles.detailsSummary}>
+              <Info size={12} />
+              {t("approval.details", "Details")}
+            </summary>
+            <div className={styles.detailsContent}>
+              <pre className={styles.detailsText}>{findingsSummary}</pre>
+              <button
+                className={`${styles.copyButton} ${
+                  copiedField === "details" ? styles.copied : ""
+                }`}
+                onClick={() => handleCopy(findingsSummary, "details")}
                 title={t("common.copy", "Copy")}
               >
                 <Copy size={12} />

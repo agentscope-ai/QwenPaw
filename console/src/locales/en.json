@@ -2572,7 +2572,8 @@
     "acknowledge": "Got it",
     "approvePattern": "Always Allow",
     "approveExact": "Just Once",
-    "approvalScope": "Approval scope"
+    "approvalScope": "Approval scope",
+    "details": "Details"
   },
   "pluginManager": {
     "title": "Plugin Manager",

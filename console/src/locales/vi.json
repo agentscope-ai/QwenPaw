@@ -658,6 +658,7 @@
     "approvePattern": "Luôn Cho Phép",
     "approveExact": "Chỉ Lần Này",
     "approvalScope": "Phạm vi phê duyệt",
+    "details": "Chi tiết",
     "ownerAgent": "Agent Chủ Sở Hữu",
     "executingAgent": "Agent Đang Thực Thi",
     "severity": "Mức Độ Nghiêm Trọng",

@@ -1331,7 +1331,8 @@
     "acknowledge": "Mengerti",
     "approvePattern": "Selalu Izinkan",
     "approveExact": "Hanya Sekali Ini",
-    "approvalScope": "Lingkup Persetujuan"
+    "approvalScope": "Lingkup Persetujuan",
+    "details": "Detail"
   },
   "account": {
     "title": "Akun",

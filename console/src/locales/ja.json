@@ -2389,6 +2389,7 @@
     "approvePattern": "常に許可",
     "approveExact": "今回のみ",
     "approvalScope": "承認スコープ",
+    "details": "詳細",
     "timeoutAutoDenied": "タイムアウト、自動拒否",
     "acknowledge": "了解",
     "builtinSource": "組み込み",

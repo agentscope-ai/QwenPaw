@@ -2404,6 +2404,7 @@
     "approvePattern": "Всегда Разрешить",
     "approveExact": "Только Сейчас",
     "approvalScope": "Область подтверждения",
+    "details": "Подробности",
     "timeoutAutoDenied": "Время истекло, автоматически отклонено",
     "acknowledge": "Понятно",
     "builtinSource": "Встроенный",

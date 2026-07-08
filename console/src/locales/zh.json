@@ -2591,7 +2591,8 @@
     "acknowledge": "我知道了",
     "approvePattern": "总是允许",
     "approveExact": "仅本次",
-    "approvalScope": "批准范围"
+    "approvalScope": "批准范围",
+    "details": "详细信息"
   },
   "pluginManager": {
     "title": "插件管理",

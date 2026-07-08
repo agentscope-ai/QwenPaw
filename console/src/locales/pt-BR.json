@@ -2444,6 +2444,7 @@
     "approvePattern": "Sempre Permitir",
     "approveExact": "Apenas Desta Vez",
     "approvalScope": "Escopo de aprovação",
+    "details": "Detalhes",
     "timeoutAutoDenied": "Tempo esgotado, negado automaticamente",
     "acknowledge": "Entendi",
     "builtinSource": "Integrado",
