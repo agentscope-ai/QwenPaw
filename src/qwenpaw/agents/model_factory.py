@@ -38,6 +38,13 @@ except ImportError:
 from .utils.message_request_normalizer import (
     normalize_messages_for_model_request,
 )
+from .routing_chat_model import (
+    _load_global_routing_config,
+    _resolve_routed_model_slot,
+    _routing_enabled,
+    _select_scoped_model_config,
+)
+from ..config.config import has_configured_model_slot
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
 from ..providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
@@ -1096,6 +1103,7 @@ def create_model_and_formatter(
 
     # Try to get agent-specific model first
     model_slot = None
+    routing_cfg = None
     retry_config = None
     rate_limit_config = None
     compact_threshold: Optional[float] = None
@@ -1103,6 +1111,7 @@ def create_model_and_formatter(
         try:
             agent_config = load_agent_config(agent_id)
             model_slot = agent_config.active_model
+            routing_cfg = getattr(agent_config, "llm_routing", None)
             retry_config = RetryConfig(
                 enabled=agent_config.running.llm_retry_enabled,
                 max_retries=agent_config.running.llm_max_retries,
@@ -1125,10 +1134,22 @@ def create_model_and_formatter(
         except Exception:
             pass
 
+    manager = ProviderManager.get_instance()
+    global_model_slot = manager.get_active_model()
+    global_routing_cfg = _load_global_routing_config()
+    scoped_fallback_slot, scoped_routing_cfg = _select_scoped_model_config(
+        agent_model_slot=model_slot,
+        agent_routing_cfg=routing_cfg,
+        global_model_slot=global_model_slot,
+        global_routing_cfg=global_routing_cfg,
+    )
+    model_slot = _resolve_routed_model_slot(
+        scoped_routing_cfg,
+    )
+
     # Create chat model from agent-specific or global config
-    if model_slot and model_slot.provider_id and model_slot.model:
-        # Use agent-specific model
-        manager = ProviderManager.get_instance()
+    if has_configured_model_slot(model_slot):
+        # Use the slot selected for the effective scope.
         provider = manager.get_provider(model_slot.provider_id)
         if provider is None:
             raise ProviderError(
@@ -1138,9 +1159,22 @@ def create_model_and_formatter(
         model = provider.get_chat_model_instance(model_slot.model)
         provider_id = model_slot.provider_id
     else:
-        # Fallback to global active model
-        model = ProviderManager.get_active_chat_model()
-        global_model = ProviderManager.get_instance().get_active_model()
+        if _routing_enabled(scoped_routing_cfg):
+            selected_mode = getattr(
+                scoped_routing_cfg,
+                "mode",
+                "local_first",
+            )
+            raise ProviderError(
+                message=(
+                    "LLM routing mode "
+                    f"'{selected_mode}' selected an unconfigured slot."
+                ),
+            )
+
+        # Agent runtime settings still apply even when the selected
+        # effective model falls back to the global slot.
+        global_model = scoped_fallback_slot or global_model_slot
         if not global_model:
             raise ProviderError(
                 message=(
@@ -1149,6 +1183,14 @@ def create_model_and_formatter(
                     "or set an agent-specific model."
                 ),
             )
+        provider = manager.get_provider(global_model.provider_id)
+        if provider is None:
+            raise ProviderError(
+                message=(
+                    f"Active provider '{global_model.provider_id}' not found."
+                ),
+            )
+        model = provider.get_chat_model_instance(global_model.model)
         provider_id = global_model.provider_id
 
     # Create the formatter based on the model's native one.  In 2.0 every
