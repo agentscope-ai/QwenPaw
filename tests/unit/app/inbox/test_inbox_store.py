@@ -2,12 +2,11 @@
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 """Unit tests for qwenpaw.app.inbox_store.
 
-Real file IO through a monkeypatched ``_INBOX_PATH`` — no over-mocking.
+Real file IO through a monkeypatched ``_INBOX_PATH`` -- no over-mocking.
 Covers: append_event, list_events filters/pagination, mark_read,
 mark_all_read, delete_event (incl. run_id reference tracking), and the
 5000-event cap.
 """
-
 from __future__ import annotations
 
 import json
@@ -16,6 +15,12 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.app import inbox_store
+
+# p0: critical user flows (CRUD, pagination, mark_read); p2: error paths
+pytestmark = [
+    pytest.mark.unit,
+    pytest.mark.p0,
+]
 
 
 @pytest.fixture
@@ -200,16 +205,27 @@ async def test_list_events_empty_when_no_file(inbox_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_list_events_handles_invalid_json_file(
-    inbox_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-):
+async def test_list_events_handles_non_list_json(inbox_path: Path):
+    """Valid JSON that isn't a list → returns [] via the isinstance
+    guard (not the except branch)."""
     inbox_path.write_text("not a json list", encoding="utf-8")
     events = await inbox_store.list_events()
-    # _load_events returns [] for non-list JSON; but raw string raises.
-    # Verify the behaviour: invalid file either returns [] or the loader
-    # filters non-dict items. A bare string is not a list, so [].
     assert events == []
+
+
+@pytest.mark.asyncio
+async def test_list_events_handles_malformed_json(
+    inbox_path: Path,
+    caplog: pytest.LogCaptureFixture,
+):
+    """Genuinely malformed JSON → caught by the except branch, returns [],
+    and logs a warning (so permission/disk errors aren't silently
+    swallowed). Regression for the #5809 review feedback."""
+    inbox_path.write_text("{bad", encoding="utf-8")
+    with caplog.at_level("WARNING"):
+        events = await inbox_store.list_events()
+    assert events == []
+    assert any("Failed to load" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
