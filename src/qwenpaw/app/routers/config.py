@@ -477,7 +477,8 @@ async def put_acp_node_runtime(
     config.acp.node_path = node_path
     save_config(config)
     return await asyncio.to_thread(
-        get_node_runtime_status, config.acp.node_path
+        get_node_runtime_status,
+        config.acp.node_path,
     )
 
 
