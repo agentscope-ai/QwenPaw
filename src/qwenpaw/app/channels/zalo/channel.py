@@ -641,13 +641,13 @@ class ZaloChannel(BaseChannel):  # type: ignore[misc]
         content_parts = payload.get("content_parts") or []
         meta = payload.get("meta") or {}
         session_id = self.resolve_session_id(sender_id, meta)
-        # GROUP: prepend prefix '[ten trong nhom chat_id]: ' de LLM phan biet
+        # GROUP: prepend prefix '[ten trong nhóm chat_id]: ' de LLM phan biet
         # nguoi gui trong group. PRIVATE: giu nguyen content.
         if meta.get("chat_type") == "GROUP" and meta.get("chat_id"):
             from agentscope_runtime.engine.schemas.agent_schemas import (  # noqa: WPS433
                 TextContent,
             )
-            prefix = f"[{meta.get('from_name', '')} trong nhom {meta.get('chat_id')}]: "
+            prefix = f"[{meta.get('from_name', '')} trong nhóm {meta.get('chat_id')}]: "
             content_parts = [TextContent(text=prefix)] + list(content_parts)
         request = self.build_agent_request_from_user_content(
             channel_id=channel_id,
