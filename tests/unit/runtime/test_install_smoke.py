@@ -15,7 +15,11 @@ uvicorn's transport layer entirely, so only a real server can catch
 this class of bug.
 """
 
-# pylint: disable=protected-access,import-outside-toplevel,redefined-outer-name,unused-argument,consider-using-from-import  # noqa: E501
+# pylint: disable=protected-access,import-outside-toplevel
+# pylint: disable=redefined-outer-name,unused-argument
+# pylint: disable=consider-using-from-import,line-too-long
+# pylint: disable=consider-using-with
+# flake8: noqa: E501
 
 from __future__ import annotations
 
