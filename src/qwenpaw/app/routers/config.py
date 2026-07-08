@@ -476,7 +476,9 @@ async def put_acp_node_runtime(
     config = load_config()
     config.acp.node_path = node_path
     save_config(config)
-    return await asyncio.to_thread(get_node_runtime_status, config.acp.node_path)
+    return await asyncio.to_thread(
+        get_node_runtime_status, config.acp.node_path
+    )
 
 
 @router.get(
@@ -598,8 +600,6 @@ async def put_heartbeat(
     save_agent_config(agent.agent_id, agent.config)
 
     # Reschedule heartbeat (async, non-blocking)
-    import asyncio
-
     async def reschedule_in_background():
         try:
             if agent.cron_manager is not None:
@@ -625,7 +625,6 @@ async def run_heartbeat_now(request: Request) -> Any:
     """Trigger one heartbeat run in background for quick testing."""
     from ..agent_context import get_agent_for_request
     from ..crons.heartbeat import run_heartbeat_once
-    import asyncio
     import logging
 
     workspace = await get_agent_for_request(request)

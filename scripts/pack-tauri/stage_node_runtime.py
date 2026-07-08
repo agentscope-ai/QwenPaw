@@ -85,7 +85,9 @@ def _validate_tar_members(tar: tarfile.TarFile, workdir: Path) -> None:
         try:
             target.relative_to(root)
         except ValueError:
-            raise SystemExit(f"tar member escapes target: {member.name}") from None
+            raise SystemExit(
+                f"tar member escapes target: {member.name}",
+            ) from None
 
 
 def main() -> None:
