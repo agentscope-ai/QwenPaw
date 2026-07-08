@@ -29,6 +29,7 @@ here we focus on the HTTP router contract + governance approval branch.
 from __future__ import annotations
 
 import json
+import sys
 import threading
 import time
 from http.server import HTTPServer
@@ -423,7 +424,21 @@ def test_session_level_approval_off_short_circuits_governance(
 # E class — happy path (shell sleep observation window) (6 tests)
 # ================================================================== #
 
-_SHELL_SLEEP_SECS = 4
+_SHELL_SLEEP_SECS = 6
+
+
+def _portable_sleep_cmd(seconds: int) -> str:
+    """Return a shell command that blocks for ~``seconds``, per-platform.
+
+    The app subprocess runs on the same host as the test process, so
+    ``sys.platform`` reflects the shell that ``execute_shell_command``
+    will use.  On Windows ``cmd.exe`` has no ``sleep`` builtin, so we use
+    ``ping`` (``-n K`` sends K packets ~1s apart; K = seconds + 1 to get
+    roughly ``seconds`` of wall time).  On POSIX we use ``sleep``.
+    """
+    if sys.platform.startswith("win"):
+        return f"ping -n {seconds + 1} 127.0.0.1"
+    return f"sleep {seconds}"
 
 
 def _submit_shell_sleep_task(  # pylint: disable=redefined-outer-name
@@ -431,7 +446,7 @@ def _submit_shell_sleep_task(  # pylint: disable=redefined-outer-name
     mock_llm,
     suffix,
 ):
-    """Start a chat/task with execute_shell_command(sleep N).
+    """Start a chat/task with a portable long-running shell command.
 
     Each caller passes a unique ``suffix`` to get an isolated session_id
     (avoids cross-test collisions within the module-scoped app_server).
@@ -443,7 +458,7 @@ def _submit_shell_sleep_task(  # pylint: disable=redefined-outer-name
     srv.force_tool_call = True
     srv.tool_call_name = "execute_shell_command"
     srv.tool_call_arguments = json.dumps(
-        {"command": f"sleep {_SHELL_SLEEP_SECS}"},
+        {"command": _portable_sleep_cmd(_SHELL_SLEEP_SECS)},
     )
 
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
@@ -476,7 +491,7 @@ def _submit_shell_sleep_task(  # pylint: disable=redefined-outer-name
     return submit_resp.json()["task_id"], session_id
 
 
-def _poll_for_entry(app_server, session_id, timeout=8.0):
+def _poll_for_entry(app_server, session_id, timeout=15.0):
     """Poll list_calls until at least one entry appears; return it."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -505,7 +520,8 @@ def test_list_calls_returns_running_entry(
         correct session_id/tool_name fields.
 
     Test flow:
-      1. Register mock LLM, configure execute_shell_command(sleep 4).
+      1. Register mock LLM, configure a portable long-running
+         execute_shell_command (sleep on POSIX / ping on Windows).
       2. Submit chat/task with approval_level=off.
       3. Poll /api/tool-calls/{session_id} until total > 0.
       4. Assert entry has status=running, correct tool_name, session_id.
