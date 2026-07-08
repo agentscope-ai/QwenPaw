@@ -14,11 +14,13 @@ import {
   Tag,
   Spin,
   Select,
+  Tooltip,
 } from "antd";
 import {
   BulbOutlined,
   CopyOutlined,
   DownOutlined,
+  SettingOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
 import { PackageOpen, Bell } from "lucide-react";
@@ -32,6 +34,7 @@ import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
 import { PushMessageCard } from "./components";
+import { NotificationSettingsDrawer } from "./components/NotificationSettingsDrawer";
 import { useInboxData } from "./hooks/useInboxData";
 import { useTraceViewer } from "./hooks/useTraceViewer";
 import { useAgentStore } from "../../stores/agentStore";
@@ -76,6 +79,7 @@ const renderMarkdownText = (text: string, className: string) => (
 export default function InboxPage() {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabKey>(resolveInitialTab);
+  const [notifDrawerOpen, setNotifDrawerOpen] = useState(false);
   const [markAllReading, setMarkAllReading] = useState(false);
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<
     string | undefined
@@ -507,7 +511,18 @@ export default function InboxPage() {
 
   return (
     <div className={styles.inboxPage}>
-      <PageHeader items={[{ title: t("inbox.title") }]} extra={null} />
+      <PageHeader
+        items={[{ title: t("inbox.title") }]}
+        extra={
+          <Tooltip title={t("notifications.title")}>
+            <Button
+              type="text"
+              icon={<SettingOutlined />}
+              onClick={() => setNotifDrawerOpen(true)}
+            />
+          </Tooltip>
+        }
+      />
 
       <div className={styles.pageContent}>
         <Tabs
@@ -776,6 +791,10 @@ export default function InboxPage() {
           </div>
         ) : null}
       </Modal>
+      <NotificationSettingsDrawer
+        open={notifDrawerOpen}
+        onClose={() => setNotifDrawerOpen(false)}
+      />
     </div>
   );
 }

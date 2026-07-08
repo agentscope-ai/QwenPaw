@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from typing import Any
 
 from ..constant import WORKING_DIR
+
+logger = logging.getLogger(__name__)
 
 _INBOX_PATH = WORKING_DIR / "inbox_events.json"
 _LOCK = asyncio.Lock()
@@ -64,7 +67,23 @@ async def append_event(
         events.insert(0, event)
         del events[_MAX_EVENTS:]
         _save_events(events)
+
+    asyncio.ensure_future(_try_system_notify(event))
+
     return event
+
+
+async def _try_system_notify(event: dict[str, Any]) -> None:
+    """Fire-and-forget: dispatch a system notification if rules match."""
+    try:
+        from qwenpaw.app.notifications.service import get_notification_service
+        from qwenpaw.config.utils import load_config
+
+        config = load_config()
+        svc = get_notification_service()
+        await svc.notify_event(event, config.notifications)
+    except Exception as exc:
+        logger.debug("System notification dispatch error: %s", exc)
 
 
 async def list_events(

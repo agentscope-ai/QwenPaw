@@ -54,6 +54,9 @@ const BackupsPage = lazyImportWithRetry("../../pages/Settings/Backups");
 const PluginManagerPage = lazyImportWithRetry(
   "../../pages/Settings/PluginManager",
 );
+const NotificationsPage = lazyImportWithRetry(
+  "../../pages/Settings/Notifications",
+);
 
 /**
  * "/" lands here. Waits for useSyncCodingMode to populate the store before
@@ -120,6 +123,11 @@ export const BUILTIN_ROUTES: Route[] = [
     id: "core.plugin-manager",
     path: "/plugin-manager",
     component: PluginManagerPage,
+  },
+  {
+    id: "core.notifications",
+    path: "/notifications",
+    component: NotificationsPage,
   },
 ];
 

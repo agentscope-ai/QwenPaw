@@ -1,0 +1,131 @@
+.page {
+  padding: 24px;
+  max-width: 800px;
+}
+
+.centerState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.errorText {
+  color: var(--ant-color-error);
+}
+
+.settingsCard {
+  margin-bottom: 24px;
+}
+
+.settingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  gap: 16px;
+
+  &:not(:last-child) {
+    border-bottom: 1px solid var(--ant-color-border-secondary);
+  }
+}
+
+.settingLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+}
+
+.settingIcon {
+  font-size: 18px;
+  margin-top: 2px;
+  color: var(--ant-color-text-secondary);
+}
+
+.settingTitle {
+  font-weight: 500;
+}
+
+.settingHint {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+  margin-top: 2px;
+}
+
+.intervalInput {
+  width: 120px;
+}
+
+.rulesSection {
+  margin-top: 8px;
+}
+
+.rulesHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+
+  h3 {
+    margin: 0;
+    font-size: 16px;
+  }
+}
+
+.rulesDescription {
+  color: var(--ant-color-text-secondary);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.rulesList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ruleCard {
+  border: 1px solid var(--ant-color-border);
+}
+
+.ruleTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.disabledTag {
+  font-size: 11px;
+}
+
+.ruleFields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ruleField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  label {
+    font-size: 12px;
+    color: var(--ant-color-text-secondary);
+    font-weight: 500;
+  }
+}
+
+.ruleSelect {
+  width: 100%;
+}
+
+.emptyRules {
+  text-align: center;
+  padding: 32px;
+  color: var(--ant-color-text-tertiary);
+  border: 1px dashed var(--ant-color-border);
+  border-radius: 8px;
+}

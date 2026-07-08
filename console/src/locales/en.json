@@ -80,7 +80,8 @@
     "debug": "Debug",
     "plugins": "Plugins",
     "backups": "Backups",
-    "pluginManager": "Plugin Manager"
+    "pluginManager": "Plugin Manager",
+    "notifications": "Notifications"
   },
   "sidebar": {
     "newVersion": "New version available: v{{version}}, click to upgrade",
@@ -2879,5 +2880,47 @@
       "stop": "Stop"
     },
     "gotoSettings": "Agent Loop Settings"
+  },
+  "notifications": {
+    "title": "System Notifications",
+    "description": "Configure system-level desktop notifications for inbox events. Notifications are delivered via your operating system's native notification center.",
+    "enableLabel": "Enable System Notifications",
+    "enableHint": "When enabled, matching inbox events will trigger native desktop notifications.",
+    "soundLabel": "Notification Sound",
+    "soundHint": "Play a sound when notifications are delivered.",
+    "intervalLabel": "Minimum Interval",
+    "intervalHint": "Rate-limit between consecutive notifications to prevent flooding.",
+    "testButton": "Send Test Notification",
+    "sourcesTitle": "Notification Sources",
+    "sourcesHint": "Choose which types of events should trigger system notifications.",
+    "sourceCron": "Cron Jobs",
+    "sourceCronHint": "Scheduled task execution results",
+    "sourceHeartbeat": "Heartbeat",
+    "sourceHeartbeatHint": "Periodic heartbeat check results",
+    "sourceMemory": "Memory",
+    "sourceMemoryHint": "Auto-memory and dream job results",
+    "sourceSkillUpdate": "Skill Auto-update",
+    "sourceSkillUpdateHint": "Skill sync and update notifications",
+    "agentFilterTitle": "Agent Filter",
+    "agentFilterHint": "Only receive notifications from selected agents. Leave empty to receive from all.",
+    "allAgentsPlaceholder": "All agents",
+    "rulesTitle": "Notification Rules",
+    "rulesDescription": "Events matching any enabled rule will trigger a system notification. Within each rule, all specified fields must match (AND logic). Leaving a field empty means no restriction on that dimension.",
+    "ruleLabel": "Rule",
+    "addRule": "Add Rule",
+    "noRules": "No rules configured. Add a rule to start receiving notifications.",
+    "disabled": "Disabled",
+    "sourceTypes": "Source Types",
+    "severities": "Severities",
+    "eventTypes": "Event Types",
+    "allPlaceholder": "All (no restriction)",
+    "severityInfo": "Info",
+    "severityWarning": "Warning",
+    "severityError": "Error",
+    "eventCronResult": "Cron Result",
+    "eventCronDeliveryFailed": "Cron Delivery Failed",
+    "eventHeartbeatResult": "Heartbeat Result",
+    "eventMemoryUpdate": "Memory Update",
+    "eventSkillSync": "Skill Sync"
   }
 }

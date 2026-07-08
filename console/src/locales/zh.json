@@ -80,7 +80,8 @@
     "debug": "调试",
     "plugins": "插件",
     "backups": "备份",
-    "pluginManager": "插件管理"
+    "pluginManager": "插件管理",
+    "notifications": "系统通知"
   },
   "sidebar": {
     "newVersion": "发现新版本 v{{version}}，点击前往升级",
@@ -2898,5 +2899,47 @@
       "stop": "停止"
     },
     "gotoSettings": "智能体 Loop 设置"
+  },
+  "notifications": {
+    "title": "系统通知",
+    "description": "配置收件箱事件的系统级桌面通知。通知通过操作系统原生通知中心推送。",
+    "enableLabel": "开启系统通知",
+    "enableHint": "开启后，匹配的收件箱事件将触发系统桌面通知。",
+    "soundLabel": "通知声音",
+    "soundHint": "通知送达时播放声音。",
+    "intervalLabel": "最小间隔",
+    "intervalHint": "连续通知之间的最小时间间隔，防止刷屏。",
+    "testButton": "发送测试通知",
+    "sourcesTitle": "通知来源",
+    "sourcesHint": "选择哪些类型的事件应触发系统通知。",
+    "sourceCron": "定时任务",
+    "sourceCronHint": "定时任务执行结果",
+    "sourceHeartbeat": "心跳",
+    "sourceHeartbeatHint": "定期心跳检查结果",
+    "sourceMemory": "记忆",
+    "sourceMemoryHint": "自动记忆和梦境任务结果",
+    "sourceSkillUpdate": "技能自动更新",
+    "sourceSkillUpdateHint": "技能同步和更新通知",
+    "agentFilterTitle": "Agent 筛选",
+    "agentFilterHint": "仅接收选中 Agent 的通知。留空则接收所有 Agent 的通知。",
+    "allAgentsPlaceholder": "全部 Agent",
+    "rulesTitle": "通知规则",
+    "rulesDescription": "匹配任意一条已启用规则的事件将触发系统通知。每条规则内各字段为 AND 关系（全部满足），留空表示不限制该维度。",
+    "ruleLabel": "规则",
+    "addRule": "添加规则",
+    "noRules": "暂无规则。添加规则后开始接收通知。",
+    "disabled": "已禁用",
+    "sourceTypes": "来源类型",
+    "severities": "严重程度",
+    "eventTypes": "事件类型",
+    "allPlaceholder": "全部（不限制）",
+    "severityInfo": "信息",
+    "severityWarning": "警告",
+    "severityError": "错误",
+    "eventCronResult": "定时任务结果",
+    "eventCronDeliveryFailed": "定时任务投递失败",
+    "eventHeartbeatResult": "心跳结果",
+    "eventMemoryUpdate": "记忆更新",
+    "eventSkillSync": "技能同步"
   }
 }

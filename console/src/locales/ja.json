@@ -75,7 +75,8 @@
     "plugins": "プラグイン",
     "acp": "ACP",
     "backups": "バックアップ",
-    "pluginManager": "プラグインマネージャー"
+    "pluginManager": "プラグインマネージャー",
+    "notifications": "システム通知"
   },
   "debug": {
     "title": "デバッグ",
@@ -2755,5 +2756,47 @@
   },
   "loop": {
     "gotoSettings": "エージェント Loop 設定"
+  },
+  "notifications": {
+    "title": "システム通知",
+    "description": "受信トレイイベントのシステムレベルデスクトップ通知を設定します。通知はOSのネイティブ通知センターを通じて配信されます。",
+    "enableLabel": "システム通知を有効にする",
+    "enableHint": "有効にすると、一致する受信トレイイベントがデスクトップ通知をトリガーします。",
+    "soundLabel": "通知音",
+    "soundHint": "通知配信時にサウンドを再生します。",
+    "intervalLabel": "最小間隔",
+    "intervalHint": "通知の集中を防ぐための連続通知間の最小間隔。",
+    "testButton": "テスト通知を送信",
+    "sourcesTitle": "通知ソース",
+    "sourcesHint": "システム通知をトリガーするイベントの種類を選択します。",
+    "sourceCron": "定期タスク",
+    "sourceCronHint": "定期タスクの実行結果",
+    "sourceHeartbeat": "ハートビート",
+    "sourceHeartbeatHint": "定期的なハートビートチェック結果",
+    "sourceMemory": "メモリ",
+    "sourceMemoryHint": "自動メモリとドリームジョブの結果",
+    "sourceSkillUpdate": "スキル自動更新",
+    "sourceSkillUpdateHint": "スキル同期と更新通知",
+    "agentFilterTitle": "エージェントフィルター",
+    "agentFilterHint": "選択したエージェントからの通知のみ受信します。空にするとすべてのエージェントから受信します。",
+    "allAgentsPlaceholder": "すべてのエージェント",
+    "rulesTitle": "通知ルール",
+    "rulesDescription": "有効なルールのいずれかに一致するイベントがシステム通知をトリガーします。各ルール内のフィールドはAND条件で、空欄は制限なしを意味します。",
+    "ruleLabel": "ルール",
+    "addRule": "ルールを追加",
+    "noRules": "ルールが設定されていません。ルールを追加して通知の受信を開始してください。",
+    "disabled": "無効",
+    "sourceTypes": "ソースタイプ",
+    "severities": "重要度",
+    "eventTypes": "イベントタイプ",
+    "allPlaceholder": "すべて（制限なし）",
+    "severityInfo": "情報",
+    "severityWarning": "警告",
+    "severityError": "エラー",
+    "eventCronResult": "定期タスク結果",
+    "eventCronDeliveryFailed": "定期タスク配信失敗",
+    "eventHeartbeatResult": "ハートビート結果",
+    "eventMemoryUpdate": "メモリ更新",
+    "eventSkillSync": "スキル同期"
   }
 }

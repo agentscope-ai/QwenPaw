@@ -77,7 +77,8 @@
     "debug": "Depuracao",
     "plugins": "Plugins",
     "backups": "Backups",
-    "pluginManager": "Gerenciador de Plugins"
+    "pluginManager": "Gerenciador de Plugins",
+    "notifications": "Notificacoes"
   },
   "debug": {
     "title": "Depuracao",
@@ -2810,5 +2811,47 @@
   },
   "loop": {
     "gotoSettings": "Configurações de Loop do Agente"
+  },
+  "notifications": {
+    "title": "Notificacoes do Sistema",
+    "description": "Configure notificacoes de area de trabalho para eventos da caixa de entrada. As notificacoes sao entregues pelo centro de notificacoes nativo do SO.",
+    "enableLabel": "Ativar Notificacoes do Sistema",
+    "enableHint": "Quando ativado, eventos correspondentes acionarao notificacoes de area de trabalho.",
+    "soundLabel": "Som de Notificacao",
+    "soundHint": "Reproduzir um som quando as notificacoes forem entregues.",
+    "intervalLabel": "Intervalo Minimo",
+    "intervalHint": "Limitacao de taxa entre notificacoes consecutivas.",
+    "testButton": "Enviar Notificacao de Teste",
+    "sourcesTitle": "Fontes de Notificacao",
+    "sourcesHint": "Escolha quais tipos de eventos devem acionar notificacoes do sistema.",
+    "sourceCron": "Tarefas Agendadas",
+    "sourceCronHint": "Resultados de execucao de tarefas agendadas",
+    "sourceHeartbeat": "Heartbeat",
+    "sourceHeartbeatHint": "Resultados de verificacao periodica",
+    "sourceMemory": "Memoria",
+    "sourceMemoryHint": "Resultados de memoria automatica",
+    "sourceSkillUpdate": "Atualizacao de Habilidades",
+    "sourceSkillUpdateHint": "Notificacoes de sincronizacao de habilidades",
+    "agentFilterTitle": "Filtro de Agentes",
+    "agentFilterHint": "Receber notificacoes apenas dos agentes selecionados. Deixe vazio para receber de todos.",
+    "allAgentsPlaceholder": "Todos os agentes",
+    "rulesTitle": "Regras de Notificacao",
+    "rulesDescription": "Eventos que correspondem a qualquer regra ativada acionarao uma notificacao do sistema.",
+    "ruleLabel": "Regra",
+    "addRule": "Adicionar Regra",
+    "noRules": "Nenhuma regra configurada.",
+    "disabled": "Desativado",
+    "sourceTypes": "Tipos de Origem",
+    "severities": "Severidades",
+    "eventTypes": "Tipos de Evento",
+    "allPlaceholder": "Todos (sem restricao)",
+    "severityInfo": "Info",
+    "severityWarning": "Aviso",
+    "severityError": "Erro",
+    "eventCronResult": "Resultado de Tarefa",
+    "eventCronDeliveryFailed": "Falha na Entrega de Tarefa",
+    "eventHeartbeatResult": "Resultado de Heartbeat",
+    "eventMemoryUpdate": "Atualizacao de Memoria",
+    "eventSkillSync": "Sincronizacao de Habilidades"
   }
 }
