@@ -95,9 +95,9 @@ def resolve_node_runtime(
     candidate = ACPNodeRuntimeCandidate(
         key=key,
         label=label,
-        node_path=str(node) if node else node_path,
+        node_path=str(node),
     )
-    if not node or not node.is_file():
+    if not node.is_file():
         candidate.reason_code = "node_missing"
         candidate.reason = "Node path does not exist"
         return candidate
@@ -192,7 +192,7 @@ def _bundled_node_path() -> Path | None:
     return _normalize_node_path(_strip_windows_extended_prefix(root))
 
 
-def _normalize_node_path(value: str) -> Path | None:
+def _normalize_node_path(value: str) -> Path:
     path = Path(os.path.expandvars(value)).expanduser()
     if path.is_dir():
         path = path / ("node.exe" if os.name == "nt" else "bin/node")
@@ -255,7 +255,7 @@ def _version(executable: str, env: dict[str, str]) -> tuple[str, str]:
             creationflags=creationflags,
             check=False,
         )
-    except Exception as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
         return "", f"{Path(executable).name} --version failed: {exc}"
     if result.returncode != 0:
         return (

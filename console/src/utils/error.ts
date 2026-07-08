@@ -2,7 +2,7 @@ export function parseErrorDetail(error: unknown): Record<string, any> | null {
   if (!(error instanceof Error)) return null;
   const msg = error.message;
   // Try " - " separator first (from request.ts formatted errors)
-  const idx = msg.lastIndexOf(" - ");
+  const idx = msg.indexOf(" - ");
   if (idx !== -1) {
     try {
       const parsed = JSON.parse(msg.slice(idx + 3));

@@ -72,11 +72,32 @@ function formatNodeReason(reasonCode: string, t: TFunction): string {
 }
 
 function getNodeRuntimeErrorMessage(error: unknown, t: TFunction): string {
-  const detail = parseErrorDetail(error);
+  const detail = parseNodeRuntimeErrorDetail(error);
   const reasonCode =
     typeof detail?.reason_code === "string" ? detail.reason_code : "";
   const reasonKey = NODE_RUNTIME_REASON_KEYS[reasonCode];
   return reasonKey ? t(reasonKey) : t("acp.nodeSaveFailed");
+}
+
+function parseNodeRuntimeErrorDetail(
+  error: unknown,
+): Record<string, unknown> | null {
+  if (error instanceof Error) {
+    const idx = error.message.lastIndexOf(" - ");
+    if (idx !== -1) {
+      try {
+        const parsed = JSON.parse(error.message.slice(idx + 3)) as {
+          detail?: unknown;
+        };
+        if (typeof parsed.detail === "object" && parsed.detail !== null) {
+          return parsed.detail as Record<string, unknown>;
+        }
+      } catch {
+        // Fall through to the shared parser below.
+      }
+    }
+  }
+  return parseErrorDetail(error);
 }
 
 function sameNodePath(left: string, right: string): boolean {

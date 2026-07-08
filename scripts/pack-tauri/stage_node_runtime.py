@@ -65,6 +65,7 @@ def _extract(archive: Path, suffix: str, workdir: Path) -> Path:
             try:
                 tar.extractall(workdir, filter="data")
             except TypeError:
+                _validate_tar_members(tar, workdir)
                 tar.extractall(workdir)
 
     roots = [
@@ -75,6 +76,16 @@ def _extract(archive: Path, suffix: str, workdir: Path) -> Path:
     if len(roots) != 1:
         raise SystemExit("failed to locate extracted Node.js directory")
     return roots[0]
+
+
+def _validate_tar_members(tar: tarfile.TarFile, workdir: Path) -> None:
+    root = workdir.resolve()
+    for member in tar.getmembers():
+        target = (root / member.name).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError:
+            raise SystemExit(f"tar member escapes target: {member.name}") from None
 
 
 def main() -> None:

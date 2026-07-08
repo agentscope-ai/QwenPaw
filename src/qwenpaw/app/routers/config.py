@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
@@ -446,7 +447,8 @@ async def put_acp_config(
 )
 async def get_acp_node_runtime() -> ACPNodeRuntimeStatus:
     """Return global ACP Node runtime status."""
-    return get_node_runtime_status(load_config().acp.node_path)
+    node_path = load_config().acp.node_path
+    return await asyncio.to_thread(get_node_runtime_status, node_path)
 
 
 @router.put(
@@ -461,7 +463,7 @@ async def put_acp_node_runtime(
     """Update global ACP Node runtime path."""
     node_path = body.node_path.strip()
     if node_path:
-        candidate = resolve_node_runtime(node_path)
+        candidate = await asyncio.to_thread(resolve_node_runtime, node_path)
         if not candidate.available:
             raise HTTPException(
                 status_code=400,
@@ -474,7 +476,7 @@ async def put_acp_node_runtime(
     config = load_config()
     config.acp.node_path = node_path
     save_config(config)
-    return get_node_runtime_status(config.acp.node_path)
+    return await asyncio.to_thread(get_node_runtime_status, config.acp.node_path)
 
 
 @router.get(
