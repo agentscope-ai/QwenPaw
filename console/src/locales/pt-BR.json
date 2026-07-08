@@ -2021,7 +2021,10 @@
       "turnEstimated": "Esta rodada ~",
       "tok": "tok",
       "inOut": "in {{inTok}} · out {{outTok}}",
-      "contextLabel": "Janela de contexto:"
+      "contextLabel": "Janela de contexto:",
+      "manageContext": "Gerenciar contexto",
+      "compact": "Compactar",
+      "new": "Nova conversa"
     },
     "rateLimitMessage": "Limite de taxa atingido. Mude para outro modelo gratuito:",
     "rateLimitSwitched": "Mudou para {{model}}",

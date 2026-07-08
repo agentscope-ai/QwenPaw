@@ -2138,7 +2138,10 @@
       "turnEstimated": "This turn ~",
       "tok": "tok",
       "inOut": "in {{inTok}} · out {{outTok}}",
-      "contextLabel": "Context window:"
+      "contextLabel": "Context window:",
+      "manageContext": "Manage context",
+      "compact": "Compact",
+      "new": "New chat"
     },
     "rateLimitMessage": "Rate limit reached. Switch to another free model:",
     "rateLimitSwitched": "Switched to {{model}}",

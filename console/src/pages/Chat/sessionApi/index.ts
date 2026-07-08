@@ -10,7 +10,11 @@ import api, {
   type Message,
 } from "../../../api";
 import { toDisplayUrl } from "../utils";
-import { extractTurnUsageFromOutputMessages } from "../turnUsage";
+import {
+  extractTurnUsageFromOutputMessages,
+  extractLatestSnapshotFromCards,
+} from "../turnUsage";
+import { useTurnUsageStore } from "../turnUsageStore";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -24,6 +28,14 @@ const ROLE_USER = "user";
 const ROLE_ASSISTANT = "assistant";
 const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
 const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
+
+function hydrateTurnUsageFromMessages(
+  messages: IAgentScopeRuntimeWebUIMessage[],
+): void {
+  useTurnUsageStore
+    .getState()
+    .setSnapshot(extractLatestSnapshotFromCards(messages));
+}
 
 // ---------------------------------------------------------------------------
 // Window globals
@@ -692,6 +704,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     window.currentSessionId = sessionId;
     window.currentUserId = DEFAULT_USER_ID;
     window.currentChannel = DEFAULT_CHANNEL;
+    useTurnUsageStore.getState().setSnapshot(null);
     return {
       id: sessionId,
       name: DEFAULT_SESSION_NAME,
@@ -1000,6 +1013,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         cached.id = displayId;
         if (listEntry?.name) cached.name = listEntry.name;
         this.updateWindowVariables(cached);
+        hydrateTurnUsageFromMessages(cached.messages ?? []);
         return cached;
       }
     }
@@ -1028,6 +1042,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       this.setCachedConvertedSession(backendId, session);
     }
 
+    hydrateTurnUsageFromMessages(session.messages ?? []);
     return session;
   }
 
@@ -1037,6 +1052,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   ): Promise<IAgentScopeRuntimeWebUISession> {
     // --- No session selected (library bug: createSession sets undefined) ---
     if (!sessionId || sessionId === "undefined" || sessionId === "null") {
+      useTurnUsageStore.getState().setSnapshot(null);
       return {
         id: sessionId || "",
         name: "",
@@ -1063,6 +1079,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           // If fetching with realId fails, return the local session without messages
           // This handles cases where the backend has an inconsistency
           this.updateWindowVariables(fromList);
+          hydrateTurnUsageFromMessages(fromList.messages ?? []);
           return fromList;
         }
       }
@@ -1083,12 +1100,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             );
           } catch {
             this.updateWindowVariables(resolved);
+            hydrateTurnUsageFromMessages(resolved.messages ?? []);
             return resolved;
           }
         }
       }
       if (fromList) {
         this.updateWindowVariables(fromList);
+        hydrateTurnUsageFromMessages(fromList.messages ?? []);
         return fromList;
       }
       return this.createEmptySession(sessionId);

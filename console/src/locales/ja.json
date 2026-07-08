@@ -1805,7 +1805,10 @@
       "turnEstimated": "このターン約",
       "tok": "tok",
       "inOut": "入力 {{inTok}} · 出力 {{outTok}}",
-      "contextLabel": "コンテキストウィンドウ："
+      "contextLabel": "コンテキストウィンドウ：",
+      "manageContext": "コンテキスト管理",
+      "compact": "圧縮",
+      "new": "新しい会話"
     },
     "rateLimitMessage": "レート制限に達しました。他の無料モデルに切り替え：",
     "rateLimitSwitched": "{{model}} に切り替えました",
