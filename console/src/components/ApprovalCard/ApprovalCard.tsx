@@ -254,26 +254,23 @@ export function ApprovalCard({
         )}
 
         {isGeneralized && (exactTarget || similarTarget) && (
-          <div className={styles.infoRow}>
-            <Text className={styles.label}>
+          <div className={styles.scopeSection}>
+            <Text className={styles.scopeLabel}>
               {t("approval.approvalScope", "Approval scope")}:
             </Text>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 2,
-                fontSize: 12,
-              }}
-            >
-              <Text className={styles.value} style={{ fontSize: 12 }}>
-                {t("approval.approveExact", "Approve Exact")}:{" "}
-                <code>{exactTarget}</code>
-              </Text>
-              <Text className={styles.value} style={{ fontSize: 12 }}>
-                {t("approval.approvePattern", "Approve Pattern")}:{" "}
-                <code>{similarTarget}</code>
-              </Text>
+            <div className={styles.scopeItems}>
+              <div className={styles.scopeItem}>
+                <Text className={styles.scopeItemLabel}>
+                  {t("approval.approveExact", "Just Once")}:
+                </Text>
+                <code className={styles.scopeCode}>{exactTarget}</code>
+              </div>
+              <div className={styles.scopeItem}>
+                <Text className={styles.scopeItemLabel}>
+                  {t("approval.approvePattern", "Always Allow")}:
+                </Text>
+                <code className={styles.scopeCode}>{similarTarget}</code>
+              </div>
             </div>
           </div>
         )}

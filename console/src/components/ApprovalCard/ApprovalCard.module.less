@@ -132,6 +132,54 @@
   }
 }
 
+.scopeSection {
+  background: #fafbfc;
+  border: 1px solid #eef0f3;
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scopeLabel {
+  font-size: 12px;
+  color: #8c8c8c;
+  font-weight: 500;
+}
+
+.scopeItems {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scopeItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scopeItemLabel {
+  font-size: 12px;
+  color: #555;
+  font-weight: 500;
+}
+
+.scopeCode {
+  background: #ffffff;
+  border: 1px solid #e8ecf1;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #333;
+  font-family: "SF Mono", "Monaco", "Consolas", monospace;
+  word-break: break-all;
+  display: block;
+  line-height: 1.5;
+}
+
 .severityTag {
   font-size: 11px;
   font-weight: 600;
@@ -462,6 +510,25 @@
       border-color: #3a3a3a;
       color: #ccc;
     }
+  }
+
+  .scopeSection {
+    background: #252525;
+    border-color: #333;
+  }
+
+  .scopeLabel {
+    color: #999;
+  }
+
+  .scopeItemLabel {
+    color: #bbb;
+  }
+
+  .scopeCode {
+    background: #1a1a1a;
+    border-color: #333;
+    color: #ccc;
   }
 
   .summaryBox {
