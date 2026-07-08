@@ -227,6 +227,8 @@ async def _dispatch_text_actions(
     ch: "ZaloChannel",
     real_chat_id: str,
     initial_text: str,
+    *,
+    is_group: bool = False,
 ) -> None:
     """Send a text string with smart extraction."""
     actions, leftover = _extract_actions(initial_text)
@@ -239,7 +241,7 @@ async def _dispatch_text_actions(
                 chat_id=real_chat_id,
                 text=leftover,
             )
-            ch._safe_on_reply(real_chat_id)
+            ch._safe_on_reply(real_chat_id, is_group=is_group)
         except Exception:
             logger.exception(
                 "Zalo send_message failed chat_id=%s text=%r",
@@ -267,7 +269,7 @@ async def _dispatch_text_actions(
                     chat_id=real_chat_id,
                     voice_url=action.payload,
                 )
-            ch._safe_on_reply(real_chat_id)
+            ch._safe_on_reply(real_chat_id, is_group=is_group)
         except Exception:
             logger.exception(
                 "Zalo send_%s failed chat_id=%s payload=%s",
@@ -471,9 +473,18 @@ class ZaloChannel(BaseChannel):  # type: ignore[misc]
             raise RuntimeError("channel not started")
 
         meta_dict = meta or {}
-        real_chat_id = meta_dict.get("chat_id") or (
-            chat_id[len("zalo:") :] if chat_id.startswith("zalo:") else chat_id
-        )
+        # Prefer meta.chat_id (raw Zalo id). Fallback: strip session prefix.
+        # 'zalo:group:{id}' -> '{id}'; 'zalo:{id}' -> '{id}' (backward-compat).
+        real_chat_id = meta_dict.get("chat_id")
+        if not real_chat_id:
+            if chat_id.startswith("zalo:group:"):
+                real_chat_id = chat_id[len("zalo:group:") :]
+            elif chat_id.startswith("zalo:"):
+                real_chat_id = chat_id[len("zalo:") :]
+            else:
+                real_chat_id = chat_id
+        # Reply session phai khop resolve_session_id (GROUP vs PRIVATE).
+        is_group = meta_dict.get("chat_type") == "GROUP"
 
         # Always stop typing first - we are about to actually reply.
         try:
@@ -517,7 +528,7 @@ class ZaloChannel(BaseChannel):  # type: ignore[misc]
                         )
                         text_parts = []
                         _rich_sent = True
-                        self._safe_on_reply(real_chat_id)
+                        self._safe_on_reply(real_chat_id, is_group=is_group)
                     except Exception:
                         logger.exception(
                             "Zalo send_photo failed chat_id=%s url=%s",
@@ -536,7 +547,7 @@ class ZaloChannel(BaseChannel):  # type: ignore[misc]
                         sticker=sticker_id,
                     )
                     _rich_sent = True
-                    self._safe_on_reply(real_chat_id)
+                    self._safe_on_reply(real_chat_id, is_group=is_group)
                 except Exception:
                     logger.exception("Zalo send_sticker failed")
                 continue
@@ -550,7 +561,7 @@ class ZaloChannel(BaseChannel):  # type: ignore[misc]
                         voice_url=voice_url,
                     )
                     _rich_sent = True
-                    self._safe_on_reply(real_chat_id)
+                    self._safe_on_reply(real_chat_id, is_group=is_group)
                 except Exception:
                     logger.exception("Zalo send_voice failed")
                 continue
@@ -574,17 +585,25 @@ class ZaloChannel(BaseChannel):  # type: ignore[misc]
             )
             return
 
-        await _dispatch_text_actions(self, real_chat_id, text)
+        await _dispatch_text_actions(self, real_chat_id, text, is_group=is_group)
 
-    def _safe_on_reply(self, real_chat_id: str) -> None:
-        """Fire ``_on_reply_sent`` callback without crashing the send loop."""
+    def _safe_on_reply(self, real_chat_id: str, *, is_group: bool = False) -> None:
+        """Fire ``_on_reply_sent`` callback without crashing the send loop.
+
+        Session id phai khop ``resolve_session_id``: GROUP ->
+        'zalo:group:{id}', PRIVATE -> 'zalo:{id}' (backward-compat).
+        """
         if not self._on_reply_sent:
             return
         try:
+            session = (
+                f"zalo:group:{real_chat_id}" if is_group
+                else f"zalo:{real_chat_id}"
+            )
             self._on_reply_sent(
                 "zalo",
                 real_chat_id,
-                f"zalo:{real_chat_id}",
+                session,
             )
         except Exception:
             logger.exception("on_reply_sent callback failed")
@@ -598,6 +617,11 @@ class ZaloChannel(BaseChannel):  # type: ignore[misc]
         sender_id: str,
         channel_meta: Optional[Dict[str, Any]] = None,
     ) -> str:
+        # GROUP: 1 session chung cho cả nhóm -> 'zalo:group:{chat_id}'.
+        # PRIVATE: giu 'zalo:{sender_id}' (backward-compat session cu).
+        meta = channel_meta or {}
+        if meta.get("chat_type") == "GROUP" and meta.get("chat_id"):
+            return f"zalo:group:{meta.get('chat_id')}"
         return f"zalo:{sender_id}"
 
     def build_agent_request_from_native(
@@ -617,6 +641,14 @@ class ZaloChannel(BaseChannel):  # type: ignore[misc]
         content_parts = payload.get("content_parts") or []
         meta = payload.get("meta") or {}
         session_id = self.resolve_session_id(sender_id, meta)
+        # GROUP: prepend prefix '[ten trong nhom chat_id]: ' de LLM phan biet
+        # nguoi gui trong group. PRIVATE: giu nguyen content.
+        if meta.get("chat_type") == "GROUP" and meta.get("chat_id"):
+            from agentscope_runtime.engine.schemas.agent_schemas import (  # noqa: WPS433
+                TextContent,
+            )
+            prefix = f"[{meta.get('from_name', '')} trong nhom {meta.get('chat_id')}]: "
+            content_parts = [TextContent(text=prefix)] + list(content_parts)
         request = self.build_agent_request_from_user_content(
             channel_id=channel_id,
             sender_id=sender_id,
