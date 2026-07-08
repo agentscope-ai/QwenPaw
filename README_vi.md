@@ -290,20 +290,20 @@ Nếu bạn không quen với công cụ dòng lệnh, bạn có thể tải xu�
 
 #### Tải Xuống
 
-Tải ứng dụng desktop từ [trang tải xuống chính thức](https://qwenpaw.agentscope.io/downloads):
-- **Windows**: `QwenPaw-Setup-<version>.exe`
-- **macOS**: `QwenPaw-<version>-macOS.zip` (khuyên dùng Apple Silicon)
+Tải ứng dụng desktop (bản Tauri) từ [trang tải xuống chính thức](https://qwenpaw.agentscope.io/downloads):
+- **Windows**: `QwenPaw-Tauri-<version>-Windows-setup.exe`
+- **macOS**: `QwenPaw-Tauri-<version>-macOS.zip` (khuyên dùng Apple Silicon)
 
 #### Tính Năng
 
 - ✅ **Không cấu hình**: Tải về và nhấp đúp để chạy, không cần cài Python hay cấu hình biến môi trường
 - ✅ **Đa nền tảng**: Hỗ trợ Windows 10+ và macOS 14+
-- ✅ **Giao diện trực quan**: Tự động mở giao diện trình duyệt, không cần nhập địa chỉ thủ công
+- ✅ **Giao diện trực quan**: Tự động mở cửa sổ ứng dụng, không cần nhập địa chỉ thủ công
 - ⚠️ **Giai đoạn Beta**: Các tính năng đang được liên tục cải thiện, rất mong nhận phản hồi
 
 #### Lần Đầu Khởi Động
 
-**Quan trọng**: Lần đầu khởi động có thể mất 10-60 giây (tùy thuộc vào cấu hình hệ thống của bạn). Ứng dụng cần khởi tạo môi trường Python và tải các phụ thuộc. Vui lòng kiên nhẫn chờ cửa sổ trình duyệt tự động mở.
+**Quan trọng**: Lần đầu khởi động có thể mất 10-60 giây (tùy thuộc vào cấu hình hệ thống của bạn). Ứng dụng cần khởi tạo môi trường Python và tải các phụ thuộc. Vui lòng kiên nhẫn chờ cửa sổ tự động mở.
 
 #### macOS: Vượt Qua Rào Cản Bảo Mật Hệ Thống
 
@@ -317,7 +317,7 @@ Khi bạn tải ứng dụng macOS QwenPaw từ Releases, macOS có thể hiển
 
 - **Xóa thuộc tính cách ly (không khuyên dùng cho hầu hết người dùng)**
   Trong Terminal chạy:
-  `xattr -cr /Applications/QwenPaw.app`
+  `xattr -cr "/Applications/QwenPaw Desktop.app"`
   (hoặc dùng đường dẫn tới tệp `.app` sau khi giải nén). Thao tác này xóa cờ cách ly "đã tải xuống từ internet" để cảnh báo thường không xuất hiện, nhưng kém an toàn và kiểm soát hơn so với dùng **Nhấp chuột phải → Open**.
 
 Để biết hướng dẫn sử dụng chi tiết, khắc phục sự cố và các vấn đề thường gặp, xem [Hướng dẫn ứng dụng Desktop](https://qwenpaw.agentscope.io/docs/desktop).
@@ -384,7 +384,7 @@ QwenPaw cũng cung cấp dòng **QwenPaw-Flash** — mô hình 2B / 4B / 9B hu�
 
 QwenPaw bao gồm bốn lớp bảo mật cốt lõi:
 
-- **Sandbox** — Cách ly thực thi cấp kernel bằng Seatbelt (macOS) và Bubblewrap / Landlock (Linux). Lệnh shell chạy trong phạm vi hệ thống tệp bị hạn chế.
+- **Sandbox** — Cách ly thực thi cấp kernel bằng Seatbelt (macOS), Bubblewrap / Landlock (Linux) và AppContainer (Windows). Lệnh shell chạy trong phạm vi hệ thống tệp bị hạn chế.
 - **Tool Guard** — Công cụ quy tắc YAML với `ShellEvasionGuardian` kiểm tra mọi lệnh gọi công cụ trước khi thực thi, phát hiện command injection, path traversal, reverse shell và tấn công che giấu. Mức phê duyệt cấu hình được: STRICT / SMART / AUTO / OFF.
 - **File Guard** — Độc lập với Tool Guard; chặn tác nhân truy cập tệp và thư mục nhạy cảm (mặc định bảo vệ `~/.qwenpaw.secret/`, `~/.ssh`, v.v.).
 - **Skill Scanner** — Quét trước khi kích hoạt với chế độ block / warn / off và hỗ trợ danh sách trắng. Phát hiện prompt injection, khóa nhúng cứng, rò rỉ dữ liệu, v.v.

@@ -110,8 +110,8 @@ class ToolResultCapMiddleware(MiddlewareBase):
                     f"{text[:keep]}\n"
                     f"<<<TRUNCATED ~{n_tokens - self._token_cap} tokens>>>\n"
                     "<system-info>Full output preserved durably. Recall it "
-                    "inside recall_history_python via "
-                    f"ms.recall_tool({tcid!r}).</system-info>"
+                    'with recall_history(op="recall_tool", '
+                    f"tool_call_id={tcid!r}).</system-info>"
                 ),
             ),
         ]

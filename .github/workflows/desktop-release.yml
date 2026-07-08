@@ -41,10 +41,8 @@ jobs:
 
   build-windows:
     needs: [check-release-secrets]
-    if: |
-      always() &&
-      (needs.check-release-secrets.result == 'success' ||
-       needs.check-release-secrets.result == 'skipped')
+    # Keep the legacy desktop packaging code in place, but do not build it.
+    if: ${{ false }}
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -169,10 +167,8 @@ jobs:
 
   build-macos:
     needs: [check-release-secrets]
-    if: |
-      always() &&
-      (needs.check-release-secrets.result == 'success' ||
-       needs.check-release-secrets.result == 'skipped')
+    # Keep the legacy desktop packaging code in place, but do not build it.
+    if: ${{ false }}
     runs-on: macos-14
     steps:
       - name: Checkout
@@ -516,7 +512,7 @@ jobs:
             dist/tauri-darwin-*-updater.json
 
   upload-release:
-    needs: [build-windows, build-macos, build-tauri-windows, build-tauri-macos]
+    needs: [build-tauri-windows, build-tauri-macos]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
@@ -585,14 +581,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   upload-oss:
-    needs: [build-windows, build-macos, build-tauri-windows, build-tauri-macos]
+    needs: [build-tauri-windows, build-tauri-macos]
     # Run on: 1) release trigger, or 2) manual trigger with upload_to_oss checked
     if: |
       always() &&
       (github.event_name == 'release' ||
        (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')) &&
-      needs.build-windows.result == 'success' &&
-      needs.build-macos.result == 'success' &&
       needs.build-tauri-windows.result == 'success' &&
       needs.build-tauri-macos.result == 'success'
     runs-on: ubuntu-latest

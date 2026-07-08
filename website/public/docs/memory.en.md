@@ -236,6 +236,7 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 | ------------------------------- | ------------------------------------------------------------------------------ | ---------------- |
 | `metadata_dir`                  | ReMe persistent state directory for indexes, catalogs, graph data, and caches  | `"mem_metadata"` |
 | `session_dir`                   | Directory for saved source conversations                                       | `"mem_session"`  |
+| `mem_session_dir`               | Directory for ReMe internal memory-agent sessions                              | `"mem_agent"`    |
 | `resource_dir`                  | Directory watched by `auto_resource`                                           | `"resource"`     |
 | `daily_dir`                     | Directory for daily memory notes                                               | `"memory"`       |
 | `digest_dir`                    | Directory for dream/digest memory                                              | `"digest"`       |
@@ -249,44 +250,53 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 
 Configure in `running.reme_light_memory_config.auto_memory_search_config`:
 
-| Field                | Description                                                                       | Default |
-| -------------------- | --------------------------------------------------------------------------------- | ------- |
-| `enabled`            | Whether to auto search memory on every conversation turn                          | `false` |
-| `max_results`        | Maximum results for auto memory search                                            | `2`     |
-| `persist_to_context` | Whether the injected auto-search tool call/result is kept in conversation context | `false` |
+When enabled, search results are injected into the current live context as a
+completed `memory_search` interaction. They remain available to follow-up model
+calls in the same tool loop until normal context management evicts them.
+
+| Field         | Description                                              | Default |
+| ------------- | -------------------------------------------------------- | ------- |
+| `enabled`     | Whether to auto search memory on every conversation turn | `false` |
+| `max_results` | Maximum results for auto memory search                   | `2`     |
 
 ### Embedding Configuration (Optional)
 
 Embedding configuration for vector semantic search, located in `running.reme_light_memory_config.embedding_model_config`:
 
-| Field              | Description                                  | Default  |
-| ------------------ | -------------------------------------------- | -------- |
-| `backend`          | Embedding backend type                       | `openai` |
-| `api_key`          | API Key for the Embedding service            | ``       |
-| `base_url`         | URL of the Embedding service                 | ``       |
-| `model_name`       | Embedding model name                         | ``       |
-| `dimensions`       | Vector dimensions for initializing vector DB | `1024`   |
-| `enable_cache`     | Whether to enable Embedding cache            | `true`   |
-| `use_dimensions`   | Whether to pass dimensions parameter in API  | `false`  |
-| `max_cache_size`   | Maximum Embedding cache entries              | `10000`  |
-| `max_input_length` | Maximum input length per Embedding request   | `8192`   |
-| `max_batch_size`   | Maximum batch size for Embedding requests    | `10`     |
+| Field              | Description                                                                                    | Default  |
+| ------------------ | ---------------------------------------------------------------------------------------------- | -------- |
+| `backend`          | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`      | `openai` |
+| `api_key`          | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends         | ``       |
+| `base_url`         | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host | ``       |
+| `model_name`       | Embedding model name                                                                           | ``       |
+| `dimensions`       | Embedding vector dimensions                                                                    | `1024`   |
+| `enable_cache`     | Whether to enable Embedding cache                                                              | `true`   |
+| `use_dimensions`   | Whether to pass dimensions parameter in API                                                    | `false`  |
+| `max_cache_size`   | Maximum Embedding cache entries                                                                | `10000`  |
+| `max_input_length` | Maximum input length per Embedding request                                                     | `8192`   |
+| `max_batch_size`   | Maximum batch size for Embedding requests                                                      | `10`     |
 
 > `use_dimensions` is for cases where some vLLM models don't support the dimensions parameter. Set to `false` to skip it.
 
-> `base_url` and `model_name` must both be non-empty to enable vector search in hybrid retrieval (`api_key` is not required).
+Vector retrieval is enabled only when the selected backend has the minimum runnable configuration. These conditions are aligned with AgentScope credential requirements:
+
+| Backend                                         | Enable condition                              | Credential mapping              |
+| ----------------------------------------------- | --------------------------------------------- | ------------------------------- |
+| `openai` / `dashscope` / `dashscope_multimodal` | Both `model_name` and `api_key` are non-empty | `api_key`; optional `base_url`  |
+| `gemini`                                        | Both `model_name` and `api_key` are non-empty | `api_key`                       |
+| `ollama`                                        | `model_name` is non-empty                     | optional `host` from `base_url` |
 
 ### Indexing Behavior
 
 The embedded ReMe configuration uses a local file store with:
 
-| Component        | Behavior                                                                                       |
-| ---------------- | ---------------------------------------------------------------------------------------------- |
-| File store       | Local ReMe file store under `mem_metadata/`                                                    |
-| Keyword index    | BM25 keyword index enabled by default                                                          |
-| Vector index     | Enabled only when both `embedding_model_config.base_url` and `model_name` are set              |
-| Watched dirs     | `daily_dir` and `digest_dir`; `resource_dir` is also indexed when `enable_search_raw_log=true` |
-| Watched suffixes | `md` by default; `jsonl` is included when raw-log search is enabled                            |
+| Component        | Behavior                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------ |
+| File store       | Local ReMe file store under `mem_metadata/`                                                      |
+| Keyword index    | BM25 keyword index enabled by default                                                            |
+| Vector index     | Enabled only when `embedding_model_config` meets the enable condition for the selected `backend` |
+| Watched dirs     | `daily_dir` and `digest_dir`; `resource_dir` is also indexed when `enable_search_raw_log=true`   |
+| Watched suffixes | `md` by default; `jsonl` is included when raw-log search is enabled                              |
 
 ---
 
@@ -296,66 +306,35 @@ QwenPaw's memory system uses a pluggable backend architecture. In addition to th
 
 ### ADBPG (AnalyticDB for PostgreSQL)
 
-A long-term memory backend backed by a cloud vector database. Suitable for scenarios that need cross-device sharing or large-scale semantic retrieval.
+A long-term memory backend backed by a cloud vector database. It is suitable for scenarios that need cross-device sharing or large-scale semantic retrieval. QwenPaw connects through the ADBPG memory service REST API, so no additional database driver is required.
 
 **Key features:**
 
 - **Cross-session persistence** — Memories are stored in a cloud database, retained across restarts, and shareable across devices.
-- **Server-side fact extraction** — Fact extraction is performed by the LLM built into ADBPG, with no extra client-side overhead.
-- **Dual API modes** — Supports both direct SQL connection and REST API access.
+- **Server-side fact extraction** — Fact extraction is handled by the ADBPG memory service, with no extra client-side overhead.
+- **REST API access** — Calls the ADBPG memory service over HTTP.
 - **Graceful degradation** — When ADBPG is unreachable, the agent keeps running normally; only the long-term memory feature is temporarily disabled.
 
 **How to configure:**
 
-Open the agent's "Running Config" tab in the Console, locate the "Memory Manager Backend" dropdown, choose `adbpg`, and fill in the parameters under `adbpg_memory_config` according to the API mode you select.
+Open the agent's "Running Config" tab in the Console, locate the "Memory Manager Backend" dropdown, choose `adbpg`, and fill in `REST Base URL` and `REST API Key` under the "ADBPG Long-term Memory" tab.
 
 ![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
 
 > ⚠️ Switching the backend does not support hot reload. After saving, restart QwenPaw for the change to take effect (the page also shows a yellow banner reminder).
 
-#### REST Mode (Recommended)
+> Migration note: ADBPG direct SQL mode has been removed. Old fields such as
+> `api_mode: "sql"`, `host`, `port`, `user`, `password`, `dbname`, and LLM /
+> Embedding settings are ignored; configure `rest_base_url` and `rest_api_key`
+> instead, then restart QwenPaw.
 
-Connect to the ADBPG memory service over HTTP API — no additional Python dependencies required.
-
-Switch to the "ADBPG Long-term Memory" tab, set "API Mode" to `REST API`, and fill in `REST Base URL` and `REST API Key`:
-
-![adbpg-rest-mode](https://img.alicdn.com/imgextra/i4/O1CN01gTvYJI238hAc4fcvr_!!6000000007211-2-tps-2996-1478.png)
-
-| Field              | Description                                                     | Default  |
-| ------------------ | --------------------------------------------------------------- | -------- |
-| `api_mode`         | API mode, set to `"rest"`                                       | `"rest"` |
-| `rest_base_url`    | REST API URL of the ADBPG memory service                        | `""`     |
-| `rest_api_key`     | Access key for the REST API                                     | `""`     |
-| `memory_isolation` | Memory isolation mode: `true` for per-agent, `false` for shared | `true`   |
-| `search_timeout`   | Memory search timeout (seconds)                                 | `10.0`   |
-
-#### SQL Mode
-
-Connect directly to the ADBPG database via psycopg2. Requires installing an extra dependency: `pip install qwenpaw[adbpg]`.
-
-Switch to the "ADBPG Long-term Memory" tab, set "API Mode" to `SQL (Direct)`, and fill in the database connection info (host / port / user / password / dbname) along with LLM and Embedding parameters:
-
-![adbpg-sql-mode](https://img.alicdn.com/imgextra/i2/O1CN01K8Og0P27WkQvGWHvZ_!!6000000007805-2-tps-2988-1498.png)
-
-| Field                | Description                                    | Default |
-| -------------------- | ---------------------------------------------- | ------- |
-| `api_mode`           | API mode, set to `"sql"`                       | `"sql"` |
-| `host`               | ADBPG database host                            | `""`    |
-| `port`               | Database port                                  | `5432`  |
-| `user`               | Database user                                  | `""`    |
-| `password`           | Database password                              | `""`    |
-| `dbname`             | Database name                                  | `""`    |
-| `llm_model`          | LLM model used for server-side fact extraction | `""`    |
-| `llm_api_key`        | API Key for the LLM service                    | `""`    |
-| `llm_base_url`       | Base URL of the LLM service                    | `""`    |
-| `embedding_model`    | Embedding model name                           | `""`    |
-| `embedding_api_key`  | API Key for the Embedding service              | `""`    |
-| `embedding_base_url` | Base URL of the Embedding service              | `""`    |
-| `embedding_dims`     | Vector dimensions                              | `1024`  |
-| `memory_isolation`   | Memory isolation mode                          | `true`  |
-| `search_timeout`     | Memory search timeout (seconds)                | `10.0`  |
-| `pool_minconn`       | Minimum connections in the pool                | `1`     |
-| `pool_maxconn`       | Maximum connections in the pool                | `5`     |
+| Field                       | Description                                                                              | Default                               |
+| --------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------- |
+| `rest_base_url`             | REST API URL of the ADBPG memory service                                                 | `""`                                  |
+| `rest_api_key`              | Access key for the REST API                                                              | `""`                                  |
+| `memory_isolation`          | Memory isolation mode: `true` for per-agent, `false` for shared                          | `true`                                |
+| `search_timeout`            | Memory search timeout (seconds)                                                          | `10.0`                                |
+| `auto_memory_search_config` | Auto memory search configuration; same shape as ReMe Light's `auto_memory_search_config` | `{"enabled": true, "max_results": 3}` |
 
 **Configuration example:**
 
@@ -366,25 +345,14 @@ The full configuration can be written into `running.adbpg_memory_config` of `age
   "running": {
     "memory_manager_backend": "adbpg",
     "adbpg_memory_config": {
-      "host": "gp-xxxxxxxxx-master.gpdb.rds.aliyuncs.com",
-      "port": 5432,
-      "user": "your_db_user",
-      "password": "your_db_password",
-      "dbname": "your_db_name",
-      "llm_model": "qwen-plus",
-      "llm_api_key": "sk-xxxxxxxx",
-      "llm_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "embedding_model": "text-embedding-v3",
-      "embedding_api_key": "sk-xxxxxxxx",
-      "embedding_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "embedding_dims": 1024,
-      "api_mode": "sql",
-      "rest_api_key": "",
-      "rest_base_url": "",
+      "rest_base_url": "https://your-adbpg-memory-api.example.com",
+      "rest_api_key": "your-rest-api-key",
       "memory_isolation": true,
       "search_timeout": 10.0,
-      "pool_minconn": 1,
-      "pool_maxconn": 5
+      "auto_memory_search_config": {
+        "enabled": true,
+        "max_results": 3
+      }
     }
   }
 }

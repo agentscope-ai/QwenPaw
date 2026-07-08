@@ -69,6 +69,8 @@ class ScrollComponents:
     context_manager: Any  # ScrollContextManager (delegated agent hooks)
     cap_middleware: Any  # ToolResultCapMiddleware (on_acting)
     repl_tool: Any  # raw recall_history_python fn w/ a ``_tool_descriptor``
+    recall_tool: Any  # raw structured recall_history fn (in-process, no
+    # sandbox) — the front door for expand/search/recall_tool lookups
 
 
 def _warn_first_run(db_path: Path) -> None:
@@ -164,6 +166,7 @@ def build_scroll_components(
         from .scroll.cap_middleware import ToolResultCapMiddleware
         from .scroll.history import HistoryStore
         from .scroll.manager import ScrollContextManager
+        from .scroll.recall_tool import make_recall_history
         from .scroll.repl import make_recall_history_python
 
         sc = lcc.scroll_config
@@ -193,7 +196,6 @@ def build_scroll_components(
             history=history,
             session_id=session_id,
             agent_id=agent_id,
-            pinned=sc.pinned,
             capped_results=capped_results,
             # Legacy dialog archive is opt-in; only hand the manager an
             # offloader when configured, so by default scroll writes nothing
@@ -218,10 +220,20 @@ def build_scroll_components(
             timeout_s=sc.repl_timeout_s,
             allow_unsandboxed=scroll_unsandboxed_allowed(sc),
         )
+        # Structured front door for the common recall ops (expand / search /
+        # recall_tool): in-process bound queries, no sandbox, no approval —
+        # so fold stubs and the eviction index stay readable even where the
+        # sandboxed REPL can't run (e.g. Windows without WSL2).
+        recall = make_recall_history(
+            history_db_path=str(history.path),
+            session_id=session_id,
+            agent_id=agent_id,
+        )
         return ScrollComponents(
             context_manager=manager,
             cap_middleware=cap,
             repl_tool=tool,
+            recall_tool=recall,
         )
     except Exception:  # noqa: BLE001 - any scroll failure degrades to native
         logger.warning(

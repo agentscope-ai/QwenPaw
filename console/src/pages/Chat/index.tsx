@@ -26,6 +26,8 @@ import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import { useCodingMode } from "../../stores/codingModeStore";
+import { useLoopStore, fetchAvailableLoopSkills } from "../../stores/loopStore";
+import { LoopCommandChip } from "../../components/LoopInput";
 import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
@@ -54,6 +56,7 @@ import {
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
+import { applyApprovalLevelToRequestBody } from "./approvalPayload";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -67,6 +70,11 @@ interface ApprovalMessageData {
   toolParams: Record<string, unknown>;
   createdAt: number;
   timeoutSeconds: number;
+  // Approval-scope choice (console-only). When isGeneralized is true the
+  // card offers Approve Pattern (similar) vs Approve Exact (exact).
+  isGeneralized?: boolean;
+  exactTarget?: string;
+  similarTarget?: string;
 }
 
 import WhisperSpeechButton, {
@@ -98,6 +106,7 @@ import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import MessageQueuePanel from "./components/MessageQueuePanel";
 import ApprovalLevelToggle, {
+  normalizeLevel,
   type ToolExecutionLevel,
 } from "./components/ApprovalLevelToggle";
 import {
@@ -1076,6 +1085,7 @@ export default function ChatPage() {
   const { codingMode, initialized } = useCodingMode();
   const codingModeRef = useRef(codingMode);
   codingModeRef.current = codingMode;
+  const loopSelectedSkill = useLoopStore((s) => s.selectedSkill);
 
   // Wide mode toggle: expand chat content to full available width
   const [isWideMode, setIsWideMode] = useState(() => {
@@ -1132,7 +1142,8 @@ export default function ChatPage() {
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
-  const queueSessionId = chatId ?? "new";
+  // Use sessionApi.lastActiveChatId when available to avoid "new" collision
+  const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
   const queueSessionIdRef = useRef(queueSessionId);
   queueSessionIdRef.current = queueSessionId;
   const messageQueue =
@@ -1143,6 +1154,27 @@ export default function ChatPage() {
   const prevQueueLenRef = useRef(messageQueue.length);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
+  const [runningConfigApprovalLevel, setRunningConfigApprovalLevel] =
+    useState<ToolExecutionLevel>("AUTO");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const config = await agentApi.getAgentRunningConfig();
+        if (!cancelled) {
+          setRunningConfigApprovalLevel(normalizeLevel(config.approval_level));
+        }
+      } catch {
+        if (!cancelled) {
+          setRunningConfigApprovalLevel("AUTO");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent, refreshKey]);
 
   // Track pending attachments for queue support
   const pendingFileListRef = useRef<
@@ -1216,6 +1248,10 @@ export default function ChatPage() {
       clearTimeout(fallbackTimer);
     };
   }, [queueSessionId]);
+
+  useEffect(() => {
+    void fetchAvailableLoopSkills();
+  }, []);
 
   // Whether this tab is confirmed to be a non-owner (queue-only) tab.
   // Stays false until ownership check completes, preventing a flash of
@@ -1457,6 +1493,9 @@ export default function ChatPage() {
         toolParams: approval.tool_params,
         createdAt: approval.created_at,
         timeoutSeconds: approval.timeout_seconds,
+        isGeneralized: approval.is_generalized,
+        exactTarget: approval.exact_target,
+        similarTarget: approval.similar_target,
       });
     }
 
@@ -1464,7 +1503,7 @@ export default function ChatPage() {
   }, [approvals, chatId]);
 
   const handleApprove = useCallback(
-    async (requestId: string) => {
+    async (requestId: string, scope?: "exact" | "similar") => {
       const request = approvalRequests.get(requestId);
       if (!request) return;
 
@@ -1482,6 +1521,8 @@ export default function ChatPage() {
           "approve",
           requestId,
           rootSessionId,
+          undefined,
+          scope,
         );
         setApprovals((prev) =>
           prev.filter((item) => item.request_id !== requestId),
@@ -1611,6 +1652,76 @@ export default function ChatPage() {
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
   useChatInputDraft(isChatActive, selectedAgent);
   useChatPasteFromEditor();
+
+  // ── Loop chip intercept: detect __loop__ prefix from suggestion selection ──
+  useEffect(() => {
+    let rafId = 0;
+    let lastChecked = "";
+
+    const checkForLoopPrefix = () => {
+      const textarea = document
+        .querySelector('[class*="sender"]')
+        ?.querySelector("textarea") as HTMLTextAreaElement | null;
+      if (!textarea) return;
+      const val = textarea.value;
+      if (val === lastChecked) return;
+      lastChecked = val;
+      const loopMatch = val.match(/^\/?__loop__(\S+)/);
+      if (loopMatch) {
+        const skillName = loopMatch[1].trim();
+        const skills = useLoopStore.getState().availableSkills;
+        const skill = skills.find((s) => s.name === skillName) ?? {
+          name: skillName,
+          description: skillName,
+        };
+        useLoopStore.getState().setSelectedSkill(skill);
+        setTextareaValue(textarea, "");
+        lastChecked = "";
+      }
+    };
+
+    const onInput = () => checkForLoopPrefix();
+
+    const poll = () => {
+      checkForLoopPrefix();
+      rafId = requestAnimationFrame(poll);
+    };
+    rafId = requestAnimationFrame(poll);
+
+    document.addEventListener("input", onInput, true);
+    return () => {
+      cancelAnimationFrame(rafId);
+      document.removeEventListener("input", onInput, true);
+    };
+  }, []);
+
+  // ── Loop chip backspace: highlight on first backspace, delete on second ──
+  useEffect(() => {
+    const handleChipBackspace = (e: KeyboardEvent) => {
+      if (!isChatActive()) return;
+      if (e.key !== "Backspace") {
+        if (useLoopStore.getState().chipHighlighted) {
+          useLoopStore.getState().setChipHighlighted(false);
+        }
+        return;
+      }
+      const target = e.target as HTMLElement;
+      if (target?.tagName !== "TEXTAREA") return;
+      const textarea = target as HTMLTextAreaElement;
+      if (textarea.selectionStart !== 0 || textarea.value.length > 0) return;
+      if (!useLoopStore.getState().selectedSkill) return;
+
+      e.preventDefault();
+      if (useLoopStore.getState().chipHighlighted) {
+        useLoopStore.getState().setSelectedSkill(null);
+      } else {
+        useLoopStore.getState().setChipHighlighted(true);
+      }
+    };
+    document.addEventListener("keydown", handleChipBackspace, true);
+    return () =>
+      document.removeEventListener("keydown", handleChipBackspace, true);
+  }, [isChatActive]);
 
   // ── Message Queue ───────────────────────────────────────────────────────
 
@@ -2173,14 +2284,11 @@ export default function ChatPage() {
         }
       }
 
-      // Inject session-level approval_level into request_context
-      const sessionLevel = sessionApprovalLevelRef.current;
-      if (sessionLevel) {
-        const rc =
-          (requestBody.request_context as Record<string, unknown>) || {};
-        rc.approval_level = sessionLevel;
-        requestBody.request_context = rc;
-      }
+      applyApprovalLevelToRequestBody(
+        requestBody,
+        sessionApprovalLevelRef.current,
+        runningConfigApprovalLevel,
+      );
 
       const backendChatId =
         sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
@@ -2222,7 +2330,7 @@ export default function ChatPage() {
 
       return wrapChatResponseUsageStream(response, chatRef);
     },
-    [extLists, selectedAgent],
+    [extLists, selectedAgent, runningConfigApprovalLevel],
   );
 
   const handleFileUpload = useCallback(
@@ -2295,7 +2403,7 @@ export default function ChatPage() {
       },
       {
         command: "/mission",
-        value: "mission",
+        value: "__loop__mission",
         description: t("chat.commands.mission.description"),
       },
       {
@@ -2303,17 +2411,39 @@ export default function ChatPage() {
         value: "skills",
         description: t("chat.commands.skills.description"),
       },
+      {
+        command: "/goal",
+        value: "__loop__goal",
+        description: t("chat.commands.goal.description"),
+      },
     ];
     const reservedCommands = new Set(
       commandSuggestions.map((item) => item.value.trim()),
+    );
+    const loopSkillNames = new Set(
+      useLoopStore.getState().availableSkills.map((s) => s.name),
     );
     const skillSuggestions: CommandSuggestion[] = consoleSkills
       .filter((skill) => !reservedCommands.has(skill.name))
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((skill) => ({
         command: `/${skill.name}`,
-        value: skill.name,
+        value: loopSkillNames.has(skill.name)
+          ? `__loop__${skill.name}`
+          : skill.name,
         description: "",
+      }));
+    const loopOnlySuggestions: CommandSuggestion[] = useLoopStore
+      .getState()
+      .availableSkills.filter(
+        (s) =>
+          !reservedCommands.has(s.name) &&
+          !consoleSkills.some((cs) => cs.name === s.name),
+      )
+      .map((s) => ({
+        command: `/${s.name}`,
+        value: `__loop__${s.name}`,
+        description: s.description,
       }));
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
@@ -2337,8 +2467,10 @@ export default function ChatPage() {
           message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
           return false;
         }
+        const loopSkill = useLoopStore.getState().selectedSkill;
+        const queueText = loopSkill ? `/${loopSkill.name} ${val}` : val;
         useMessageQueueStore.getState().enqueue(queueSessionId, {
-          text: val,
+          text: queueText,
           attachments:
             pendingFileListRef.current.length > 0
               ? pendingFileListRef.current.map((f) => ({
@@ -2351,6 +2483,9 @@ export default function ChatPage() {
           userId: window.currentUserId || DEFAULT_USER_ID,
           channel: window.currentChannel || DEFAULT_CHANNEL,
         });
+        if (loopSkill) {
+          useLoopStore.getState().setSelectedSkill(null);
+        }
         pendingFileListRef.current = [];
         if (textarea) setTextareaValue(textarea, "");
         // Clear sender attachment preview (deferred to next tick)
@@ -2363,6 +2498,23 @@ export default function ChatPage() {
       draftSuppressed = true;
       // Clear pending attachments when sending directly (not through queue)
       pendingFileListRef.current = [];
+
+      // Inject loop command prefix when a chip is active
+      const loopState = useLoopStore.getState();
+      if (loopState.selectedSkill) {
+        const textarea = document
+          .querySelector('[class*="sender"]')
+          ?.querySelector("textarea") as HTMLTextAreaElement | null;
+        if (textarea) {
+          const prefix = `/${loopState.selectedSkill.name} `;
+          const current = textarea.value;
+          if (!current.startsWith(prefix)) {
+            setTextareaValue(textarea, `${prefix}${current}`);
+          }
+        }
+        loopState.setSelectedSkill(null);
+      }
+
       return true;
     };
 
@@ -2524,12 +2676,14 @@ export default function ChatPage() {
       );
     }
 
-    const baseSuggestions = [...commandSuggestions, ...skillSuggestions].map(
-      (item) => ({
-        label: renderSuggestionLabel(item.command, item.description),
-        value: item.value,
-      }),
-    );
+    const baseSuggestions = [
+      ...commandSuggestions,
+      ...loopOnlySuggestions,
+      ...skillSuggestions,
+    ].map((item) => ({
+      label: renderSuggestionLabel(item.command, item.description),
+      value: item.value,
+    }));
     const userMessageAnchorsConfig = {
       ...defaultConfig.theme.bubbleList.userMessageAnchors,
       variant: "navigator" as const,
@@ -2627,23 +2781,37 @@ export default function ChatPage() {
             ) : null}
           </>
         ) : undefined,
-        prefix:
-          whisperEnabled || pluginSenderPrefix.length > 0 ? (
-            <>
-              {whisperEnabled ? (
-                <WhisperSpeechButton
-                  ref={whisperSpeechRef}
-                  onTranscription={handleWhisperTranscription}
+        prefix: (
+          <>
+            {whisperEnabled ? (
+              <WhisperSpeechButton
+                ref={whisperSpeechRef}
+                onTranscription={handleWhisperTranscription}
+              />
+            ) : null}
+            <LoopCommandChip />
+            {loopSelectedSkill ? (
+              <Tooltip title={t("loop.gotoSettings", "Agent Loop Settings")}>
+                <SettingOutlined
+                  style={{
+                    fontSize: 14,
+                    cursor: "pointer",
+                    color: "var(--text-secondary, rgba(0,0,0,0.45))",
+                    padding: "4px 6px",
+                  }}
+                  onClick={() => navigate("/agent-config?tab=agentLoop")}
                 />
-              ) : null}
-              {pluginSenderPrefix}
-            </>
-          ) : undefined,
+              </Tooltip>
+            ) : null}
+            {pluginSenderPrefix}
+          </>
+        ),
         actionAffix: (
           <ApprovalLevelToggle
-            chatId={chatId}
-            onChange={(level) => {
-              sessionApprovalLevelRef.current = level;
+            sessionId={queueSessionId}
+            runningConfigApprovalLevel={runningConfigApprovalLevel}
+            onChange={(sessionOverride) => {
+              sessionApprovalLevelRef.current = sessionOverride;
             }}
           />
         ),
@@ -2673,6 +2841,15 @@ export default function ChatPage() {
             );
           },
           customRequest: handleFileUpload,
+        },
+        longTextUpload: {
+          ...((i18nConfig as any)?.sender?.longTextUpload ?? {}),
+          customRequest: handleFileUpload,
+          prompt: () =>
+            t(
+              "chat.longTextUploadPrompt",
+              "Please read the uploaded prompt file and answer it.",
+            ),
         },
         placeholder: extPlaceholder ?? t("chat.inputPlaceholder"),
         ...(extDisclaimer !== undefined ? { disclaimer: extDisclaimer } : {}),
@@ -2792,11 +2969,13 @@ export default function ChatPage() {
             render: ({
               data,
             }: {
-              data: { data?: { created_at?: number } };
+              data: { data?: { created_at?: number; completed_at?: number } };
             }) => {
               return (
                 <span style={timestampStyle}>
-                  {formatMessageTime(data?.data?.created_at ?? 0)}
+                  {formatMessageTime(
+                    data?.data?.completed_at ?? data?.data?.created_at ?? 0,
+                  )}
                 </span>
               );
             },
@@ -2848,6 +3027,8 @@ export default function ChatPage() {
     scheduleHistoryClear,
     consoleSkills,
     selectedAgent,
+    runningConfigApprovalLevel,
+    queueSessionId,
     onFileCardClick,
     whisperChecked,
     whisperEnabled,
@@ -2955,7 +3136,10 @@ export default function ChatPage() {
               timeoutSeconds={request.timeoutSeconds}
               sessionId={request.sessionId}
               rootSessionId={request.rootSessionId}
-              onApprove={handleApprove}
+              isGeneralized={request.isGeneralized}
+              exactTarget={request.exactTarget}
+              similarTarget={request.similarTarget}
+              onApprove={(reqId, scope) => handleApprove(reqId, scope)}
               onDeny={handleDeny}
               onCancel={() => {
                 const sessionId =

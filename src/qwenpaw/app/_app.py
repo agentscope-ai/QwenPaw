@@ -38,6 +38,7 @@ from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
+from .routers.loops import router as loops_router
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
 from ..envs import load_envs_into_environ
@@ -49,7 +50,6 @@ from .migration import (
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
 )
-from .channels.registry import register_custom_channel_routes
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -413,11 +413,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         try:
             from ..modes.coding import CodingMode
             from ..modes.mission import MissionMode
+            from ..modes.goal import GoalMode
 
             # pylint: disable-next=protected-access
             workspace_registry._bootstrap_kwargs["builtin_mode_clses"] = [
                 CodingMode,
                 MissionMode,
+                GoalMode,
             ]
             logger.debug("Built-in modes collected")
         except Exception:
@@ -485,12 +487,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
-            # Start all configured agents (truly parallel now)
-            await workspace_registry.start_all_configured_agents()
-
-            provider_manager.start_local_model_resume(local_model_manager)
-
-            # ---- Plugin System ----
+            # ---- Plugin System (phase 1: channel plugins) ----
+            # Load channel-type plugins *before* agents start so that
+            # ChannelManager discovers them via get_channel_registry()
+            # on first creation — no reload needed afterwards.
             logger.debug("Initializing plugin system...")
 
             from ..plugins.loader import PluginLoader
@@ -513,6 +513,20 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
 
+            # Phase 1: load channel plugins before agents start
+            await plugin_loader.load_all_plugins(
+                configs=plugin_configs,
+                types=["channel"],
+            )
+            logger.debug("Phase 1: channel plugins loaded")
+
+            # Start all configured agents (truly parallel now)
+            await workspace_registry.start_all_configured_agents()
+
+            provider_manager.start_local_model_resume(local_model_manager)
+
+            # Phase 2: load remaining plugins (channel plugins already
+            # loaded — load_plugin skips them automatically)
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
             )
@@ -522,6 +536,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 provider_manager=provider_manager,
             )
             plugin_loader.registry.set_runtime_helpers(runtime_helpers)
+            plugin_loader.registry.set_workspace_manager(
+                workspace_registry,
+            )
 
             for (
                 provider_id,
@@ -865,6 +882,9 @@ app.include_router(approval_router, prefix="/api")
 # Coding Mode router: /api/coding-mode
 app.include_router(coding_mode_router, prefix="/api")
 
+# Loops router: /api/loops
+app.include_router(loops_router, prefix="/api")
+
 # Agent-scoped router: /api/agents/{agentId}/chats, etc.
 agent_scoped_router = create_agent_scoped_router()
 app.include_router(agent_scoped_router, prefix="/api")
@@ -873,8 +893,6 @@ app.include_router(agent_scoped_router, prefix="/api")
 # POST /voice/incoming, WS /voice/ws, POST /voice/status-callback
 app.include_router(voice_router, tags=["voice"])
 
-# Custom channel routes (before SPA catch-all to ensure route priority)
-register_custom_channel_routes(app)
 
 # Console static files and SPA fallback
 # Register these AFTER API routes to ensure proper routing priority

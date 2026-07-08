@@ -194,6 +194,7 @@ class FakeAgent(Agent):
                 "read_file",
                 kind="read",
                 status="in_progress",
+                raw_input={"path": "README.md"},
             ),
         )
         await self._conn.session_update(

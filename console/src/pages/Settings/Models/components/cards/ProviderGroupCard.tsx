@@ -140,7 +140,9 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
                 value={apiKeyInput}
                 onChange={(e) => setApiKeyInput(e.target.value)}
                 placeholder={
-                  activeProvider.api_key_prefix
+                  activeProvider.api_key_prefixes?.length
+                    ? `${activeProvider.api_key_prefixes.join(", ")}...`
+                    : activeProvider.api_key_prefix
                     ? `${activeProvider.api_key_prefix}...`
                     : "sk-..."
                 }

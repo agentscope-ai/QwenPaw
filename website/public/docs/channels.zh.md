@@ -1686,99 +1686,36 @@ def build_agent_request_from_native(self, native_payload):
     return request
 ```
 
-### 自定义渠道目录与 CLI
+### 通过插件添加自定义频道
 
-- **目录**：工作目录下的 `custom_channels/`（默认 `~/.qwenpaw/custom_channels/`）用于存放自定义渠道模块。Manager 启动时会扫描该目录下的 `.py` 文件与包（含 `__init__.py` 的子目录），加载其中的 `BaseChannel` 子类，并按类的 `channel` 属性注册。
-- **安装**：`qwenpaw channels install <key>` 会在 `custom_channels/` 下生成名为 `<key>.py` 的模板文件，可直接编辑实现；也可用 `--path <本地路径>` 或 `--url <URL>` 从本地/网络复制渠道模块。`qwenpaw channels add <key>` 等价于安装后并写入 config 默认项，且可加 `--path`/`--url`。
-- **删除**：`qwenpaw channels remove <key>` 会从 `custom_channels/` 中删除该渠道模块（仅支持自定义渠道，内置渠道不可删）；加 `--no-keep-config`（默认）会同时从 `config.json` 的 `channels` 中移除对应 key。
-- **Config**：`ChannelConfig` 使用 `extra="allow"`，`config.json` 的 `channels` 下可写任意 key；自定义渠道的配置会保存在 extra 中。配置方式与内置一致：`qwenpaw channels config` 交互式配置，或直接编辑 config。
+自定义频道现在通过**插件系统**注册。完整教程请参阅
+[插件系统 — 示例 8：注册自定义消息频道](./plugins)。
 
-### HTTP 路由注册
+添加自定义频道的步骤：
 
-对于需要 Webhook 回调的渠道（如微信、Slack、LINE 等），可以通过在模块中导出 `register_app_routes` 可调用对象来注册自定义 HTTP 路由，无需修改 QwenPaw 核心源码。
+1. 创建插件，在 `plugin.json` 中设置 `type: "channel"`
+2. 实现一个 `BaseChannel` 子类，设置唯一的 `channel` 类属性
+3. 在插件的 `register()` 方法中调用 `api.register_channel(...)`
+4. 使用 `qwenpaw plugin install <路径>` 安装
 
-QwenPaw 启动时会扫描 `custom_channels/` 下的模块，发现 `register_app_routes` 后将其与 FastAPI `app` 实例一起调用，渠道即可注册所需的任何路由。
+插件频道会在控制台 UI 中与内置频道并列显示，完整支持启用/禁用、配置字段和访问控制。
 
-**路由前缀规则**：
+如果频道需要 Webhook HTTP 端点，请在同一个插件中使用 `api.register_http_router()`
+在 `/api` 下挂载路由。
 
-| 路由前缀 | 行为                     |
-| -------- | ------------------------ |
-| `/api/`  | 静默注册                 |
-| 其他路径 | 启动时打印警告（不阻断） |
-
-**接口说明 — `register_app_routes(app)`**
-
-- **参数**：`app` — FastAPI 应用实例
-- **返回**：None
-- **作用域**：注册路由、中间件、或 startup/shutdown 事件
-- **错误隔离**：单个渠道注册失败不影响其他渠道
-
-**最简示例 — Echo 频道**：
-
-```
-<workspace>/
-└── custom_channels/
-    └── my_echo/
-        └── __init__.py
-```
-
-```python
-# custom_channels/my_echo/__init__.py
-from qwenpaw.app.channels.base import BaseChannel
-
-class MyEchoChannel(BaseChannel):
-    """最简单的回声频道。"""
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    async def _listen(self):
-        pass  # 通过 HTTP 回调接收消息
-
-    async def _send(self, target, content, **kwargs):
-        self.logger.info(f"Would send to {target}: {content}")
-
-
-def register_app_routes(app):
-    """注册该频道的 HTTP 路由。"""
-
-    @app.post("/api/my-echo/callback")
-    async def echo_callback(request):
-        """Webhook 入口。"""
-        body = await request.json()
-
-        from qwenpaw.app.channels.base import TextContent
-        channel = MyEchoChannel()
-        channel.enqueue_user_message(
-            user_id=body.get("user_id", "anonymous"),
-            session_id=body.get("session_id", "default"),
-            content=[TextContent(type="text", text=body.get("text", ""))],
-        )
-
-        return {"status": "ok"}
-```
-
-配置 `agent.json`：
-
-```json
-{
-  "channels": {
-    "my_echo": {
-      "enabled": true
-    }
-  }
-}
-```
-
-启动后测试：
-
-```bash
-curl -X POST http://localhost:8088/api/my-echo/callback \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": "test", "session_id": "test", "text": "Hello!"}'
-```
-
-**实际案例**：微信 ClawBot 集成（[PR #2140](https://github.com/agentscope-ai/QwenPaw/pull/2140)、[Issue #2043](https://github.com/agentscope-ai/QwenPaw/issues/2043)）通过此机制注册 `/api/wechat/callback` 路由，使用腾讯官方 SDK 处理消息投递。
+> **从 `custom_channels/` 迁移**：旧的 `custom_channels/` 目录和
+> `qwenpaw channels install/add/remove` CLI 命令已被移除。如果你有现存的
+> 自定义频道在 `custom_channels/` 下，请按以下步骤迁移到插件系统：
+>
+> 1. 创建插件目录，编写 `plugin.json`（设置 `"type": "channel"`）
+> 2. 将 `BaseChannel` 子类移入插件目录
+> 3. 创建 `plugin.py`，在其中调用 `api.register_channel(...)` 注册频道类
+>    和 `config_fields`
+> 4. 如果频道之前使用了 `register_app_routes(app)`，请替换为
+>    `api.register_http_router(router, prefix="/your-channel")`，使用
+>    FastAPI `APIRouter`
+> 5. 安装插件：`qwenpaw plugin install <路径>`
+> 6. 删除 `custom_channels/` 下的旧模块
 
 ---
 

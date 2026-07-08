@@ -366,6 +366,7 @@ async def _ask_user_approval(
                 "input": dict(input_data or {}),
             },
             "channel_meta": ctx.get("channel_meta"),
+            "_channel_instance": ctx.get("_channel_instance"),
         },
     )
 

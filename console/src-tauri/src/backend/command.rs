@@ -74,6 +74,15 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
              installation will be unavailable"
         );
     }
+    if let Some(node_runtime) = packaged_node_runtime(app) {
+        log::info!("[backend] bundled node runtime: {}", node_runtime.display());
+        command = command.env(
+            "QWENPAW_DESKTOP_NODE_RUNTIME",
+            node_runtime.to_string_lossy().to_string(),
+        );
+    } else {
+        log::warn!("[backend] bundled node runtime not found");
+    }
     Ok(command)
 }
 
@@ -92,6 +101,22 @@ fn packaged_python_runtime(app: &tauri::AppHandle) -> Option<PathBuf> {
         vec![base.join("bin").join("python3"), base.join("bin").join("python")]
     };
     candidates.into_iter().find(|path| path.is_file())
+}
+
+#[cfg(not(debug_assertions))]
+fn packaged_node_runtime(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let root = app
+        .path()
+        .resource_dir()
+        .ok()?
+        .join("binaries")
+        .join("node-runtime");
+    let node = if cfg!(windows) {
+        root.join("node.exe")
+    } else {
+        root.join("bin").join("node")
+    };
+    node.is_file().then_some(root)
 }
 
 #[cfg(not(debug_assertions))]

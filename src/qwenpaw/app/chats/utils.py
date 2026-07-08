@@ -9,6 +9,7 @@ from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
+from qwenpaw.agents.context.scroll.serialize import strip_headline
 from qwenpaw.schemas import (
     Message,
     TextContent,
@@ -391,6 +392,17 @@ def strip_injected_skill_block(text: str, role: str) -> str:
     return _INJECTED_SKILL_BLOCK_RE.sub("", text)
 
 
+def clean_display_text(text: str, role: str) -> str:
+    """Hide model-facing artifacts from the transcript: the ``⟦ … ⟧``
+    headline fence and the injected ``<skill>`` block. The SSE stream already
+    strips the headline; the HTTP history path didn't, so it reappeared on
+    reload — do both here so every display path matches. Headline first: the
+    ``<skill>`` regex is ``$``-anchored, so a trailing headline would leave it
+    un-anchored.
+    """
+    return strip_injected_skill_block(strip_headline(text) or "", role)
+
+
 # pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
 def agentscope_msg_to_message(
     messages: Union[Msg, List[Msg]],
@@ -448,7 +460,7 @@ def agentscope_msg_to_message(
             text_content = TextContent(
                 delta=False,
                 index=None,
-                text=strip_injected_skill_block(msg.content, role),
+                text=clean_display_text(msg.content, role),
             )
             message.add_content(new_content=text_content)
             results.append(message)
@@ -497,7 +509,7 @@ def agentscope_msg_to_message(
                 text_content = TextContent(
                     delta=False,
                     index=None,
-                    text=strip_injected_skill_block(
+                    text=clean_display_text(
                         block.get("text", ""),
                         role,
                     ),

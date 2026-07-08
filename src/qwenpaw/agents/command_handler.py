@@ -306,6 +306,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         # (``state.summary`` stays empty); native fills ``state.summary``.
         # Capture whichever applies.
         index_text = ""
+        compress_stats: dict = {}
         try:
             # Agent-backed mode: ``QwenPawAgent.compress_context`` already
             # routes to scroll or native by itself. Standalone mode builds a
@@ -323,11 +324,16 @@ class CommandHandler(ConversationCommandHandlerMixin):
                     await scroll_mgr.compress(agent, forced_cfg)
                     self._updated_scroll_state = scroll_mgr.to_dict()
                     index_text = scroll_mgr.describe_index()
+                    compress_stats = dict(scroll_mgr.last_compress)
                 finally:
                     scroll_mgr.close()
             else:
                 await agent.compress_context(forced_cfg)
                 index_text = self._scroll_index_text(agent)
+                cm = getattr(agent, "_context_manager", None)
+                compress_stats = dict(
+                    getattr(cm, "last_compress", None) or {},
+                )
         except Exception as e:
             logger.exception("compress_context failed: %s", e)
             return await self._make_system_msg(
@@ -342,7 +348,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
             self.memory_manager.add_summarize_task(messages=messages)
 
         summary = self._get_summary()
-        if evicted == 0 and not summary and not index_text:
+        folded = int(compress_stats.get("folded", 0) or 0)
+        if evicted == 0 and folded == 0 and not summary and not index_text:
             return await self._make_system_msg(
                 "ℹ️ **Nothing to compact.**\n\n"
                 f"- Context is already minimal ({before} message(s))\n"
@@ -352,9 +359,18 @@ class CommandHandler(ConversationCommandHandlerMixin):
             detail = f"**Eviction Index:**\n{index_text}\n"
         else:
             detail = f"**Compressed Summary:**\n{summary}\n"
+        # The fold rewrites tool results in place (message count unchanged),
+        # so it must be reported explicitly — a fold-only run used to claim
+        # "Nothing to compact" while live outputs were replaced with stubs.
+        folded_line = (
+            f"- Tool results folded to recall stubs: {folded}\n"
+            if folded
+            else ""
+        )
         return await self._make_system_msg(
             f"✅ **Compact Complete!**\n\n"
             f"- Messages compacted: {evicted}\n"
+            f"{folded_line}"
             f"{detail}",
         )
 
@@ -444,7 +460,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 history=history,
                 session_id=session_id,
                 agent_id=self._agent_id,
-                pinned=sc.pinned,
                 # Already gated: the adapter only supplies an offloader when
                 # ``offload_dialog`` is on, so this archives iff configured.
                 offloader=self._offloader,

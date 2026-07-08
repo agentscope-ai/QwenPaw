@@ -7,6 +7,7 @@ from typing import Any
 
 from agentscope.message import Msg
 
+from ....constant import QWENPAW_MESSAGE_TAG_KEY
 from ..types import LogEntry
 
 # The model echoes a milestone as a fenced single line: ``⟦ text ⟧`` (rare
@@ -176,6 +177,14 @@ def msg_to_entries(msg: Msg) -> list[LogEntry]:
         if media:
             joined = "\n".join(media)
             text = f"{text}\n{joined}".strip() if text else joined
+        # Persist the runtime tag (loop_continuation / auto_continue / …) so
+        # durable rows keep the "this user msg is a synthetic stub, not a
+        # request" signal — the recall layer's active-turn floor anchors on
+        # real requests only and needs it in SQL.
+        tag = None
+        msg_meta = getattr(msg, "metadata", None)
+        if isinstance(msg_meta, dict):
+            tag = msg_meta.get(QWENPAW_MESSAGE_TAG_KEY)
         entries.append(
             LogEntry(
                 kind="model_turn"
@@ -188,6 +197,7 @@ def msg_to_entries(msg: Msg) -> list[LogEntry]:
                 tool_input=tool_input,
                 headline=headline,
                 blocks=dumped or None,
+                metadata=({QWENPAW_MESSAGE_TAG_KEY: str(tag)} if tag else {}),
                 created_at=created_at,
             ),
         )

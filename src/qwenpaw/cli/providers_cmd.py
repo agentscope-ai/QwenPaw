@@ -211,9 +211,14 @@ def configure_provider_api_key_interactive(
         )
         return provider_id
 
-    hint = (
-        f"prefix: {defn.api_key_prefix}" if defn.api_key_prefix else "optional"
+    prefixes = (
+        defn.api_key_prefixes
+        if defn.api_key_prefixes
+        else [defn.api_key_prefix]
+        if defn.api_key_prefix
+        else []
     )
+    hint = f"prefix: {', '.join(prefixes)}" if prefixes else "optional"
     api_key = click.prompt(
         f"API key ({hint})",
         default=current_key or "",
@@ -513,9 +518,16 @@ def list_cmd() -> None:
                 f"  {'api_key':16s}: "
                 f"{_mask_api_key(cur_key) or '(not set)'}",
             )
-            if defn.api_key_prefix:
+            prefixes = (
+                defn.api_key_prefixes
+                if defn.api_key_prefixes
+                else [defn.api_key_prefix]
+                if defn.api_key_prefix
+                else []
+            )
+            if prefixes:
                 click.echo(
-                    f"  {'api_key_prefix':16s}: {defn.api_key_prefix}",
+                    f"  {'api_key_prefix':16s}: {', '.join(prefixes)}",
                 )
 
             extra = list(defn.extra_models)

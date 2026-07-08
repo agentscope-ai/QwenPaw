@@ -290,20 +290,20 @@ docker run -p 127.0.0.1:8088:8088 \
 
 #### 下载
 
-从 [官方下载页](https://qwenpaw.agentscope.io/downloads) 下载桌面应用：
-- **Windows**：`QwenPaw-Setup-<version>.exe`
-- **macOS**：`QwenPaw-<version>-macOS.zip`（推荐 Apple Silicon）
+从 [官方下载页](https://qwenpaw.agentscope.io/downloads) 下载桌面应用（Tauri 版）：
+- **Windows**：`QwenPaw-Tauri-<version>-Windows-setup.exe`
+- **macOS**：`QwenPaw-Tauri-<version>-macOS.zip`（推荐 Apple Silicon）
 
 #### 特点
 
 - ✅ **零配置**：下载后双击即可运行，无需安装 Python 或配置环境变量
 - ✅ **跨平台**：支持 Windows 10+ 和 macOS 14+
-- ✅ **可视化**：自动打开浏览器界面，无需手动输入地址
+- ✅ **可视化**：自动打开应用界面，无需手动输入地址
 - ⚠️ **Beta 阶段**：功能持续完善中，欢迎反馈问题
 
 #### 首次启动
 
-**重要提示**：首次启动可能需要 10-60 秒（取决于您的系统配置）。应用需要初始化 Python 环境和加载依赖，请耐心等待浏览器窗口自动打开。
+**重要提示**：首次启动可能需要 10-60 秒（取决于您的系统配置）。应用需要初始化 Python 环境和加载依赖，请耐心等待窗口自动打开。
 
 #### macOS：绕过系统安全限制
 
@@ -317,7 +317,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 - **移除隔离属性（不推荐大多数用户）**
   在终端运行：
-  `xattr -cr /Applications/QwenPaw.app`
+  `xattr -cr "/Applications/QwenPaw Desktop.app"`
   （或使用解压后的 `.app` 路径）。这会清除「从互联网下载」的隔离标志，使警告通常不会出现，但不如使用 **右键 → 打开** 安全和可控。
 
 详细使用说明、故障排除和常见问题，请参见 [桌面应用指南](https://qwenpaw.agentscope.io/docs/desktop)。
@@ -384,7 +384,7 @@ QwenPaw 还提供 **QwenPaw-Flash** 系列 — 面向 Agent 场景专项训练�
 
 QwenPaw 内置四层核心安全防护：
 
-- **Sandbox** — 内核级执行隔离，macOS 使用 Seatbelt，Linux 使用 Bubblewrap / Landlock。Shell 命令在受限文件系统视图中运行。
+- **Sandbox** — 内核级执行隔离，macOS 使用 Seatbelt，Linux 使用 Bubblewrap / Landlock，Windows 使用 AppContainer。Shell 命令在受限文件系统视图中运行。
 - **Tool Guard** — 带 `ShellEvasionGuardian` 的 YAML 规则引擎，在每次工具调用执行前进行检查，检测命令注入、路径遍历、反向 Shell 与混淆攻击。可配置审批级别：STRICT / SMART / AUTO / OFF。
 - **File Guard** — 独立于 Tool Guard；阻止智能体访问敏感文件与目录（默认保护 `~/.qwenpaw.secret/`、`~/.ssh` 等）。
 - **Skill Scanner** — 激活前扫描，支持 block / warn / off 模式与白名单。检测提示词注入、硬编码密钥、数据外泄等风险。

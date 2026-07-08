@@ -180,4 +180,8 @@ def msg_from_dict(data: Mapping[str, Any]) -> Any:
     if "name" not in payload:
         payload["name"] = payload.get("role") or "assistant"
 
+    # ``metadata`` must be a dict; legacy sessions may store ``None``.
+    if payload.get("metadata") is None:
+        payload["metadata"] = {}
+
     return Msg.model_validate(payload)

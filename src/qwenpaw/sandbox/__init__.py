@@ -2,11 +2,11 @@
 """Sandbox — lightweight local execution isolation.
 
 Supported modes:
-  - SEATBELT:    macOS sandbox-exec kernel isolation
-  - BUBBLEWRAP:  Linux bubblewrap mount-namespace isolation (preferred)
-  - LANDLOCK:    Linux Landlock LSM kernel isolation (5.13+, fallback)
-  - WSL2:        Windows WSL2 delegated execution + Landlock isolation
-  - NONE:        no isolation, direct execution
+  - SEATBELT:      macOS sandbox-exec kernel isolation
+  - BUBBLEWRAP:    Linux bubblewrap mount-namespace isolation (preferred)
+  - LANDLOCK:      Linux Landlock LSM kernel isolation (5.13+, fallback)
+  - APPCONTAINER:  Windows AppContainer native isolation (Windows 10+)
+  - NONE:          no isolation, direct execution
 
 Lifecycle: per-tool-call (created and destroyed for each invocation).
 
@@ -25,6 +25,7 @@ Usage:
         print(result.stdout)
 """
 
+from .bubblewrap_sandbox import BubblewrapSandbox
 from .config import (
     ExecutionResult,
     MountSpec,
@@ -36,7 +37,6 @@ from .config import (
     detect_platform_mode,
     probe_sandbox_support,
 )
-from .bubblewrap_sandbox import BubblewrapSandbox
 from .local_sandbox import (
     LocalSandbox,
     NoneSandbox,

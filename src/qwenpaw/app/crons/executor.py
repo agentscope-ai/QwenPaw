@@ -13,6 +13,7 @@ from ..inbox_trace_store import (
     read_session_messages,
 )
 from .models import CronJobSpec
+from ...security.tool_guard.execution_level import ToolExecutionLevel
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,11 @@ class CronExecutor:
         )
         request_context["source"] = "cron"
         request_context["cron_job_id"] = job.id or ""
+        request_context["approval_level"] = (
+            ToolExecutionLevel.AUTO.value
+            if job.runtime.tool_safety
+            else ToolExecutionLevel.OFF.value
+        )
         req["request_context"] = request_context
 
         # Determine session_id based on share_session

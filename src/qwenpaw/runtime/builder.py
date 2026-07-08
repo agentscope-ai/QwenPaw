@@ -46,6 +46,7 @@ class AgentBuilder:
         memory_tools: Iterable[Any] | None = None,
         governor: Any = None,
         ctx: Any = None,
+        workspace_dir: str | None = None,
     ) -> Any:
         """Build a populated ``Toolkit`` for one agent invocation.
 
@@ -53,6 +54,7 @@ class AgentBuilder:
         :class:`QwenPawLocalWorkspace` via ``list_tools()``.
         ``extra_tools`` and ``memory_tools`` are appended after the
         workspace tools.
+
         """
         from agentscope.tool import Toolkit
 
@@ -84,7 +86,39 @@ class AgentBuilder:
                     ),
                 )
 
-        return Toolkit(tools=tools)
+        skill_dirs = self._resolve_skill_loader_dirs(
+            effective_skills,
+            workspace_dir,
+        )
+
+        return Toolkit(tools=tools, skills_or_loaders=skill_dirs)
+
+    @staticmethod
+    def _resolve_skill_loader_dirs(
+        effective_skills: Iterable[str] | None,
+        workspace_dir: str | None,
+    ) -> list[str]:
+        """Map effective skill names to their SKILL.md-bearing directories."""
+        names = list(effective_skills or ())
+        if not names:
+            return []
+
+        from ..agents.skill_system import get_workspace_skills_dir
+        from ..constant import WORKING_DIR
+
+        base = get_workspace_skills_dir(Path(workspace_dir or WORKING_DIR))
+        dirs: list[str] = []
+        for name in names:
+            skill_dir = base / name
+            if (skill_dir / "SKILL.md").exists():
+                dirs.append(str(skill_dir))
+            else:
+                _logger.debug(
+                    "skill '%s' has no SKILL.md at %s; not injected",
+                    name,
+                    skill_dir,
+                )
+        return dirs
 
     # ----------------------------------------------------------------- build
 
@@ -150,7 +184,13 @@ class AgentBuilder:
                 active_modes = plugins.active_mode_names(ctx)
 
         # Governor (governance policy layer).
-        governor = self._init_governor(workspace_dir)
+        _cm = getattr(agent_config, "coding_mode", None)
+        _project_dir = (
+            _cm.project_dir
+            if _cm and getattr(_cm, "project_dir", None)
+            else None
+        )
+        governor = self._init_governor(workspace_dir, _project_dir)
 
         # Inject governor into local_workspace so list_tools() can
         # wrap tools with PolicyGuardedTool.
@@ -193,32 +233,30 @@ class AgentBuilder:
             model,
             offloader=offloader,
         )
-        # Eviction and recall must live or die together. Scroll's only recall
-        # path is the sandboxed recall_history_python tool, which fails closed
-        # without a sandbox_config — that config is injected solely by the
-        # governor (PolicyGuardedTool). If the governor never came up and the
-        # operator
-        # hasn't opted into unsandboxed recall, wiring scroll would evict
-        # history into an index nothing can read back. Degrade to native so the
-        # full history stays in-context instead.
+        # Eviction and recall must live or die together. The structured
+        # recall_history tool reads history in-process (no sandbox needed),
+        # but it is still guard-wrapped — with no governor the guard layer
+        # itself is degraded. Keep the conservative gate: if the governor
+        # never came up and the operator hasn't opted into unsandboxed
+        # recall, degrade to native so the full history stays in-context.
         if scroll is not None and not self._scroll_recall_runnable(
             agent_config,
             governor,
         ):
             _logger.warning(
-                "scroll: recall tool cannot run (governor unavailable and "
+                "scroll: recall tools cannot run (governor unavailable and "
                 "allow_unsandboxed is off) — falling back to native context "
                 "management so evicted history stays accessible",
             )
             scroll = None
         if scroll is not None:
-            extra_tools.append(
-                self._wrap_tool(
-                    scroll.repl_tool,
-                    agent_id,
-                    request_context,
-                    governor,
-                ),
+            self._append_scroll_recall_tools(
+                extra_tools,
+                scroll,
+                agent_config,
+                agent_id,
+                request_context,
+                governor,
             )
 
         toolkit = await self.build_toolkit(
@@ -230,6 +268,7 @@ class AgentBuilder:
             extra_tools=extra_tools,
             governor=governor,
             ctx=ctx,
+            workspace_dir=workspace_dir,
         )
 
         # System prompt.
@@ -241,12 +280,18 @@ class AgentBuilder:
 
         running_config = agent_config.running
 
+        from ..loop.react_gates import (
+            resolve_max_iterations,
+        )
+
+        effective_max = resolve_max_iterations(running_config)
+
         agent = QwenPawAgent(
             name=agent_config.name or "QwenPaw",
             model=model,
             system_prompt=sys_prompt,
             toolkit=toolkit,
-            react_config=ReActConfig(max_iters=running_config.max_iters),
+            react_config=ReActConfig(max_iters=effective_max),
             middlewares=middlewares,
             agent_config=agent_config,
             workspace_dir=workspace_dir,
@@ -260,6 +305,14 @@ class AgentBuilder:
             effective_skills=effective_skills,
             governor=governor,
         )
+
+        # Register default ReAct gates (StopHandler).
+        if workspace is not None:
+            from ..loop.react_gates import (
+                register_react_gates,
+            )
+
+            register_react_gates(workspace, running_config)
 
         # Load session state if SessionLoadHook populated it.
         if ctx.session_state:
@@ -339,10 +392,11 @@ class AgentBuilder:
                 innermost.formatter = formatter
         return model, formatter
 
-    # ------------------------------------------------------- helpers
-
     @staticmethod
-    def _init_governor(workspace_dir: Any) -> Any:
+    def _init_governor(
+        workspace_dir: Any,
+        coding_project_dir: Any = None,
+    ) -> Any:
         """Initialize ResourceGovernor if governance is available.
 
         Returns the started governor, or ``None`` when governance cannot
@@ -353,7 +407,12 @@ class AgentBuilder:
         try:
             from ..governance import ResourceGovernor
 
-            governor = ResourceGovernor(str(workspace_dir))
+            governor = ResourceGovernor(
+                str(workspace_dir),
+                coding_project_dir=(
+                    str(coding_project_dir) if coding_project_dir else None
+                ),
+            )
             governor.start()
             _logger.info("Governance started: dir=%s", workspace_dir)
             return governor
@@ -407,6 +466,11 @@ class AgentBuilder:
             if user_name:
                 rc["user_name"] = user_name
             rc["channel_meta"] = _channel_meta
+        rc["_channel_instance"] = getattr(
+            request,
+            "channel_instance",
+            None,
+        )
         _payload_ctx = (
             getattr(request, "request_context", None) if request else None
         )
@@ -602,19 +666,23 @@ class AgentBuilder:
 
     @staticmethod
     def _scroll_recall_runnable(agent_config: Any, governor: Any) -> bool:
-        """Whether scroll's recall tool can actually execute in this build.
+        """Whether scroll's recall tools can actually execute in this build.
 
-        Scroll's recall is the sandboxed ``recall_history_python`` tool, which
-        fails closed unless a ``sandbox_config`` is supplied. That config is
+        Two recall paths exist: the structured ``recall_history`` tool
+        (in-process bound queries — needs no sandbox, only a working guard
+        layer) and the sandboxed ``recall_history_python`` REPL, which fails
+        closed unless a ``sandbox_config`` is supplied. That config is
         injected only by the governor (via ``PolicyGuardedTool``); the
-        ``GuardedFunctionTool`` fallback used when the governor is absent never
-        supplies one. So recall is runnable iff the governor is present, or the
-        deployment has opted into unsandboxed recall — which requires BOTH the
-        ``QWENPAW_ALLOW_UNSANDBOXED_RECALL`` env var and
-        ``scroll_config.allow_unsandboxed`` (see ``scroll_unsandboxed_allowed``
-        — agent.json alone can never bypass the sandbox). When neither holds,
-        wiring scroll would evict history that nothing can read back, so the
-        caller degrades to native context management.
+        ``GuardedFunctionTool`` fallback used when the governor is absent
+        never supplies one. A missing governor means the guard layer itself is
+        degraded, so we stay conservative: recall is runnable iff the governor
+        is present, or the deployment has opted into unsandboxed recall —
+        which requires BOTH the ``QWENPAW_ALLOW_UNSANDBOXED_RECALL`` env var
+        and ``scroll_config.allow_unsandboxed`` (see
+        ``scroll_unsandboxed_allowed`` — agent.json alone can never bypass the
+        sandbox). When neither holds, wiring scroll would evict history that
+        nothing can read back, so the caller degrades to native context
+        management.
         """
         if governor is not None:
             return True
@@ -625,6 +693,88 @@ class AgentBuilder:
             return scroll_unsandboxed_allowed(sc)
         except Exception:
             return False
+
+    @staticmethod
+    def _scroll_repl_runnable(agent_config: Any, governor: Any) -> bool:
+        """Whether the sandboxed ``recall_history_python`` REPL should be
+        offered to the model in this build.
+
+        The REPL runs model-authored Python and so needs a sandbox. It is
+        worth registering only when one is actually available — meaning the
+        governor is present AND its platform probe found a sandbox — or when
+        the operator explicitly opted into unsandboxed recall (both the
+        ``QWENPAW_ALLOW_UNSANDBOXED_RECALL`` env var and
+        ``scroll_config.allow_unsandboxed``, via
+        ``scroll_unsandboxed_allowed``).
+
+        When neither holds (e.g. Windows without WSL2), every call would fail
+        closed, and the guard layer misreads that ``DENIED`` as a sandbox
+        violation and escalates to a recurring approval prompt. So we omit the
+        REPL and let the model recall through the structured ``recall_history``
+        tool, which needs no sandbox. This is narrower than
+        :meth:`_scroll_recall_runnable`, which gates whether scroll is wired at
+        all; here scroll is already wired and structured recall is present.
+        """
+        if governor is not None and getattr(
+            governor,
+            "sandbox_available",
+            False,
+        ):
+            return True
+        try:
+            from ..agents.context import scroll_unsandboxed_allowed
+
+            sc = agent_config.running.light_context_config.scroll_config
+            return scroll_unsandboxed_allowed(sc)
+        except Exception:
+            return False
+
+    def _append_scroll_recall_tools(
+        self,
+        extra_tools: list,
+        scroll: Any,
+        agent_config: Any,
+        agent_id: str,
+        request_context: dict[str, Any],
+        governor: Any,
+    ) -> None:
+        """Register scroll's recall tools onto ``extra_tools``.
+
+        The structured ``recall_history`` tool is ALWAYS registered: its
+        expand/search/recall_tool ops are bound read-only queries (internal
+        governance type) — no sandbox, no approval, working on every platform.
+
+        The sandboxed ``recall_history_python`` REPL is registered ONLY when
+        it can actually run in a sandbox (or unsandboxed recall is explicitly
+        opted in). Where no sandbox exists — e.g. Windows without WSL2, or an
+        OFF-mode path that skips sandbox compilation — every call would fail
+        closed, and the guard layer misreads that ``DENIED`` as a sandbox
+        violation and turns it into a recurring approval prompt. Omitting it
+        removes that dead-end: the model recalls through the structured tool.
+        """
+        extra_tools.append(
+            self._wrap_tool(
+                scroll.recall_tool,
+                agent_id,
+                request_context,
+                governor,
+            ),
+        )
+        if self._scroll_repl_runnable(agent_config, governor):
+            extra_tools.append(
+                self._wrap_tool(
+                    scroll.repl_tool,
+                    agent_id,
+                    request_context,
+                    governor,
+                ),
+            )
+        else:
+            _logger.info(
+                "scroll: no sandbox available for recall_history_python — "
+                "registering only the structured recall_history tool "
+                "(no approval prompt, works without a sandbox)",
+            )
 
     @staticmethod
     def _wrap_tool(
@@ -676,7 +826,7 @@ class AgentBuilder:
         )
 
     @staticmethod
-    def _build_middlewares(
+    def _build_middlewares(  # pylint: disable=too-many-statements
         ctx: Any,
         agent_config: Any,
     ) -> list[Any]:

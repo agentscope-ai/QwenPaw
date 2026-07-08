@@ -12,6 +12,7 @@ QwenPaw 提供了插件系统，允许用户扩展 QwenPaw 的功能。
 - **Command 插件**：注册自定义的 `/command` 魔法命令
 - **HTTP API 插件**：通过 FastAPI `APIRouter` 在 `/api` 下暴露自定义 REST 接口
 - **前端扩展插件**：在浏览器中运行的 JS 插件，共享宿主的 React / Ant Design 运行时，通过声明式 `window.QwenPaw.*` API 扩展界面——注册侧边栏菜单、页面路由、UI 插槽、聊天定制等，无需修改宿主代码
+- **Channel 插件**：注册自定义消息频道（如 Slack、LINE）
 
 ## 插件管理
 
@@ -133,6 +134,7 @@ my-plugin/
 | `provider` | 注册自定义 LLM 提供商 / 模型端点。                   |
 | `hook`     | 在应用启动 / 关闭时执行代码（app 生命周期级别）。    |
 | `command`  | 注册 `/slash` 控制命令。                             |
+| `channel`  | 注册自定义消息频道。                                 |
 | `frontend` | 提供前端 JS bundle，由 UI 动态加载。                 |
 | `general`  | 兜底类型，用于组合型插件或不属于以上任何类别的插件。 |
 
@@ -1405,6 +1407,245 @@ plugin = ThinkingLogPlugin()
 - 完整源码参见 `plugins/middleware-demo/thinking-log-middleware/thinking_log_plugin.py`
 
 ---
+
+### 示例 10：注册自定义消息频道
+
+Channel 插件可以为 QwenPaw 添加新的消息平台。注册后的频道会在控制台 UI 中与内置
+频道（钉钉、Telegram 等）一起显示，支持同样的启用/禁用和配置方式。
+
+#### 1. 创建插件目录
+
+```bash
+mkdir sample-channel-plugin && cd sample-channel-plugin
+```
+
+#### 2. 创建 plugin.json
+
+```json
+{
+  "id": "sample-channel",
+  "name": "Sample Channel",
+  "version": "1.0.0",
+  "type": "channel",
+  "description": "Sample messaging channel integration for QwenPaw",
+  "author": "Your Name",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": ["sample-sdk>=1.0.0"],
+  "qwenpaw_version": {
+    "min": "1.1.5",
+    "max": "2.1.0"
+  }
+}
+```
+
+#### 3. 创建 channel.py — BaseChannel 子类
+
+Channel 类必须实现 `BaseChannel` 的契约，核心方法包括：
+
+- **`from_config(cls, process, config, ...)`** — 类方法，从保存的配置创建实例。
+  `ChannelManager` 启动时通过它实例化你的频道。
+- **`start()` / `stop()`** — 生命周期钩子，频道启用/禁用时调用。
+- **`send(to_handle, text, meta)`** — 向用户/会话发送消息。
+
+```python
+# -*- coding: utf-8 -*-
+"""Sample 频道实现。"""
+
+import logging
+from pathlib import Path
+from typing import Optional
+
+from qwenpaw.app.channels.base import (
+    BaseChannel,
+    OnReplySent,
+    ProcessHandler,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class SampleChannel(BaseChannel):
+    """Sample 消息频道。"""
+
+    channel = "sample"  # 唯一 key，必须与 config key 一致
+
+    def __init__(
+        self,
+        process: ProcessHandler,
+        enabled: bool = True,
+        bot_token: str = "",
+        signing_secret: str = "",
+        bot_prefix: str = "",
+        on_reply_sent: OnReplySent = None,
+        show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
+        **kwargs,
+    ):
+        super().__init__(
+            process,
+            on_reply_sent=on_reply_sent,
+            show_tool_details=show_tool_details,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
+        )
+        self.enabled = enabled
+        self.bot_prefix = bot_prefix
+        self.bot_token = bot_token
+        self.signing_secret = signing_secret
+
+    @classmethod
+    def from_config(
+        cls,
+        process: ProcessHandler,
+        config,
+        on_reply_sent: OnReplySent = None,
+        show_tool_details: bool = True,
+        filter_tool_messages: bool = False,
+        filter_thinking: bool = False,
+        workspace_dir: Optional[Path] = None,
+    ) -> "SampleChannel":
+        """从配置创建实例。
+
+        注意：插件频道的 ``config`` 是 ``types.SimpleNamespace`` 对象
+        （不是 dict），请使用 ``getattr(config, "field", default)``
+        安全读取字段。
+        """
+        return cls(
+            process=process,
+            enabled=getattr(config, "enabled", False),
+            bot_token=getattr(config, "bot_token", ""),
+            signing_secret=getattr(config, "signing_secret", ""),
+            bot_prefix=getattr(config, "bot_prefix", ""),
+            on_reply_sent=on_reply_sent,
+            show_tool_details=show_tool_details,
+            filter_tool_messages=filter_tool_messages,
+            filter_thinking=filter_thinking,
+        )
+
+    async def start(self):
+        """启动 Sample 事件监听。"""
+        logger.info("Sample channel starting (token=%s...)", self.bot_token[:8])
+        # 在此启动你的平台 API 客户端
+
+    async def stop(self):
+        """停止 Sample 事件监听。"""
+        logger.info("Sample channel stopping")
+
+    async def send(self, to_handle: str, text: str, meta=None):
+        """向 Sample 用户或频道发送消息。"""
+        logger.info("Sending to sample %s: %s", to_handle, text[:50])
+        # 使用 sample-sdk 发送消息
+```
+
+> **重要：`config` 参数类型** — 插件频道的 `from_config()` 收到的 `config`
+> 是 `types.SimpleNamespace` 对象（不是 dict 或 Pydantic model）。框架会将
+> `BaseChannelConfig` 的默认值与用户保存的配置合并后传入。请始终使用
+> `getattr(config, "field", default)` 安全读取字段。
+
+#### 4. 创建 plugin.py — 插件入口
+
+```python
+# -*- coding: utf-8 -*-
+"""Sample Channel 插件入口。"""
+
+import logging
+from qwenpaw.plugins.api import PluginApi
+
+logger = logging.getLogger(__name__)
+
+
+class SampleChannelPlugin:
+    """Sample Channel 插件。"""
+
+    def register(self, api: PluginApi):
+        """注册 Sample 频道。"""
+        from .channel import SampleChannel
+
+        api.register_channel(
+            channel_class=SampleChannel,
+            label="Sample",
+            description="Sample messaging channel integration",
+            config_fields=[
+                {
+                    "name": "bot_token",
+                    "label": "Bot Token",
+                    "type": "password",
+                    "required": True,
+                    "placeholder": "your-bot-token-here",
+                    "help": "Bot access token",
+                },
+                {
+                    "name": "signing_secret",
+                    "label": "Signing Secret",
+                    "type": "password",
+                    "required": True,
+                    "help": "Signing secret for request verification",
+                },
+                {
+                    "name": "default_channel",
+                    "label": "Default Channel",
+                    "type": "text",
+                    "required": False,
+                    "placeholder": "#general",
+                },
+            ],
+        )
+        logger.info("✓ Sample channel registered")
+
+
+plugin = SampleChannelPlugin()
+```
+
+#### 5. 安装和使用
+
+```bash
+qwenpaw plugin install sample-channel-plugin
+qwenpaw app
+```
+
+启动后，在控制台的 **Control → Channels** 中可以看到 Sample 频道卡片，点击即可
+填写凭证并启用。
+
+#### 6. 添加 Webhook 端点（可选）
+
+如果你的频道需要接收 HTTP 回调（如你的平台事件 API），可以在同一个插件中
+注册 FastAPI 路由：
+
+```python
+from fastapi import APIRouter
+
+def register(self, api: PluginApi):
+    from .channel import SampleChannel
+
+    api.register_channel(channel_class=SampleChannel, ...)
+
+    # 在 /api/sample/events 挂载 webhook 端点
+    router = APIRouter()
+
+    @router.post("/events")
+    async def sample_events(request):
+        body = await request.json()
+        # 处理事件验证和消息
+        return {"ok": True}
+
+    api.register_http_router(router, prefix="/sample", tags=["sample"])
+```
+
+**要点：**
+
+- `channel_class` 必须是 `BaseChannel` 的子类，且需要有 `channel` 类属性（唯一
+  key）。
+- **必须实现 `from_config`** — `ChannelManager` 启动时通过它创建频道实例。
+  `config` 参数是 `SimpleNamespace`，不是 dict。
+- `config_fields` 定义控制台设置面板中显示的表单字段，支持类型：`text`、
+  `password`、`number`、`switch`、`select`。
+- 插件频道与内置频道共享启用/禁用、访问控制、`bot_prefix` 等功能。
+- 如果插件频道 key 与内置频道冲突，内置频道优先，插件频道会被跳过并打印警告。
+- 对于基于 webhook 的频道，可在同一个插件中组合 `register_channel` 和
+  `register_http_router`。
 
 ## 依赖管理
 

@@ -33,6 +33,21 @@ def test_welcome_logo_palette_changes_rendered_colors():
     assert "#ff9d4d" not in after
 
 
+def test_welcome_message_shows_workspace_and_project_dirs():
+    welcome = WelcomeMessage(
+        _PALETTE,
+        workspace_dir="/tmp/qwenpaw/workspaces/default",
+        project_dir="/tmp/project",
+    )
+
+    plain = welcome.content.plain
+    assert (
+        "Agent directory (sessions, memory & skills): "
+        "/tmp/qwenpaw/workspaces/default"
+    ) in plain
+    assert "Project directory: /tmp/project" in plain
+
+
 def test_welcome_logo_gradient_animates_vertically():
     welcome = WelcomeMessage(("#071b2c", "#101f3c", "#163857"))
     first = [welcome._gradient_color(row) for row in range(4)]
