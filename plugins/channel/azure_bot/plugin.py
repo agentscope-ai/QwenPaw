@@ -21,13 +21,6 @@ class AzureBotChannelPlugin:
         """
         from .channel import AzureBotChannel
 
-        try:
-            from qwenpaw.constant import DEFAULT_MEDIA_DIR
-
-            media_placeholder = str(DEFAULT_MEDIA_DIR)
-        except Exception:  # pragma: no cover - defensive
-            media_placeholder = ""
-
         api.register_channel(
             channel_class=AzureBotChannel,
             label="Azure Bot",
@@ -97,7 +90,42 @@ class AzureBotChannelPlugin:
                     },
                     "type": "text",
                     "required": False,
-                    "placeholder": media_placeholder,
+                    "help": {
+                        "zh-CN": (
+                            "留空时默认存储于当前 agent 工作区下的 "
+                            "media 目录（<工作区>/<agent_id>/media）。"
+                        ),
+                        "en-US": (
+                            "When empty, media is stored in the current "
+                            "agent's workspace media directory "
+                            "(<workspace>/<agent_id>/media)."
+                        ),
+                        "ja-JP": (
+                            "空欄の場合、現在のエージェントのワークスペース内の "
+                            "media ディレクトリ（<workspace>/<agent_id>/media）"
+                            "に保存されます。"
+                        ),
+                        "ru-RU": (
+                            "Если оставить пустым, медиафайлы сохраняются "
+                            "в каталоге media рабочей области текущего "
+                            "агента (<workspace>/<agent_id>/media)."
+                        ),
+                        "pt-BR": (
+                            "Quando vazio, a mídia é armazenada no diretório "
+                            "media do espaço de trabalho do agente atual "
+                            "(<workspace>/<agent_id>/media)."
+                        ),
+                        "vi-VN": (
+                            "Khi để trống, media được lưu trong thư mục "
+                            "media thuộc workspace của agent hiện tại "
+                            "(<workspace>/<agent_id>/media)."
+                        ),
+                        "id-ID": (
+                            "Jika kosong, media disimpan di direktori media "
+                            "pada workspace agen saat ini "
+                            "(<workspace>/<agent_id>/media)."
+                        ),
+                    },
                 },
                 {
                     "name": "share_session_in_group",
