@@ -2040,6 +2040,7 @@
     "prompt1": "让我们开启一段新的旅程吧！",
     "prompt2": "能告诉我你有哪些技能吗？",
     "inputPlaceholder": "\"↑↓\" 浏览消息 · \"/\" 快捷指令（审批时 \"/approve\" 或 \"/deny\"）",
+    "longTextUploadPrompt": "请读取已上传的提示词文件，并根据文件内容回答。",
     "emptyOutputError": "助手返回了空响应。",
     "commands": {
       "clear": {

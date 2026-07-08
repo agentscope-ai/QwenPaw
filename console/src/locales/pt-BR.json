@@ -2064,6 +2064,7 @@
     "prompt1": "Let's start a new journey!",
     "prompt2": "Can you tell me what skills you have?",
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands (\"/approve\" or \"/deny\" during approvals)",
+    "longTextUploadPrompt": "Please read the uploaded prompt file and answer it.",
     "emptyOutputError": "O assistente retornou uma resposta vazia.",
     "commands": {
       "clear": {

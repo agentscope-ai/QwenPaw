@@ -2844,6 +2844,15 @@ export default function ChatPage() {
           },
           customRequest: handleFileUpload,
         },
+        longTextUpload: {
+          ...((i18nConfig as any)?.sender?.longTextUpload ?? {}),
+          customRequest: handleFileUpload,
+          prompt: () =>
+            t(
+              "chat.longTextUploadPrompt",
+              "Please read the uploaded prompt file and answer it.",
+            ),
+        },
         placeholder: extPlaceholder ?? t("chat.inputPlaceholder"),
         ...(extDisclaimer !== undefined ? { disclaimer: extDisclaimer } : {}),
         suggestions: [...baseSuggestions, ...pluginSuggestions],
