@@ -1835,7 +1835,6 @@
     "description": "Я полезный ассистент, который поможет вам с вашими вопросами.",
     "prompt1": "Давайте начнём новое путешествие!",
     "prompt2": "Расскажи мне, какими навыками ты обладаешь?",
-    "longTextUploadPrompt": "Пожалуйста, прочитайте загруженный файл с промптом и ответьте на его основе.",
     "inputPlaceholder": "\"↑↓\" для навигации по сообщениям · \"/\" для быстрых команд (\"/approve\" или \"/deny\" во время подтверждения)",
     "emptyOutputError": "Ассистент вернул пустой ответ.",
     "commands": {
@@ -2240,7 +2239,27 @@
     "deleteTitle": "Удалить {{name}}",
     "deleteConfirm": "Удалить этот ACP агент? Это действие нельзя отменить.",
     "deleteSuccess": "ACP агент удалён",
-    "deleteFailed": "Не удалось удалить ACP агент"
+    "deleteFailed": "Не удалось удалить ACP агент",
+    "nodeSettings": "Настройки Node",
+    "nodePath": "Путь к Node",
+    "chooseOtherNode": "Выбрать другой Node...",
+    "selectNodePath": "Выбрать путь к Node",
+    "nodePathPrompt": "Введите путь к исполняемому файлу node",
+    "nodeSaved": "Настройки Node сохранены",
+    "nodeLoadFailed": "Не удалось загрузить настройки Node",
+    "nodeSaveFailed": "Путь к Node недоступен",
+    "nodeRuntime": {
+      "bundled": "Встроенный Node",
+      "system": "Системный Node",
+      "custom": "Пользовательский Node"
+    },
+    "nodeRuntimeReason": {
+      "systemNodeMissing": "Системный Node не обнаружен",
+      "nodeMissing": "Путь к Node не существует",
+      "npxMissing": "npx не найден",
+      "versionCheckFailed": "Проверка версии не удалась",
+      "unavailable": "Недоступно"
+    }
   },
   "backup": {
     "title": "Резервные копии",

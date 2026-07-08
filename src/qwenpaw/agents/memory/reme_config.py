@@ -38,6 +38,7 @@ def build_reme_app_config(
             "workspace_dir": working_dir,
             "metadata_dir": reme_config.metadata_dir,
             "session_dir": reme_config.session_dir,
+            "mem_session_dir": reme_config.mem_session_dir,
             "resource_dir": reme_config.resource_dir,
             "daily_dir": reme_config.daily_dir,
             "digest_dir": reme_config.digest_dir,
@@ -602,6 +603,7 @@ def _base_components() -> dict[str, Any]:
             "default": {
                 "backend": "openai",
                 "model": "",
+                "dimensions": 1024,
                 "credential": {"api_key": "", "base_url": ""},
                 "parameters": {},
             },
@@ -634,9 +636,6 @@ def _apply_embedding_config(
 ) -> None:
     """Map QwenPaw embedding config into ReMe component config."""
     components = cfg["components"]
-    parameters: dict[str, Any] = {}
-    if embedding_config.use_dimensions:
-        parameters["dimensions"] = embedding_config.dimensions
     embedding_store_name = (
         "default" if _is_embedding_enabled(embedding_config) else ""
     )
@@ -645,8 +644,8 @@ def _apply_embedding_config(
         {
             "backend": embedding_config.backend,
             "model": embedding_config.model_name,
+            "dimensions": embedding_config.dimensions,
             "credential": _embedding_credential(embedding_config),
-            "parameters": parameters,
         },
     )
     components["embedding_store"]["default"].update(

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
@@ -38,6 +39,11 @@ from ...config.config import (
     WecomConfig,
 )
 from ...agents.acp.core import ACPConfig, ACPAgentConfig
+from ...agents.acp.node_runtime import (
+    ACPNodeRuntimeStatus,
+    get_node_runtime_status,
+    resolve_node_runtime,
+)
 
 from .schemas_config import (
     ChannelHealthResponse,
@@ -72,6 +78,10 @@ _ALLOWED_ACP_TOOL_PARSE_MODES = {
     "update_detail",
     "call_detail",
 }
+
+
+class ACPNodeRuntimeUpdate(BaseModel):
+    node_path: str = ""
 
 
 @router.get(
@@ -454,6 +464,49 @@ async def put_acp_config(
 
 
 @router.get(
+    "/acp/node-runtime",
+    response_model=ACPNodeRuntimeStatus,
+    summary="Get ACP Node runtime",
+    description="Return configured and detected Node runtimes for ACP",
+)
+async def get_acp_node_runtime() -> ACPNodeRuntimeStatus:
+    """Return global ACP Node runtime status."""
+    node_path = load_config().acp.node_path
+    return await asyncio.to_thread(get_node_runtime_status, node_path)
+
+
+@router.put(
+    "/acp/node-runtime",
+    response_model=ACPNodeRuntimeStatus,
+    summary="Update ACP Node runtime",
+    description="Update the global Node runtime used by ACP subprocesses",
+)
+async def put_acp_node_runtime(
+    body: ACPNodeRuntimeUpdate = Body(...),
+) -> ACPNodeRuntimeStatus:
+    """Update global ACP Node runtime path."""
+    node_path = body.node_path.strip()
+    if node_path:
+        candidate = await asyncio.to_thread(resolve_node_runtime, node_path)
+        if not candidate.available:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "reason_code": candidate.reason_code,
+                    "reason": candidate.reason,
+                },
+            )
+
+    config = load_config()
+    config.acp.node_path = node_path
+    save_config(config)
+    return await asyncio.to_thread(
+        get_node_runtime_status,
+        config.acp.node_path,
+    )
+
+
+@router.get(
     "/acp/{agent_name}",
     response_model=ACPAgentConfig,
     summary="Get ACP agent config",
@@ -572,8 +625,6 @@ async def put_heartbeat(
     save_agent_config(agent.agent_id, agent.config)
 
     # Reschedule heartbeat (async, non-blocking)
-    import asyncio
-
     async def reschedule_in_background():
         try:
             if agent.cron_manager is not None:
@@ -599,7 +650,6 @@ async def run_heartbeat_now(request: Request) -> Any:
     """Trigger one heartbeat run in background for quick testing."""
     from ..agent_context import get_agent_for_request
     from ..crons.heartbeat import run_heartbeat_once
-    import asyncio
     import logging
 
     workspace = await get_agent_for_request(request)

@@ -118,13 +118,6 @@ You can customize paths and behavior via environment variables:
 | `QWENPAW_TOOL_GUARD_ENABLED` | `true`  | Whether to enable tool guard                       |
 | `QWENPAW_SKILL_SCAN_MODE`    | `warn`  | Skill scanning mode (`block` / `warn` / `off`)     |
 
-**Memory & Retrieval:**
-
-| Variable               | Default | Description                                                     |
-| ---------------------- | ------- | --------------------------------------------------------------- |
-| `FTS_ENABLED`          | `true`  | Whether to enable BM25 full-text search                         |
-| `MEMORY_STORE_BACKEND` | `auto`  | Memory storage backend (`auto` / `local` / `chroma` / `sqlite`) |
-
 Example — use a different working dir for this shell:
 
 ```bash
@@ -421,23 +414,28 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **ReMeLight Memory Configuration (`reme_light_memory_config` object):**
 
-| Field                           | Type        | Default        | Description                                                                           |
-| ------------------------------- | ----------- | -------------- | ------------------------------------------------------------------------------------- |
-| `summarize_when_compact`        | bool        | `true`         | Whether to enable memory summarization during compaction                              |
-| `auto_memory_interval`          | int \| null | `1`            | Auto memory every N user queries. `1` runs after every user message; null disables it |
-| `dream_cron`                    | string      | `"0 23 * * *"` | Cron expression for dream-based memory optimization (empty to disable)                |
-| `rebuild_memory_index_on_start` | bool        | `false`        | Whether to rebuild memory search index on startup                                     |
-| `recursive_file_watcher`        | bool        | `false`        | Whether to watch memory directory recursively                                         |
-| `auto_memory_search_config`     | object      | _(see below)_  | Auto memory search configuration                                                      |
-| `embedding_model_config`        | object      | _(see below)_  | Embedding model configuration                                                         |
+| Field                           | Type        | Default          | Description                                                                                                        |
+| ------------------------------- | ----------- | ---------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `metadata_dir`                  | string      | `"mem_metadata"` | Subdirectory for ReMe persistent state                                                                             |
+| `session_dir`                   | string      | `"mem_session"`  | Subdirectory for ReMe source conversation logs used by auto-memory                                                 |
+| `mem_session_dir`               | string      | `"mem_agent"`    | Subdirectory for ReMe internal memory-agent sessions                                                               |
+| `resource_dir`                  | string      | `"resource"`     | Subdirectory for external assets                                                                                   |
+| `daily_dir`                     | string      | `"memory"`       | Subdirectory for daily memory                                                                                      |
+| `digest_dir`                    | string      | `"digest"`       | Subdirectory for digest memory                                                                                     |
+| `enable_search_raw_log`         | bool        | `false`          | Whether to enable raw log search                                                                                   |
+| `summarize_when_compact`        | bool        | `true`           | Whether to enable memory summarization during compaction                                                           |
+| `auto_memory_interval`          | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                   |
+| `dream_cron`                    | string      | `"0 23 * * *"`   | Cron expression for dream-based memory optimization (empty to disable)                                             |
+| `auto_memory_search_config`     | object      | _(see below)_    | Auto memory search configuration                                                                                   |
+| `embedding_model_config`        | object      | _(see below)_    | Embedding model configuration                                                                                      |
+| `rebuild_memory_index_on_start` | bool        | `false`          | Whether to clear and rebuild the memory search index when the agent starts; otherwise only new changes are indexed |
 
 **Auto Memory Search Configuration (`reme_light_memory_config.auto_memory_search_config` object):**
 
-| Field         | Type  | Default | Description                                              |
-| ------------- | ----- | ------- | -------------------------------------------------------- |
-| `enabled`     | bool  | `false` | Whether to auto search memory on every conversation turn |
-| `max_results` | int   | `1`     | Maximum results for auto memory search                   |
-| `timeout`     | float | `10.0`  | Timeout in seconds for auto memory search                |
+| Field         | Type | Default | Description                                              |
+| ------------- | ---- | ------- | -------------------------------------------------------- |
+| `enabled`     | bool | `false` | Whether to auto search memory on every conversation turn |
+| `max_results` | int  | `2`     | Maximum results for auto memory search                   |
 
 **Embedding Configuration (`reme_light_memory_config.embedding_model_config` object):**
 
@@ -464,7 +462,10 @@ Vector retrieval is enabled only when the selected backend has the minimum runna
 
 When the enable condition is not met, ReMe still keeps keyword indexes and wikilink graph indexes, but the embedding vector index is disabled.
 
-These settings can also be changed in the Console under **Agent → Runtime Config**. Changes apply to new LLM requests after saving; restarting the service is not required.
+These settings can also be changed in the Console under **Agent → Runtime Config**. Fields read directly from
+`agent.json`, such as auto-memory cadence and auto-search limits, apply to later turns after saving. Embedded ReMe
+component settings, such as directories and embedding configuration, require restarting the agent process so the ReMe
+application is constructed with the new configuration.
 
 ---
 

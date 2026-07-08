@@ -176,7 +176,6 @@
     "description": "Tôi là trợ lý AI sẵn sàng hỗ trợ bạn.",
     "prompt1": "Hãy bắt đầu hành trình mới!",
     "prompt2": "Bạn có thể cho tôi biết những kỹ năng của mình không?",
-    "longTextUploadPrompt": "Vui lòng đọc tệp prompt đã tải lên và trả lời dựa trên nội dung đó.",
     "inputPlaceholder": "\"↑↓\" điều hướng tin nhắn · \"/\" lệnh nhanh (\"/approve\" hoặc \"/deny\" khi phê duyệt)",
     "emptyOutputError": "Trợ lý đã trả về phản hồi trống.",
     "commands": {
@@ -362,7 +361,27 @@
     "argsHelp": "Mỗi dòng một tham số",
     "env": "Biến môi trường",
     "envHelp": "Dùng định dạng KEY=VALUE, mỗi dòng một biến",
-    "envInvalid": "Định dạng không hợp lệ, dùng KEY=VALUE"
+    "envInvalid": "Định dạng không hợp lệ, dùng KEY=VALUE",
+    "nodeSettings": "Cài đặt Node",
+    "nodePath": "Đường dẫn Node",
+    "chooseOtherNode": "Chọn Node khác...",
+    "selectNodePath": "Chọn đường dẫn Node",
+    "nodePathPrompt": "Nhập đường dẫn file thực thi node",
+    "nodeSaved": "Đã lưu cài đặt Node",
+    "nodeLoadFailed": "Không tải được cài đặt Node",
+    "nodeSaveFailed": "Đường dẫn Node không khả dụng",
+    "nodeRuntime": {
+      "bundled": "Node tích hợp",
+      "system": "Node hệ thống",
+      "custom": "Node tuỳ chỉnh"
+    },
+    "nodeRuntimeReason": {
+      "systemNodeMissing": "Không phát hiện Node hệ thống",
+      "nodeMissing": "Đường dẫn Node không tồn tại",
+      "npxMissing": "Không tìm thấy npx",
+      "versionCheckFailed": "Kiểm tra phiên bản thất bại",
+      "unavailable": "Không khả dụng"
+    }
   },
   "voiceTranscription": {
     "title": "Phiên âm giọng nói",
