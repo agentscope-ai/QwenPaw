@@ -71,7 +71,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
   | **ReMe4 Memory** | Turn-based auto tracking, usage-aware search, and backend-specific embeddings. |
   | **Terminal UI (TUI)** | Full-screen terminal chat — same agent, memory, and sessions as Console and channels. |
 
-  Built on Agent OS, we will be launching ready-to-use QwenPaw applications — such as **QwenPaw Creator** and **QwenPaw Insight** — stay tuned.
+  Built on Agent OS, we will be launching out-of-box QwenPaw applications — such as **QwenPaw Creator** and **QwenPaw Insight** — stay tuned.
 
   [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
