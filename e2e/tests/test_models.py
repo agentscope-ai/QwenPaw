@@ -501,14 +501,22 @@ class TestCustomProviderCreateAndDelete:
         logger.info(f"Custom provider '{provider_name}' created successfully (modal closed)")
 
         log_test_step("Verify provider appears in the list")
-        # v2.0.0 (PR #5203) — configured providers render as `.groupCardGlass`
-        # inside the Cloud tab's Configured section; custom providers are
-        # cloud-side. Fall back to a plain text lookup for extra robustness.
-        provider_card = page.locator(
+        # v2.0.0 (PR #5203) — a freshly created custom provider may land in
+        # either the Configured section (`.groupCardGlass`, once it counts as
+        # configured) or the Available section (`div.availableItem`). Match
+        # the union and scope to the tile (not a bare `:has-text` which would
+        # also match ancestor nodes). Wait for it to render post-create.
+        created_tile = (
             f"[class*=groupCardGlass]:has-text('{provider_name}'), "
             f"[class*=groupCardGlass]:has-text('{provider_id}'), "
-            f":has-text('{provider_id}')"
-        ).first
+            f"div[class*=availableItem]:has-text('{provider_name}'), "
+            f"div[class*=availableItem]:has-text('{provider_id}')"
+        )
+        try:
+            page.wait_for_selector(created_tile, timeout=10000)
+        except Exception:
+            logger.warning("Created provider tile not visible within 10s")
+        provider_card = page.locator(created_tile).first
         assert provider_card.count() > 0, f"Provider '{provider_name}' not found on page after create"
         logger.info(f"Provider '{provider_name}' appeared in the list")
 
@@ -706,10 +714,15 @@ class TestProviderSearchFilter:
         # backends have nothing configured but the Available section is
         # populated. Match the union.
         provider_tile = (
-            '[class*=groupCardGlass], [class*=availableItem]'
+            '[class*=groupCardGlass], div[class*=availableItem]'
         )
 
         log_test_step("Record Provider count before search")
+        # Provider data loads asynchronously; wait for the first tile.
+        try:
+            page.wait_for_selector(provider_tile, timeout=15000)
+        except Exception:
+            logger.warning("No provider tile appeared within 15s")
         provider_cards = page.locator(provider_tile).all()
         initial_count = len(provider_cards)
         assert initial_count > 0, "No Provider cards on the page"
@@ -796,9 +809,15 @@ class TestModelActivation:
         # v2.0.0 (PR #5203) — configured providers use `.groupCardGlass`;
         # unconfigured providers render as `.availableItem` tiles in the
         # Available section. Match either.
-        provider_tile = '[class*=groupCardGlass], [class*=availableItem]'
+        provider_tile = '[class*=groupCardGlass], div[class*=availableItem]'
 
         log_test_step("Find an available Provider card")
+        # Provider data loads asynchronously; wait for the first tile to
+        # render rather than relying solely on a fixed sleep.
+        try:
+            page.wait_for_selector(provider_tile, timeout=15000)
+        except Exception:
+            logger.warning("No provider tile appeared within 15s")
         provider_cards = page.locator(provider_tile).all()
         assert len(provider_cards) > 0, "No Provider cards on the page"
         logger.info(f"Found {len(provider_cards)} Provider cards")
@@ -875,7 +894,7 @@ class TestOpenRouterFilter:
         # `.availableItem` or Configured section `.groupCardGlass`) rather
         # than the label text span, which is not clickable.
         openrouter_card = page.locator(
-            '[class*=availableItem]:has-text("OpenRouter"), '
+            'div[class*=availableItem]:has-text("OpenRouter"), '
             '[class*=groupCardGlass]:has-text("OpenRouter")'
         ).first
         if openrouter_card.count() == 0:

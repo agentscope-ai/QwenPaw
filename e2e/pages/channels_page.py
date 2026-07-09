@@ -40,7 +40,13 @@ class ChannelsPage(BasePage):
     # Available section uses <ChannelAvailableItem> (`.availableItem`, a plain
     # button-like div — no status dot, no tag). Fresh workspaces have only
     # Console enabled, so we treat either as "page loaded".
-    PAGE_LOAD_INDICATOR = '[class*=channelCard], [class*=availableItem]'
+    #
+    # NOTE: `availableItem`, `availableItemName` and `availableItemAction` all
+    # share the `availableItem` substring after CSS-module hashing, so
+    # `[class*=availableItem]` would match one tile three times. The tile
+    # container is a <div>; the name/action are <span>. Anchor on
+    # `div[class*=availableItem]` to count each tile exactly once.
+    PAGE_LOAD_INDICATOR = '[class*=channelCard], div[class*=availableItem]'
 
     # Filter buttons (UI text is Chinese; use button[class*=filterTab] to match the button rather than the parent container)
     FILTER_ALL_BTN = 'button[class*=filterTab]:has-text("全部"), button:has-text("All")'
@@ -48,13 +54,15 @@ class ChannelsPage(BasePage):
     FILTER_CUSTOM_BTN = 'button[class*=filterTab]:has-text("自定义"), button:has-text("Custom")'
 
     # Channel cards / available items (v2.0.0 dual-section layout).
-    #   CHANNEL_CARD          — union: any enabled ChannelCard OR available item
+    #   CHANNEL_CARD          — union: any enabled ChannelCard OR available tile
     #   CHANNEL_CARD_ENABLED  — only enabled cards (rendered in the enabled section)
     #   CHANNEL_CARD_DISABLED — only disabled entries (rendered as availableItem)
     # `find_channel_card` / `get_channel_card_count` operate on the union.
-    CHANNEL_CARD = '[class*=channelCard], [class*=availableItem]'
+    # `div[class*=availableItem]` (not the bare substring) avoids triple
+    # matching on the item's name/action spans.
+    CHANNEL_CARD = '[class*=channelCard], div[class*=availableItem]'
     CHANNEL_CARD_ENABLED = '[class*=channelCard][class*=enabled]'
-    CHANNEL_CARD_DISABLED = '[class*=availableItem]'
+    CHANNEL_CARD_DISABLED = 'div[class*=availableItem]'
 
     # Channel card content
     CHANNEL_ICON = '[class*=channelCard] [class*=icon]'
