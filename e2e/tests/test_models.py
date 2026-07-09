@@ -501,12 +501,12 @@ class TestCustomProviderCreateAndDelete:
         logger.info(f"Custom provider '{provider_name}' created successfully (modal closed)")
 
         log_test_step("Verify provider appears in the list")
-        # Page uses a card layout; find the card containing the provider name
+        # v2.0.0 (PR #5203) — configured providers render as `.groupCardGlass`
+        # inside the Cloud tab's Configured section; custom providers are
+        # cloud-side. Fall back to a plain text lookup for extra robustness.
         provider_card = page.locator(
-            f".qwenpaw-card:has-text('{provider_name}'), "
-            f".qwenpaw-card:has-text('{provider_id}'), "
-            f"[class*='providerCard']:has-text('{provider_name}'), "
-            f"[class*='providerCard']:has-text('{provider_id}'), "
+            f"[class*=groupCardGlass]:has-text('{provider_name}'), "
+            f"[class*=groupCardGlass]:has-text('{provider_id}'), "
             f":has-text('{provider_id}')"
         ).first
         assert provider_card.count() > 0, f"Provider '{provider_name}' not found on page after create"
@@ -559,8 +559,7 @@ class TestCustomProviderCreateAndDelete:
         log_test_step("Verify deletion succeeded")
         page.wait_for_timeout(1000)
         deleted_provider = page.locator(
-            f".qwenpaw-card:has-text('{provider_id}'), "
-            f"[class*='providerCard']:has-text('{provider_id}')"
+            f"[class*=groupCardGlass]:has-text('{provider_id}')"
         ).first
         assert deleted_provider.count() == 0, f"Provider '{provider_name}' still exists in list after delete"
         logger.info(f"Custom provider '{provider_name}' deleted successfully")
@@ -701,8 +700,17 @@ class TestProviderSearchFilter:
         expect(search_input).to_be_visible(timeout=5000)
         logger.info("Search box exists")
 
+        # v2.0.0 (PR #5203 Models Page Overhaul): configured providers render
+        # as `.groupCardGlass` inside the Configured section, and unconfigured
+        # ones as `.availableItem` inside the Available section. Fresh e2e
+        # backends have nothing configured but the Available section is
+        # populated. Match the union.
+        provider_tile = (
+            '[class*=groupCardGlass], [class*=availableItem]'
+        )
+
         log_test_step("Record Provider count before search")
-        provider_cards = page.locator('.qwenpaw-card').all()
+        provider_cards = page.locator(provider_tile).all()
         initial_count = len(provider_cards)
         assert initial_count > 0, "No Provider cards on the page"
         logger.info(f"Provider count before search: {initial_count}")
@@ -724,7 +732,7 @@ class TestProviderSearchFilter:
             search_input.fill("ollama")
             page.wait_for_timeout(1500)
 
-        filtered_cards = page.locator('.qwenpaw-card').all()
+        filtered_cards = page.locator(provider_tile).all()
         filtered_count = len(filtered_cards)
         logger.info(f"Provider count after searching 'ollama': {filtered_count}")
 
@@ -750,7 +758,7 @@ class TestProviderSearchFilter:
             search_input.clear()
         page.wait_for_timeout(1500)
 
-        restored_cards = page.locator('.qwenpaw-card').all()
+        restored_cards = page.locator(provider_tile).all()
         restored_count = len(restored_cards)
         assert restored_count == initial_count, \
             f"After clearing search, count ({restored_count}) should restore to initial ({initial_count})"
@@ -785,8 +793,13 @@ class TestModelActivation:
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
+        # v2.0.0 (PR #5203) — configured providers use `.groupCardGlass`;
+        # unconfigured providers render as `.availableItem` tiles in the
+        # Available section. Match either.
+        provider_tile = '[class*=groupCardGlass], [class*=availableItem]'
+
         log_test_step("Find an available Provider card")
-        provider_cards = page.locator('.qwenpaw-card').all()
+        provider_cards = page.locator(provider_tile).all()
         assert len(provider_cards) > 0, "No Provider cards on the page"
         logger.info(f"Found {len(provider_cards)} Provider cards")
 
@@ -858,7 +871,13 @@ class TestOpenRouterFilter:
         page.wait_for_timeout(3000)
 
         log_test_step("Find the OpenRouter Provider")
-        openrouter_card = page.locator(':text("OpenRouter"), :text("openrouter")').first
+        # v2.0.0 (PR #5203) — click the outer tile (Available section
+        # `.availableItem` or Configured section `.groupCardGlass`) rather
+        # than the label text span, which is not clickable.
+        openrouter_card = page.locator(
+            '[class*=availableItem]:has-text("OpenRouter"), '
+            '[class*=groupCardGlass]:has-text("OpenRouter")'
+        ).first
         if openrouter_card.count() == 0:
             pytest.skip("OpenRouter Provider not found, skipping test")
 

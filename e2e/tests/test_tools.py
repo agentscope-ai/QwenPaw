@@ -14,12 +14,66 @@ from __future__ import annotations
 
 import logging
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import APIRequestContext, Page, expect
 
 from config.settings import config
 from utils.helpers import log_test_step, log_test_result
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Setup helper
+# ============================================================================
+#
+# Since v2.0.0 (PR #5509) the Tools page uses an enabled/available split
+# layout: `.toolsGrid` is only rendered when `enabledTools.length > 0`. On
+# an isolated e2e backend all built-in tools default to disabled, so the
+# grid does not appear and any test that asserts on it fails with
+# "toolsGrid not visible". We seed one non-config tool as enabled via the
+# public API before entering the UI — this is setup only, the tests still
+# assert on DOM state.
+def _ensure_at_least_one_tool_enabled(
+    api_context: APIRequestContext,
+) -> None:
+    """Ensure at least one built-in tool is enabled so `.toolsGrid` renders.
+
+    Prefers tools that do not require configuration to avoid seeding
+    `requires_config` warnings on the card. No-op when a tool is already
+    enabled.
+    """
+    resp = api_context.get("/api/tools")
+    if not resp.ok:
+        logger.warning(
+            "Could not list tools for seed (status=%s); skipping toolsGrid "
+            "prerequisite. Test may fall back to legacy behaviour.",
+            resp.status,
+        )
+        return
+    tools = resp.json()
+    if any(t.get("enabled") for t in tools):
+        logger.info("At least one tool is already enabled; no seed needed")
+        return
+    # Pick the first tool that does not require config; fall back to the
+    # first tool of any kind if every tool requires config.
+    seed = next(
+        (t for t in tools if not t.get("requires_config")),
+        tools[0] if tools else None,
+    )
+    if seed is None:
+        logger.warning("No tools returned by backend; nothing to seed")
+        return
+    name = seed["name"]
+    logger.info("Seeding tool '%s' as enabled to make toolsGrid render", name)
+    toggle_resp = api_context.patch(f"/api/tools/{name}/toggle")
+    if not toggle_resp.ok:
+        logger.warning(
+            "Failed to seed tool '%s' (status=%s): %s",
+            name,
+            toggle_resp.status,
+            toggle_resp.text(),
+        )
+
 
 # ============================================================================
 # TOOL-001: Page display + global toggle + tool card verification
@@ -180,7 +234,12 @@ class TestToolEnableDisableAndAsyncToggle:
     """
 
     @pytest.mark.test_id("TOOL-002")
-    def test_tool_enable_disable_and_async_toggle(self, page: Page, request: pytest.FixtureRequest):
+    def test_tool_enable_disable_and_async_toggle(
+        self,
+        page: Page,
+        api_context: APIRequestContext,
+        request: pytest.FixtureRequest,
+    ):
         """Verify per-tool enable/disable and async-execute toggle."""
         test_name = request.node.name
 
@@ -189,6 +248,11 @@ class TestToolEnableDisableAndAsyncToggle:
         status_text = None
 
         try:
+            # 0. Seed: v2.0.0 Tools page hides `.toolsGrid` until at least
+            # one tool is enabled. Setup only — the assertions below all
+            # target DOM state.
+            _ensure_at_least_one_tool_enabled(api_context)
+
             # 1. Visit the built-in tools page (with timeout and retry)
             log_test_step("1. Visit the built-in tools page")
             try:
@@ -365,7 +429,12 @@ class TestToolsGlobalToggleConsistency:
     """
 
     @pytest.mark.test_id("TOOL-003")
-    def test_global_toggle_consistency(self, page: Page, request: pytest.FixtureRequest):
+    def test_global_toggle_consistency(
+        self,
+        page: Page,
+        api_context: APIRequestContext,
+        request: pytest.FixtureRequest,
+    ):
         """Verify the consistency between the global toggle and all tool card states."""
         test_name = request.node.name
 
@@ -374,6 +443,11 @@ class TestToolsGlobalToggleConsistency:
         global_switch = None
 
         try:
+            # 0. Seed: v2.0.0 Tools page hides `.toolsGrid` until at least
+            # one tool is enabled. Setup only — the assertions below all
+            # target DOM state.
+            _ensure_at_least_one_tool_enabled(api_context)
+
             # Step 1: Visit the built-in tools page
             log_test_step("1. Visit the built-in tools page")
             page.goto(f"{config.base_url}/tools")
