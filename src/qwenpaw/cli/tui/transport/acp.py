@@ -18,6 +18,7 @@ import asyncio
 import logging
 import os
 import sys
+import time
 import uuid
 from contextlib import AsyncExitStack
 from typing import Any, AsyncIterator, cast
@@ -152,16 +153,25 @@ def _permission_expires_at(tool_call: Any) -> float | None:
     return None
 
 
+_PERMISSION_TIMEOUT_MESSAGE = (
+    "Approval request timed out. The tool call was blocked; "
+    "start a new request to try again."
+)
+
+# Extra slack past the advertised deadline before the TUI expires a prompt
+# locally, so the server (which shares the same clock and blocks the tool at
+# exactly the deadline) always times out first and a last-second approval is
+# never dropped on the client side.
+_PERMISSION_EXPIRY_GRACE_SECONDS = 1.0
+
+
 def _permission_expired_message(exc: asyncio.CancelledError) -> str:
     reason = str(exc.args[0]) if exc.args else ""
     if reason == "timeout":
-        return (
-            "Approval request timed out. The tool call was blocked; "
-            "start a new request to try again."
-        )
+        return _PERMISSION_TIMEOUT_MESSAGE
     return (
-        "Approval request is no longer pending. The tool call was blocked; "
-        "start a new request to try again."
+        "Approval request is no longer pending; it was resolved or "
+        "cancelled elsewhere."
     )
 
 
@@ -243,13 +253,14 @@ class _TuiClient:
             or getattr(tool_call, "tool_call_id", None)
             or "Permission required"
         )
+        expires_at = _permission_expires_at(tool_call)
         await self._queue.put(
             PermissionRequest(
                 request_id=request_id,
                 title=str(title),
                 tool_kind=getattr(tool_call, "kind", None),
                 params=_permission_params(tool_call),
-                expires_at=_permission_expires_at(tool_call),
+                expires_at=expires_at,
                 options=[
                     PermissionOption(
                         option_id=getattr(o, "option_id", ""),
@@ -262,8 +273,28 @@ class _TuiClient:
             ),
         )
 
+        # ACP has no agent→client request cancellation, so a server-side
+        # timeout never reaches this handler — enforce the advertised
+        # deadline locally (with grace, so the server always expires first).
+        timeout = None
+        if expires_at is not None:
+            timeout = (
+                max(expires_at - time.time(), 0.0)
+                + _PERMISSION_EXPIRY_GRACE_SECONDS
+            )
+
         try:
-            option_id = await future
+            option_id = await asyncio.wait_for(future, timeout)
+        except asyncio.TimeoutError:
+            await self._queue.put(
+                PermissionExpired(
+                    request_id=request_id,
+                    message=_PERMISSION_TIMEOUT_MESSAGE,
+                ),
+            )
+            return RequestPermissionResponse(
+                outcome=DeniedOutcome(outcome="cancelled"),
+            )
         except asyncio.CancelledError as exc:
             if not future.done():
                 future.cancel()

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -197,7 +198,7 @@ async def test_permission_timeout_cancellation_emits_timeout_message():
 async def test_permission_request_carries_expiry_metadata():
     queue = asyncio.Queue()
     client = _TuiClient(queue)
-    expires_at = 1234567890.0
+    expires_at = time.time() + 300.0
     task = asyncio.create_task(
         client.request_permission(
             options=[],
@@ -220,6 +221,48 @@ async def test_permission_request_carries_expiry_metadata():
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@pytest.mark.asyncio
+async def test_permission_expires_locally_at_deadline(monkeypatch):
+    """ACP has no agent→client cancel, so the client enforces the deadline
+    itself: past the advertised expiry the handler answers "cancelled" and
+    emits PermissionExpired so the overlay clears with an explanation.
+    """
+    monkeypatch.setattr(
+        "qwenpaw.cli.tui.transport.acp._PERMISSION_EXPIRY_GRACE_SECONDS",
+        0.05,
+    )
+    queue = asyncio.Queue()
+    client = _TuiClient(queue)
+    task = asyncio.create_task(
+        client.request_permission(
+            options=[],
+            session_id="sess-1",
+            tool_call=SimpleNamespace(
+                title="dangerous_tool",
+                kind="execute",
+                raw_input={"command": "rm -rf /tmp/nope"},
+                field_meta={
+                    ACP_APPROVAL_EXPIRES_AT_META_KEY: time.time() - 1.0,
+                },
+            ),
+        ),
+    )
+
+    request = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(request, PermissionRequest)
+
+    response = await asyncio.wait_for(task, timeout=1.0)
+    assert response.outcome.outcome == "cancelled"
+
+    expired = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(expired, PermissionExpired)
+    assert expired.request_id == request.request_id
+    assert "timed out" in expired.message
+
+    # A late resolve after expiry must be a harmless no-op.
+    client.resolve(request.request_id, "allow_once")
 
 
 @pytest.mark.asyncio

@@ -151,6 +151,8 @@ class PermissionOverlay(OptionList):
             _TITLE_OPTION_ID,
             self._title_text(request),
         )
+        if countdown == "expired":
+            self._stop_countdown_timer()
 
     def cursor_up(self) -> None:
         self.action_cursor_up()
