@@ -58,6 +58,7 @@
     "channels": "频道",
     "sessions": "会话",
     "inbox": "收件箱",
+    "creator": "Creator",
     "cronJobs": "定时任务",
     "heartbeat": "心跳",
     "agent": "工作区",
@@ -2634,6 +2635,15 @@
     "compatWarningTitle": "兼容性警告",
     "compatWarningContent": "该插件标注适配 QwenPaw {{labels}}，而您当前的 QwenPaw 版本为 {{version}}。安装后可能出现错误，是否确认继续？",
     "compatWarningConfirm": "仍然安装"
+  },
+  "creator": {
+    "install": "安装",
+    "installing": "安装中...",
+    "installSuccess": "插件 {{name}} 安装成功",
+    "installFailed": "插件安装失败",
+    "empty": "暂无可用应用插件",
+    "loadFailed": "加载插件列表失败",
+    "retry": "重试"
   },
   "codingMode": {
     "title": "编程模式",

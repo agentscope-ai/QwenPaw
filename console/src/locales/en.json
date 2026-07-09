@@ -58,6 +58,7 @@
     "channels": "Channels",
     "sessions": "Sessions",
     "inbox": "Inbox",
+    "creator": "Creator",
     "cronJobs": "Cron Jobs",
     "heartbeat": "Heartbeat",
     "agent": "Workspace",
@@ -2615,6 +2616,15 @@
     "compatWarningTitle": "Compatibility Warning",
     "compatWarningContent": "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
     "compatWarningConfirm": "Install anyway"
+  },
+  "creator": {
+    "install": "Install",
+    "installing": "Installing...",
+    "installSuccess": "Plugin {{name}} installed successfully",
+    "installFailed": "Failed to install plugin",
+    "empty": "No app plugins available",
+    "loadFailed": "Failed to load plugin catalog",
+    "retry": "Retry"
   },
   "codingMode": {
     "title": "Coding Mode",

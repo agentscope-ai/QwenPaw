@@ -51,6 +51,7 @@
   },
   "nav": {
     "chat": "Чат",
+    "creator": "Creator",
     "control": "Управление",
     "channels": "Каналы",
     "sessions": "Сессии",
@@ -2501,6 +2502,15 @@
     "sourceTypeCron": "Cron",
     "sourceTypeHeartbeat": "Heartbeat",
     "sourceTypeMemory": "Memory"
+  },
+  "creator": {
+    "install": "Установить",
+    "installing": "Установка...",
+    "installSuccess": "Плагин {{name}} успешно установлен",
+    "installFailed": "Не удалось установить плагин",
+    "empty": "Нет доступных приложений-плагинов",
+    "loadFailed": "Не удалось загрузить каталог плагинов",
+    "retry": "Повторить"
   },
   "codingMode": {
     "title": "Режим кодирования",

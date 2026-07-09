@@ -53,6 +53,7 @@
   },
   "nav": {
     "chat": "Chat",
+    "creator": "Creator",
     "control": "Kontrol",
     "channels": "Saluran",
     "sessions": "Sesi",
@@ -961,6 +962,15 @@
       "refreshSuccess": "Log disegarkan",
       "copyBackend": "Salin log backend"
     }
+  },
+  "creator": {
+    "install": "Instal",
+    "installing": "Menginstal...",
+    "installSuccess": "Plugin {{name}} berhasil diinstal",
+    "installFailed": "Gagal menginstal plugin",
+    "empty": "Tidak ada plugin aplikasi yang tersedia",
+    "loadFailed": "Gagal memuat katalog plugin",
+    "retry": "Coba lagi"
   },
   "codingMode": {
     "title": "Mode Coding",

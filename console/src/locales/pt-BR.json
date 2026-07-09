@@ -53,6 +53,7 @@
   },
   "nav": {
     "chat": "Chat",
+    "creator": "Creator",
     "control": "Controle",
     "channels": "Canais",
     "sessions": "Sessoes",
@@ -2546,6 +2547,15 @@
     "sourceTypeCron": "Cron",
     "sourceTypeHeartbeat": "Heartbeat",
     "sourceTypeMemory": "Memory"
+  },
+  "creator": {
+    "install": "Instalar",
+    "installing": "Instalando...",
+    "installSuccess": "Plugin {{name}} instalado com sucesso",
+    "installFailed": "Falha ao instalar plugin",
+    "empty": "Nenhum plugin de aplicativo disponível",
+    "loadFailed": "Falha ao carregar catálogo de plugins",
+    "retry": "Tentar novamente"
   },
   "codingMode": {
     "title": "Modo de Codificação",

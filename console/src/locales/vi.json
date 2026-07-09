@@ -53,6 +53,7 @@
   },
   "nav": {
     "chat": "Trò chuyện",
+    "creator": "Creator",
     "control": "Điều khiển",
     "channels": "Kênh",
     "sessions": "Phiên",
@@ -675,6 +676,15 @@
     "version": "Phiên bản",
     "author": "Tác giả",
     "loadError": "Tải plugin thất bại"
+  },
+  "creator": {
+    "install": "Cài đặt",
+    "installing": "Đang cài đặt...",
+    "installSuccess": "Plugin {{name}} đã được cài đặt thành công",
+    "installFailed": "Cài đặt plugin thất bại",
+    "empty": "Không có plugin ứng dụng nào",
+    "loadFailed": "Tải danh mục plugin thất bại",
+    "retry": "Thử lại"
   },
   "codingMode": {
     "title": "Chế độ Lập trình",

@@ -63,6 +63,14 @@ export const BUILTIN_MENU: MenuItem[] = [
     route: "core.inbox",
     order: 10,
   },
+  {
+    id: "core.creator",
+    location: "primary.agentScoped",
+    label: navLabel("nav.creator", "Creator"),
+    icon: SparkMagicWandLine,
+    route: "core.creator",
+    order: 15,
+  },
 
   // control-group
   {

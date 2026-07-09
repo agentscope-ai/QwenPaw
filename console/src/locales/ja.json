@@ -51,6 +51,7 @@
   },
   "nav": {
     "chat": "チャット",
+    "creator": "Creator",
     "control": "コントロール",
     "channels": "チャンネル",
     "sessions": "セッション",
@@ -2489,6 +2490,15 @@
     "sourceTypeCron": "Cron",
     "sourceTypeHeartbeat": "Heartbeat",
     "sourceTypeMemory": "Memory"
+  },
+  "creator": {
+    "install": "インストール",
+    "installing": "インストール中...",
+    "installSuccess": "プラグイン {{name}} のインストールに成功しました",
+    "installFailed": "プラグインのインストールに失敗しました",
+    "empty": "利用可能なアプリプラグインがありません",
+    "loadFailed": "プラグインカタログの読み込みに失敗しました",
+    "retry": "再試行"
   },
   "codingMode": {
     "title": "コーディングモード",
