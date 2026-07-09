@@ -35,8 +35,9 @@ class _FakeConn:
 class _ApprovalConn(_FakeConn):
     """Records ACP permission requests and approves them."""
 
-    def __init__(self) -> None:
+    def __init__(self, option_id: str = "allow_once") -> None:
         super().__init__()
+        self.option_id = option_id
         self.permission_requests: list[dict[str, object]] = []
 
     async def request_permission(
@@ -56,7 +57,7 @@ class _ApprovalConn(_FakeConn):
         return RequestPermissionResponse(
             outcome=AllowedOutcome(
                 outcome="selected",
-                option_id="approve",
+                option_id=self.option_id,
             ),
         )
 
@@ -221,7 +222,10 @@ async def test_report_prompt_error_shows_details_for_local_diagnostics():
 
 async def test_approval_bridge_resolves_pending_approval(monkeypatch):
     from qwenpaw.app.approvals.service import ApprovalService
-    from qwenpaw.security.tool_guard.approval import ApprovalDecision
+    from qwenpaw.security.tool_guard.approval import (
+        ApprovalDecision,
+        ApprovalScope,
+    )
     from qwenpaw.security.tool_guard.models import (
         GuardFinding,
         GuardSeverity,
@@ -293,6 +297,95 @@ async def test_approval_bridge_resolves_pending_approval(monkeypatch):
     )
     assert tool_call.kind == "execute"
     assert tool_call.raw_input == {"command": "ls"}
+    assert {option.option_id for option in request["options"]} == {
+        "allow_once",
+        "deny",
+    }
+    assert pending.scope is ApprovalScope.EXACT
+
+
+async def test_approval_bridge_resolves_pattern_scope(monkeypatch):
+    from qwenpaw.app.approvals.service import ApprovalService
+    from qwenpaw.security.tool_guard.approval import (
+        ApprovalDecision,
+        ApprovalScope,
+    )
+    from qwenpaw.security.tool_guard.models import (
+        GuardFinding,
+        GuardSeverity,
+        GuardThreatCategory,
+        ToolGuardResult,
+    )
+
+    approval_svc = ApprovalService()
+    monkeypatch.setattr(
+        "qwenpaw.app.approvals.service._approval_service",
+        approval_svc,
+    )
+
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _ApprovalConn(option_id="allow_always")
+    agent.on_connect(conn)
+
+    result = ToolGuardResult(
+        tool_name="execute_shell_command",
+        params={"command": "git status"},
+        findings=[
+            GuardFinding(
+                id="finding-1",
+                rule_id="test",
+                category=GuardThreatCategory.RESOURCE_ABUSE,
+                severity=GuardSeverity.MEDIUM,
+                title="Approval required",
+                description="Shell command requires approval.",
+                tool_name="execute_shell_command",
+            ),
+        ],
+    )
+    pending = await approval_svc.create_pending(
+        session_id="sess-approval",
+        root_session_id="sess-approval",
+        owner_agent_id="default",
+        user_id="acp_user",
+        channel="console",
+        agent_id="default",
+        tool_name="execute_shell_command",
+        result=result,
+        extra={
+            "tool_call": {
+                "id": "tool-1",
+                "name": "execute_shell_command",
+                "input": {"command": "git status"},
+            },
+            "display": {
+                "tool_name": "execute_shell_command",
+                "tool_source": "No rule hit",
+                "exact_target": "git status",
+                "similar_target": "git *",
+                "is_generalized": True,
+            },
+        },
+    )
+
+    await agent._request_approval_decision("sess-approval", pending)
+    decision = await asyncio.wait_for(pending.future, timeout=1.0)
+
+    assert decision == ApprovalDecision.APPROVED
+    assert pending.scope is ApprovalScope.SIMILAR
+    request = conn.permission_requests[0]
+    assert {option.option_id for option in request["options"]} == {
+        "allow_once",
+        "allow_always",
+        "deny",
+    }
+    kinds = {option.option_id: option.kind for option in request["options"]}
+    assert kinds["allow_once"] == "allow_once"
+    assert kinds["allow_always"] == "allow_always"
+    assert request["tool_call"].raw_input == {
+        "command": "git status",
+        "approve_exact_target": "git status",
+        "approve_pattern_target": "git *",
+    }
 
 
 def test_acp_bootstrap_includes_runtime_slash_commands():

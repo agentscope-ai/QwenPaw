@@ -837,7 +837,10 @@ class QwenPawACPAgent(Agent):
     ) -> None:
         """Ask the ACP client to approve/deny a QwenPaw pending approval."""
         from ...app.approvals import get_approval_service
-        from ...security.tool_guard.approval import ApprovalDecision
+        from ...security.tool_guard.approval import (
+            ApprovalDecision,
+            ApprovalScope,
+        )
 
         svc = get_approval_service()
         try:
@@ -852,18 +855,7 @@ class QwenPawACPAgent(Agent):
                     kind=self._approval_tool_kind(pending.tool_name),
                     raw_input=self._approval_tool_input(pending),
                 ),
-                options=[
-                    PermissionOption(
-                        option_id="approve",
-                        name="Approve",
-                        kind="allow_once",
-                    ),
-                    PermissionOption(
-                        option_id="deny",
-                        name="Deny",
-                        kind="reject_once",
-                    ),
-                ],
+                options=self._approval_options(pending),
             )
         except Exception:
             logger.exception(
@@ -876,12 +868,56 @@ class QwenPawACPAgent(Agent):
             )
             return
 
-        decision = (
-            ApprovalDecision.APPROVED
-            if self._permission_option_id(response) == "approve"
-            else ApprovalDecision.DENIED
-        )
-        await svc.resolve_request(pending.request_id, decision)
+        option_id = self._permission_option_id(response)
+        if option_id == "allow_once":
+            decision = ApprovalDecision.APPROVED
+            scope = ApprovalScope.EXACT
+        elif option_id == "allow_always":
+            decision = ApprovalDecision.APPROVED
+            scope = ApprovalScope.SIMILAR
+        else:
+            decision = ApprovalDecision.DENIED
+            scope = None
+        await svc.resolve_request(pending.request_id, decision, scope=scope)
+
+    @staticmethod
+    def _approval_options(pending: Any) -> list[PermissionOption]:
+        """Build ACP permission options for a pending QwenPaw approval."""
+        display = QwenPawACPAgent._approval_display(pending)
+        if (
+            display.get("is_generalized")
+            and display.get("similar_target")
+            and display.get("similar_target") != display.get("exact_target")
+        ):
+            return [
+                PermissionOption(
+                    option_id="allow_once",
+                    name="Just Once",
+                    kind="allow_once",
+                ),
+                PermissionOption(
+                    option_id="allow_always",
+                    name="Always Allow",
+                    kind="allow_always",
+                ),
+                PermissionOption(
+                    option_id="deny",
+                    name="Deny",
+                    kind="reject_once",
+                ),
+            ]
+        return [
+            PermissionOption(
+                option_id="allow_once",
+                name="Approve",
+                kind="allow_once",
+            ),
+            PermissionOption(
+                option_id="deny",
+                name="Deny",
+                kind="reject_once",
+            ),
+        ]
 
     @staticmethod
     def _approval_tool_input(pending: Any) -> dict[str, Any] | None:
@@ -893,7 +929,29 @@ class QwenPawACPAgent(Agent):
         if not isinstance(tool_call, dict):
             return None
         raw_input = tool_call.get("input")
-        return raw_input if isinstance(raw_input, dict) else None
+        if not isinstance(raw_input, dict):
+            return None
+        result = dict(raw_input)
+        display = QwenPawACPAgent._approval_display(pending)
+        if display.get("is_generalized") and (
+            display.get("exact_target") or display.get("similar_target")
+        ):
+            result.setdefault("approve_exact_target", display["exact_target"])
+            result.setdefault(
+                "approve_pattern_target",
+                display["similar_target"],
+            )
+        return result
+
+    @staticmethod
+    def _approval_display(pending: Any) -> dict[str, Any]:
+        try:
+            from ...app.approvals.display import approval_display_fields
+
+            return approval_display_fields(pending)
+        except Exception:
+            logger.debug("failed to read approval display metadata")
+            return {}
 
     @staticmethod
     def _permission_option_id(response: Any) -> str | None:
