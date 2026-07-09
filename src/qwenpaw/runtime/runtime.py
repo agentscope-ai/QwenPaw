@@ -176,7 +176,14 @@ class Runtime:
                 "_error_text",
                 str(e) or e.__class__.__name__,
             )
-            async for ev in envelope.error_envelope(err_text):
+            err_code = ctx.extras.get(
+                "_error_code",
+                e.__class__.__name__,
+            )
+            async for ev in envelope.error_envelope(
+                err_text,
+                err_code,
+            ):
                 yield ev
             raise
         finally:
