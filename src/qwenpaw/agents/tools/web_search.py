@@ -11,6 +11,8 @@ import logging
 import re
 import ssl
 
+from urllib.parse import urlparse
+
 import html2text
 import httpx
 
@@ -210,7 +212,7 @@ async def web_search(search_term: str) -> ToolChunk:
     if not query:
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -240,7 +242,7 @@ async def web_search(search_term: str) -> ToolChunk:
 
     return ToolChunk(
         is_last=True,
-        state=ToolResultState.SUCCESS,
+        state=ToolResultState.ERROR,
         content=[TextBlock(type="text", text=text)],
     )
 
@@ -269,11 +271,24 @@ async def web_fetch(url: str) -> ToolChunk:
     if not target:
         return ToolChunk(
             is_last=True,
-            state=ToolResultState.SUCCESS,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
                     text="Error: url is empty.",
+                ),
+            ],
+        )
+
+    parsed = urlparse(target)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: Invalid URL format: {target}. URL must start with http:// or https:// and include a hostname.",
                 ),
             ],
         )
@@ -289,6 +304,6 @@ async def web_fetch(url: str) -> ToolChunk:
 
     return ToolChunk(
         is_last=True,
-        state=ToolResultState.SUCCESS,
+        state=ToolResultState.ERROR,
         content=[TextBlock(type="text", text=text)],
     )
