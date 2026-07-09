@@ -479,7 +479,7 @@ class TestCoerceToolInputsRawDecode:
             "path": "README.md",
         }
 
-    def test_completely_invalid_json_becomes_error_tool_result(self):
+    def test_completely_invalid_json_drops_block(self):
         msg = _msg(
             [
                 {
