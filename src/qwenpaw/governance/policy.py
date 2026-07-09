@@ -507,6 +507,13 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
     ),
 ]
 
+# Default user rules added after policy.yaml existed in the wild. Existing
+# persisted policies keep their user_rules, so migrate only these known safe
+# defaults instead of replacing user customizations wholesale.
+_MIGRATED_DEFAULT_USER_RULE_MATCHES = {
+    "*(CODING_PROJECT_DIR/**)",
+}
+
 
 # ---------------------------------------------------------------------------
 # GovernancePolicy
@@ -1014,9 +1021,15 @@ def load_governance_policy(
     if not isinstance(env_blacklist, list):
         env_blacklist = []
 
-    # ── Cold start: fill in missing default rules ──
+    # ── Cold start / migration: fill in missing default rules ──
     if not user_rules:
         user_rules = copy.deepcopy(DEFAULT_USER_RULES)
+    else:
+        user_rules = _merge_missing_default_user_rules(
+            user_rules,
+            workspace_dir,
+            coding_project_dir,
+        )
     if not env_blacklist:
         env_blacklist = list(DEFAULT_ENV_BLACKLIST)
 
@@ -1171,6 +1184,43 @@ def _create_default_policy(
         sensitive_paths=list(_DEFAULT_SENSITIVE_PATHS),
         shell_evasion_checks=dict(_DEFAULT_SHELL_EVASION_CHECKS),
     )
+
+
+def _merge_missing_default_user_rules(
+    user_rules: List[GovernanceRule],
+    workspace_dir: str = "",
+    coding_project_dir: str = "",
+) -> List[GovernanceRule]:
+    """Append migrated default user rules missing from a persisted policy."""
+    merged = list(user_rules)
+    for default_rule in DEFAULT_USER_RULES:
+        if default_rule.match not in _MIGRATED_DEFAULT_USER_RULE_MATCHES:
+            continue
+        if _has_equivalent_rule(
+            merged,
+            default_rule,
+            workspace_dir,
+            coding_project_dir,
+        ):
+            continue
+        merged.append(copy.deepcopy(default_rule))
+    return merged
+
+
+def _has_equivalent_rule(
+    rules: List[GovernanceRule],
+    default_rule: GovernanceRule,
+    workspace_dir: str = "",
+    coding_project_dir: str = "",
+) -> bool:
+    """Return True when a persisted policy already has this default rule."""
+    candidates = {default_rule.match}
+    if workspace_dir:
+        resolved = copy.deepcopy(default_rule)
+        cpd = coding_project_dir or workspace_dir
+        _resolve_placeholders([resolved], workspace_dir, cpd)
+        candidates.add(resolved.match)
+    return any(rule.match in candidates for rule in rules)
 
 
 def _resolve_placeholders(
