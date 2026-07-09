@@ -3,16 +3,16 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 
 import click
 import uvicorn
 
 from ..app.auth import is_auth_enabled
-from ..constant import LOG_LEVEL_ENV
 from ..config.utils import write_last_api
+from ..constant import LOG_LEVEL_ENV
 from ..utils.http import is_loopback_host
-from ..utils.logging import setup_logger, SuppressPathAccessLogFilter
-
+from ..utils.logging import SuppressPathAccessLogFilter, setup_logger
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +98,37 @@ def app_cmd(
     hide_access_paths: tuple[str, ...],
 ) -> None:
     """Run QwenPaw FastAPI app."""
+    if sys.platform == "win32":
+        import ctypes
+
+        if not ctypes.windll.shell32.IsUserAnAdmin():
+            argv0 = os.path.abspath(sys.argv[0])
+            args_str = " ".join(
+                f'"{a}"' if " " in a else a for a in sys.argv[1:]
+            )
+            if argv0.lower().endswith((".py", ".pyw")):
+                program = sys.executable
+                params = f'"{argv0}" {args_str}'
+            else:
+                program = argv0
+                params = args_str
+            ret = ctypes.windll.shell32.ShellExecuteW(
+                None,
+                "runas",
+                program,
+                params,
+                None,
+                1,
+            )
+            if ret <= 32:
+                click.echo(
+                    "Failed to elevate privileges via UAC. "
+                    "Please run as administrator.",
+                    err=True,
+                )
+                sys.exit(1)
+            sys.exit(0)
+
     # Handle deprecated --workers parameter
     if workers is not None:
         click.echo(

@@ -14,19 +14,16 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
-from agentscope.message import TextBlock
+from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
-from agentscope.message import ToolResultState
 
-from ...constant import WORKING_DIR
 from ...config.context import (
     get_current_shell_command_executable,
     get_current_shell_command_timeout,
     get_current_workspace_dir,
 )
+from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
-
-
 from ...sandbox import ExecutionResult
 
 
@@ -363,19 +360,50 @@ def _execute_subprocess_sync(
                     pass
 
 
+# Extra seconds added to the tool-call deadline to accommodate first-time
+# sandbox creation (user provisioning, profile creation, firewall rules, ACLs).
+# Subsequent calls hit the cache and need no extension.
+_SANDBOX_SETUP_DEADLINE_EXTENSION = 120.0
+
+
 async def _execute_in_sandbox(
     cmd: str,
     sandbox_config: Any,
     timeout: float,
     cwd: str,
 ) -> ExecutionResult:
-    """Execute a shell command inside the sandbox and return raw result."""
+    """Execute a shell command inside the sandbox and return raw result.
+
+    On first invocation the sandbox setup (user creation, profile, ACLs,
+    firewall rules) can take 5-100+ seconds. To prevent the ToolCoordinator's
+    deadline from expiring during this one-time setup, we temporarily extend
+    the deadline by _SANDBOX_SETUP_DEADLINE_EXTENSION seconds. The extension
+    is only applied when the call context has a deadline set.
+    """
     from ...sandbox import create_sandbox
+    from ...tool_calls import get_call_context
 
-    sandbox_config.timeout_seconds = int(timeout)
+    # Temporarily extend the tool-call deadline so that sandbox creation
+    # does not consume the user's command timeout budget.
+    ctx = get_call_context()
+    original_deadline = None
+    if ctx is not None and ctx.deadline is not None:
+        original_deadline = ctx.deadline
+        ctx.deadline += _SANDBOX_SETUP_DEADLINE_EXTENSION
 
-    async with create_sandbox(sandbox_config) as sandbox:
-        result = await sandbox.execute(cmd, cwd=cwd)
+    try:
+        async with create_sandbox(sandbox_config) as sandbox:
+            # Restore the original deadline (plus only the command timeout)
+            # now that sandbox setup is complete.
+            if ctx is not None and original_deadline is not None:
+                now = asyncio.get_event_loop().time()
+                ctx.deadline = now + timeout
+            result = await sandbox.execute(cmd, cwd=cwd)
+    except BaseException:
+        # On failure, restore original deadline to avoid permanent extension
+        if ctx is not None and original_deadline is not None:
+            ctx.deadline = original_deadline
+        raise
 
     return result
 
@@ -538,6 +566,15 @@ async def execute_shell_command(
     )
 
     if sandbox_config is not None:
+        # Create a copy with resolved shell and timeout to avoid mutating
+        # the shared config object (it may be reused across tool calls).
+        from dataclasses import replace as _dc_replace
+
+        sandbox_config = _dc_replace(
+            sandbox_config,
+            shell_executable=shell_executable,
+            timeout_seconds=int(timeout),
+        )
         result = await _execute_in_sandbox(
             cmd,
             sandbox_config,
