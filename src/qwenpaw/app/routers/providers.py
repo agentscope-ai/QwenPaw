@@ -148,7 +148,7 @@ class ModelConfigRequest(BaseModel):
             "These override provider-level generate_kwargs."
         ),
     )
-    preserve_thinking: Optional[bool] = Field(
+    relay_reasoning: Optional[bool] = Field(
         default=None,
         description="Whether to relay reasoning_content in subsequent turns.",
     )
@@ -591,7 +591,7 @@ async def configure_model(
                 "generate_kwargs": body.generate_kwargs,
                 "max_tokens": body.max_tokens,
                 "max_input_length": body.max_input_length,
-                "preserve_thinking": body.preserve_thinking,
+                "relay_reasoning": body.relay_reasoning,
                 "thinking_enabled": body.thinking_enabled,
                 "thinking_budget": body.thinking_budget,
                 "reasoning_effort": body.reasoning_effort,

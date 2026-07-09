@@ -69,6 +69,7 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         supports_video=False,
         probe_source="documentation",
         thinking_enabled=True,
+        relay_reasoning=False,
     ),
     ModelInfo(
         id="qwen3.7-plus",
@@ -77,6 +78,7 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         supports_video=True,
         probe_source="documentation",
         thinking_enabled=True,
+        relay_reasoning=False,
     ),
     ModelInfo(
         id="qwen3.6-plus",
@@ -85,6 +87,7 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         supports_video=True,
         probe_source="documentation",
         thinking_enabled=True,
+        relay_reasoning=False,
     ),
     ModelInfo(
         id="deepseek-v4-pro",
@@ -95,6 +98,7 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         thinking_enabled=True,
         thinking_param_style="effort",
         reasoning_effort_options=["high", "max"],
+        relay_reasoning=False,
     ),
     ModelInfo(
         id="glm-5.2",
@@ -105,6 +109,7 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         thinking_enabled=True,
         thinking_param_style="effort",
         reasoning_effort_options=["high", "max"],
+        relay_reasoning=False,
     ),
 ]
 
@@ -2212,7 +2217,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     "generate_kwargs",
                     "max_tokens",
                     "max_input_length",
-                    "preserve_thinking",
+                    "relay_reasoning",
                     "thinking_enabled",
                     "thinking_budget",
                     "reasoning_effort",
@@ -2239,10 +2244,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                                 model.max_input_length = cfg[
                                     "max_input_length"
                                 ]
-                            if cfg.get("preserve_thinking") is not None:
-                                model.preserve_thinking = cfg[
-                                    "preserve_thinking"
-                                ]
+                            if cfg.get("relay_reasoning") is not None:
+                                model.relay_reasoning = cfg["relay_reasoning"]
                             if cfg.get("thinking_enabled") is not None:
                                 model.thinking_enabled = cfg[
                                     "thinking_enabled"

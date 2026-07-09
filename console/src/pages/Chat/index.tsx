@@ -1507,7 +1507,7 @@ export default function ChatPage() {
       const request = approvalRequests.get(requestId);
       if (!request) return;
 
-      const rootSessionId = window.currentSessionId || chatId || "";
+      const rootSessionId = request.rootSessionId || request.sessionId;
 
       try {
         const cardElement = document.querySelector(
@@ -1551,7 +1551,7 @@ export default function ChatPage() {
       if (!request) return;
 
       // Use currentSessionId (root session) instead of request.sessionId (sub-agent session)
-      const rootSessionId = window.currentSessionId || chatId || "";
+      const rootSessionId = request.rootSessionId || request.sessionId;
 
       try {
         // Add exit animation class
