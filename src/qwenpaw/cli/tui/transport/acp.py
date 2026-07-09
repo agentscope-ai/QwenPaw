@@ -35,7 +35,10 @@ from acp.schema import (
     RequestPermissionResponse,
 )
 
-from ....agents.acp.meta import ACP_CODING_PROJECT_META_KEY
+from ....agents.acp.meta import (
+    ACP_CODING_PROJECT_META_KEY,
+    ACP_EPHEMERAL_META_KEY,
+)
 from ..__version__ import __version__
 from ..events import (
     BackendWarmed,
@@ -69,8 +72,8 @@ _WARMUP_PROMPT = (
 # ``_meta`` flag marking the warmup session ephemeral so the QwenPaw ACP server
 # never registers a console chat or persists state for it. Passed as an extra
 # kwarg on ``new_session``/``prompt`` (the ACP client folds extra kwargs into
-# the request's ``_meta``). Mirrors the server's ``ACP_EPHEMERAL_META_KEY``.
-_EPHEMERAL_META_KEY = "qwenpaw.ephemeral"
+# the request's ``_meta``).
+_EPHEMERAL_META_KEY = ACP_EPHEMERAL_META_KEY
 
 
 def _open_agent_stderr_log() -> tuple[int | None, str | None]:

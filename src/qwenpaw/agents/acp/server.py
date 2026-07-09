@@ -77,7 +77,7 @@ from ...config.config import ModelSlotConfig
 from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
 from ...agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
-from .meta import ACP_CODING_PROJECT_META_KEY
+from .meta import ACP_CODING_PROJECT_META_KEY, ACP_EPHEMERAL_META_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -319,6 +319,8 @@ class QwenPawACPAgent(Agent):
             project_dir = project_dir.strip()
             if project_dir:
                 info[ACP_CODING_PROJECT_META_KEY] = project_dir
+        if meta.get(ACP_EPHEMERAL_META_KEY) is True:
+            info[ACP_EPHEMERAL_META_KEY] = True
         return info
 
     async def _ensure_app_services(self) -> Any:
@@ -613,6 +615,8 @@ class QwenPawACPAgent(Agent):
             project_dir = project_dir.strip()
             if project_dir:
                 request_context[ACP_CODING_PROJECT_META_KEY] = project_dir
+        if session_info.get(ACP_EPHEMERAL_META_KEY) is True:
+            request_context[ACP_EPHEMERAL_META_KEY] = True
 
         request = AgentRequest(
             input=[
@@ -892,12 +896,12 @@ class QwenPawACPAgent(Agent):
             return [
                 PermissionOption(
                     option_id="allow_once",
-                    name="Just Once",
+                    name="Just Once Exact",
                     kind="allow_once",
                 ),
                 PermissionOption(
                     option_id="allow_always",
-                    name="Always Allow",
+                    name="Always Allow Pattern",
                     kind="allow_always",
                 ),
                 PermissionOption(
@@ -909,7 +913,7 @@ class QwenPawACPAgent(Agent):
         return [
             PermissionOption(
                 option_id="allow_once",
-                name="Approve",
+                name="Approve Exact",
                 kind="allow_once",
             ),
             PermissionOption(

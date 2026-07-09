@@ -301,6 +301,8 @@ async def test_approval_bridge_resolves_pending_approval(monkeypatch):
         "allow_once",
         "deny",
     }
+    names = {option.option_id: option.name for option in request["options"]}
+    assert names["allow_once"] == "Approve Exact"
     assert pending.scope is ApprovalScope.EXACT
 
 
@@ -381,6 +383,9 @@ async def test_approval_bridge_resolves_pattern_scope(monkeypatch):
     kinds = {option.option_id: option.kind for option in request["options"]}
     assert kinds["allow_once"] == "allow_once"
     assert kinds["allow_always"] == "allow_always"
+    names = {option.option_id: option.name for option in request["options"]}
+    assert names["allow_once"] == "Just Once Exact"
+    assert names["allow_always"] == "Always Allow Pattern"
     assert request["tool_call"].raw_input == {
         "command": "git status",
         "approve_exact_target": "git status",
