@@ -2890,6 +2890,7 @@
     "enableLabel": "Enable System Notifications",
     "enableHint": "When enabled, matching inbox events will trigger native desktop notifications.",
     "soundLabel": "Notification Sound",
+    "soundLabelShort": "Enable notification sound",
     "soundHint": "Play a sound when notifications are delivered.",
     "intervalLabel": "Minimum Interval",
     "intervalHint": "Rate-limit between consecutive notifications to prevent flooding.",

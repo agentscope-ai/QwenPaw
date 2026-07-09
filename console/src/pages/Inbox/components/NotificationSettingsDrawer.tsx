@@ -73,16 +73,11 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
       width={420}
     >
       <div className={styles.container}>
-        <p className={styles.description}>{t("notifications.description")}</p>
-
         {/* Master switch */}
         <div className={styles.settingRow}>
           <div className={styles.settingInfo}>
             <div className={styles.settingTitle}>
               {t("notifications.enableLabel")}
-            </div>
-            <div className={styles.settingHint}>
-              {t("notifications.enableHint")}
             </div>
           </div>
           <Switch
@@ -96,10 +91,7 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
         <div className={styles.settingRow}>
           <div className={styles.settingInfo}>
             <div className={styles.settingTitle}>
-              {t("notifications.soundLabel")}
-            </div>
-            <div className={styles.settingHint}>
-              {t("notifications.soundHint")}
+              {t("notifications.soundLabelShort")}
             </div>
           </div>
           <Switch
@@ -110,33 +102,11 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
           />
         </div>
 
-        {/* Min interval */}
-        <div className={styles.settingRow}>
-          <div className={styles.settingInfo}>
-            <div className={styles.settingTitle}>
-              {t("notifications.intervalLabel")}
-            </div>
-            <div className={styles.settingHint}>
-              {t("notifications.intervalHint")}
-            </div>
-          </div>
-          <InputNumber
-            min={1}
-            max={3600}
-            value={config.min_interval_seconds}
-            onChange={(val) => val && updateMinInterval(val)}
-            disabled={!config.enabled}
-            addonAfter="s"
-            style={{ width: 110 }}
-          />
-        </div>
-
         {/* Source toggles */}
         <div className={styles.section}>
-          <h4 className={styles.sectionTitle}>
+          <div className={styles.settingTitle}>
             {t("notifications.sourcesTitle")}
-          </h4>
-          <p className={styles.sectionHint}>{t("notifications.sourcesHint")}</p>
+          </div>
           {SOURCE_KEYS.map(({ key, labelKey, indent, isLabel }) =>
             isLabel ? (
               <div key={key} className={styles.sourceRow}>
@@ -170,9 +140,9 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
         {/* Agent filter */}
         {agentOptions.length > 1 && (
           <div className={styles.section}>
-            <h4 className={styles.sectionTitle}>
+            <div className={styles.settingTitle}>
               {t("notifications.agentFilterTitle")}
-            </h4>
+            </div>
             <p className={styles.sectionHint}>
               {t("notifications.agentFilterHint")}
             </p>
@@ -190,6 +160,27 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
             />
           </div>
         )}
+
+        {/* Min interval */}
+        <div className={styles.settingRow}>
+          <div className={styles.settingInfo}>
+            <div className={styles.settingTitle}>
+              {t("notifications.intervalLabel")}
+            </div>
+            <div className={styles.settingHint}>
+              {t("notifications.intervalHint")}
+            </div>
+          </div>
+          <InputNumber
+            min={1}
+            max={3600}
+            value={config.min_interval_seconds}
+            onChange={(val) => val && updateMinInterval(val)}
+            disabled={!config.enabled}
+            addonAfter="s"
+            style={{ width: 110 }}
+          />
+        </div>
 
         {/* Test button */}
         <div className={styles.testRow}>

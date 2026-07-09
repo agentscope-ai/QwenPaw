@@ -2909,6 +2909,7 @@
     "enableLabel": "开启系统通知",
     "enableHint": "开启后，匹配的收件箱事件将触发系统桌面通知。",
     "soundLabel": "通知声音",
+    "soundLabelShort": "开启通知声音",
     "soundHint": "通知送达时播放声音。",
     "intervalLabel": "最小间隔",
     "intervalHint": "连续通知之间的最小时间间隔，防止刷屏。",
