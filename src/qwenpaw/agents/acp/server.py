@@ -896,12 +896,12 @@ class QwenPawACPAgent(Agent):
             return [
                 PermissionOption(
                     option_id="allow_once",
-                    name="Just Once Exact",
+                    name="Allow Exact This Session",
                     kind="allow_once",
                 ),
                 PermissionOption(
                     option_id="allow_always",
-                    name="Always Allow Pattern",
+                    name="Allow Pattern This Session",
                     kind="allow_always",
                 ),
                 PermissionOption(
@@ -913,7 +913,7 @@ class QwenPawACPAgent(Agent):
         return [
             PermissionOption(
                 option_id="allow_once",
-                name="Approve Exact",
+                name="Allow Exact This Session",
                 kind="allow_once",
             ),
             PermissionOption(
