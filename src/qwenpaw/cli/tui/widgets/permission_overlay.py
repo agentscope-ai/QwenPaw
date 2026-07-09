@@ -15,6 +15,13 @@ from ..events import PermissionRequest
 _MAX_PARAM_LINES = 6
 _MAX_PARAM_COLUMNS = 120
 _TITLE_OPTION_ID = "__permission_title"
+_IMPORTANT_PARAM_LABELS = {
+    "command": "Command",
+    "approve_exact_target": "Exact Target",
+    "approve_pattern_target": "Pattern Target",
+    "path": "Path",
+    "file_path": "Path",
+}
 
 
 class PermissionOverlay(OptionList):
@@ -84,18 +91,31 @@ class PermissionOverlay(OptionList):
         if request.tool_kind:
             self.add_option(
                 Option(
-                    Text(f"kind: {request.tool_kind}", style="#8a8a8a"),
+                    _labeled_text("Action", request.tool_kind),
                     disabled=True,
                 ),
             )
         if request.params:
             self.add_option(
-                Option(Text("parameters", style="#8a8a8a"), disabled=True),
+                Option(
+                    Text("Review target", style="bold #8fd3ff"),
+                    disabled=True,
+                ),
             )
             for line in _param_lines(request.params):
                 self.add_option(
-                    Option(Text(line, style="#d8dee9"), disabled=True),
+                    Option(_param_text(line), disabled=True),
                 )
+        if request.options:
+            self.add_option(
+                Option(
+                    Text(
+                        "Choose a session-scoped action",
+                        style="#9ca3af",
+                    ),
+                    disabled=True,
+                ),
+            )
 
         for option in request.options:
             label = Text(option.name or option.option_id)
@@ -197,3 +217,42 @@ def _truncate_line(line: str) -> str:
     if len(line) <= _MAX_PARAM_COLUMNS:
         return line
     return line[: _MAX_PARAM_COLUMNS - 3] + "..."
+
+
+def _labeled_text(label: str, value: str) -> Text:
+    text = Text()
+    text.append(f"{label}: ", style="bold #8fd3ff")
+    text.append(_truncate_line(value), style="bold #d8dee9")
+    return text
+
+
+def _param_text(line: str) -> Text:
+    if line.startswith("..."):
+        return Text(line, style="#9ca3af")
+    key, separator, value = line.partition(":")
+    if not separator:
+        return Text(_truncate_line(line), style="#d8dee9")
+
+    normalized = key.strip()
+    label = _IMPORTANT_PARAM_LABELS.get(
+        normalized,
+        normalized.replace("_", " ").title(),
+    )
+    value = value.strip()
+
+    label_style = "bold #8fd3ff"
+    value_style = "#d8dee9"
+    if normalized == "command":
+        label_style = "bold #ffcf6d"
+        value_style = "bold #f8f8f2"
+    elif normalized == "approve_pattern_target":
+        label_style = "bold #b48cff"
+        value_style = "bold #d8dee9"
+    elif normalized == "approve_exact_target":
+        label_style = "bold #8fd3ff"
+        value_style = "bold #d8dee9"
+
+    text = Text()
+    text.append(f"{label}: ", style=label_style)
+    text.append(_truncate_line(value), style=value_style)
+    return text

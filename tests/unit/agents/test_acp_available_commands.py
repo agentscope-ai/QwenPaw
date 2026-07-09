@@ -70,6 +70,7 @@ class _HangingApprovalConn(_FakeConn):
         super().__init__()
         self.started = asyncio.Event()
         self.cancelled = False
+        self.cancel_reason = ""
         self.permission_requests: list[dict[str, object]] = []
 
     async def request_permission(
@@ -89,8 +90,9 @@ class _HangingApprovalConn(_FakeConn):
         self.started.set()
         try:
             await asyncio.Future()
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as exc:
             self.cancelled = True
+            self.cancel_reason = str(exc.args[0]) if exc.args else ""
             raise
 
 
@@ -495,6 +497,7 @@ async def test_approval_bridge_expires_when_pending_times_out(monkeypatch):
     await asyncio.wait_for(task, timeout=1.0)
 
     assert conn.cancelled is True
+    assert conn.cancel_reason == "timeout"
     assert pending.status == ApprovalDecision.TIMEOUT.value
 
 

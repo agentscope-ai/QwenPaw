@@ -164,6 +164,36 @@ async def test_permission_cancellation_emits_expired_event():
 
 
 @pytest.mark.asyncio
+async def test_permission_timeout_cancellation_emits_timeout_message():
+    queue = asyncio.Queue()
+    client = _TuiClient(queue)
+    task = asyncio.create_task(
+        client.request_permission(
+            options=[],
+            session_id="sess-1",
+            tool_call=SimpleNamespace(
+                title="dangerous_tool",
+                kind="execute",
+                raw_input={"command": "rm -rf /tmp/nope"},
+            ),
+        ),
+    )
+
+    request = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(request, PermissionRequest)
+
+    task.cancel("timeout")
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    expired = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(expired, PermissionExpired)
+    assert expired.request_id == request.request_id
+    assert "timed out" in expired.message
+    assert "blocked" in expired.message
+
+
+@pytest.mark.asyncio
 async def test_permission_request_carries_expiry_metadata():
     queue = asyncio.Queue()
     client = _TuiClient(queue)
