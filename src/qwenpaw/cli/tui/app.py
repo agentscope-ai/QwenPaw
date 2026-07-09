@@ -27,6 +27,7 @@ from .events import (
     BackendWarmed,
     Connected,
     PermissionRequest,
+    PermissionExpired,
     PlanUpdate,
     PushMessage,
     SessionSummary,
@@ -1046,6 +1047,9 @@ class PawApp(App):
         elif isinstance(event, PermissionRequest):
             self._on_permission(event)
 
+        elif isinstance(event, PermissionExpired):
+            await self._on_permission_expired(event)
+
         elif isinstance(event, TransportError):
             self._awaiting_backend_update = False
             self._turn_saw_error = True
@@ -1133,6 +1137,13 @@ class PawApp(App):
         self._menu.display = False
         self._permission.show_request(event)
         self._permission.focus()
+
+    async def _on_permission_expired(self, event: PermissionExpired) -> None:
+        current = self._permission.request
+        if current is not None and current.request_id == event.request_id:
+            self._clear_permission()
+        self._turn_saw_output = True
+        await self._mount(InfoMessage(event.message, level="warn"))
 
     def _clear_permission(self) -> None:
         was_active = self._permission_active()

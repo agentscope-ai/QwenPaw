@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +17,7 @@ from qwenpaw.agents.acp.meta import ACP_CODING_PROJECT_META_KEY
 from qwenpaw.cli.tui.events import (
     BackendWarmed,
     Connected,
+    PermissionExpired,
     PermissionRequest,
     TextDelta,
     ThoughtDelta,
@@ -24,7 +26,7 @@ from qwenpaw.cli.tui.events import (
     TurnEnded,
     UserTurn,
 )
-from qwenpaw.cli.tui.transport.acp import AcpTransport
+from qwenpaw.cli.tui.transport.acp import AcpTransport, _TuiClient
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
 
@@ -127,6 +129,35 @@ async def test_permission_allow():
 
     text = "".join(e.text for e in events if isinstance(e, TextDelta))
     assert "[perm:allow]" in text
+
+
+@pytest.mark.asyncio
+async def test_permission_cancellation_emits_expired_event():
+    queue = asyncio.Queue()
+    client = _TuiClient(queue)
+    task = asyncio.create_task(
+        client.request_permission(
+            options=[],
+            session_id="sess-1",
+            tool_call=SimpleNamespace(
+                title="dangerous_tool",
+                kind="execute",
+                raw_input={"command": "rm -rf /tmp/nope"},
+            ),
+        ),
+    )
+
+    request = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(request, PermissionRequest)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    expired = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(expired, PermissionExpired)
+    assert expired.request_id == request.request_id
+    assert "no longer pending" in expired.message
 
 
 @pytest.mark.asyncio
@@ -238,8 +269,6 @@ async def test_load_session_replays_history():
 
 
 def test_session_agent_reads_meta():
-    from types import SimpleNamespace
-
     from qwenpaw.cli.tui.transport.acp import _session_agent
 
     # Agent id reported via the session response _meta.

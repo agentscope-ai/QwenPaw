@@ -21,6 +21,7 @@ from qwenpaw.cli.tui.events import (
     Connected,
     FileLink,
     PermissionOption,
+    PermissionExpired,
     PermissionRequest,
     SessionSummary,
     SessionTitle,
@@ -800,6 +801,40 @@ async def test_permission_overlay_resolves_after_prompt_loses_focus():
                 break
 
         assert transport.resolved == [("r1", "deny")]
+
+
+@pytest.mark.asyncio
+async def test_permission_overlay_expires_with_message():
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._dispatch(
+            PermissionRequest(
+                request_id="r-expired",
+                title="dangerous_tool",
+                options=[
+                    PermissionOption("allow", "Allow", "allow_once"),
+                    PermissionOption("deny", "Deny", "reject_once"),
+                ],
+            ),
+        )
+        await pilot.pause()
+
+        overlay = app.query_one(PermissionOverlay)
+        assert overlay.display
+
+        await app._dispatch(
+            PermissionExpired(
+                request_id="r-expired",
+                message="Approval request is no longer pending.",
+            ),
+        )
+        await pilot.pause()
+
+        assert not overlay.display
+        infos = [i.content.plain for i in app.query(InfoMessage)]
+        assert any("Approval request is no longer pending" in i for i in infos)
 
 
 @pytest.mark.asyncio

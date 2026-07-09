@@ -141,6 +141,14 @@ class PermissionRequest:
 
 
 @dataclass(frozen=True)
+class PermissionExpired:
+    """A previously shown permission prompt is no longer actionable."""
+
+    request_id: str
+    message: str
+
+
+@dataclass(frozen=True)
 class SlashCommand:
     """One agent slash command, used to drive input auto-suggestions."""
 
@@ -209,6 +217,7 @@ TuiEvent = (
     | Usage
     | TokenUsage
     | PermissionRequest
+    | PermissionExpired
     | AvailableCommands
     | PushMessage
     | UserTurn
