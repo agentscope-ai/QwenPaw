@@ -58,7 +58,9 @@ def manager() -> UnifiedQueueManager:
 
 
 async def _wait_for_qsize(
-    queue: asyncio.Queue, target: int, timeout: float = 1.0
+    queue: asyncio.Queue,
+    target: int,
+    timeout: float = 1.0,
 ) -> None:
     """Poll until ``queue.qsize()`` reaches ``target`` or timeout.
 
