@@ -38,6 +38,29 @@ async def test_process_clear_returns_clear_history_metadata() -> None:
 
 
 @pytest.mark.asyncio
+async def test_clear_resets_stop_gates_and_pending_gate_state() -> None:
+    agent = _make_agent()
+    agent._gate_pending_stop = object()
+    agent._gate_pending_continue = "continue"
+    stop_handler = MagicMock()
+    ctx = SimpleNamespace(
+        workspace=SimpleNamespace(_stop_handler=stop_handler),
+        agent=agent,
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        prompt_context=ctx,
+    )
+
+    await handler.handle_command("/clear")
+
+    stop_handler.reset.assert_called_once_with()
+    assert agent._gate_pending_stop is None
+    assert agent._gate_pending_continue is None
+
+
+@pytest.mark.asyncio
 async def test_system_prompt_command_returns_current_prompt() -> None:
     agent = _make_agent()
 
