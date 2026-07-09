@@ -65,6 +65,7 @@ dependencies = [
     # Pure-Python wrapper around a prebuilt Rust binary; PyPI distributes
     # wheels for all three OSes.
     "ast-grep-cli>=0.20",
+    "html2text>=2024.2.26",
 ]
 
 [project.urls]

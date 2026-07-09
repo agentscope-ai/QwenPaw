@@ -492,6 +492,17 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         action=GovernanceAction.ALLOW,
         reason="Allow all browser access",
     ),
+    # ── Web search & fetch (read-only network tools) ──
+    GovernanceRule(
+        match="WebSearch(**)",
+        action=GovernanceAction.ALLOW,
+        reason="Allow web search",
+    ),
+    GovernanceRule(
+        match="WebFetch(**)",
+        action=GovernanceAction.ALLOW,
+        reason="Allow web fetch",
+    ),
     # ── /tmp ──
     # Allow all tool access under /tmp without prompting.
     GovernanceRule(

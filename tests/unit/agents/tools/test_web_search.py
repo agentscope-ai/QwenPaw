@@ -3,8 +3,9 @@
 
 Covers:
 - _post (SSL fallback)
+- _fetch_html (SSL fallback for GET)
+- _html_to_text (BeautifulSoup conversion)
 - _format_search_results
-- _format_extract_results
 - web_search
 - web_fetch
 """
@@ -18,8 +19,9 @@ import pytest
 from agentscope.message import ToolResultState
 
 from qwenpaw.agents.tools.web_search import (
-    _format_extract_results,
     _format_search_results,
+    _html_to_text,
+    _is_ssl_error,
     _post,
     web_fetch,
     web_search,
@@ -66,36 +68,93 @@ class TestFormatSearchResults:
 
 
 # -------------------------------------------------------------------
-# _format_extract_results
+# _html_to_text
 # -------------------------------------------------------------------
 
 
-class TestFormatExtractResults:
-    """Tests for _format_extract_results."""
+class TestHtmlToText:
+    """Tests for _html_to_text."""
 
-    def test_empty(self):
-        assert _format_extract_results([]) == "No content extracted."
+    def test_basic_html(self):
+        html = "<html><body><p>Hello world</p></body></html>"
+        assert "Hello world" in _html_to_text(html)
 
-    def test_single(self):
-        results = [
-            {
-                "url": "https://example.com",
-                "raw_content": "page text",
-            },
-        ]
-        out = _format_extract_results(results)
-        assert "https://example.com" in out
-        assert "page text" in out
+    def test_title_prepended(self):
+        html = (
+            "<html><head><title>My Page</title></head>"
+            "<body><p>Content</p></body></html>"
+        )
+        text = _html_to_text(html)
+        assert text.startswith("# My Page")
+        assert "Content" in text
 
-    def test_multiple_joined(self):
-        results = [
-            {"url": "https://a.com", "raw_content": "aaa"},
-            {"url": "https://b.com", "raw_content": "bbb"},
-        ]
-        out = _format_extract_results(results)
-        assert "---" in out
-        assert "aaa" in out
-        assert "bbb" in out
+    def test_strips_script_and_style(self):
+        html = (
+            "<html><body>"
+            "<script>alert(1)</script>"
+            "<style>.x{color:red}</style>"
+            "<p>Content</p>"
+            "</body></html>"
+        )
+        text = _html_to_text(html)
+        assert "Content" in text
+        assert "alert" not in text
+        assert "color" not in text
+
+    def test_preserves_links(self):
+        html = '<a href="https://example.com">Click</a>'
+        text = _html_to_text(html)
+        assert "https://example.com" in text
+        assert "Click" in text
+
+    def test_empty_body_with_title(self):
+        html = (
+            "<html><head>"
+            "<title>My SPA Page</title>"
+            "</head><body></body></html>"
+        )
+        assert _html_to_text(html) == "# My SPA Page"
+
+    def test_empty_body_no_title(self):
+        html = "<html><body></body></html>"
+        assert _html_to_text(html) == ""
+
+    def test_heading(self):
+        html = "<h1>Title</h1><p>Body</p>"
+        text = _html_to_text(html)
+        assert "Title" in text
+        assert "Body" in text
+
+
+# -------------------------------------------------------------------
+# _is_ssl_error
+# -------------------------------------------------------------------
+
+
+class TestIsSslError:
+    """Tests for _is_ssl_error."""
+
+    def test_direct_ssl_error(self):
+        import ssl as _ssl
+
+        exc = _ssl.SSLError("cert verify failed")
+        assert _is_ssl_error(exc) is True
+
+    def test_wrapped_ssl_error(self):
+        import ssl as _ssl
+
+        inner = _ssl.SSLCertVerificationError("self-signed")
+        outer = httpx.ConnectError("conn failed")
+        outer.__cause__ = inner
+        assert _is_ssl_error(outer) is True
+
+    def test_non_ssl_error(self):
+        exc = httpx.ConnectError("refused")
+        assert _is_ssl_error(exc) is False
+
+    def test_timeout_not_ssl(self):
+        exc = httpx.TimeoutException("timed out")
+        assert _is_ssl_error(exc) is False
 
 
 # -------------------------------------------------------------------
@@ -224,17 +283,11 @@ class TestWebFetch:
 
     @pytest.mark.asyncio
     async def test_success(self):
+        fake_html = "<html><body><p>Page content here</p></body></html>"
         with patch(
-            "qwenpaw.agents.tools.web_search._post",
+            "qwenpaw.agents.tools.web_search._fetch_html",
             new_callable=AsyncMock,
-            return_value={
-                "results": [
-                    {
-                        "url": "https://example.com",
-                        "raw_content": "Page content here",
-                    },
-                ],
-            },
+            return_value=fake_html,
         ):
             chunk = await web_fetch("https://example.com")
         assert chunk.state == ToolResultState.SUCCESS
@@ -242,13 +295,24 @@ class TestWebFetch:
         assert "Page content here" in text
 
     @pytest.mark.asyncio
+    async def test_empty_page_content(self):
+        with patch(
+            "qwenpaw.agents.tools.web_search._fetch_html",
+            new_callable=AsyncMock,
+            return_value="<html><body></body></html>",
+        ):
+            chunk = await web_fetch("https://empty.com")
+        text = chunk.content[0].text
+        assert "No content extracted" in text
+
+    @pytest.mark.asyncio
     async def test_failure_with_fallback_hint(self):
         with patch(
-            "qwenpaw.agents.tools.web_search._post",
+            "qwenpaw.agents.tools.web_search._fetch_html",
             new_callable=AsyncMock,
             side_effect=Exception("network error"),
         ):
             chunk = await web_fetch("https://example.com")
         text = chunk.content[0].text
         assert "failed" in text.lower()
-        assert "fall back" in text.lower()
+        assert "curl" in text.lower()

@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # pylint: disable=line-too-long
-"""Web search and fetch tools powered by Tavily."""
+"""Web search and fetch tools.
+
+web_search uses Tavily keyless API.
+web_fetch uses direct HTTP GET + html2text.
+"""
 
 import logging
+import re
+import ssl
 
+import html2text
 import httpx
 
 from agentscope.message import TextBlock
@@ -16,16 +23,49 @@ from ...runtime.tool_registry import tool_descriptor
 logger = logging.getLogger(__name__)
 
 _TAVILY_SEARCH_URL = "https://api.tavily.com/search"
-_TAVILY_EXTRACT_URL = "https://api.tavily.com/extract"
 _DEFAULT_TIMEOUT = 30
 _DEFAULT_MAX_RESULTS = 5
 
-_FALLBACK_HINT = (
+_SEARCH_FALLBACK_HINT = (
     "This tool uses a free API with rate limits. "
     "Try again later, or fall back to "
     "execute_shell_command with curl, or browser_use "
     "with action='open' as a last resort."
 )
+
+_FETCH_FALLBACK_HINT = (
+    "Try execute_shell_command with curl, or "
+    "browser_use with action='open' as a last resort."
+)
+
+_FETCH_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+}
+
+
+def _new_html2text() -> html2text.HTML2Text:
+    """Create a configured HTML2Text converter."""
+    h = html2text.HTML2Text()
+    h.ignore_links = False
+    h.ignore_images = True
+    h.body_width = 0
+    return h
+
+
+def _is_ssl_error(exc: BaseException) -> bool:
+    """Check if exc (or its cause chain) is SSL-related."""
+    cur: BaseException | None = exc
+    while cur is not None:
+        if isinstance(cur, ssl.SSLError):
+            return True
+        if "SSL" in type(cur).__name__:
+            return True
+        cur = cur.__cause__
+    return False
 
 
 async def _post(
@@ -44,7 +84,7 @@ async def _post(
                 json=payload,
             )
     except Exception as first_exc:
-        if "SSL" not in str(type(first_exc).__name__):
+        if not _is_ssl_error(first_exc):
             raise
         logger.warning(
             f"SSL verify failed for {url}, retrying",
@@ -79,16 +119,59 @@ def _format_search_results(results: list[dict]) -> str:
     return "\n".join(lines).rstrip()
 
 
-def _format_extract_results(results: list[dict]) -> str:
-    """Format Tavily extract results into readable text."""
-    if not results:
-        return "No content extracted."
-    parts: list[str] = []
-    for r in results:
-        url = r.get("url", "")
-        raw = r.get("raw_content", "")
-        parts.append(f"URL: {url}\n\n{raw}")
-    return "\n\n---\n\n".join(parts)
+async def _fetch_html(url: str) -> str:
+    """Fetch raw HTML from *url* with SSL-verification fallback."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=_DEFAULT_TIMEOUT,
+            follow_redirects=True,
+        ) as client:
+            resp = await client.get(
+                url,
+                headers=_FETCH_HEADERS,
+            )
+    except Exception as first_exc:
+        if not _is_ssl_error(first_exc):
+            raise
+        logger.warning(
+            f"SSL verify failed for {url}, retrying",
+        )
+        async with httpx.AsyncClient(
+            timeout=_DEFAULT_TIMEOUT,
+            follow_redirects=True,
+            verify=False,
+        ) as client:
+            resp = await client.get(
+                url,
+                headers=_FETCH_HEADERS,
+            )
+    resp.raise_for_status()
+    return resp.text
+
+
+def _extract_title(html_content: str) -> str:
+    """Best-effort <title> extraction as fallback."""
+    m = re.search(
+        r"<title[^>]*>(.*?)</title>",
+        html_content,
+        re.IGNORECASE | re.DOTALL,
+    )
+    return m.group(1).strip() if m else ""
+
+
+def _html_to_text(html_content: str) -> str:
+    """Convert HTML to readable markdown via html2text.
+
+    Always prepends the <title> as a heading when present.
+    """
+    title = _extract_title(html_content)
+    h = _new_html2text()
+    body = h.handle(html_content).strip()
+    if title and body:
+        return f"# {title}\n\n{body}"
+    if title:
+        return f"# {title}"
+    return body
 
 
 @tool_descriptor(async_execution=True)
@@ -141,7 +224,7 @@ async def web_search(search_term: str) -> ToolChunk:
         text = _format_search_results(results)
     except Exception as exc:
         logger.warning(f"web_search failed: {exc}")
-        text = f"web_search failed: {exc}\n\n" f"{_FALLBACK_HINT}"
+        text = f"web_search failed: {exc}\n\n" f"{_SEARCH_FALLBACK_HINT}"
 
     return ToolChunk(
         is_last=True,
@@ -162,7 +245,7 @@ async def web_fetch(url: str) -> ToolChunk:
 
     IMPORTANT - Prefer this tool over browser_use when you have a direct URL and only need to read its content. Use browser_use only when the page requires JavaScript rendering or interactive operations.
 
-    FALLBACK - This tool uses a free API with rate limits. If it returns an error, fall back to execute_shell_command with curl, or browser_use with action='open' as a last resort.
+    FALLBACK - If this tool returns an error or empty content, fall back to execute_shell_command with curl, or browser_use with action='open' as a last resort.
 
     Args:
         url: The URL to fetch. The content will be converted to a readable text format.
@@ -184,19 +267,13 @@ async def web_fetch(url: str) -> ToolChunk:
         )
 
     try:
-        data = await _post(
-            _TAVILY_EXTRACT_URL,
-            headers={
-                "Content-Type": "application/json",
-                "X-Tavily-Access-Mode": "keyless",
-            },
-            payload={"urls": [target]},
-        )
-        results = data.get("results", [])
-        text = _format_extract_results(results)
+        raw_html = await _fetch_html(target)
+        text = _html_to_text(raw_html)
+        if not text:
+            text = "No content extracted from the page."
     except Exception as exc:
         logger.warning(f"web_fetch failed: {exc}")
-        text = f"web_fetch failed: {exc}\n\n" f"{_FALLBACK_HINT}"
+        text = f"web_fetch failed: {exc}\n\n" f"{_FETCH_FALLBACK_HINT}"
 
     return ToolChunk(
         is_last=True,
