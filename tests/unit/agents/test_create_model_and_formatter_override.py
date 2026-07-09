@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for ``create_model_and_formatter`` ``model_slot_override`` parameter."""
+"""Tests for ``create_model_and_formatter`` model override support."""
 
 # pylint: disable=protected-access,redefined-outer-name
 from types import SimpleNamespace
@@ -8,11 +8,12 @@ from unittest.mock import patch
 import pytest
 
 from qwenpaw.agents import model_factory
+from qwenpaw.config import config as config_module
 from qwenpaw.config.config import ModelSlotConfig
 
 
 def _patched_load_agent_config(_agent_id):  # noqa: ARG001
-    """Return a fake agent_config whose ``active_model`` should be overridden."""
+    """Return fake agent config with an overridable active model."""
     return SimpleNamespace(
         active_model=ModelSlotConfig(
             provider_id="default-provider",
@@ -39,7 +40,7 @@ def _patched_load_agent_config(_agent_id):  # noqa: ARG001
 def _patch_dependencies(monkeypatch):
     """Avoid touching the real provider manager / retry wrappers."""
     monkeypatch.setattr(
-        model_factory,
+        config_module,
         "load_agent_config",
         _patched_load_agent_config,
     )
@@ -50,7 +51,9 @@ def _patch_dependencies(monkeypatch):
             get_instance=lambda: SimpleNamespace(
                 get_provider=lambda provider_id: SimpleNamespace(
                     provider_id=provider_id,
-                    get_chat_model_instance=lambda model_name: f"{provider_id}/{model_name}",
+                    get_chat_model_instance=(
+                        lambda model_name: f"{provider_id}/{model_name}"
+                    ),
                 ),
                 get_active_chat_model=lambda: None,
                 get_active_model=lambda: None,
@@ -65,7 +68,7 @@ def _patch_dependencies(monkeypatch):
     monkeypatch.setattr(
         model_factory,
         "TokenRecordingModelWrapper",
-        lambda *_args, **_kwargs: SimpleNamespace(),
+        lambda _provider_id, model, **_kwargs: model,
     )
     monkeypatch.setattr(
         model_factory,
@@ -114,7 +117,7 @@ def test_override_with_string():
 
 
 def test_override_with_string_preserves_colon_in_model_name():
-    """``partition`` only splits on the first ``:``, so version tags survive."""
+    """Version tags in model names survive first-colon-only splitting."""
     with patch.object(model_factory, "RetryConfig") as retry_cls:
         retry_cls.return_value = "rc"
         model, _ = model_factory.create_model_and_formatter(

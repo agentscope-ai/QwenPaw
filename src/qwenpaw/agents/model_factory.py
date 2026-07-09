@@ -9,7 +9,6 @@ Example:
     >>> model, formatter = create_model_and_formatter()
 """
 
-
 import base64
 import logging
 import os
@@ -1066,6 +1065,45 @@ def _strip_top_level_message_name(
     return messages
 
 
+def _resolve_model_slot_override(model_slot_override: Any):
+    """Parse an optional per-request model override into a model slot."""
+    from ..config.config import ModelSlotConfig
+
+    slot = None
+    if isinstance(model_slot_override, ModelSlotConfig):
+        slot = model_slot_override
+    if isinstance(model_slot_override, dict):
+        try:
+            slot = ModelSlotConfig.model_validate(model_slot_override)
+        except Exception:
+            logger.warning(
+                "Ignoring invalid model_slot_override dict: %r",
+                model_slot_override,
+            )
+    if isinstance(model_slot_override, str):
+        # Use partition so version-tagged model names can contain ':'.
+        provider_id, sep, model_name = model_slot_override.partition(":")
+        if sep and provider_id.strip() and model_name.strip():
+            slot = ModelSlotConfig(
+                provider_id=provider_id.strip(),
+                model=model_name.strip(),
+            )
+        else:
+            logger.warning(
+                "Ignoring invalid model_slot_override string: %r",
+                model_slot_override,
+            )
+    if model_slot_override is not None and not isinstance(
+        model_slot_override,
+        (ModelSlotConfig, dict, str),
+    ):
+        logger.warning(
+            "Unsupported model_slot_override type: %s",
+            type(model_slot_override).__name__,
+        )
+    return slot
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
@@ -1092,7 +1130,7 @@ def create_model_and_formatter(
         >>> model, formatter = create_model_and_formatter()
     """
     from ..app.agent_context import get_current_agent_id
-    from ..config.config import ModelSlotConfig, load_agent_config
+    from ..config.config import load_agent_config
 
     # Determine agent_id (parameter > context > None)
     if agent_id is None:
@@ -1132,48 +1170,9 @@ def create_model_and_formatter(
         except Exception:
             pass
 
-    # Apply per-request model override, if any. Takes precedence over the
-    # agent's persisted active_model. Accepts ModelSlotConfig, dict, or
-    # "provider_id:model" string.
-    if model_slot_override is not None:
-        slot: Optional[ModelSlotConfig] = None
-        if isinstance(model_slot_override, ModelSlotConfig):
-            slot = model_slot_override
-        elif isinstance(model_slot_override, dict):
-            try:
-                slot = ModelSlotConfig.model_validate(model_slot_override)
-            except Exception:
-                logger.warning(
-                    "Ignoring invalid model_slot_override dict: %r",
-                    model_slot_override,
-                )
-        elif isinstance(model_slot_override, str):
-            # Use str.partition (not split/rsplit) so the model name itself
-            # may contain ':' (e.g. version tags like 'gpt-4o:2024-08-06');
-            # only the first ':' separates provider_id from model.
-            provider_id, sep, model_name = model_slot_override.partition(":")
-            if sep and provider_id.strip() and model_name.strip():
-                slot = ModelSlotConfig(
-                    provider_id=provider_id.strip(),
-                    model=model_name.strip(),
-                )
-            else:
-                logger.warning(
-                    "Ignoring invalid model_slot_override string: %r",
-                    model_slot_override,
-                )
-        else:
-            logger.warning(
-                "Unsupported model_slot_override type: %s",
-                type(model_slot_override).__name__,
-            )
-        if slot is not None and slot.provider_id and slot.model:
-            model_slot = slot
-        elif slot is not None:
-            logger.warning(
-                "Ignoring empty model_slot_override: %r",
-                model_slot_override,
-            )
+    slot = _resolve_model_slot_override(model_slot_override)
+    if slot is not None and slot.provider_id and slot.model:
+        model_slot = slot
 
     # Create chat model from agent-specific or global config
     if model_slot and model_slot.provider_id and model_slot.model:
