@@ -158,37 +158,6 @@ CURRENT_MESSAGE_MARKER = "[Current message - respond to this]"
 DEFAULT_HISTORY_LIMIT = 50
 
 
-class QwenPawMatrixClient(AsyncClient):
-    """Keep query-token auth for homeservers/proxies that drop auth headers."""
-
-    async def send(
-        self,
-        method: str,
-        path: str,
-        data: Any = None,
-        headers: Optional[Dict[str, str]] = None,
-        trace_context: Optional[Any] = None,
-        timeout: Optional[float] = None,
-    ) -> Any:
-        if self.access_token and "access_token=" not in path:
-            url = urllib.parse.urlparse(path)
-            query = urllib.parse.parse_qs(url.query)
-            query["access_token"] = [self.access_token]
-            path = urllib.parse.urlunparse(
-                url._replace(
-                    query=urllib.parse.urlencode(query, doseq=True),
-                ),
-            )
-        return await super().send(
-            method,
-            path,
-            data,
-            headers,
-            trace_context,
-            timeout,
-        )
-
-
 @dataclass
 class HistoryEntry:
     """A buffered room message that didn't mention the bot."""
@@ -474,7 +443,7 @@ class MatrixChannel(BaseChannel):
         client_config = self._build_client_config(
             encryption=self.encryption,
         )
-        self._client = QwenPawMatrixClient(
+        self._client = AsyncClient(
             self.homeserver,
             # Keep user neutral before auth; token/whoami or login response
             # will set the canonical MXID.

@@ -32,7 +32,7 @@ dependencies = [
     "aiofiles>=24.1.0",
     "paho-mqtt>=2.0.0",
     "wecom-aibot-python-sdk==1.0.2",
-    "matrix-nio>=0.24.0",
+    "matrix-nio>=0.25.0",
     "shortuuid>=1.0.0",
     "google-genai>=1.67.0",
     "tzdata>=2024.1",
