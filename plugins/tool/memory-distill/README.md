@@ -20,11 +20,11 @@ Advanced memory consolidation for QwenPaw agents. Detects genuinely new informat
 
 ### Three-Tier Classification
 
-| Tier | Rule | Emoji | Output |
+| Tier | Keywords | Emoji | Output |
 |:---|:---|:---:|:---|
-| 🔒 **Ironclad** | Keywords: *config, setup, project, architecture* | 🔒 | Full entry in MEMORY.md |
-| 📌 **Important** | Keywords: *decision, change, preference, lesson* | 📌 | Brief pointer in MEMORY.md |
-| ➕ **Minor** | Everything else | ➕ | Kept in daily notes only |
+| 🔒 **Ironclad** | rule, law, policy, never, always, must, 铁律, 规则, 禁止, 必须, 永远不 | 🔒 | Appended to MEMORY.md |
+| 📌 **Important** | path, key, important, config, credential, api, 路径, 关键, 重要, 配置, 凭证 | 📌 | Appended to MEMORY.md |
+| ➕ **Minor** | Everything else | ➕ | Report only, not appended |
 
 ## Installation
 

@@ -289,12 +289,27 @@ async def distill_memory(
             ],
         )
 
+    # Classify discoveries and compute tier statistics
+    tier_counts = {"🔒": 0, "📌": 0, "➕": 0}
+    append_entries: list[str] = []
+    for date_str, title, snippet in discoveries:
+        formatted = _classify_and_format(title, snippet)
+        emoji = formatted.split()[1]
+        tier_counts[emoji] = tier_counts.get(emoji, 0) + 1
+        if emoji in ("🔒", "📌"):
+            dated_entry = formatted.replace("**: ", f"** (from {date_str}): ", 1)
+            append_entries.append(dated_entry)
+
     # Format the report
+    tier_summary = (
+        f"🔒{tier_counts['🔒']} 📌{tier_counts['📌']} ➕{tier_counts['➕']}"
+    )
     lines = [
         "📋 **Memory Distillation Report**",
         "",
         f"Scanned: {days} day(s) | "
         f"Discoveries: {len(discoveries)} | "
+        f"Tiers: {tier_summary} | "
         f"{'🔍 DRY RUN' if dry_run else '✅ Applied'}",
         "",
     ]
@@ -305,28 +320,31 @@ async def distill_memory(
         lines.append("")
 
     if not dry_run:
-        # Append discoveries to MEMORY.md
-        append_lines = [
-            "",
-            f"### 🔄 Auto Discovery ({datetime.now().strftime('%Y-%m-%d')})",
-            "",
-        ]
-        for date_str, title, snippet in discoveries:
-            append_lines.append(
-                f"- 🔍 **{title}** (from {date_str}): "
-                f"{snippet[:200].strip()}",
-            )
-            append_lines.append("")
+        if append_entries:
+            # Append Ironclad/Important discoveries to MEMORY.md
+            append_lines = [
+                "",
+                f"### 🔄 Auto Discovery ({datetime.now().strftime('%Y-%m-%d')})",
+                "",
+            ]
+            for entry in append_entries:
+                append_lines.append(entry)
+                append_lines.append("")
 
-        try:
-            with open(memory_file, "a", encoding="utf-8") as f:
-                f.write("\n".join(append_lines))
+            try:
+                with open(memory_file, "a", encoding="utf-8") as f:
+                    f.write("\n".join(append_lines))
+                lines.insert(
+                    2,
+                    f"\n✅ Appended {len(append_entries)} entries to MEMORY.md",
+                )
+            except Exception as e:
+                lines.append(f"\n❌ Failed to write MEMORY.md: {e}")
+        else:
             lines.insert(
                 2,
-                f"\n✅ Appended {len(discoveries)} entries to MEMORY.md",
+                "\nNo 🔒/📌 discoveries met the threshold for MEMORY.md",
             )
-        except Exception as e:
-            lines.append(f"\n❌ Failed to write MEMORY.md: {e}")
 
     return ToolResponse(
         content=[
