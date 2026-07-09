@@ -16,7 +16,7 @@ _MAX_PARAM_COLUMNS = 120
 class PermissionOverlay(OptionList):
     """Selectable approval prompt shown above the chat input."""
 
-    can_focus = False
+    can_focus = True
 
     DEFAULT_CSS = """
     PermissionOverlay {

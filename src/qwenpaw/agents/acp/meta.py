@@ -6,5 +6,6 @@ without importing the ACP server implementation.
 """
 
 ACP_CODING_PROJECT_META_KEY = "qwenpaw.coding_project_dir"
+ACP_EPHEMERAL_META_KEY = "qwenpaw.ephemeral"
 
-__all__ = ["ACP_CODING_PROJECT_META_KEY"]
+__all__ = ["ACP_CODING_PROJECT_META_KEY", "ACP_EPHEMERAL_META_KEY"]

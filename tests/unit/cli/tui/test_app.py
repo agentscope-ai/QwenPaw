@@ -751,6 +751,7 @@ async def test_permission_overlay_resolves_with_keyboard_selection():
             if overlay.display:
                 break
         assert overlay.display
+        assert app.focused is overlay
         option_text = "\n".join(
             getattr(overlay.get_option_at_index(index).prompt, "plain", "")
             for index in range(len(overlay.options))
@@ -761,6 +762,37 @@ async def test_permission_overlay_resolves_with_keyboard_selection():
         await pilot.press("down")
         await pilot.pause()
         assert overlay.selected == "deny"
+        await pilot.press("enter")
+        for _ in range(10):
+            await pilot.pause()
+            if transport.resolved:
+                break
+
+        assert transport.resolved == [("r1", "deny")]
+
+
+@pytest.mark.asyncio
+async def test_permission_overlay_resolves_after_prompt_loses_focus():
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        prompt = app.query_one("#prompt")
+        prompt.value = "do permission thing"
+        await pilot.press("enter")
+
+        overlay = app.query_one(PermissionOverlay)
+        for _ in range(10):
+            await pilot.pause()
+            if overlay.display:
+                break
+        assert overlay.display
+
+        overlay.cursor_down()
+        assert overlay.selected == "deny"
+        app.set_focus(None)
+        assert app.focused is None
+
         await pilot.press("enter")
         for _ in range(10):
             await pilot.pause()
