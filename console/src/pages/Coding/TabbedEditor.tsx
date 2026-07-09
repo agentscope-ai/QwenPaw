@@ -269,7 +269,61 @@ export default function TabbedEditor({
    */
   const [previewPaths, setPreviewPaths] = useState<Set<string>>(new Set());
 
+  /**
+   * Tracks files that the user has manually toggled preview mode for.
+   * Prevents the auto-preview useEffect from overriding user's choice.
+   */
+  const userToggledPathsRef = useRef<Set<string>>(new Set());
+
+  /**
+   * Clean up userToggledPathsRef when tabs are closed.
+   * Prevents memory leak and ensures reopened files get auto-preview again.
+   */
+  useEffect(() => {
+    const openPaths = new Set(tabs.map((t) => t.path));
+    const toRemove: string[] = [];
+
+    for (const path of userToggledPathsRef.current) {
+      if (!openPaths.has(path)) {
+        toRemove.push(path);
+      }
+    }
+
+    for (const path of toRemove) {
+      userToggledPathsRef.current.delete(path);
+    }
+  }, [tabs]);
+
+  /**
+   * Auto-enable preview mode for newly opened previewable files.
+   * Binary files (images, PDF) have no meaningful code representation,
+   * so they should default to preview mode instead of showing raw bytes.
+   * Skips files that the user has manually toggled.
+   */
+  useEffect(() => {
+    const newPreviewPaths = new Set(previewPaths);
+    let hasChanges = false;
+
+    for (const tab of tabs) {
+      // Skip if user has manually toggled this file
+      if (userToggledPathsRef.current.has(tab.path)) {
+        continue;
+      }
+      // Auto-enable preview for new previewable files
+      if (isPreviewable(tab.path) && !newPreviewPaths.has(tab.path)) {
+        newPreviewPaths.add(tab.path);
+        hasChanges = true;
+      }
+    }
+
+    if (hasChanges) {
+      setPreviewPaths(newPreviewPaths);
+    }
+  }, [tabs, previewPaths]);
+
   const togglePreview = useCallback((path: string) => {
+    // Mark this file as user-toggled so auto-preview won't override
+    userToggledPathsRef.current.add(path);
     setPreviewPaths((prev) => {
       const next = new Set(prev);
       if (next.has(path)) {
@@ -281,7 +335,7 @@ export default function TabbedEditor({
     });
   }, []);
 
-  // Default is Code mode; user manually toggles to Preview via the Eye button.
+  // Previewable files auto-enter preview mode; user can toggle back to Code via Eye button.
 
   /**
    * Paths currently being reverted via Undo — suppress watcher-triggered diffs

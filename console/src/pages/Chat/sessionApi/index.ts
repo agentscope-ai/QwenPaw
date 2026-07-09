@@ -1261,3 +1261,22 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 }
 
 export default new SessionApi();
+
+// ---------------------------------------------------------------------------
+// Test-only exports (used by ./tests/testLargeSession.test.tsx — PR-F3 / #5479)
+// These helpers are pure data transforms with no side effects; exposing them
+// avoids reaching into internals via private reflection. Keep the surface tiny.
+// ---------------------------------------------------------------------------
+export const __test__ = {
+  convertMessages,
+  buildUserCard,
+  buildResponseCard,
+  toOutputMessage,
+  normalizeOutputMessageContent,
+  contentToRequestParts,
+  extractTextFromContent,
+  parseTimestamp,
+  isLocalTimestamp,
+  isGenerating,
+  resolveRealId,
+};
