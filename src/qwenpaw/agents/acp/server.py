@@ -611,7 +611,7 @@ class QwenPawACPAgent(Agent):
         )
 
         session_mode = session_info.get("mode", self.MODE_DEFAULT)
-        request_context: dict[str, str] = {}
+        request_context: dict[str, Any] = {}
         if session_mode == self.MODE_BYPASS:
             request_context["_headless_tool_guard"] = "false"
         project_dir = session_info.get(ACP_CODING_PROJECT_META_KEY)
@@ -875,12 +875,9 @@ class QwenPawACPAgent(Agent):
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 if pending_future in done and not permission_task.done():
-                    cancel_reason = "resolved"
-                    try:
-                        if pending_future.result() == ApprovalDecision.TIMEOUT:
-                            cancel_reason = "timeout"
-                    except Exception:  # noqa: BLE001 - best-effort UX hint
-                        pass
+                    cancel_reason = self._pending_cancel_reason(
+                        pending_future,
+                    )
                     logger.info(
                         "ACP approval request %s before client response: "
                         "request=%s",
@@ -917,6 +914,27 @@ class QwenPawACPAgent(Agent):
             decision = ApprovalDecision.DENIED
             scope = None
         await svc.resolve_request(pending.request_id, decision, scope=scope)
+
+    @staticmethod
+    def _pending_cancel_reason(pending_future: asyncio.Future) -> str:
+        """Why a pending approval resolved before the client answered.
+
+        ``wait_for_approval`` times out via ``asyncio.wait_for``, which
+        cancels the shared future instead of setting a TIMEOUT result —
+        check ``cancelled()`` before ``result()``, which would raise
+        CancelledError (a BaseException that would escape the bridge and
+        kill the polling loop in ``_bridge_approval_requests``).
+        """
+        from ...security.tool_guard.approval import ApprovalDecision
+
+        if pending_future.cancelled():
+            return "timeout"
+        try:
+            if pending_future.result() == ApprovalDecision.TIMEOUT:
+                return "timeout"
+        except Exception:  # noqa: BLE001 - best-effort UX hint
+            pass
+        return "resolved"
 
     @staticmethod
     def _approval_options(pending: Any) -> list[PermissionOption]:

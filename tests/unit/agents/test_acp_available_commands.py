@@ -501,6 +501,84 @@ async def test_approval_bridge_expires_when_pending_times_out(monkeypatch):
     assert pending.status == ApprovalDecision.TIMEOUT.value
 
 
+async def test_approval_bridge_survives_wait_for_timeout(monkeypatch):
+    """The real timeout path (``wait_for_approval`` → ``asyncio.wait_for``)
+    cancels the shared pending future instead of setting a TIMEOUT result.
+    The bridge must not let that CancelledError escape (it would kill the
+    per-turn approval polling loop) and must still cancel the client prompt.
+    """
+    from qwenpaw.app.approvals.service import ApprovalService
+    from qwenpaw.security.tool_guard.approval import ApprovalDecision
+    from qwenpaw.security.tool_guard.models import (
+        GuardFinding,
+        GuardSeverity,
+        GuardThreatCategory,
+        ToolGuardResult,
+    )
+
+    approval_svc = ApprovalService()
+    monkeypatch.setattr(
+        "qwenpaw.app.approvals.service._approval_service",
+        approval_svc,
+    )
+
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _HangingApprovalConn()
+    agent.on_connect(conn)
+
+    result = ToolGuardResult(
+        tool_name="execute_shell_command",
+        params={"command": "rm -rf /tmp/nope"},
+        findings=[
+            GuardFinding(
+                id="finding-1",
+                rule_id="test",
+                category=GuardThreatCategory.RESOURCE_ABUSE,
+                severity=GuardSeverity.MEDIUM,
+                title="Approval required",
+                description="Shell command requires approval.",
+                tool_name="execute_shell_command",
+            ),
+        ],
+    )
+    pending = await approval_svc.create_pending(
+        session_id="sess-approval",
+        root_session_id="sess-approval",
+        owner_agent_id="default",
+        user_id="acp_user",
+        channel="console",
+        agent_id="default",
+        tool_name="execute_shell_command",
+        result=result,
+        extra={
+            "tool_call": {
+                "id": "tool-1",
+                "name": "execute_shell_command",
+                "input": {"command": "rm -rf /tmp/nope"},
+            },
+        },
+    )
+
+    bridge = asyncio.create_task(
+        agent._request_approval_decision("sess-approval", pending),
+    )
+    await asyncio.wait_for(conn.started.wait(), timeout=1.0)
+
+    waiter = asyncio.create_task(
+        approval_svc.wait_for_approval(pending.request_id, 0.05),
+    )
+    decision = await asyncio.wait_for(waiter, timeout=1.0)
+    assert decision == ApprovalDecision.TIMEOUT
+
+    # The bridge coroutine must finish normally, not die cancelled.
+    await asyncio.wait_for(asyncio.shield(bridge), timeout=1.0)
+    assert not bridge.cancelled()
+
+    assert conn.cancelled is True
+    assert conn.cancel_reason == "timeout"
+    assert pending.status == ApprovalDecision.TIMEOUT.value
+
+
 def test_acp_bootstrap_includes_runtime_slash_commands():
     from qwenpaw.app.app_services import AppServiceManager
 
