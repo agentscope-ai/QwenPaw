@@ -1759,6 +1759,18 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             description="Browser automation and web interaction",
             icon="🌐",
         ),
+        "web_search": BuiltinToolConfig(
+            name="web_search",
+            enabled=True,
+            description="Search the web for real-time information",
+            icon="🔎",
+        ),
+        "web_fetch": BuiltinToolConfig(
+            name="web_fetch",
+            enabled=True,
+            description="Fetch and read content from a URL",
+            icon="📥",
+        ),
         "desktop_screenshot": BuiltinToolConfig(
             name="desktop_screenshot",
             enabled=True,
