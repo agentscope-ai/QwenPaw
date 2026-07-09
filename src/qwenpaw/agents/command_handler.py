@@ -206,6 +206,21 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Write the rolling compaction summary."""
         self._state.summary = value or ""
 
+    def _reset_stop_gates(self) -> None:
+        """Clear loop-gate state for commands that reset conversation state."""
+        workspace = getattr(self._prompt_context, "workspace", None)
+        handler = getattr(workspace, "_stop_handler", None)
+        reset = getattr(handler, "reset", None)
+        if callable(reset):
+            reset()
+
+        agent = self._agent or getattr(self._prompt_context, "agent", None)
+        if agent is not None:
+            if hasattr(agent, "_gate_pending_stop"):
+                agent._gate_pending_stop = None
+            if hasattr(agent, "_gate_pending_continue"):
+                agent._gate_pending_continue = None
+
     def is_command(self, query: str | None) -> bool:
         """Check if the query is a system command (alias for mixin)."""
         return self.is_conversation_command(query)
@@ -457,6 +472,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Process /new command."""
         if not messages:
             self._set_summary("")
+            self._reset_stop_gates()
             return await self._make_system_msg(
                 "**No messages to summarize.**\n\n"
                 "- Current memory is empty\n"
@@ -476,6 +492,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self._set_summary("")
 
         await self._persist_and_clear()
+        self._reset_stop_gates()
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
             "- Summary task started in background\n"
@@ -492,6 +509,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Process /clear command."""
         await self._persist_and_clear()
         self._set_summary("")
+        self._reset_stop_gates()
         return await self._make_system_msg(
             "**History Cleared!**\n\n"
             "- Compressed summary reset\n"
