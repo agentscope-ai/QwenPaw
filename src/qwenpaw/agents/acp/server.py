@@ -77,7 +77,11 @@ from ...config.config import ModelSlotConfig
 from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
 from ...agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
-from .meta import ACP_CODING_PROJECT_META_KEY, ACP_EPHEMERAL_META_KEY
+from .meta import (
+    ACP_APPROVAL_EXPIRES_AT_META_KEY,
+    ACP_CODING_PROJECT_META_KEY,
+    ACP_EPHEMERAL_META_KEY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -852,6 +856,7 @@ class QwenPawACPAgent(Agent):
                 self._conn.request_permission(
                     session_id=session_id,
                     tool_call=ToolCallUpdate(
+                        _meta=self._approval_tool_meta(pending),
                         tool_call_id=pending.request_id,
                         title=(
                             f"{pending.tool_name} requires approval "
@@ -944,6 +949,19 @@ class QwenPawACPAgent(Agent):
                 kind="reject_once",
             ),
         ]
+
+    @staticmethod
+    def _approval_tool_meta(pending: Any) -> dict[str, Any]:
+        """Return ACP metadata for approval prompt rendering."""
+        created_at = getattr(pending, "created_at", None)
+        timeout_seconds = getattr(pending, "timeout_seconds", None)
+        if not isinstance(created_at, (int, float)):
+            return {}
+        if not isinstance(timeout_seconds, (int, float)):
+            return {}
+        return {
+            ACP_APPROVAL_EXPIRES_AT_META_KEY: created_at + timeout_seconds,
+        }
 
     @staticmethod
     def _approval_tool_input(pending: Any) -> dict[str, Any] | None:

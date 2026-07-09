@@ -13,6 +13,7 @@ import asyncio
 
 from acp.schema import AllowedOutcome, RequestPermissionResponse
 
+from qwenpaw.agents.acp.meta import ACP_APPROVAL_EXPIRES_AT_META_KEY
 from qwenpaw.agents.acp.server import (
     _ACP_REDUNDANT_COMMANDS,
     _EnvelopeTracker,
@@ -328,6 +329,11 @@ async def test_approval_bridge_resolves_pending_approval(monkeypatch):
     )
     assert tool_call.kind == "execute"
     assert tool_call.raw_input == {"command": "ls"}
+    assert tool_call.field_meta == {
+        ACP_APPROVAL_EXPIRES_AT_META_KEY: (
+            pending.created_at + pending.timeout_seconds
+        ),
+    }
     assert {option.option_id for option in request["options"]} == {
         "allow_once",
         "deny",

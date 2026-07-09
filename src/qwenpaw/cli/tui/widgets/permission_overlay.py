@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import math
+import time
+
 from rich.text import Text
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
@@ -11,6 +14,7 @@ from ..events import PermissionRequest
 
 _MAX_PARAM_LINES = 6
 _MAX_PARAM_COLUMNS = 120
+_TITLE_OPTION_ID = "__permission_title"
 
 
 class PermissionOverlay(OptionList):
@@ -24,7 +28,7 @@ class PermissionOverlay(OptionList):
         dock: bottom;
         height: auto;
         max-height: 12;
-        margin: 0 2 4 2;
+        margin: 0 0 4 0;
         border: round #ffcf6d;
         background: #101827 96%;
         display: none;
@@ -41,6 +45,8 @@ class PermissionOverlay(OptionList):
         super().__init__(id="permission-overlay")
         self._request: PermissionRequest | None = None
         self._option_ids: set[str] = set()
+        self._last_countdown: str | None = None
+        self._countdown_timer = None
 
     @property
     def request(self) -> PermissionRequest | None:
@@ -67,9 +73,14 @@ class PermissionOverlay(OptionList):
         self._option_ids = {option.option_id for option in request.options}
         self.clear_options()
 
-        title = Text("Approval required: ", style="bold #ffcf6d")
-        title.append(request.title, style="bold")
-        self.add_option(Option(title, disabled=True))
+        self._last_countdown = None
+        self.add_option(
+            Option(
+                self._title_text(request),
+                id=_TITLE_OPTION_ID,
+                disabled=True,
+            ),
+        )
         if request.tool_kind:
             self.add_option(
                 Option(
@@ -98,12 +109,28 @@ class PermissionOverlay(OptionList):
 
         self.display = True
         self.highlighted = self._first_action_index()
+        self._start_countdown_timer()
 
     def clear_request(self) -> None:
+        self._stop_countdown_timer()
         self._request = None
         self._option_ids.clear()
+        self._last_countdown = None
         self.clear_options()
         self.display = False
+
+    def refresh_countdown(self) -> None:
+        request = self._request
+        if request is None or request.expires_at is None or not self.display:
+            return
+        countdown = self._countdown_text(request.expires_at)
+        if countdown == self._last_countdown:
+            return
+        self._last_countdown = countdown
+        self.replace_option_prompt(
+            _TITLE_OPTION_ID,
+            self._title_text(request),
+        )
 
     def cursor_up(self) -> None:
         self.action_cursor_up()
@@ -116,6 +143,43 @@ class PermissionOverlay(OptionList):
             if self.get_option_at_index(index).id in self._option_ids:
                 return index
         return None
+
+    def _title_text(self, request: PermissionRequest) -> Text:
+        title = Text("Approval required", style="bold #ffcf6d")
+        if request.expires_at is not None:
+            countdown = self._countdown_text(request.expires_at)
+            self._last_countdown = countdown
+            style = "#ffcf6d" if countdown != "expired" else "bold #ff6d6d"
+            title.append(" (", style="#8a8a8a")
+            title.append(countdown, style=style)
+            title.append(")", style="#8a8a8a")
+        title.append(": ", style="bold #ffcf6d")
+        title.append(request.title, style="bold")
+        return title
+
+    @staticmethod
+    def _countdown_text(expires_at: float) -> str:
+        remaining = math.ceil(expires_at - time.time())
+        if remaining <= 0:
+            return "expired"
+        minutes, seconds = divmod(remaining, 60)
+        if minutes:
+            return f"expires in {minutes}m{seconds:02d}s"
+        return f"expires in {seconds}s"
+
+    def _start_countdown_timer(self) -> None:
+        self._stop_countdown_timer()
+        if self._request is None or self._request.expires_at is None:
+            return
+        self._countdown_timer = self.set_interval(
+            1.0,
+            self.refresh_countdown,
+        )
+
+    def _stop_countdown_timer(self) -> None:
+        if self._countdown_timer is not None:
+            self._countdown_timer.stop()
+            self._countdown_timer = None
 
 
 def _param_lines(params: str) -> list[str]:
