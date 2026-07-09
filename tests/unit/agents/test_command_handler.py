@@ -38,6 +38,29 @@ async def test_process_clear_returns_clear_history_metadata() -> None:
 
 
 @pytest.mark.asyncio
+async def test_new_passes_session_id_to_summarize_task() -> None:
+    state = SimpleNamespace(
+        context=[_msg("user", "hi")],
+        summary="",
+        session_id="",
+    )
+    memory_manager = MagicMock()
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        state=state,
+        memory_manager=memory_manager,
+        session_id="qq:session-1",
+    )
+
+    await handler.handle_command("/new")
+
+    memory_manager.add_summarize_task.assert_called_once()
+    _, kwargs = memory_manager.add_summarize_task.call_args
+    assert kwargs["messages"][0].get_text_content() == "hi"
+    assert kwargs["session_id"] == "qq:session-1"
+
+
+@pytest.mark.asyncio
 async def test_system_prompt_command_returns_current_prompt() -> None:
     agent = _make_agent()
 
@@ -274,6 +297,41 @@ class _FakeCtxConfig(SimpleNamespace):
             **update,
         }
         return _FakeCtxConfig(**merged)
+
+
+@pytest.mark.asyncio
+async def test_compact_passes_session_id_to_summarize_task() -> None:
+    async def _compress_context(context_config=None):
+        del context_config
+
+    agent = _make_agent()
+    agent.state = SimpleNamespace(
+        context=[_msg("user", "hi")],
+        summary="",
+        session_id="",
+    )
+    agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
+    agent.compress_context = _compress_context
+    memory_manager = MagicMock()
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+        session_id="qq:session-1",
+    )
+    # pylint: disable=protected-access
+    handler._get_agent_config = lambda: _make_config(
+        reserve_ratio=0.2,
+        strategy="native",
+        summarize_when_compact=True,
+    )
+
+    await handler.handle_command("/compact")
+
+    memory_manager.add_summarize_task.assert_called_once()
+    _, kwargs = memory_manager.add_summarize_task.call_args
+    assert kwargs["messages"][0].get_text_content() == "hi"
+    assert kwargs["session_id"] == "qq:session-1"
 
 
 @pytest.mark.asyncio

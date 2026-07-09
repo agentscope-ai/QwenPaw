@@ -206,6 +206,23 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Write the rolling compaction summary."""
         self._state.summary = value or ""
 
+    def _current_session_id(self) -> str:
+        """Best-effort session id for command-triggered background tasks."""
+        state = self._state_direct
+        if state is None and self._agent is not None:
+            state = getattr(self._agent, "state", None)
+
+        candidates = [
+            getattr(state, "session_id", "") if state is not None else "",
+            self._session_id,
+            getattr(self._prompt_context, "session_id", None),
+        ]
+        for candidate in candidates:
+            session_id = str(candidate or "").strip()
+            if session_id:
+                return session_id
+        return ""
+
     def is_command(self, query: str | None) -> bool:
         """Check if the query is a system command (alias for mixin)."""
         return self.is_conversation_command(query)
@@ -345,7 +362,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
         evicted = max(0, before - after)
         reme_cfg = agent_config.running.reme_light_memory_config
         if self._has_memory_manager() and reme_cfg.summarize_when_compact:
-            self.memory_manager.add_summarize_task(messages=messages)
+            self.memory_manager.add_summarize_task(
+                messages=messages,
+                session_id=self._current_session_id(),
+            )
 
         summary = self._get_summary()
         folded = int(compress_stats.get("folded", 0) or 0)
@@ -497,7 +517,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- Enable memory manager to use this feature",
             )
 
-        self.memory_manager.add_summarize_task(messages=messages)
+        self.memory_manager.add_summarize_task(
+            messages=messages,
+            session_id=self._current_session_id(),
+        )
         self._set_summary("")
 
         await self._persist_and_clear()
@@ -757,7 +780,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         try:
             await self.memory_manager.auto_memory(
                 memory_messages,
-                session_id=str(getattr(self._state, "session_id", "") or ""),
+                session_id=self._current_session_id(),
                 reply_id=reply_ids[-1],
                 reply_ids=reply_ids,
             )
