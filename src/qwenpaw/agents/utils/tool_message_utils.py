@@ -91,7 +91,8 @@ def _coerce_raw_tool_input(raw: str, block: Any) -> str | None:
         # for no-param tool calls: "{}trailing" raises "Extra data", but
         # raw_decode can recover the leading valid object.
         try:
-            recovered, _ = _json_decoder.raw_decode(raw)
+            start = json.decoder.WHITESPACE.match(raw, 0).end()
+            recovered, _ = _json_decoder.raw_decode(raw, start)
             if not isinstance(recovered, dict):
                 raise json.JSONDecodeError(
                     "recovered value is not a JSON object",

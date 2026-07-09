@@ -54,14 +54,6 @@ def _tool_result(tid):
     return {"type": "tool_result", "id": tid}
 
 
-def _text_blocks(msg):
-    return [
-        block
-        for block in msg.content
-        if isinstance(block, dict) and block.get("type") == "text"
-    ]
-
-
 def _tool_result_blocks(msg):
     return [
         block
@@ -448,6 +440,25 @@ class TestCoerceToolInputsRawDecode:
         result = _coerce_tool_inputs_to_json([msg])
         assert len(result[0].content) == 1
         assert json.loads(result[0].content[0]["input"]) == {"key": "val"}
+
+    def test_object_with_leading_whitespace_and_trailing_garbage_recovered(
+        self,
+    ):
+        msg = _msg(
+            [
+                {
+                    "type": "tool_use",
+                    "id": "id1",
+                    "name": "t",
+                    "input": '\n  {"path": "README.md"}extra',
+                },
+            ],
+        )
+        result = _coerce_tool_inputs_to_json([msg])
+        assert len(result[0].content) == 1
+        assert json.loads(result[0].content[0]["input"]) == {
+            "path": "README.md",
+        }
 
     def test_completely_invalid_json_becomes_error_tool_result(self):
         msg = _msg(
