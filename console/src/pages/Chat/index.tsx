@@ -630,18 +630,26 @@ function useMultimodalCapabilities(
     supportsMultimodal: boolean;
     supportsImage: boolean;
     supportsVideo: boolean;
-  }>({ supportsMultimodal: false, supportsImage: false, supportsVideo: false });
+    visionFallbackEnabled: boolean;
+  }>({
+    supportsMultimodal: false,
+    supportsImage: false,
+    supportsVideo: false,
+    visionFallbackEnabled: false,
+  });
 
   const updateCapsIfChanged = useCallback(
     (next: {
       supportsMultimodal: boolean;
       supportsImage: boolean;
       supportsVideo: boolean;
+      visionFallbackEnabled: boolean;
     }) => {
       setMultimodalCaps((prev) =>
         prev.supportsMultimodal === next.supportsMultimodal &&
         prev.supportsImage === next.supportsImage &&
-        prev.supportsVideo === next.supportsVideo
+        prev.supportsVideo === next.supportsVideo &&
+        prev.visionFallbackEnabled === next.visionFallbackEnabled
           ? prev
           : next,
       );
@@ -650,19 +658,28 @@ function useMultimodalCapabilities(
   );
 
   const fetchMultimodalCaps = useCallback(async () => {
-    const noCaps = {
-      supportsMultimodal: false,
-      supportsImage: false,
-      supportsVideo: false,
-    };
+    // Vision fallback (multimodal downgrade) lets a text-only model still
+    // handle images via a configured vision model. When enabled, we must
+    // NOT warn the user that the model lacks multimodal capability.
+    // The running config is fetched in parallel with providers/active
+    // models (single Promise.all) to avoid an extra serial round-trip.
     try {
-      const [providers, activeModels] = await Promise.all([
+      const [providers, activeModels, runningConfig] = await Promise.all([
         providerApi.listProviders(),
         providerApi.getActiveModels({
           scope: "effective",
           agent_id: selectedAgent,
         }),
+        agentApi.getAgentRunningConfig().catch(() => null),
       ]);
+      const visionFallbackEnabled =
+        runningConfig?.multimodal_fallback?.enabled ?? false;
+      const noCaps = {
+        supportsMultimodal: false,
+        supportsImage: false,
+        supportsVideo: false,
+        visionFallbackEnabled,
+      };
       const activeProviderId = activeModels?.active_llm?.provider_id;
       const activeModelId = activeModels?.active_llm?.model;
       if (!activeProviderId || !activeModelId) {
@@ -685,9 +702,15 @@ function useMultimodalCapabilities(
         supportsMultimodal: model?.supports_multimodal ?? false,
         supportsImage: model?.supports_image ?? false,
         supportsVideo: model?.supports_video ?? false,
+        visionFallbackEnabled,
       });
     } catch {
-      updateCapsIfChanged(noCaps);
+      updateCapsIfChanged({
+        supportsMultimodal: false,
+        supportsImage: false,
+        supportsVideo: false,
+        visionFallbackEnabled: false,
+      });
     }
   }, [selectedAgent, updateCapsIfChanged]);
 
@@ -2342,9 +2365,17 @@ export default function ChatPage() {
     }) => {
       const { file, onSuccess, onError, onProgress } = options;
       try {
-        // Warn when model has no multimodal support
+        // Warn when model has no multimodal support — unless vision
+        // fallback is enabled, in which case images are auto-described
+        // by a vision model, so show an informational hint instead.
         if (!multimodalCaps.supportsMultimodal) {
-          message.warning(t("chat.attachments.multimodalWarning"));
+          if (multimodalCaps.visionFallbackEnabled) {
+            if (file.type.startsWith("image/")) {
+              message.info(t("chat.attachments.visionFallbackActive"));
+            }
+          } else {
+            message.warning(t("chat.attachments.multimodalWarning"));
+          }
         } else if (
           multimodalCaps.supportsImage &&
           !multimodalCaps.supportsVideo &&
@@ -2823,6 +2854,8 @@ export default function ChatPage() {
               ? multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
                 ? "chat.attachments.tooltipImageOnly"
                 : "chat.attachments.tooltip"
+              : multimodalCaps.visionFallbackEnabled
+              ? "chat.attachments.tooltipVisionFallback"
               : "chat.attachments.tooltipNoMultimodal";
             const tooltipTitle =
               uploadLimit !== null

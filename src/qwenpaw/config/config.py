@@ -1137,6 +1137,63 @@ class LoopConfig(BaseModel):
     )
 
 
+class MultimodalFallbackConfig(BaseModel):
+    """Vision fallback configuration for text-only models.
+
+    When the active model does not support multimodal input but the user
+    uploads images, the system can automatically call a vision-capable
+    model to generate text descriptions and inject them into context.
+
+    Security note: the generated descriptions are treated as untrusted
+    user content and injected into the main model's context.  Use a
+    trustworthy vision model and keep ``max_image_descriptions`` and
+    ``description_max_tokens`` bounded to control cost and context size.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable vision fallback for text-only models",
+    )
+    vision_provider: str = Field(
+        default="dashscope",
+        description="Provider ID for the vision model",
+    )
+    vision_model: str = Field(
+        default="qwen-vl-max",
+        description="Vision model name for generating image descriptions",
+    )
+    max_image_descriptions: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description="Max images to describe per request (cost control)",
+    )
+    description_max_tokens: int = Field(
+        default=300,
+        ge=1,
+        le=4096,
+        description="Max tokens for each image description",
+    )
+    system_prompt: str = Field(
+        default=(
+            "You are an image description assistant. "
+            "Describe the image content concisely and accurately "
+            "in the user's language."
+        ),
+        # Best practice: tune this per domain to improve downstream
+        # reasoning. Effective additions include: keep it concise to save
+        # tokens; "extract any visible text verbatim" for screenshots or
+        # documents; "focus on <domain objects>" for specialized use
+        # cases. Remember the output is injected as untrusted content into
+        # the text model's context, so avoid asking for actions/opinions.
+        description=(
+            "System prompt for the vision model. Tune per domain, e.g. "
+            "ask it to extract visible text for screenshots/documents or "
+            "stay concise to control tokens."
+        ),
+    )
+
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
@@ -1315,6 +1372,11 @@ class AgentsRunningConfig(BaseModel):
             "STRICT, SMART, AUTO, or OFF.  When set via running-config API, "
             "the value is written back to the agent profile."
         ),
+    )
+
+    multimodal_fallback: MultimodalFallbackConfig = Field(
+        default_factory=MultimodalFallbackConfig,
+        description="Vision fallback for text-only models",
     )
 
 
@@ -2364,6 +2426,39 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                 workspace_dir,
             )
             if _acl_migrated:
+                try:
+                    with open(
+                        agent_config_path,
+                        "w",
+                        encoding="utf-8",
+                    ) as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+                    try:
+                        current_mtime = agent_config_path.stat().st_mtime
+                    except OSError:
+                        pass
+                except OSError:
+                    pass
+
+        # One-shot migration: ``multimodal_fallback`` used to live at the
+        # top level of ``AgentProfileConfig`` but now belongs inside
+        # ``running``.  If an existing agent.json still has it at the top
+        # level, move it into ``running`` before validation and persist the
+        # move so future loads are already canonical.
+        if "multimodal_fallback" in data:
+            running = data.setdefault("running", {})
+            if (
+                isinstance(running, dict)
+                and "multimodal_fallback" not in running
+            ):
+                running["multimodal_fallback"] = data.pop(
+                    "multimodal_fallback",
+                )
+                logger.info(
+                    "Migrated multimodal_fallback from top-level to "
+                    "running config for agent %s",
+                    agent_config_path.parent.name,
+                )
                 try:
                     with open(
                         agent_config_path,

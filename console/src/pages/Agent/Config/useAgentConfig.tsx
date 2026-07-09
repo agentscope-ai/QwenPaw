@@ -82,6 +82,14 @@ export function useAgentConfig() {
           enabled: true,
           timeout_seconds: 30.0,
         },
+        multimodal_fallback: config.multimodal_fallback ?? {
+          enabled: false,
+          vision_provider: "dashscope",
+          vision_model: "qwen-vl-max",
+          max_image_descriptions: 5,
+          description_max_tokens: 300,
+          system_prompt: "",
+        },
       });
 
       // Store original config for complete save
@@ -161,6 +169,10 @@ export function useAgentConfig() {
           original.auto_title_config,
           formValues.auto_title_config,
         ) as typeof original.auto_title_config,
+        multimodal_fallback: deepMergeConfig(
+          original.multimodal_fallback,
+          formValues.multimodal_fallback,
+        ) as typeof original.multimodal_fallback,
         approval_level: approvalLevel,
       };
 
