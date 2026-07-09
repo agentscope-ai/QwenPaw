@@ -57,7 +57,9 @@ def manager() -> UnifiedQueueManager:
 # ---------------------------------------------------------------------------
 
 
-async def _wait_for_qsize(queue: asyncio.Queue, target: int, timeout: float = 1.0) -> None:
+async def _wait_for_qsize(
+    queue: asyncio.Queue, target: int, timeout: float = 1.0
+) -> None:
     """Poll until ``queue.qsize()`` reaches ``target`` or timeout.
 
     The ``_drain_consumer`` runs as a separate task; ``enqueue`` returning
@@ -73,9 +75,9 @@ async def _wait_for_qsize(queue: asyncio.Queue, target: int, timeout: float = 1.
         if queue.qsize() == target:
             return
         await asyncio.sleep(0)
-    assert queue.qsize() == target, (
-        f"queue qsize {queue.qsize()} never reached {target} within {timeout}s"
-    )
+    assert (
+        queue.qsize() == target
+    ), f"queue qsize {queue.qsize()} never reached {target} within {timeout}s"
 
 
 class TestEnqueueAndCreate:
