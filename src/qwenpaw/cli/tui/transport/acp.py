@@ -44,6 +44,7 @@ from ..events import (
     BackendWarmed,
     Connected,
     PermissionOption,
+    PermissionExpired,
     PermissionRequest,
     PushMessage,
     SessionSummary,
@@ -225,6 +226,20 @@ class _TuiClient:
 
         try:
             option_id = await future
+        except asyncio.CancelledError:
+            if not future.done():
+                future.cancel()
+            await self._queue.put(
+                PermissionExpired(
+                    request_id=request_id,
+                    message=(
+                        "Approval request is no longer pending. "
+                        "The tool call was blocked; start a new request "
+                        "to try again."
+                    ),
+                ),
+            )
+            raise
         finally:
             self._pending.pop(request_id, None)
 

@@ -848,19 +848,41 @@ class QwenPawACPAgent(Agent):
 
         svc = get_approval_service()
         try:
-            response = await self._conn.request_permission(
-                session_id=session_id,
-                tool_call=ToolCallUpdate(
-                    tool_call_id=pending.request_id,
-                    title=(
-                        f"{pending.tool_name} requires approval "
-                        f"({pending.severity})"
+            permission_task = asyncio.create_task(
+                self._conn.request_permission(
+                    session_id=session_id,
+                    tool_call=ToolCallUpdate(
+                        tool_call_id=pending.request_id,
+                        title=(
+                            f"{pending.tool_name} requires approval "
+                            f"({pending.severity})"
+                        ),
+                        kind=self._approval_tool_kind(pending.tool_name),
+                        raw_input=self._approval_tool_input(pending),
                     ),
-                    kind=self._approval_tool_kind(pending.tool_name),
-                    raw_input=self._approval_tool_input(pending),
+                    options=self._approval_options(pending),
                 ),
-                options=self._approval_options(pending),
             )
+            pending_future = getattr(pending, "future", None)
+            if isinstance(pending_future, asyncio.Future):
+                done, _pending_tasks = await asyncio.wait(
+                    {permission_task, pending_future},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if pending_future in done and not permission_task.done():
+                    logger.info(
+                        "ACP approval request expired before client "
+                        "response: request=%s",
+                        pending.request_id[:8],
+                    )
+                    permission_task.cancel()
+                    try:
+                        await permission_task
+                    except asyncio.CancelledError:
+                        pass
+                    return
+
+            response = await permission_task
         except Exception:
             logger.exception(
                 "ACP approval bridge failed for request=%s",

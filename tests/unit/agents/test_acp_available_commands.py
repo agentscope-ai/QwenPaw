@@ -62,6 +62,37 @@ class _ApprovalConn(_FakeConn):
         )
 
 
+class _HangingApprovalConn(_FakeConn):
+    """Records ACP permission requests and waits until cancelled."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.cancelled = False
+        self.permission_requests: list[dict[str, object]] = []
+
+    async def request_permission(
+        self,
+        *,
+        session_id: str,
+        tool_call: object,
+        options: list[object],
+    ) -> RequestPermissionResponse:
+        self.permission_requests.append(
+            {
+                "session_id": session_id,
+                "tool_call": tool_call,
+                "options": options,
+            },
+        )
+        self.started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+
+
 async def _drain() -> None:
     """Let the fire-and-forget advertise task run to completion."""
     for _ in range(5):
@@ -391,6 +422,74 @@ async def test_approval_bridge_resolves_pattern_scope(monkeypatch):
         "approve_exact_target": "git status",
         "approve_pattern_target": "git *",
     }
+
+
+async def test_approval_bridge_expires_when_pending_times_out(monkeypatch):
+    from qwenpaw.app.approvals.service import ApprovalService
+    from qwenpaw.security.tool_guard.approval import ApprovalDecision
+    from qwenpaw.security.tool_guard.models import (
+        GuardFinding,
+        GuardSeverity,
+        GuardThreatCategory,
+        ToolGuardResult,
+    )
+
+    approval_svc = ApprovalService()
+    monkeypatch.setattr(
+        "qwenpaw.app.approvals.service._approval_service",
+        approval_svc,
+    )
+
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _HangingApprovalConn()
+    agent.on_connect(conn)
+
+    result = ToolGuardResult(
+        tool_name="execute_shell_command",
+        params={"command": "rm -rf /tmp/nope"},
+        findings=[
+            GuardFinding(
+                id="finding-1",
+                rule_id="test",
+                category=GuardThreatCategory.RESOURCE_ABUSE,
+                severity=GuardSeverity.MEDIUM,
+                title="Approval required",
+                description="Shell command requires approval.",
+                tool_name="execute_shell_command",
+            ),
+        ],
+    )
+    pending = await approval_svc.create_pending(
+        session_id="sess-approval",
+        root_session_id="sess-approval",
+        owner_agent_id="default",
+        user_id="acp_user",
+        channel="console",
+        agent_id="default",
+        tool_name="execute_shell_command",
+        result=result,
+        extra={
+            "tool_call": {
+                "id": "tool-1",
+                "name": "execute_shell_command",
+                "input": {"command": "rm -rf /tmp/nope"},
+            },
+        },
+    )
+
+    task = asyncio.create_task(
+        agent._request_approval_decision("sess-approval", pending),
+    )
+    await asyncio.wait_for(conn.started.wait(), timeout=1.0)
+
+    await approval_svc.resolve_request(
+        pending.request_id,
+        ApprovalDecision.TIMEOUT,
+    )
+    await asyncio.wait_for(task, timeout=1.0)
+
+    assert conn.cancelled is True
+    assert pending.status == ApprovalDecision.TIMEOUT.value
 
 
 def test_acp_bootstrap_includes_runtime_slash_commands():
