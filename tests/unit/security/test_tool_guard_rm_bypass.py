@@ -94,16 +94,13 @@ def test_home_env_var_blocked(workspace: Path) -> None:
     assert has_outside is True
 
 
-@pytest.mark.xfail(
-    reason="#5090 fix not yet applied — see separate fix(security) PR",
-    strict=True,
-)
 def test_home_brace_env_var_blocked(workspace: Path) -> None:
-    """Regression for #5090: ``rm -rf ${HOME}`` must also be flagged.
+    """Regression for #5090: ``rm -rf ${HOME}`` must be flagged.
 
-    Currently xfail because the detection/extraction split fix lives in a
-    separate PR. Once the fix merges, this test will pass and the
-    xfail can be removed."""
+    The detection/extraction split fix lands in the paired fix(security) PR
+    (#5866). Once that PR merges, this test passes for real; the former
+    xfail(strict=True) is removed here. CI will be red on this branch alone
+    until #5866 also lands — that pairing is intentional."""
     has_outside, _ = _check_rm_targets_outside_workspace("rm -rf ${HOME}")
     assert has_outside is True
 
