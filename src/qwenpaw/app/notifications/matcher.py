@@ -31,7 +31,7 @@ def event_matches_rules(
             return False
 
     # Primary: simple source-type toggles
-    if _source_toggled_on(source_type, config):
+    if _source_toggled_on(source_type, event, config):
         return True
 
     # Fallback: advanced rules
@@ -44,18 +44,24 @@ def event_matches_rules(
     return False
 
 
-def _source_toggled_on(source_type: str, config: NotificationConfig) -> bool:
+def _source_toggled_on(
+    source_type: str,
+    event: dict[str, Any],
+    config: NotificationConfig,
+) -> bool:
     """Check if the source_type is enabled in the simple toggles."""
     sources = config.sources
     if source_type == "cron":
-        return sources.cron
-    elif source_type == "heartbeat":
-        return sources.heartbeat
-    elif source_type == "memory":
-        return sources.memory
-    elif source_type == "skill_autoupdate":
-        return sources.skill_autoupdate
-    return False
+        payload = event.get("payload") or {}
+        task_type = payload.get("task_type", "agent")
+        return sources.cron_text if task_type == "text" else sources.cron_agent
+    mapping = {
+        "approval": sources.approval,
+        "heartbeat": sources.heartbeat,
+        "memory": sources.memory,
+        "skill_autoupdate": sources.skill_autoupdate,
+    }
+    return mapping.get(source_type, False)
 
 
 def _matches_rule(event: dict[str, Any], rule: NotificationRuleConfig) -> bool:

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   notificationsApi,
   type NotificationConfig,
@@ -6,6 +7,7 @@ import {
 } from "../../../api/modules/notifications";
 
 export function useNotifications() {
+  const { i18n } = useTranslation();
   const [config, setConfig] = useState<NotificationConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -32,6 +34,19 @@ export function useNotifications() {
   useEffect(() => {
     void fetchConfig();
   }, [fetchConfig]);
+
+  // Auto-sync console language to notification config
+  useEffect(() => {
+    if (!config || loading || saving) return;
+    const consoleLang = (i18n.resolvedLanguage ?? i18n.language ?? "en").split(
+      "-",
+    )[0];
+    const configLang = (config.language || "en").split("-")[0];
+    if (consoleLang !== configLang) {
+      void updateConfig({ language: consoleLang });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config?.language, i18n.language, loading]);
 
   const updateConfig = useCallback(
     async (patch: Partial<NotificationConfig>) => {

@@ -215,6 +215,7 @@ function CronJobsPage() {
 
     const formValues: any = {
       ...job,
+      system_notify: job.system_notify ?? Boolean(job.save_result_to_inbox),
       request: {
         ...job.request,
         input: job.request?.input

@@ -2099,19 +2099,42 @@ def _default_notification_rules() -> List[NotificationRuleConfig]:
 class NotificationSourceToggles(BaseModel):
     """Per-source-type toggles for system notifications."""
 
-    cron: bool = Field(default=True, description="Notify for cron job events.")
+    model_config = ConfigDict(extra="ignore")
+
+    approval: bool = Field(
+        default=True,
+        description="Notify when a tool execution requires security approval.",
+    )
+    cron_text: bool = Field(
+        default=True,
+        description="Notify for text-type cron job results.",
+    )
+    cron_agent: bool = Field(
+        default=True,
+        description="Notify for agent-type cron job results.",
+    )
     heartbeat: bool = Field(
         default=True,
         description="Notify for heartbeat events.",
     )
     memory: bool = Field(
-        default=False,
+        default=True,
         description="Notify for memory job events.",
     )
     skill_autoupdate: bool = Field(
-        default=False,
+        default=True,
         description="Notify for skill auto-update events.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_cron(cls, data: Any) -> Any:
+        """Migrate old 'cron' field to cron_text + cron_agent."""
+        if isinstance(data, dict) and "cron" in data:
+            val = data.pop("cron")
+            data.setdefault("cron_text", val)
+            data.setdefault("cron_agent", val)
+        return data
 
 
 class NotificationConfig(BaseModel):
@@ -2127,7 +2150,7 @@ class NotificationConfig(BaseModel):
         description="Whether notifications should play a sound.",
     )
     min_interval_seconds: int = Field(
-        default=10,
+        default=5,
         ge=1,
         description="Rate-limit: minimum seconds between consecutive "
         "notifications. Excess events are batched into a summary.",
@@ -2135,6 +2158,10 @@ class NotificationConfig(BaseModel):
     sources: NotificationSourceToggles = Field(
         default_factory=NotificationSourceToggles,
         description="Per-source-type on/off toggles.",
+    )
+    language: str = Field(
+        default="zh",
+        description="Language for notification text (synced with console UI).",
     )
     agent_ids: Optional[List[str]] = Field(
         default=None,

@@ -575,7 +575,8 @@
     "targetInbox": "受信トレイに送信",
     "runNow": "今すぐ実行",
     "runNowSuccess": "ハートビートを実行しました。受信トレイまたは送信先チャンネルを確認してください。",
-    "runNowFailed": "ハートビートの実行に失敗しました"
+    "runNowFailed": "ハートビートの実行に失敗しました",
+    "runNowNotStarted": "ハートビートが無効か、既に実行中です"
   },
   "cronJobs": {
     "title": "定期実行",
@@ -2769,8 +2770,12 @@
     "testButton": "テスト通知を送信",
     "sourcesTitle": "通知ソース",
     "sourcesHint": "システム通知をトリガーするイベントの種類を選択します。",
+    "sourceApproval": "セキュリティ承認",
+    "sourceApprovalHint": "ツール実行に承認が必要な場合",
     "sourceCron": "定期タスク",
     "sourceCronHint": "定期タスクの実行結果",
+    "sourceCronText": "テキストリマインダー",
+    "sourceCronAgent": "タスク実行",
     "sourceHeartbeat": "ハートビート",
     "sourceHeartbeatHint": "定期的なハートビートチェック結果",
     "sourceMemory": "メモリ",

@@ -797,7 +797,8 @@
     "targetInbox": "Enviar para o Inbox",
     "runNow": "Executar agora",
     "runNowSuccess": "Heartbeat disparado. Verifique o Inbox ou o canal de destino em instantes.",
-    "runNowFailed": "Falha ao disparar execução do heartbeat"
+    "runNowFailed": "Falha ao disparar execução do heartbeat",
+    "runNowNotStarted": "O heartbeat não está habilitado ou já está em execução"
   },
   "cronJobs": {
     "title": "Tarefas Cron",
@@ -2824,8 +2825,12 @@
     "testButton": "Enviar Notificacao de Teste",
     "sourcesTitle": "Fontes de Notificacao",
     "sourcesHint": "Escolha quais tipos de eventos devem acionar notificacoes do sistema.",
+    "sourceApproval": "Aprovacoes de Seguranca",
+    "sourceApprovalHint": "Quando a execucao de uma ferramenta requer aprovacao",
     "sourceCron": "Tarefas Agendadas",
     "sourceCronHint": "Resultados de execucao de tarefas agendadas",
+    "sourceCronText": "Lembretes de Texto",
+    "sourceCronAgent": "Execução de Tarefas",
     "sourceHeartbeat": "Heartbeat",
     "sourceHeartbeatHint": "Resultados de verificacao periodica",
     "sourceMemory": "Memoria",

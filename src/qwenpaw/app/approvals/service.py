@@ -115,6 +115,28 @@ class ApprovalService:
                 exc_info=True,
             )
 
+    async def _try_system_notify(self, pending: PendingApproval) -> None:
+        """Fire-and-forget: send a desktop notification for an approval."""
+        try:
+            from ..notifications.service import get_notification_service
+            from qwenpaw.config.utils import load_config
+
+            config = load_config()
+            svc = get_notification_service()
+            await svc.notify_approval(
+                config.notifications,
+                tool_name=pending.tool_name,
+                severity=pending.severity,
+                agent_id=pending.agent_id,
+                findings_summary=pending.result_summary or "",
+            )
+        except Exception:
+            logger.debug(
+                "System notification dispatch error for approval %s",
+                pending.request_id[:8],
+                exc_info=True,
+            )
+
     # ------------------------------------------------------------------
     # Core approval lifecycle
     # ------------------------------------------------------------------
@@ -185,6 +207,11 @@ class ApprovalService:
                 self._notify_channel(pending, channel_body),
                 name=f"approval-notify-{request_id[:8]}",
             )
+
+        asyncio.create_task(
+            self._try_system_notify(pending),
+            name=f"approval-desktop-{request_id[:8]}",
+        )
 
         return pending
 

@@ -928,7 +928,8 @@
     "saveFailed": "Failed to save heartbeat config",
     "runNow": "Run Now",
     "runNowSuccess": "Heartbeat triggered. Check Inbox or target channel shortly.",
-    "runNowFailed": "Failed to trigger heartbeat run"
+    "runNowFailed": "Failed to trigger heartbeat run",
+    "runNowNotStarted": "Heartbeat is not enabled or already running"
   },
   "cronJobs": {
     "title": "Cron Jobs",
@@ -954,6 +955,8 @@
     "enabled": "Status",
     "saveResultToInbox": "Save result to Inbox",
     "saveResultToInboxTooltip": "When enabled, successful executions with successful delivery are stored in Inbox. Delivery failures are always written to Inbox as fallback.",
+    "systemNotify": "System Notification",
+    "systemNotifyTooltip": "When enabled, triggers a desktop notification popup on task completion. Works independently of inbox storage.",
     "scheduleType": "Schedule Type",
     "scheduleFilterAll": "All Schedule Types",
     "scheduleTypeRecurring": "Recurring",
@@ -2893,8 +2896,12 @@
     "testButton": "Send Test Notification",
     "sourcesTitle": "Notification Sources",
     "sourcesHint": "Choose which types of events should trigger system notifications.",
+    "sourceApproval": "Security Approvals",
+    "sourceApprovalHint": "When a tool execution requires your approval",
     "sourceCron": "Cron Jobs",
     "sourceCronHint": "Scheduled task execution results",
+    "sourceCronText": "Text Reminders",
+    "sourceCronAgent": "Task Execution",
     "sourceHeartbeat": "Heartbeat",
     "sourceHeartbeatHint": "Periodic heartbeat check results",
     "sourceMemory": "Memory",

@@ -31,6 +31,7 @@ class LinuxFallbackBackend(NotificationBackend):
         body: str,
         *,
         sound: bool = True,
+        url: str | None = None,
     ) -> bool:
         try:
             cmd = ["notify-send", "--app-name=QwenPaw", title, body]

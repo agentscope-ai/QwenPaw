@@ -9,7 +9,9 @@ export interface NotificationRuleConfig {
 }
 
 export interface NotificationSourceToggles {
-  cron: boolean;
+  approval: boolean;
+  cron_text: boolean;
+  cron_agent: boolean;
   heartbeat: boolean;
   memory: boolean;
   skill_autoupdate: boolean;
@@ -20,6 +22,7 @@ export interface NotificationConfig {
   sound: boolean;
   min_interval_seconds: number;
   sources: NotificationSourceToggles;
+  language: string;
   agent_ids: string[] | null;
   rules: NotificationRuleConfig[];
 }

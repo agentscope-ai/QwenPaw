@@ -232,6 +232,7 @@ def _build_spec_from_cli(
     enabled: bool,
     mode: str,
     save_result_to_inbox: Optional[bool] = None,
+    system_notify: Optional[bool] = None,
     share_session: bool = True,
     timeout_seconds: int = 120,
 ) -> dict:
@@ -277,6 +278,8 @@ def _build_spec_from_cli(
         }
         if save_result_to_inbox is not None:
             payload["save_result_to_inbox"] = save_result_to_inbox
+        if system_notify is not None:
+            payload["system_notify"] = system_notify
         return payload
     if task_type == "agent":
         if not (text and text.strip()):
@@ -305,6 +308,8 @@ def _build_spec_from_cli(
         }
         if save_result_to_inbox is not None:
             payload["save_result_to_inbox"] = save_result_to_inbox
+        if system_notify is not None:
+            payload["system_notify"] = system_notify
         return payload
     raise click.UsageError(f"Unsupported task type: {task_type}")
 
@@ -466,6 +471,14 @@ def _build_spec_from_cli(
     ),
 )
 @click.option(
+    "--system-notify/--no-system-notify",
+    default=None,
+    help=(
+        "Whether to trigger a system desktop notification on completion. "
+        "If omitted, defaults to the value of --save-result-to-inbox."
+    ),
+)
+@click.option(
     "--share-session/--no-share-session",
     default=True,
     help=(
@@ -516,6 +529,7 @@ def create_job(
     enabled: bool,
     mode: str,
     save_result_to_inbox: Optional[bool],
+    system_notify: Optional[bool],
     share_session: bool,
     timeout_seconds: int,
     base_url: Optional[str],
@@ -573,6 +587,7 @@ def create_job(
             enabled=enabled,
             mode=mode,
             save_result_to_inbox=save_result_to_inbox,
+            system_notify=system_notify,
             share_session=share_session,
             timeout_seconds=timeout_seconds,
         )
@@ -602,6 +617,7 @@ def _resolve_update_spec(
     enabled: Optional[bool],
     mode: Optional[str],
     save_result_to_inbox: Optional[bool],
+    system_notify: Optional[bool],
     share_session: Optional[bool],
     timeout_seconds: Optional[int],
 ) -> Dict[str, Any]:
@@ -653,6 +669,11 @@ def _resolve_update_spec(
         if save_result_to_inbox is not None
         else spec.get("save_result_to_inbox")
     )
+    t_notify = (
+        system_notify
+        if system_notify is not None
+        else spec.get("system_notify")
+    )
     t_share = (
         share_session
         if share_session is not None
@@ -696,6 +717,7 @@ def _resolve_update_spec(
         enabled=t_enabled,
         mode=t_mode,
         save_result_to_inbox=t_save,
+        system_notify=t_notify,
         share_session=t_share,
         timeout_seconds=t_timeout,
     )
@@ -817,6 +839,11 @@ def _resolve_update_spec(
     help="Save execution results to Inbox.",
 )
 @click.option(
+    "--system-notify/--no-system-notify",
+    default=None,
+    help="Trigger a system desktop notification on completion.",
+)
+@click.option(
     "--share-session/--no-share-session",
     default=None,
     help="Share session with target user.",
@@ -860,6 +887,7 @@ def update_job(
     enabled: Optional[bool],
     mode: Optional[str],
     save_result_to_inbox: Optional[bool],
+    system_notify: Optional[bool],
     share_session: Optional[bool],
     timeout_seconds: Optional[int],
     base_url: Optional[str],
@@ -904,6 +932,7 @@ def update_job(
             enabled=enabled,
             mode=mode,
             save_result_to_inbox=save_result_to_inbox,
+            system_notify=system_notify,
             share_session=share_session,
             timeout_seconds=timeout_seconds,
         )

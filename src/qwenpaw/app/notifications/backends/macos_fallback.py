@@ -13,11 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class MacOSFallbackBackend(NotificationBackend):
-    """Fallback for macOS when desktop-notifier is unavailable or fails.
-
-    Uses `osascript -e 'display notification ...'` which works without
-    code-signing requirements.
-    """
+    """Fallback for macOS using osascript display notification."""
 
     def is_available(self) -> bool:
         return sys.platform == "darwin"
@@ -28,6 +24,7 @@ class MacOSFallbackBackend(NotificationBackend):
         body: str,
         *,
         sound: bool = True,
+        url: str | None = None,
     ) -> bool:
         escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
         escaped_body = body.replace("\\", "\\\\").replace('"', '\\"')

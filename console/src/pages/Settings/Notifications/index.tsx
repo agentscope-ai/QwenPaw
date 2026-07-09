@@ -9,30 +9,22 @@ import type { NotificationSourceToggles } from "../../../api/modules/notificatio
 import styles from "./index.module.less";
 
 const SOURCE_KEYS: {
-  key: keyof NotificationSourceToggles;
+  key: keyof NotificationSourceToggles | "_label";
   labelKey: string;
-  hintKey: string;
+  indent?: boolean;
+  isLabel?: boolean;
 }[] = [
+  { key: "approval", labelKey: "notifications.sourceApproval" },
+  { key: "_label", labelKey: "notifications.sourceCron", isLabel: true },
+  { key: "cron_text", labelKey: "notifications.sourceCronText", indent: true },
   {
-    key: "cron",
-    labelKey: "notifications.sourceCron",
-    hintKey: "notifications.sourceCronHint",
+    key: "cron_agent",
+    labelKey: "notifications.sourceCronAgent",
+    indent: true,
   },
-  {
-    key: "heartbeat",
-    labelKey: "notifications.sourceHeartbeat",
-    hintKey: "notifications.sourceHeartbeatHint",
-  },
-  {
-    key: "memory",
-    labelKey: "notifications.sourceMemory",
-    hintKey: "notifications.sourceMemoryHint",
-  },
-  {
-    key: "skill_autoupdate",
-    labelKey: "notifications.sourceSkillUpdate",
-    hintKey: "notifications.sourceSkillUpdateHint",
-  },
+  { key: "heartbeat", labelKey: "notifications.sourceHeartbeat" },
+  { key: "memory", labelKey: "notifications.sourceMemory" },
+  { key: "skill_autoupdate", labelKey: "notifications.sourceSkillUpdate" },
 ];
 
 export default function NotificationsPage() {
@@ -172,22 +164,33 @@ export default function NotificationsPage() {
       <Card className={styles.settingsCard}>
         <h3>{t("notifications.sourcesTitle")}</h3>
         <p className={styles.settingHint}>{t("notifications.sourcesHint")}</p>
-        {SOURCE_KEYS.map(({ key, labelKey, hintKey }) => (
-          <div key={key} className={styles.settingRow}>
-            <div className={styles.settingLabel}>
-              <div>
+        {SOURCE_KEYS.map(({ key, labelKey, indent, isLabel }) =>
+          isLabel ? (
+            <div key={key} className={styles.settingRow}>
+              <div className={styles.settingLabel}>
                 <div className={styles.settingTitle}>{t(labelKey)}</div>
-                <div className={styles.settingHint}>{t(hintKey)}</div>
               </div>
             </div>
-            <Switch
-              size="small"
-              checked={config.sources[key]}
-              onChange={(checked) => toggleSource(key, checked)}
-              disabled={!config.enabled}
-            />
-          </div>
-        ))}
+          ) : (
+            <div
+              key={key}
+              className={styles.settingRow}
+              style={indent ? { paddingLeft: 16 } : undefined}
+            >
+              <div className={styles.settingLabel}>
+                <div className={styles.settingTitle}>{t(labelKey)}</div>
+              </div>
+              <Switch
+                size="small"
+                checked={config.sources[key as keyof NotificationSourceToggles]}
+                onChange={(checked) =>
+                  toggleSource(key as keyof NotificationSourceToggles, checked)
+                }
+                disabled={!config.enabled}
+              />
+            </div>
+          ),
+        )}
       </Card>
 
       {agentOptions.length > 1 && (

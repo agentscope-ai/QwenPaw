@@ -76,6 +76,9 @@ async def append_event(
 async def _try_system_notify(event: dict[str, Any]) -> None:
     """Fire-and-forget: dispatch a system notification if rules match."""
     try:
+        payload = event.get("payload") or {}
+        if payload.get("system_notify") is False:
+            return
         from qwenpaw.app.notifications.service import get_notification_service
         from qwenpaw.config.utils import load_config
 

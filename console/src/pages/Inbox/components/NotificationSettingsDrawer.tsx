@@ -12,30 +12,22 @@ interface Props {
 }
 
 const SOURCE_KEYS: {
-  key: keyof NotificationSourceToggles;
+  key: keyof NotificationSourceToggles | "_label";
   labelKey: string;
-  hintKey: string;
+  indent?: boolean;
+  isLabel?: boolean;
 }[] = [
+  { key: "approval", labelKey: "notifications.sourceApproval" },
+  { key: "_label", labelKey: "notifications.sourceCron", isLabel: true },
+  { key: "cron_text", labelKey: "notifications.sourceCronText", indent: true },
   {
-    key: "cron",
-    labelKey: "notifications.sourceCron",
-    hintKey: "notifications.sourceCronHint",
+    key: "cron_agent",
+    labelKey: "notifications.sourceCronAgent",
+    indent: true,
   },
-  {
-    key: "heartbeat",
-    labelKey: "notifications.sourceHeartbeat",
-    hintKey: "notifications.sourceHeartbeatHint",
-  },
-  {
-    key: "memory",
-    labelKey: "notifications.sourceMemory",
-    hintKey: "notifications.sourceMemoryHint",
-  },
-  {
-    key: "skill_autoupdate",
-    labelKey: "notifications.sourceSkillUpdate",
-    hintKey: "notifications.sourceSkillUpdateHint",
-  },
+  { key: "heartbeat", labelKey: "notifications.sourceHeartbeat" },
+  { key: "memory", labelKey: "notifications.sourceMemory" },
+  { key: "skill_autoupdate", labelKey: "notifications.sourceSkillUpdate" },
 ];
 
 export function NotificationSettingsDrawer({ open, onClose }: Props) {
@@ -145,20 +137,34 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
             {t("notifications.sourcesTitle")}
           </h4>
           <p className={styles.sectionHint}>{t("notifications.sourcesHint")}</p>
-          {SOURCE_KEYS.map(({ key, labelKey, hintKey }) => (
-            <div key={key} className={styles.sourceRow}>
-              <div className={styles.settingInfo}>
+          {SOURCE_KEYS.map(({ key, labelKey, indent, isLabel }) =>
+            isLabel ? (
+              <div key={key} className={styles.sourceRow}>
                 <div className={styles.sourceLabel}>{t(labelKey)}</div>
-                <div className={styles.settingHint}>{t(hintKey)}</div>
               </div>
-              <Switch
-                size="small"
-                checked={config.sources[key]}
-                onChange={(checked) => toggleSource(key, checked)}
-                disabled={!config.enabled}
-              />
-            </div>
-          ))}
+            ) : (
+              <div
+                key={key}
+                className={styles.sourceRow}
+                style={indent ? { paddingLeft: 16 } : undefined}
+              >
+                <div className={styles.sourceLabel}>{t(labelKey)}</div>
+                <Switch
+                  size="small"
+                  checked={
+                    config.sources[key as keyof NotificationSourceToggles]
+                  }
+                  onChange={(checked) =>
+                    toggleSource(
+                      key as keyof NotificationSourceToggles,
+                      checked,
+                    )
+                  }
+                  disabled={!config.enabled}
+                />
+              </div>
+            ),
+          )}
         </div>
 
         {/* Agent filter */}
