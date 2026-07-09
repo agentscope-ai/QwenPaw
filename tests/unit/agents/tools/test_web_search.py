@@ -4,7 +4,7 @@
 Covers:
 - _post (SSL fallback)
 - _fetch_html (SSL fallback for GET)
-- _html_to_text (BeautifulSoup conversion)
+- _html_to_text (html2text conversion)
 - _format_search_results
 - web_search
 - web_fetch
@@ -19,6 +19,7 @@ import pytest
 from agentscope.message import ToolResultState
 
 from qwenpaw.agents.tools.web_search import (
+    _fetch_html,
     _format_search_results,
     _html_to_text,
     _is_ssl_error,
@@ -107,6 +108,15 @@ class TestHtmlToText:
         assert "https://example.com" in text
         assert "Click" in text
 
+    def test_title_whitespace_normalized(self):
+        html = (
+            "<html><head>"
+            "<title>  My\n  SPA\n  Page  </title>"
+            "</head><body><p>Body</p></body></html>"
+        )
+        text = _html_to_text(html)
+        assert text.startswith("# My SPA Page")
+
     def test_empty_body_with_title(self):
         html = (
             "<html><head>"
@@ -155,6 +165,61 @@ class TestIsSslError:
     def test_timeout_not_ssl(self):
         exc = httpx.TimeoutException("timed out")
         assert _is_ssl_error(exc) is False
+
+
+# -------------------------------------------------------------------
+# _fetch_html
+# -------------------------------------------------------------------
+
+
+class TestFetchHtml:
+    """Tests for _fetch_html Content-Type guard."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_binary_content_type(self):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.headers = {"content-type": "application/pdf"}
+        mock_resp.text = "%PDF-1.4 binary"
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_resp)
+        mock_client.__aenter__ = AsyncMock(
+            return_value=mock_client,
+        )
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch(
+            "qwenpaw.agents.tools.web_search.httpx.AsyncClient",
+            return_value=mock_client,
+        ):
+            with pytest.raises(ValueError, match="Unsupported"):
+                await _fetch_html("https://example.com/file.pdf")
+
+    @pytest.mark.asyncio
+    async def test_accepts_html_content_type(self):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.headers = {
+            "content-type": "text/html; charset=utf-8",
+        }
+        mock_resp.text = "<html><body>OK</body></html>"
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_resp)
+        mock_client.__aenter__ = AsyncMock(
+            return_value=mock_client,
+        )
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch(
+            "qwenpaw.agents.tools.web_search.httpx.AsyncClient",
+            return_value=mock_client,
+        ):
+            result = await _fetch_html("https://example.com")
+        assert "OK" in result
 
 
 # -------------------------------------------------------------------

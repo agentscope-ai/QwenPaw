@@ -146,6 +146,14 @@ async def _fetch_html(url: str) -> str:
                 headers=_FETCH_HEADERS,
             )
     resp.raise_for_status()
+    ct = (resp.headers.get("content-type") or "").lower()
+    if ct and not any(
+        ct.startswith(t)
+        for t in ("text/", "application/xhtml", "application/xml")
+    ):
+        raise ValueError(
+            f"Unsupported Content-Type: {ct}",
+        )
     return resp.text
 
 
@@ -156,7 +164,11 @@ def _extract_title(html_content: str) -> str:
         html_content,
         re.IGNORECASE | re.DOTALL,
     )
-    return m.group(1).strip() if m else ""
+    if not m:
+        return ""
+    raw = m.group(1)
+    title = re.sub(r"\s+", " ", raw).strip()
+    return title[:200]
 
 
 def _html_to_text(html_content: str) -> str:
