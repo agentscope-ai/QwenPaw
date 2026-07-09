@@ -152,6 +152,19 @@ def _permission_expires_at(tool_call: Any) -> float | None:
     return None
 
 
+def _permission_expired_message(exc: asyncio.CancelledError) -> str:
+    reason = str(exc.args[0]) if exc.args else ""
+    if reason == "timeout":
+        return (
+            "Approval request timed out. The tool call was blocked; "
+            "start a new request to try again."
+        )
+    return (
+        "Approval request is no longer pending. The tool call was blocked; "
+        "start a new request to try again."
+    )
+
+
 def _tool_call_meta(tool_call: Any) -> dict[str, Any]:
     if isinstance(tool_call, dict):
         meta = tool_call.get("_meta") or tool_call.get("field_meta")
@@ -251,17 +264,13 @@ class _TuiClient:
 
         try:
             option_id = await future
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as exc:
             if not future.done():
                 future.cancel()
             await self._queue.put(
                 PermissionExpired(
                     request_id=request_id,
-                    message=(
-                        "Approval request is no longer pending. "
-                        "The tool call was blocked; start a new request "
-                        "to try again."
-                    ),
+                    message=_permission_expired_message(exc),
                 ),
             )
             raise

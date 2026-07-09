@@ -875,12 +875,19 @@ class QwenPawACPAgent(Agent):
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 if pending_future in done and not permission_task.done():
+                    cancel_reason = "resolved"
+                    try:
+                        if pending_future.result() == ApprovalDecision.TIMEOUT:
+                            cancel_reason = "timeout"
+                    except Exception:  # noqa: BLE001 - best-effort UX hint
+                        pass
                     logger.info(
-                        "ACP approval request expired before client "
-                        "response: request=%s",
+                        "ACP approval request %s before client response: "
+                        "request=%s",
+                        cancel_reason,
                         pending.request_id[:8],
                     )
-                    permission_task.cancel()
+                    permission_task.cancel(cancel_reason)
                     try:
                         await permission_task
                     except asyncio.CancelledError:
