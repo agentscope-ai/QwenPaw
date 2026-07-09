@@ -392,7 +392,7 @@ class TestManagerRerankIntegration:
         )
 
         mock_reme_and_config["reranker_cfg"].enabled = True
-        mock_reme_and_config["response"].metadata["results"] = [
+        test_results = [
             {
                 "path": "memory/x.md",
                 "start_line": 1,
@@ -401,6 +401,8 @@ class TestManagerRerankIntegration:
                 "scores": {"score": 0.9},
             },
         ]
+        mock_reme_and_config["response"].metadata["results"] = test_results
+        mock_reme_and_config["rerank_fn"].return_value = test_results[::-1]
 
         mgr = ReMeLightMemoryManager.__new__(  # noqa: WPS437
             ReMeLightMemoryManager,
