@@ -78,47 +78,6 @@ def _tool_call_json_error_result(block: Any) -> Any | None:
     )
 
 
-def _coerce_raw_tool_input(raw: str, block: Any) -> str | None:
-    """Return a JSON string for raw tool input, or None if unrecoverable."""
-    try:
-        json.loads(raw)
-        return raw
-    except (json.JSONDecodeError, ValueError) as exc:
-        if raw == "":
-            return "{}"
-
-        # Some models (e.g. DeepSeek-V4-Flash) append garbage after valid JSON
-        # for no-param tool calls: "{}trailing" raises "Extra data", but
-        # raw_decode can recover the leading valid object.
-        try:
-            start = json.decoder.WHITESPACE.match(raw, 0).end()
-            recovered, _ = _json_decoder.raw_decode(raw, start)
-            if not isinstance(recovered, dict):
-                raise json.JSONDecodeError(
-                    "recovered value is not a JSON object",
-                    raw,
-                    0,
-                ) from exc
-        except (json.JSONDecodeError, ValueError):
-            logger.warning(
-                "tool_call input is not valid JSON; "
-                "marking call failed with synthetic result: id=%r, name=%r, "
-                "input_preview=%s",
-                _block_attr(block, "id"),
-                _block_attr(block, "name"),
-                repr(raw[:120]),
-            )
-            return None
-
-    logger.info(
-        "tool_call input had trailing garbage; recovered via raw_decode: "
-        "id=%r, name=%r",
-        _block_attr(block, "id"),
-        _block_attr(block, "name"),
-    )
-    return json.dumps(recovered, ensure_ascii=False)
-
-
 def extract_tool_ids(msg) -> tuple[set[str], set[str]]:
     """Return (tool_call_ids, tool_result_ids) found in a single message.
 
@@ -172,6 +131,17 @@ def _reorder_tool_results(msgs: list) -> list:
     result_msg_ids: set[int] = set()
     for msg in msgs:
         if isinstance(msg.content, list):
+            # Keep a message that carries its own tool_call in place (e.g. an
+            # AgentScope 2.0 self-paired assistant msg
+            # [text, tool_call, tool_result]); only standalone tool_result
+            # messages are movable. Skipping a self-carrying msg here would
+            # drop it, since its own tool_call can never re-insert it.
+            has_own_call = any(
+                _is_tool_call(block) and _block_attr(block, "id")
+                for block in msg.content
+            )
+            if has_own_call:
+                continue
             for block in msg.content:
                 if _is_tool_result(block) and _block_attr(block, "id"):
                     results_by_id.setdefault(
@@ -216,16 +186,24 @@ def _remove_unpaired_tool_messages(msgs: list) -> list:
 
     i = 0
     while i < len(msgs):
-        use_ids, _ = extract_tool_ids(msgs[i])
+        use_ids, own_results = extract_tool_ids(msgs[i])
         if not use_ids:
             i += 1
             continue
-        required = set(use_ids)
+        # A self-paired message satisfies (some of) its own tool_calls with the
+        # tool_results in the same message; only the remainder must be covered
+        # by following messages.
+        required = set(use_ids) - own_results
         j = i + 1
         result_indices: list[int] = []
         while j < len(msgs) and required:
-            _, r = extract_tool_ids(msgs[j])
+            uj, r = extract_tool_ids(msgs[j])
             if not r:
+                break
+            # A following message that also carries tool_calls (e.g. another
+            # self-paired turn) is not a result-provider for this one; stop
+            # rather than consuming it.
+            if uj:
                 break
             required -= r
             result_indices.append(j)
@@ -245,8 +223,10 @@ def _remove_unpaired_tool_messages(msgs: list) -> list:
     for idx, msg in enumerate(msgs):
         if idx in to_remove:
             continue
-        _, r = extract_tool_ids(msg)
-        if r and not r.issubset(surviving_use_ids):
+        u, r = extract_tool_ids(msg)
+        # A tool_result is paired if some surviving tool_call uses its id --
+        # including a tool_call in the same (self-paired) message.
+        if r and not r.issubset(surviving_use_ids | u):
             to_remove.add(idx)
 
     return [msg for idx, msg in enumerate(msgs) if idx not in to_remove]
@@ -385,7 +365,14 @@ def _repair_empty_tool_inputs(
                         try:
                             parsed = json.loads(raw_str)
                         except json.JSONDecodeError:
-                            parsed, _ = _json_decoder.raw_decode(raw_str)
+                            start = json.decoder.WHITESPACE.match(
+                                raw_str,
+                                0,
+                            ).end()
+                            parsed, _ = _json_decoder.raw_decode(
+                                raw_str,
+                                start,
+                            )
                         if isinstance(parsed, dict) and parsed:
                             # All agentscope 2.0 formatters expect
                             # ToolCallBlock.input to be a JSON string
@@ -425,7 +412,7 @@ def _repair_empty_tool_inputs(
     return result if changed else msgs
 
 
-# pylint: disable=too-many-branches
+# pylint: disable=too-many-branches,too-many-statements
 def _coerce_tool_inputs_to_json(msgs: list) -> list:
     """Ensure every tool_call block's ``input`` field is a valid JSON string.
 
@@ -480,11 +467,52 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
             coerced_input: str = raw if isinstance(raw, str) else "{}"
 
             if isinstance(raw, str):
-                coerced = _coerce_raw_tool_input(raw, block)
-                if coerced is None:
-                    drop_block = True
-                else:
-                    coerced_input = coerced
+                try:
+                    json.loads(raw)
+                    coerced_input = raw  # already a valid JSON string
+                except (json.JSONDecodeError, ValueError) as exc:
+                    if raw == "":
+                        coerced_input = "{}"
+                    else:
+                        # Some models (e.g. DeepSeek-V4-Flash) append garbage
+                        # after valid JSON for no-param tool calls: "{
+                        # }trailing" json.loads raises "Extra data" but
+                        # raw_decode can recover the leading valid object.
+                        try:
+                            start = json.decoder.WHITESPACE.match(
+                                raw,
+                                0,
+                            ).end()
+                            recovered, _ = _json_decoder.raw_decode(
+                                raw,
+                                start,
+                            )
+                            if not isinstance(recovered, dict):
+                                raise json.JSONDecodeError(
+                                    "recovered value is not a JSON object",
+                                    raw,
+                                    0,
+                                ) from exc
+                            coerced_input = json.dumps(
+                                recovered,
+                                ensure_ascii=False,
+                            )
+                            logger.info(
+                                "tool_call input had trailing garbage; "
+                                "recovered via raw_decode: id=%r, name=%r",
+                                _block_attr(block, "id"),
+                                _block_attr(block, "name"),
+                            )
+                        except (json.JSONDecodeError, ValueError):
+                            logger.warning(
+                                "tool_call input is not valid JSON; "
+                                "marking call failed with synthetic result: "
+                                "id=%r, name=%r, input_preview=%s",
+                                _block_attr(block, "id"),
+                                _block_attr(block, "name"),
+                                repr(raw[:120]),
+                            )
+                            drop_block = True
             elif isinstance(raw, (dict, list)):
                 coerced_input = json.dumps(raw, ensure_ascii=False)
             else:
