@@ -1076,21 +1076,22 @@ def _create_file_block_support_formatter(
                         len(aligned_reasoning),
                         len(out_assistant),
                     )
-                    for _i, m in enumerate(
-                        msg
-                        for msg in normalized_msgs
-                        if msg.role == "assistant"
-                    ):
-                        types = (
-                            [_battr(b, "type") for b in m.content]
-                            if isinstance(m.content, list)
-                            else []
-                        )
-                        logger.warning(
-                            "  src assistant[%d] blocks=%s",
-                            _i,
-                            types,
-                        )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        for _i, m in enumerate(
+                            msg
+                            for msg in normalized_msgs
+                            if msg.role == "assistant"
+                        ):
+                            types = (
+                                [_battr(b, "type") for b in m.content]
+                                if isinstance(m.content, list)
+                                else []
+                            )
+                            logger.debug(
+                                "  src assistant[%d] blocks=%s",
+                                _i,
+                                types,
+                            )
                 else:
                     for i, out_msg in enumerate(out_assistant):
                         if aligned_reasoning[i]:
