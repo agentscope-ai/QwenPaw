@@ -64,7 +64,6 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
   | Nổi bật | Nội dung mới |
   |-----------|------------|
-  | **Agent OS — Runtime** | AgentScope 2.0 làm kernel in-process; pipeline middleware hook-stage cho phép lắp ráp agent theo từng request. |
   | **Agent OS — Workspace** | Ba trụ cột mỗi agent: **Resources** (lưu trữ minh bạch trên đĩa), **Governance** (allow/deny/ask/sandbox), **Sandbox** (macOS / Linux / Windows). |
   | **Agent OS — Drivers** | Lớp connector trung lập giao thức MCP / A2A / ACP với credentials mã hóa và policy gate mỗi lần gọi. |
   | **Loop Engineering** | Mẫu vòng lặp agent nâng cao (Coding Mode, Mission Mode, thêm nhiều sắp tới) với cổng phê duyệt kết hợp. |
@@ -72,7 +71,9 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
   | **ReMe4 Memory** | Theo dõi tự động theo lượt, tìm kiếm nhận biết mức sử dụng, embedding riêng backend. |
   | **Terminal UI (TUI)** | Chat terminal toàn màn hình — cùng agent, bộ nhớ và phiên với Console và kênh. |
 
-  [v2.0.0 Release Notes →](https://github.com/agentscope-ai/QwenPaw/releases/tag/v2.0.0)
+  Dựa trên Agent OS, chúng tôi sẽ ra mắt các ứng dụng QwenPaw sẵn sàng sử dụng — như **QwenPaw Creator** và **QwenPaw Insight** — hãy theo dõi.
+
+  [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — Trang Mô Hình Đổi Mới & Chế Độ Đơn Giản** | Trang mô hình thiết kế lại với tổng hợp nhà cung cấp; Chế độ Đơn giản mới. [Ghi chú phát hành v1.1.12 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 

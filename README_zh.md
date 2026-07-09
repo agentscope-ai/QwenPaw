@@ -64,7 +64,6 @@
 
   | 亮点 | 更新内容 |
   |------|----------|
-  | **Agent OS — 运行时** | AgentScope 2.0 作为进程内核；钩子阶段中间件流水线实现按请求组装智能体。 |
   | **Agent OS — 工作区** | 每个智能体三大支柱：**资源**（透明落盘）、**治理**（allow/deny/ask/sandbox）、**沙箱**（macOS / Linux / Windows）。 |
   | **Agent OS — 驱动** | 协议中立的 MCP / A2A / ACP 连接器层，带加密凭据与逐次调用策略门控。 |
   | **Loop Engineering** | 高级智能体循环模板（Coding Mode、Mission Mode，更多模板持续推出），配合可组合审批门控。 |
@@ -72,7 +71,9 @@
   | **ReMe4 记忆** | 按轮自动追踪、使用感知搜索、后端特定嵌入。 |
   | **终端界面（TUI）** | 全屏终端对话——与控制台和频道共享同一智能体、记忆与会话。 |
 
-  [v2.0.0 发布说明 →](https://github.com/agentscope-ai/QwenPaw/releases/tag/v2.0.0)
+  基于 Agent OS，我们将陆续推出开箱即用的 QwenPaw 应用小程序——如 **QwenPaw Creator**、**QwenPaw Insight** 等，敬请期待。
+
+  [v2.0.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — 模型页面大改版 & 简洁模式** | 全新模型页面 Provider 聚合设计；新增简洁模式，扁平化导航。[v1.1.12 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 

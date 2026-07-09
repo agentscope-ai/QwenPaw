@@ -64,7 +64,6 @@
 
   | Основное | Что нового |
   |----------|-----------|
-  | **Agent OS — Runtime** | AgentScope 2.0 как in-process ядро; middleware-конвейер с хук-стадиями для сборки агента по запросу. |
   | **Agent OS — Workspace** | Три столпа на агента: **Resources** (прозрачно на диске), **Governance** (allow/deny/ask/sandbox), **Sandbox** (macOS / Linux / Windows). |
   | **Agent OS — Drivers** | Протокол-нейтральный слой коннекторов MCP / A2A / ACP с шифрованием учётных данных и политикой на вызов. |
   | **Loop Engineering** | Продвинутые шаблоны циклов агента (Coding Mode, Mission Mode, далее — больше) с компонуемыми вентилями одобрения. |
@@ -72,7 +71,9 @@
   | **ReMe4 Memory** | Авто-трекинг по ходам, поиск с учётом использования, бэкенд-специфичные эмбеддинги. |
   | **Terminal UI (TUI)** | Полноэкранный терминальный чат — тот же агент, память и сессии, что в Console и каналах. |
 
-  [v2.0.0 Release Notes →](https://github.com/agentscope-ai/QwenPaw/releases/tag/v2.0.0)
+  На базе Agent OS мы будем выпускать готовые к использованию приложения QwenPaw — такие как **QwenPaw Creator** и **QwenPaw Insight** — следите за обновлениями.
+
+  [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — Обновление страницы моделей и Простой режим** | Новый дизайн страницы моделей с агрегацией провайдеров; Простой режим для упрощённой навигации. [v1.1.12 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 

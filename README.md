@@ -64,7 +64,6 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 
   | Highlight | What's new |
   |-----------|------------|
-  | **Agent OS — Runtime** | AgentScope 2.0 as in-process kernel; hook-stage middleware pipeline enables per-request agent assembly. |
   | **Agent OS — Workspace** | Three pillars per agent: **Resources** (transparent on disk), **Governance** (allow/deny/ask/sandbox), **Sandbox** (macOS / Linux / Windows). |
   | **Agent OS — Drivers** | Protocol-neutral MCP / A2A / ACP connector layer with encrypted credentials and per-call policy gate. |
   | **Loop Engineering** | Advanced agent loop templates (Coding Mode, Mission Mode, more to come) with composable approval gates. |
@@ -72,7 +71,9 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
   | **ReMe4 Memory** | Turn-based auto tracking, usage-aware search, and backend-specific embeddings. |
   | **Terminal UI (TUI)** | Full-screen terminal chat — same agent, memory, and sessions as Console and channels. |
 
-  [v2.0.0 Release Notes →](https://github.com/agentscope-ai/QwenPaw/releases/tag/v2.0.0)
+  Built on Agent OS, we will be launching ready-to-use QwenPaw applications — such as **QwenPaw Creator** and **QwenPaw Insight** — stay tuned.
+
+  [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — Models Page Overhaul & Simple Mode** | Redesigned Models page with provider aggregation; new Simple Mode for streamlined navigation. [v1.1.12 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 

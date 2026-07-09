@@ -64,7 +64,6 @@
 
   | ハイライト | 内容 |
   |-----------|------|
-  | **Agent OS — Runtime** | AgentScope 2.0 をインプロセスカーネルとして使用；フックステージミドルウェアパイプラインによりリクエストごとのエージェント組み立てを実現。 |
   | **Agent OS — Workspace** | エージェントごとの 3 本柱：**Resources**（透明なディスク保存）、**Governance**（allow/deny/ask/sandbox）、**Sandbox**（macOS / Linux / Windows）。 |
   | **Agent OS — Drivers** | プロトコル中立な MCP / A2A / ACP コネクタ層、暗号化資格情報と呼び出しごとのポリシーゲート付き。 |
   | **Loop Engineering** | 高度なエージェントループテンプレート（Coding Mode、Mission Mode、今後さらに追加予定）と組み合わせ可能な承認ゲート。 |
@@ -72,7 +71,9 @@
   | **ReMe4 Memory** | ターンベースの自動追跡、利用感知型検索、バックエンド固有の埋め込み。 |
   | **Terminal UI (TUI)** | フルスクリーンターミナルチャット — Console やチャネルと同一のエージェント・記憶・セッション。 |
 
-  [v2.0.0 リリースノート →](https://github.com/agentscope-ai/QwenPaw/releases/tag/v2.0.0)
+  Agent OS をベースに、すぐに使える QwenPaw アプリケーション — **QwenPaw Creator**、**QwenPaw Insight** など — を順次リリース予定です。
+
+  [v2.0.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — モデルページ大刷新 & シンプルモード** | Provider 集約による新モデルページデザイン、フラットナビのシンプルモード追加。[v1.1.12 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 
