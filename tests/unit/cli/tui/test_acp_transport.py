@@ -13,7 +13,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from qwenpaw.agents.acp.meta import ACP_CODING_PROJECT_META_KEY
+from qwenpaw.agents.acp.meta import (
+    ACP_APPROVAL_EXPIRES_AT_META_KEY,
+    ACP_CODING_PROJECT_META_KEY,
+)
 from qwenpaw.cli.tui.events import (
     BackendWarmed,
     Connected,
@@ -158,6 +161,35 @@ async def test_permission_cancellation_emits_expired_event():
     assert isinstance(expired, PermissionExpired)
     assert expired.request_id == request.request_id
     assert "no longer pending" in expired.message
+
+
+@pytest.mark.asyncio
+async def test_permission_request_carries_expiry_metadata():
+    queue = asyncio.Queue()
+    client = _TuiClient(queue)
+    expires_at = 1234567890.0
+    task = asyncio.create_task(
+        client.request_permission(
+            options=[],
+            session_id="sess-1",
+            tool_call=SimpleNamespace(
+                title="dangerous_tool",
+                kind="execute",
+                raw_input={"command": "rm -rf /tmp/nope"},
+                field_meta={
+                    ACP_APPROVAL_EXPIRES_AT_META_KEY: expires_at,
+                },
+            ),
+        ),
+    )
+
+    request = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(request, PermissionRequest)
+    assert request.expires_at == expires_at
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
 
 @pytest.mark.asyncio

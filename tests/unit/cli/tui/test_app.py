@@ -9,6 +9,7 @@ from __future__ import annotations
 # pylint: disable=use-implicit-booleaness-not-comparison
 
 import asyncio
+import time
 
 import pytest
 
@@ -835,6 +836,32 @@ async def test_permission_overlay_expires_with_message():
         assert not overlay.display
         infos = [i.content.plain for i in app.query(InfoMessage)]
         assert any("Approval request is no longer pending" in i for i in infos)
+
+
+@pytest.mark.asyncio
+async def test_permission_overlay_shows_expiry_countdown():
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._dispatch(
+            PermissionRequest(
+                request_id="r-countdown",
+                title="dangerous_tool",
+                expires_at=time.time() + 65,
+                options=[
+                    PermissionOption("allow", "Allow", "allow_once"),
+                    PermissionOption("deny", "Deny", "reject_once"),
+                ],
+            ),
+        )
+        await pilot.pause()
+
+        overlay = app.query_one(PermissionOverlay)
+        title = overlay.get_option_at_index(0).prompt
+        assert "Approval required" in title.plain
+        assert "expires in" in title.plain
+        assert "dangerous_tool" in title.plain
 
 
 @pytest.mark.asyncio

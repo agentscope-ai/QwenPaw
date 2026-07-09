@@ -36,6 +36,7 @@ from acp.schema import (
 )
 
 from ....agents.acp.meta import (
+    ACP_APPROVAL_EXPIRES_AT_META_KEY,
     ACP_CODING_PROJECT_META_KEY,
     ACP_EPHEMERAL_META_KEY,
 )
@@ -138,6 +139,29 @@ def _permission_params(tool_call: Any) -> str | None:
     return tool_input_text(_tool_call_raw_input(tool_call)) or None
 
 
+def _permission_expires_at(tool_call: Any) -> float | None:
+    meta = _tool_call_meta(tool_call)
+    value = meta.get(ACP_APPROVAL_EXPIRES_AT_META_KEY)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _tool_call_meta(tool_call: Any) -> dict[str, Any]:
+    if isinstance(tool_call, dict):
+        meta = tool_call.get("_meta") or tool_call.get("field_meta")
+    else:
+        meta = getattr(tool_call, "field_meta", None)
+        if meta is None:
+            meta = getattr(tool_call, "_meta", None)
+    return meta if isinstance(meta, dict) else {}
+
+
 def _tool_call_raw_input(tool_call: Any) -> Any:
     if isinstance(tool_call, dict):
         return tool_call.get("rawInput", tool_call.get("raw_input"))
@@ -212,6 +236,7 @@ class _TuiClient:
                 title=str(title),
                 tool_kind=getattr(tool_call, "kind", None),
                 params=_permission_params(tool_call),
+                expires_at=_permission_expires_at(tool_call),
                 options=[
                     PermissionOption(
                         option_id=getattr(o, "option_id", ""),

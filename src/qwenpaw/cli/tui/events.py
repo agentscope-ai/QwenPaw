@@ -138,6 +138,7 @@ class PermissionRequest:
     options: list[PermissionOption] = field(default_factory=list)
     tool_kind: str | None = None
     params: str | None = None
+    expires_at: float | None = None
 
 
 @dataclass(frozen=True)
