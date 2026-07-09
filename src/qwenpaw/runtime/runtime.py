@@ -164,6 +164,8 @@ class Runtime:
                 yield ev
             raise
         except BaseException as e:
+            await self._try_save_on_cancel(ctx)
+
             ctx.error = e
             logger.error(
                 "runtime: unhandled error session=%s: %s",
@@ -187,8 +189,6 @@ class Runtime:
                 yield ev
             raise
         finally:
-            await self._try_save_on_cancel(ctx)
-
             # Close agent first so governor can flush audit log and persist
             # policy before downstream FINALLY hooks observe the context.
             # See ``QwenPawAgent.close`` (agents/react_agent.py).
