@@ -278,9 +278,9 @@ class _TuiClient:
         # deadline locally (with grace, so the server always expires first).
         timeout = None
         if expires_at is not None:
-            timeout = (
-                max(expires_at - time.time(), 0.0)
-                + _PERMISSION_EXPIRY_GRACE_SECONDS
+            timeout = max(
+                expires_at + _PERMISSION_EXPIRY_GRACE_SECONDS - time.time(),
+                0.0,
             )
 
         try:

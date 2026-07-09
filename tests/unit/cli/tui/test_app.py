@@ -766,6 +766,13 @@ async def test_permission_overlay_resolves_with_keyboard_selection():
         assert "kind:" not in option_text
         assert "parameters" not in option_text
 
+        handled_by_app: list[str] = []
+
+        async def _record_app_level_permission_key(key: str) -> None:
+            handled_by_app.append(key)
+
+        app._handle_permission_key = _record_app_level_permission_key
+
         # Down selects Deny, then Enter resolves the highlighted option.
         await pilot.press("down")
         await pilot.pause()
@@ -777,6 +784,7 @@ async def test_permission_overlay_resolves_with_keyboard_selection():
                 break
 
         assert transport.resolved == [("r1", "deny")]
+        assert handled_by_app == []
 
 
 @pytest.mark.asyncio

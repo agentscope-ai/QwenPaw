@@ -231,7 +231,7 @@ async def test_permission_expires_locally_at_deadline(monkeypatch):
     """
     monkeypatch.setattr(
         "qwenpaw.cli.tui.transport.acp._PERMISSION_EXPIRY_GRACE_SECONDS",
-        0.05,
+        10.0,
     )
     queue = asyncio.Queue()
     client = _TuiClient(queue)
@@ -244,7 +244,7 @@ async def test_permission_expires_locally_at_deadline(monkeypatch):
                 kind="execute",
                 raw_input={"command": "rm -rf /tmp/nope"},
                 field_meta={
-                    ACP_APPROVAL_EXPIRES_AT_META_KEY: time.time() - 1.0,
+                    ACP_APPROVAL_EXPIRES_AT_META_KEY: time.time() - 20.0,
                 },
             ),
         ),
@@ -253,7 +253,7 @@ async def test_permission_expires_locally_at_deadline(monkeypatch):
     request = await asyncio.wait_for(queue.get(), timeout=1.0)
     assert isinstance(request, PermissionRequest)
 
-    response = await asyncio.wait_for(task, timeout=1.0)
+    response = await asyncio.wait_for(task, timeout=0.5)
     assert response.outcome.outcome == "cancelled"
 
     expired = await asyncio.wait_for(queue.get(), timeout=1.0)

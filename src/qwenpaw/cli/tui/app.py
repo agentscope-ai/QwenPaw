@@ -318,6 +318,12 @@ class PawApp(App):
             return
         if event.key not in ("down", "up", "enter", "tab", "escape"):
             return
+        if self.focused is self._permission and event.key in (
+            "down",
+            "up",
+            "enter",
+        ):
+            return
         event.prevent_default()
         event.stop()
         await self._handle_permission_key(event.key)
