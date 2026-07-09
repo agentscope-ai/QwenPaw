@@ -21,7 +21,7 @@ from .reranker import rerank, build_search_answer
 from ..model_factory import create_model_and_formatter
 from ...app.inbox_store import append_event as append_inbox_event
 from ...config import load_config
-from ...config.config import load_agent_config, AgentProfileConfig
+from ...config.config import load_agent_config, AgentProfileConfig, RerankerConfig
 
 if TYPE_CHECKING:
     from reme import ReMe
@@ -163,9 +163,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     def get_auto_memory_interval(self) -> int:
         """Return ReMe light auto-memory cadence from agent config."""
         agent_config = load_agent_config(self.agent_id)
-        interval = (
-            agent_config.running.reme_light_memory_config.auto_memory_interval
-        )
+        interval = agent_config.running.reme_light_memory_config.auto_memory_interval
         if interval is None:
             return 0
         return int(interval)
@@ -332,9 +330,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return {
             "auto_memory": "Auto-memory completed with no returned content.",
             "auto_dream": "Auto-dream completed with no returned content.",
-            "auto_resource": (
-                "Auto-resource completed with no returned content."
-            ),
+            "auto_resource": ("Auto-resource completed with no returned content."),
         }.get(name, "Memory job completed with no returned content.")
 
     async def memory_search(
@@ -387,9 +383,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if reranker_config and response.success:
             candidates = response.metadata.get("results", [])
             if not candidates:
-                answer = (
-                    str(response.answer or "").strip() or NO_MEMORY_RESULTS
-                )
+                answer = str(response.answer or "").strip() or NO_MEMORY_RESULTS
             else:
                 try:
                     candidates = await rerank(
@@ -449,7 +443,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return None
 
         reranker_config = memory_cfg.reranker_config
-        if not (reranker_config and reranker_config.enabled and reranker_config.model_name):
+        if not (
+            reranker_config and reranker_config.enabled and reranker_config.model_name
+        ):
             reranker_config = None
 
         msgs = [messages] if isinstance(messages, Msg) else list(messages)
