@@ -57,6 +57,27 @@ def manager() -> UnifiedQueueManager:
 # ---------------------------------------------------------------------------
 
 
+async def _wait_for_qsize(queue: asyncio.Queue, target: int, timeout: float = 1.0) -> None:
+    """Poll until ``queue.qsize()`` reaches ``target`` or timeout.
+
+    The ``_drain_consumer`` runs as a separate task; ``enqueue`` returning
+    only guarantees the item was put into the queue, not that the consumer
+    task has been scheduled to run and drained it. Asserting ``qsize()``
+    immediately after ``enqueue`` therefore races on event-loop scheduling
+    and is flaky across Python versions (passes on 3.11, fails on 3.13).
+    Polling yields control to the loop so the consumer task can make
+    progress deterministically.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if queue.qsize() == target:
+            return
+        await asyncio.sleep(0)
+    assert queue.qsize() == target, (
+        f"queue qsize {queue.qsize()} never reached {target} within {timeout}s"
+    )
+
+
 class TestEnqueueAndCreate:
     @pytest.mark.asyncio
     async def test_enqueue_creates_queue_and_consumer(
@@ -67,7 +88,9 @@ class TestEnqueueAndCreate:
         assert ("console", "console:u1", 0) in manager._queues
         state = manager._queues[("console", "console:u1", 0)]
         assert isinstance(state, QueueState)
-        assert state.queue.qsize() == 0  # drained by consumer
+        # drained by consumer; poll because the consumer runs as a separate
+        # task that is only scheduled once we yield to the event loop.
+        await _wait_for_qsize(state.queue, target=0)
 
     @pytest.mark.asyncio
     async def test_enqueue_is_idempotent_for_same_key(
