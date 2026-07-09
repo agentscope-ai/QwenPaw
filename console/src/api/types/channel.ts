@@ -91,6 +91,7 @@ export interface MatrixConfig extends BaseChannelConfig {
   homeserver: string;
   user_id: string;
   access_token: string;
+  streaming_enabled?: boolean;
 }
 
 export interface MattermostConfig extends BaseChannelConfig {

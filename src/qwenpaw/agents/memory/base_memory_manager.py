@@ -14,6 +14,7 @@ from typing import Any
 from agentscope.message import AssistantMsg, Msg, TextBlock, ThinkingBlock
 from agentscope.message import ToolCallBlock, ToolCallState
 from agentscope.message import ToolResultBlock, ToolResultState
+from agentscope.message import Usage
 from agentscope.middleware import MiddlewareBase
 from agentscope.tool import ToolChunk
 
@@ -26,6 +27,7 @@ from ..utils.registry import Registry
 
 logger = logging.getLogger(__name__)
 AUTO_MEMORY_TURN_STATE_TTL_SECONDS = 24 * 60 * 60
+MAX_QUERY_CHARS = 50
 
 
 class BaseMemoryManager(ABC):
@@ -134,8 +136,8 @@ class BaseMemoryManager(ABC):
         state["touched_at"] = now
         return state
 
-    @staticmethod
     def _build_auto_memory_search_msg(
+        self,
         *,
         query: str,
         max_results: int,
@@ -167,6 +169,16 @@ class BaseMemoryManager(ABC):
             output=[TextBlock(text=text)],
             state=ToolResultState.SUCCESS,
         )
+        estimate_divisor = self._get_token_estimate_divisor()
+        estimated_input_tokens = sum(
+            self._estimate_message_text_tokens(part, estimate_divisor)
+            for part in (
+                AUTO_MEMORY_SEARCH_TEXT,
+                thinking_text,
+                tool_call_block.name + tool_call_block.input,
+                tool_result_block.name + text,
+            )
+        )
         # Keep a synthetic sender to avoid merging into the real agent reply.
         return AssistantMsg(
             name="memory_search",
@@ -177,6 +189,12 @@ class BaseMemoryManager(ABC):
                     tool_call_block.id,
                     tool_result_block.id,
                 ],
+                "auto_memory_search_usage": {
+                    "estimated": True,
+                    "input_tokens": estimated_input_tokens,
+                    "output_tokens": 0,
+                    "estimate_divisor": estimate_divisor,
+                },
             },
             content=[
                 text_block,
@@ -184,7 +202,40 @@ class BaseMemoryManager(ABC):
                 tool_call_block,
                 tool_result_block,
             ],
+            usage=Usage(
+                input_tokens=estimated_input_tokens,
+                output_tokens=0,
+            ),
         )
+
+    def _get_token_estimate_divisor(self) -> float:
+        """Return configured byte/token divisor for lightweight estimates."""
+        try:
+            from ...config.config import load_agent_config
+
+            agent_config = load_agent_config(self.agent_id)
+            lcc = agent_config.running.light_context_config
+            divisor = lcc.token_count_estimate_divisor
+            divisor = float(divisor)
+            if divisor > 0:
+                return divisor
+        except Exception:
+            logger.debug(
+                "Failed to load token_count_estimate_divisor for %s",
+                self.agent_id,
+                exc_info=True,
+            )
+        return 4
+
+    @staticmethod
+    def _estimate_message_text_tokens(
+        text: str,
+        estimate_divisor: float,
+    ) -> int:
+        """Estimate context tokens using the shared byte-length heuristic."""
+        if not text:
+            return 0
+        return int(len(text.encode("utf-8")) / estimate_divisor + 0.5)
 
     # pylint: disable=unused-argument
     async def summarize(self, messages: list[Msg], **kwargs) -> str:
@@ -236,6 +287,16 @@ class BaseMemoryManager(ABC):
             dict with updated kwargs if memory context should be merged.
         """
         return None
+
+    @staticmethod
+    def _build_query(messages: list[Msg]) -> str:
+        for msg in reversed(messages):
+            if msg.role != "user":
+                continue
+            text = (msg.get_text_content() or "").strip()
+            if text:
+                return text[:MAX_QUERY_CHARS]
+        return ""
 
     async def auto_memory(
         self,

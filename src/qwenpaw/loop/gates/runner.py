@@ -178,7 +178,10 @@ def check_pending_gates(  # pylint: disable=protected-access
         agent._gate_pending_continue = None
         from agentscope.message import Msg, TextBlock
 
-        from ...constant import QWENPAW_MESSAGE_TAG_KEY
+        from ...constant import (
+            LOOP_CONTINUATION_MESSAGE_TAG,
+            QWENPAW_MESSAGE_TAG_KEY,
+        )
 
         agent.state.context.append(
             Msg(
@@ -188,7 +191,7 @@ def check_pending_gates(  # pylint: disable=protected-access
                     TextBlock(type="text", text=cont_msg),
                 ],
                 metadata={
-                    QWENPAW_MESSAGE_TAG_KEY: ("loop_continuation"),
+                    QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
                 },
             ),
         )

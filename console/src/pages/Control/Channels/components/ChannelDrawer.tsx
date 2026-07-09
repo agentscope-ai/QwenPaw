@@ -15,6 +15,7 @@ import { useEffect } from "react";
 import type { FormInstance } from "antd";
 import { getChannelLabel, type ChannelKey } from "./constants";
 import { QrcodeAuthBlock } from "./QrcodeAuthBlock";
+import type { ChannelSchema } from "../../../../api/modules/channel";
 import styles from "../index.module.less";
 import { useAgentStore } from "../../../../stores/agentStore";
 import { openExternalLink } from "../../../../utils/openExternalLink";
@@ -105,6 +106,7 @@ interface ChannelDrawerProps {
   saving: boolean;
   initialValues: Record<string, unknown> | undefined;
   isBuiltin: boolean;
+  channelSchema?: ChannelSchema;
   onClose: () => void;
   onSubmit: (values: Record<string, unknown>) => void;
 }
@@ -117,6 +119,7 @@ export function ChannelDrawer({
   saving,
   initialValues,
   isBuiltin,
+  channelSchema,
   onClose,
   onSubmit,
 }: ChannelDrawerProps) {
@@ -1326,6 +1329,102 @@ export function ChannelDrawer({
   const renderCustomExtraFields = (
     values: Record<string, unknown> | undefined,
   ) => {
+    // If we have a schema from the plugin system, render based on it
+    if (channelSchema && channelSchema.config_fields.length > 0) {
+      return (
+        <>
+          {channelSchema.description && (
+            <div className={styles.schemaDescription}>
+              {channelSchema.description}
+            </div>
+          )}
+          {channelSchema.config_fields.map((field) => {
+            const rules = field.required
+              ? [{ required: true, message: `Please enter ${field.label}` }]
+              : undefined;
+
+            switch (field.type) {
+              case "password":
+                return (
+                  <Form.Item
+                    key={field.name}
+                    name={field.name}
+                    label={field.label}
+                    rules={rules}
+                    tooltip={field.help}
+                    initialValue={field.default}
+                  >
+                    <Input.Password placeholder={field.placeholder} />
+                  </Form.Item>
+                );
+              case "number":
+                return (
+                  <Form.Item
+                    key={field.name}
+                    name={field.name}
+                    label={field.label}
+                    rules={rules}
+                    tooltip={field.help}
+                    initialValue={field.default}
+                  >
+                    <InputNumber
+                      style={{ width: "100%" }}
+                      placeholder={field.placeholder}
+                    />
+                  </Form.Item>
+                );
+              case "switch":
+                return (
+                  <Form.Item
+                    key={field.name}
+                    name={field.name}
+                    label={field.label}
+                    valuePropName="checked"
+                    tooltip={field.help}
+                    initialValue={field.default}
+                  >
+                    <Switch />
+                  </Form.Item>
+                );
+              case "select":
+                return (
+                  <Form.Item
+                    key={field.name}
+                    name={field.name}
+                    label={field.label}
+                    rules={rules}
+                    tooltip={field.help}
+                    initialValue={field.default}
+                  >
+                    <Select
+                      placeholder={field.placeholder}
+                      options={(field.options || []).map((opt) => ({
+                        label: opt,
+                        value: opt,
+                      }))}
+                    />
+                  </Form.Item>
+                );
+              default:
+                return (
+                  <Form.Item
+                    key={field.name}
+                    name={field.name}
+                    label={field.label}
+                    rules={rules}
+                    tooltip={field.help}
+                    initialValue={field.default}
+                  >
+                    <Input placeholder={field.placeholder} />
+                  </Form.Item>
+                );
+            }
+          })}
+        </>
+      );
+    }
+
+    // Fallback: infer field types from existing values (legacy behavior)
     if (!values) return null;
     const extraKeys = Object.keys(values).filter(
       (k) => !BASE_FIELDS.includes(k),
@@ -1483,7 +1582,8 @@ export function ChannelDrawer({
             activeKey === "dingtalk" ||
             activeKey === "feishu" ||
             activeKey === "discord" ||
-            activeKey === "slack") && (
+            activeKey === "slack" ||
+            activeKey === "matrix") && (
             <Form.Item
               name="streaming_enabled"
               label={t("channels.streamingEnabled")}

@@ -27,7 +27,6 @@ from ...config.config import load_agent_config
 from ...exceptions import ConfigurationException as ConfigurationError
 
 logger = logging.getLogger(__name__)
-MAX_QUERY_CHARS = 50
 
 
 @memory_registry.register("adbpg")
@@ -336,23 +335,6 @@ class ADBPGMemoryManager(BaseMemoryManager):
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _build_query(messages: list[Msg]) -> str:
-        parts = []
-        total = 0
-        for msg in reversed(messages):
-            if msg.role not in {"user", "assistant"}:
-                continue
-            text = (msg.get_text_content() or "").strip()
-            if not text:
-                continue
-            remaining = MAX_QUERY_CHARS - total - (1 if parts else 0)
-            if remaining <= 0:
-                break
-            parts.insert(0, text[-remaining:])
-            total += min(len(text), remaining) + (1 if len(parts) > 1 else 0)
-        return " ".join(parts).strip()
 
     @staticmethod
     def _tool_chunk_text(chunk: ToolChunk) -> str:

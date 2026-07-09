@@ -520,3 +520,33 @@ class TestSanitizeToolMessages:
     def test_empty_messages_returns_empty(self):
         result = _sanitize_tool_messages([])
         assert result == []
+
+    def test_self_paired_message_kept_when_another_block_unpaired(self):
+        # An AgentScope 2.0 self-paired assistant message carries its own
+        # tool_use and matching tool_result (plus text). When an *unrelated*
+        # unpaired tool_use elsewhere triggers sanitation, the valid
+        # self-paired turn must NOT be dropped (previously it was silently
+        # removed, losing the text and leaving an unpaired tool_use).
+        self_paired = _msg(
+            [
+                {"type": "text", "text": "keep me"},
+                _tool_use("paired"),
+                _tool_result("paired"),
+            ],
+        )
+        msgs = [
+            _msg([_tool_use("orphan")]),  # unpaired -> triggers sanitation
+            self_paired,
+            _msg("regular message"),
+        ]
+
+        result = _sanitize_tool_messages(msgs)
+
+        assert self_paired in result, "self-paired message must be preserved"
+        # The unpaired orphan tool_use is still removed.
+        remaining_uses: set = set()
+        for m in result:
+            u, _ = extract_tool_ids(m)
+            remaining_uses |= u
+        assert "orphan" not in remaining_uses
+        assert "paired" in remaining_uses

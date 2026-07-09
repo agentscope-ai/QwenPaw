@@ -292,25 +292,17 @@ qwenpaw env delete TAVILY_API_KEY
 
 **别名：** 可以用 `qwenpaw channel`（单数）作为 `qwenpaw channels` 的简写。
 
-| 命令                             | 说明                                                                            |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `qwenpaw channels list`          | 查看所有频道的状态（密钥脱敏）                                                  |
-| `qwenpaw channels send`          | 向用户/会话单向发送消息（需要全部 5 个参数）                                    |
-| `qwenpaw channels install <key>` | 在 `custom_channels/` 安装频道：创建模板，或用 `--path` / `--url` 安装          |
-| `qwenpaw channels add <key>`     | 安装并加入 config；内置频道只写 config；支持 `--path` / `--url`                 |
-| `qwenpaw channels remove <key>`  | 从 `custom_channels/` 删除自定义频道（内置不可删）；`--keep-config` 保留 config |
-| `qwenpaw channels config`        | 交互式启用/禁用频道并填写凭据                                                   |
+| 命令                      | 说明                                         |
+| ------------------------- | -------------------------------------------- |
+| `qwenpaw channels list`   | 查看所有频道的状态（密钥脱敏）               |
+| `qwenpaw channels send`   | 向用户/会话单向发送消息（需要全部 5 个参数） |
+| `qwenpaw channels config` | 交互式启用/禁用频道并填写凭据                |
 
 **多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
 
 ```bash
 qwenpaw channels list                    # 看默认智能体的频道状态
 qwenpaw channels list --agent-id abc123  # 看特定智能体的频道状态
-qwenpaw channels install my_channel      # 创建自定义频道模板
-qwenpaw channels install my_channel --path ./my_channel.py
-qwenpaw channels add dingtalk            # 把钉钉加入 config
-qwenpaw channels remove my_channel       # 删除自定义频道（并默认从 config 移除）
-qwenpaw channels remove my_channel --keep-config   # 只删模块，保留 config 条目
 qwenpaw channels config                  # 交互式配置默认智能体
 qwenpaw channels config --agent-id abc123 # 交互式配置特定智能体
 ```

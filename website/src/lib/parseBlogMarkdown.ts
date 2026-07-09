@@ -22,6 +22,20 @@ export type ParseBlogMarkdownOptions = {
   sessionList?: boolean;
 };
 
+/** Newest first; empty dates sink to the bottom; slug breaks ties. */
+export function compareBlogPostsByDateDesc(
+  a: { slug: string; frontmatter: { date: string } },
+  b: { slug: string; frontmatter: { date: string } },
+): number {
+  const dateA = a.frontmatter.date;
+  const dateB = b.frontmatter.date;
+  if (!dateA && !dateB) return a.slug.localeCompare(b.slug);
+  if (!dateA) return 1;
+  if (!dateB) return -1;
+  if (dateA !== dateB) return dateB.localeCompare(dateA);
+  return a.slug.localeCompare(b.slug);
+}
+
 /** Match session titles like `**06-30 QwenPaw 开发者日会：…**`. */
 const SESSION_TITLE_LINE =
   /^\*\*\d{2}-\d{2}\s+.*(?:开发者日会|Developer Day).*\*\*$/;

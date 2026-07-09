@@ -236,6 +236,7 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 | ------------------------------- | ------------------------------------------------------------------------------ | ---------------- |
 | `metadata_dir`                  | ReMe persistent state directory for indexes, catalogs, graph data, and caches  | `"mem_metadata"` |
 | `session_dir`                   | Directory for saved source conversations                                       | `"mem_session"`  |
+| `mem_session_dir`               | Directory for ReMe internal memory-agent sessions                              | `"mem_agent"`    |
 | `resource_dir`                  | Directory watched by `auto_resource`                                           | `"resource"`     |
 | `daily_dir`                     | Directory for daily memory notes                                               | `"memory"`       |
 | `digest_dir`                    | Directory for dream/digest memory                                              | `"digest"`       |
@@ -262,34 +263,40 @@ calls in the same tool loop until normal context management evicts them.
 
 Embedding configuration for vector semantic search, located in `running.reme_light_memory_config.embedding_model_config`:
 
-| Field              | Description                                  | Default  |
-| ------------------ | -------------------------------------------- | -------- |
-| `backend`          | Embedding backend type                       | `openai` |
-| `api_key`          | API Key for the Embedding service            | ``       |
-| `base_url`         | URL of the Embedding service                 | ``       |
-| `model_name`       | Embedding model name                         | ``       |
-| `dimensions`       | Vector dimensions for initializing vector DB | `1024`   |
-| `enable_cache`     | Whether to enable Embedding cache            | `true`   |
-| `use_dimensions`   | Whether to pass dimensions parameter in API  | `false`  |
-| `max_cache_size`   | Maximum Embedding cache entries              | `10000`  |
-| `max_input_length` | Maximum input length per Embedding request   | `8192`   |
-| `max_batch_size`   | Maximum batch size for Embedding requests    | `10`     |
+| Field              | Description                                                                                    | Default  |
+| ------------------ | ---------------------------------------------------------------------------------------------- | -------- |
+| `backend`          | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`      | `openai` |
+| `api_key`          | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends         | ``       |
+| `base_url`         | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host | ``       |
+| `model_name`       | Embedding model name                                                                           | ``       |
+| `dimensions`       | Embedding vector dimensions                                                                    | `1024`   |
+| `enable_cache`     | Whether to enable Embedding cache                                                              | `true`   |
+| `use_dimensions`   | Whether to pass dimensions parameter in API                                                    | `false`  |
+| `max_cache_size`   | Maximum Embedding cache entries                                                                | `10000`  |
+| `max_input_length` | Maximum input length per Embedding request                                                     | `8192`   |
+| `max_batch_size`   | Maximum batch size for Embedding requests                                                      | `10`     |
 
 > `use_dimensions` is for cases where some vLLM models don't support the dimensions parameter. Set to `false` to skip it.
 
-> `base_url` and `model_name` must both be non-empty to enable vector search in hybrid retrieval (`api_key` is not required).
+Vector retrieval is enabled only when the selected backend has the minimum runnable configuration. These conditions are aligned with AgentScope credential requirements:
+
+| Backend                                         | Enable condition                              | Credential mapping              |
+| ----------------------------------------------- | --------------------------------------------- | ------------------------------- |
+| `openai` / `dashscope` / `dashscope_multimodal` | Both `model_name` and `api_key` are non-empty | `api_key`; optional `base_url`  |
+| `gemini`                                        | Both `model_name` and `api_key` are non-empty | `api_key`                       |
+| `ollama`                                        | `model_name` is non-empty                     | optional `host` from `base_url` |
 
 ### Indexing Behavior
 
 The embedded ReMe configuration uses a local file store with:
 
-| Component        | Behavior                                                                                       |
-| ---------------- | ---------------------------------------------------------------------------------------------- |
-| File store       | Local ReMe file store under `mem_metadata/`                                                    |
-| Keyword index    | BM25 keyword index enabled by default                                                          |
-| Vector index     | Enabled only when both `embedding_model_config.base_url` and `model_name` are set              |
-| Watched dirs     | `daily_dir` and `digest_dir`; `resource_dir` is also indexed when `enable_search_raw_log=true` |
-| Watched suffixes | `md` by default; `jsonl` is included when raw-log search is enabled                            |
+| Component        | Behavior                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------ |
+| File store       | Local ReMe file store under `mem_metadata/`                                                      |
+| Keyword index    | BM25 keyword index enabled by default                                                            |
+| Vector index     | Enabled only when `embedding_model_config` meets the enable condition for the selected `backend` |
+| Watched dirs     | `daily_dir` and `digest_dir`; `resource_dir` is also indexed when `enable_search_raw_log=true`   |
+| Watched suffixes | `md` by default; `jsonl` is included when raw-log search is enabled                              |
 
 ---
 

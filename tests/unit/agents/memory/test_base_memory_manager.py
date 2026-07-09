@@ -2,6 +2,7 @@
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 """Tests for BaseMemoryManager abstract base class."""
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -191,6 +192,95 @@ class TestBaseMemoryManagerAddSummarizeTask:
 
 class TestAutoMemorySearchSanitization:
     """P1: auto_memory input should exclude auto-search blocks only."""
+
+    def test_build_query_uses_latest_user_message_only(self, manager):
+        messages = [
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text="NVDA 股价")],
+            ),
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        text=("达股价查询：NVDA $195.93 (+0.56%)，" "市值 $4.746T"),
+                    ),
+                ],
+            ),
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text="台积电股价")],
+            ),
+        ]
+
+        assert manager._build_query(messages) == "台积电股价"
+
+    def test_build_query_truncates_long_user_message(self, manager):
+        long_text = "a" * 60
+        messages = [
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text=long_text)],
+            ),
+        ]
+
+        assert manager._build_query(messages) == "a" * 50
+
+    def test_build_query_returns_empty_without_user_text(self, manager):
+        messages = [
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[TextBlock(text="memory noise")],
+            ),
+        ]
+
+        assert manager._build_query(messages) == ""
+
+    def test_builds_mock_assistant_msg_with_configured_estimated_usage(
+        self,
+        manager,
+        monkeypatch,
+    ):
+        def fake_load_agent_config(agent_id):
+            assert agent_id == "test-agent"
+            return SimpleNamespace(
+                running=SimpleNamespace(
+                    light_context_config=SimpleNamespace(
+                        token_count_estimate_divisor=2,
+                    ),
+                ),
+            )
+
+        monkeypatch.setattr(
+            "qwenpaw.config.config.load_agent_config",
+            fake_load_agent_config,
+        )
+
+        msg = manager._build_auto_memory_search_msg(
+            query="hello",
+            max_results=2,
+            text="remembered fact",
+        )
+
+        assert msg.role == "assistant"
+        assert msg.name == "memory_search"
+        assert msg.usage is not None
+        assert msg.usage.input_tokens > 0
+        assert msg.usage.output_tokens == 0
+        assert msg.metadata[AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY] == [
+            block.id for block in msg.content
+        ]
+        assert msg.metadata["auto_memory_search_usage"] == {
+            "estimated": True,
+            "input_tokens": msg.usage.input_tokens,
+            "output_tokens": 0,
+            "estimate_divisor": 2,
+        }
 
     def test_keeps_regular_reply_blocks(self, manager):
         auto_block = TextBlock(text="memory result")

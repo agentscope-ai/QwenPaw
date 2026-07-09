@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button, Card, Tag, Typography, Space } from "antd";
-import { Shield, Check, X, Clock, Copy } from "lucide-react";
+import { Shield, Check, X, Clock, Copy, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../stores/agentStore";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
@@ -54,7 +54,7 @@ export function ApprovalCard({
   similarTarget,
   onApprove,
   onDeny,
-  onCancel,
+  onCancel: _onCancel,
   onAcknowledge,
 }: ApprovalCardProps) {
   const { t } = useTranslation();
@@ -254,42 +254,24 @@ export function ApprovalCard({
         )}
 
         {isGeneralized && (exactTarget || similarTarget) && (
-          <div className={styles.infoRow}>
-            <Text className={styles.label}>
+          <div className={styles.scopeSection}>
+            <Text className={styles.scopeLabel}>
               {t("approval.approvalScope", "Approval scope")}:
             </Text>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 2,
-                fontSize: 12,
-              }}
-            >
-              <Text className={styles.value} style={{ fontSize: 12 }}>
-                {t("approval.approveExact", "Approve Exact")}:{" "}
-                <code>{exactTarget}</code>
-              </Text>
-              <Text className={styles.value} style={{ fontSize: 12 }}>
-                {t("approval.approvePattern", "Approve Pattern")}:{" "}
-                <code>{similarTarget}</code>
-              </Text>
+            <div className={styles.scopeItems}>
+              <div className={styles.scopeItem}>
+                <Text className={styles.scopeItemLabel}>
+                  {t("approval.approveExact", "Just Once")}:
+                </Text>
+                <code className={styles.scopeCode}>{exactTarget}</code>
+              </div>
+              <div className={styles.scopeItem}>
+                <Text className={styles.scopeItemLabel}>
+                  {t("approval.approvePattern", "Always Allow")}:
+                </Text>
+                <code className={styles.scopeCode}>{similarTarget}</code>
+              </div>
             </div>
-          </div>
-        )}
-
-        {findingsSummary && (
-          <div className={styles.summaryBox}>
-            <Text className={styles.summaryText}>{findingsSummary}</Text>
-            <button
-              className={`${styles.copyButton} ${
-                copiedField === "summary" ? styles.copied : ""
-              }`}
-              onClick={() => handleCopy(findingsSummary, "summary")}
-              title={t("common.copy", "Copy")}
-            >
-              <Copy size={12} />
-            </button>
           </div>
         )}
 
@@ -309,6 +291,27 @@ export function ApprovalCard({
                 onClick={() =>
                   handleCopy(JSON.stringify(toolParams, null, 2), "params")
                 }
+                title={t("common.copy", "Copy")}
+              >
+                <Copy size={12} />
+              </button>
+            </div>
+          </details>
+        )}
+
+        {findingsSummary && (
+          <details className={styles.detailsSection}>
+            <summary className={styles.detailsSummary}>
+              <Info size={12} />
+              {t("approval.details", "Details")}
+            </summary>
+            <div className={styles.detailsContent}>
+              <pre className={styles.detailsText}>{findingsSummary}</pre>
+              <button
+                className={`${styles.copyButton} ${
+                  copiedField === "details" ? styles.copied : ""
+                }`}
+                onClick={() => handleCopy(findingsSummary, "details")}
                 title={t("common.copy", "Copy")}
               >
                 <Copy size={12} />
@@ -337,24 +340,13 @@ export function ApprovalCard({
           </>
         ) : (
           <>
-            {onCancel && (
-              <Button
-                type="default"
-                onClick={() => {
-                  console.log("[ApprovalCard] Cancel task button clicked");
-                  onCancel();
-                }}
-                disabled={loading !== null}
-              >
-                {t("approval.cancelTask", "Cancel Task")}
-              </Button>
-            )}
             <Button
               danger
               icon={<X size={14} />}
               onClick={handleDeny}
               loading={loading === "deny"}
               disabled={loading !== null}
+              className={styles.denyButton}
             >
               {t("approval.deny", "Deny")}
             </Button>
@@ -364,8 +356,9 @@ export function ApprovalCard({
                   onClick={() => handleApprove("exact")}
                   loading={loading === "approve-exact"}
                   disabled={loading !== null}
+                  className={styles.approveOnceButton}
                 >
-                  {t("approval.approveExact", "Approve Exact")}
+                  {t("approval.approveExact", "Just Once")}
                 </Button>
                 <Button
                   type="primary"
@@ -373,8 +366,9 @@ export function ApprovalCard({
                   onClick={() => handleApprove("similar")}
                   loading={loading === "approve-pattern"}
                   disabled={loading !== null}
+                  className={styles.approveAlwaysButton}
                 >
-                  {t("approval.approvePattern", "Approve Pattern")}
+                  {t("approval.approvePattern", "Always Allow")}
                 </Button>
               </>
             ) : (
@@ -386,6 +380,7 @@ export function ApprovalCard({
                   loading === "approve-exact" || loading === "approve-pattern"
                 }
                 disabled={loading !== null}
+                className={styles.approveAlwaysButton}
               >
                 {t("approval.approve", "Approve")}
               </Button>

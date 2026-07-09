@@ -13,6 +13,8 @@ import { useState, useRef, useEffect } from "react";
 import { Modal, Tabs, Input, Button, Alert, List } from "antd";
 import {
   ChevronRight,
+  Eye,
+  EyeOff,
   Folder,
   FolderOpen,
   FolderSymlink,
@@ -437,6 +439,7 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
   const [data, setData] = useState<BrowseDirsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showHidden, setShowHidden] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const navSeq = useRef(0);
 
@@ -446,7 +449,7 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
     setLoading(true);
     setError(null);
     codingProjectApi
-      .browseDirs(path)
+      .browseDirs(path, showHidden)
       .then((res) => {
         if (seq !== navSeq.current) return;
         setData(res);
@@ -465,6 +468,13 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
     navigate("~");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-fetch current directory when the hidden-folders toggle changes.
+  // navSeq already discards stale responses, so unconditional re-fetch is safe.
+  useEffect(() => {
+    navigate(browsePath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showHidden]);
 
   const breadcrumbParts = data?.current.split("/").filter(Boolean) ?? [];
 
@@ -494,6 +504,14 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
           onClick={() => navigate(browsePath)}
         >
           {t("codingMode.openDirRefresh")}
+        </Button>
+        <Button
+          size="small"
+          type={showHidden ? "primary" : "text"}
+          icon={showHidden ? <Eye size={13} /> : <EyeOff size={13} />}
+          onClick={() => setShowHidden((v) => !v)}
+        >
+          {t("codingMode.openDirHiddenFolders")}
         </Button>
       </div>
 
