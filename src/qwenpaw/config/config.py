@@ -109,6 +109,7 @@ def _get_default_acp_agents() -> Dict[str, ACPAgentConfig]:
 class ACPConfig(BaseModel):
     """ACP (Agent Communication Protocol) configuration."""
 
+    node_path: str = ""
     agents: Dict[str, ACPAgentConfig] = Field(
         default_factory=_get_default_acp_agents,
     )
@@ -370,6 +371,7 @@ class MatrixConfig(BaseChannelConfig):
     mention_pill_in_body: bool = False
     # When True, apply m.mentions + optional pill on outbound messages.
     outbound_structured_mentions: bool = True
+    streaming_enabled: bool = False
 
 
 class VoiceChannelConfig(BaseChannelConfig):
@@ -588,14 +590,6 @@ class AutoMemorySearchConfig(BaseModel):
         ),
     )
 
-    persist_to_context: bool = Field(
-        default=False,
-        description=(
-            "Whether to persist auto memory search tool_call/tool_result "
-            "messages into the conversation context"
-        ),
-    )
-
 
 class EmbeddingModelConfig(BaseModel):
     """Embedding model configuration."""
@@ -653,7 +647,6 @@ class ADBPGMemoryConfig(BaseModel):
         default_factory=lambda: AutoMemorySearchConfig(
             enabled=True,
             max_results=3,
-            persist_to_context=False,
         ),
     )
 
@@ -669,7 +662,14 @@ class ReMeLightMemoryConfig(BaseModel):
     )
     session_dir: str = Field(
         default="mem_session",
-        description="Subdirectory for persisted agent sessions",
+        description=(
+            "Subdirectory for ReMe source conversation logs used by "
+            "auto-memory"
+        ),
+    )
+    mem_session_dir: str = Field(
+        default="mem_agent",
+        description="Subdirectory for ReMe internal memory-agent sessions",
     )
     resource_dir: str = Field(
         default="resource",
@@ -836,7 +836,7 @@ class ScrollContextConfig(BaseModel):
     Only consulted when ``LightContextConfig.strategy == "scroll"``. The
     durable history lives at ``{working_dir}/{db_filename}``; evicted turns
     fold into an in-context eviction index recallable from the sandboxed
-    ``execute_python`` REPL.
+    ``recall_history_python`` REPL.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -855,21 +855,12 @@ class ScrollContextConfig(BaseModel):
         ),
     )
 
-    pinned: int = Field(
-        default=1,
-        ge=0,
-        description=(
-            "Leading messages never evicted: the first user request (the "
-            "task). The first agent reply is intentionally NOT pinned — it "
-            "can be a huge multi-tool turn, and pinning it would make "
-            "/compact unable to reclaim it."
-        ),
-    )
-
     repl_timeout_s: int = Field(
         default=300,
         ge=1,
-        description="Per-call timeout for the execute_python REPL tool.",
+        description=(
+            "Per-call timeout for the recall_history_python REPL tool."
+        ),
     )
 
     history_retention_days: int = Field(
@@ -886,7 +877,7 @@ class ScrollContextConfig(BaseModel):
     allow_unsandboxed: bool = Field(
         default=False,
         description=(
-            "UNSAFE escape hatch. The execute_python recall REPL runs "
+            "UNSAFE escape hatch. The recall_history_python recall REPL runs "
             "model-authored Python and is only isolated by the sandbox; the "
             "sandbox config is injected by the governance layer. When that "
             "layer is degraded the tool fails closed and refuses to run. Set "
@@ -907,6 +898,31 @@ class ScrollContextConfig(BaseModel):
         ),
     )
 
+    summarize_unheadlined_evictions: bool = Field(
+        default=True,
+        description=(
+            "When an evicted span carries NO model headline, generate a "
+            "one-line summary of it (via the active model) to use as its "
+            "eviction-index entry instead of a bare ``(no milestone)`` line. "
+            "Keeps the index readable for legacy 1.x conversations (whose "
+            "turns predate headlines) and for tool-heavy spans the model "
+            "never headlined. The full turns stay recallable either way; "
+            "this only affects the descriptive label. Best-effort — a "
+            "model/timeout failure falls back to ``(no milestone)`` and never "
+            "blocks eviction. Costs one extra model call per such eviction."
+        ),
+    )
+
+    summarize_eviction_timeout_seconds: int = Field(
+        default=20,
+        ge=1,
+        description=(
+            "Per-eviction timeout for the un-headlined-span summary call "
+            "above. On timeout the span keeps a ``(no milestone)`` label; "
+            "eviction itself is never delayed beyond this."
+        ),
+    )
+
 
 class LightContextConfig(BaseModel):
     """Light context manager configuration."""
@@ -918,7 +934,7 @@ class LightContextConfig(BaseModel):
         description=(
             "Context management strategy. 'native' = AgentScope compression; "
             "'scroll' = retrieval-driven history.db + eviction index with a "
-            "sandboxed execute_python recall REPL (the default)."
+            "sandboxed recall_history_python recall REPL (the default)."
         ),
     )
 
@@ -1742,6 +1758,18 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             enabled=True,
             description="Browser automation and web interaction",
             icon="🌐",
+        ),
+        "web_search": BuiltinToolConfig(
+            name="web_search",
+            enabled=True,
+            description="Search the web for real-time information",
+            icon="🔎",
+        ),
+        "web_fetch": BuiltinToolConfig(
+            name="web_fetch",
+            enabled=True,
+            description="Fetch and read content from a URL",
+            icon="📥",
         ),
         "desktop_screenshot": BuiltinToolConfig(
             name="desktop_screenshot",
@@ -2584,9 +2612,13 @@ def migrate_legacy_config_to_multi_agent() -> bool:
 def get_model_max_input_length(
     agent_config: "AgentProfileConfig",
 ) -> int:
-    """Return ``max_input_length`` from the active model's ``ModelInfo``.
+    """Return the active model's resolved context window.
 
-    Falls back to 128 * 1024 (131072) if model info is unavailable.
+    Delegates to ``Provider.get_context_size`` — the SAME resolution the
+    compaction trigger uses (explicit ``max_input_length`` > static
+    context-window catalog > 128k default) — so /history, usage%%, and
+    daemon status can never disagree with when compression actually fires.
+    Falls back to 128 * 1024 (131072) if the provider is unavailable.
     Accepts an already-loaded *agent_config* to avoid redundant file I/O
     on hot paths (pre_reasoning, compact_context, summarize, etc.).
     """
@@ -2606,9 +2638,7 @@ def get_model_max_input_length(
             manager = ProviderManager.get_instance()
             provider = manager.get_provider(model_slot.provider_id)
             if provider:
-                model_info = provider.get_model_info(model_slot.model)
-                if model_info is not None:
-                    return model_info.max_input_length
+                return provider.get_context_size(model_slot.model)
         except Exception:
             pass
     logger.debug(

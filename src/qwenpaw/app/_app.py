@@ -50,7 +50,6 @@ from .migration import (
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
 )
-from .channels.registry import register_custom_channel_routes
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -488,12 +487,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
-            # Start all configured agents (truly parallel now)
-            await workspace_registry.start_all_configured_agents()
-
-            provider_manager.start_local_model_resume(local_model_manager)
-
-            # ---- Plugin System ----
+            # ---- Plugin System (phase 1: channel plugins) ----
+            # Load channel-type plugins *before* agents start so that
+            # ChannelManager discovers them via get_channel_registry()
+            # on first creation — no reload needed afterwards.
             logger.debug("Initializing plugin system...")
 
             from ..plugins.loader import PluginLoader
@@ -516,6 +513,20 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
 
+            # Phase 1: load channel plugins before agents start
+            await plugin_loader.load_all_plugins(
+                configs=plugin_configs,
+                types=["channel"],
+            )
+            logger.debug("Phase 1: channel plugins loaded")
+
+            # Start all configured agents (truly parallel now)
+            await workspace_registry.start_all_configured_agents()
+
+            provider_manager.start_local_model_resume(local_model_manager)
+
+            # Phase 2: load remaining plugins (channel plugins already
+            # loaded — load_plugin skips them automatically)
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
             )
@@ -882,8 +893,6 @@ app.include_router(agent_scoped_router, prefix="/api")
 # POST /voice/incoming, WS /voice/ws, POST /voice/status-callback
 app.include_router(voice_router, tags=["voice"])
 
-# Custom channel routes (before SPA catch-all to ensure route priority)
-register_custom_channel_routes(app)
 
 # Console static files and SPA fallback
 # Register these AFTER API routes to ensure proper routing priority

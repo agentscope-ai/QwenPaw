@@ -255,12 +255,20 @@ class ChatManager:
         self,
         session_id: str,
         channel: str,
+        user_id: str | None = None,
     ) -> str | None:
         """Get chat_id by session_id and channel.
 
         Args:
             session_id: Normalized session ID (e.g. "console:user1")
             channel: Channel name
+            user_id: Optional user ID. When provided, only chats owned by
+                this user are considered. This isolates users that share the
+                same session_id (e.g. members of the same group chat, or
+                different DM users whose conversation_id suffix collides), so
+                a /stop from one user never cancels another user's task.
+                When None/empty, all matching chats are considered
+                (backward-compatible behavior).
 
         Returns:
             chat_id (UUID) of most recent chat if found, None otherwise
@@ -271,21 +279,27 @@ class ChatManager:
         """
         async with self._lock:
             chats = await self._repo.filter_chats(channel=channel)
+            # Single pass: match session_id, and when a user_id is given,
+            # also require it to match. An empty/None user_id means "no user
+            # filter" (backward-compatible).
             matching_chats = [
-                chat for chat in chats if chat.session_id == session_id
+                chat
+                for chat in chats
+                if chat.session_id == session_id
+                and (not user_id or chat.user_id == user_id)
             ]
 
             if not matching_chats:
                 logger.debug(
                     f"No chat found for session={session_id[:30]} "
-                    f"channel={channel}",
+                    f"channel={channel} user_id={user_id}",
                 )
                 return None
 
             most_recent = max(matching_chats, key=lambda c: c.updated_at)
             logger.debug(
                 f"Found chat_id={most_recent.id} "
-                f"for session={session_id[:30]} "
+                f"for session={session_id[:30]} user_id={user_id} "
                 f"(from {len(matching_chats)} matches)",
             )
             return most_recent.id

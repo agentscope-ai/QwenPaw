@@ -8,6 +8,7 @@ export type PluginType =
   | "hook"
   | "command"
   | "frontend"
+  | "channel"
   | "general";
 
 /**

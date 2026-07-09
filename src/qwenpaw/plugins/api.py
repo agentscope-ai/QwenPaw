@@ -46,7 +46,7 @@ def get_tool_config(tool_name: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-class PluginApi:
+class PluginApi:  # pylint: disable=too-many-public-methods
     """Plugin API - Interface for plugin developers.
 
     This class provides the API that plugins use to register their
@@ -356,6 +356,95 @@ class PluginApi:
                 f"Plugin '{self.plugin_id}' registered middleware "
                 f"factory (priority={priority})",
             )
+
+    def register_channel(
+        self,
+        channel_class: Type,
+        label: str = "",
+        description: str = "",
+        config_fields: Optional[List[Dict[str, Any]]] = None,
+        icon: str = "",
+        doc_url: Any = "",
+    ) -> None:
+        """Register a custom messaging channel.
+
+        The channel_class must be a concrete subclass of
+        ``qwenpaw.app.channels.base.BaseChannel`` with a ``channel``
+        class attribute that serves as the unique key.
+
+        Args:
+            channel_class: BaseChannel subclass implementing the channel.
+                Must have a ``channel`` class attribute (used as key).
+            label: Display name shown in the UI (defaults to channel key).
+            description: Short description for the UI.
+            config_fields: List of config field descriptors for the
+                frontend settings form.  Each dict should contain:
+                - name (str): field key in the config
+                - label (str): display label
+                - type (str): "text" | "password" | "number" | "switch"
+                    | "select"
+                - required (bool, optional): default False
+                - placeholder (str, optional)
+                - help (str, optional): tooltip text
+                - default (Any, optional): default value
+                - options (list, optional): for "select" type
+            icon: Optional channel card icon URL. The Console falls back
+                to the default icon when it is empty or not a usable
+                http(s) URL.
+            doc_url: Optional documentation link. May be a plain http(s)
+                URL string, or a localized mapping such as
+                ``{"zh": "...", "en": "..."}``. The Console shows a "Doc"
+                button only when it resolves to a usable http(s) URL.
+
+        Example:
+            >>> api.register_channel(
+            ...     channel_class=SlackChannel,
+            ...     label="Slack",
+            ...     description="Slack workspace integration",
+            ...     config_fields=[
+            ...         {
+            ...             "name": "bot_token",
+            ...             "label": "Bot Token",
+            ...             "type": "password",
+            ...             "required": True,
+            ...             "placeholder": "xoxb-...",
+            ...         },
+            ...         {
+            ...             "name": "signing_secret",
+            ...             "label": "Signing Secret",
+            ...             "type": "password",
+            ...             "required": True,
+            ...         },
+            ...     ],
+            ... )
+        """
+        if not self._registry:
+            logger.warning(
+                f"Plugin '{self.plugin_id}' cannot register channel: "
+                f"registry unavailable",
+            )
+            return
+
+        channel_key = getattr(channel_class, "channel", None)
+        if not channel_key:
+            raise ValueError(
+                f"channel_class {channel_class!r} must have a "
+                f"'channel' class attribute as the channel key",
+            )
+        self._registry.register_channel(
+            plugin_id=self.plugin_id,
+            channel_key=channel_key,
+            channel_class=channel_class,
+            label=label,
+            description=description,
+            config_fields=config_fields,
+            icon=icon,
+            doc_url=doc_url,
+        )
+        logger.info(
+            f"Plugin '{self.plugin_id}' registered channel "
+            f"'{channel_key}'",
+        )
 
     @property
     def runtime(self):

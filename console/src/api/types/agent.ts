@@ -35,7 +35,6 @@ export interface LightContextConfig {
 export interface AutoMemorySearchConfig {
   enabled: boolean;
   max_results: number;
-  persist_to_context: boolean;
 }
 
 export interface EmbeddingModelConfig {

@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Dropdown, Tag, Tooltip } from "antd";
 import type { MenuProps } from "antd";
 import { Shield, Ban, AlertTriangle, CheckCircle } from "lucide-react";
@@ -6,8 +12,6 @@ import { DownOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 
 export type ToolExecutionLevel = "STRICT" | "SMART" | "AUTO" | "OFF";
-
-type SessionApprovalLevel = ToolExecutionLevel | null;
 
 const LEVELS: readonly ToolExecutionLevel[] = [
   "STRICT",
@@ -30,67 +34,85 @@ function storageKey(chatId: string): string {
   return `approval_level-${chatId}`;
 }
 
+function normalizeLevel(raw: string | undefined): ToolExecutionLevel {
+  const upper = (raw || "AUTO").toUpperCase();
+  return LEVELS.includes(upper as ToolExecutionLevel)
+    ? (upper as ToolExecutionLevel)
+    : "AUTO";
+}
+
 interface ApprovalLevelToggleProps {
-  chatId: string | undefined;
-  onChange?: (level: SessionApprovalLevel) => void;
+  /** Use queueSessionId (chatId ?? "new") for consistent storage key */
+  sessionId: string;
+  /** Default level from GET /workspace/running-config */
+  runningConfigApprovalLevel: ToolExecutionLevel;
+  /** null = no session override, backend uses running-config */
+  onChange?: (sessionOverride: ToolExecutionLevel | null) => void;
 }
 
 const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
-  chatId,
+  sessionId,
+  runningConfigApprovalLevel,
   onChange,
 }) => {
   const { t } = useTranslation();
-  const [sessionLevel, setSessionLevel] = useState<SessionApprovalLevel>(null);
+  const [sessionLevel, setSessionLevel] = useState<ToolExecutionLevel | null>(
+    null,
+  );
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const prevSessionIdRef = useRef<string>(sessionId);
 
   useEffect(() => {
-    if (!chatId) {
-      setSessionLevel(null);
-      return;
+    const prevSessionId = prevSessionIdRef.current;
+
+    // Migrate from temporary sessionId (including "new" or localId) to real backend chatId
+    // This happens when:
+    // 1. "new" -> real UUID (first message sent)
+    // 2. localId (timestamp-random) -> real UUID (session resolved)
+    if (prevSessionId !== sessionId) {
+      const isLocalId = (id: string) =>
+        id === "new" || /^\d{13}-[a-z0-9]{7}$/.test(id);
+      const isRealId = (id: string) => id.length === 36 && id.includes("-");
+
+      // Migrate if transitioning from local/temp to real
+      if (isLocalId(prevSessionId) && isRealId(sessionId)) {
+        const prevLevel = localStorage.getItem(storageKey(prevSessionId));
+        if (prevLevel && LEVELS.includes(prevLevel as ToolExecutionLevel)) {
+          localStorage.setItem(storageKey(sessionId), prevLevel);
+          localStorage.removeItem(storageKey(prevSessionId));
+        }
+      }
     }
-    const saved = localStorage.getItem(storageKey(chatId));
+
+    prevSessionIdRef.current = sessionId;
+
+    const saved = localStorage.getItem(storageKey(sessionId));
     if (saved && LEVELS.includes(saved as ToolExecutionLevel)) {
       setSessionLevel(saved as ToolExecutionLevel);
     } else {
       setSessionLevel(null);
     }
-  }, [chatId]);
+  }, [sessionId]);
+
+  const effectiveLevel = sessionLevel ?? runningConfigApprovalLevel;
+  const meta = LEVEL_META[effectiveLevel];
+
+  useEffect(() => {
+    onChangeRef.current?.(sessionLevel);
+  }, [sessionLevel]);
 
   const handleSelect = useCallback(
-    (level: SessionApprovalLevel) => {
-      if (!chatId) return;
+    (level: ToolExecutionLevel) => {
       setSessionLevel(level);
-      if (level === null) {
-        localStorage.removeItem(storageKey(chatId));
-      } else {
-        localStorage.setItem(storageKey(chatId), level);
-      }
-      onChange?.(level);
+      localStorage.setItem(storageKey(sessionId), level);
+      onChangeRef.current?.(level);
     },
-    [chatId, onChange],
+    [sessionId],
   );
 
-  const isOverridden = sessionLevel !== null;
-  const meta = isOverridden ? LEVEL_META[sessionLevel] : null;
-
   const menuItems: MenuProps["items"] = useMemo(() => {
-    const items: MenuProps["items"] = [
-      {
-        key: "inherit",
-        label: (
-          <div>
-            <div>
-              {t("agentConfig.toolExecutionLevel.inherit", "Default Mode")}
-            </div>
-            <div style={{ fontSize: 12, color: "#999", marginTop: 2 }}>
-              {t("agentConfig.toolExecutionLevel.inheritDesc", "")}
-            </div>
-          </div>
-        ),
-        icon: <Shield size={14} style={{ color: "#999", marginTop: 4 }} />,
-        onClick: () => handleSelect(null),
-      },
-      { type: "divider" },
-    ];
+    const items: MenuProps["items"] = [];
 
     for (const lv of LEVELS) {
       const m = LEVEL_META[lv];
@@ -124,16 +146,15 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   return (
     <Tooltip title={t("agentConfig.toolExecutionLevelTitle")}>
       <Dropdown
-        menu={{ items: menuItems, selectedKeys: [sessionLevel ?? "inherit"] }}
+        menu={{ items: menuItems, selectedKeys: [effectiveLevel] }}
         trigger={["click"]}
       >
         <Tag
           style={{
             cursor: "pointer",
             userSelect: "none",
-            borderColor: meta?.color,
-            color: meta?.color,
-            opacity: isOverridden ? 1 : 0.6,
+            borderColor: meta.color,
+            color: meta.color,
             transition: "all 0.2s",
             display: "inline-flex",
             alignItems: "center",
@@ -141,13 +162,11 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
             lineHeight: "22px",
           }}
         >
-          {meta?.icon ?? <Shield size={12} />}
-          {isOverridden
-            ? t(
-                `agentConfig.toolExecutionLevel.${sessionLevel.toLowerCase()}`,
-                sessionLevel,
-              )
-            : t("agentConfig.toolExecutionLevel.inherit", "Default Mode")}
+          {meta.icon}
+          {t(
+            `agentConfig.toolExecutionLevel.${effectiveLevel.toLowerCase()}`,
+            effectiveLevel,
+          )}
           <DownOutlined style={{ fontSize: 10 }} />
         </Tag>
       </Dropdown>
@@ -155,4 +174,5 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   );
 };
 
+export { normalizeLevel };
 export default ApprovalLevelToggle;

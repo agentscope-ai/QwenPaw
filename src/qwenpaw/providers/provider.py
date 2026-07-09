@@ -7,9 +7,11 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Type
 
 from agentscope.model import ChatModelBase
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from qwenpaw.exceptions import ProviderError
+
+from .context_windows import DEFAULT_CONTEXT_WINDOW, resolve_context_window
 
 if TYPE_CHECKING:
     from .multimodal_prober import ProbeResult
@@ -51,7 +53,7 @@ class ModelInfo(BaseModel):
         "response. Merged into generate_kwargs unless explicitly overridden.",
     )
     max_input_length: int = Field(
-        default=128 * 1024,
+        default=DEFAULT_CONTEXT_WINDOW,
         ge=1000,
         description="Maximum input context window size (tokens). "
         "Controls when context compaction is triggered.",
@@ -61,12 +63,21 @@ class ModelInfo(BaseModel):
         description="Per-model generation parameters that override "
         "provider-level generate_kwargs.",
     )
-    preserve_thinking: bool = Field(
+    relay_reasoning: bool = Field(
         default=True,
         description="Whether to relay reasoning_content (thinking traces) "
         "back in subsequent turns. When False the formatter omits "
         "reasoning_content from assistant wire messages.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _compat_preserve_thinking(cls, data: Any) -> Any:
+        """Accept legacy ``preserve_thinking`` key as alias."""
+        if isinstance(data, dict) and "preserve_thinking" in data:
+            data.setdefault("relay_reasoning", data.pop("preserve_thinking"))
+        return data
+
     thinking_enabled: bool | None = Field(
         default=None,
         description="Tri-state thinking toggle: None=auto (don't send, "
@@ -452,10 +463,10 @@ class Provider(ProviderInfo, ABC):
                 ):
                     model.max_input_length = int(config["max_input_length"])
                 if (
-                    "preserve_thinking" in config
-                    and config["preserve_thinking"] is not None
+                    "relay_reasoning" in config
+                    and config["relay_reasoning"] is not None
                 ):
-                    model.preserve_thinking = bool(config["preserve_thinking"])
+                    model.relay_reasoning = bool(config["relay_reasoning"])
                 if "thinking_enabled" in config:
                     model.thinking_enabled = (
                         bool(config["thinking_enabled"])
@@ -489,12 +500,12 @@ class Provider(ProviderInfo, ABC):
                 return model
         return None
 
-    def _get_preserve_thinking(self, model_id: str) -> bool:
-        """Return the ``preserve_thinking`` flag for *model_id* (default
+    def _get_relay_reasoning(self, model_id: str) -> bool:
+        """Return the ``relay_reasoning`` flag for *model_id* (default
         True)."""
         model_info = self.get_model_info(model_id)
         if model_info is not None:
-            return model_info.preserve_thinking
+            return model_info.relay_reasoning
         return True
 
     def _get_thinking_config(
@@ -523,17 +534,41 @@ class Provider(ProviderInfo, ABC):
         support thinking are unaffected.
         """
 
-    def _get_context_size(self, model_id: str) -> int:
-        """Return the context size for *model_id* from ``ModelInfo``.
+    def _context_catalog_enabled(self) -> bool:
+        """Whether the static context-window catalog applies here.
 
-        Used when constructing AgentScope chat model instances so that
-        ``model.context_size`` (which drives automatic context compression)
-        matches the user-configured ``max_input_length``.
+        Local-serving providers (Ollama) override this to ``False``: a model
+        family's cloud window says nothing about a local serve that
+        truncates at ``num_ctx`` — assuming 262k for a local
+        ``qwen3-coder:30b`` would disable compression while the server
+        silently drops the prompt head.
+        """
+        return True
+
+    def get_context_size(self, model_id: str) -> int:
+        """Resolve the context window for *model_id*.
+
+        Feeds ``model.context_size`` (which drives automatic context
+        compression) AND the display/usage path
+        (``config.get_model_max_input_length``) — both MUST go through this
+        method so the reported usage%% and the compaction trigger never
+        diverge. Resolution lives in
+        :func:`.context_windows.resolve_context_window`:
+        explicitly configured ``max_input_length`` > static catalog (unless
+        :meth:`_context_catalog_enabled` opts out) > 128k default.
         """
         model_info = self.get_model_info(model_id)
-        if model_info is not None:
-            return model_info.max_input_length
-        return ModelInfo.model_fields["max_input_length"].default
+        return resolve_context_window(
+            model_id,
+            configured=(
+                model_info.max_input_length if model_info is not None else None
+            ),
+            use_catalog=self._context_catalog_enabled(),
+        )
+
+    def _get_context_size(self, model_id: str) -> int:
+        """Alias of :meth:`get_context_size` kept for provider internals."""
+        return self.get_context_size(model_id)
 
     @abstractmethod
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:

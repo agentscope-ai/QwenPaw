@@ -2,10 +2,14 @@
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 """Tests for BaseMemoryManager abstract base class."""
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from agentscope.message import Msg, TextBlock
 
+from qwenpaw.agents.memory import base_memory_manager
+from qwenpaw.constant import AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY
 
 # ---------------------------------------------------------------------------
 # Concrete subclass for testing the abstract base
@@ -95,6 +99,41 @@ class TestBaseMemoryManagerInit:
         assert manager._worker_task is None
 
 
+class TestBaseMemoryManagerAutoMemoryTurnState:
+    """P1: Auto-memory interval state is kept per session with TTL cleanup."""
+
+    def test_returns_same_state_for_same_session(self, manager):
+        state = manager.get_auto_memory_turn_state("session-1")
+        state["pending"].append("turn-1")
+
+        assert manager.get_auto_memory_turn_state("session-1") is state
+        assert manager.get_auto_memory_turn_state("session-1")["pending"] == [
+            "turn-1",
+        ]
+
+    def test_separates_sessions(self, manager):
+        manager.get_auto_memory_turn_state("session-1")["pending"].append(
+            "turn-1",
+        )
+
+        assert manager.get_auto_memory_turn_state("session-2")["pending"] == []
+
+    def test_cleans_expired_sessions_on_access(self, manager, monkeypatch):
+        monkeypatch.setattr(base_memory_manager.time, "monotonic", lambda: 0)
+        manager.get_auto_memory_turn_state("old-session")
+
+        now = base_memory_manager.AUTO_MEMORY_TURN_STATE_TTL_SECONDS + 1
+        monkeypatch.setattr(
+            base_memory_manager.time,
+            "monotonic",
+            lambda: now,
+        )
+        manager.get_auto_memory_turn_state("new-session")
+
+        assert "old-session" not in manager._auto_memory_turn_states
+        assert "new-session" in manager._auto_memory_turn_states
+
+
 # ---------------------------------------------------------------------------
 # TestBaseMemoryManagerAddSummarizeTask
 # ---------------------------------------------------------------------------
@@ -149,6 +188,132 @@ class TestBaseMemoryManagerAddSummarizeTask:
                 await manager._worker_task
             except (asyncio.CancelledError, Exception):
                 pass
+
+
+class TestAutoMemorySearchSanitization:
+    """P1: auto_memory input should exclude auto-search blocks only."""
+
+    def test_build_query_uses_latest_user_message_only(self, manager):
+        messages = [
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text="NVDA 股价")],
+            ),
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        text=("达股价查询：NVDA $195.93 (+0.56%)，" "市值 $4.746T"),
+                    ),
+                ],
+            ),
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text="台积电股价")],
+            ),
+        ]
+
+        assert manager._build_query(messages) == "台积电股价"
+
+    def test_build_query_truncates_long_user_message(self, manager):
+        long_text = "a" * 60
+        messages = [
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text=long_text)],
+            ),
+        ]
+
+        assert manager._build_query(messages) == "a" * 50
+
+    def test_build_query_returns_empty_without_user_text(self, manager):
+        messages = [
+            Msg(
+                name="assistant",
+                role="assistant",
+                content=[TextBlock(text="memory noise")],
+            ),
+        ]
+
+        assert manager._build_query(messages) == ""
+
+    def test_builds_mock_assistant_msg_with_configured_estimated_usage(
+        self,
+        manager,
+        monkeypatch,
+    ):
+        def fake_load_agent_config(agent_id):
+            assert agent_id == "test-agent"
+            return SimpleNamespace(
+                running=SimpleNamespace(
+                    light_context_config=SimpleNamespace(
+                        token_count_estimate_divisor=2,
+                    ),
+                ),
+            )
+
+        monkeypatch.setattr(
+            "qwenpaw.config.config.load_agent_config",
+            fake_load_agent_config,
+        )
+
+        msg = manager._build_auto_memory_search_msg(
+            query="hello",
+            max_results=2,
+            text="remembered fact",
+        )
+
+        assert msg.role == "assistant"
+        assert msg.name == "memory_search"
+        assert msg.usage is not None
+        assert msg.usage.input_tokens > 0
+        assert msg.usage.output_tokens == 0
+        assert msg.metadata[AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY] == [
+            block.id for block in msg.content
+        ]
+        assert msg.metadata["auto_memory_search_usage"] == {
+            "estimated": True,
+            "input_tokens": msg.usage.input_tokens,
+            "output_tokens": 0,
+            "estimate_divisor": 2,
+        }
+
+    def test_keeps_regular_reply_blocks(self, manager):
+        auto_block = TextBlock(text="memory result")
+        reply_block = TextBlock(text="actual reply")
+        msg = Msg(
+            name="agent",
+            role="assistant",
+            metadata={
+                AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [auto_block.id],
+            },
+            content=[auto_block, reply_block],
+        )
+
+        result = manager._messages_without_auto_memory_search([msg])
+
+        assert len(result) == 1
+        assert result[0] is not msg
+        assert result[0].content == [reply_block]
+        assert AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY not in result[0].metadata
+        assert msg.content == [auto_block, reply_block]
+
+    def test_drops_message_when_only_auto_search_blocks_remain(self, manager):
+        auto_block = TextBlock(text="memory result")
+        msg = Msg(
+            name="agent",
+            role="assistant",
+            metadata={
+                AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [auto_block.id],
+            },
+            content=[auto_block],
+        )
+
+        assert manager._messages_without_auto_memory_search([msg]) == []
 
 
 # ---------------------------------------------------------------------------

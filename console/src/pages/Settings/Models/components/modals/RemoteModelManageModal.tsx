@@ -84,8 +84,8 @@ function ModelConfigEditor({
   const [maxInputLength, setMaxInputLength] = useState<number | null>(
     model.max_input_length ?? 131072,
   );
-  const [preserveThinking, setPreserveThinking] = useState<boolean>(
-    model.preserve_thinking ?? true,
+  const [relayReasoning, setRelayReasoning] = useState<boolean>(
+    model.relay_reasoning ?? true,
   );
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean | null>(
     model.thinking_enabled ?? null,
@@ -112,7 +112,7 @@ function ModelConfigEditor({
     setText(initialText);
     setMaxTokens(model.max_tokens ?? 8192);
     setMaxInputLength(model.max_input_length ?? 131072);
-    setPreserveThinking(model.preserve_thinking ?? true);
+    setRelayReasoning(model.relay_reasoning ?? true);
     setThinkingEnabled(model.thinking_enabled ?? null);
     setThinkingBudget(model.thinking_budget ?? null);
     setReasoningEffort(model.reasoning_effort ?? null);
@@ -121,7 +121,7 @@ function ModelConfigEditor({
     initialText,
     model.max_tokens,
     model.max_input_length,
-    model.preserve_thinking,
+    model.relay_reasoning,
     model.thinking_enabled,
     model.thinking_budget,
     model.reasoning_effort,
@@ -168,7 +168,7 @@ function ModelConfigEditor({
         max_tokens: effectiveMaxTokens,
         max_input_length: effectiveMaxInputLength,
         generate_kwargs: parsed,
-        preserve_thinking: preserveThinking,
+        relay_reasoning: relayReasoning,
         thinking_enabled: thinkingEnabled,
         thinking_budget: thinkingBudget,
         reasoning_effort: reasoningEffort,
@@ -407,7 +407,7 @@ function ModelConfigEditor({
               color: isDark ? "rgba(255,255,255,0.85)" : "#333",
             }}
           >
-            {t("models.preserveThinkingLabel")}
+            {t("models.relayReasoningLabel")}
           </span>
           <div
             style={{
@@ -416,13 +416,13 @@ function ModelConfigEditor({
               marginTop: 2,
             }}
           >
-            {t("models.preserveThinkingHint")}
+            {t("models.relayReasoningHint")}
           </div>
         </div>
         <Switch
-          checked={preserveThinking}
+          checked={relayReasoning}
           onChange={(checked) => {
-            setPreserveThinking(checked);
+            setRelayReasoning(checked);
             setDirty(true);
           }}
         />

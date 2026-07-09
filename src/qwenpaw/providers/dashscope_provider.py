@@ -18,6 +18,7 @@ from typing import Any, Dict
 from agentscope.model import ChatModelBase
 from pydantic import Field
 
+from .provider import ModelInfo
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .capping_formatter import _CappingDashScopeFormatter
 from .openai_provider import (
@@ -51,6 +52,24 @@ class DashScopeProvider(OpenAIProvider):
 
     def _is_builtin_model(self, model_id: str) -> bool:
         return any(m.id == model_id for m in self.models)
+
+    def _get_relay_reasoning(self, model_id: str) -> bool:
+        """DashScope defaults relay_reasoning to False."""
+        model_info = self.get_model_info(model_id)
+        if model_info is not None:
+            return model_info.relay_reasoning
+        return False
+
+    async def add_model(
+        self,
+        model_info: ModelInfo,
+        target: str = "extra_models",
+        timeout: float = 10,
+    ) -> tuple[bool, str]:
+        """Override to default relay_reasoning to False for new models."""
+        if "relay_reasoning" not in model_info.model_fields_set:
+            model_info.relay_reasoning = False
+        return await super().add_model(model_info, target, timeout)
 
     def _apply_thinking_config(
         self,
@@ -199,7 +218,7 @@ class DashScopeProvider(OpenAIProvider):
             extra_generate_kwargs=extra_generate_kwargs,
             formatter=_CappingDashScopeFormatter(
                 max_bytes=self.max_inline_media_bytes,
-                relay_reasoning_content=self._get_preserve_thinking(model_id),
+                relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
         )
 

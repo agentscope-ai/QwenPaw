@@ -1088,7 +1088,7 @@ async def _wait_and_read_process(
             kernel32.WaitForSingleObject(process_handle, 5000)
 
         # Get exit code
-        exit_code = ctypes.wintypes.DWORD()
+        exit_code = ctypes.wintypes.DWORD(0)
         kernel32.GetExitCodeProcess(process_handle, ctypes.byref(exit_code))
 
         # Read stdout
@@ -1130,7 +1130,7 @@ def _read_pipe(handle: ctypes.wintypes.HANDLE, kernel32: Any) -> bytes:
     chunks: List[bytes] = []
     buf_size = 8192
     buf = (ctypes.c_ubyte * buf_size)()
-    bytes_read = ctypes.c_uint32()
+    bytes_read = ctypes.c_uint32(0)
 
     while True:
         ok = kernel32.ReadFile(

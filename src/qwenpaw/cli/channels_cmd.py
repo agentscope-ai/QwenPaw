@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from pathlib import Path
 from typing import Optional
 
 import click
@@ -11,11 +10,6 @@ from qwenpaw.exceptions import (
     AppBaseException,
 )
 
-from ..config import (
-    get_config_path,
-    load_config,
-    save_config,
-)
 from ..config.config import (
     Config,
     ConsoleConfig,
@@ -33,11 +27,7 @@ from ..config.config import (
 from .utils import prompt_confirm, prompt_path, prompt_select
 from .http import client, print_json, resolve_base_url
 from ..config import get_available_channels
-from ..constant import CUSTOM_CHANNELS_DIR
-from ..app.channels.registry import (
-    BUILTIN_CHANNEL_KEYS,
-    get_channel_registry,
-)
+from ..app.channels.registry import get_channel_registry
 
 
 # Fields that contain secrets — display masked in ``list``
@@ -63,105 +53,6 @@ _ALL_CHANNEL_NAMES = {
 }
 # Public alias for tests and external use.
 CHANNEL_NAMES = _ALL_CHANNEL_NAMES
-
-# Template for `qwenpaw channels install <key>` stub (channel key substituted).
-CHANNEL_TEMPLATE = '''# -*- coding: utf-8 -*-
-"""Custom channel: {key}. Edit and implement required methods."""
-from __future__ import annotations
-
-import os
-from typing import Any
-
-from qwenpaw.schemas import (
-    TextContent,
-    ContentType,
-)
-
-from qwenpaw.app.channels.base import BaseChannel
-from qwenpaw.app.channels.schema import ChannelType
-
-
-class CustomChannel(BaseChannel):
-    channel: ChannelType = "{key}"
-
-    def __init__(
-        self,
-        process,
-        enabled=True,
-        bot_prefix="",
-        on_reply_sent=None,
-        show_tool_details=True,
-        filter_tool_messages=False,
-        filter_thinking=False,
-        **kwargs,
-    ):
-        super().__init__(
-            process,
-            on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
-        )
-        self.enabled = enabled
-        self.bot_prefix = bot_prefix or ""
-
-    @classmethod
-    def from_config(
-        cls,
-        process,
-        config,
-        on_reply_sent=None,
-        show_tool_details=True,
-        **kwargs,
-    ):
-        return cls(
-            process=process,
-            enabled=getattr(config, "enabled", True),
-            bot_prefix=getattr(config, "bot_prefix", ""),
-            on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=kwargs.get(
-                "filter_tool_messages",
-                getattr(config, "filter_tool_messages", False),
-            ),
-            filter_thinking=kwargs.get(
-                "filter_thinking",
-                getattr(config, "filter_thinking", False),
-            ),
-        )
-
-    @classmethod
-    def from_env(cls, process, on_reply_sent=None):
-        return cls(process=process, on_reply_sent=on_reply_sent)
-
-    def build_agent_request_from_native(self, native_payload: Any):
-        payload = native_payload if isinstance(native_payload, dict) else {{}}
-        channel_id = payload.get("channel_id") or self.channel
-        sender_id = payload.get("sender_id") or ""
-        meta = payload.get("meta") or {{}}
-        session_id = self.resolve_session_id(sender_id, meta)
-        text = payload.get("text", "")
-        content_parts = [TextContent(type=ContentType.TEXT, text=text)]
-        request = self.build_agent_request_from_user_content(
-            channel_id=channel_id,
-            sender_id=sender_id,
-            session_id=session_id,
-            content_parts=content_parts,
-            channel_meta=meta,
-        )
-        request.channel_meta = meta
-        return request
-
-    async def start(self):
-        pass
-
-    async def stop(self):
-        pass
-
-    async def send(self, to_handle: str, text: str, meta=None):
-        # Implement: send text to the channel (e.g. HTTP API).
-        pass
-'''
 
 
 def _get_channel_names() -> dict[str, str]:
@@ -979,201 +870,6 @@ def list_cmd(agent_id: str) -> None:
     except (ValueError, AppBaseException) as e:
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(1) from e
-
-
-def _install_channel_to_dir(
-    key: str,
-    from_path: str | None = None,
-    from_url: str | None = None,
-) -> None:
-    """Write channel module to CUSTOM_CHANNELS_DIR (template or copy)."""
-    CUSTOM_CHANNELS_DIR.mkdir(parents=True, exist_ok=True)
-    if not key.isidentifier():
-        click.echo(
-            f"Key must be a valid Python identifier (e.g. my_channel), "
-            f"got: {key}",
-            err=True,
-        )
-        raise SystemExit(1)
-
-    dest_file = CUSTOM_CHANNELS_DIR / f"{key}.py"
-    dest_dir = CUSTOM_CHANNELS_DIR / key
-
-    if from_path:
-        src = Path(from_path).resolve()
-        if not src.exists():
-            click.echo(f"Path not found: {src}", err=True)
-            raise SystemExit(1)
-        if src.is_file():
-            import shutil
-
-            shutil.copy2(src, dest_file)
-            click.echo(f"✓ Installed {key}.py from {src}")
-        else:
-            import shutil
-
-            if dest_dir.exists():
-                shutil.rmtree(dest_dir)
-            shutil.copytree(src, dest_dir)
-            click.echo(f"✓ Installed {key}/ from {src}")
-        return
-
-    if from_url:
-        import urllib.request
-
-        try:
-            with urllib.request.urlopen(from_url) as resp:
-                body = resp.read().decode("utf-8", errors="replace")
-        except Exception as e:
-            click.echo(f"Failed to fetch URL: {e}", err=True)
-            raise SystemExit(1) from e
-        dest_file.write_text(body, encoding="utf-8")
-        click.echo(f"✓ Installed {key}.py from URL")
-        return
-
-    if dest_file.exists() or dest_dir.exists():
-        click.echo(
-            f"Channel '{key}' already exists in {CUSTOM_CHANNELS_DIR}. "
-            "Edit the file or use --path/--url to overwrite.",
-            err=True,
-        )
-        raise SystemExit(1)
-
-    dest_file.write_text(
-        CHANNEL_TEMPLATE.format(key=key),
-        encoding="utf-8",
-    )
-    click.echo(
-        f"✓ Created {dest_file}. Edit and add config with "
-        "`qwenpaw channels config`.",
-    )
-
-
-@channels_group.command("install")
-@click.argument("key", required=True)
-@click.option(
-    "--path",
-    "from_path",
-    type=click.Path(exists=True),
-    help="Copy channel from local path (file or dir).",
-)
-@click.option(
-    "--url",
-    "from_url",
-    type=str,
-    help="Download channel module from URL (.py file).",
-)
-def install_cmd(key: str, from_path: str | None, from_url: str | None) -> None:
-    """Install a channel into the working dir (custom_channels/). Creates a
-    stub module you can edit, or use --path/--url to copy from elsewhere.
-    Manager loads channels from this directory at runtime.
-    """
-    _install_channel_to_dir(key, from_path=from_path, from_url=from_url)
-
-
-@channels_group.command("add")
-@click.argument("key", required=True)
-@click.option(
-    "--path",
-    "from_path",
-    type=click.Path(exists=True),
-    help="Copy channel from local path (file or dir).",
-)
-@click.option(
-    "--url",
-    "from_url",
-    type=str,
-    help="Download channel module from URL (.py file).",
-)
-@click.option(
-    "--configure/--no-configure",
-    default=True,
-    help="Run interactive configurator after adding to config.",
-)
-def add_cmd(
-    key: str,
-    from_path: str | None,
-    from_url: str | None,
-    configure: bool,
-) -> None:
-    """Install channel to custom_channels/ and add to config. For built-in
-    channels only adds to config; for custom, installs (stub or --path/--url)
-    then adds to config.
-    """
-    dest_file = CUSTOM_CHANNELS_DIR / f"{key}.py"
-    dest_dir = CUSTOM_CHANNELS_DIR / key
-    already_in_dir = dest_file.exists() or dest_dir.exists()
-    is_builtin = key in BUILTIN_CHANNEL_KEYS
-
-    if not is_builtin and (from_path or from_url or not already_in_dir):
-        _install_channel_to_dir(key, from_path=from_path, from_url=from_url)
-
-    config_path = get_config_path()
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    existing = load_config(config_path) if config_path.is_file() else Config()
-    current = _get_channel_config(existing, key)
-
-    if current is None:
-        default = {"enabled": False, "bot_prefix": ""}
-        setattr(existing.channels, key, default)
-        if configure:
-            configurators = get_channel_configurators()
-            if key in configurators:
-                _, configure_func = configurators[key]
-                updated = configure_func(default)
-                setattr(existing.channels, key, updated)
-        save_config(existing, config_path)
-        click.echo(f"✓ Added '{key}' to config at {config_path}")
-
-
-@channels_group.command("remove")
-@click.argument("key", required=True)
-@click.option(
-    "--keep-config/--no-keep-config",
-    "keep_config",
-    default=False,
-    help="Keep the channel entry in config.json (only remove the module).",
-)
-def remove_cmd(key: str, keep_config: bool) -> None:
-    """Remove a custom channel from custom_channels/. Built-in channels
-    cannot be removed.
-    """
-    if key in BUILTIN_CHANNEL_KEYS:
-        click.echo(
-            f"'{key}' is a built-in channel and cannot be removed. "
-            "Disable it in config instead.",
-            err=True,
-        )
-        raise SystemExit(1)
-
-    dest_file = CUSTOM_CHANNELS_DIR / f"{key}.py"
-    dest_dir = CUSTOM_CHANNELS_DIR / key
-    if not dest_file.exists() and not dest_dir.exists():
-        click.echo(
-            f"Channel '{key}' not found in {CUSTOM_CHANNELS_DIR}.",
-            err=True,
-        )
-        raise SystemExit(1)
-
-    import shutil
-
-    if dest_file.exists():
-        dest_file.unlink()
-    else:
-        shutil.rmtree(dest_dir)
-    click.echo(f"✓ Removed channel '{key}' from {CUSTOM_CHANNELS_DIR}.")
-
-    if not keep_config:
-        config_path = get_config_path()
-        if config_path.is_file():
-            cfg = load_config(config_path)
-            data = cfg.model_dump()
-            ch_data = data.get("channels") or {}
-            if key in ch_data:
-                del ch_data[key]
-                new_cfg = Config.model_validate(data)
-                save_config(new_cfg, config_path)
-                click.echo(f"✓ Removed '{key}' from config.")
 
 
 @channels_group.command("config")

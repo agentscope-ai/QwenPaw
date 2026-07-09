@@ -30,7 +30,7 @@ QwenPaw在1.1.3版本引入了插件系统，并在1.1.8版本引入了宠物系
 
 ### 1.1. 准备阶段
 
-在官方插件处，下载QwenPaw Pet插件。![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/03e71187-8a0c-48ba-a5bd-bd93de36239b.png)
+在官方插件处，下载QwenPaw Pet插件。![image](https://img.alicdn.com/imgextra/i1/O1CN01niHx461stRq372qrr_!!6000000005824-2-tps-2335-330.png)
 
 确保插件被下载，并正确启用。
 
@@ -53,21 +53,21 @@ Note：
 
 通过对话，为新Agent提供背景知识：
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/025aa983-5104-40cc-ac79-7605feecf47a.png)
+![image](https://img.alicdn.com/imgextra/i2/O1CN01tQwcZE1XAT0cTWILz_!!6000000002883-2-tps-1662-932.png)
 
 开启一个新会话，让QwenPaw了解自己的宠物系统。可以看到发出问题后，QwenPaw调用**QA-source-index**技能，开始理解宠物插件系统。
 
 这一步可以为后续创建我们自己的Agent提供必要的上下文。
 
-## ![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/a5f21248-0990-44b2-b5ac-5ec0c9999008.png)
+## ![image](https://img.alicdn.com/imgextra/i4/O1CN018HkxEd1VI8PNNKbIx_!!6000000002629-2-tps-1654-620.png)
 
 ## 2. 首次创建宠物
 
 经过第一轮对话，QwenPaw了解了自己的宠物机制，下面就可以让它创建宠物了！
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/3a843792-db87-45a5-bc86-5552ed57c98a.png)
+![image](https://img.alicdn.com/imgextra/i4/O1CN01MoQRjb1E1mnpDFfbP_!!6000000000292-2-tps-1684-598.png)
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/0aa0e9ca-3ed4-4c18-a645-aa0f33e653ee.png)
+![image](https://img.alicdn.com/imgextra/i1/O1CN015Nhs1a1PBMrV0h8vG_!!6000000001802-2-tps-1022-1220.png)
 
 见下图。可以看到QwenPaw一次就完成了任务，但仍然有一些小问题，我们可以继续微调。
 
@@ -75,11 +75,11 @@ Note：
 - 不符合我的个人审美，我希望更贴近小火龙的形象，而且更符合宝可梦的风格
 - 动作神态比较僵硬，希望动作粒度更细
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/da1269e1-3562-4114-81c2-2c98887bc895.png)
+![image](https://img.alicdn.com/imgextra/i3/O1CN01L7of8y1Oo0f8WspAn_!!6000000001751-2-tps-1490-230.png)
 
 经过近一轮对话调整，小火龙更贴近宝可梦中的形象了！
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/3e9f4ad1-e6c9-4c7c-a19f-109ba1e43634.png)
+![image](https://img.alicdn.com/imgextra/i4/O1CN01TSgZuS1dNe6HMC81Z_!!6000000003724-2-tps-1536-268.png)
 
 ### 回顾
 
@@ -90,7 +90,7 @@ Note：
 
 最终结果如下：为了本次创建，我们花费了~50K tokens，并且经历了约120轮对话+工具调用。
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/6634ca6d-4275-4380-989c-7f02e58cdb1e.png)
+![image](https://img.alicdn.com/imgextra/i2/O1CN01DIro7M1oig3ravFi5_!!6000000005259-2-tps-1986-406.png)
 
 ## 3. Make-skill: Pet-maker
 
@@ -100,9 +100,9 @@ Note：
 
 ### 3.1. 沉淀Pet-maker Skill
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/33de88a0-4b16-4d89-b390-040316983fcc.png)
+![image](https://img.alicdn.com/imgextra/i1/O1CN01q8sMj6224HkgucJ30_!!6000000007066-2-tps-1734-510.png)
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/bb74d4af-4236-49ef-9306-1f3534a247bb.png)
+![image](https://img.alicdn.com/imgextra/i4/O1CN01qrdErs1YS9vO2uJlf_!!6000000003057-2-tps-1716-840.png)
 
 选择Approve。可以看到除了skill.md，/make-skill还会创建.json文件进行自动化；同时还包含generate_pet.py作为可执行脚本。
 
@@ -110,29 +110,29 @@ Note：
 
 ### 3.2. Example: 妙蛙种子
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/18b89e2b-9a94-4652-bc8b-674bd8ec3204.png)
+![image](https://img.alicdn.com/imgextra/i2/O1CN01Yrai4D22z4reHJLHS_!!6000000007190-2-tps-1680-574.png)
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/e4b928f9-0b2e-4840-af7d-eaa180982805.png)
+![image](https://img.alicdn.com/imgextra/i2/O1CN019n8TCb1Jm6wS6ZUHE_!!6000000001070-2-tps-1444-242.png)
 
 开启新会话，这次我们想创建妙蛙种子。本次创建就简单多了，经过一次简单的调用，类似风格的宠物顺利创建：
 
 - 上下文和工具调用次数均显著减少，之后类似风格的宠物可以大量创建。
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/1a3760da-3be2-49ae-a434-0c67dcab574e.png)
+![image](https://img.alicdn.com/imgextra/i2/O1CN01mx6hSg1SRnvHcdZKY_!!6000000002244-2-tps-1902-352.png)
 
 ### 3.3 Example: 批量创建
 
 借助`subagents`工具，可以并行创建多个宠物：
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/c7f78719-f6e6-4ea3-be85-6efd66146345.png)
+![image](https://img.alicdn.com/imgextra/i1/O1CN01Bqzx701UvEbZIRRQE_!!6000000002579-2-tps-1692-408.png)
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/53d0ecf6-1027-483b-b3ff-e6699aef119f.png)
+![image](https://img.alicdn.com/imgextra/i1/O1CN015Rh7GX1sfhxMSotJS_!!6000000005794-2-tps-538-196.png)
 
 此时主Agent只需要监控三个task的进度即可，经检验，主agent消耗的token甚至更少：
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/3bec5acd-d9a6-4396-9a41-bb62dd3f253a.png)
+![image](https://img.alicdn.com/imgextra/i1/O1CN01SYxIwc1J6QtqPTjSu_!!6000000000979-2-tps-1922-460.png)
 
-![image](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/4j6OJ5joE6dbKq3p/img/7538a924-a647-4a19-8203-2d6283008146.png)
+![image](https://img.alicdn.com/imgextra/i2/O1CN010opvm71Nu8LIl2pbE_!!6000000001629-2-tps-1592-1012.png)
 
 ## 4. 小结
 

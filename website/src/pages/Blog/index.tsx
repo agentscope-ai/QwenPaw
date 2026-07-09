@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ArrowLeft } from "lucide-react";
 import { BLOG_POSTS } from "./blogData";
 import {
+  compareBlogPostsByDateDesc,
   formatBlogDate,
   parseBlogMarkdown,
   type ParsedBlogPost,
@@ -78,11 +79,7 @@ export default function Blog() {
       for (const item of results) {
         if (item) valid.push(item);
       }
-      valid.sort((a, b) => {
-        const indexA = BLOG_POSTS.findIndex((entry) => entry.slug === a.slug);
-        const indexB = BLOG_POSTS.findIndex((entry) => entry.slug === b.slug);
-        return indexA - indexB;
-      });
+      valid.sort(compareBlogPostsByDateDesc);
       setPosts(valid);
       setLoading(false);
     });
@@ -142,7 +139,6 @@ export default function Blog() {
             {posts.map((post) => {
               const { slug, frontmatter, readMinutes, sessionCount, cover } =
                 post;
-              console.log("frontmatter.date", post);
               const dateLabel = formatBlogDate(frontmatter.date, locale);
               const metaSecondary =
                 sessionCount != null

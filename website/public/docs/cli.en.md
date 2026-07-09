@@ -307,25 +307,17 @@ subcommand); use `remove` to uninstall custom channels (no `uninstall`).
 
 **Alias:** You can use `qwenpaw channel` (singular) as a shorthand for `qwenpaw channels`.
 
-| Command                          | What it does                                                                                                      |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `qwenpaw channels list`          | Show all channels and their status (secrets masked)                                                               |
-| `qwenpaw channels send`          | Send a one-way message to a user/session via a channel (requires all 5 parameters)                                |
-| `qwenpaw channels install <key>` | Install a channel into `custom_channels/`: create stub or use `--path`/`--url`                                    |
-| `qwenpaw channels add <key>`     | Install and add to config; built-in channels only get config entry; supports `--path`/`--url`                     |
-| `qwenpaw channels remove <key>`  | Remove a custom channel from `custom_channels/` (built-ins cannot be removed); `--keep-config` keeps config entry |
-| `qwenpaw channels config`        | Interactively enable/disable channels and fill in credentials                                                     |
+| Command                   | What it does                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------------- |
+| `qwenpaw channels list`   | Show all channels and their status (secrets masked)                                |
+| `qwenpaw channels send`   | Send a one-way message to a user/session via a channel (requires all 5 parameters) |
+| `qwenpaw channels config` | Interactively enable/disable channels and fill in credentials                      |
 
 **Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
 
 ```bash
 qwenpaw channels list                    # See default agent's channels
 qwenpaw channels list --agent-id abc123  # See specific agent's channels
-qwenpaw channels install my_channel      # Create custom channel stub
-qwenpaw channels install my_channel --path ./my_channel.py
-qwenpaw channels add dingtalk            # Add DingTalk to config
-qwenpaw channels remove my_channel       # Remove custom channel (and from config by default)
-qwenpaw channels remove my_channel --keep-config   # Remove module only, keep config entry
 qwenpaw channels config                  # Configure default agent
 qwenpaw channels config --agent-id abc123 # Configure specific agent
 ```
