@@ -31,3 +31,4 @@ tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["fs", "io-util"] }
+dirs = "5"
