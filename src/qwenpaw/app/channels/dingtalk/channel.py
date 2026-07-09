@@ -925,7 +925,6 @@ class DingTalkChannel(BaseChannel):
         bot_prefix: str = "",
         at_user_ids: Optional[List[str]] = None,
         at_dingtalk_ids: Optional[List[str]] = None,
-        api_initiated: bool = False,
     ) -> bool:
         """Send one text message via DingTalk sessionWebhook. Returns True
         on success.
@@ -968,16 +967,10 @@ class DingTalkChannel(BaseChannel):
         if at_payload:
             payload["at"] = at_payload
 
-        success = await self._send_payload_via_session_webhook(
+        return await self._send_payload_via_session_webhook(
             session_webhook,
             payload,
         )
-        if not success and api_initiated:
-            raise ChannelError(
-                channel_name="dingtalk",
-                message="DingTalk sessionWebhook send failed",
-            )
-        return success
 
     async def _send_via_open_api(
         self,
@@ -986,7 +979,6 @@ class DingTalkChannel(BaseChannel):
         conversation_type: str,
         sender_staff_id: str,
         bot_prefix: str = "",
-        api_initiated: bool = False,
     ) -> bool:
         """Send message via DingTalk Open API as fallback when sessionWebhook
         is expired or unavailable.
@@ -1017,7 +1009,7 @@ class DingTalkChannel(BaseChannel):
                 {"title": f"💬{norm[:10]}...", "text": norm},
             )
 
-        success = await self._send_robot_message(
+        return await self._send_robot_message(
             msg_key=msg_key,
             msg_param=msg_param,
             conversation_id=conversation_id,
@@ -1025,19 +1017,12 @@ class DingTalkChannel(BaseChannel):
             sender_staff_id=sender_staff_id,
             caller="_send_via_open_api",
         )
-        if not success and api_initiated:
-            raise ChannelError(
-                channel_name="dingtalk",
-                message="DingTalk Open API send failed",
-            )
-        return success
 
     async def _try_open_api_fallback(
         self,
         text: str,
         to_handle: str,
         meta: Optional[Dict[str, Any]],
-        api_initiated: bool = False,
     ) -> bool:
         """Try sending text via Open API using metadata from meta or store.
 
@@ -1079,7 +1064,6 @@ class DingTalkChannel(BaseChannel):
             conversation_type=params["conversation_type"],
             sender_staff_id=params["sender_staff_id"],
             bot_prefix="",
-            api_initiated=api_initiated,
         )
 
     async def _resolve_open_api_params_from_handle(
@@ -2008,7 +1992,6 @@ class DingTalkChannel(BaseChannel):
                     body.strip(),
                     to_handle,
                     meta,
-                    api_initiated=api_send,
                 )
                 if fallback_ok:
                     return
@@ -2070,11 +2053,15 @@ class DingTalkChannel(BaseChannel):
                         conversation_type=params["conversation_type"],
                         sender_staff_id=params["sender_staff_id"],
                         bot_prefix="",
-                        api_initiated=api_send,
                     )
                     if not text_ok:
                         logger.warning(
                             "dingtalk send_content_parts: Open API text "
+                            "send failed",
+                        )
+                        self._raise_delivery_error_if_api_send(
+                            api_send,
+                            "DingTalk send failed: Open API text "
                             "send failed",
                         )
                 for i, part in enumerate(media_parts):
@@ -3424,14 +3411,18 @@ class DingTalkChannel(BaseChannel):
                     "conversation_id available",
                 )
                 return
-            await self._send_via_open_api(
+            ok = await self._send_via_open_api(
                 text,
                 conversation_id=params["conversation_id"],
                 conversation_type=params["conversation_type"],
                 sender_staff_id=params["sender_staff_id"],
                 bot_prefix="",
-                api_initiated=api_send,
             )
+            if not ok:
+                self._raise_delivery_error_if_api_send(
+                    api_send,
+                    "DingTalk Open API send failed",
+                )
             return
 
         logger.info(
@@ -3473,14 +3464,18 @@ class DingTalkChannel(BaseChannel):
             )
             return
 
-        await self._send_via_open_api(
+        ok = await self._send_via_open_api(
             text,
             conversation_id=params["conversation_id"],
             conversation_type=params["conversation_type"],
             sender_staff_id=params["sender_staff_id"],
             bot_prefix="",
-            api_initiated=api_send,
         )
+        if not ok:
+            self._raise_delivery_error_if_api_send(
+                api_send,
+                "DingTalk Open API send failed",
+            )
 
     async def _get_access_token(self) -> str:
         """Get and cache DingTalk accessToken for 1 hour (instance-level)."""

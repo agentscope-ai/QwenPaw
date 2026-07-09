@@ -1622,19 +1622,24 @@ class TestDingTalkSendContentParts:
                 "_send_via_session_webhook",
                 new_callable=AsyncMock,
                 return_value=False,
-            ),
+            ) as mock_webhook,
             patch.object(
                 dingtalk_channel,
                 "_try_open_api_fallback",
                 new_callable=AsyncMock,
                 return_value=False,
-            ),
+            ) as mock_fallback,
         ):
+            # Should complete without raising even when both hops fail.
             await dingtalk_channel.send_content_parts(
                 to_handle="dingtalk:sw:test",
                 parts=parts,
                 meta={"session_webhook": "http://webhook.url"},
             )
+
+            # Verify the full webhook -> Open API fallback chain ran.
+            mock_webhook.assert_awaited()
+            mock_fallback.assert_awaited()
 
     async def test_send_content_parts_text_failure_raises_for_api_send(
         self,
@@ -2741,10 +2746,19 @@ class TestDingTalkSendMethodsExtended:
         """Conversation replies should not raise on missing target metadata."""
         dingtalk_channel._http = mock_http_session
 
-        await dingtalk_channel.send(
-            to_handle="unknown_handle",
-            text="Test message",
-            meta={},
+        with patch(
+            "qwenpaw.app.channels.dingtalk.channel.logger.warning",
+        ) as mock_warning:
+            # Should return quietly (no raise) for non-API sends.
+            await dingtalk_channel.send(
+                to_handle="unknown_handle",
+                text="Test message",
+                meta={},
+            )
+
+        assert any(
+            "no sessionWebhook" in str(call)
+            for call in mock_warning.call_args_list
         )
 
     async def test_send_no_delivery_target_raises_for_api_send(
