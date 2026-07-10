@@ -833,6 +833,60 @@ class AgentBuilder:
         )
 
     @staticmethod
+    def _build_tool_result_pruning_middleware(
+        ctx: Any,
+        agent_config: Any,
+    ) -> Any:
+        """Build native tool-result pruning middleware when applicable."""
+        import os
+
+        from ..agents.middlewares import ToolResultPruningMiddleware
+
+        lcc = agent_config.running.light_context_config
+        if getattr(lcc, "strategy", "native") == "scroll":
+            return None
+
+        trc = lcc.tool_result_pruning_config
+        workspace = getattr(ctx, "workspace", None)
+        workspace_dir = (
+            str(getattr(workspace, "workspace_dir", ""))
+            if workspace is not None
+            else ""
+        )
+        tool_results_dir = (
+            os.path.join(workspace_dir, trc.tool_results_cache)
+            if workspace_dir
+            else ""
+        )
+
+        return ToolResultPruningMiddleware(
+            enabled=trc.enabled,
+            recent_n=trc.pruning_recent_n,
+            old_max_bytes=trc.pruning_old_msg_max_bytes,
+            recent_max_bytes=trc.pruning_recent_msg_max_bytes,
+            exempt_file_extensions={
+                e.lower() for e in trc.exempt_file_extensions
+            },
+            exempt_tool_names={n.lower() for n in trc.exempt_tool_names},
+            tool_results_dir=tool_results_dir,
+            agent_id=getattr(agent_config, "id", "default"),
+        )
+
+    @staticmethod
+    def _add_tool_result_pruning_middleware(
+        mws: list[Any],
+        mw: Any,
+        tool_coordinator: Any,
+    ) -> None:
+        """Add pruning middleware outside the coordinator when both exist."""
+        if mw is None:
+            return
+        if tool_coordinator is not None:
+            mws.insert(0, mw)
+            return
+        mws.append(mw)
+
+    @staticmethod
     def _build_middlewares(  # pylint: disable=too-many-statements
         ctx: Any,
         agent_config: Any,
@@ -879,44 +933,15 @@ class AgentBuilder:
 
         # Tiered tool-result pruning (ported from LightContextManager)
         try:
-            import os
-
-            from ..agents.middlewares import ToolResultPruningMiddleware
-
-            lcc = agent_config.running.light_context_config
-            trc = lcc.tool_result_pruning_config
-
-            if getattr(lcc, "strategy", "native") != "scroll":
-                workspace = getattr(ctx, "workspace", None)
-                workspace_dir = (
-                    str(getattr(workspace, "workspace_dir", ""))
-                    if workspace is not None
-                    else ""
-                )
-                tool_results_dir = (
-                    os.path.join(workspace_dir, trc.tool_results_cache)
-                    if workspace_dir
-                    else ""
-                )
-
-                mws.append(
-                    ToolResultPruningMiddleware(
-                        enabled=trc.enabled,
-                        recent_n=trc.pruning_recent_n,
-                        old_max_bytes=trc.pruning_old_msg_max_bytes,
-                        recent_max_bytes=trc.pruning_recent_msg_max_bytes,
-                        exempt_file_extensions={
-                            e.lower() for e in trc.exempt_file_extensions
-                        },
-                        exempt_tool_names={
-                            n.lower() for n in trc.exempt_tool_names
-                        },
-                        tool_results_dir=tool_results_dir,
-                        agent_id=getattr(agent_config, "id", "default"),
-                    ),
-                )
-                if tool_coordinator is not None:
-                    mws.insert(0, mws.pop())
+            mw = AgentBuilder._build_tool_result_pruning_middleware(
+                ctx,
+                agent_config,
+            )
+            AgentBuilder._add_tool_result_pruning_middleware(
+                mws,
+                mw,
+                tool_coordinator,
+            )
         except Exception:
             _logger.debug(
                 "ToolResultPruningMiddleware not created",

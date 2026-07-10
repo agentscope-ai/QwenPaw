@@ -605,8 +605,6 @@ class LangfuseToolSpanMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],
         next_handler: Callable[..., AsyncGenerator[Any, None]],
     ) -> AsyncGenerator[Any, None]:
-        from agentscope.tool import ToolResponse
-
         from ..observability.langfuse import get_current_trace, tool_span
 
         if get_current_trace() is None:

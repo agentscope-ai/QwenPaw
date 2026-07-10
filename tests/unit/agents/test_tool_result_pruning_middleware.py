@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unused-argument,wrong-import-position
 """Tests for tool-result pruning middleware."""
 
 from __future__ import annotations
@@ -16,11 +17,19 @@ html2text_stub = types.ModuleType("html2text")
 html2text_stub.HTML2Text = type("HTML2Text", (), {})
 sys.modules.setdefault("html2text", html2text_stub)
 
-from qwenpaw.agents.middlewares import ToolResultPruningMiddleware
-from qwenpaw.config.config import LightContextConfig, ToolResultPruningConfig
-from qwenpaw.constant import TRUNCATION_NOTICE_MARKER
-from qwenpaw.runtime.builder import AgentBuilder
-from qwenpaw.tool_calls import ToolCoordinator, ToolCoordinatorMiddleware
+from qwenpaw.agents.middlewares import (  # noqa: E402
+    ToolResultPruningMiddleware,
+)
+from qwenpaw.config.config import (  # noqa: E402
+    LightContextConfig,
+    ToolResultPruningConfig,
+)
+from qwenpaw.constant import TRUNCATION_NOTICE_MARKER  # noqa: E402
+from qwenpaw.runtime.builder import AgentBuilder  # noqa: E402
+from qwenpaw.tool_calls import (  # noqa: E402
+    ToolCoordinator,
+    ToolCoordinatorMiddleware,
+)
 
 
 @dataclass
