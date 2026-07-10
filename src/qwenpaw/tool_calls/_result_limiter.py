@@ -6,14 +6,13 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
-import re
-import uuid
 from pathlib import Path
 from typing import Any
 
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
+from ..agents.tools.utils import save_text_output
 from ._context import ToolCallContext
 
 logger = logging.getLogger(__name__)
@@ -247,11 +246,11 @@ class ToolResultLimiter:
             return None
 
         try:
-            self._cache_dir.mkdir(parents=True, exist_ok=True)
-            safe_id = _safe_filename_part(context.tool_call_id)
-            path = self._cache_dir / f"{safe_id}-{uuid.uuid4().hex}.txt"
-            path.write_text(_join_text_blocks(content), encoding="utf-8")
-            return str(path)
+            return save_text_output(
+                _join_text_blocks(content),
+                self._cache_dir,
+                name_hint=context.tool_call_id,
+            )
         except OSError as exc:
             logger.warning(
                 "Failed to save full tool result",
@@ -411,8 +410,3 @@ def _utf8_prefix(text: str, max_bytes: int) -> str:
 
 def _byte_len(text: str) -> int:
     return len(text.encode("utf-8"))
-
-
-def _safe_filename_part(value: str) -> str:
-    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", value)[:64].strip("._-")
-    return safe or "tool-result"

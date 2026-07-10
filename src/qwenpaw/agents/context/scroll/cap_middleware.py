@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-import uuid
 from pathlib import Path
 from typing import Any, AsyncGenerator, Callable
 
@@ -12,7 +11,11 @@ from agentscope.message import Msg, TextBlock
 from agentscope.middleware import MiddlewareBase
 from agentscope.tool import ToolResponse
 
-from ...tools.utils import DEFAULT_MAX_BYTES, truncate_text_output
+from ...tools.utils import (
+    DEFAULT_MAX_BYTES,
+    save_text_output,
+    truncate_text_output,
+)
 from ..types import LogEntry
 from .history import HistoryStore
 from .serialize import flatten_output
@@ -135,21 +138,14 @@ class ToolResultCapMiddleware(MiddlewareBase):
         if self._tool_results_dir is None:
             return None
         try:
-            self._tool_results_dir.mkdir(parents=True, exist_ok=True)
-            safe_id = _safe_filename_part(tool_call_id or "tool-result")
-            path = self._tool_results_dir / f"{safe_id}-{uuid.uuid4().hex}.txt"
-            path.write_text(text, encoding="utf-8")
-            return str(path)
+            return save_text_output(
+                text,
+                self._tool_results_dir,
+                name_hint=tool_call_id,
+            )
         except OSError as exc:
             logger.warning(
                 "Failed to save capped scroll tool result to file: %s",
                 exc,
             )
             return None
-
-
-def _safe_filename_part(value: str) -> str:
-    safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in value)[
-        :64
-    ].strip("._-")
-    return safe or "tool-result"
