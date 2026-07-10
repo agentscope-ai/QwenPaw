@@ -239,12 +239,20 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Resolve the active session id on a best-effort basis.
 
         Prefers the explicitly-injected ``session_id`` (standalone slash
-        command mode) and falls back to ``state.session_id``. Command-triggered
-        memory archival relies on this so ReMe ``auto_memory`` never runs with
-        an empty ``session_id``.
+        command mode), falls back to ``state.session_id``, and finally to the
+        request-scoped ``get_current_session_id()`` ContextVar (seeded by the
+        contextvars setup hook). The last fallback covers reconstructed-state
+        paths where ``state.session_id`` is absent but the dispatching request
+        carried one. Command-triggered memory archival relies on this so ReMe
+        ``auto_memory`` never runs with an empty ``session_id``.
         """
+        from ..app.agent_context import get_current_session_id
+
         return str(
-            self._session_id or getattr(self._state, "session_id", "") or "",
+            self._session_id
+            or getattr(self._state, "session_id", "")
+            or get_current_session_id()
+            or "",
         )
 
     def _forced_context_config(self, agent: "Agent"):
