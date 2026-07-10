@@ -7,7 +7,7 @@ import {
   Tag,
   Tooltip,
 } from "antd";
-import { InfoCircleOutlined } from "@ant-design/icons";
+import { InfoCircleOutlined } from "@agentscope-ai/icons-override-antd";
 import { useTranslation } from "react-i18next";
 import { useNotifications } from "../../Settings/Notifications/useNotifications";
 import { useAgentStore } from "../../../stores/agentStore";
@@ -23,15 +23,22 @@ interface Props {
 const SOURCE_KEYS: {
   key: keyof NotificationSourceToggles | "_label";
   labelKey: string;
+  hintKey?: string;
   indent?: boolean;
   isLabel?: boolean;
 }[] = [
   { key: "approval", labelKey: "notifications.sourceApproval" },
   { key: "_label", labelKey: "notifications.sourceCron", isLabel: true },
-  { key: "cron_text", labelKey: "notifications.sourceCronText", indent: true },
+  {
+    key: "cron_text",
+    labelKey: "notifications.sourceCronText",
+    hintKey: "notifications.sourceCronTextHint",
+    indent: true,
+  },
   {
     key: "cron_agent",
     labelKey: "notifications.sourceCronAgent",
+    hintKey: "notifications.sourceCronAgentHint",
     indent: true,
   },
   { key: "heartbeat", labelKey: "notifications.sourceHeartbeat" },
@@ -114,7 +121,7 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
           <div className={styles.sectionTitle}>
             {t("notifications.sourcesTitle")}
           </div>
-          {SOURCE_KEYS.map(({ key, labelKey, indent, isLabel }) =>
+          {SOURCE_KEYS.map(({ key, labelKey, hintKey, indent, isLabel }) =>
             isLabel ? (
               <div key={key} className={styles.row}>
                 <span className={styles.labelMuted}>{t(labelKey)}</span>
@@ -125,7 +132,16 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
                 className={styles.row}
                 style={indent ? { paddingLeft: 16 } : undefined}
               >
-                <span className={styles.label}>{t(labelKey)}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span className={styles.label}>{t(labelKey)}</span>
+                  {hintKey && (
+                    <Tooltip title={t(hintKey)}>
+                      <span className={styles.tooltipTrigger}>
+                        <InfoCircleOutlined />
+                      </span>
+                    </Tooltip>
+                  )}
+                </div>
                 <Switch
                   size="small"
                   checked={
@@ -158,7 +174,9 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
               >
                 {t("notifications.agentFilterTitle")}
                 <Tooltip title={t("notifications.agentFilterHint")}>
-                  <InfoCircleOutlined className={styles.tooltipIcon} />
+                  <span className={styles.tooltipTrigger}>
+                    <InfoCircleOutlined />
+                  </span>
                 </Tooltip>
               </div>
               <Select
@@ -183,7 +201,9 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
                 {t("notifications.intervalLabel")}
               </span>
               <Tooltip title={t("notifications.intervalHint")}>
-                <InfoCircleOutlined className={styles.tooltipIcon} />
+                <span className={styles.tooltipTrigger}>
+                  <InfoCircleOutlined />
+                </span>
               </Tooltip>
             </div>
             <InputNumber
