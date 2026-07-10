@@ -7,6 +7,7 @@ Covers: append_event, list_events filters/pagination, mark_read,
 mark_all_read, delete_event (incl. run_id reference tracking), and the
 5000-event cap.
 """
+
 from __future__ import annotations
 
 import json
@@ -352,20 +353,42 @@ async def test_delete_event_run_id_not_referenced_after_last(inbox_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_append_event_caps_at_5000(inbox_path: Path):
-    # Append more than _MAX_EVENTS to confirm the tail is trimmed.
-    for _ in range(inbox_store._MAX_EVENTS + 50):
+async def test_append_event_caps_at_max(
+    inbox_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The event list is trimmed to _MAX_EVENTS, keeping the newest.
+
+    append_event does ``events.insert(0, event); del events[_MAX_EVENTS:]``
+    on every call, and _save_events re-serializes the whole list — so a
+    test that appends ``_MAX_EVENTS + 50`` (5050) times is O(n^2) and
+    takes ~160s, which tips over CI's --timeout=300 under parallel load.
+
+    monkeypatch a small cap so the trim is exercised in O(1): append one
+    past the cap and confirm the list is capped and the oldest is dropped.
+    """
+    small_cap = 5
+    monkeypatch.setattr(inbox_store, "_MAX_EVENTS", small_cap)
+
+    for i in range(small_cap + 2):
         await inbox_store.append_event(
             agent_id="a",
             source_type="t",
-            source_id="1",
+            source_id=str(i),
             event_type="e",
             status="ok",
             title="t",
             body="b",
         )
-    events = await inbox_store.list_events(limit=inbox_store._MAX_EVENTS + 100)
-    assert len(events) == inbox_store._MAX_EVENTS
+
+    events = await inbox_store.list_events(limit=small_cap + 100)
+    assert len(events) == small_cap
+    # newest-first: the last two appended (indices small_cap+1, small_cap)
+    # survived; the oldest two (0, 1) were trimmed off the tail.
+    assert events[0]["source_id"] == str(small_cap + 1)
+    assert events[-1]["source_id"] == str(2)
+    assert str(0) not in {e["source_id"] for e in events}
+    assert str(1) not in {e["source_id"] for e in events}
 
 
 # ---------------------------------------------------------------------------
