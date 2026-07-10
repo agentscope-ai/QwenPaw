@@ -480,7 +480,7 @@ class TestGovernancePolicyEvaluate:
 
     def test_internal_tool_allow(self, policy):
         """Internal tools should be ALLOW from user_rules."""
-        tc = _tc("GetCurrentTime", "")
+        tc = _tc("GetTokenUsage", "")
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ALLOW
 

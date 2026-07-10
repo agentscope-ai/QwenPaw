@@ -401,11 +401,6 @@ FILE_WRITE_TOOLS: frozenset[str] = frozenset({"Write", "Edit", "Append"})
 DEFAULT_USER_RULES: List[GovernanceRule] = [
     # ── Internal tools (no side effects, always allowed) ──
     GovernanceRule(
-        match="GetCurrentTime(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Read-only system tool",
-    ),
-    GovernanceRule(
         match="GetTokenUsage(*)",
         action=GovernanceAction.ALLOW,
         reason="Read-only usage query",

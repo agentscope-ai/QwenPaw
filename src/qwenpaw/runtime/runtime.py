@@ -469,6 +469,10 @@ class Runtime:
             user_tz_name = load_config().user_timezone or "UTC"
             now = datetime.now(ZoneInfo(user_tz_name))
         except (ZoneInfoNotFoundError, KeyError, ValueError):
+            logger.warning(
+                "Invalid timezone %r, falling back to UTC",
+                user_tz_name,
+            )
             user_tz_name = "UTC"
             now = datetime.now(timezone.utc)
 
@@ -481,14 +485,32 @@ class Runtime:
         for msg in reversed(msgs):
             if getattr(msg, "role", None) != "user":
                 continue
-            # Walk through content blocks (list of dicts)
-            content: list[dict] = getattr(msg, "content", None) or []
+            # A content block may be an agentscope ``TextBlock`` object
+            # (``.type`` / ``.text``) or a plain dict, depending on the
+            # agentscope version — handle both.
+            content: list[Any] = getattr(msg, "content", None) or []
             for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    block["text"] = prefix + block["text"]
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        text = block.get("text", "")
+                        if not text.startswith("Current time:"):
+                            block["text"] = prefix + text
+                        return
+                elif getattr(block, "type", None) == "text":
+                    text = getattr(block, "text", "")
+                    if not text.startswith("Current time:"):
+                        block.text = prefix + text
                     return
-            # No text block found — insert one (media-only edge case)
-            content.insert(0, {"type": "text", "text": prefix})
+            # No text block (media-only) — insert one matching the
+            # existing blocks' representation (agentscope objects vs
+            # plain dicts) so the content list stays homogeneous and
+            # ``get_text_content`` keeps working.
+            if content and not isinstance(content[0], dict):
+                from agentscope.message import TextBlock
+
+                content.insert(0, TextBlock(type="text", text=prefix))
+            else:
+                content.insert(0, {"type": "text", "text": prefix})
             return
 
     def _build_context(self, request: Any) -> HookContext:

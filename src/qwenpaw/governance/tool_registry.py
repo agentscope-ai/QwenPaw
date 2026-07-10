@@ -190,7 +190,6 @@ def _register_builtin_tools(r: ToolRegistry) -> None:
 
     # ── Internal tools ──
     for name, param in [
-        ("GetCurrentTime", ""),
         ("GetTokenUsage", ""),
         ("ListAgents", ""),
         ("MaterializeSkill", ""),
@@ -224,7 +223,6 @@ def _register_python_name_mappings(
         "send_file_to_user": "SendFileToUser",
         "view_image": "ViewImage",
         "view_video": "ViewVideo",
-        "get_current_time": "GetCurrentTime",
         "set_user_timezone": "SetUserTimezone",
         "get_token_usage": "GetTokenUsage",
         "delegate_external_agent": "DelegateExternalAgent",

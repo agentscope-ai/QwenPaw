@@ -1797,12 +1797,6 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             description="Send files to user",
             icon="📤",
         ),
-        "get_current_time": BuiltinToolConfig(
-            name="get_current_time",
-            enabled=True,
-            description="Get current date and time",
-            icon="🕐",
-        ),
         "set_user_timezone": BuiltinToolConfig(
             name="set_user_timezone",
             enabled=True,

@@ -154,3 +154,31 @@ class TestInjectCurrentTime:
         Runtime._inject_current_time(msgs)  # type: ignore[arg-type]
         # Should not crash and should not modify the non-role message
         assert msgs[0].content[0]["text"] == "no role"
+
+    def test_prepends_to_real_agentscope_textblock(self) -> None:
+        """Real agentscope ``Msg`` uses ``TextBlock`` objects (not plain
+        dicts); injecting must prepend to ``.text`` without breaking
+        ``get_text_content()`` — the runtime representation that
+        regressed in CI for #5455.
+        """
+        from agentscope.message import Msg, TextBlock
+
+        msg = Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(type="text", text="hello")],
+        )
+        Runtime._inject_current_time([msg])  # type: ignore[arg-type]
+        text = msg.get_text_content()
+        assert text.startswith("Current time:")
+        assert text.rstrip().endswith("hello")
+
+    def test_no_double_injection(self) -> None:
+        """Calling twice must not prepend the timestamp twice."""
+        msgs = [_make_user_msg([{"type": "text", "text": "hello"}])]
+        Runtime._inject_current_time(msgs)  # type: ignore[arg-type]
+        Runtime._inject_current_time(msgs)  # type: ignore[arg-type]
+        text = msgs[0].content[0]["text"]
+        assert (
+            text.count("Current time:") == 1
+        ), f"Expected a single injection, got {text!r}"

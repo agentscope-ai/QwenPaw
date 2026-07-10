@@ -8,7 +8,7 @@ history records, inbox events, and channel delivery.
 
 Agent-type tests use the shared Mock LLM (``helpers.MockLLMHandler``)
 with tool_call support to validate the full pipeline:
-  Mock LLM → tool_call(get_current_time) → Agent executes → Round 2
+  Mock LLM → tool_call(get_token_usage) → Agent executes → Round 2
   → text response → history success.
 """
 from __future__ import annotations
@@ -284,7 +284,7 @@ def test_cron_agent_manual_run_with_mock_llm(
 
 
 # ------------------------------------------------------------------ #
-# A3: agent-type with tool_call (get_current_time) — full pipeline
+# A3: agent-type with tool_call (get_token_usage) — full pipeline
 # ------------------------------------------------------------------ #
 
 
@@ -296,7 +296,7 @@ def test_cron_agent_tool_call_execution(
 ) -> None:
     """Test purpose:
     - Verify Mock LLM tool_call round-trip: the agent receives a
-      tool_call for get_current_time, executes it, sends the result
+      tool_call for get_token_usage, executes it, sends the result
       back, and the second LLM round produces a text summary.
 
     Test flow:
@@ -304,7 +304,7 @@ def test_cron_agent_tool_call_execution(
     2. POST create agent-type cron job with save_result_to_inbox=true.
     3. POST run.
     4. Poll history → status=success.
-    5. Poll inbox → cron_result event body contains time info.
+    5. Poll inbox → cron_result event body contains the tool result.
     6. Cleanup.
 
     API endpoints:
