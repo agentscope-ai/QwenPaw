@@ -12,7 +12,6 @@ if TYPE_CHECKING:
     from agentscope.agent import Agent
 
     from ._coordinator import ToolCoordinator
-    from ._result_limiter import ToolResultLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +27,8 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
     def __init__(
         self,
         coordinator: "ToolCoordinator",
-        result_limiter: "ToolResultLimiter | None" = None,
     ) -> None:
         self._coordinator = coordinator
-        self._result_limiter = result_limiter
 
     async def on_acting(
         self,
@@ -52,10 +49,5 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
             session_id=session_id,
             agent_id=agent_id,
             root_session_id=root_session_id,
-            result_finalizer=(
-                self._result_limiter.limit_async
-                if self._result_limiter is not None
-                else None
-            ),
         ):
             yield item

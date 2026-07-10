@@ -840,12 +840,14 @@ class AgentBuilder:
         """Build middleware list.
 
         Order (onion model, outermost first):
-        1. ToolCoordinatorMiddleware — tool call lifecycle management
-        2. ToolResultPruningMiddleware — tiered tool result pruning
+        1. ToolResultPruningMiddleware — tiered tool result pruning
+           (native strategy only; scroll uses durable cap middleware)
+        2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
         """
         mws: list[Any] = []
 
+        tool_coordinator = None
         app_services = getattr(ctx, "app_services", None)
         if app_services is not None:
             tool_coordinator = getattr(
@@ -854,43 +856,11 @@ class AgentBuilder:
                 None,
             )
             if tool_coordinator is not None:
-                from ..tool_calls import (
-                    ToolCoordinatorMiddleware,
-                    ToolResultLimiter,
-                )
-
-                result_limiter = None
-                try:
-                    import os
-
-                    lcc = agent_config.running.light_context_config
-                    trc = lcc.tool_result_pruning_config
-                    workspace = getattr(ctx, "workspace", None)
-                    workspace_dir = (
-                        str(getattr(workspace, "workspace_dir", ""))
-                        if workspace is not None
-                        else ""
-                    )
-                    tool_results_dir = (
-                        os.path.join(workspace_dir, trc.tool_results_cache)
-                        if workspace_dir
-                        else None
-                    )
-                    result_limiter = ToolResultLimiter(
-                        enabled=trc.enabled,
-                        max_text_bytes=trc.execution_layer_max_bytes,
-                        cache_dir=tool_results_dir,
-                    )
-                except Exception:
-                    _logger.debug(
-                        "ToolResultLimiter not created",
-                        exc_info=True,
-                    )
+                from ..tool_calls import ToolCoordinatorMiddleware
 
                 mws.append(
                     ToolCoordinatorMiddleware(
                         coordinator=tool_coordinator,
-                        result_limiter=result_limiter,
                     ),
                 )
 
@@ -916,34 +886,37 @@ class AgentBuilder:
             lcc = agent_config.running.light_context_config
             trc = lcc.tool_result_pruning_config
 
-            workspace = getattr(ctx, "workspace", None)
-            workspace_dir = (
-                str(getattr(workspace, "workspace_dir", ""))
-                if workspace is not None
-                else ""
-            )
-            tool_results_dir = (
-                os.path.join(workspace_dir, trc.tool_results_cache)
-                if workspace_dir
-                else ""
-            )
+            if getattr(lcc, "strategy", "native") != "scroll":
+                workspace = getattr(ctx, "workspace", None)
+                workspace_dir = (
+                    str(getattr(workspace, "workspace_dir", ""))
+                    if workspace is not None
+                    else ""
+                )
+                tool_results_dir = (
+                    os.path.join(workspace_dir, trc.tool_results_cache)
+                    if workspace_dir
+                    else ""
+                )
 
-            mws.append(
-                ToolResultPruningMiddleware(
-                    enabled=trc.enabled,
-                    recent_n=trc.pruning_recent_n,
-                    old_max_bytes=trc.pruning_old_msg_max_bytes,
-                    recent_max_bytes=trc.pruning_recent_msg_max_bytes,
-                    exempt_file_extensions={
-                        e.lower() for e in trc.exempt_file_extensions
-                    },
-                    exempt_tool_names={
-                        n.lower() for n in trc.exempt_tool_names
-                    },
-                    tool_results_dir=tool_results_dir,
-                    agent_id=getattr(agent_config, "id", "default"),
-                ),
-            )
+                mws.append(
+                    ToolResultPruningMiddleware(
+                        enabled=trc.enabled,
+                        recent_n=trc.pruning_recent_n,
+                        old_max_bytes=trc.pruning_old_msg_max_bytes,
+                        recent_max_bytes=trc.pruning_recent_msg_max_bytes,
+                        exempt_file_extensions={
+                            e.lower() for e in trc.exempt_file_extensions
+                        },
+                        exempt_tool_names={
+                            n.lower() for n in trc.exempt_tool_names
+                        },
+                        tool_results_dir=tool_results_dir,
+                        agent_id=getattr(agent_config, "id", "default"),
+                    ),
+                )
+                if tool_coordinator is not None:
+                    mws.insert(0, mws.pop())
         except Exception:
             _logger.debug(
                 "ToolResultPruningMiddleware not created",
