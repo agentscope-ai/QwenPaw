@@ -34,6 +34,44 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolate_app_module_state() -> object:
+    """Prevent this module's ``from qwenpaw.app._app import app`` calls
+    from leaking import state into sibling tests.
+
+    ``test_app_factory_importable`` / ``test_critical_routes_return_200``
+    import ``qwenpaw.app._app``, which leaves it in ``sys.modules`` for
+    the rest of the worker. Later, ``tests/unit/tauri/test_entry.py::
+    test_install_desktop_runtime_preserves_existing_cors_values`` calls
+    ``_ensure_qwenpaw_app_not_loaded()``, which asserts the app module
+    is NOT in ``sys.modules`` and raises ``RuntimeError`` if it is.
+    Under ``pytest -n auto --dist=loadscope`` both tests land on the
+    same worker (scope-grouped), so the polluted state reliably fails
+    the tauri test in CI.
+
+    Snapshot and restore every ``qwenpaw.app.*`` module entry so our
+    imports stay local to these tests. (monkeypatch.setitem on
+    sys.modules is the idiomatic way, but snapshot/restore covers the
+    deletion case too.)
+    """
+    saved = {
+        name: mod
+        for name, mod in list(sys.modules.items())
+        if name.startswith("qwenpaw.app")
+    }
+    # remove any pre-existing app modules so the test's own import is
+    # the one that runs; the snapshot handles restore on teardown.
+    for name in list(sys.modules):
+        if name.startswith("qwenpaw.app"):
+            del sys.modules[name]
+    yield
+    # teardown: drop anything our tests added, then re-add the snapshot
+    for name in list(sys.modules):
+        if name.startswith("qwenpaw.app"):
+            del sys.modules[name]
+    sys.modules.update(saved)
+
+
 @pytest.fixture
 def isolated_working_dir(
     tmp_path: Path,
