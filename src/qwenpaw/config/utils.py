@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import plistlib
-import re
 import shlex
 import shutil
 import socket
@@ -13,6 +12,7 @@ import subprocess
 import sys
 import threading
 import uuid
+import re
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
