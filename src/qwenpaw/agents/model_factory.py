@@ -1116,14 +1116,17 @@ def _create_file_block_support_formatter(
 def _strip_top_level_message_name(
     messages: list[dict],
 ) -> list[dict]:
-    """Strip top-level `name` from OpenAI chat messages.
+    """Strip top-level `name` from OpenAI chat-style messages.
 
     Some strict OpenAI-compatible backends reject `messages[*].name`
     (especially for assistant/tool roles) and may return 500/400 on
-    follow-up turns. Keep function/tool names unchanged.
+    follow-up turns. Responses API also uses top-level non-message items
+    such as ``{"type": "function_call", "name": ...}``, where ``name`` is
+    required; those must be left unchanged.
     """
     for message in messages:
-        message.pop("name", None)
+        if "role" in message:
+            message.pop("name", None)
     return messages
 
 
