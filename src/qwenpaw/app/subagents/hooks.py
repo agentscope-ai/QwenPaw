@@ -12,6 +12,24 @@ from .context import (
     set_subagent_spawn_context,
 )
 
+_CLAIM_ID_ATTR = "_qwenpaw_subagent_event_claim_id"
+_CLAIM_IDS_ATTR = "_qwenpaw_subagent_event_claim_ids"
+
+
+def _claimed_event_ids(agent: object) -> list[str]:
+    claim_ids = list(getattr(agent, _CLAIM_IDS_ATTR, []))
+    legacy_claim_id = getattr(agent, _CLAIM_ID_ATTR, None)
+    if legacy_claim_id and legacy_claim_id not in claim_ids:
+        claim_ids.append(legacy_claim_id)
+    return claim_ids
+
+
+def _clear_claimed_event_ids(agent: object) -> None:
+    if hasattr(agent, _CLAIM_IDS_ATTR):
+        delattr(agent, _CLAIM_IDS_ATTR)
+    if hasattr(agent, _CLAIM_ID_ATTR):
+        delattr(agent, _CLAIM_ID_ATTR)
+
 
 class SubagentWakeGuardHook(LifecycleHook):
     """Skip a queued wakeup if another run already consumed its events."""
@@ -88,13 +106,11 @@ class SubagentContextCleanupHook(LifecycleHook):
 
     async def run(self, ctx: HookContext) -> HookResult:
         manager = getattr(ctx.workspace, "subagent_task_manager", None)
-        claim_id = getattr(
-            ctx.agent,
-            "_qwenpaw_subagent_event_claim_id",
-            None,
-        )
-        if manager is not None and claim_id:
-            await manager.release_events(claim_id)
+        claim_ids = _claimed_event_ids(ctx.agent)
+        if manager is not None:
+            for claim_id in claim_ids:
+                await manager.release_events(claim_id)
+        _clear_claimed_event_ids(ctx.agent)
         token = ctx.extras.pop("subagent_context_token", None)
         if token is not None:
             reset_subagent_spawn_context(token)
@@ -113,14 +129,11 @@ class SubagentEventAckHook(LifecycleHook):
         if not ctx.extras.get("session_save_succeeded"):
             return HookResult()
         manager = getattr(ctx.workspace, "subagent_task_manager", None)
-        claim_id = getattr(
-            ctx.agent,
-            "_qwenpaw_subagent_event_claim_id",
-            None,
-        )
-        if manager is not None and claim_id:
-            await manager.ack_events(claim_id)
-            delattr(ctx.agent, "_qwenpaw_subagent_event_claim_id")
+        claim_ids = _claimed_event_ids(ctx.agent)
+        if manager is not None:
+            for claim_id in claim_ids:
+                await manager.ack_events(claim_id)
+        _clear_claimed_event_ids(ctx.agent)
         return HookResult()
 
 

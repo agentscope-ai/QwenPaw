@@ -15,7 +15,10 @@ from qwenpaw.app.subagents.manager import (
     SubagentStatus,
     SubagentTaskManager,
 )
-from qwenpaw.app.subagents.hooks import SubagentWakeGuardHook
+from qwenpaw.app.subagents.hooks import (
+    SubagentEventAckHook,
+    SubagentWakeGuardHook,
+)
 from qwenpaw.app.subagents.middleware import SubagentInboxMiddleware
 from qwenpaw.app.workspace.local_workspace import QwenPawLocalWorkspace
 from qwenpaw.runtime.hooks import HookAction
@@ -308,6 +311,118 @@ async def test_watchdog_loop_pause_renews_leases_instead_of_killing(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_watchdog_loop_survives_one_tick_failure(tmp_path):
+    async def stream(_request):
+        if False:
+            yield None
+
+    workspace = _Workspace(tmp_path, stream)
+    manager = SubagentTaskManager(workspace, watchdog_interval_seconds=0.01)
+    ticked_after_failure = asyncio.Event()
+    calls = 0
+
+    async def failing_once(_now):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("transient tick failure")
+        ticked_after_failure.set()
+        return []
+
+    manager._watchdog_tick = failing_once
+    task = asyncio.create_task(manager._watchdog_loop())
+    await asyncio.wait_for(ticked_after_failure.wait(), timeout=1)
+
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    assert calls >= 2
+
+
+@pytest.mark.asyncio
+async def test_parent_wakeup_timeout_leaves_event_in_inbox(tmp_path):
+    async def stream(_request):
+        await asyncio.Event().wait()
+        if False:
+            yield None
+
+    class _ChatManager:
+        async def get_chat_id_by_session(self, _session_id, _channel):
+            return "chat-1"
+
+    class _TaskTracker:
+        async def get_status(self, _chat_id):
+            return "running"
+
+    workspace = _Workspace(tmp_path, stream)
+    workspace.chat_manager = _ChatManager()
+    workspace.task_tracker = _TaskTracker()
+    manager = SubagentTaskManager(
+        workspace,
+        parent_wakeup_wait_timeout_seconds=0,
+        parent_wakeup_retry_interval_seconds=60,
+    )
+    record = await _spawn(manager)
+    async with manager._lock:
+        manager._append_lifecycle_event_locked(record)
+
+    await manager._enqueue_parent_wakeup(record)
+
+    assert await manager.has_pending_events("console:parent")
+    assert not workspace.channel_manager.enqueued
+    assert manager._wakeup_retry_parents == {"console:parent"}
+    await manager.stop()
+    await manager.cancel_task(record.task_id, notify_parent=False)
+    await asyncio.gather(record.asyncio_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_parent_wakeup_retry_enqueues_after_parent_becomes_idle(
+    tmp_path,
+):
+    async def stream(_request):
+        await asyncio.Event().wait()
+        if False:
+            yield None
+
+    class _ChatManager:
+        async def get_chat_id_by_session(self, _session_id, _channel):
+            return "chat-1"
+
+    class _TaskTracker:
+        def __init__(self) -> None:
+            self.statuses = ["running", "idle"]
+
+        async def get_status(self, _chat_id):
+            if self.statuses:
+                return self.statuses.pop(0)
+            return "idle"
+
+    workspace = _Workspace(tmp_path, stream)
+    workspace.chat_manager = _ChatManager()
+    workspace.task_tracker = _TaskTracker()
+    manager = SubagentTaskManager(
+        workspace,
+        parent_wakeup_wait_timeout_seconds=0,
+        parent_wakeup_retry_interval_seconds=0.01,
+    )
+    record = await _spawn(manager)
+    async with manager._lock:
+        manager._append_lifecycle_event_locked(record)
+
+    await manager._enqueue_parent_wakeup(record)
+    async with asyncio.timeout(1):
+        while not workspace.channel_manager.enqueued:
+            await asyncio.sleep(0.005)
+
+    assert workspace.channel_manager.enqueued[0][1].session_id == (
+        "console:parent"
+    )
+    await manager.stop()
+    await manager.cancel_task(record.task_id, notify_parent=False)
+    await asyncio.gather(record.asyncio_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_parent_kill_suppresses_stale_and_late_completion(tmp_path):
     started = asyncio.Event()
     cancellation_seen = asyncio.Event()
@@ -420,6 +535,54 @@ async def test_inbox_middleware_injects_hint_once(tmp_path):
     assert not await manager.has_pending_events("console:parent")
     assert await manager.get(record.task_id) is None
     await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_inbox_middleware_acks_multiple_claims_from_one_run(tmp_path):
+    async def stream(_request):
+        yield _completed_message("first result")
+
+    workspace = _Workspace(tmp_path, stream)
+    manager = SubagentTaskManager(workspace)
+    first = await _spawn(manager)
+    await _wait_terminal(manager, first.task_id)
+
+    agent = SimpleNamespace(
+        name="QwenPaw",
+        state=SimpleNamespace(
+            reply_id="reply-1",
+            context=[],
+        ),
+    )
+
+    async def downstream(**_kwargs):
+        yield "model-event"
+
+    middleware = SubagentInboxMiddleware(manager, "console:parent")
+    _ = [item async for item in middleware.on_reasoning(agent, {}, downstream)]
+
+    async def stream_second(_request):
+        yield _completed_message("second result")
+
+    workspace._stream_factory = stream_second
+    second = await _spawn(manager, child_session_id="sub-second")
+    await _wait_terminal(manager, second.task_id)
+    agent.state.reply_id = "reply-2"
+    _ = [item async for item in middleware.on_reasoning(agent, {}, downstream)]
+
+    assert len(agent._qwenpaw_subagent_event_claim_ids) == 2
+    ctx = SimpleNamespace(
+        extras={"session_save_succeeded": True},
+        workspace=SimpleNamespace(subagent_task_manager=manager),
+        agent=agent,
+    )
+    await SubagentEventAckHook().run(ctx)
+
+    assert not await manager.has_pending_events("console:parent")
+    assert await manager.get(first.task_id) is None
+    assert await manager.get(second.task_id) is None
+    assert not hasattr(agent, "_qwenpaw_subagent_event_claim_id")
+    assert not hasattr(agent, "_qwenpaw_subagent_event_claim_ids")
 
 
 def test_channel_metadata_filters_secrets_and_runtime_objects():

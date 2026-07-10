@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_HEARTBEAT_TIMEOUT_SECONDS = HEARTBEAT_INTERVAL_SECONDS * 4
 DEFAULT_WATCHDOG_INTERVAL_SECONDS = HEARTBEAT_INTERVAL_SECONDS
 DEFAULT_CANCEL_GRACE_SECONDS = 10.0
+DEFAULT_PARENT_WAKEUP_WAIT_TIMEOUT_SECONDS = 300.0
+DEFAULT_PARENT_WAKEUP_RETRY_INTERVAL_SECONDS = 5.0
 
 
 class SubagentStatus(str, Enum):
@@ -114,6 +116,12 @@ class SubagentTaskManager:
         heartbeat_timeout_seconds: float = DEFAULT_HEARTBEAT_TIMEOUT_SECONDS,
         watchdog_interval_seconds: float = DEFAULT_WATCHDOG_INTERVAL_SECONDS,
         cancel_grace_seconds: float = DEFAULT_CANCEL_GRACE_SECONDS,
+        parent_wakeup_wait_timeout_seconds: float = (
+            DEFAULT_PARENT_WAKEUP_WAIT_TIMEOUT_SECONDS
+        ),
+        parent_wakeup_retry_interval_seconds: float = (
+            DEFAULT_PARENT_WAKEUP_RETRY_INTERVAL_SECONDS
+        ),
     ) -> None:
         self.workspace = workspace
         self.max_running_per_parent = max_running_per_parent
@@ -126,11 +134,20 @@ class SubagentTaskManager:
             0.01,
         )
         self.cancel_grace_seconds = max(float(cancel_grace_seconds), 0.0)
+        self.parent_wakeup_wait_timeout_seconds = max(
+            float(parent_wakeup_wait_timeout_seconds),
+            0.0,
+        )
+        self.parent_wakeup_retry_interval_seconds = max(
+            float(parent_wakeup_retry_interval_seconds),
+            0.01,
+        )
         self._records: dict[str, SubagentTaskRecord] = {}
         self._events: list[SubagentLifecycleEvent] = []
         self._lock = asyncio.Lock()
         self._watchdog_task: asyncio.Task | None = None
         self._notification_tasks: set[asyncio.Task] = set()
+        self._wakeup_retry_parents: set[str] = set()
         self._stopping = False
 
     async def start(self) -> None:
@@ -442,8 +459,8 @@ class SubagentTaskManager:
     async def _watchdog_loop(self) -> None:
         """Cancel children whose Runtime heartbeat stream has stopped."""
         previous_tick = time.monotonic()
-        try:
-            while True:
+        while True:
+            try:
                 await asyncio.sleep(self.watchdog_interval_seconds)
                 now = time.monotonic()
                 tick_delay = now - previous_tick
@@ -459,10 +476,10 @@ class SubagentTaskManager:
                 stale_records = await self._watchdog_tick(now)
                 for record in stale_records:
                     self._schedule_parent_wakeup(record)
-        except Exception:  # pragma: no cover - defensive service boundary
-            logger.exception(
-                "Subagent heartbeat watchdog stopped unexpectedly",
-            )
+            except Exception:  # pragma: no cover - defensive service boundary
+                logger.exception(
+                    "Subagent watchdog tick failed; will retry next interval",
+                )
 
     async def _reset_leases_after_loop_pause(self, now: float) -> None:
         async with self._lock:
@@ -536,6 +553,51 @@ class SubagentTaskManager:
         )
         self._notification_tasks.add(task)
         task.add_done_callback(self._notification_tasks.discard)
+
+    def _schedule_parent_wakeup_retry(
+        self,
+        record: SubagentTaskRecord,
+    ) -> None:
+        """Retry an automatic parent wakeup without a tight idle poll loop."""
+        if self._stopping:
+            return
+        parent_session_id = record.parent_session_id
+        if parent_session_id in self._wakeup_retry_parents:
+            return
+        self._wakeup_retry_parents.add(parent_session_id)
+        task = asyncio.create_task(
+            self._retry_parent_wakeup_when_idle(record),
+            name=f"qwenpaw-subagent-wakeup-retry:{parent_session_id}",
+        )
+        self._notification_tasks.add(task)
+
+        def _done(done: asyncio.Task) -> None:
+            self._notification_tasks.discard(done)
+            self._wakeup_retry_parents.discard(parent_session_id)
+
+        task.add_done_callback(_done)
+
+    async def _retry_parent_wakeup_when_idle(
+        self,
+        record: SubagentTaskRecord,
+    ) -> None:
+        """Retry wakeup delivery at low frequency until the parent is idle."""
+        while not self._stopping:
+            await asyncio.sleep(self.parent_wakeup_retry_interval_seconds)
+            if not await self.has_pending_events(record.parent_session_id):
+                return
+            if await self._parent_session_is_running(record):
+                continue
+            manager = getattr(self.workspace, "channel_manager", None)
+            if manager is None or not record.channel:
+                logger.warning(
+                    "Cannot wake parent for subagent %s: channel unavailable",
+                    record.task_id,
+                )
+                return
+            if await self.has_pending_events(record.parent_session_id):
+                self._enqueue_parent_request(record, manager)
+            return
 
     async def get(self, task_id: str) -> SubagentTaskRecord | None:
         async with self._lock:
@@ -658,7 +720,18 @@ class SubagentTaskManager:
                     record.parent_session_id,
                     record.channel,
                 )
+            deadline = (
+                time.monotonic() + self.parent_wakeup_wait_timeout_seconds
+            )
             while chat_id and tracker is not None:
+                if time.monotonic() > deadline:
+                    logger.warning(
+                        "Timed out waiting for parent session %s to become "
+                        "idle; retrying wakeup when the parent becomes idle",
+                        record.parent_session_id,
+                    )
+                    self._schedule_parent_wakeup_retry(record)
+                    return
                 if await tracker.get_status(chat_id) != "running":
                     break
                 # The active parent may consume the HintBlock on its next
@@ -671,28 +744,50 @@ class SubagentTaskManager:
 
             if not await self.has_pending_events(record.parent_session_id):
                 return
-
-            from ...schemas import AgentRequest
-
-            request = AgentRequest(
-                input=[],
-                session_id=record.parent_session_id,
-                user_id=record.user_id or record.parent_session_id,
-                channel=record.channel,
-                root_session_id=record.root_session_id,
-                root_agent_id=record.parent_agent_id,
-                request_context={
-                    "subagent_wakeup": True,
-                    "subagent_event_task_id": record.task_id,
-                },
-            )
-            request.channel_meta = dict(record.channel_meta)
-            manager.enqueue(record.channel, request)
+            self._enqueue_parent_request(record, manager)
         except Exception:
             logger.exception(
                 "Failed to enqueue parent wakeup for %s",
                 record.task_id,
             )
+
+    @staticmethod
+    def _enqueue_parent_request(
+        record: SubagentTaskRecord,
+        manager: Any,
+    ) -> None:
+        from ...schemas import AgentRequest
+
+        request = AgentRequest(
+            input=[],
+            session_id=record.parent_session_id,
+            user_id=record.user_id or record.parent_session_id,
+            channel=record.channel,
+            root_session_id=record.root_session_id,
+            root_agent_id=record.parent_agent_id,
+            request_context={
+                "subagent_wakeup": True,
+                "subagent_event_task_id": record.task_id,
+            },
+        )
+        request.channel_meta = dict(record.channel_meta)
+        manager.enqueue(record.channel, request)
+
+    async def _parent_session_is_running(
+        self,
+        record: SubagentTaskRecord,
+    ) -> bool:
+        chat_manager = getattr(self.workspace, "chat_manager", None)
+        tracker = getattr(self.workspace, "task_tracker", None)
+        if chat_manager is None or tracker is None:
+            return False
+        chat_id = await chat_manager.get_chat_id_by_session(
+            record.parent_session_id,
+            record.channel,
+        )
+        if not chat_id:
+            return False
+        return await tracker.get_status(chat_id) == "running"
 
     @staticmethod
     def _build_child_request(

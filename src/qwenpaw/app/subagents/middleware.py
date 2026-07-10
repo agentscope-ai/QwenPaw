@@ -40,6 +40,11 @@ class SubagentInboxMiddleware(MiddlewareBase):
             claim_id,
         )
         if events:
+            claim_ids = list(
+                getattr(agent, "_qwenpaw_subagent_event_claim_ids", []),
+            )
+            claim_ids.append(claim_id)
+            setattr(agent, "_qwenpaw_subagent_event_claim_ids", claim_ids)
             setattr(agent, "_qwenpaw_subagent_event_claim_id", claim_id)
             hints = [self._to_hint(event) for event in events]
             if agent.state.context:
