@@ -71,9 +71,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
   | **ReMe v0.4.0 Long-term Memory** | Theo dõi tự động theo lượt, tìm kiếm nhận biết mức sử dụng, embedding riêng backend. |
   | **Terminal UI (TUI)** | Chat terminal toàn màn hình — cùng agent, bộ nhớ và phiên với Console và kênh. |
 
-  Dựa trên Agent OS, chúng tôi sẽ ra mắt các ứng dụng QwenPaw sẵn sàng sử dụng — như **QwenPaw Creator** và **QwenPaw Insight** — hãy theo dõi.
-
-  [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+  Dựa trên Agent OS, chúng tôi sẽ ra mắt các ứng dụng QwenPaw sẵn sàng sử dụng — như **QwenPaw Creator** và **QwenPaw Insight** — hãy theo dõi. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — Trang Mô Hình Đổi Mới & Chế Độ Đơn Giản** | Trang mô hình thiết kế lại với tổng hợp nhà cung cấp; Chế độ Đơn giản mới. [Ghi chú phát hành v1.1.12 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 

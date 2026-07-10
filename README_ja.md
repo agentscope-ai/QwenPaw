@@ -71,9 +71,7 @@
   | **ReMe v0.4.0 Long-term Memory** | ターンベースの自動追跡、利用感知型検索、バックエンド固有の埋め込み。 |
   | **Terminal UI (TUI)** | フルスクリーンターミナルチャット — Console やチャネルと同一のエージェント・記憶・セッション。 |
 
-  Agent OS をベースに、すぐに使える QwenPaw アプリケーション — **QwenPaw Creator**、**QwenPaw Insight** など — を順次リリース予定です。
-
-  [v2.0.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+  Agent OS をベースに、すぐに使える QwenPaw アプリケーション — **QwenPaw Creator**、**QwenPaw Insight** など — を順次リリース予定です。 [v2.0.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — モデルページ大刷新 & シンプルモード** | Provider 集約による新モデルページデザイン、フラットナビのシンプルモード追加。[v1.1.12 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 

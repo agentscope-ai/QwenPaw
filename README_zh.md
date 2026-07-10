@@ -71,9 +71,7 @@
   | **ReMe v0.4.0 长期记忆** | 按轮自动追踪、使用感知搜索、后端特定嵌入。 |
   | **终端界面（TUI）** | 全屏终端对话——与控制台和频道共享同一智能体、记忆与会话。 |
 
-  基于 Agent OS，我们将陆续推出开箱即用的 QwenPaw 应用小程序——如 **QwenPaw Creator**、**QwenPaw Insight** 等，敬请期待。
-
-  [v2.0.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+  基于 Agent OS，我们将陆续推出开箱即用的 QwenPaw 应用小程序——如 **QwenPaw Creator**、**QwenPaw Insight** 等，敬请期待。 [v2.0.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — 模型页面大改版 & 简洁模式** | 全新模型页面 Provider 聚合设计；新增简洁模式，扁平化导航。[v1.1.12 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 

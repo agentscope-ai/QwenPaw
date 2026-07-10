@@ -71,9 +71,7 @@
   | **ReMe v0.4.0 Long-term Memory** | Авто-трекинг по ходам, поиск с учётом использования, бэкенд-специфичные эмбеддинги. |
   | **Terminal UI (TUI)** | Полноэкранный терминальный чат — тот же агент, память и сессии, что в Console и каналах. |
 
-  На базе Agent OS мы будем выпускать готовые к использованию приложения QwenPaw — такие как **QwenPaw Creator** и **QwenPaw Insight** — следите за обновлениями.
-
-  [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+  На базе Agent OS мы будем выпускать готовые к использованию приложения QwenPaw — такие как **QwenPaw Creator** и **QwenPaw Insight** — следите за обновлениями. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — Обновление страницы моделей и Простой режим** | Новый дизайн страницы моделей с агрегацией провайдеров; Простой режим для упрощённой навигации. [v1.1.12 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 
