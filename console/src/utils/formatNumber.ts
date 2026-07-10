@@ -10,7 +10,9 @@ export function formatCompact(n: number): string {
   // -> "1000.0"), which would render a non-compact "1000K"/"1000M". Promote to
   // the next unit in that case so the output stays compact.
   if (n >= 1e9) return fmt(n / 1e9) + "B";
-  if (n >= 1e6) return n / 1e6 >= 999.95 ? fmt(n / 1e9) + "B" : fmt(n / 1e6) + "M";
-  if (n >= 1e3) return n / 1e3 >= 999.95 ? fmt(n / 1e6) + "M" : fmt(n / 1e3) + "K";
+  if (n >= 1e6)
+    return n / 1e6 >= 999.95 ? fmt(n / 1e9) + "B" : fmt(n / 1e6) + "M";
+  if (n >= 1e3)
+    return n / 1e3 >= 999.95 ? fmt(n / 1e6) + "M" : fmt(n / 1e3) + "K";
   return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
