@@ -16,17 +16,18 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
-from textual import work
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
-from textual.widgets import TextArea
+from textual.widgets import OptionList, TextArea
 
 from .events import (
     AvailableCommands,
     BackendWarmed,
     Connected,
     PermissionRequest,
+    PermissionExpired,
     PlanUpdate,
     PushMessage,
     SessionSummary,
@@ -311,6 +312,22 @@ class PawApp(App):
             self._transcript().follow_future_content()
         self._consume()
 
+    async def on_key(self, event: events.Key) -> None:
+        """Keep active permission prompts keyboard-driven after focus moves."""
+        if not self._permission_active():
+            return
+        if event.key not in ("down", "up", "enter", "tab", "escape"):
+            return
+        if self.focused is self._permission and event.key in (
+            "down",
+            "up",
+            "enter",
+        ):
+            return
+        event.prevent_default()
+        event.stop()
+        await self._handle_permission_key(event.key)
+
     # -- helpers -------------------------------------------------------------
     def _status(self) -> StatusBar:
         return self.query_one(StatusBar)
@@ -486,8 +503,7 @@ class PawApp(App):
         request = self._permission.request
         if request is None:
             return
-        self._permission.clear_request()
-        self.query_one("#prompt", PromptInput).focus()
+        self._clear_permission()
         self.run_worker(
             self._transport.resolve_permission(
                 request.request_id,
@@ -1037,6 +1053,9 @@ class PawApp(App):
         elif isinstance(event, PermissionRequest):
             self._on_permission(event)
 
+        elif isinstance(event, PermissionExpired):
+            await self._on_permission_expired(event)
+
         elif isinstance(event, TransportError):
             self._awaiting_backend_update = False
             self._turn_saw_error = True
@@ -1057,7 +1076,7 @@ class PawApp(App):
         elif isinstance(event, TurnEnded):
             self._busy = False
             self._awaiting_backend_update = False
-            self._permission.clear_request()
+            self._clear_permission()
             if self._thought is not None:
                 self._thought.done()
             if self._activity is not None:
@@ -1123,7 +1142,29 @@ class PawApp(App):
         self._mark_backend_update()
         self._menu.display = False
         self._permission.show_request(event)
-        self.query_one("#prompt", PromptInput).focus()
+        self._permission.focus()
+
+    async def _on_permission_expired(self, event: PermissionExpired) -> None:
+        current = self._permission.request
+        if current is not None and current.request_id == event.request_id:
+            self._clear_permission()
+        self._turn_saw_output = True
+        await self._mount(InfoMessage(event.message, level="warn"))
+
+    def _clear_permission(self) -> None:
+        was_active = self._permission_active()
+        self._permission.clear_request()
+        if was_active:
+            self.query_one("#prompt", PromptInput).focus()
+
+    def on_option_list_option_selected(
+        self,
+        event: OptionList.OptionSelected,
+    ) -> None:
+        if event.option_list is not self._permission:
+            return
+        event.stop()
+        self._resolve_permission(event.option_id)
 
     async def on_unmount(self) -> None:
         await self._transport.close()

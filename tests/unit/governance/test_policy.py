@@ -148,6 +148,91 @@ class TestDefaultPolicyLoad:
             GovernanceAction.ALLOW
         )
 
+    def test_existing_policy_migrates_coding_project_dir_rule(self, tmp_path):
+        """Existing policy.yaml files from before the coding-dir default
+        should gain that rule on load instead of prompting for project writes.
+        """
+        ws = "/home/user/workspace"
+        cpd = "/home/user/coding"
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+        policy = _create_default_policy(
+            workspace_dir=ws,
+            coding_project_dir=cpd,
+        )
+        policy.user_rules = [
+            rule
+            for rule in policy.user_rules
+            if rule.reason != "Coding project dir"
+        ]
+        # Pre-migration files carry no applied_migrations marker.
+        policy.applied_migrations = []
+        save_governance_policy(policy, str(policy_dir), ws, cpd)
+
+        yaml_text = (policy_dir / "policy.yaml").read_text(encoding="utf-8")
+        assert "CODING_PROJECT_DIR" not in yaml_text
+        assert "applied_migrations" not in yaml_text
+
+        reloaded = load_governance_policy(str(policy_dir), ws, cpd)
+        assert (
+            sum(
+                1
+                for rule in reloaded.user_rules
+                if rule.reason == "Coding project dir"
+            )
+            == 1
+        )
+        assert reloaded.evaluate(_tc("Write", f"{cpd}/script.py")).action is (
+            GovernanceAction.ALLOW
+        )
+
+    def test_deleted_coding_project_dir_rule_stays_deleted(self, tmp_path):
+        """Once the migration marker is persisted, a user who deletes the
+        coding-dir ALLOW rule keeps it deleted across reloads (writes fall
+        through to the ASK fallback instead of being silently re-allowed).
+        """
+        ws = "/home/user/workspace"
+        cpd = "/home/user/coding"
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+        policy = _create_default_policy(
+            workspace_dir=ws,
+            coding_project_dir=cpd,
+        )
+        # User deletes the rule from a policy saved by current code (which
+        # records the migration as applied).
+        policy.user_rules = [
+            rule
+            for rule in policy.user_rules
+            if rule.reason != "Coding project dir"
+        ]
+        save_governance_policy(policy, str(policy_dir), ws, cpd)
+
+        yaml_text = (policy_dir / "policy.yaml").read_text(encoding="utf-8")
+        assert "applied_migrations" in yaml_text
+
+        reloaded = load_governance_policy(str(policy_dir), ws, cpd)
+        assert not [
+            rule
+            for rule in reloaded.user_rules
+            if rule.reason == "Coding project dir"
+        ]
+        assert (
+            reloaded.evaluate(
+                _tc("Write", f"{cpd}/script.py"),
+            ).action
+            is not GovernanceAction.ALLOW
+        )
+
+        # The marker round-trips, so it stays deleted on the next cycle too.
+        save_governance_policy(reloaded, str(policy_dir), ws, cpd)
+        again = load_governance_policy(str(policy_dir), ws, cpd)
+        assert not [
+            rule
+            for rule in again.user_rules
+            if rule.reason == "Coding project dir"
+        ]
+
     def test_coding_project_dir_roundtrip_portable(self, tmp_path):
         """save→reload keeps the CODING_PROJECT_DIR placeholder in YAML
         (distinct coding dir), so the policy stays portable across

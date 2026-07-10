@@ -463,6 +463,16 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 # Already gated: the adapter only supplies an offloader when
                 # ``offload_dialog`` is on, so this archives iff configured.
                 offloader=self._offloader,
+                summarize_unheadlined=getattr(
+                    sc,
+                    "summarize_unheadlined_evictions",
+                    True,
+                ),
+                summarize_timeout_s=getattr(
+                    sc,
+                    "summarize_eviction_timeout_seconds",
+                    20,
+                ),
             )
         except Exception:
             logger.exception("Failed to build scroll manager for /compact")

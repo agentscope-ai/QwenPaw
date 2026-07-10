@@ -338,6 +338,25 @@ class TestRepairEmptyToolInputs:
         result = _repair_empty_tool_inputs([msg])
         assert json.loads(result[0].content[0]["input"]) == {"key": "value"}
 
+    def test_recovers_raw_input_with_leading_whitespace_and_trailing_garbage(
+        self,
+    ):
+        msg = _msg(
+            [
+                {
+                    "type": "tool_use",
+                    "id": "id1",
+                    "name": "t",
+                    "input": {},
+                    "raw_input": '\n  {"path": "README.md"}trailing garbage',
+                },
+            ],
+        )
+        result = _repair_empty_tool_inputs([msg])
+        assert json.loads(result[0].content[0]["input"]) == {
+            "path": "README.md",
+        }
+
     def test_non_dict_raw_decode_does_not_repair(self):
         """raw_decode recovering a non-dict should not overwrite input."""
         msg = _msg(
@@ -411,6 +430,25 @@ class TestCoerceToolInputsRawDecode:
         result = _coerce_tool_inputs_to_json([msg])
         assert len(result[0].content) == 1
         assert json.loads(result[0].content[0]["input"]) == {"key": "val"}
+
+    def test_object_with_leading_whitespace_and_trailing_garbage_recovered(
+        self,
+    ):
+        msg = _msg(
+            [
+                {
+                    "type": "tool_use",
+                    "id": "id1",
+                    "name": "t",
+                    "input": '\n  {"path": "README.md"}extra',
+                },
+            ],
+        )
+        result = _coerce_tool_inputs_to_json([msg])
+        assert len(result[0].content) == 1
+        assert json.loads(result[0].content[0]["input"]) == {
+            "path": "README.md",
+        }
 
     def test_completely_invalid_json_drops_block(self):
         msg = _msg(

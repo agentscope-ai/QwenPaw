@@ -178,6 +178,8 @@ def _register_builtin_tools(r: ToolRegistry) -> None:
 
     # ── Network / Shell ──
     r.register("Browser", "network", "url")
+    r.register("WebSearch", "network", "search_term")
+    r.register("WebFetch", "network", "url")
     r.register("Bash", "shell", "command")
     # Fail-closed: the REPL runs model-authored Python and returns DENIED
     # unless a sandbox_config is supplied (unlike Bash, which is fail-open).
@@ -216,6 +218,8 @@ def _register_python_name_mappings(
         "grep_search": "Grep",
         "glob_search": "Glob",
         "browser_use": "Browser",
+        "web_search": "WebSearch",
+        "web_fetch": "WebFetch",
         "desktop_screenshot": "DesktopScreenshot",
         "send_file_to_user": "SendFileToUser",
         "view_image": "ViewImage",

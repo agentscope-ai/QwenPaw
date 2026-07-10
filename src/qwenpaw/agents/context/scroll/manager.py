@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -29,8 +31,9 @@ from ....constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
+from ....utils.model_response import consume_model_response
 from . import _as_internals as as_internals
-from .eviction_index import EvictionIndex, Leaf
+from .eviction_index import EvictionIndex, Leaf, Line
 from .history import HistoryStore
 from .serialize import msg_to_entries
 
@@ -40,6 +43,70 @@ logger = logging.getLogger(__name__)
 # Doubles as the idempotence marker: an output starting with it is already a
 # stub and is never folded (or counted as reclaimable) again.
 _FOLD_MARK = "[scroll folded]"
+
+# Labelling an evicted span with no model headline: split it into numbered
+# sections (each a real seq sub-range the harness owns) and have one model call
+# write one headline per section. The model never emits a seq, so it can't
+# mis-address one.
+_INDEX_PROMPT = (
+    "You are indexing a stretch of conversation that scrolled out of a live "
+    "context window, so a future reader can find things in it again. It is "
+    "already split into numbered sections below.\n\n"
+    "For EACH numbered section write exactly ONE headline: at most ~15 words, "
+    "in the same language as the conversation, naming the single most "
+    "important fact, decision, result, or request in it. Output one per line "
+    "as `<n>: <headline>` where <n> is the section number. Cover every "
+    "section; no quotes, no extra prose, no blank lines."
+)
+_SUMMARY_INPUT_CHARS = 6000  # cap on the text sent to the model
+_SUMMARY_LINE_CHARS = 200  # mirrors serialize._HEADLINE_MAX
+_SUMMARY_MAX_LINES = 6  # ceiling on sections per span
+
+# One reply line: ``2: headline`` / ``[2] headline`` / ``2. headline``.
+_HEADLINE_LINE_RE = re.compile(r"^\[?\s*(\d+)\s*\]?\s*[:.：、)]?\s*(.+)$")
+
+
+@dataclass
+class _Section:
+    """A section of an evicted span: a real seq sub-range, the ``text`` shown
+    to the model, and an extractive ``fallback`` if the model skips it."""
+
+    seq_lo: int
+    seq_hi: int
+    text: str
+    fallback: str
+
+
+def _clean_headline(text: str) -> str:
+    """One index-safe line: first line, with quotes/``⟦⟧``/trailing
+    punctuation stripped."""
+    line = (text or "").strip().splitlines()[0] if text.strip() else ""
+    line = line.strip().strip("\"'`“”‘’")
+    line = line.replace("⟦", "").replace("⟧", "")
+    while line and line[-1] in ".,;:!?":
+        line = line[:-1].rstrip()
+    return line[:_SUMMARY_LINE_CHARS]
+
+
+def _headlines_by_section(raw: str, count: int) -> dict[int, str]:
+    """Map ``<n>: headline`` reply lines to section ``n`` (1-based). Bare lines
+    (no ``<n>:``) fill the next free section in order."""
+    out: dict[int, str] = {}
+    nxt = 1
+    for raw_line in (raw or "").splitlines():
+        stripped = raw_line.strip().lstrip("-*•").strip()
+        if not stripped:
+            continue
+        m = _HEADLINE_LINE_RE.match(stripped)
+        head = _clean_headline(m.group(2) if m else stripped)
+        n = int(m.group(1)) if m else 0
+        if not 1 <= n <= count:  # missing/out-of-range → next free section
+            while nxt <= count and nxt in out:
+                nxt += 1
+            n = nxt
+        if head and 1 <= n <= count:
+            out.setdefault(n, head)
+    return out
 
 
 class ScrollContextManager:
@@ -59,10 +126,16 @@ class ScrollContextManager:
         agent_id: str | None = None,
         capped_results: dict[str, int] | None = None,
         offloader: Any = None,
+        summarize_unheadlined: bool = False,
+        summarize_timeout_s: int = 20,
     ) -> None:
         self._history = history
         self._session_id = session_id
         self._agent_id = agent_id
+        # Label an un-headlined evicted span with generated headlines instead
+        # of ``(no milestone)``. Off unless the wiring passes the config value.
+        self._summarize_unheadlined = summarize_unheadlined
+        self._summarize_timeout_s = summarize_timeout_s
         # Dialog archive: when an offloader is wired (``offload_dialog``, on by
         # default), evicted turns are also written to ``dialog/{date}.jsonl``
         # for external consumers. ``history.db`` remains the source of truth.
@@ -266,7 +339,7 @@ class ScrollContextManager:
 
             # 4) Fold the evicted middle into the index as a new Tier 0
             #    block.
-            self._index_evicted(middle)
+            await self._index_evicted(agent, middle)
             self._rebuild_context(agent, tail)
             self.last_compress["evicted"] = len(middle)
             tokens = await self._live_tokens(agent)
@@ -558,12 +631,12 @@ class ScrollContextManager:
         self._synthetic_ids.add(placeholder.id)
         agent.state.context = [placeholder] + tail
 
-    def _index_evicted(self, middle: list[Msg]) -> None:
+    async def _index_evicted(self, agent: Any, middle: list[Msg]) -> None:
         """Append the evicted middle to the index as one fresh Tier 0 block.
 
-        The block spans every evicted ``seq`` (so a range query recovers the
-        full turns, tool results included); its leaves are the model turns
-        that carry a headline.
+        The block spans every evicted ``seq``; its leaves are the model turns
+        that carry a headline. A span with no headlined turn is labelled by
+        generated headlines when enabled, else the bare ``(no milestone)``.
         """
         leaves: list[Leaf] = []
         lo: int | None = None
@@ -579,11 +652,136 @@ class ScrollContextManager:
                 leaves.append(leaf)
         if lo is None or hi is None:  # no known seq (shouldn't happen)
             return
+        fallback_lines = None
+        if not leaves and self._summarize_unheadlined:
+            fallback_lines = await self._summarize_span(
+                agent,
+                middle,
+                span_lo=lo,
+                span_hi=hi,
+            )
         self._index.add_eviction(
             leaves,
             seq_lo=lo,
             seq_hi=hi,
+            fallback_lines=fallback_lines,
         )
+
+    async def _summarize_span(
+        self,
+        agent: Any,
+        middle: list[Msg],
+        *,
+        span_lo: int,
+        span_hi: int,
+    ) -> list[Line] | None:
+        """Index an un-headlined span into ``Line`` entries, or ``None``.
+
+        One model call labels the harness-owned sections. Best-effort: a
+        missing/uncallable model, timeout, or any error yields ``None`` and the
+        caller keeps ``(no milestone)`` — the turns stay durable and recallable
+        regardless.
+        """
+        model = getattr(agent, "model", None)
+        if not callable(model):
+            return None
+        sections = self._segment_span(middle, span_lo=span_lo, span_hi=span_hi)
+        if not sections:
+            return None
+        body = "\n\n".join(
+            f"[{i}]\n{s.text}" for i, s in enumerate(sections, start=1)
+        )[:_SUMMARY_INPUT_CHARS]
+        messages = [
+            Msg(
+                name="system",
+                role="system",
+                content=[TextBlock(type="text", text=_INDEX_PROMPT)],
+            ),
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(type="text", text=body)],
+            ),
+        ]
+        try:
+            raw = await asyncio.wait_for(
+                consume_model_response(model, messages),
+                timeout=self._summarize_timeout_s,
+            )
+        except Exception:  # noqa: BLE001 - cosmetic label, never break evict
+            # ``CancelledError`` is a BaseException, so it still propagates.
+            logger.warning(
+                "scroll: un-headlined span index failed; "
+                "labelling it (no milestone)",
+                exc_info=True,
+            )
+            return None
+        # Attach each headline to its section's real seq range; a skipped
+        # section keeps its extractive fallback.
+        heads = _headlines_by_section(raw or "", len(sections))
+        return [
+            Line(s.seq_lo, s.seq_hi, head, head)
+            for i, s in enumerate(sections, start=1)
+            for head in [heads.get(i) or s.fallback]
+            if head
+        ]
+
+    def _segment_span(
+        self,
+        middle: list[Msg],
+        *,
+        span_lo: int,
+        span_hi: int,
+    ) -> list[_Section]:
+        """Split an evicted span into sections at ``user``-turn boundaries (one
+        exchange each), so every section's seq range comes from the persisted
+        turns, not the model. Exchanges beyond ``_SUMMARY_MAX_LINES`` are
+        merged into that many contiguous groups.
+        """
+        groups: list[list[Msg]] = []
+        for m in middle:
+            if not (m.get_text_content() or "").strip():
+                continue
+            role = getattr(m, "role", "") or getattr(m, "name", "")
+            if role == "user" or not groups:
+                groups.append([m])
+            else:
+                groups[-1].append(m)
+        if not groups:
+            return []
+        if (
+            len(groups) > _SUMMARY_MAX_LINES
+        ):  # fold to <= MAX contiguous groups
+            per = -(-len(groups) // _SUMMARY_MAX_LINES)  # ceil
+            groups = [
+                [m for g in groups[i : i + per] for m in g]
+                for i in range(0, len(groups), per)
+            ]
+        sections: list[_Section] = []
+        for group in groups:
+            lo: int | None = None
+            hi: int | None = None
+            for m in group:
+                mid = getattr(m, "id", None) or str(id(m))
+                rng = self._seq_by_id.get(mid)
+                if rng:
+                    lo = rng[0] if lo is None else min(lo, rng[0])
+                    hi = rng[1] if hi is None else max(hi, rng[1])
+            text = "\n".join(
+                f"{getattr(m, 'role', '') or getattr(m, 'name', '')}: "
+                f"{(m.get_text_content() or '').strip()}"
+                for m in group
+            )
+            first = (group[0].get_text_content() or "").strip()
+            sections.append(
+                _Section(
+                    seq_lo=lo if lo is not None else span_lo,
+                    seq_hi=hi if hi is not None else span_hi,
+                    text=text,
+                    fallback=_clean_headline(first) or "(no milestone)",
+                ),
+            )
+        return sections
 
     def describe_index(self) -> str:
         """The eviction-index tier/span map for the ``/compact`` reply (empty

@@ -203,6 +203,16 @@ def build_scroll_components(
             offloader=(
                 offloader if getattr(sc, "offload_dialog", False) else None
             ),
+            summarize_unheadlined=getattr(
+                sc,
+                "summarize_unheadlined_evictions",
+                True,
+            ),
+            summarize_timeout_s=getattr(
+                sc,
+                "summarize_eviction_timeout_seconds",
+                20,
+            ),
         )
         cap = ToolResultCapMiddleware(
             history=history,
