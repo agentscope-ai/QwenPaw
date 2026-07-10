@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for per-agent model configuration."""
+
 from pathlib import Path
 
 import pytest
@@ -259,6 +260,7 @@ def test_agent_config_expands_env_var_refs_without_rewriting_file(
 ):  # pylint: disable=redefined-outer-name
     """Test that agent.json can reference secrets through environment vars."""
     import json
+
     from qwenpaw.config.utils import _agent_config_cache
 
     monkeypatch.setenv("QWENPAW_TEST_MODEL", "qwen-plus")

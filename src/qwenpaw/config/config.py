@@ -109,6 +109,7 @@ def _get_default_acp_agents() -> Dict[str, ACPAgentConfig]:
 class ACPConfig(BaseModel):
     """ACP (Agent Communication Protocol) configuration."""
 
+    node_path: str = ""
     agents: Dict[str, ACPAgentConfig] = Field(
         default_factory=_get_default_acp_agents,
     )
@@ -661,7 +662,14 @@ class ReMeLightMemoryConfig(BaseModel):
     )
     session_dir: str = Field(
         default="mem_session",
-        description="Subdirectory for persisted agent sessions",
+        description=(
+            "Subdirectory for ReMe source conversation logs used by "
+            "auto-memory"
+        ),
+    )
+    mem_session_dir: str = Field(
+        default="mem_agent",
+        description="Subdirectory for ReMe internal memory-agent sessions",
     )
     resource_dir: str = Field(
         default="resource",
@@ -887,6 +895,31 @@ class ScrollContextConfig(BaseModel):
             "opt-in for external consumers (analytics, backup). When on, "
             "dialog is written on every eviction AND on /clear, /new, "
             "/compact; when off, scroll never writes dialog anywhere."
+        ),
+    )
+
+    summarize_unheadlined_evictions: bool = Field(
+        default=True,
+        description=(
+            "When an evicted span carries NO model headline, generate a "
+            "one-line summary of it (via the active model) to use as its "
+            "eviction-index entry instead of a bare ``(no milestone)`` line. "
+            "Keeps the index readable for legacy 1.x conversations (whose "
+            "turns predate headlines) and for tool-heavy spans the model "
+            "never headlined. The full turns stay recallable either way; "
+            "this only affects the descriptive label. Best-effort — a "
+            "model/timeout failure falls back to ``(no milestone)`` and never "
+            "blocks eviction. Costs one extra model call per such eviction."
+        ),
+    )
+
+    summarize_eviction_timeout_seconds: int = Field(
+        default=20,
+        ge=1,
+        description=(
+            "Per-eviction timeout for the un-headlined-span summary call "
+            "above. On timeout the span keeps a ``(no milestone)`` label; "
+            "eviction itself is never delayed beyond this."
         ),
     )
 
@@ -1726,6 +1759,18 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             description="Browser automation and web interaction",
             icon="🌐",
         ),
+        "web_search": BuiltinToolConfig(
+            name="web_search",
+            enabled=True,
+            description="Search the web for real-time information",
+            icon="🔎",
+        ),
+        "web_fetch": BuiltinToolConfig(
+            name="web_fetch",
+            enabled=True,
+            description="Fetch and read content from a URL",
+            icon="📥",
+        ),
         "desktop_screenshot": BuiltinToolConfig(
             name="desktop_screenshot",
             enabled=True,
@@ -2284,9 +2329,6 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         # Need to reload config from disk
         with open(agent_config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        from .utils import expand_env_var_refs
-
-        data = expand_env_var_refs(data)
 
         # One-shot migration: rename legacy ``channels.weixin`` key to
         # ``channels.wechat`` and rewrite the file on disk so future loads
@@ -2348,8 +2390,12 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         # NOTE: this transform is applied in-memory only; it must not be
         # persisted back to disk.
         try:
-            from .utils import _normalize_working_dir_bound_paths
+            from .utils import (
+                _normalize_working_dir_bound_paths,
+                expand_env_var_refs,
+            )
 
+            data = expand_env_var_refs(data)
             data = _normalize_working_dir_bound_paths(data)
         except Exception:
             pass
