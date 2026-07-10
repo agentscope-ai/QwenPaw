@@ -22,6 +22,17 @@ const AppendFileCard: React.FC<AppendFileCardProps> = ({
     ? t("tool.appendFile", { file })
     : t("tool.appendFileDefault");
 
+  if (content.status === "error") {
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<FileAddOutlined />}
+        title={title}
+      />
+    );
+  }
+
   const appendedContent = (params.content as string) || "";
   const lineCount = countLines(appendedContent);
 

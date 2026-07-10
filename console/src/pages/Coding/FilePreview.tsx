@@ -13,8 +13,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { invoke } from "@tauri-apps/api/core";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
+import { isDesktopTauriRuntime } from "../../utils/openExternalLink";
+import { useAgentStore } from "../../stores/agentStore";
 import styles from "./FilePreview.module.less";
 
 // ---------------------------------------------------------------------------
@@ -81,26 +84,58 @@ function parseCsv(raw: string): string[][] {
 // ---------------------------------------------------------------------------
 // Authenticated blob loader — browser-native <img>/<embed> won't send
 // X-Agent-Id, so we fetch with headers and create an object URL.
+//
+// In Tauri desktop mode, reads the file directly from disk via a native
+// command so binary previews work offline (no backend HTTP required).
 // ---------------------------------------------------------------------------
 
 function useAuthBlobUrl(filePath: string): string | null {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
 
   useEffect(() => {
     let revoked = false;
-    const url = workspaceApi.getBinaryFileUrl(filePath);
-    fetch(url, { headers: buildAuthHeaders() })
-      .then((res) => {
-        if (!res.ok) throw new Error(`${res.status}`);
-        return res.blob();
-      })
+
+    const loadBlob = async (): Promise<Blob | null> => {
+      // Tauri: read file directly from disk for offline support
+      if (isDesktopTauriRuntime()) {
+        try {
+          const response = await invoke<ArrayBuffer | number[]>(
+            "read_workspace_binary_file",
+            {
+              filePath,
+              agentId: selectedAgent,
+            },
+          );
+          const mimeType = guessMimeType(filePath);
+          // Tauri 2.11.1 on macOS may serialize a raw Vec<u8> as number[]
+          // instead of ArrayBuffer. Normalize both shapes into a Uint8Array
+          // so Blob construction uses the actual bytes, not a string join.
+          const bytes = Array.isArray(response)
+            ? new Uint8Array(response)
+            : new Uint8Array(response);
+          return new Blob([bytes], { type: mimeType });
+        } catch {
+          // Fall through to HTTP fetch as fallback
+        }
+      }
+
+      // Browser / online: fetch via backend API with auth headers
+      const url = workspaceApi.getBinaryFileUrl(filePath);
+      const res = await fetch(url, { headers: buildAuthHeaders() });
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.blob();
+    };
+
+    loadBlob()
       .then((blob) => {
-        if (revoked) return;
+        if (revoked || !blob) return;
         setBlobUrl(URL.createObjectURL(blob));
       })
       .catch(() => {
         if (!revoked) setBlobUrl(null);
       });
+
     return () => {
       revoked = true;
       setBlobUrl((prev) => {
@@ -108,9 +143,26 @@ function useAuthBlobUrl(filePath: string): string | null {
         return null;
       });
     };
-  }, [filePath]);
+  }, [filePath, selectedAgent]);
 
   return blobUrl;
+}
+
+/** Guess a MIME type from the file extension for blob creation. */
+function guessMimeType(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  const mimeMap: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    svg: "image/svg+xml",
+    ico: "image/x-icon",
+    bmp: "image/bmp",
+    pdf: "application/pdf",
+  };
+  return mimeMap[ext] ?? "application/octet-stream";
 }
 
 // ---------------------------------------------------------------------------

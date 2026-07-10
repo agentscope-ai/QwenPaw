@@ -253,7 +253,6 @@ QwenPaw 提供了一组开箱即用的内置工具，智能体可以直接调用
 | 图像分析     | `view_image`              | 加载图片到上下文供模型分析                          |
 | 文件传输     | `send_file_to_user`       | 发送文件给用户，自动识别文件类型                    |
 | 记忆搜索     | `memory_search`           | 在 MEMORY.md 中语义搜索过往信息                     |
-| 时间         | `get_current_time`        | 获取当前时间和时区                                  |
 | 时间         | `set_user_timezone`       | 设置用户时区偏好                                    |
 | 统计         | `get_token_usage`         | 查询 LLM Token 使用量统计                           |
 
@@ -402,7 +401,6 @@ QwenPaw 提供了一组开箱即用的内置工具，智能体可以直接调用
 
 **时间工具**
 
-- `get_current_time`：获取当前时间，格式为 `YYYY-MM-DD HH:MM:SS 时区 (星期)`
 - `set_user_timezone`：设置用户时区偏好
   - `timezone_name`：IANA 时区名称，如 "Asia/Shanghai"、"America/New_York"、"UTC"
 

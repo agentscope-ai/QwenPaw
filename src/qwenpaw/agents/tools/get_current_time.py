@@ -2,7 +2,7 @@
 """Tools for getting and setting the user timezone."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import TextBlock
@@ -13,43 +13,6 @@ from ...config import load_config, save_config
 from ...runtime.tool_registry import tool_descriptor
 
 logger = logging.getLogger(__name__)
-
-
-@tool_descriptor(async_execution=True)
-async def get_current_time() -> ToolChunk:
-    """Get the current time in format `%Y-%m-%d %H:%M:%S TZ (Day)`,
-    e.g. "2026-02-13 19:30:45 Asia/Shanghai (Friday)".
-
-    Call this tool when the user asks for the current time or when
-    the current time is needed for other operations.
-
-    Returns:
-        `ToolChunk`:
-            The current time string,
-            e.g. "2026-02-13 19:30:45 Asia/Shanghai (Friday)".
-    """
-    user_tz = load_config().user_timezone or "UTC"
-    try:
-        now = datetime.now(ZoneInfo(user_tz))
-    except (ZoneInfoNotFoundError, KeyError):
-        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
-        now = datetime.now(timezone.utc)
-        user_tz = "UTC"
-
-    time_str = (
-        f"{now.strftime('%Y-%m-%d %H:%M:%S')} {user_tz} ({now.strftime('%A')})"
-    )
-
-    return ToolChunk(
-        is_last=True,
-        state=ToolResultState.SUCCESS,
-        content=[
-            TextBlock(
-                type="text",
-                text=time_str,
-            ),
-        ],
-    )
 
 
 @tool_descriptor(async_execution=True)

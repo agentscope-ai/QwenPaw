@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.agents.tools.file_search import (
+    _compile_search_pattern,
     _is_text_file,
     _MAX_MATCHES,
     _MAX_OUTPUT_CHARS,
@@ -47,6 +48,48 @@ class FakeCancelAfter(FakeCancel):
     def is_set(self) -> bool:
         self._checks += 1
         return self._checks > self.after
+
+
+# ---------------------------------------------------------------------------
+# _compile_search_pattern tests
+# ---------------------------------------------------------------------------
+
+
+def test_compile_search_pattern_literal():
+    regex = _compile_search_pattern("hello", is_regex=False, flags=0)
+    assert regex.search("hello world")
+    assert not regex.search("hi world")
+
+
+def test_compile_search_pattern_pipe_alternatives():
+    pattern = "keyword_a|keyword_b|keyword_c|keyword_d|keyword_e"
+    regex = _compile_search_pattern(pattern, is_regex=False, flags=0)
+    assert regex.search("the item remains keyword_d")
+    assert regex.search("field keyword_c is set")
+    assert not regex.search("completely unrelated content")
+
+
+def test_compile_search_pattern_pipe_only():
+    regex = _compile_search_pattern("||", is_regex=False, flags=0)
+    assert not regex.search("any line")
+    assert regex.search("a||b")
+
+    single = _compile_search_pattern("|", is_regex=False, flags=0)
+    assert single.search("a|b")
+    assert not single.search("any line")
+
+
+def test_compile_search_pattern_pipe_preserves_regex_metacharacters():
+    regex = _compile_search_pattern("a.b|c.d", is_regex=False, flags=0)
+    assert regex.search("a.b")
+    assert regex.search("c.d")
+    assert not regex.search("axb")
+
+
+def test_compile_search_pattern_regex_mode():
+    regex = _compile_search_pattern(r"foo|bar", is_regex=True, flags=0)
+    assert regex.search("foo")
+    assert regex.search("bar")
 
 
 # ---------------------------------------------------------------------------
@@ -682,6 +725,25 @@ def test_walk_and_grep_context_line_at_file_end_edge(temp_dir):
         "---",
     ]
     assert matches == expected
+
+
+def test_walk_and_grep_pipe_alternatives_literal(temp_dir):
+    """Pipe-separated literals should match any alternative."""
+    (temp_dir / "file.txt").write_text(
+        "the item remains keyword_d\nfield keyword_c is set\n",
+        encoding="utf-8",
+    )
+    pattern = "keyword_a|keyword_b|keyword_d|keyword_c"
+    regex = _compile_search_pattern(pattern, is_regex=False, flags=0)
+    matches, status = _walk_and_grep(
+        temp_dir / "file.txt",
+        regex,
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert len(matches) == 2
 
 
 def test_walk_and_grep_regex_metacharacters(temp_dir):

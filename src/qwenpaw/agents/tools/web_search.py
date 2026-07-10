@@ -236,6 +236,13 @@ async def web_search(search_term: str) -> ToolChunk:
         )
         results = data.get("results", [])
         text = _format_search_results(results)
+        if not text:
+            text = "No content searched."
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[TextBlock(type="text", text=text)],
+        )
     except Exception as exc:
         logger.warning(f"web_search failed: {exc}")
         text = f"web_search failed: {exc}\n\n" f"{_SEARCH_FALLBACK_HINT}"
@@ -298,6 +305,11 @@ async def web_fetch(url: str) -> ToolChunk:
         text = _html_to_text(raw_html)
         if not text:
             text = "No content extracted from the page."
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[TextBlock(type="text", text=text)],
+        )
     except Exception as exc:
         logger.warning(f"web_fetch failed: {exc}")
         text = f"web_fetch failed: {exc}\n\n" f"{_FETCH_FALLBACK_HINT}"

@@ -3,7 +3,7 @@
 
 Covers GET /tools (list), PATCH /tools/{name}/toggle, and
 GET /tools/{name}/config endpoints.  Verifies that builtin tools
-(e.g. get_current_time) appear in the list and can be toggled.
+(e.g. set_user_timezone) appear in the list and can be toggled.
 """
 from __future__ import annotations
 
@@ -15,21 +15,21 @@ _TOOL_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 
 # ------------------------------------------------------------------ #
-# C1: tool list includes get_current_time
+# C1: tool list includes set_user_timezone
 # ------------------------------------------------------------------ #
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_tool_list_includes_get_current_time(app_server) -> None:
+def test_tool_list_includes_set_user_timezone(app_server) -> None:
     """Test purpose:
     - Verify GET /tools returns a list that includes the
-      get_current_time builtin tool with enabled=true.
+      set_user_timezone builtin tool with enabled=true.
 
     Test flow:
     1. GET /api/agents/default/tools.
     2. Assert response is a list.
-    3. Find get_current_time in the list.
+    3. Find set_user_timezone in the list.
     4. Assert it is enabled.
 
     API endpoints:
@@ -47,10 +47,10 @@ def test_tool_list_includes_get_current_time(app_server) -> None:
 
     names = {t.get("name") for t in tools}
     assert (
-        "get_current_time" in names
-    ), f"get_current_time not in tool list: {names}"
+        "set_user_timezone" in names
+    ), f"set_user_timezone not in tool list: {names}"
 
-    tool = next(t for t in tools if t["name"] == "get_current_time")
+    tool = next(t for t in tools if t["name"] == "set_user_timezone")
     assert tool.get("enabled") is True
 
 
@@ -67,7 +67,7 @@ def test_tool_toggle_disable_enable(app_server) -> None:
       enabled state and the change is reflected in GET /tools.
 
     Test flow:
-    1. PATCH toggle get_current_time → should return toggled state.
+    1. PATCH toggle set_user_timezone → should return toggled state.
     2. GET /tools → verify new enabled state.
     3. PATCH toggle again to restore original state.
     4. GET /tools → verify restored.
@@ -83,13 +83,13 @@ def test_tool_toggle_disable_enable(app_server) -> None:
     )
     assert get_before.status_code == 200
     tools = get_before.json()
-    tool = next(t for t in tools if t["name"] == "get_current_time")
+    tool = next(t for t in tools if t["name"] == "set_user_timezone")
     original_enabled = tool["enabled"]
 
     try:
         toggle_resp = app_server.api_request(
             "PATCH",
-            scoped("default", "/tools/get_current_time/toggle"),
+            scoped("default", "/tools/set_user_timezone/toggle"),
             timeout=_TOOL_HTTP_TIMEOUT,
         )
         assert toggle_resp.status_code == 200
@@ -103,13 +103,13 @@ def test_tool_toggle_disable_enable(app_server) -> None:
         )
         assert get_after.status_code == 200
         after_tool = next(
-            t for t in get_after.json() if t["name"] == "get_current_time"
+            t for t in get_after.json() if t["name"] == "set_user_timezone"
         )
         assert after_tool["enabled"] is (not original_enabled)
     finally:
         app_server.api_request(
             "PATCH",
-            scoped("default", "/tools/get_current_time/toggle"),
+            scoped("default", "/tools/set_user_timezone/toggle"),
             timeout=_TOOL_HTTP_TIMEOUT,
         )
 
@@ -169,7 +169,7 @@ def test_tool_config_get_returns_dict(app_server) -> None:
     - Verify GET /tools/{name}/config returns a valid dict.
 
     Test flow:
-    1. GET /api/agents/default/tools/get_current_time/config.
+    1. GET /api/agents/default/tools/set_user_timezone/config.
     2. Assert 200 + response is dict.
 
     API endpoints:
@@ -177,7 +177,7 @@ def test_tool_config_get_returns_dict(app_server) -> None:
     """
     resp = app_server.api_request(
         "GET",
-        scoped("default", "/tools/get_current_time/config"),
+        scoped("default", "/tools/set_user_timezone/config"),
         timeout=_TOOL_HTTP_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()

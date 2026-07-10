@@ -137,6 +137,30 @@ def _make_response(text: str) -> ToolChunk:
     )
 
 
+def _compile_search_pattern(
+    pattern: str,
+    is_regex: bool,
+    flags: int,
+) -> "re.Pattern[str]":
+    """Compile a grep pattern.
+
+    When *is_regex* is False, the pattern is treated as a literal string.
+    Pipe-separated alternatives (``a|b|c``) are supported as OR matching,
+    similar to ``grep -E``, with each alternative escaped individually.
+    """
+    if is_regex:
+        expr = pattern
+    elif "|" in pattern:
+        parts = [part for part in pattern.split("|") if part]
+        if not parts:
+            expr = re.escape(pattern)
+        else:
+            expr = "|".join(re.escape(part) for part in parts)
+    else:
+        expr = re.escape(pattern)
+    return re.compile(expr, flags)
+
+
 def _resolve_search_root(
     path: Optional[str],
     require_dir: bool = False,
@@ -617,10 +641,7 @@ async def grep_search(
 
     flags = 0 if case_sensitive else re.IGNORECASE
     try:
-        regex = re.compile(
-            pattern if is_regex else re.escape(pattern),
-            flags,
-        )
+        regex = _compile_search_pattern(pattern, is_regex, flags)
     except re.error as e:
         return _make_response(f"Error: Invalid regex pattern — {e}")
 
