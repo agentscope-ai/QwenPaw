@@ -310,20 +310,25 @@ class TestManagerRerankIntegration:
             ],
         }
 
-        mgr_mod = "qwenpaw.agents.memory.reme_light_memory_manager"
-        with (
-            patch(f"{mgr_mod}.load_agent_config") as mock_load_cfg,
-            patch(f"{mgr_mod}.rerank") as mock_rerank_fn,
-        ):
+        from qwenpaw.agents.memory import (
+            reme_light_memory_manager as mgr_module,
+        )
+
+        with patch.object(mgr_module, "load_agent_config") as mock_load_cfg:
             mock_load_cfg.return_value = agent_cfg
-            res = mock_response.metadata["results"]
-            mock_rerank_fn.return_value = res[::-1]
-            yield {
-                "load_cfg": mock_load_cfg,
-                "rerank_fn": mock_rerank_fn,
-                "reranker_cfg": reranker_cfg,
-                "response": mock_response,
-            }
+            with patch.object(
+                mgr_module,
+                "rerank",
+                new_callable=AsyncMock,
+            ) as mock_rerank_fn:
+                res = mock_response.metadata["results"]
+                mock_rerank_fn.return_value = res[::-1]
+                yield {
+                    "load_cfg": mock_load_cfg,
+                    "rerank_fn": mock_rerank_fn,
+                    "reranker_cfg": reranker_cfg,
+                    "response": mock_response,
+                }
 
     @pytest.mark.asyncio()
     async def test_rerank_enabled_uses_larger_limit(
@@ -415,23 +420,29 @@ class TestManagerRerankIntegration:
         mock_msg.role = "user"
         mock_msg.get_text_content.return_value = "hello"
 
-        with (
-            patch.object(
-                mgr,
-                "_run_reme_job",
-                new_callable=AsyncMock,
-            ) as mock_run,
-            patch(
-                "qwenpaw.agents.memory.reme_light_memory_manager.uuid",
-            ) as mock_uuid,
-        ):
-            mock_run.return_value = mock_reme_and_config["response"]
-            mock_uuid.uuid4.return_value.hex = "test-uuid"
+        from qwenpaw.agents.memory import (
+            reme_light_memory_manager as mgr_module,
+        )
 
-            result = await mgr.auto_memory_search([mock_msg], "test-agent")
+        with patch.object(
+            mgr,
+            "_run_reme_job",
+            new_callable=AsyncMock,
+        ) as mock_run:
+            with patch.object(
+                mgr_module,
+                "uuid",
+            ) as mock_uuid:
+                mock_run.return_value = mock_reme_and_config["response"]
+                mock_uuid.uuid4.return_value.hex = "test-uuid"
 
-            # Should have called with auto_memory_search_config.max_results
-            assert result is not None
-            assert "relevant doc" in result["text"]
-            # Larger fetch limit
-            assert mock_run.call_args.kwargs["limit"] == 9  # 3 * 3
+                result = await mgr.auto_memory_search(
+                    [mock_msg],
+                    "test-agent",
+                )
+
+                # Should have called with auto_memory_search_config.max_results
+                assert result is not None
+                assert "relevant doc" in result["text"]
+                # Larger fetch limit
+                assert mock_run.call_args.kwargs["limit"] == 9  # 3 * 3
