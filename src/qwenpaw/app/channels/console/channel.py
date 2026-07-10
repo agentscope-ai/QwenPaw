@@ -500,6 +500,16 @@ class ConsoleChannel(BaseChannel):
                 },
             )
             yield f"data: {rl_event}\n\n"
+            from ....runtime.run_outcome import build_outcome_response
+            from ....schemas import RunOutcome
+
+            outcome_response = build_outcome_response(
+                session_id,
+                outcome=RunOutcome.RateLimited,
+                stop_reason=str(e).strip(),
+            )
+            data = self._serialize_event_for_sse(outcome_response)
+            yield f"data: {data}\n\n"
             self._print_error(str(e).strip())
         except Exception as e:
             logger.exception("console process/reply failed")

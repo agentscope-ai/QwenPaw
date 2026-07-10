@@ -73,6 +73,11 @@ class Envelope:
         self._error_code: str = "error"
         self._finalized = False
 
+        from ..schemas import RunOutcome
+
+        self._outcome: RunOutcome = RunOutcome.Success
+        self._stop_reason: str | None = None
+
     # ------------------------------------------------------------------
     # Sequence number helper
     # ------------------------------------------------------------------
@@ -622,6 +627,10 @@ class Envelope:
             err_message.status = RunStatus.Completed
             self._response.output.append(err_message)
             yield self._tag_seq(err_message)
+            self.set_run_outcome(
+                "max_iterations",
+                err_text.text,
+            )
 
         # === HINT_BLOCK (P2-2: warn and drop) ===
         # ``EventType.HINT_BLOCK`` does not exist in every agentscope version;
@@ -730,6 +739,23 @@ class Envelope:
         yield self._tag_seq(self._response)
         self._finalized = True
 
+    def set_run_outcome(
+        self,
+        outcome: Any,
+        stop_reason: str | None = None,
+    ) -> None:
+        """Record structured outcome for the final response envelope."""
+        from ..schemas import RunOutcome
+
+        if isinstance(outcome, str):
+            try:
+                outcome = RunOutcome(outcome)
+            except ValueError:
+                outcome = RunOutcome.Success
+        self._outcome = outcome
+        if stop_reason:
+            self._stop_reason = stop_reason
+
     # ------------------------------------------------------------------
     # Error / Cancel
     # ------------------------------------------------------------------
@@ -739,12 +765,18 @@ class Envelope:
         error_text: str,
         error_code: str = "error",
     ) -> AsyncGenerator[Any, None]:
+        from ..schemas import RunOutcome
+
         self._error_text = error_text
         self._error_code = error_code
+        self.set_run_outcome(RunOutcome.Error, error_text)
         async for obj in self._finalize_response():
             yield obj
 
     async def cancel_envelope(self) -> AsyncGenerator[Any, None]:
+        from ..schemas import RunOutcome
+
+        self.set_run_outcome(RunOutcome.Cancelled, "cancelled")
         async for obj in self._finalize_response():
             yield obj
 
@@ -793,6 +825,9 @@ class Envelope:
             }
         else:
             self._response.status = RunStatus.Completed
+        self._response.outcome = self._outcome
+        if self._stop_reason is not None:
+            self._response.stop_reason = self._stop_reason
         self._response.completed_at = datetime.now(timezone.utc).isoformat(
             timespec="seconds",
         )

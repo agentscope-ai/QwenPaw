@@ -135,6 +135,15 @@ class Runtime:
             # --- [phase 6] POST_RESPONSE ---
             await hooks.run(Phase.POST_RESPONSE, ctx)
 
+            if ctx.agent is not None:
+                from .run_outcome import consume_run_outcome
+
+                outcome, stop_reason = consume_run_outcome(ctx.agent)
+                from ..schemas import RunOutcome
+
+                if outcome != RunOutcome.Success:
+                    envelope.set_run_outcome(outcome, stop_reason)
+
             # Finalize envelope (complete message + response).
             async for ev in envelope.finalize():
                 yield ev
