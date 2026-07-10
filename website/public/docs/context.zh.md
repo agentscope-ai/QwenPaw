@@ -199,9 +199,9 @@ print(ms.agents())
 
 当前有两个相关机制：
 
-| 机制                          | 默认状态                                     | 作用                                                                                                                                       |
-| ----------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ToolResultLimiter`           | 由 `tool_result_pruning_config.enabled` 控制 | 工具结果进入 live context 前应用最近预览字节上限，超大 raw output 保存到 `tool_results/`，并返回 `read_file` 续读提示。                    |
+| 机制                          | 默认状态                                     | 作用                                                                                                                                     |
+| ----------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `ToolResultLimiter`           | 由 `tool_result_pruning_config.enabled` 控制 | 工具结果进入 live context 前应用最近预览字节上限，超大 raw output 保存到 `tool_results/`，并返回 `read_file` 续读提示。                  |
 | `ToolResultPruningMiddleware` | 由 `tool_result_pruning_config.enabled` 控制 | 保留按字节裁剪工具结果的兼容路径。scroll 下 execution/recent 共享同一个字节上限，compact 后仍保留的 live preview 使用 compact 字节上限。 |
 
 scroll 不再有独立的基于 token 的工具结果 cap。工具结果在执行层截断一次，history 中保存 live context 里的同一份 preview；只有 retained live context 被 compact 时才会再次缩小 preview。
