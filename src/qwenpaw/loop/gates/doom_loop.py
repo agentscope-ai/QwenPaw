@@ -11,7 +11,7 @@ import json
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from .base import (
     StopAction,
@@ -46,9 +46,9 @@ class DoomLoopGate(LoopGate):
     Sliding-window repetition detection that escalates
     through configured stages.
 
-    - action="modify_prompt": inject warning via
-      continuation_prompt(), don't stop.
-    - action="stop": return STOP immediately.
+    - action="modify_prompt": INTERRUPT_AND_CONTINUE,
+      inject warning via build_continuation().
+    - action="stop": return TERMINATE immediately.
     """
 
     @property
@@ -101,18 +101,26 @@ class DoomLoopGate(LoopGate):
         )
 
     def reset(self) -> None:
-        """Clear history and state for session."""
-        self.deactivate()
+        """Clear history and counters for current session."""
+        state = self._state()
+        if state is not None:
+            state.history.clear()
+            state.consecutive_hits = 0
+            state.prompt = ""
+            state.last_recorded_iter = -1
 
     async def check(
         self,
         ctx: Any,
-    ) -> Optional[StopHandlerResult]:
+    ) -> StopHandlerResult:
         """Evaluate doom loop state.
 
         Auto-records tool calls from agent context when
         available (no explicit record() needed).
         """
+        _bypass = StopHandlerResult(
+            action=StopAction.BYPASS,
+        )
         state = self._ensure_state()
         self._auto_record_from_ctx(ctx, state)
 
@@ -121,7 +129,7 @@ class DoomLoopGate(LoopGate):
         if not is_looping:
             state.consecutive_hits = 0
             state.prompt = ""
-            return None
+            return _bypass
 
         if state.consecutive_hits == 0:
             state.consecutive_hits = self._window_size
@@ -135,7 +143,7 @@ class DoomLoopGate(LoopGate):
                 break
 
         if active_stage is None:
-            return None
+            return _bypass
 
         if active_stage.action == "stop":
             logger.info(
@@ -143,7 +151,7 @@ class DoomLoopGate(LoopGate):
                 state.consecutive_hits,
             )
             return StopHandlerResult(
-                action=StopAction.STOP,
+                action=StopAction.TERMINATE,
                 reason=active_stage.prompt,
             )
 
@@ -153,12 +161,11 @@ class DoomLoopGate(LoopGate):
             state.consecutive_hits,
         )
         return StopHandlerResult(
-            action=StopAction.CONTINUE,
-            continuation_message=active_stage.prompt,
+            action=StopAction.INTERRUPT_AND_CONTINUE,
             reason="doom_loop repetition warning",
         )
 
-    def continuation_prompt(self) -> str:
+    def build_continuation(self) -> str:
         """Return current doom loop warning."""
         state = self._state()
         if state is None:

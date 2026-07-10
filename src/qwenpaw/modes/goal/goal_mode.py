@@ -202,9 +202,6 @@ class GoalMode(AgentMode):
         handler.register(GoalTurnGate(self))
         handler.register(GoalBudgetGate(self))
         handler.register(RubricGate(self, rubric))
-        handler.set_continuation(
-            self._build_continuation,
-        )
 
         completion_gate = create_completion_gate(
             workspace,
@@ -261,27 +258,6 @@ class GoalMode(AgentMode):
 
         rewrite_user_msg(ctx, goal_text)
         return None
-
-    def _build_continuation(
-        self,
-        ctx: Any,  # pylint: disable=unused-argument
-    ) -> str:
-        """Build continuation message."""
-        session = self._first_active_session()
-        if session is None:
-            return ""
-        remaining = max(
-            0,
-            session.max_tokens - session.tokens_used,
-        )
-        return CONTINUATION_PROMPT.format(
-            objective=session.goal,
-            iteration=session.iteration,
-            max_iterations=(session.max_iterations),
-            tokens_used=session.tokens_used,
-            token_budget=session.max_tokens,
-            remaining_tokens=remaining,
-        )
 
     # ---- prompt / session helpers ----
 
