@@ -64,6 +64,10 @@ import {
   stripQueueAgentPrefix,
 } from "./chatSessionIds";
 import { buildChatSessionOptions } from "./chatSessionOptions";
+import {
+  resolveChatRequestContext,
+  type QueuedChatRequestData,
+} from "./chatRequestContext";
 import { migrateInputQueueStorage } from "./inputQueueStorage";
 
 interface ApprovalMessageData {
@@ -1549,20 +1553,34 @@ export default function ChatPage() {
   );
 
   const customFetch = useCallback(
-    async (data: {
+    async (data: QueuedChatRequestData & {
       input?: Array<Record<string, unknown>>;
       biz_params?: Record<string, unknown>;
       signal?: AbortSignal;
     }): Promise<Response> => {
+      const { input = [], biz_params } = data;
+      const session: SessionInfo = input[input.length - 1]?.session || {};
+      const requestContext = resolveChatRequestContext({
+        data,
+        session,
+        selectedAgent,
+        getSessionIdentity: (sessionId?: string) =>
+          sessionApi.getSessionIdentity(sessionId),
+        defaultUserId: DEFAULT_USER_ID,
+        defaultChannel: DEFAULT_CHANNEL,
+      });
+      const requestAgentId = requestContext.agentId;
+
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...buildAuthHeaders(),
+        "X-Agent-Id": requestAgentId,
       };
 
       try {
         const activeModels = await providerApi.getActiveModels({
           scope: "effective",
-          agent_id: selectedAgent,
+          agent_id: requestAgentId,
         });
         if (
           !activeModels?.active_llm?.provider_id ||
@@ -1576,8 +1594,6 @@ export default function ChatPage() {
         return buildModelError();
       }
 
-      const { input = [], biz_params } = data;
-      const session: SessionInfo = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
       const rewrittenInput =
@@ -1590,12 +1606,12 @@ export default function ChatPage() {
             ]
           : lastInput;
 
-      const identity = sessionApi.getSessionIdentity();
       let requestBody: Record<string, unknown> = {
         input: rewrittenInput,
-        session_id: identity.sessionId || session?.session_id || "",
-        user_id: identity.userId || session?.user_id || DEFAULT_USER_ID,
-        channel: identity.channel || session?.channel || DEFAULT_CHANNEL,
+        session_id: requestContext.sessionId,
+        user_id: requestContext.userId,
+        channel: requestContext.channel,
+        agent_id: requestAgentId,
         stream: true,
         ...biz_params,
       };
@@ -1606,7 +1622,7 @@ export default function ChatPage() {
         const next = entry.item.transform({
           payload: requestBody,
           sessionId: String(requestBody.session_id || ""),
-          selectedAgent,
+          selectedAgent: requestAgentId,
         });
         if (next && typeof next === "object") {
           requestBody = next;
@@ -1624,7 +1640,9 @@ export default function ChatPage() {
 
       const backendChatId =
         sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
-        chatIdRef.current ??
+        (data.session_id
+          ? String(requestBody.session_id || "")
+          : chatIdRef.current) ??
         String(requestBody.session_id || "");
       if (backendChatId) {
         const userText = rewrittenInput
@@ -1655,7 +1673,12 @@ export default function ChatPage() {
         signal: data.signal,
       });
 
-      const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
+      const queuedSessionId =
+        typeof data.session_id === "string" && data.session_id.trim()
+          ? data.session_id
+          : undefined;
+      const localIdToResolve =
+        queuedSessionId || sessionApi.lastActiveChatId || chatIdRef.current;
       if (response.ok && localIdToResolve) {
         sessionApi.triggerResolve(localIdToResolve);
       }
@@ -2115,13 +2138,31 @@ export default function ChatPage() {
             sessionId,
             queueSessionId,
           }: IAgentScopeRuntimeWebUIQueueSessionContext) => {
-            if (isFrontendChatRunning()) return true;
+            const currentQueueSessionId = chatIdRef.current
+              ? resolveInputQueueSessionId(chatIdRef.current)
+              : undefined;
+            const visibleQueueMatches =
+              !!queueSessionId &&
+              !!currentQueueSessionId &&
+              queueSessionId === currentQueueSessionId;
+            const visibleSessionMatches =
+              !queueSessionId &&
+              !!sessionId &&
+              stripQueueAgentPrefix(sessionId) === chatIdRef.current;
+
+            if (
+              (visibleQueueMatches || visibleSessionMatches) &&
+              isFrontendChatRunning()
+            ) {
+              return true;
+            }
 
             const candidates = [
               stripQueueAgentPrefix(queueSessionId),
               stripQueueAgentPrefix(sessionId),
-              chatIdRef.current,
-              sessionApi.lastActiveChatId,
+              ...(visibleQueueMatches || visibleSessionMatches
+                ? [chatIdRef.current, sessionApi.lastActiveChatId]
+                : []),
             ]
               .flatMap((id) => [
                 sessionApi.getRoutableSessionId(id),
