@@ -59,12 +59,17 @@ class MissionGate(LoopGate):
 
     async def check(  # pylint: disable=too-many-return-statements
         self,
-        ctx: Any,  # pylint: disable=unused-argument
+        ctx: Any,
     ) -> StopHandlerResult:
         """Evaluate mission completion."""
         _bypass = StopHandlerResult(
             action=StopAction.BYPASS,
         )
+        if isinstance(ctx, dict) and ctx.get(
+            "has_tool_calls",
+        ):
+            return _bypass
+
         state: Optional[_MissionState] = self._state()
         if state is None:
             state = self._try_restore(ctx)

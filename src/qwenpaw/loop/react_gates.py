@@ -81,7 +81,10 @@ def register_react_gates(
         return handler
 
     loop_cfg = running_config.loop
-    handler = get_or_create_stop_handler(workspace)
+    handler = get_or_create_stop_handler(
+        workspace,
+        scope="default",
+    )
 
     # 1. Iteration Gate
     if loop_cfg.iteration.enabled:
