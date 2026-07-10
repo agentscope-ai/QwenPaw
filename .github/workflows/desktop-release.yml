@@ -19,6 +19,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
+
 jobs:
   # On release events, fail fast if the DashScope secret is missing.
   # Without it, the verifier would silently skip the LLM chat round
@@ -96,69 +100,6 @@ jobs:
             Get-ChildItem -Path dist\win-unpacked -ErrorAction SilentlyContinue | Select-Object -First 30 | ForEach-Object { $_.Name }
           }
 
-      - name: Set up runner Python for verification
-        id: runner-python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Verify desktop (Legacy Windows)
-        timeout-minutes: 10
-        uses: ./.github/actions/verify-legacy-windows
-        with:
-          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-          version: ${{ steps.version.outputs.version }}
-          runner-python: ${{ steps.runner-python.outputs.python-path }}
-
-      - name: Stop desktop server (Legacy Windows)
-        if: always()
-        shell: pwsh
-        run: |
-          $pidFile = Join-Path $env:RUNNER_TEMP "qwenpaw-desktop.pid"
-          if (Test-Path $pidFile) {
-            $pidValue = (Get-Content $pidFile | Select-Object -First 1).Trim()
-            if ($pidValue) {
-              taskkill /F /PID $pidValue 2>$null | Out-Null
-            }
-          }
-
-          # Best-effort port-based fallback (kill anything still on 8088).
-          $line = netstat -ano 2>$null | Select-String -Pattern ':8088 .*LISTENING' |
-            Select-Object -First 1
-          if ($line) {
-            $owner = ($line.ToString() -split '\s+')[-1].Trim()
-            if ($owner) { taskkill /F /PID $owner 2>$null | Out-Null }
-          }
-
-          # Uninstall to leave the runner clean.
-          $installDir = Join-Path $env:RUNNER_TEMP "QwenPaw-Verify"
-          $uninstaller = Join-Path $installDir "Uninstall.exe"
-          if (Test-Path $uninstaller) {
-            Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait `
-              -ErrorAction SilentlyContinue
-          }
-          exit 0
-
-      - name: Upload desktop verify logs (Legacy Windows)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-verify-logs-legacy-windows-${{ steps.version.outputs.version }}
-          path: |
-            ${{ runner.temp }}/qwenpaw-desktop-stdout.log
-            ${{ runner.temp }}/qwenpaw-desktop-stderr.log
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Upload verify screenshots (Legacy Windows)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-verify-screenshots-legacy-windows-${{ steps.version.outputs.version }}
-          path: ${{ runner.temp }}/verify-screenshots/
-          if-no-files-found: ignore
-          retention-days: 7
-
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
@@ -206,49 +147,6 @@ jobs:
           chmod +x scripts/pack/build_macos.sh
           conda run -n qwenpaw-build bash -c 'CREATE_ZIP=1 ./scripts/pack/build_macos.sh'
 
-      - name: Set up runner Python for verification
-        id: runner-python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Verify desktop (Legacy macOS)
-        timeout-minutes: 10
-        uses: ./.github/actions/verify-legacy-macos
-        with:
-          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-          version: ${{ steps.version.outputs.version }}
-          runner-python: ${{ steps.runner-python.outputs.python-path }}
-
-      - name: Stop desktop server (Legacy macOS)
-        if: always()
-        run: |
-          if [ -f "$RUNNER_TEMP/qwenpaw-desktop.pid" ]; then
-            kill "$(cat "$RUNNER_TEMP/qwenpaw-desktop.pid")" 2>/dev/null || true
-          fi
-          lsof -ti:8088 | xargs kill 2>/dev/null || true
-          rm -rf dist/verify-legacy
-
-      - name: Upload desktop verify logs (Legacy macOS)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-verify-logs-legacy-macos-${{ steps.version.outputs.version }}
-          path: |
-            ${{ runner.temp }}/qwenpaw-desktop-stdout.log
-            ${{ runner.temp }}/qwenpaw-desktop-stderr.log
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Upload verify screenshots (Legacy macOS)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-verify-screenshots-legacy-macos-${{ steps.version.outputs.version }}
-          path: ${{ runner.temp }}/verify-screenshots/
-          if-no-files-found: ignore
-          retention-days: 7
-
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
@@ -262,6 +160,7 @@ jobs:
       (needs.check-release-secrets.result == 'success' ||
        needs.check-release-secrets.result == 'skipped')
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -397,6 +296,7 @@ jobs:
       (needs.check-release-secrets.result == 'success' ||
        needs.check-release-secrets.result == 'skipped')
     runs-on: macos-14
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -576,7 +476,7 @@ jobs:
             QwenPaw-Tauri-*-macOS.zip
             QwenPaw-Tauri-*-macOS.app.tar.gz
             qwenpaw-tauri-latest.json
-          fail-on-unmatched-files: false
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

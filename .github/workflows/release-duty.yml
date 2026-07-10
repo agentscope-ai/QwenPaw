@@ -21,7 +21,7 @@ on:
         required: false
         type: choice
         options:
-          - ""
+          - "auto"
           - beta
           - alpha
           - rc
@@ -71,6 +71,8 @@ jobs:
           repo = os.environ["REPO"]
           current_tag = os.environ["CURRENT_TAG"]
           type_override = os.environ.get("TYPE_OVERRIDE", "").strip()
+          if type_override == "auto":
+              type_override = ""
 
           # ── Classify release type ────────────────────────────────────────
           if type_override:
