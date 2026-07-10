@@ -153,11 +153,14 @@ const BINARY_FILE_MAX_BYTES: u64 = 50 * 1024 * 1024;
 /// files in the code editor preview mode when the backend API is unavailable
 /// (e.g., offline desktop usage).
 ///
-/// The `file_path` parameter is a relative path within the workspace. This
-/// function resolves it to an absolute path by reading the QwenPaw config.
+/// The `file_path` parameter is a relative path within the coding project directory.
+/// The `agent_id` parameter specifies which agent's workspace to use (from frontend state).
 #[tauri::command]
-pub(crate) async fn read_workspace_binary_file(file_path: String) -> Result<Vec<u8>, String> {
-    let absolute_path = resolve_workspace_file_path(&file_path)?;
+pub(crate) async fn read_workspace_binary_file(
+    file_path: String,
+    agent_id: Option<String>,
+) -> Result<tauri::ipc::Response, String> {
+    let absolute_path = resolve_workspace_file_path(&file_path, agent_id.as_deref())?;
 
     if !absolute_path.is_file() {
         return Err(format!("path is not a file: {}", absolute_path.display()));
@@ -185,36 +188,43 @@ pub(crate) async fn read_workspace_binary_file(file_path: String) -> Result<Vec<
         .await
         .map_err(|err| format!("failed to read file: {err}"))?;
 
-    Ok(buffer)
+    Ok(tauri::ipc::Response::new(buffer))
 }
 
 /// Resolve a relative workspace file path to an absolute path.
 ///
-/// Reads the QwenPaw config to determine the workspace directory, then safely
-/// joins the relative path to prevent path traversal attacks.
-fn resolve_workspace_file_path(relative_path: &str) -> Result<PathBuf, String> {
+/// Reads the QwenPaw config to determine the coding project directory (or workspace
+/// directory if no custom project is set), then safely joins the relative path to
+/// prevent path traversal attacks.
+///
+/// If `agent_id` is provided, uses that agent's config; otherwise falls back to
+/// the active agent in config.json.
+fn resolve_workspace_file_path(
+    relative_path: &str,
+    agent_id: Option<&str>,
+) -> Result<PathBuf, String> {
     if relative_path.trim().is_empty() {
         return Err("file path is empty".into());
     }
 
-    let workspace_dir = get_workspace_directory()?;
+    let coding_dir = get_coding_directory(agent_id)?;
 
-    // Safe join: resolve the path and ensure it stays within workspace
-    let target = workspace_dir.join(relative_path);
+    // Safe join: resolve the path and ensure it stays within coding directory
+    let target = coding_dir.join(relative_path);
     let canonical_target = target.canonicalize().map_err(|err| {
         format!("failed to resolve file path '{}': {err}", target.display())
     })?;
 
-    let canonical_workspace = workspace_dir.canonicalize().map_err(|err| {
+    let canonical_coding_dir = coding_dir.canonicalize().map_err(|err| {
         format!(
-            "failed to resolve workspace directory '{}': {err}",
-            workspace_dir.display()
+            "failed to resolve coding directory '{}': {err}",
+            coding_dir.display()
         )
     })?;
 
-    if !canonical_target.starts_with(&canonical_workspace) {
+    if !canonical_target.starts_with(&canonical_coding_dir) {
         return Err(format!(
-            "path traversal detected: '{}' resolves outside workspace",
+            "path traversal detected: '{}' resolves outside coding directory",
             relative_path
         ));
     }
@@ -222,15 +232,19 @@ fn resolve_workspace_file_path(relative_path: &str) -> Result<PathBuf, String> {
     Ok(canonical_target)
 }
 
-/// Get the workspace directory from QwenPaw configuration.
+/// Get the coding project directory from QwenPaw configuration.
 ///
 /// Resolution order:
 /// 1. `QWENPAW_WORKING_DIR` / `COPAW_WORKING_DIR` environment variable
 /// 2. `~/.copaw` (legacy installation)
 /// 3. `~/.qwenpaw` (default)
 ///
-/// Then reads the active agent's `workspace_dir` from `config.json`.
-fn get_workspace_directory() -> Result<PathBuf, String> {
+/// Then reads the specified agent's config:
+/// - If `coding_mode.project_dir` is set, use it
+/// - Otherwise fall back to `workspace_dir`
+///
+/// If `agent_id` is None, uses the active agent from config.json.
+fn get_coding_directory(agent_id: Option<&str>) -> Result<PathBuf, String> {
     let working_dir = if let Ok(dir) = std::env::var("QWENPAW_WORKING_DIR") {
         PathBuf::from(dir)
     } else if let Ok(dir) = std::env::var("COPAW_WORKING_DIR") {
@@ -256,27 +270,46 @@ fn get_workspace_directory() -> Result<PathBuf, String> {
     let config: serde_json::Value = serde_json::from_str(&config_content)
         .map_err(|err| format!("failed to parse config.json: {err}"))?;
 
-    let active_agent = config
-        .get("agents")
-        .and_then(|a| a.get("active_agent"))
-        .and_then(|a| a.as_str())
-        .unwrap_or("default");
+    // Determine which agent to use
+    let target_agent = agent_id.unwrap_or_else(|| {
+        config
+            .get("agents")
+            .and_then(|a| a.get("active_agent"))
+            .and_then(|a| a.as_str())
+            .unwrap_or("default")
+    });
 
-    let workspace_dir = config
+    // Get agent profile
+    let agent_profile = config
         .get("agents")
         .and_then(|a| a.get("profiles"))
-        .and_then(|p| p.get(active_agent))
-        .and_then(|a| a.get("workspace_dir"))
-        .and_then(|d| d.as_str())
-        .map(|d| {
-            if d.starts_with("~/") || d.starts_with("~\\") {
-                if let Some(home) = dirs::home_dir() {
-                    return home.join(&d[2..]);
-                }
-            }
-            PathBuf::from(d)
-        })
-        .unwrap_or_else(|| working_dir.join("workspaces").join(active_agent));
+        .and_then(|p| p.get(target_agent))
+        .ok_or_else(|| format!("agent '{}' not found in config", target_agent))?;
 
-    Ok(workspace_dir)
+    // Check for coding_mode.project_dir first
+    let coding_dir = agent_profile
+        .get("coding_mode")
+        .and_then(|cm| cm.get("project_dir"))
+        .and_then(|d| d.as_str())
+        .map(|d| expand_tilde(d))
+        .or_else(|| {
+            // Fall back to workspace_dir
+            agent_profile
+                .get("workspace_dir")
+                .and_then(|d| d.as_str())
+                .map(|d| expand_tilde(d))
+        })
+        .unwrap_or_else(|| working_dir.join("workspaces").join(target_agent));
+
+    Ok(coding_dir)
+}
+
+/// Expand `~` at the start of a path to the user's home directory.
+fn expand_tilde(path: &str) -> PathBuf {
+    if path.starts_with("~/") || path.starts_with("~\\") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(&path[2..]);
+        }
+    }
+    PathBuf::from(path)
 }

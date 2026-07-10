@@ -17,6 +17,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { isDesktopTauriRuntime } from "../../utils/openExternalLink";
+import { useAgentStore } from "../../stores/agentStore";
 import styles from "./FilePreview.module.less";
 
 // ---------------------------------------------------------------------------
@@ -98,11 +99,16 @@ function useAuthBlobUrl(filePath: string): string | null {
       // Tauri: read file directly from disk for offline support
       if (isDesktopTauriRuntime()) {
         try {
-          const bytes = await invoke<number[]>("read_workspace_binary_file", {
-            filePath,
-          });
+          const agentId = useAgentStore.getState().selectedAgent;
+          const response = await invoke<ArrayBuffer>(
+            "read_workspace_binary_file",
+            {
+              filePath,
+              agentId,
+            },
+          );
           const mimeType = guessMimeType(filePath);
-          return new Blob([new Uint8Array(bytes)], { type: mimeType });
+          return new Blob([response], { type: mimeType });
         } catch {
           // Fall through to HTTP fetch as fallback
         }
