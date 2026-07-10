@@ -2916,6 +2916,7 @@
     "testButton": "发送测试通知",
     "sourcesTitle": "通知来源",
     "sourcesHint": "选择哪些类型的事件应触发系统通知。",
+    "advancedTitle": "高级",
     "sourceApproval": "安全审批",
     "sourceApprovalHint": "当工具执行需要你的审批时",
     "sourceCron": "定时任务",

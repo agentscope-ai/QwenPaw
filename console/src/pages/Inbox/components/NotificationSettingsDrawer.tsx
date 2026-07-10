@@ -1,4 +1,13 @@
-import { Drawer, Switch, Select, InputNumber, Button, Tag } from "antd";
+import {
+  Drawer,
+  Switch,
+  Select,
+  InputNumber,
+  Button,
+  Tag,
+  Tooltip,
+} from "antd";
+import { InfoCircleOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { useNotifications } from "../../Settings/Notifications/useNotifications";
 import { useAgentStore } from "../../../stores/agentStore";
@@ -53,7 +62,7 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
         title={t("notifications.title")}
         open={open}
         onClose={onClose}
-        width={420}
+        width={400}
       >
         <div className={styles.loading}>{t("common.loading")}</div>
       </Drawer>
@@ -70,55 +79,53 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
       title={t("notifications.title")}
       open={open}
       onClose={onClose}
-      width={420}
+      width={400}
     >
       <div className={styles.container}>
-        {/* Master switch */}
-        <div className={styles.settingRow}>
-          <div className={styles.settingInfo}>
-            <div className={styles.settingTitle}>
-              {t("notifications.enableLabel")}
-            </div>
-          </div>
-          <Switch
-            checked={config.enabled}
-            onChange={toggleEnabled}
-            loading={saving}
-          />
-        </div>
-
-        {/* Sound */}
-        <div className={styles.settingRow}>
-          <div className={styles.settingInfo}>
-            <div className={styles.settingTitle}>
-              {t("notifications.soundLabelShort")}
-            </div>
-          </div>
-          <Switch
-            checked={config.sound}
-            onChange={toggleSound}
-            disabled={!config.enabled}
-            loading={saving}
-          />
-        </div>
-
-        {/* Source toggles */}
+        {/* Part 1: Basic switches - no title */}
         <div className={styles.section}>
-          <div className={styles.settingTitle}>
+          <div className={styles.row}>
+            <span className={styles.labelBold}>
+              {t("notifications.enableLabel")}
+            </span>
+            <Switch
+              size="small"
+              checked={config.enabled}
+              onChange={toggleEnabled}
+              loading={saving}
+            />
+          </div>
+          <div className={styles.row}>
+            <span className={styles.labelBold}>
+              {t("notifications.soundLabelShort")}
+            </span>
+            <Switch
+              size="small"
+              checked={config.sound}
+              onChange={toggleSound}
+              disabled={!config.enabled}
+              loading={saving}
+            />
+          </div>
+        </div>
+
+        {/* Part 2: Sources */}
+        <div className={styles.section}>
+          <div className={styles.sectionTitle}>
             {t("notifications.sourcesTitle")}
           </div>
           {SOURCE_KEYS.map(({ key, labelKey, indent, isLabel }) =>
             isLabel ? (
-              <div key={key} className={styles.sourceRow}>
-                <div className={styles.sourceLabel}>{t(labelKey)}</div>
+              <div key={key} className={styles.row}>
+                <span className={styles.labelMuted}>{t(labelKey)}</span>
               </div>
             ) : (
               <div
                 key={key}
-                className={styles.sourceRow}
+                className={styles.row}
                 style={indent ? { paddingLeft: 16 } : undefined}
               >
-                <div className={styles.sourceLabel}>{t(labelKey)}</div>
+                <span className={styles.label}>{t(labelKey)}</span>
                 <Switch
                   size="small"
                   checked={
@@ -137,66 +144,75 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
           )}
         </div>
 
-        {/* Agent filter */}
-        {agentOptions.length > 1 && (
-          <div className={styles.section}>
-            <div className={styles.settingTitle}>
-              {t("notifications.agentFilterTitle")}
+        {/* Part 3: Advanced */}
+        <div className={styles.section}>
+          <div className={styles.sectionTitle}>
+            {t("notifications.advancedTitle")}
+          </div>
+
+          {agentOptions.length > 1 && (
+            <div className={styles.fieldBlock}>
+              <div
+                className={styles.fieldLabel}
+                style={{ display: "flex", alignItems: "center", gap: 4 }}
+              >
+                {t("notifications.agentFilterTitle")}
+                <Tooltip title={t("notifications.agentFilterHint")}>
+                  <InfoCircleOutlined className={styles.tooltipIcon} />
+                </Tooltip>
+              </div>
+              <Select
+                mode="multiple"
+                allowClear
+                size="small"
+                placeholder={t("notifications.allAgentsPlaceholder")}
+                value={config.agent_ids ?? undefined}
+                onChange={(val) =>
+                  updateAgentIds(val && val.length > 0 ? val : null)
+                }
+                options={agentOptions}
+                disabled={!config.enabled}
+                style={{ width: "100%" }}
+              />
             </div>
-            <p className={styles.sectionHint}>
-              {t("notifications.agentFilterHint")}
-            </p>
-            <Select
-              mode="multiple"
-              allowClear
-              placeholder={t("notifications.allAgentsPlaceholder")}
-              value={config.agent_ids ?? undefined}
-              onChange={(val) =>
-                updateAgentIds(val && val.length > 0 ? val : null)
-              }
-              options={agentOptions}
+          )}
+
+          <div className={styles.row}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span className={styles.label}>
+                {t("notifications.intervalLabel")}
+              </span>
+              <Tooltip title={t("notifications.intervalHint")}>
+                <InfoCircleOutlined className={styles.tooltipIcon} />
+              </Tooltip>
+            </div>
+            <InputNumber
+              size="small"
+              min={1}
+              max={3600}
+              value={config.min_interval_seconds}
+              onChange={(val) => val && updateMinInterval(val)}
               disabled={!config.enabled}
-              style={{ width: "100%" }}
+              addonAfter="s"
+              style={{ width: 100 }}
             />
           </div>
-        )}
 
-        {/* Min interval */}
-        <div className={styles.settingRow}>
-          <div className={styles.settingInfo}>
-            <div className={styles.settingTitle}>
-              {t("notifications.intervalLabel")}
-            </div>
-            <div className={styles.settingHint}>
-              {t("notifications.intervalHint")}
-            </div>
+          <div className={styles.testRow}>
+            <Button
+              onClick={sendTest}
+              loading={testing}
+              disabled={!config.enabled}
+              size="small"
+            >
+              {t("notifications.testButton")}
+            </Button>
+            {testResult && (
+              <Tag color={testResult.success ? "success" : "error"}>
+                {testResult.message}
+              </Tag>
+            )}
           </div>
-          <InputNumber
-            min={1}
-            max={3600}
-            value={config.min_interval_seconds}
-            onChange={(val) => val && updateMinInterval(val)}
-            disabled={!config.enabled}
-            addonAfter="s"
-            style={{ width: 110 }}
-          />
-        </div>
-
-        {/* Test button */}
-        <div className={styles.testRow}>
-          <Button
-            onClick={sendTest}
-            loading={testing}
-            disabled={!config.enabled}
-            size="small"
-          >
-            {t("notifications.testButton")}
-          </Button>
-          {testResult && (
-            <Tag color={testResult.success ? "success" : "error"}>
-              {testResult.message}
-            </Tag>
-          )}
         </div>
       </div>
     </Drawer>

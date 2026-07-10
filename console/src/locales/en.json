@@ -2897,6 +2897,7 @@
     "testButton": "Send Test Notification",
     "sourcesTitle": "Notification Sources",
     "sourcesHint": "Choose which types of events should trigger system notifications.",
+    "advancedTitle": "Advanced",
     "sourceApproval": "Security Approvals",
     "sourceApprovalHint": "When a tool execution requires your approval",
     "sourceCron": "Cron Jobs",
