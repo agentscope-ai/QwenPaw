@@ -63,6 +63,7 @@ function ModelConfigEditor({
   thinkingParamStyle,
   reasoningEffortOptions,
   thinkingBudgetRange = [1, 81920],
+  chatModel,
 }: {
   providerId: string;
   model: ModelInfo;
@@ -73,6 +74,7 @@ function ModelConfigEditor({
   thinkingParamStyle?: "budget" | "effort" | null;
   reasoningEffortOptions?: string[];
   thinkingBudgetRange?: [number, number];
+  chatModel?: string;
 }) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -391,42 +393,47 @@ function ModelConfigEditor({
           )}
         </>
       )}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 8,
-          padding: "6px 0",
-        }}
-      >
-        <div>
-          <span
-            style={{
-              fontSize: 13,
-              color: isDark ? "rgba(255,255,255,0.85)" : "#333",
-            }}
-          >
-            {t("models.relayReasoningLabel")}
-          </span>
-          <div
-            style={{
-              fontSize: 11,
-              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-              marginTop: 2,
-            }}
-          >
-            {t("models.relayReasoningHint")}
-          </div>
-        </div>
-        <Switch
-          checked={relayReasoning}
-          onChange={(checked) => {
-            setRelayReasoning(checked);
-            setDirty(true);
+      {/* Responses API models handle reasoning via native reasoning items
+         that the API requires to be echoed back; relay_reasoning has no
+         effect, so hide the toggle to avoid confusion. */}
+      {chatModel !== "OpenAIResponseModel" && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 8,
+            padding: "6px 0",
           }}
-        />
-      </div>
+        >
+          <div>
+            <span
+              style={{
+                fontSize: 13,
+                color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+              }}
+            >
+              {t("models.relayReasoningLabel")}
+            </span>
+            <div
+              style={{
+                fontSize: 11,
+                color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+                marginTop: 2,
+              }}
+            >
+              {t("models.relayReasoningHint")}
+            </div>
+          </div>
+          <Switch
+            checked={relayReasoning}
+            onChange={(checked) => {
+              setRelayReasoning(checked);
+              setDirty(true);
+            }}
+          />
+        </div>
+      )}
 
       <div
         style={{
@@ -1075,6 +1082,7 @@ export function RemoteModelManageModal({
                         onProviderUpdated={onProviderUpdated}
                         onClose={() => setConfigOpenModelId(null)}
                         isDark={isDark}
+                        chatModel={provider.chat_model}
                         thinkingParamStyle={
                           extraModelIds.has(m.id)
                             ? undefined

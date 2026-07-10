@@ -105,6 +105,7 @@ def test_gemini_history_to_openai(monkeypatch) -> None:
         normalized,
         is_anthropic,
         is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         history,
         OpenAIChatFormatter,
@@ -142,6 +143,7 @@ def test_gemini_history_to_anthropic(monkeypatch) -> None:
         _,
         is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         history,
         AnthropicChatFormatter,
@@ -172,6 +174,7 @@ def test_gemini_history_stays_gemini(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         history,
         GeminiChatFormatter,
@@ -204,6 +207,7 @@ def test_openai_history_to_gemini(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         history,
         GeminiChatFormatter,
@@ -264,6 +268,7 @@ def test_gemini_multi_toolcall_to_openai(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         msgs,
         OpenAIChatFormatter,
@@ -313,6 +318,7 @@ def test_thinking_blocks_preserved_for_openai(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         _history_with_thinking(),
         OpenAIChatFormatter,
@@ -341,6 +347,7 @@ def test_unsigned_thinking_blocks_dropped_for_anthropic(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         _history_with_thinking(),
         AnthropicChatFormatter,
@@ -389,6 +396,7 @@ def test_signed_thinking_blocks_preserved_for_anthropic(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         history,
         AnthropicChatFormatter,
@@ -417,6 +425,7 @@ def test_thinking_blocks_preserved_for_gemini(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         _history_with_thinking(),
         GeminiChatFormatter,
@@ -473,6 +482,7 @@ def test_raw_input_repair_works_before_cross_provider_clean(
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         history,
         OpenAIChatFormatter,
