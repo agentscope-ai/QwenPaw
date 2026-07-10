@@ -60,7 +60,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 ## Tin Tức
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Memory và TUI tích hợp.
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory và TUI tích hợp.
 
   | Nổi bật | Nội dung mới |
   |-----------|------------|

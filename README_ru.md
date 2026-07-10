@@ -60,7 +60,7 @@
 
 ## Новости
 
-- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Полный переписанный на основе AgentScope 2.0: архитектура Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory и встроенный TUI.
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Полностью переписанный на основе AgentScope 2.0: архитектура Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory и встроенный TUI.
 
   | Основное | Что нового |
   |----------|-----------|
