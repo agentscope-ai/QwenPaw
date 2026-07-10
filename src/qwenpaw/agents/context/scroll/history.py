@@ -176,11 +176,11 @@ class HistoryStore:
                 "CREATE INDEX IF NOT EXISTS ch_kind "
                 "ON conversation_history(kind)",
             )
-            # Idempotency net: a second append of the same logical event (a
-            # resume re-persisting its restored window, or the cap middleware
-            # racing the manager) collides here and is dropped by ON CONFLICT
-            # rather than duplicating a row. NULL dedup_key never conflicts, so
-            # un-keyed rows are simply never deduped.
+            # Idempotency net: a second append of the same logical event, such
+            # as a resume re-persisting its restored window, collides here and
+            # is dropped by ON CONFLICT rather than duplicating a row. NULL
+            # dedup_key never conflicts, so un-keyed rows are simply never
+            # deduped.
             self._conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_dedup "
                 "ON conversation_history(session_id, dedup_key)",

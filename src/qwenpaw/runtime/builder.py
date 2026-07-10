@@ -275,8 +275,6 @@ class AgentBuilder:
         sys_prompt = self.build_prompt(ctx, agent_config)
 
         middlewares = self._build_middlewares(ctx, agent_config)
-        if scroll is not None:
-            middlewares.append(scroll.cap_middleware)
 
         running_config = agent_config.running
 

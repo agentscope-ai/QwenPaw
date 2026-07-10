@@ -850,8 +850,8 @@ class ScrollContextConfig(BaseModel):
         default=3000,
         ge=100,
         description=(
-            "In-context cap for a single tool result; the full output is "
-            "written through to history and recalled by tool_call_id."
+            "Deprecated scroll-only tool result cap. Tool output sizing is "
+            "handled by tool_result_pruning_config.execution_layer_max_bytes."
         ),
     )
 

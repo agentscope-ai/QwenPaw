@@ -3,7 +3,7 @@
 """Unit tests for :class:`ScrollContextManager`.
 
 Covers write-through dedup, the resume checkpoint (no re-append of a restored
-window), the boundary-Msg double-presence fix, cap-middleware seq adoption,
+window), the boundary-Msg double-presence fix, tool-result preview persistence,
 degraded-durability fail-safe (no eviction when a write fails), and retention.
 """
 
@@ -273,22 +273,31 @@ def test_load_state_tolerates_garbage(store: HistoryStore):
     assert mgr._persisted_ids == set()
 
 
-# -- cap-middleware seq adoption --------------------------------------------
+# -- tool-result preview persistence ----------------------------------------
 
 
-def test_capped_result_is_not_re_persisted(store: HistoryStore):
-    """When the cap middleware already wrote a result in full, the manager
-    adopts its seq and does NOT re-persist the truncated in-context stub."""
-    capped = {"call-1": 999}
-    mgr = make_manager(store, capped_results=capped)
-    agent = FakeAgent([assistant_with_tool("call-1", "truncated stub")])
+def test_tool_result_preview_is_persisted_once(store: HistoryStore):
+    """Tool results are persisted exactly as they appear in live context."""
+    mgr = make_manager(store)
+    preview = (
+        "partial output\n"
+        "<<<EXECUTION_TOOL_RESULT_TRUNCATED>>>\n"
+        "Full output saved to: /tmp/tool-result.txt."
+    )
+    agent = FakeAgent([assistant_with_tool("call-1", preview)])
     mgr._persist_new(agent)
-    # No tool_result row was written by the manager (the cap owns it).
+
     rows = store._conn.execute(
-        "SELECT 1 FROM conversation_history "
+        "SELECT content FROM conversation_history "
         "WHERE kind='tool_result' AND tool_call_id='call-1'",
     ).fetchall()
-    assert rows == []
+    assert [row["content"] for row in rows] == [preview]
+    mgr._persist_new(agent)
+    rows = store._conn.execute(
+        "SELECT content FROM conversation_history "
+        "WHERE kind='tool_result' AND tool_call_id='call-1'",
+    ).fetchall()
+    assert [row["content"] for row in rows] == [preview]
     assert "call-1" in mgr._persisted_tcids
 
 

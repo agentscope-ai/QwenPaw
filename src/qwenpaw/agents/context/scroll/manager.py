@@ -124,7 +124,6 @@ class ScrollContextManager:
         history: HistoryStore,
         session_id: str,
         agent_id: str | None = None,
-        capped_results: dict[str, int] | None = None,
         offloader: Any = None,
         summarize_unheadlined: bool = False,
         summarize_timeout_s: int = 20,
@@ -140,11 +139,6 @@ class ScrollContextManager:
         # default), evicted turns are also written to ``dialog/{date}.jsonl``
         # for external consumers. ``history.db`` remains the source of truth.
         self._offloader = offloader
-        # Shared with the cap middleware: tool_call_id -> seq of results it
-        # already wrote in full. We skip re-persisting their truncated stubs.
-        self._capped_results = (
-            capped_results if capped_results is not None else {}
-        )
         self._persisted_ids: set[
             str
         ] = set()  # msgs whose non-result row is stored
@@ -425,20 +419,12 @@ class ScrollContextManager:
                     anon_pos += 1
                     if tcid in self._persisted_tcids:
                         continue
-                    capped_seq = self._capped_results.get(tcid)
-                    if capped_seq is not None:
-                        # The cap middleware already wrote this result in
-                        # full; don't persist the in-context truncated stub.
-                        # Adopt its seq so the result still falls inside the
-                        # eviction span.
-                        seq = capped_seq
-                    else:
-                        seq = self._history.append(
-                            session_id=self._session_id,
-                            agent_id=self._agent_id,
-                            entry=entry,
-                            dedup_key=tcid,
-                        )
+                    seq = self._history.append(
+                        session_id=self._session_id,
+                        agent_id=self._agent_id,
+                        entry=entry,
+                        dedup_key=tcid,
+                    )
                     self._persisted_tcids.add(tcid)
                     self._seq_by_tcid[tcid] = seq
                 else:
@@ -591,7 +577,7 @@ class ScrollContextManager:
                 TextBlock(
                     type="text",
                     text=(
-                        f"{_FOLD_MARK} full result stored in history — "
+                        f"{_FOLD_MARK} result archived in scroll history — "
                         f"re-read it with {where}"
                     ),
                 ),

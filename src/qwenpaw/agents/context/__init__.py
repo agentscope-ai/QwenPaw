@@ -67,7 +67,6 @@ class ScrollComponents:
     """The pieces the builder wires when the scroll strategy is active."""
 
     context_manager: Any  # ScrollContextManager (delegated agent hooks)
-    cap_middleware: Any  # ToolResultCapMiddleware (on_acting)
     repl_tool: Any  # raw recall_history_python fn w/ a ``_tool_descriptor``
     recall_tool: Any  # raw structured recall_history fn (in-process, no
     # sandbox) — the front door for expand/search/recall_tool lookups
@@ -148,6 +147,7 @@ def build_scroll_components(
             workspace_dir,
         )
         return None
+    _ = model  # Kept for builder API compatibility.
     logger.info(
         "scroll: wiring components (workspace_dir=%s, session_id=%s)",
         workspace_dir,
@@ -163,7 +163,6 @@ def build_scroll_components(
         # Imported lazily so the native path never pays for the scroll
         # machinery — and so a missing scroll dependency degrades to native
         # here rather than breaking import of this module.
-        from .scroll.cap_middleware import ToolResultCapMiddleware
         from .scroll.history import HistoryStore
         from .scroll.manager import ScrollContextManager
         from .scroll.recall_tool import make_recall_history
@@ -171,8 +170,6 @@ def build_scroll_components(
 
         sc = lcc.scroll_config
         db_path = Path(workspace_dir) / sc.db_filename
-        trc = lcc.tool_result_pruning_config
-        tool_results_dir = Path(workspace_dir) / trc.tool_results_cache
         # First-run notice: scroll is the default as of this release, so agents
         # that never set ``strategy`` are switched to it silently. The first
         # time we wire scroll in a workspace we create ``history.db`` there;
@@ -187,18 +184,10 @@ def build_scroll_components(
         history = HistoryStore(db_path)
         scratch_root = str(Path(workspace_dir) / ".scroll")
 
-        # Shared {tool_call_id -> seq} of results the cap middleware already
-        # wrote in full. The manager consults it so it never re-persists the
-        # truncated stub the model sees in-context (which would duplicate the
-        # row + bloat FTS); it adopts the cap's seq so the result still falls
-        # inside the eviction span.
-        capped_results: dict[str, int] = {}
-
         manager = ScrollContextManager(
             history=history,
             session_id=session_id,
             agent_id=agent_id,
-            capped_results=capped_results,
             # Legacy dialog archive is opt-in; only hand the manager an
             # offloader when configured, so by default scroll writes nothing
             # to dialog/.
@@ -215,15 +204,6 @@ def build_scroll_components(
                 "summarize_eviction_timeout_seconds",
                 20,
             ),
-        )
-        cap = ToolResultCapMiddleware(
-            history=history,
-            model=model,
-            session_id=session_id,
-            agent_id=agent_id,
-            token_cap=sc.tool_output_token_cap,
-            capped_results=capped_results,
-            tool_results_dir=tool_results_dir,
         )
         tool = make_recall_history_python(
             history_db_path=str(history.path),
@@ -244,7 +224,6 @@ def build_scroll_components(
         )
         return ScrollComponents(
             context_manager=manager,
-            cap_middleware=cap,
             repl_tool=tool,
             recall_tool=recall,
         )
