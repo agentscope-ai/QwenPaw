@@ -91,6 +91,7 @@ function parseCsv(raw: string): string[][] {
 
 function useAuthBlobUrl(filePath: string): string | null {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
 
   useEffect(() => {
     let revoked = false;
@@ -99,16 +100,21 @@ function useAuthBlobUrl(filePath: string): string | null {
       // Tauri: read file directly from disk for offline support
       if (isDesktopTauriRuntime()) {
         try {
-          const agentId = useAgentStore.getState().selectedAgent;
-          const response = await invoke<ArrayBuffer>(
+          const response = await invoke<ArrayBuffer | number[]>(
             "read_workspace_binary_file",
             {
               filePath,
-              agentId,
+              agentId: selectedAgent,
             },
           );
           const mimeType = guessMimeType(filePath);
-          return new Blob([response], { type: mimeType });
+          // Tauri 2.11.1 on macOS may serialize a raw Vec<u8> as number[]
+          // instead of ArrayBuffer. Normalize both shapes into a Uint8Array
+          // so Blob construction uses the actual bytes, not a string join.
+          const bytes = Array.isArray(response)
+            ? new Uint8Array(response)
+            : new Uint8Array(response);
+          return new Blob([bytes], { type: mimeType });
         } catch {
           // Fall through to HTTP fetch as fallback
         }
@@ -137,7 +143,7 @@ function useAuthBlobUrl(filePath: string): string | null {
         return null;
       });
     };
-  }, [filePath]);
+  }, [filePath, selectedAgent]);
 
   return blobUrl;
 }

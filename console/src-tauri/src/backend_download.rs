@@ -118,7 +118,12 @@ fn parse_headers(headers: HashMap<String, String>) -> Result<HeaderMap, String> 
 
 #[cfg(test)]
 mod tests {
-    use super::parse_local_backend_url;
+    use std::sync::Mutex;
+
+    use super::{get_coding_directory, parse_local_backend_url};
+
+    /// Serialize tests that mutate process environment variables.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn accepts_loopback_backend_urls() {
@@ -137,6 +142,91 @@ mod tests {
     fn rejects_non_http_download_urls() {
         assert!(parse_local_backend_url("file:///C:/tmp/backup.zip").is_err());
         assert!(parse_local_backend_url("mailto:support@example.com").is_err());
+    }
+
+    #[test]
+    fn coding_directory_prefers_agent_json_project_dir() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let working_dir = temp.path();
+
+        // Root config.json only contains the profile reference.
+        std::fs::write(
+            working_dir.join("config.json"),
+            serde_json::json!({
+                "agents": {
+                    "active_agent": "test-agent",
+                    "profiles": {
+                        "test-agent": {
+                            "id": "test-agent",
+                            "workspace_dir": working_dir.join("workspaces/test-agent").to_str().unwrap(),
+                            "enabled": true,
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        // Full agent config with a custom coding project dir.
+        let workspace_dir = working_dir.join("workspaces/test-agent");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+        let project_dir = working_dir.join("custom-project");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        std::fs::write(
+            workspace_dir.join("agent.json"),
+            serde_json::json!({
+                "id": "test-agent",
+                "workspace_dir": workspace_dir.to_str().unwrap(),
+                "coding_mode": {
+                    "enabled": true,
+                    "project_dir": project_dir.to_str().unwrap(),
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        std::env::set_var("QWENPAW_WORKING_DIR", working_dir);
+        let result = get_coding_directory(Some("test-agent")).unwrap();
+        std::env::remove_var("QWENPAW_WORKING_DIR");
+
+        assert_eq!(result, project_dir);
+    }
+
+    #[test]
+    fn coding_directory_falls_back_to_workspace_dir() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let working_dir = temp.path();
+
+        std::fs::write(
+            working_dir.join("config.json"),
+            serde_json::json!({
+                "agents": {
+                    "active_agent": "test-agent",
+                    "profiles": {
+                        "test-agent": {
+                            "id": "test-agent",
+                            "workspace_dir": working_dir.join("workspaces/test-agent").to_str().unwrap(),
+                            "enabled": true,
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let workspace_dir = working_dir.join("workspaces/test-agent");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+
+        std::env::set_var("QWENPAW_WORKING_DIR", working_dir);
+        let result = get_coding_directory(Some("test-agent")).unwrap();
+        std::env::remove_var("QWENPAW_WORKING_DIR");
+
+        assert_eq!(result, workspace_dir);
     }
 }
 
@@ -239,7 +329,9 @@ fn resolve_workspace_file_path(
 /// 2. `~/.copaw` (legacy installation)
 /// 3. `~/.qwenpaw` (default)
 ///
-/// Then reads the specified agent's config:
+/// Then reads the agent profile reference from root `config.json` to locate the
+/// agent's workspace directory, and loads the full agent configuration from
+/// `workspace/agent.json`:
 /// - If `coding_mode.project_dir` is set, use it
 /// - Otherwise fall back to `workspace_dir`
 ///
@@ -279,29 +371,41 @@ fn get_coding_directory(agent_id: Option<&str>) -> Result<PathBuf, String> {
             .unwrap_or("default")
     });
 
-    // Get agent profile
+    // Get agent profile reference from root config (contains workspace_dir only).
+    // The full agent configuration (including coding_mode.project_dir) is stored
+    // in workspace/agent.json.
     let agent_profile = config
         .get("agents")
         .and_then(|a| a.get("profiles"))
         .and_then(|p| p.get(target_agent))
         .ok_or_else(|| format!("agent '{}' not found in config", target_agent))?;
 
-    // Check for coding_mode.project_dir first
-    let coding_dir = agent_profile
-        .get("coding_mode")
-        .and_then(|cm| cm.get("project_dir"))
+    let workspace_dir = agent_profile
+        .get("workspace_dir")
         .and_then(|d| d.as_str())
         .map(|d| expand_tilde(d))
-        .or_else(|| {
-            // Fall back to workspace_dir
-            agent_profile
-                .get("workspace_dir")
-                .and_then(|d| d.as_str())
-                .map(|d| expand_tilde(d))
-        })
         .unwrap_or_else(|| working_dir.join("workspaces").join(target_agent));
 
-    Ok(coding_dir)
+    // Load the full agent config from workspace/agent.json to read
+    // coding_mode.project_dir. Fall back to workspace_dir if the file is
+    // missing or cannot be parsed, matching the Python backend behavior.
+    let agent_config_path = workspace_dir.join("agent.json");
+    if agent_config_path.is_file() {
+        if let Ok(agent_config_content) = std::fs::read_to_string(&agent_config_path) {
+            if let Ok(agent_config) = serde_json::from_str::<serde_json::Value>(&agent_config_content) {
+                if let Some(project_dir) = agent_config
+                    .get("coding_mode")
+                    .and_then(|cm| cm.get("project_dir"))
+                    .and_then(|d| d.as_str())
+                    .map(|d| expand_tilde(d))
+                {
+                    return Ok(project_dir);
+                }
+            }
+        }
+    }
+
+    Ok(workspace_dir)
 }
 
 /// Expand `~` at the start of a path to the user's home directory.
