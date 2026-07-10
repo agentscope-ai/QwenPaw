@@ -235,6 +235,18 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Check if memory manager is available."""
         return self.memory_manager is not None
 
+    def _current_session_id(self) -> str:
+        """Resolve the active session id on a best-effort basis.
+
+        Prefers the explicitly-injected ``session_id`` (standalone slash
+        command mode) and falls back to ``state.session_id``. Command-triggered
+        memory archival relies on this so ReMe ``auto_memory`` never runs with
+        an empty ``session_id``.
+        """
+        return str(
+            self._session_id or getattr(self._state, "session_id", "") or "",
+        )
+
     def _forced_context_config(self, agent: "Agent"):
         """Clone the agent's ContextConfig for a manual ``/compact``.
 
@@ -345,7 +357,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
         evicted = max(0, before - after)
         reme_cfg = agent_config.running.reme_light_memory_config
         if self._has_memory_manager() and reme_cfg.summarize_when_compact:
-            self.memory_manager.add_summarize_task(messages=messages)
+            self.memory_manager.add_summarize_task(
+                messages=messages,
+                session_id=self._current_session_id(),
+            )
 
         summary = self._get_summary()
         folded = int(compress_stats.get("folded", 0) or 0)
@@ -497,7 +512,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- Enable memory manager to use this feature",
             )
 
-        self.memory_manager.add_summarize_task(messages=messages)
+        self.memory_manager.add_summarize_task(
+            messages=messages,
+            session_id=self._current_session_id(),
+        )
         self._set_summary("")
 
         await self._persist_and_clear()
@@ -757,7 +775,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         try:
             await self.memory_manager.auto_memory(
                 memory_messages,
-                session_id=str(getattr(self._state, "session_id", "") or ""),
+                session_id=self._current_session_id(),
                 reply_id=reply_ids[-1],
                 reply_ids=reply_ids,
             )
