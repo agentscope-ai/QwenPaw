@@ -59,6 +59,45 @@ describe("providerApi", () => {
     });
   });
 
+  it("getSessionModelOverrides calls /models/session-overrides", async () => {
+    await providerApi.getSessionModelOverrides();
+    expect(request).toHaveBeenCalledWith("/models/session-overrides");
+  });
+
+  it("setSessionModelOverride encodes ids and sends PUT", async () => {
+    const body = { provider_id: "openai", model: "gpt-4o" };
+    await providerApi.setSessionModelOverride(
+      "agent/1",
+      "napcat_qq:private:12548040",
+      body,
+    );
+    expect(request).toHaveBeenCalledWith(
+      "/models/session-overrides/agent%2F1/napcat_qq%3Aprivate%3A12548040",
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
+    );
+  });
+
+  it("resetSessionModelOverride encodes ids and sends DELETE", async () => {
+    await providerApi.resetSessionModelOverride(
+      "agent/1",
+      "console:session-1",
+    );
+    expect(request).toHaveBeenCalledWith(
+      "/models/session-overrides/agent%2F1/console%3Asession-1",
+      { method: "DELETE" },
+    );
+  });
+
+  it("resetAllSessionModelOverrides sends DELETE", async () => {
+    await providerApi.resetAllSessionModelOverrides();
+    expect(request).toHaveBeenCalledWith("/models/session-overrides", {
+      method: "DELETE",
+    });
+  });
+
   it("configureProvider encodes providerId and sends PUT", async () => {
     await providerApi.configureProvider("open/ai", { api_key: "sk-xxx" });
     expect(request).toHaveBeenCalledWith(

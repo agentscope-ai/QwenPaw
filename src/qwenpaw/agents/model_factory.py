@@ -1172,7 +1172,9 @@ def create_model_and_formatter(
         >>> model, formatter = create_model_and_formatter()
     """
     from ..app.agent_context import get_current_agent_id
+    from ..app.agent_context import get_current_session_id
     from ..config.config import load_agent_config
+    from ..config.config import resolve_effective_model_slot
 
     # Determine agent_id (parameter > context > None)
     if agent_id is None:
@@ -1181,7 +1183,13 @@ def create_model_and_formatter(
         except Exception:
             pass
 
-    # Try to get agent-specific model first
+    session_id = None
+    try:
+        session_id = get_current_session_id()
+    except Exception:
+        pass
+
+    # Try to get session/agent-specific model first
     model_slot = None
     retry_config = None
     rate_limit_config = None
@@ -1189,7 +1197,10 @@ def create_model_and_formatter(
     if agent_id:
         try:
             agent_config = load_agent_config(agent_id)
-            model_slot = agent_config.active_model
+            model_slot, _source = resolve_effective_model_slot(
+                agent_config=agent_config,
+                session_id=session_id,
+            )
             retry_config = RetryConfig(
                 enabled=agent_config.running.llm_retry_enabled,
                 max_retries=agent_config.running.llm_max_retries,

@@ -170,17 +170,22 @@ async def _probe_multimodal_if_needed(
         if model_info is None or model_info.supports_multimodal is not None:
             return None
 
-        # Resolve agent-specific active model (mirrors _get_active_model_info)
+        # Resolve session/agent-specific active model
+        # (mirrors _get_active_model_info).
         manager = ProviderManager.get_instance()
         active = None
         try:
             from ...app.agent_context import get_current_agent_id
+            from ...app.agent_context import get_current_session_id
             from ...config.config import load_agent_config
+            from ...config.config import resolve_effective_model_slot
 
             agent_id = get_current_agent_id()
             agent_config = load_agent_config(agent_id)
-            if agent_config.active_model:
-                active = agent_config.active_model
+            active, _source = resolve_effective_model_slot(
+                agent_config=agent_config,
+                session_id=get_current_session_id(),
+            )
         except Exception:
             pass
         if not active:

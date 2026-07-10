@@ -23,6 +23,8 @@ from qwenpaw.exceptions import (
 from ..agent_context import get_agent_for_request
 from ..utils import schedule_agent_reload
 from ...config.config import load_agent_config, save_agent_config
+from ...config.config import resolve_effective_model_slot
+from ...config.utils import load_config
 from ...providers.provider import ProviderInfo, ModelInfo
 from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
@@ -46,6 +48,7 @@ ChatModelName = Literal[
 # agent: a specific agent's model only, error if not set
 ActiveModelReadScope = Literal["effective", "global", "agent"]
 ActiveModelWriteScope = Literal["global", "agent"]
+ModelSource = Literal["session", "agent", "global", "none"]
 
 
 async def get_provider_manager(request: Request) -> ProviderManager:
@@ -96,6 +99,58 @@ class ModelSlotRequest(BaseModel):
         default=None,
         description="Target agent ID when scope is 'agent'",
     )
+
+
+class SessionModelOverrideRequest(BaseModel):
+    provider_id: str = Field(..., description="Provider to use")
+    model: str = Field(..., description="Model identifier")
+
+
+class SessionModelInfo(BaseModel):
+    id: str = Field(..., description="Chat UUID")
+    name: str = Field(..., description="Chat display name")
+    session_id: str = Field(..., description="Runtime session ID")
+    user_id: str = Field(..., description="User identifier")
+    channel: str = Field(..., description="Channel name")
+    created_at: str | None = None
+    updated_at: str | None = None
+    status: str = Field(default="idle")
+    active_model: ModelSlotConfig | None = Field(
+        default=None,
+        description="Effective model used by this session",
+    )
+    model_source: ModelSource = Field(
+        default="none",
+        description="Where the effective model is configured",
+    )
+
+
+class AgentSessionModelsInfo(BaseModel):
+    agent_id: str
+    agent_name: str
+    workspace_dir: str
+    enabled: bool = True
+    default_model: ModelSlotConfig | None = Field(
+        default=None,
+        description="Effective default model for sessions without override",
+    )
+    default_model_source: ModelSource = "none"
+    sessions: list[SessionModelInfo] = Field(default_factory=list)
+
+
+class SessionModelOverridesInfo(BaseModel):
+    agents: list[AgentSessionModelsInfo] = Field(default_factory=list)
+
+
+class SessionModelMutationResponse(BaseModel):
+    agent_id: str
+    session_id: str
+    active_model: ModelSlotConfig | None = None
+    model_source: ModelSource = "none"
+
+
+class SessionModelResetAllResponse(BaseModel):
+    cleared_count: int
 
 
 class CreateCustomProviderRequest(BaseModel):
@@ -195,6 +250,236 @@ async def _load_agent_model(
     workspace = await get_agent_for_request(request, agent_id=agent_id)
     agent_config = load_agent_config(workspace.agent_id)
     return agent_config.active_model
+
+
+def _ordered_agent_ids(config) -> list[str]:
+    """Return configured agent IDs in UI order, with all agents included."""
+    profile_ids = list(config.agents.profiles.keys())
+    ordered_ids: list[str] = []
+
+    for agent_id in getattr(config.agents, "agent_order", []):
+        if agent_id in config.agents.profiles and agent_id not in ordered_ids:
+            ordered_ids.append(agent_id)
+
+    for agent_id in profile_ids:
+        if agent_id not in ordered_ids:
+            ordered_ids.append(agent_id)
+
+    return ordered_ids
+
+
+def _isoformat(value) -> str | None:
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+async def _build_agent_session_models(
+    request: Request,
+    agent_id: str,
+) -> AgentSessionModelsInfo:
+    config = load_config()
+    agent_ref = config.agents.profiles[agent_id]
+    agent_config = load_agent_config(agent_id)
+    default_model, default_source = resolve_effective_model_slot(
+        agent_config=agent_config,
+        session_id=None,
+    )
+
+    sessions: list[SessionModelInfo] = []
+    enabled = getattr(agent_ref, "enabled", True)
+    if enabled:
+        try:
+            workspace = await get_agent_for_request(request, agent_id=agent_id)
+            chats = await workspace.chat_manager.list_chats()
+            for chat in chats:
+                active_model, source = resolve_effective_model_slot(
+                    agent_config=agent_config,
+                    session_id=chat.session_id,
+                )
+                try:
+                    status = await workspace.task_tracker.get_status(chat.id)
+                except Exception:
+                    status = getattr(chat, "status", "idle")
+                sessions.append(
+                    SessionModelInfo(
+                        id=chat.id,
+                        name=chat.name,
+                        session_id=chat.session_id,
+                        user_id=chat.user_id,
+                        channel=chat.channel,
+                        created_at=_isoformat(chat.created_at),
+                        updated_at=_isoformat(chat.updated_at),
+                        status=status or "idle",
+                        active_model=active_model,
+                        model_source=source,
+                    ),
+                )
+        except Exception:
+            logger.warning(
+                "Failed to load sessions for agent '%s'",
+                agent_id,
+                exc_info=True,
+            )
+
+    return AgentSessionModelsInfo(
+        agent_id=agent_id,
+        agent_name=agent_config.name,
+        workspace_dir=agent_ref.workspace_dir,
+        enabled=enabled,
+        default_model=default_model,
+        default_model_source=default_source,
+        sessions=sessions,
+    )
+
+
+@router.get(
+    "/session-overrides",
+    response_model=SessionModelOverridesInfo,
+    summary="List per-session effective models",
+)
+async def list_session_model_overrides(
+    request: Request,
+) -> SessionModelOverridesInfo:
+    """List agents, sessions, and each session's effective model."""
+    config = load_config()
+    agents: list[AgentSessionModelsInfo] = []
+    for agent_id in _ordered_agent_ids(config):
+        try:
+            agents.append(
+                await _build_agent_session_models(request, agent_id),
+            )
+        except Exception:
+            logger.warning(
+                "Failed to build session model info for agent '%s'",
+                agent_id,
+                exc_info=True,
+            )
+    return SessionModelOverridesInfo(agents=agents)
+
+
+@router.put(
+    "/session-overrides/{agent_id}/{session_id:path}",
+    response_model=SessionModelMutationResponse,
+    summary="Set model override for one session",
+)
+async def set_session_model_override_endpoint(
+    request: Request,
+    agent_id: str = Path(...),
+    session_id: str = Path(...),
+    body: SessionModelOverrideRequest = Body(...),
+    manager: ProviderManager = Depends(get_provider_manager),
+) -> SessionModelMutationResponse:
+    """Set the model override used by one agent session."""
+    _validate_model_slot(manager, body.provider_id, body.model)
+
+    try:
+        agent_config = load_agent_config(agent_id)
+        slot = ModelSlotConfig(provider_id=body.provider_id, model=body.model)
+        agent_config.session_model_overrides[session_id] = slot
+        save_agent_config(agent_id, agent_config)
+        schedule_agent_reload(request, agent_id)
+        manager.maybe_probe_multimodal(body.provider_id, body.model)
+        return SessionModelMutationResponse(
+            agent_id=agent_id,
+            session_id=session_id,
+            active_model=slot,
+            model_source="session",
+        )
+    except (
+        HTTPException,
+        OSError,
+        ValueError,
+        TypeError,
+        AppBaseException,
+    ) as exc:
+        logger.warning(
+            "Failed to save session model override: %s",
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save session model override",
+        ) from exc
+
+
+@router.delete(
+    "/session-overrides/{agent_id}/{session_id:path}",
+    response_model=SessionModelMutationResponse,
+    summary="Reset one session model override",
+)
+async def reset_session_model_override_endpoint(
+    request: Request,
+    agent_id: str = Path(...),
+    session_id: str = Path(...),
+) -> SessionModelMutationResponse:
+    """Clear a session override so it falls back to agent/global default."""
+    try:
+        agent_config = load_agent_config(agent_id)
+        removed = agent_config.session_model_overrides.pop(session_id, None)
+        if removed is not None:
+            save_agent_config(agent_id, agent_config)
+            schedule_agent_reload(request, agent_id)
+        active_model, source = resolve_effective_model_slot(
+            agent_config=agent_config,
+            session_id=session_id,
+        )
+        return SessionModelMutationResponse(
+            agent_id=agent_id,
+            session_id=session_id,
+            active_model=active_model,
+            model_source=source,
+        )
+    except (
+        HTTPException,
+        OSError,
+        ValueError,
+        TypeError,
+        AppBaseException,
+    ) as exc:
+        logger.warning(
+            "Failed to reset session model override: %s",
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to reset session model override",
+        ) from exc
+
+
+@router.delete(
+    "/session-overrides",
+    response_model=SessionModelResetAllResponse,
+    summary="Reset all session model overrides",
+)
+async def reset_all_session_model_overrides(
+    request: Request,
+) -> SessionModelResetAllResponse:
+    """Clear all session model overrides across all configured agents."""
+    config = load_config()
+    cleared_count = 0
+    for agent_id in _ordered_agent_ids(config):
+        try:
+            agent_config = load_agent_config(agent_id)
+            count = len(agent_config.session_model_overrides)
+            if count <= 0:
+                continue
+            agent_config.session_model_overrides.clear()
+            save_agent_config(agent_id, agent_config)
+            schedule_agent_reload(request, agent_id)
+            cleared_count += count
+        except Exception:
+            logger.warning(
+                "Failed to reset session model overrides for agent '%s'",
+                agent_id,
+                exc_info=True,
+            )
+
+    return SessionModelResetAllResponse(cleared_count=cleared_count)
 
 
 @router.get(

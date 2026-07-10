@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for per-agent model configuration."""
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from qwenpaw.exceptions import (
@@ -11,6 +12,7 @@ from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentsRunningConfig,
     load_agent_config,
+    resolve_effective_model_slot,
     save_agent_config,
 )
 from qwenpaw.constant import (
@@ -90,6 +92,126 @@ def test_agent_model_config_can_be_set(
     assert reloaded_config.active_model is not None
     assert reloaded_config.active_model.provider_id == "openai"
     assert reloaded_config.active_model.model == "gpt-4"
+
+
+def test_session_model_override_can_be_set(
+    mock_agent_workspace,
+):  # pylint: disable=redefined-outer-name,unused-argument
+    """Test setting a session-specific model override."""
+    agent_config = load_agent_config("test_agent")
+    agent_config.active_model = ModelSlotConfig(
+        provider_id="openai",
+        model="gpt-4",
+    )
+    agent_config.session_model_overrides["console:session-1"] = (
+        ModelSlotConfig(
+            provider_id="anthropic",
+            model="claude-3-5-sonnet-20241022",
+        )
+    )
+    save_agent_config("test_agent", agent_config)
+
+    reloaded_config = load_agent_config("test_agent")
+    assert (
+        reloaded_config.session_model_overrides[
+            "console:session-1"
+        ].provider_id
+        == "anthropic"
+    )
+    assert (
+        reloaded_config.session_model_overrides["console:session-1"].model
+        == "claude-3-5-sonnet-20241022"
+    )
+
+
+def test_effective_model_resolution_prefers_session_then_agent(
+    mock_agent_workspace,
+):  # pylint: disable=redefined-outer-name,unused-argument
+    """Test session overrides take precedence over agent defaults."""
+    agent_config = load_agent_config("test_agent")
+    agent_config.active_model = ModelSlotConfig(
+        provider_id="openai",
+        model="gpt-4",
+    )
+    agent_config.session_model_overrides["console:session-1"] = (
+        ModelSlotConfig(
+            provider_id="anthropic",
+            model="claude-3-5-sonnet-20241022",
+        )
+    )
+
+    model_slot, source = resolve_effective_model_slot(
+        agent_config=agent_config,
+        session_id="console:session-1",
+    )
+    assert source == "session"
+    assert model_slot == ModelSlotConfig(
+        provider_id="anthropic",
+        model="claude-3-5-sonnet-20241022",
+    )
+
+    model_slot, source = resolve_effective_model_slot(
+        agent_config=agent_config,
+        session_id="console:session-2",
+    )
+    assert source == "agent"
+    assert model_slot == ModelSlotConfig(provider_id="openai", model="gpt-4")
+
+
+@pytest.mark.asyncio
+async def test_model_command_switches_current_session_only(
+    mock_agent_workspace,
+    monkeypatch,
+):  # pylint: disable=redefined-outer-name,unused-argument
+    """Test /model writes a session override instead of agent active_model."""
+    from qwenpaw.runtime.commands.control.base import ControlContext
+    from qwenpaw.runtime.commands.control.model_handler import (
+        ModelCommandHandler,
+    )
+
+    agent_config = load_agent_config("test_agent")
+    agent_config.active_model = ModelSlotConfig(
+        provider_id="openai",
+        model="gpt-4",
+    )
+    save_agent_config("test_agent", agent_config)
+
+    async def _validate_model(self, provider_id, model_id):
+        assert provider_id == "anthropic"
+        assert model_id == "claude-3-5-sonnet-20241022"
+        return True, ""
+
+    monkeypatch.setattr(
+        ModelCommandHandler,
+        "_validate_model",
+        _validate_model,
+    )
+
+    workspace = SimpleNamespace(config=load_agent_config("test_agent"))
+    context = ControlContext(
+        workspace=workspace,
+        payload=None,
+        channel=None,
+        session_id="console:session-1",
+        user_id="user-1",
+        agent_id="test_agent",
+        args={"_raw_args": "anthropic:claude-3-5-sonnet-20241022"},
+    )
+
+    result = await ModelCommandHandler().handle(context)
+
+    assert "Model Switched" in result
+    reloaded = load_agent_config("test_agent")
+    assert reloaded.active_model == ModelSlotConfig(
+        provider_id="openai",
+        model="gpt-4",
+    )
+    assert reloaded.session_model_overrides["console:session-1"] == (
+        ModelSlotConfig(
+            provider_id="anthropic",
+            model="claude-3-5-sonnet-20241022",
+        )
+    )
 
 
 def test_agent_model_config_persists_across_reloads(

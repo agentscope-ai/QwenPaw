@@ -141,8 +141,8 @@ class AgentBuilder:
             resolve_effective_skills,
         )
         from ..config.config import load_agent_config
+        from ..config.config import resolve_effective_model_slot
         from ..constant import WORKING_DIR
-        from ..providers.provider_manager import ProviderManager
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
         agent_config = load_agent_config(agent_id)
@@ -154,9 +154,10 @@ class AgentBuilder:
         ctx.agent_config = agent_config
 
         # Validate model availability.
-        active = agent_config.active_model
-        if not (active and active.provider_id and active.model):
-            active = ProviderManager.get_instance().get_active_model()
+        active, _source = resolve_effective_model_slot(
+            agent_config=agent_config,
+            session_id=getattr(ctx, "session_id", None),
+        )
         if active is None or not active.provider_id or not active.model:
             raise RuntimeError(
                 "No active model configured; pick one in the UI",
@@ -544,7 +545,12 @@ class AgentBuilder:
             or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
         )
         request = getattr(ctx, "request", None)
-        _active = getattr(agent_config, "active_model", None)
+        from ..config.config import resolve_effective_model_slot
+
+        _active, _source = resolve_effective_model_slot(
+            agent_config=agent_config,
+            session_id=getattr(ctx, "session_id", None),
+        )
         _model_name = (
             _active.model
             if _active and getattr(_active, "model", None)

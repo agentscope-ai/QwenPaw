@@ -1437,6 +1437,14 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Active model for this agent (provider_id + model)",
     )
+    session_model_overrides: Dict[str, "ModelSlotConfig"] = Field(
+        default_factory=dict,
+        description=(
+            "Per-session model overrides keyed by normalized session_id. "
+            "When set, a session override takes precedence over "
+            "active_model and the global default model."
+        ),
+    )
     language: str = Field(
         default="zh",
         description="Language setting for this agent",
@@ -2452,6 +2460,104 @@ def save_agent_config(
             del _agent_config_cache[agent_id]
 
 
+EffectiveModelSource = Literal["session", "agent", "global", "none"]
+
+
+def _model_slot_is_set(slot: ModelSlotConfig | None) -> bool:
+    """Return True when a model slot points to a concrete provider/model."""
+    return bool(slot and slot.provider_id and slot.model)
+
+
+def resolve_effective_model_slot(
+    *,
+    agent_config: AgentProfileConfig | None = None,
+    agent_id: str | None = None,
+    session_id: str | None = None,
+) -> tuple[ModelSlotConfig | None, EffectiveModelSource]:
+    """Resolve the model slot for a request.
+
+    Resolution order is:
+    1. current session override stored on the agent profile
+    2. agent-level ``active_model``
+    3. global provider manager active model
+
+    ``session_id`` must be the normalized runtime session id (for example
+    ``console:<uuid>`` or a channel-specific id), not the chat UUID.
+    """
+    if agent_config is None and agent_id:
+        try:
+            agent_config = load_agent_config(agent_id)
+        except Exception:
+            agent_config = None
+
+    if agent_config is not None:
+        if session_id:
+            overrides = getattr(
+                agent_config,
+                "session_model_overrides",
+                {},
+            ) or {}
+            override = overrides.get(session_id)
+            if _model_slot_is_set(override):
+                return override, "session"
+
+        if _model_slot_is_set(agent_config.active_model):
+            return agent_config.active_model, "agent"
+
+    try:
+        from ..providers import ProviderManager
+
+        global_model = ProviderManager.get_instance().get_active_model()
+        if _model_slot_is_set(global_model):
+            return global_model, "global"
+    except Exception:
+        pass
+
+    return None, "none"
+
+
+def set_session_model_override(
+    agent_id: str,
+    session_id: str,
+    model_slot: ModelSlotConfig,
+) -> AgentProfileConfig:
+    """Persist a model override for one session and return updated config."""
+    if not session_id:
+        raise ConfigurationException(
+            config_key="session_model_overrides",
+            message="session_id is required",
+        )
+    if not _model_slot_is_set(model_slot):
+        raise ConfigurationException(
+            config_key="session_model_overrides",
+            message="provider_id and model are required",
+        )
+
+    agent_config = load_agent_config(agent_id)
+    agent_config.session_model_overrides[session_id] = model_slot
+    save_agent_config(agent_id, agent_config)
+    return agent_config
+
+
+def clear_session_model_override(
+    agent_id: str,
+    session_id: str,
+) -> tuple[AgentProfileConfig, bool]:
+    """Remove one session override. Returns updated config and deletion flag."""
+    if not session_id:
+        raise ConfigurationException(
+            config_key="session_model_overrides",
+            message="session_id is required",
+        )
+
+    agent_config = load_agent_config(agent_id)
+    removed = session_id in agent_config.session_model_overrides
+    if removed:
+        del agent_config.session_model_overrides[session_id]
+        save_agent_config(agent_id, agent_config)
+    return agent_config, removed
+
+
 def migrate_legacy_config_to_multi_agent() -> bool:
     """Migrate legacy single-agent config to new multi-agent structure.
 
@@ -2618,14 +2724,18 @@ def get_model_max_input_length(
     """
     from ..providers import ProviderManager
 
-    model_slot = agent_config.active_model
-    # Fallback: if agent.json doesn't have active_model, try ProviderManager
-    if not model_slot or not model_slot.provider_id:
-        try:
-            manager = ProviderManager.get_instance()
-            model_slot = manager.get_active_model()
-        except Exception:
-            pass
+    session_id = None
+    try:
+        from ..app.agent_context import get_current_session_id
+
+        session_id = get_current_session_id()
+    except Exception:
+        pass
+
+    model_slot, source = resolve_effective_model_slot(
+        agent_config=agent_config,
+        session_id=session_id,
+    )
 
     if model_slot and model_slot.provider_id and model_slot.model:
         try:
@@ -2637,8 +2747,9 @@ def get_model_max_input_length(
             pass
     logger.debug(
         "Could not resolve max_input_length for agent '%s' "
-        "(active_model=%s), falling back to 128K default.",
+        "(effective_model=%s source=%s), falling back to 128K default.",
         getattr(agent_config, "id", "?"),
-        agent_config.active_model,
+        model_slot,
+        source,
     )
     return 128 * 1024

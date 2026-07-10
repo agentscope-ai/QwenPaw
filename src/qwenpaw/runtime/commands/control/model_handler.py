@@ -2,7 +2,7 @@
 # pylint:disable=too-many-return-statements
 """Handler for /model command.
 
-The /model command manages model configuration for the current agent.
+The /model command manages model configuration for the current session.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ class ModelCommandHandler(BaseControlCommandHandler):
     - Show current model: /model
     - Show help: /model -h, /model --help, /model help
     - List all models: /model list
-    - Switch model: /model <provider_id>:<model_id>
-    - Reset to global default: /model reset
+    - Switch current session model: /model <provider_id>:<model_id>
+    - Reset current session to default: /model reset
     - Show model info: /model info <provider_id>:<model_id>
 
     Usage:
@@ -79,19 +79,20 @@ class ModelCommandHandler(BaseControlCommandHandler):
         """
         return (
             "**Model Management Commands**\n\n"
-            "Manage and switch AI models for the current agent.\n\n"
+            "Manage and switch AI models for the current session.\n\n"
             "**Available Commands:**\n\n"
-            "`/model` - Show current active model\n\n"
+            "`/model` - Show current session model\n\n"
             "`/model list` - List all available models\n\n"
-            "`/model <provider>:<model>` - Switch to specified model\n\n"
-            "`/model reset` - Reset to global default model\n\n"
+            "`/model <provider>:<model>` - Switch this session to "
+            "specified model\n\n"
+            "`/model reset` - Reset this session to the default model\n\n"
             "`/model info <provider>:<model>` - Show model information\n\n"
             "`/model help` or `/model -h` - Show this help message\n\n"
             "**Examples:**\n\n"
-            "`/model` - Show current model\n\n"
+            "`/model` - Show current session model\n\n"
             "`/model list` - List all models\n\n"
-            "`/model openai:gpt-4o` - Switch to GPT-4o\n\n"
-            "`/model reset` - Reset to global default\n\n"
+            "`/model openai:gpt-4o` - Switch this session to GPT-4o\n\n"
+            "`/model reset` - Reset this session to the default model\n\n"
             "`/model info openai:gpt-4o` - Show GPT-4o information\n\n\n"
             "**Capability Indicators:**\n\n"
             "🖼️ - Supports image input\n\n"
@@ -99,7 +100,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         )
 
     async def _show_current_model(self, context: ControlContext) -> str:
-        """Show current active model for this agent.
+        """Show current active model for this session.
 
         Args:
             context: Control command context
@@ -110,30 +111,31 @@ class ModelCommandHandler(BaseControlCommandHandler):
         workspace = context.workspace
         agent_config = workspace.config
 
-        # Get agent-level active model
-        active_model = agent_config.active_model
+        from ....config.config import resolve_effective_model_slot
 
+        active_model, source = resolve_effective_model_slot(
+            agent_config=agent_config,
+            session_id=context.session_id,
+        )
         if active_model is None or not active_model.provider_id:
-            # Fallback to global active model
-            from ....providers.provider_manager import ProviderManager
+            return (
+                "**No Active Model**\n\n"
+                "No model is currently configured.\n\n"
+                "Use `/model list` to see available models, "
+                "then use `/model <provider>:<model>` to select one "
+                "for this session."
+            )
 
-            manager = ProviderManager.get_instance()
-            active_model = manager.get_active_model()
-
-            if active_model is None or not active_model.provider_id:
-                return (
-                    "**No Active Model**\n\n"
-                    "No model is currently configured.\n\n"
-                    "Use `/model list` to see available models, "
-                    "then use `/model <provider>:<model>` to select one."
-                )
-
-            source = "global default"
-        else:
-            source = "agent-specific"
+        source_label = {
+            "session": "session-specific",
+            "agent": "agent default",
+            "global": "global default",
+            "none": "not configured",
+        }.get(source, source)
 
         return (
-            f"**Current Model** ({source})\n\n"
+            f"**Current Model** ({source_label})\n\n"
+            f"Session: `{context.session_id or 'unknown'}`\n"
             f"Provider: `{active_model.provider_id}`\n"
             f"Model: `{active_model.model}` ✓"
         )
@@ -152,10 +154,13 @@ class ModelCommandHandler(BaseControlCommandHandler):
         manager = ProviderManager.get_instance()
         workspace = context.workspace
 
-        # Get current active model
-        active_model = workspace.config.active_model
-        if active_model is None:
-            active_model = manager.get_active_model()
+        from ....config.config import resolve_effective_model_slot
+
+        # Get current session's effective active model
+        active_model, _source = resolve_effective_model_slot(
+            agent_config=workspace.config,
+            session_id=context.session_id,
+        )
 
         # Get all provider infos
         all_provider_infos = await manager.list_provider_info()
@@ -236,7 +241,8 @@ class ModelCommandHandler(BaseControlCommandHandler):
             f"\n---\n"
             f"Total: {len(configured_providers)} provider(s), "
             f"{total_models} model(s)\n\n"
-            f"Use `/model <provider_id>:<model_id>` to switch models.",
+            f"Use `/model <provider_id>:<model_id>` to switch the "
+            f"current session.",
         )
 
         return "\n".join(lines)
@@ -287,14 +293,21 @@ class ModelCommandHandler(BaseControlCommandHandler):
                 f"Use `/model list` to see available models."
             )
 
-        # Update agent config
+        if not context.session_id:
+            return (
+                "**Switch Failed**\n\n"
+                "No current session was found, so the model cannot be "
+                "changed safely."
+            )
+
+        # Update current session config
         from ....config.config import save_agent_config
         from ....config.config import ModelSlotConfig as ModelSlot
 
         workspace = context.workspace
         agent_config = workspace.config
 
-        agent_config.active_model = ModelSlot(
+        agent_config.session_model_overrides[context.session_id] = ModelSlot(
             provider_id=provider_id,
             model=model_id,
         )
@@ -311,18 +324,21 @@ class ModelCommandHandler(BaseControlCommandHandler):
 
         logger.info(
             f"/model switch: agent={agent_config.id} "
+            f"session={context.session_id} "
             f"provider={provider_id} model={model_id}",
         )
 
         return (
             f"**Model Switched**\n\n"
+            f"Session: `{context.session_id}`\n"
             f"Provider: `{provider_id}`\n"
             f"Model: `{model_id}`\n\n"
-            f"The new model will be used for subsequent messages."
+            f"The new model will be used for subsequent messages in "
+            f"this session."
         )
 
     async def _reset_model(self, context: ControlContext) -> str:
-        """Reset to global default model.
+        """Reset the current session to default model.
 
         Args:
             context: Control command context
@@ -330,29 +346,32 @@ class ModelCommandHandler(BaseControlCommandHandler):
         Returns:
             Success message
         """
+        from ....config.config import resolve_effective_model_slot
         from ....config.config import save_agent_config
-        from ....providers.provider_manager import ProviderManager
 
         workspace = context.workspace
         agent_config = workspace.config
 
-        # Get global active model
-        manager = ProviderManager.get_instance()
-        global_model = manager.get_active_model()
-
-        if global_model is None or not global_model.provider_id:
+        if not context.session_id:
             return (
                 "**Reset Failed**\n\n"
-                "No global default model is configured.\n\n"
-                "Please configure a model in the web console first."
+                "No current session was found, so the model cannot be "
+                "reset safely."
             )
 
-        # Clear agent-specific model (use None to indicate using global)
-        agent_config.active_model = None
+        # Clear session-specific model (use default fallback afterwards).
+        removed = (
+            agent_config.session_model_overrides.pop(
+                context.session_id,
+                None,
+            )
+            is not None
+        )
 
         # Save to agent.json
         try:
-            save_agent_config(agent_config.id, agent_config)
+            if removed:
+                save_agent_config(agent_config.id, agent_config)
         except Exception as e:
             logger.exception(f"Failed to save agent config: {e}")
             return (
@@ -360,17 +379,36 @@ class ModelCommandHandler(BaseControlCommandHandler):
                 f"Failed to save configuration: {str(e)}"
             )
 
+        fallback_model, source = resolve_effective_model_slot(
+            agent_config=agent_config,
+            session_id=context.session_id,
+        )
+        source_label = {
+            "agent": "agent default",
+            "global": "global default",
+            "none": "not configured",
+        }.get(source, source)
+
         logger.info(
             f"/model reset: agent={agent_config.id} "
-            f"using global model={global_model.provider_id}:"
-            f"{global_model.model}",
+            f"session={context.session_id} source={source_label}",
         )
 
+        if not fallback_model:
+            return (
+                f"**Model Reset**\n\n"
+                f"Session `{context.session_id}` no longer has a "
+                f"specific model, but no default model is configured."
+            )
+
+        status = "removed" if removed else "was not set"
         return (
             f"**Model Reset**\n\n"
-            f"Agent now uses global default model:\n"
-            f"Provider: `{global_model.provider_id}`\n"
-            f"Model: `{global_model.model}`"
+            f"Session-specific model {status}.\n\n"
+            f"Session: `{context.session_id}`\n"
+            f"Now using {source_label}:\n"
+            f"Provider: `{fallback_model.provider_id}`\n"
+            f"Model: `{fallback_model.model}`"
         )
 
     async def _show_model_info(  # pylint: disable=unused-argument

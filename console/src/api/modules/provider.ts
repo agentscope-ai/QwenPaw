@@ -20,6 +20,10 @@ import type {
   DiscoverExtendedResponse,
   FilterModelsRequest,
   FilterModelsResponse,
+  SessionModelOverridesInfo,
+  SessionModelOverrideRequest,
+  SessionModelMutationResponse,
+  SessionModelResetAllResponse,
 } from "../types";
 
 function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
@@ -74,6 +78,37 @@ export const providerApi = {
     }).then((result) => {
       activeModelPromises.clear();
       return result;
+    }),
+
+  getSessionModelOverrides: () =>
+    request<SessionModelOverridesInfo>("/models/session-overrides"),
+
+  setSessionModelOverride: (
+    agentId: string,
+    sessionId: string,
+    body: SessionModelOverrideRequest,
+  ) =>
+    request<SessionModelMutationResponse>(
+      `/models/session-overrides/${encodeURIComponent(
+        agentId,
+      )}/${encodeURIComponent(sessionId)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
+    ),
+
+  resetSessionModelOverride: (agentId: string, sessionId: string) =>
+    request<SessionModelMutationResponse>(
+      `/models/session-overrides/${encodeURIComponent(
+        agentId,
+      )}/${encodeURIComponent(sessionId)}`,
+      { method: "DELETE" },
+    ),
+
+  resetAllSessionModelOverrides: () =>
+    request<SessionModelResetAllResponse>("/models/session-overrides", {
+      method: "DELETE",
     }),
 
   /* ---- Custom provider CRUD ---- */

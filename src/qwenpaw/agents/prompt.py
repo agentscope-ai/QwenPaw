@@ -394,22 +394,26 @@ def _get_active_model_info():
     """
     try:
         from ..app.agent_context import get_current_agent_id
+        from ..app.agent_context import get_current_session_id
         from ..config.config import load_agent_config
+        from ..config.config import resolve_effective_model_slot
         from ..providers.provider_manager import ProviderManager
 
         manager = ProviderManager.get_instance()
 
-        # Try to get agent-specific model first
+        # Try session override first, then agent-specific, then global.
         active = None
         try:
             agent_id = get_current_agent_id()
             agent_config = load_agent_config(agent_id)
-            if agent_config.active_model:
-                active = agent_config.active_model
+            active, _source = resolve_effective_model_slot(
+                agent_config=agent_config,
+                session_id=get_current_session_id(),
+            )
         except Exception:
             pass
 
-        # Fallback to global active model
+        # Fallback to global active model if context resolution failed.
         if not active:
             active = manager.get_active_model()
 

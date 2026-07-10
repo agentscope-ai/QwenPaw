@@ -7,7 +7,12 @@ import {
 } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button, Input, Modal } from "@agentscope-ai/design";
-import { PlusOutlined, SearchOutlined, SyncOutlined } from "@ant-design/icons";
+import {
+  ClusterOutlined,
+  PlusOutlined,
+  SearchOutlined,
+  SyncOutlined,
+} from "@ant-design/icons";
 import { useProviders } from "./useProviders";
 import {
   LoadingState,
@@ -17,6 +22,7 @@ import {
   ModelsSection,
   ProviderConfigModal,
   ModelManageModal,
+  SessionModelOverridesModal,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import { useTranslation } from "react-i18next";
@@ -51,6 +57,7 @@ function ModelsPage() {
     providers: ProviderInfo[];
   } | null>(null);
   const [llmModalOpen, setLlmModalOpen] = useState(false);
+  const [sessionModelModalOpen, setSessionModelModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"cloud" | "local">(() => {
     const stored = localStorage.getItem("models_tab");
     return stored === "local" ? "local" : "cloud";
@@ -329,6 +336,13 @@ function ModelsPage() {
                       {t("common.edit")}
                     </span>
                   </div>
+                  <Button
+                    icon={<ClusterOutlined />}
+                    onClick={() => setSessionModelModalOpen(true)}
+                    className={styles.sessionModelButton}
+                  >
+                    {t("models.sessionModelButton")}
+                  </Button>
                   {/* ---- Search ---- */}
                   <div className={styles.searchRow}>
                     <Input
@@ -552,6 +566,12 @@ function ModelsPage() {
                 }}
               />
             </Modal>
+
+            <SessionModelOverridesModal
+              open={sessionModelModalOpen}
+              providers={providers}
+              onClose={() => setSessionModelModalOpen(false)}
+            />
 
             {/* Shared Modal instances — one each for the entire page */}
             {configModalProvider && (
