@@ -151,7 +151,11 @@ def _compile_search_pattern(
     if is_regex:
         expr = pattern
     elif "|" in pattern:
-        expr = "|".join(re.escape(part) for part in pattern.split("|") if part)
+        parts = [part for part in pattern.split("|") if part]
+        if not parts:
+            expr = re.escape(pattern)
+        else:
+            expr = "|".join(re.escape(part) for part in parts)
     else:
         expr = re.escape(pattern)
     return re.compile(expr, flags)
