@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import uuid
+from pathlib import Path
 from typing import Any, AsyncGenerator, Callable
 
 from agentscope.message import Msg, TextBlock
 from agentscope.middleware import MiddlewareBase
 from agentscope.tool import ToolResponse
 
+from ...tools.utils import DEFAULT_MAX_BYTES, truncate_text_output
 from ..types import LogEntry
 from .history import HistoryStore
 from .serialize import flatten_output
@@ -23,9 +26,9 @@ class ToolResultCapMiddleware(MiddlewareBase):
     After a tool produces its final ``ToolResponse``, if the flattened text
     exceeds ``token_cap`` (the model's own estimator), the *full* output is
     written through to ``conversation_history`` and the in-context content is
-    replaced by a token-bounded preview plus a recall pointer keyed by
-    ``tool_call_id``. AgentScope's own truncation is disabled upstream, so this
-    is the only capping path and it never loses data.
+    replaced by a byte-bounded preview with the standard ``read_file``
+    continuation hint. AgentScope's own truncation is disabled upstream, so
+    this is the only capping path and it never loses data.
     """
 
     def __init__(
@@ -37,12 +40,18 @@ class ToolResultCapMiddleware(MiddlewareBase):
         agent_id: str | None = None,
         token_cap: int = 3000,
         capped_results: dict[str, int] | None = None,
+        tool_results_dir: str | Path | None = None,
+        preview_max_bytes: int = DEFAULT_MAX_BYTES,
     ) -> None:
         self._history = history
         self._model = model
         self._session_id = session_id
         self._agent_id = agent_id
         self._token_cap = token_cap
+        self._tool_results_dir = (
+            Path(tool_results_dir) if tool_results_dir else None
+        )
+        self._preview_max_bytes = preview_max_bytes
         # Shared with the manager: tool_call_id -> seq of the full output we
         # persisted, so the manager skips re-writing the truncated stub.
         self._capped_results = (
@@ -103,16 +112,44 @@ class ToolResultCapMiddleware(MiddlewareBase):
         # tcid, which the manager uses as the result's dedup key.
         if tcid is not None:
             self._capped_results[tcid] = seq
-        keep = max(1, int(len(text) * self._token_cap / n_tokens))
+        saved_path = self._save_full_output(text, tcid)
+        preview = truncate_text_output(
+            text,
+            start_line=1,
+            total_lines=text.count("\n") + 1,
+            max_bytes=self._preview_max_bytes,
+            file_path=saved_path,
+        )
         resp.content = [
             TextBlock(
-                text=(
-                    f"{text[:keep]}\n"
-                    f"<<<TRUNCATED ~{n_tokens - self._token_cap} tokens>>>\n"
-                    "<system-info>Full output preserved durably. Recall it "
-                    'with recall_history(op="recall_tool", '
-                    f"tool_call_id={tcid!r}).</system-info>"
-                ),
+                text=preview,
             ),
         ]
         return resp
+
+    def _save_full_output(
+        self,
+        text: str,
+        tool_call_id: str | None,
+    ) -> str | None:
+        if self._tool_results_dir is None:
+            return None
+        try:
+            self._tool_results_dir.mkdir(parents=True, exist_ok=True)
+            safe_id = _safe_filename_part(tool_call_id or "tool-result")
+            path = self._tool_results_dir / f"{safe_id}-{uuid.uuid4().hex}.txt"
+            path.write_text(text, encoding="utf-8")
+            return str(path)
+        except OSError as exc:
+            logger.warning(
+                "Failed to save capped scroll tool result to file: %s",
+                exc,
+            )
+            return None
+
+
+def _safe_filename_part(value: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in value)[
+        :64
+    ].strip("._-")
+    return safe or "tool-result"

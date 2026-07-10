@@ -171,6 +171,8 @@ def build_scroll_components(
 
         sc = lcc.scroll_config
         db_path = Path(workspace_dir) / sc.db_filename
+        trc = lcc.tool_result_pruning_config
+        tool_results_dir = Path(workspace_dir) / trc.tool_results_cache
         # First-run notice: scroll is the default as of this release, so agents
         # that never set ``strategy`` are switched to it silently. The first
         # time we wire scroll in a workspace we create ``history.db`` there;
@@ -221,6 +223,7 @@ def build_scroll_components(
             agent_id=agent_id,
             token_cap=sc.tool_output_token_cap,
             capped_results=capped_results,
+            tool_results_dir=tool_results_dir,
         )
         tool = make_recall_history_python(
             history_db_path=str(history.path),
