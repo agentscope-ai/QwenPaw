@@ -30,7 +30,9 @@ from agentscope.message import Msg, TextBlock, UserMsg
 from ....constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SYNTHETIC_USER_MESSAGE_TAGS,
+    TRUNCATION_NOTICE_MARKER,
 )
+from ...tools.utils import save_text_output, truncate_text_output
 from ....utils.model_response import consume_model_response
 from . import _as_internals as as_internals
 from .eviction_index import EvictionIndex, Leaf, Line
@@ -127,6 +129,8 @@ class ScrollContextManager:
         offloader: Any = None,
         summarize_unheadlined: bool = False,
         summarize_timeout_s: int = 20,
+        compact_tool_result_max_bytes: int | None = None,
+        tool_results_dir: str | None = None,
     ) -> None:
         self._history = history
         self._session_id = session_id
@@ -135,6 +139,8 @@ class ScrollContextManager:
         # of ``(no milestone)``. Off unless the wiring passes the config value.
         self._summarize_unheadlined = summarize_unheadlined
         self._summarize_timeout_s = summarize_timeout_s
+        self._compact_tool_result_max_bytes = compact_tool_result_max_bytes
+        self._tool_results_dir = tool_results_dir
         # Dialog archive: when an offloader is wired (``offload_dialog``, on by
         # default), evicted turns are also written to ``dialog/{date}.jsonl``
         # for external consumers. ``history.db`` remains the source of truth.
@@ -347,6 +353,14 @@ class ScrollContextManager:
             self.last_compress["compacted"] += 1
             tokens = await self._live_tokens(agent)
 
+        compacted_results = self._compact_live_tool_results(agent)
+        if compacted_results:
+            logger.info(
+                "scroll: compacted %d live tool result preview(s)",
+                compacted_results,
+            )
+            tokens = await self._live_tokens(agent)
+
         # 6) Last resort — even with the middle evicted and the index
         #    compacted, the window is STILL past the compression trigger, so
         #    the pressure is the active turn itself (e.g. a single-request
@@ -380,6 +394,108 @@ class ScrollContextManager:
         return await agent.model.count_tokens(
             **(await as_internals.prepare_model_input(agent)),
         )
+
+    def _compact_live_tool_results(self, agent: Any) -> int:
+        """Shrink retained live tool-result previews after compaction."""
+        max_bytes = self._compact_tool_result_max_bytes
+        if not max_bytes or max_bytes <= 0:
+            return 0
+
+        compacted = 0
+        for msg in getattr(agent.state, "context", []) or []:
+            if getattr(msg, "id", None) in self._synthetic_ids:
+                continue
+            content = getattr(msg, "content", None)
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                btype = (
+                    block.get("type")
+                    if isinstance(block, dict)
+                    else getattr(block, "type", None)
+                )
+                if btype != "tool_result" or self._is_folded_stub(block):
+                    continue
+                output = (
+                    block.get("output")
+                    if isinstance(block, dict)
+                    else getattr(block, "output", None)
+                )
+                pruned, changed = self._compact_tool_output(
+                    output,
+                    max_bytes,
+                )
+                if not changed:
+                    continue
+                if isinstance(block, dict):
+                    block["output"] = pruned
+                else:
+                    block.output = pruned
+                compacted += 1
+        return compacted
+
+    def _compact_tool_output(
+        self,
+        output: Any,
+        max_bytes: int,
+    ) -> tuple[Any, bool]:
+        if isinstance(output, str):
+            pruned = self._compact_tool_text(output, max_bytes)
+            return pruned, pruned != output
+        if not isinstance(output, list):
+            return output, False
+
+        changed = False
+        for block in output:
+            if isinstance(block, dict):
+                if block.get("type") != "text":
+                    continue
+                text = block.get("text", "")
+                pruned = self._compact_tool_text(text, max_bytes)
+                if pruned != text:
+                    block["text"] = pruned
+                    changed = True
+                continue
+            if getattr(block, "type", None) != "text":
+                continue
+            text = getattr(block, "text", "") or ""
+            pruned = self._compact_tool_text(text, max_bytes)
+            if pruned != text:
+                block.text = pruned
+                changed = True
+        return output, changed
+
+    def _compact_tool_text(self, text: str, max_bytes: int) -> str:
+        if not text:
+            return text
+        if TRUNCATION_NOTICE_MARKER in text:
+            return truncate_text_output(text, max_bytes=max_bytes)
+
+        try:
+            should_compact = len(text.encode("utf-8")) > max_bytes + 100
+        except UnicodeEncodeError:
+            should_compact = False
+
+        compacted = text
+        if should_compact and self._tool_results_dir:
+            try:
+                saved_path = save_text_output(text, self._tool_results_dir)
+            except OSError as exc:
+                logger.warning(
+                    "Failed to save live tool result before compacting: %s",
+                    exc,
+                )
+            else:
+                candidate = truncate_text_output(
+                    text,
+                    start_line=1,
+                    total_lines=text.count("\n") + 1,
+                    max_bytes=max_bytes,
+                    file_path=saved_path,
+                )
+                if TRUNCATION_NOTICE_MARKER in candidate:
+                    compacted = candidate
+        return compacted
 
     # -- write-through -------------------------------------------------------
 

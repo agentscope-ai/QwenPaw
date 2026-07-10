@@ -12,7 +12,8 @@ from typing import Any
 from agentscope.message import TextBlock
 from agentscope.tool import ToolResponse
 
-from ..agents.tools.utils import save_text_output
+from ..agents.tools.utils import save_text_output, truncate_text_output
+from ..constant import TRUNCATION_NOTICE_MARKER
 from ._context import ToolCallContext
 
 logger = logging.getLogger(__name__)
@@ -168,74 +169,22 @@ class ToolResultLimiter:
         original_bytes: int,
         saved_path: str | None,
     ) -> tuple[list[Any], int]:
-        notice = _build_notice(
-            original_bytes=original_bytes,
-            retained_bytes=0,
+        retained_content = [
+            block for block in content if not _is_text_block(block)
+        ]
+        text = _join_text_blocks(content)
+        limited_text = _truncate_text_with_hard_cap(
+            text,
+            max_bytes=self._max_text_bytes,
             saved_path=saved_path,
+            original_bytes=original_bytes,
         )
-        retained_content: list[Any] = []
-        retained_bytes = 0
-
-        for _ in range(8):
-            bounded_notice = _utf8_prefix(notice, self._max_text_bytes)
-            payload_budget = max(
-                0,
-                self._max_text_bytes - _byte_len(bounded_notice),
-            )
-            retained_content, retained_bytes = _retain_text_content(
-                content,
-                payload_budget,
-            )
-            next_notice = _build_notice(
-                original_bytes=original_bytes,
-                retained_bytes=retained_bytes,
-                saved_path=saved_path,
-            )
-            if next_notice == notice:
-                notice = next_notice
-                break
-            notice = next_notice
-
-        for _ in range(8):
-            bounded_notice = _utf8_prefix(notice, self._max_text_bytes)
-            payload_budget = max(
-                0,
-                self._max_text_bytes - _byte_len(bounded_notice),
-            )
-            retained_content, retained_bytes = _retain_text_content(
-                content,
-                payload_budget,
-            )
-            bounded_notice = _utf8_prefix(
-                _build_notice(
-                    original_bytes=original_bytes,
-                    retained_bytes=retained_bytes,
-                    saved_path=saved_path,
-                ),
-                self._max_text_bytes,
-            )
-            total_bytes = retained_bytes + _byte_len(bounded_notice)
-            if total_bytes <= self._max_text_bytes:
-                retained_content.append(
-                    TextBlock(type="text", text=bounded_notice),
-                )
-                return retained_content, retained_bytes
-            notice = bounded_notice
-
-        retained_content, _ = _retain_text_content(content, 0)
-        fallback_notice = _utf8_prefix(
-            _build_notice(
-                original_bytes=original_bytes,
-                retained_bytes=0,
-                saved_path=saved_path,
-            ),
-            self._max_text_bytes,
-        )
-        if fallback_notice:
+        retained_bytes = _byte_len(limited_text)
+        if limited_text:
             retained_content.append(
-                TextBlock(type="text", text=fallback_notice),
+                TextBlock(type="text", text=limited_text),
             )
-        return retained_content, 0
+        return retained_content, retained_bytes
 
     def _save_original_text(
         self,
@@ -313,33 +262,52 @@ def _build_notice(
     return "\n".join(lines)
 
 
-def _retain_text_content(
-    content: list[Any],
-    budget_bytes: int,
-) -> tuple[list[Any], int]:
-    remaining = max(0, budget_bytes)
-    retained_bytes = 0
-    retained_content: list[Any] = []
+def _truncate_text_with_hard_cap(
+    text: str,
+    *,
+    max_bytes: int,
+    saved_path: str | None,
+    original_bytes: int,
+) -> str:
+    """Use the standard file-style truncation hint while honoring hard cap."""
+    if saved_path is None:
+        return _utf8_prefix(
+            _build_notice(
+                original_bytes=original_bytes,
+                retained_bytes=0,
+                saved_path=saved_path,
+            ),
+            max_bytes,
+        )
 
-    for block in content:
-        if not _is_text_block(block):
-            retained_content.append(block)
-            continue
+    total_lines = max(1, text.count("\n") + 1)
+    budget = max_bytes
+    for _ in range(16):
+        limited = truncate_text_output(
+            text,
+            start_line=1,
+            total_lines=total_lines,
+            max_bytes=max(1, budget),
+            file_path=saved_path,
+        )
+        if (
+            _byte_len(limited) <= max_bytes
+            and TRUNCATION_NOTICE_MARKER in limited
+        ):
+            return limited
+        overflow = _byte_len(limited) - max_bytes
+        budget -= max(64, overflow)
+        if budget <= 0:
+            break
 
-        if remaining <= 0:
-            continue
-
-        text = _get_text(block)
-        retained_text = _utf8_prefix(text, remaining)
-        if not retained_text:
-            continue
-
-        current_bytes = _byte_len(retained_text)
-        retained_content.append(_copy_text_block(block, retained_text))
-        retained_bytes += current_bytes
-        remaining -= current_bytes
-
-    return retained_content, retained_bytes
+    return _utf8_prefix(
+        _build_notice(
+            original_bytes=original_bytes,
+            retained_bytes=0,
+            saved_path=saved_path,
+        ),
+        max_bytes,
+    )
 
 
 def _join_text_blocks(content: list[Any]) -> str:
@@ -372,20 +340,6 @@ def _get_text(block: Any) -> str:
     if isinstance(block, dict):
         return block.get("text", "")
     return getattr(block, "text", "")
-
-
-def _copy_text_block(block: Any, text: str) -> Any:
-    if isinstance(block, dict):
-        copied = dict(block)
-        copied["text"] = text
-        return copied
-    if hasattr(block, "model_copy"):
-        return block.model_copy(update={"text": text})
-    copied = TextBlock(type="text", text=text)
-    block_id = getattr(block, "id", None)
-    if block_id is not None and hasattr(copied, "id"):
-        copied.id = block_id
-    return copied
 
 
 def _copy_response_with_content(

@@ -876,7 +876,7 @@ class AgentBuilder:
                     )
                     result_limiter = ToolResultLimiter(
                         enabled=trc.enabled,
-                        max_text_bytes=trc.execution_layer_max_bytes,
+                        max_text_bytes=trc.pruning_recent_msg_max_bytes,
                         cache_dir=tool_results_dir,
                     )
                 except Exception:
@@ -930,7 +930,11 @@ class AgentBuilder:
                 ToolResultPruningMiddleware(
                     enabled=trc.enabled,
                     recent_n=trc.pruning_recent_n,
-                    old_max_bytes=trc.pruning_old_msg_max_bytes,
+                    old_max_bytes=(
+                        trc.pruning_recent_msg_max_bytes
+                        if getattr(lcc, "strategy", "native") == "scroll"
+                        else trc.pruning_old_msg_max_bytes
+                    ),
                     recent_max_bytes=trc.pruning_recent_msg_max_bytes,
                     exempt_file_extensions={
                         e.lower() for e in trc.exempt_file_extensions

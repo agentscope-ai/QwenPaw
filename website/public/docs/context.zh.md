@@ -199,12 +199,12 @@ print(ms.agents())
 
 当前有两个相关机制：
 
-| 机制                          | 默认状态                                     | 作用                                                                                                                                                                         |
-| ----------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ToolResultCapMiddleware`     | scroll 启用时生效                            | 单个工具结果超过 `scroll_config.tool_output_token_cap` 时，把完整输出写入 `history.db`，实时上下文只保留有限预览和 `recall_history(op="recall_tool", tool_call_id=…)` 指针。 |
-| `ToolResultPruningMiddleware` | 由 `tool_result_pruning_config.enabled` 控制 | 旧版按字节分层裁剪工具结果，可选使用 `tool_results/` 文件缓存。                                                                                                              |
+| 机制                          | 默认状态                                     | 作用                                                                                                                                       |
+| ----------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ToolResultLimiter`           | 由 `tool_result_pruning_config.enabled` 控制 | 工具结果进入 live context 前应用最近预览字节上限，超大 raw output 保存到 `tool_results/`，并返回 `read_file` 续读提示。                    |
+| `ToolResultPruningMiddleware` | 由 `tool_result_pruning_config.enabled` 控制 | 保留按字节裁剪工具结果的兼容路径。scroll 下 execution/recent 共享同一个字节上限，compact 后仍保留的 live preview 使用 compact 字节上限。 |
 
-scroll cap 是基于 token 的，并通过持久历史回溯；旧版 pruning 是基于字节的，用于兼容原有工具结果 offload 行为。
+scroll 不再有独立的基于 token 的工具结果 cap。工具结果在执行层截断一次，history 中保存 live context 里的同一份 preview；只有 retained live context 被 compact 时才会再次缩小 preview。
 
 ### 历史迁移（旧会话回填）
 
@@ -262,7 +262,7 @@ scroll cap 是基于 token 的，并通过持久历史回溯；旧版 pruning �
 | `context_compact_config.compact_threshold_ratio` | `0.8`          | 模型输入达到上下文窗口该比例时触发。                                      |
 | `context_compact_config.reserve_threshold_ratio` | `0.1`          | 驱逐后保留最近尾部的预算。                                                |
 | `scroll_config.db_filename`                      | `"history.db"` | 相对工作区的 SQLite 文件名。                                              |
-| `scroll_config.tool_output_token_cap`            | `3000`         | 单个工具结果在实时上下文中的预览 token 上限。                             |
+| `scroll_config.tool_output_token_cap`            | `3000`         | 已废弃；工具结果预览大小由 `tool_result_pruning_config` 控制。            |
 | `scroll_config.repl_timeout_s`                   | `300`          | `recall_history_python` 单次调用超时时间。                                |
 | `scroll_config.history_retention_days`           | `30`           | 自动清理早于该天数的历史行；设为 `0` 表示永久保留。                       |
 | `scroll_config.offload_dialog`                   | `false`        | 是否额外写旧版 `dialog/*.jsonl` 归档；`history.db` 仍是真相来源。         |
@@ -297,6 +297,6 @@ Context compressed.
 }
 ```
 
-native 模式不会接入 `ScrollContextManager`、`ToolResultCapMiddleware` 或 `recall_history_python`。它会使用 AgentScope 的上下文压缩，并继续映射 `compact_threshold_ratio` 和 `reserve_threshold_ratio`。
+native 模式不会接入 `ScrollContextManager` 或 `recall_history_python`。它会使用 AgentScope 的上下文压缩，并继续映射 `compact_threshold_ratio` 和 `reserve_threshold_ratio`。
 
 > **提示：** 通常通过控制台（工作区 → 运行配置）管理上下文配置，无需手动编辑 `agent.json`。

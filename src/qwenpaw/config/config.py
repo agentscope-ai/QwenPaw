@@ -771,20 +771,27 @@ class ToolResultPruningConfig(BaseModel):
         default=2,
         ge=1,
         le=10,
-        description="Number of recent messages to use recent_max_bytes for",
+        description=(
+            "Number of recent tool-result-bearing messages to keep at the "
+            "recent preview byte limit before scroll compaction."
+        ),
     )
 
     pruning_old_msg_max_bytes: int = Field(
         default=3000,
         ge=100,
-        description=("Byte threshold for old messages in tool result pruning"),
+        description=(
+            "Byte threshold for tool result previews retained in live context "
+            "after scroll compaction."
+        ),
     )
 
     pruning_recent_msg_max_bytes: int = Field(
         default=50000,
         ge=1000,
         description=(
-            "Byte threshold for recent messages in tool result pruning"
+            "Byte threshold for tool result previews before they enter the "
+            "agent context and while they remain recent."
         ),
     )
 
@@ -792,9 +799,9 @@ class ToolResultPruningConfig(BaseModel):
         default=50000,
         ge=1000,
         description=(
-            "Hard byte cap applied at execution time before the tool "
-            "response is inserted into the agent context. Independent of "
-            "the tiered historical pruning thresholds."
+            "Deprecated. Tool output sizing now uses "
+            "pruning_recent_msg_max_bytes so the execution-layer and recent "
+            "preview limits share one value."
         ),
     )
 
@@ -851,7 +858,7 @@ class ScrollContextConfig(BaseModel):
         ge=100,
         description=(
             "Deprecated scroll-only tool result cap. Tool output sizing is "
-            "handled by tool_result_pruning_config.execution_layer_max_bytes."
+            "handled by tool_result_pruning_config."
         ),
     )
 

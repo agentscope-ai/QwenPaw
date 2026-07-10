@@ -78,7 +78,8 @@ def test_small_result_is_returned_unchanged(tmp_path):
 
 
 def test_ascii_result_is_capped_and_original_is_cached(tmp_path):
-    response = _text_response("a" * 2000)
+    text = "\n".join(f"line {idx}: {'a' * 40}" for idx in range(100))
+    response = _text_response(text)
     limiter = ToolResultLimiter(
         enabled=True,
         max_text_bytes=512,
@@ -88,14 +89,13 @@ def test_ascii_result_is_capped_and_original_is_cached(tmp_path):
     result = limiter.limit(response, _ctx())
 
     assert _total_text_bytes(result) <= 512
-    assert EXECUTION_TRUNCATION_NOTICE_MARKER in _all_text(result)
-    assert TRUNCATION_NOTICE_MARKER not in _all_text(result)
-    assert "Tool output truncated before entering agent context" in _all_text(
-        result,
-    )
+    assert TRUNCATION_NOTICE_MARKER in _all_text(result)
+    assert EXECUTION_TRUNCATION_NOTICE_MARKER not in _all_text(result)
+    assert "call `read_file` with file_path=" in _all_text(result)
     saved = list(tmp_path.iterdir())
     assert len(saved) == 1
-    assert saved[0].read_text(encoding="utf-8") == "a" * 2000
+    assert str(saved[0]) in _all_text(result)
+    assert saved[0].read_text(encoding="utf-8") == text
 
 
 def test_multibyte_result_is_capped_at_valid_utf8_boundary(tmp_path):
@@ -115,9 +115,9 @@ def test_multibyte_result_is_capped_at_valid_utf8_boundary(tmp_path):
 
 def test_multiple_text_blocks_share_one_budget(tmp_path):
     response = _response(
-        TextBlock(type="text", text="a" * 600),
-        TextBlock(type="text", text="b" * 600),
-        TextBlock(type="text", text="c" * 600),
+        TextBlock(type="text", text="\n".join("a" * 40 for _ in range(20))),
+        TextBlock(type="text", text="\n".join("b" * 40 for _ in range(20))),
+        TextBlock(type="text", text="\n".join("c" * 40 for _ in range(20))),
     )
     limiter = ToolResultLimiter(
         enabled=True,
@@ -128,7 +128,7 @@ def test_multiple_text_blocks_share_one_budget(tmp_path):
     result = limiter.limit(response, _ctx())
 
     assert _total_text_bytes(result) <= 640
-    assert EXECUTION_TRUNCATION_NOTICE_MARKER in _all_text(result)
+    assert TRUNCATION_NOTICE_MARKER in _all_text(result)
 
 
 def test_notice_counts_toward_total_limit(tmp_path):

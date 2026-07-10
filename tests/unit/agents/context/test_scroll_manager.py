@@ -22,6 +22,7 @@ from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
 from qwenpaw.agents.context.types import LogEntry
 from qwenpaw.agents.memory.base_memory_manager import BaseMemoryManager
+from qwenpaw.agents.tools.utils import truncate_text_output
 from qwenpaw.constant import AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY
 
 # -- fixtures ---------------------------------------------------------------
@@ -509,6 +510,37 @@ async def test_fold_not_triggered_between_reserve_and_trigger(
     for block in turn.content:
         if getattr(block, "type", None) == "tool_result":
             assert block.output[0].text.startswith("RESULT-")
+
+
+async def test_compress_retruncates_retained_tool_result_preview(
+    store: HistoryStore,
+    tmp_path: Path,
+):
+    text = "\n".join(f"line {idx}: {'x' * 40}" for idx in range(100))
+    preview = truncate_text_output(
+        text,
+        start_line=1,
+        total_lines=100,
+        max_bytes=500,
+        file_path="/tmp/full-tool-result.txt",
+    )
+    turn = assistant_with_tool("call-1", preview)
+    ctx = [user("current request"), turn]
+    mgr = make_manager(
+        store,
+        compact_tool_result_max_bytes=120,
+        tool_results_dir=str(tmp_path),
+    )
+    agent = FakeAgent(ctx, tokens=[600, 50])
+    agent._split_return = (ctx, [])
+
+    await mgr.compress(agent)
+
+    compacted = turn.content[2].output[0].text
+    assert "covers the next 120 bytes" in compacted
+    assert "/tmp/full-tool-result.txt" in compacted
+    assert "[scroll folded]" not in compacted
+    assert mgr.last_compress["folded"] == 0
 
 
 async def test_pressure_fold_stubs_older_results_keeps_newest(

@@ -169,6 +169,7 @@ def build_scroll_components(
         from .scroll.repl import make_recall_history_python
 
         sc = lcc.scroll_config
+        trc = lcc.tool_result_pruning_config
         db_path = Path(workspace_dir) / sc.db_filename
         # First-run notice: scroll is the default as of this release, so agents
         # that never set ``strategy`` are switched to it silently. The first
@@ -203,6 +204,12 @@ def build_scroll_components(
                 sc,
                 "summarize_eviction_timeout_seconds",
                 20,
+            ),
+            compact_tool_result_max_bytes=(
+                trc.pruning_old_msg_max_bytes if trc.enabled else None
+            ),
+            tool_results_dir=str(
+                Path(workspace_dir) / trc.tool_results_cache,
             ),
         )
         tool = make_recall_history_python(

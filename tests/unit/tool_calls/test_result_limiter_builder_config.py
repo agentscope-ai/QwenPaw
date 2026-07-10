@@ -13,7 +13,7 @@ from qwenpaw.runtime.builder import AgentBuilder
 from qwenpaw.tool_calls import ToolCoordinator, ToolCoordinatorMiddleware
 
 
-def test_builder_uses_execution_layer_limit_independent_of_recent_limit(
+def test_builder_uses_recent_preview_limit_for_execution_layer(
     tmp_path,
 ):
     pruning_config = ToolResultPruningConfig(
@@ -40,4 +40,4 @@ def test_builder_uses_execution_layer_limit_independent_of_recent_limit(
     )
 
     limiter = getattr(coordinator_middleware, "_result_limiter")
-    assert getattr(limiter, "_max_text_bytes") == 8192
+    assert getattr(limiter, "_max_text_bytes") == 4096
