@@ -518,6 +518,13 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
     ),
 ]
 
+# Default user rules added after policy.yaml existed in the wild. Existing
+# persisted policies keep their user_rules, so migrate only these known safe
+# defaults instead of replacing user customizations wholesale.
+_MIGRATED_DEFAULT_USER_RULE_MATCHES = {
+    "*(CODING_PROJECT_DIR/**)",
+}
+
 
 # ---------------------------------------------------------------------------
 # GovernancePolicy
@@ -565,6 +572,11 @@ class GovernancePolicy:
     sensitive_paths: List[str] = field(default_factory=list)
     shell_evasion_checks: dict[str, bool] = field(default_factory=dict)
     detection_rules: List[DetectionRuleConfig] = field(default_factory=list)
+
+    # Default-rule migrations already applied to this policy (rule match
+    # strings). Once a migration is recorded here, the corresponding default
+    # user rule is never re-added on load — so deleting it stays deleted.
+    applied_migrations: List[str] = field(default_factory=list)
 
     # Internal reference to registry (defaults to module-level
     # DEFAULT_REGISTRY)
@@ -1025,9 +1037,24 @@ def load_governance_policy(
     if not isinstance(env_blacklist, list):
         env_blacklist = []
 
-    # ── Cold start: fill in missing default rules ──
+    # ── Applied default-rule migrations (absent in pre-migration files) ──
+    applied_migrations = _parse_applied_migrations(data)
+
+    # ── Cold start / migration: fill in missing default rules ──
     if not user_rules:
         user_rules = copy.deepcopy(DEFAULT_USER_RULES)
+    else:
+        user_rules = _merge_missing_default_user_rules(
+            user_rules,
+            workspace_dir,
+            coding_project_dir,
+            applied_migrations=applied_migrations,
+        )
+    # Record all known migrations as applied so the next save makes any
+    # user deletion of a migrated rule stick.
+    applied_migrations = sorted(
+        set(applied_migrations) | _MIGRATED_DEFAULT_USER_RULE_MATCHES,
+    )
     if not env_blacklist:
         env_blacklist = list(DEFAULT_ENV_BLACKLIST)
 
@@ -1069,6 +1096,7 @@ def load_governance_policy(
         sensitive_paths=sensitive_paths,
         shell_evasion_checks=shell_evasion_checks,
         detection_rules=detection_rules,
+        applied_migrations=applied_migrations,
     )
 
 
@@ -1110,6 +1138,8 @@ def save_governance_policy(
     }
 
     # v2.0 fields (only write when non-empty to keep YAML clean)
+    if policy.applied_migrations:
+        data["applied_migrations"] = list(policy.applied_migrations)
     if policy.sensitive_paths:
         data["sensitive_paths"] = list(policy.sensitive_paths)
     if policy.shell_evasion_checks:
@@ -1181,7 +1211,62 @@ def _create_default_policy(
         execution_level="smart",
         sensitive_paths=list(_DEFAULT_SENSITIVE_PATHS),
         shell_evasion_checks=dict(_DEFAULT_SHELL_EVASION_CHECKS),
+        applied_migrations=sorted(_MIGRATED_DEFAULT_USER_RULE_MATCHES),
     )
+
+
+def _parse_applied_migrations(data: dict[str, Any]) -> List[str]:
+    """Read the applied default-rule migration markers from policy YAML."""
+    applied = data.get("applied_migrations", [])
+    if not isinstance(applied, list):
+        return []
+    return [m for m in applied if isinstance(m, str)]
+
+
+def _merge_missing_default_user_rules(
+    user_rules: List[GovernanceRule],
+    workspace_dir: str = "",
+    coding_project_dir: str = "",
+    applied_migrations: List[str] | None = None,
+) -> List[GovernanceRule]:
+    """Append migrated default user rules missing from a persisted policy.
+
+    A rule whose match is recorded in ``applied_migrations`` is never
+    re-added: the migration already ran once, so a missing rule means the
+    user deleted it on purpose.
+    """
+    applied = set(applied_migrations or [])
+    merged = list(user_rules)
+    for default_rule in DEFAULT_USER_RULES:
+        if default_rule.match not in _MIGRATED_DEFAULT_USER_RULE_MATCHES:
+            continue
+        if default_rule.match in applied:
+            continue
+        if _has_equivalent_rule(
+            merged,
+            default_rule,
+            workspace_dir,
+            coding_project_dir,
+        ):
+            continue
+        merged.append(copy.deepcopy(default_rule))
+    return merged
+
+
+def _has_equivalent_rule(
+    rules: List[GovernanceRule],
+    default_rule: GovernanceRule,
+    workspace_dir: str = "",
+    coding_project_dir: str = "",
+) -> bool:
+    """Return True when a persisted policy already has this default rule."""
+    candidates = {default_rule.match}
+    if workspace_dir:
+        resolved = copy.deepcopy(default_rule)
+        cpd = coding_project_dir or workspace_dir
+        _resolve_placeholders([resolved], workspace_dir, cpd)
+        candidates.add(resolved.match)
+    return any(rule.match in candidates for rule in rules)
 
 
 def _resolve_placeholders(

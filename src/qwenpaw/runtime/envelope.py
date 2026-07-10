@@ -70,6 +70,7 @@ class Envelope:
         self._seq_counter = 0
 
         self._error_text: str | None = None
+        self._error_code: str = "error"
         self._finalized = False
 
     # ------------------------------------------------------------------
@@ -736,8 +737,10 @@ class Envelope:
     async def error_envelope(
         self,
         error_text: str,
+        error_code: str = "error",
     ) -> AsyncGenerator[Any, None]:
         self._error_text = error_text
+        self._error_code = error_code
         async for obj in self._finalize_response():
             yield obj
 
@@ -784,7 +787,10 @@ class Envelope:
 
         if self._error_text:
             self._response.status = RunStatus.Failed
-            self._response.error = self._error_text
+            self._response.error = {
+                "code": self._error_code,
+                "message": self._error_text,
+            }
         else:
             self._response.status = RunStatus.Completed
         self._response.completed_at = datetime.now(timezone.utc).isoformat(
