@@ -7,6 +7,12 @@ import pytest
 
 from qwenpaw.app.approvals.driver_gate import QwenPawDriverApprovalGate
 from qwenpaw.app.approvals.service import ApprovalService
+from qwenpaw.app.mcp.config_service import MCPConfigService
+from qwenpaw.app.mcp.schemas import (
+    MCPAccessPolicy,
+    MCPAccessRule,
+    MCPToolDefaultPolicy,
+)
 from qwenpaw.drivers.capabilities import DriverInvocation
 from qwenpaw.drivers.contracts import DriverCard, PolicyRule
 from qwenpaw.drivers.credentials.store import AsyncCredentialStore
@@ -87,6 +93,87 @@ async def test_driver_mcp_policy_deny_blocks_client_call(
 
     assert result.error_type == "driver_policy_denied"
     assert FakeStdIOClient.instances[0].calls == []
+
+
+@pytest.mark.asyncio
+async def test_mcp_policy_update_applies_without_transport_reload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_mcp_runtime_clients(monkeypatch)
+    manager = await _registry_with_policy(
+        tmp_path,
+        [PolicyRule(subject="*", effect="allow")],
+    )
+    capabilities = {
+        item.name: item
+        for item in await manager.list_capabilities(kind="tool")
+    }
+    service = MCPConfigService(
+        SimpleNamespace(
+            workspace_dir=tmp_path,
+            driver_manager=manager,
+        ),
+    )
+
+    reload_attempts = 0
+
+    async def fail_transport_reload(_name: str) -> None:
+        nonlocal reload_attempts
+        reload_attempts += 1
+        raise RuntimeError("transport reconnect failed")
+
+    monkeypatch.setattr(manager, "reload_driver", fail_transport_reload)
+
+    updated_policy = MCPAccessPolicy(
+        default_effect="deny",
+        client_overrides=[
+            MCPAccessRule(
+                source_value="console",
+                subject_type="all",
+                effect="allow",
+            ),
+        ],
+        tool_defaults=[
+            MCPToolDefaultPolicy(tool_name="echo", effect="deny"),
+        ],
+    )
+    returned_policy = await service.update_policy(
+        "policy_echo",
+        updated_policy,
+    )
+    # Let the previous fire-and-forget reload path run, if it was scheduled.
+    await asyncio.sleep(0)
+
+    request_context = {
+        "session_id": "s1",
+        "channel": "console",
+        "approval_level": "AUTO",
+    }
+    allowed_result = await manager.invoke_capability(
+        DriverInvocation(
+            capabilities["get_secret_status"].capability_id,
+            {},
+            request_context,
+        ),
+    )
+    denied_result = await manager.invoke_capability(
+        DriverInvocation(
+            capabilities["echo"].capability_id,
+            {"text": "blocked after update"},
+            request_context,
+        ),
+    )
+
+    assert allowed_result.ok is True
+    assert denied_result.error_type == "driver_policy_denied"
+    assert FakeStdIOClient.instances[0].calls == [
+        ("get_secret_status", {}),
+    ]
+    assert returned_policy == updated_policy
+    assert await service.get_policy("policy_echo") == updated_policy
+    assert reload_attempts == 0
+    assert len(FakeStdIOClient.instances) == 1
 
 
 @pytest.mark.asyncio

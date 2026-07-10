@@ -173,6 +173,19 @@ class DriverManager:
             await self._shutdown_handler(old)
         return self._runtime_info_from_card(card)
 
+    async def sync_driver_policy(self, card: DriverCard) -> None:
+        """Apply a persisted policy to an active Driver without reconnecting.
+
+        This is a no-op when the Driver is not active; the persisted policy
+        will be loaded the next time the Driver starts.
+        """
+        card = self._validate_card_for_registered_protocol(card)
+        async with self._lock:
+            handler = self._handlers.get(card.name)
+            if handler is None or handler.card.protocol != card.protocol:
+                return
+            handler.set_policy(card.policy)
+
     async def delete_driver(self, name: str) -> None:
         """Delete persisted card and shutdown a published handler."""
         await self._card_store.delete(name)
