@@ -138,13 +138,7 @@ class StopHandler:
             return
         for gate in self._gates:
             if gate is not continue_gate:
-                reset_fn = getattr(
-                    gate,
-                    "reset",
-                    None,
-                )
-                if callable(reset_fn):
-                    reset_fn()
+                gate.reset()
 
 
 __all__ = ["StopHandler"]

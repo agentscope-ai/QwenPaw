@@ -46,9 +46,7 @@ def _reset_gates_for_new_turn(
 ) -> None:
     """Reset all gates for a new user turn."""
     for gate in handler.gates:
-        reset_fn = getattr(gate, "reset", None)
-        if callable(reset_fn):
-            reset_fn()
+        gate.reset()
 
 
 def register_react_gates(

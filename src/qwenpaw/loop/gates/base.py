@@ -112,6 +112,14 @@ class StopGate(ABC):
         """
         return ""
 
+    def reset(self) -> None:
+        """Reset gate state for a new user turn.
+
+        Stateful gates override this to clear internal
+        counters/history. Default implementation is a no-op
+        for stateless gates.
+        """
+
 
 __all__ = [
     "StopAction",

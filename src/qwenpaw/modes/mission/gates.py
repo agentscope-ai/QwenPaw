@@ -7,6 +7,7 @@ with a StopHandler-compatible gate that checks
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -81,7 +82,10 @@ class MissionGate(LoopGate):
             read_prd,
         )
 
-        cfg = read_loop_config(state.loop_dir)
+        cfg = await asyncio.to_thread(
+            read_loop_config,
+            state.loop_dir,
+        )
         phase = cfg.get("current_phase", "")
         state.phase = phase
 
@@ -95,10 +99,11 @@ class MissionGate(LoopGate):
         if phase not in _EXEC_PHASES:
             return _bypass
 
-        return self._eval_prd(
-            read_prd(state.loop_dir),
-            cfg,
+        prd = await asyncio.to_thread(
+            read_prd,
+            state.loop_dir,
         )
+        return self._eval_prd(prd, cfg)
 
     def _eval_prd(
         self,

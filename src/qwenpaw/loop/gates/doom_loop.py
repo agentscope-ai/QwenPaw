@@ -214,18 +214,7 @@ class DoomLoopGate(LoopGate):
                     if isinstance(block, dict)
                     else getattr(block, "input", "")
                 )
-                if isinstance(raw_input, str):
-                    args_hash = hashlib.md5(
-                        raw_input.encode(),
-                    ).hexdigest()[:8]
-                else:
-                    args_hash = hashlib.md5(
-                        json.dumps(
-                            raw_input,
-                            sort_keys=True,
-                            default=str,
-                        ).encode(),
-                    ).hexdigest()[:8]
+                args_hash = self._hash_args(raw_input)
                 state.history.append(
                     _ToolCallRecord(
                         tool_name=name,
@@ -233,6 +222,25 @@ class DoomLoopGate(LoopGate):
                     ),
                 )
                 return
+
+    @staticmethod
+    def _hash_args(raw_input: Any) -> str:
+        """Hash tool call args with truncation for large inputs.
+
+        Only the first 2048 bytes are hashed — enough
+        for repetition detection without serializing
+        potentially large file contents.
+        """
+        _MAX_HASH_INPUT = 2048
+        if isinstance(raw_input, str):
+            data = raw_input[:_MAX_HASH_INPUT].encode()
+        else:
+            data = json.dumps(
+                raw_input,
+                sort_keys=True,
+                default=str,
+            ).encode()[:_MAX_HASH_INPUT]
+        return hashlib.md5(data).hexdigest()[:8]
 
     def _detect_repetition(
         self,
