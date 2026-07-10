@@ -377,10 +377,20 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not messages:
             return ""
 
+        # Project group-sender envelopes so long-term memory retains who
+        # spoke (summarize is the single choke point for both /compact
+        # summaries and auto-memory). Operates on clones; stored context
+        # stays clean.
+        from ..utils.message_request_normalizer import (
+            project_group_sender_labels,
+        )
+
+        projected = project_group_sender_labels(messages)
+
         response = await self._run_reme_job(
             "auto_memory",
             needs_llm=True,
-            messages=[msg.model_dump(mode="json") for msg in messages],
+            messages=[msg.model_dump(mode="json") for msg in projected],
             session_id=str(kwargs.get("session_id") or ""),
             memory_hint=str(kwargs.get("memory_hint") or ""),
         )

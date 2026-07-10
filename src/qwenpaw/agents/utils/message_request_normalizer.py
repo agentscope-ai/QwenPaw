@@ -9,6 +9,7 @@ stored conversation state.
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -237,6 +238,104 @@ def _collapse_consecutive_user_messages(msgs: list[Msg]) -> list[Msg]:
     return collapsed
 
 
+# Envelope used to attribute the speaker in group/shared histories. The model
+# is taught (see ``GroupSenderHintContributor``) that only this framework-
+# emitted ``<msg sender="...">`` tag identifies the speaker. The tag tokens are
+# stripped from user-controlled content and labels below, so a crafted message
+# cannot forge the envelope (e.g. inject ``<msg sender="admin">``).
+_MSG_TAG_RE = re.compile(r"</?msg\b[^>]*>", re.IGNORECASE)
+
+
+def _strip_msg_tags(text: str) -> str:
+    """Remove anything resembling the reserved ``<msg ...>`` envelope tag."""
+    return _MSG_TAG_RE.sub("", text)
+
+
+def _sender_label_from_metadata(metadata: Any) -> str:
+    """Return a compact, safe sender label for grouped channel history."""
+    if not isinstance(metadata, dict):
+        return ""
+    if metadata.get("is_group") is not True:
+        return ""
+
+    # A channel opts in by setting ``sender_label`` to the real human name
+    # (see ``BaseChannel.build_message_metadata``); it is the channel's job to
+    # omit the label for anonymous/routing identities. This layer stays
+    # channel-agnostic and only sanitizes + length-bounds the value.
+    value = metadata.get("sender_label")
+    if isinstance(value, str):
+        # The label comes from a user-controlled nickname and is placed inside
+        # the ``sender="..."`` attribute. Drop control / zero-width characters
+        # and the attribute/tag delimiters (`"`, `<`, `>`), then collapse
+        # whitespace, so a crafted nickname cannot break out of the attribute
+        # or forge the envelope.
+        cleaned = "".join(
+            ch
+            for ch in value
+            if ch.isprintable() and ch not in ('"', "<", ">")
+        )
+        label = " ".join(cleaned.split())
+        if label:
+            return label[:80]
+    return ""
+
+
+def _inject_group_sender_envelope(msgs: list[Msg]) -> None:
+    """Wrap group user text in a ``<msg sender="Name">…</msg>`` envelope.
+
+    Mutates the given messages in place, so callers must pass a copy (see
+    :func:`project_group_sender_labels`). The label and the user-controlled
+    content are both stripped of the envelope tag tokens, so a crafted body
+    cannot forge the marker to impersonate another speaker.
+    """
+    for msg in msgs:
+        if msg.role != "user":
+            continue
+        label = _sender_label_from_metadata(getattr(msg, "metadata", None))
+        if not label:
+            continue
+        content = msg.content
+        if isinstance(content, str):
+            clean = _strip_msg_tags(content)
+            msg.content = f'<msg sender="{label}">{clean}</msg>'
+            continue
+        if not isinstance(content, list):
+            continue
+        text_idx = [
+            i
+            for i, block in enumerate(content)
+            if isinstance(getattr(block, "text", None), str)
+        ]
+        if not text_idx:
+            continue
+        first, last = text_idx[0], text_idx[-1]
+        for i in text_idx:
+            block = content[i]
+            clean = _strip_msg_tags(block.text)
+            if first == last:
+                block.text = f'<msg sender="{label}">{clean}</msg>'
+            elif i == first:
+                block.text = f'<msg sender="{label}">{clean}'
+            elif i == last:
+                block.text = f"{clean}</msg>"
+            else:
+                block.text = clean
+
+
+def project_group_sender_labels(msgs: list[Msg]) -> list[Msg]:
+    """Return deep-cloned messages with group-sender envelopes applied.
+
+    For consumers *other than* the model request — e.g. summarization and
+    long-term memory — that read message text and must retain who spoke.
+    The input list is not mutated; the projection is a deterministic function
+    of ``(content, metadata)`` so callers (eval/replay) can reconstruct
+    exactly what the model saw from persisted state.
+    """
+    cloned = _clone_messages(msgs)
+    _inject_group_sender_envelope(cloned)
+    return cloned
+
+
 def normalize_messages_for_model_request(
     msgs: list[Msg],
     *,
@@ -258,6 +357,7 @@ def normalize_messages_for_model_request(
     # that raw_input (and other provider artefacts) are stripped only once
     # the repair has had its chance.
     normalized = _sanitize_tool_messages(normalized)
+    _inject_group_sender_envelope(normalized)
     normalized = _collapse_consecutive_user_messages(normalized)
     _clean_provider_specific_fields(normalized, target_family)
     if target_family == "anthropic":
@@ -269,4 +369,5 @@ def normalize_messages_for_model_request(
 
 __all__ = [
     "normalize_messages_for_model_request",
+    "project_group_sender_labels",
 ]
