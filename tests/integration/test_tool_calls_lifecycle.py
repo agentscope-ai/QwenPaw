@@ -29,7 +29,6 @@ here we focus on the HTTP router contract + governance approval branch.
 from __future__ import annotations
 
 import json
-import sys
 import threading
 import time
 from http.server import HTTPServer
@@ -428,17 +427,21 @@ _SHELL_SLEEP_SECS = 6
 
 
 def _portable_sleep_cmd(seconds: int) -> str:
-    """Return a shell command that blocks for ~``seconds``, per-platform.
+    """Return a shell command that blocks for exactly ``seconds``.
 
-    The app subprocess runs on the same host as the test process, so
-    ``sys.platform`` reflects the shell that ``execute_shell_command``
-    will use.  On Windows ``cmd.exe`` has no ``sleep`` builtin, so we use
-    ``ping`` (``-n K`` sends K packets ~1s apart; K = seconds + 1 to get
-    roughly ``seconds`` of wall time).  On POSIX we use ``sleep``.
+    Uses ``python -c "import time; time.sleep(N)"`` on every platform.
+
+    Why not ``sleep`` / ``ping``:
+      - Windows ``cmd.exe`` has no ``sleep`` builtin.
+      - ``ping -n K 127.0.0.1`` does NOT take ~K seconds: pinging the
+        loopback returns each packet in <1ms, so the command finishes in
+        milliseconds and the tool-call observation window collapses
+        (test_offload_while_running then races and 404s).
+      - The app subprocess runs under a Python interpreter, so ``python``
+        is guaranteed on PATH inside ``execute_shell_command``; a
+        ``time.sleep`` blocks precisely on all platforms.
     """
-    if sys.platform.startswith("win"):
-        return f"ping -n {seconds + 1} 127.0.0.1"
-    return f"sleep {seconds}"
+    return f'python -c "import time; time.sleep({seconds})"'
 
 
 def _submit_shell_sleep_task(  # pylint: disable=redefined-outer-name
