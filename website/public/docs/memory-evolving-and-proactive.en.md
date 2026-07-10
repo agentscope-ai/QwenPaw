@@ -1,218 +1,260 @@
 # Agent Memory Evolving & Proactive Interaction (Beta)
 
-> **Beta Feature**: Agent Memory Evolving & Proactive Interaction is an experimental QwenPaw capability built around the new [ReMe](https://github.com/agentscope-ai/ReMe) memory architecture. The goal is to let an agent accumulate, refine, retrieve, and act on long-term memory without model fine-tuning. The implementation and product integration are still evolving; feedback is welcome on [GitHub](https://github.com/agentscope-ai/QwenPaw/issues).
+> **Beta Feature**: QwenPaw's ReMeLight memory manager embeds [ReMe](https://github.com/agentscope-ai/ReMe) as an in-process application. Auto Memory, Auto Resource, Auto Dream, search, and ReMe's low-level proactive topic reader are ReMe jobs. QwenPaw's `/proactive` command is a separate runtime feature that reads recent chat sessions and optional screen context.
 
-QwenPaw uses ReMe as a file-native long-term memory layer. Conversations and resources are first saved as readable Markdown memory cards, then periodically distilled into durable digest memories. Proactive interaction is built on top of those memories: the agent can notice topics that deserve attention and decide whether to remind, follow up, or offer a useful next step.
+QwenPaw stores memory as files under the agent workspace. Conversations are saved as JSONL source logs, useful conversation facts are written to daily Markdown notes, resources can be converted into daily notes, and Auto Dream periodically integrates reusable abstractions into digest memory.
 
 ---
 
-## Core Idea
-
-The new memory loop is centered on four capabilities:
+## Actual Flow
 
 ```mermaid
 graph LR
-    A[Auto Memory<br/>Conversation -> Daily memory] --> C[Auto Dream<br/>Daily -> Digest]
-    B[Auto Resource<br/>Resource -> Daily memory] --> C
-    C --> D[Proactive<br/>Interest topics -> Agent action]
-    D -.->|New interaction creates new memory| A
+    A[Conversation turns] --> B[MemoryMiddleware]
+    B --> C[ReMe auto_memory job]
+    C --> D[mem_session/dialog/*.jsonl]
+    C --> E[memory/<date>/<note>.md]
+    R[resource/<date>/*] --> S[resource_watch_loop]
+    S --> T[ReMe auto_resource job]
+    T --> E
+    E --> U[ReMe auto_dream job]
+    U --> V[digest/personal|procedure|wiki/*.md]
+    U --> W[memory/<date>/interests.yaml]
 ```
 
-| Phase              | Module        | What it does                                                                                                        | Main output                                     |
-| ------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| **Accumulate**     | Auto Memory   | Turns useful conversation context into daily memory cards and keeps raw dialogue as traceable source material.      | `memory/<date>/<session_id>.md`                 |
-| **Read Resources** | Auto Resource | Turns external files into daily resource cards linked back to the original resources.                               | `memory/<date>/<resource_card>.md`              |
-| **Consolidate**    | Auto Dream    | Extracts long-term memory units from daily notes, integrates them into digest nodes, and generates interest topics. | `digest/*/*.md`, `memory/<date>/interests.yaml` |
-| **Serve**          | Proactive     | Reads interest topics and exposes them to the upper-level agent, which decides whether and how to remind the user.  | Structured proactive topics                     |
+| Capability           | Code path                                                    | Trigger                                                                                                     | Main output                                                                            |
+| -------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------- |
+| Auto Memory          | `ReMeLightMemoryManager.auto_memory()` -> ReMe `auto_memory` | `MemoryMiddleware` after every configured number of user turns, and before context compression when enabled | `mem_session/dialog/<session_id>.jsonl`, `memory/<date>/<note>.md`, `memory/<date>.md` |
+| Auto Resource        | ReMe `resource_watch_loop` -> `auto_resource`                | Embedded ReMe background watcher for `resource_dir`                                                         | `memory/<date>/<resource_note>.md`                                                     |
+| Auto Dream           | `ReMeLightMemoryManager.dream()` -> ReMe `auto_dream`        | `/dream` command or `dream_cron` scheduler                                                                  | `digest/*/*.md`, `memory/<date>/interests.yaml`                                        |
+| ReMe proactive job   | ReMe `proactive`                                             | Direct ReMe job call only                                                                                   | Metadata/content from `memory/<date>/interests.yaml`                                   |
+| QwenPaw `/proactive` | `src/qwenpaw/agents/memory/proactive`                        | `/proactive [minutes                                                                                        | on                                                                                     | off]` idle loop | A proactive chat request sent through `/api/console/chat` |
 
-This makes memory evolution a data flow rather than a single summary file: raw sessions and resources stay available, daily cards preserve what happened, digest nodes hold reusable knowledge, and proactive topics provide the bridge from memory to action.
+The important boundary is that `memory/<date>/interests.yaml` is produced by Auto Dream and can be read by ReMe's `proactive` job, but QwenPaw's current `/proactive` implementation does not call that job.
 
 ---
 
-## Memory as Files
+## File Layout
 
-ReMe stores memory directly in a workspace. Files are readable and editable by both users and agents, with frontmatter and wikilinks used for metadata and relationships.
+The embedded ReMe config comes from `src/qwenpaw/agents/memory/reme_config.py` and the user-facing defaults come from `ReMeLightMemoryConfig`.
 
 ```text
 <workspace>/
-├── mem_metadata/   # Indexes, graph data, catalogs, and persistent system state
-├── mem_session/    # Raw conversations and agent sessions
+├── mem_metadata/   # ReMe persistent state, indexes, catalogs
+├── mem_session/    # Source conversation logs used by auto-memory
 │   └── dialog/
 │       └── <session_id>.jsonl
-├── resource/       # External source materials, grouped by date
+├── mem_agent/      # Internal ReMe memory-agent sessions
+├── resource/       # External assets watched by Auto Resource
 │   └── YYYY-MM-DD/
 │       └── <resource>.<ext>
-├── memory/         # Lightly processed daily memory cards and day indexes
+├── memory/         # Daily memory notes and day indexes
 │   ├── YYYY-MM-DD.md
 │   └── YYYY-MM-DD/
-│       ├── <session_id>.md
-│       ├── <resource_card>.md
+│       ├── <note>.md
 │       └── interests.yaml
-└── digest/         # Long-term memory nodes
+└── digest/         # Long-term digest memory
     ├── personal/
     ├── procedure/
     └── wiki/
 ```
 
-The split is intentional:
-
-- `mem_session/` and `resource/` keep the original evidence.
-- `memory/` keeps concise, human-readable records for a specific day.
-- `digest/` keeps reusable long-term memory such as preferences, workflows, and knowledge.
-- `mem_metadata/` keeps indexes for search, wikilink traversal, and incremental processing.
+Default directory names are configurable through `metadata_dir`, `session_dir`, `mem_session_dir`, `resource_dir`, `daily_dir`, and `digest_dir`.
 
 ---
 
 ## Auto Memory
 
-Auto Memory is the conversation entry point. It saves the original dialogue and turns long-term valuable information into a daily memory card.
+Auto Memory is invoked by `MemoryMiddleware`, not directly on every model call. The middleware:
 
-```text
-Conversation messages
-  -> mem_session/dialog/<session_id>.jsonl
-  -> memory/<date>/<session_id>.md
-  -> memory/<date>.md
-```
+- skips automation requests whose source is `cron` or `heartbeat`;
+- optionally injects auto memory search context before model calls when `auto_memory_search_config.enabled` is true;
+- collects user-turn markers after replies;
+- flushes pending turns after `auto_memory_interval` user turns;
+- also flushes before context compression when `summarize_when_compact` is true and compression is about to happen.
 
-It records information that is likely to help future work:
+`auto_memory_interval` defaults to `5`. `None`, `0`, or a negative value disables periodic auto-memory.
 
-| Type                | Examples                                                            |
-| ------------------- | ------------------------------------------------------------------- |
-| User preferences    | Language style, collaboration habits, recurring constraints         |
-| Key facts           | Project background, important numbers, confirmed decisions          |
-| Process decisions   | What was tried, why a route was chosen, which options were rejected |
-| Current state       | What is done, what is blocked, what should happen next              |
-| Reusable experience | Commands, debugging paths, workflows, lessons learned               |
+When flushed, QwenPaw calls ReMe's `auto_memory` job with:
 
-Auto Memory does not try to rewrite the whole long-term knowledge base directly. Its job is to create a trustworthy daily layer. Later, Auto Dream decides what deserves to become durable digest memory.
+| Field         | Source                                                    |
+| ------------- | --------------------------------------------------------- |
+| `messages`    | Selected conversation messages for the pending user turns |
+| `session_id`  | Agent session id                                          |
+| `memory_hint` | Optional hint passed by caller                            |
 
-Typical integration:
+ReMe's `AutoMemoryStep` then:
 
-| Trigger                     | Purpose                                                              |
-| --------------------------- | -------------------------------------------------------------------- |
-| After-reply hook            | Capture useful conversation results while the session is still fresh |
-| Session-end or compact hook | Preserve important context before it is lost                         |
-| On-demand call              | Let an agent explicitly save a memory-relevant interaction           |
+1. validates that `session_id` is present and valid;
+2. saves or appends sanitized source messages to `mem_session/dialog/<session_id>.jsonl`;
+3. removes tool-result blocks and base64 data blocks from the saved source log;
+4. chooses the note date from an explicit date, message timestamps, or the configured timezone's current date;
+5. looks for an existing daily note whose frontmatter has the same `session_id` or `source_conversation`;
+6. creates at most one note for a new session, or updates the existing note for that session;
+7. ensures frontmatter contains `session_id` and `source_conversation`;
+8. may rename the note from frontmatter `name`;
+9. refreshes the day index at `memory/<date>.md`;
+10. returns metadata including `date`, `path`, `created`, `modified`, `n_messages`, `source_conversation`, and `index`.
+
+If the job succeeds but no note was changed, QwenPaw does not push an inbox event for `auto_memory`. Otherwise it pushes an inbox event titled `Auto-memory result`.
 
 ---
 
 ## Auto Resource
 
-Auto Resource is the resource entry point. It watches or receives changes under `resource/<date>/`, reads the source files, and creates daily resource cards.
+QwenPaw configures a ReMe background job named `resource_watch_loop`. It watches `resource_dir` and dispatches change batches to `auto_resource`.
+
+Watched suffixes are:
 
 ```text
-resource/<date>/<resource_file>
-  -> memory/<date>/<generated_name>.md
-  -> source_resource: [[resource/<date>/<resource_file>]]
-  -> memory/<date>.md
+md, txt, json, jsonl, csv, yaml, html
 ```
 
-It is designed for making files useful to memory, not just storing them. A resource card may capture:
-
-- the core content of the file;
-- its structure, fields, sections, and tables;
-- important names, dates, numbers, and conclusions;
-- why the material matters to the current work;
-- follow-up actions or deadlines.
-
-When a resource changes, Auto Resource updates the linked daily card through `source_resource`. When a resource is deleted, the corresponding daily note can be cleaned up. The original file remains in `resource/`, so the memory card stays traceable.
-
-Current ReMe Beta behavior is most suitable for text-like resources such as Markdown, text, JSON, JSONL, CSV, YAML, and HTML.
+Each change item may contain `path` or `file_path` and a `change` value such as `added`, `modified`, or `deleted`. The ReMe step interprets changed resource files into daily notes. QwenPaw pushes an `Auto-resource result` inbox event only when the job reports a real modification.
 
 ---
 
 ## Auto Dream
 
-Auto Dream is the self-evolution step. It reads changed daily inputs for a date, extracts long-term memory units, integrates them into `digest/`, and writes proactive topic candidates into `interests.yaml`.
+Auto Dream is exposed in QwenPaw through:
 
-```text
-memory/<date>.md
-memory/<date>/**/*.md
-  -> extract memory units and topic candidates
-  -> integrate memory units into digest/
-  -> write memory/<date>/interests.yaml
-```
+- `/dream [hint]`, handled by `CommandHandler._process_dream()`;
+- the scheduler configured by `dream_cron`, default `0 23 * * *`;
+- `ReMeLightMemoryManager.dream(date="", hint="")`.
 
-Digest memory is organized by memory type:
+QwenPaw runs the ReMe job named `auto_dream` with `needs_llm=True`, so the embedded ReMe app refreshes its LLM component from the active QwenPaw model before the job runs.
 
-| Digest bucket | What belongs there                                           | Evolution role          |
-| ------------- | ------------------------------------------------------------ | ----------------------- |
-| `personal/`   | User preferences, long-term facts, collaboration constraints | Personalization         |
-| `procedure/`  | Workflows, runbooks, debugging methods, lessons learned      | Reusable task execution |
-| `wiki/`       | Domain knowledge, concepts, observations, decisions          | Knowledge base          |
+The embedded job configuration uses these defaults:
 
-Auto Dream uses four stages:
+| Parameter              | Default | Meaning                                      |
+| ---------------------- | ------: | -------------------------------------------- |
+| `date`                 |    `""` | Empty means today in the configured timezone |
+| `hint`                 |    `""` | Optional user/operator hint                  |
+| `scan_days`            |     `2` | Scan target date and recent days             |
+| `max_units`            |     `5` | Maximum extracted reusable memory units      |
+| `topic_count`          |     `3` | Maximum final interest topics                |
+| `topic_diversity_days` |     `7` | Avoid repeating topics from recent days      |
 
-| Stage     | Responsibility                                                                                                             |
-| --------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Extract   | Refresh the day index, compare daily files with the dream catalog, and extract changed memory units plus topic candidates. |
-| Integrate | Search related digest nodes, then create, corroborate, refine, or correct one digest node per memory unit.                 |
-| Topics    | De-duplicate and select the day's actionable interest topics, avoiding repeated topics from recent days.                   |
-| Finish    | Checkpoint successfully processed files and return a summary of scanned, changed, integrated, and topic counts.            |
+Auto Dream runs four ReMe steps:
 
-The integration step is where memory self-evolution happens. A new unit may create a new digest node, strengthen an existing one, refine its conditions and steps, or correct outdated information. Sources are linked back with workspace-relative wikilinks such as `derived_from:: [[memory/<date>/<session>.md]]`.
+| Step                   | Actual behavior                                                                                                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `dream_extract_step`   | Refreshes day indexes, compares daily files against the dream catalog, deletes missing catalog entries, and extracts reusable memory units plus topic candidates only from changed daily inputs. |
+| `dream_integrate_step` | Integrates each extracted unit into one digest node. It uses `node_search`, `read`, `frontmatter_read`, `write`, `edit`, and `frontmatter_update`.                                               |
+| `dream_topics_step`    | Selects and de-duplicates interest topics, writes `memory/<date>/interests.yaml`, and refreshes the day index.                                                                                   |
+| `dream_finish_step`    | Upserts successful changed paths, interest files, and day indexes into the dream catalog, persists the catalog, and returns a summary.                                                           |
 
-Auto Dream does not rewrite daily notes. Daily memory remains the factual record; digest memory is the abstract, reusable layer.
+If there are no changed daily inputs, extract finishes with a no-change response. If an LLM is unavailable, extract or integrate fails because those steps require an LLM.
+
+Digest nodes are stored by bucket:
+
+| Bucket       | What belongs there                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------ |
+| `personal/`  | User, team, or project identity, preferences, conventions, constraints, and avoid-rules                |
+| `procedure/` | How-to workflows, runbooks, recipes, methods, and executable patterns                                  |
+| `wiki/`      | Definitions, principles, observations, decisions as precedent, factual claims, and catch-all knowledge |
+
+Integration actions are `CREATE`, `CORROBORATE`, `REFINE`, or `CORRECT`. The integration prompts require workspace-relative wikilinks such as `derived_from:: [[memory/<date>/<note>.md]]` so digest memory remains traceable to daily material.
+
+When Auto Dream completes, QwenPaw pushes an inbox event titled `Auto-dream result`.
 
 ---
 
-## Proactive
+## Interest Topics and ReMe Proactive Job
 
-Proactive is the reading interface for active assistance. It does not re-analyze daily files and does not call an LLM by itself. It reads:
+`dream_topics_step` writes:
 
 ```text
 memory/<date>/interests.yaml
 ```
 
-The file is generated by Auto Dream's Topics stage. A typical topic contains a title, reason, evidence, keywords, and source paths. QwenPaw can use these topics to decide whether to:
+The YAML payload contains:
 
-- remind the user about an unfinished or time-sensitive item;
-- follow up on a topic the user repeatedly cared about;
-- suggest a next step for an ongoing project;
-- retrieve fresh information before sending a proactive message.
+| Field            | Meaning                                                                     |
+| ---------------- | --------------------------------------------------------------------------- |
+| `date`           | Target date                                                                 |
+| `topic_count`    | Requested maximum topic count                                               |
+| `diversity_days` | Recent-day duplicate avoidance window                                       |
+| `topics`         | Selected topics with `title`, `reason`, `evidence`, `keywords`, and `paths` |
 
-The boundary is important: ReMe exposes what may be worth attention; QwenPaw decides whether to interrupt the user, when to do it, and how to phrase the message.
+ReMe also defines a `proactive` job implemented by `proactive_step`. That job only reads `memory/<date>/interests.yaml`. It accepts:
 
-If `interests.yaml` does not exist, Proactive treats it as a normal empty state. This usually means Auto Dream has not produced topics for that date yet.
+| Parameter         | Default | Meaning                           |
+| ----------------- | ------: | --------------------------------- |
+| `date`            |    `""` | Empty means today                 |
+| `include_content` |  `true` | Include raw YAML text in metadata |
 
----
-
-## Search and Reuse
-
-ReMe maintains indexes in the background so agents can reuse memory by search and graph traversal. The indexer watches Markdown, JSONL, and resource changes, then updates:
-
-- chunk indexes for file content;
-- BM25 keyword indexes;
-- embedding indexes for semantic recall;
-- wikilink graph indexes for relationship expansion.
-
-Retrieval can combine keyword matching, vector recall, and reciprocal-rank fusion. In QwenPaw, this means the agent can search both recent daily context and long-term digest memory instead of relying only on whatever is currently in the prompt.
+If the interests file is missing, the ReMe proactive job returns a normal skipped result.
 
 ---
 
-## Recommended Mental Model
+## QwenPaw `/proactive`
 
-Use the memory loop this way:
+QwenPaw's current `/proactive` command is implemented under `src/qwenpaw/agents/memory/proactive`. It is separate from ReMe's `proactive` job.
 
-| Step | Action                                        | Result                                                             |
-| ---- | --------------------------------------------- | ------------------------------------------------------------------ |
-| 1    | Let Auto Memory capture useful conversations. | The agent remembers what happened and why it mattered.             |
-| 2    | Put useful files under the resource flow.     | External materials become searchable daily memory.                 |
-| 3    | Let Auto Dream run regularly.                 | Daily records become durable personal, procedure, and wiki memory. |
-| 4    | Let Proactive read `interests.yaml`.          | The agent can surface timely, memory-grounded follow-ups.          |
+Command behavior:
 
-> **One-line summary**: save conversations and resources as daily evidence, distill durable knowledge into digest nodes, then use interest topics to drive proactive assistance.
+```text
+/proactive           # enable with default 30 minute idle threshold
+/proactive on        # enable with default 30 minute idle threshold
+/proactive 45        # enable with a 45 minute idle threshold
+/proactive off       # cancel the background monitoring task
+```
+
+When enabled, QwenPaw stores an in-memory `ProactiveConfig` for the session and starts a background loop. The loop:
+
+- wakes every 30 seconds;
+- skips while the agent has active tasks;
+- reads the latest chat update time;
+- waits until the session has been idle for the configured number of minutes;
+- avoids retrying more than once per 60 seconds;
+- skips if the latest message is already an unanswered `[PROACTIVE]` message;
+- runs the proactive responder.
+
+The responder builds context from recent chat sessions, not from `interests.yaml`:
+
+- reads chat metadata from `workspace.chat_manager`;
+- keeps sessions updated within the last 7 days, or the latest 5 sessions when fewer than 5 match the date window;
+- loads up to 100 recent text messages, capped at 50,000 characters;
+- filters system messages, non-text blocks, and prior proactive helper requests;
+- optionally analyzes a desktop screenshot when the active model supports multimodal input.
+
+It then asks a temporary `ProactiveAssistant` agent to extract 1 to 3 likely tasks from that context, executes up to the first 3 task queries using tools, and sends a user-facing proactive request through:
+
+```text
+POST <agent-api-base>/api/console/chat
+session_id = proactive_mode:<active_agent_id>
+text starts with "[Agent proactive_helper requesting]"
+```
+
+The final user-facing prompt instructs the agent response to begin with `[PROACTIVE]`.
+
+The command warning is accurate: proactive mode may read historical session memory and may take screenshots when multimodal screen analysis is available. The proactive agent uses tool protection bypass mode through its own temporary agent/tool setup.
+
+---
+
+## Search and Indexing
+
+The embedded ReMe app starts an `index_update_loop` background job. Search indexing watches:
+
+| Config                          | Indexed directories                       | Suffixes      |
+| ------------------------------- | ----------------------------------------- | ------------- |
+| `enable_search_raw_log = false` | `daily_dir`, `digest_dir`                 | `md`          |
+| `enable_search_raw_log = true`  | `daily_dir`, `digest_dir`, `resource_dir` | `md`, `jsonl` |
+
+The QwenPaw `memory_search` tool runs ReMe's `search` job with `query`, `limit`, and `min_score`. The job is configured as hybrid workspace search with vector recall, BM25 keyword recall, RRF fusion, and wikilink expansion. The storage backend in QwenPaw's embedded ReMe config is local.
 
 ---
 
 ## Current Status
 
-This document reflects the new ReMe file-native design used for QwenPaw's next memory-evolution integration. Compared with the earlier ReMeLight design, the main changes are:
+This document describes the current code paths:
 
-- memory is no longer centered on one `MEMORY.md` file;
-- resources are first-class memory inputs through Auto Resource;
-- long-term memory is split into `personal`, `procedure`, and `wiki` digest nodes;
-- proactive behavior is driven by `memory/<date>/interests.yaml` generated by Auto Dream;
-- search and wikilinks are part of the memory substrate rather than an optional add-on.
+- ReMeLight is implemented by `ReMeLightMemoryManager` and embedded `get_reme_app_config()`;
+- Auto Memory is turn-count based and defaults to every 5 user turns;
+- Auto Dream runs by `/dream` or `dream_cron`;
+- ReMe writes `interests.yaml`, and ReMe has a low-level reader for it;
+- QwenPaw `/proactive` currently uses recent chat/session/screen context rather than ReMe interest topics;
+- Auto Memory, Auto Resource, and Auto Dream results may be delivered to the inbox when they produce reportable output.
 
-The feature remains Beta, and exact UI switches, schedules, and product defaults may continue to change as QwenPaw integrates the new ReMe runtime.
+The feature remains Beta, but the behavior above is the behavior represented by the current code.

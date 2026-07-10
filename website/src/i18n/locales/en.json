@@ -294,6 +294,7 @@
     "backup": "Backup & Restore",
     "cli": "CLI",
     "plugins": "Plugin System",
+    "pluginsMigration": "Plugin Migration Guide",
     "architecture": "Architecture",
     "faq": "FAQ",
     "apiTutorial": "RESTful API",

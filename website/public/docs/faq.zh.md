@@ -104,10 +104,7 @@ docker run -p 127.0.0.1:8088:8088 \
   agentscope/qwenpaw:latest
 ```
 
-5. 如果你使用的是桌面版（exe/zip），目前需要卸载后重新安装：
-   - 在电脑中卸载 QwenPaw
-   - 下载最新版本：https://qwenpaw.agentscope.io/downloads
-   - 重新安装
+5. 如果你使用的是桌面版（Tauri 版），已内置应用内更新：应用启动时会自动检测新版本并在界面中提示，你可以选择「安装并重启」立即更新，或「稍后更新」在后台下载。也可从下载页手动获取最新版本：https://qwenpaw.agentscope.io/downloads
 
 升级后重启服务 qwenpaw app。
 

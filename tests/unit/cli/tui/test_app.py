@@ -9,6 +9,7 @@ from __future__ import annotations
 # pylint: disable=use-implicit-booleaness-not-comparison
 
 import asyncio
+import time
 
 import pytest
 
@@ -21,6 +22,7 @@ from qwenpaw.cli.tui.events import (
     Connected,
     FileLink,
     PermissionOption,
+    PermissionExpired,
     PermissionRequest,
     SessionSummary,
     SessionTitle,
@@ -91,6 +93,7 @@ class FakeTransport:
                 PermissionRequest(
                     request_id="r1",
                     title="dangerous_tool",
+                    tool_kind="execute",
                     params="command: rm -rf /tmp/nope",
                     options=[
                         PermissionOption("allow", "Allow", "allow_once"),
@@ -751,11 +754,24 @@ async def test_permission_overlay_resolves_with_keyboard_selection():
             if overlay.display:
                 break
         assert overlay.display
+        assert app.focused is overlay
         option_text = "\n".join(
             getattr(overlay.get_option_at_index(index).prompt, "plain", "")
             for index in range(len(overlay.options))
         )
-        assert "command: rm -rf /tmp/nope" in option_text
+        assert "Action: execute" in option_text
+        assert "Review target" in option_text
+        assert "Command: rm -rf /tmp/nope" in option_text
+        assert "Choose a session-scoped action" in option_text
+        assert "kind:" not in option_text
+        assert "parameters" not in option_text
+
+        handled_by_app: list[str] = []
+
+        async def _record_app_level_permission_key(key: str) -> None:
+            handled_by_app.append(key)
+
+        app._handle_permission_key = _record_app_level_permission_key
 
         # Down selects Deny, then Enter resolves the highlighted option.
         await pilot.press("down")
@@ -768,6 +784,146 @@ async def test_permission_overlay_resolves_with_keyboard_selection():
                 break
 
         assert transport.resolved == [("r1", "deny")]
+        assert handled_by_app == []
+
+
+@pytest.mark.asyncio
+async def test_permission_overlay_resolves_after_prompt_loses_focus():
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        prompt = app.query_one("#prompt")
+        prompt.value = "do permission thing"
+        await pilot.press("enter")
+
+        overlay = app.query_one(PermissionOverlay)
+        for _ in range(10):
+            await pilot.pause()
+            if overlay.display:
+                break
+        assert overlay.display
+
+        overlay.cursor_down()
+        assert overlay.selected == "deny"
+        app.set_focus(None)
+        assert app.focused is None
+
+        await pilot.press("enter")
+        for _ in range(10):
+            await pilot.pause()
+            if transport.resolved:
+                break
+
+        assert transport.resolved == [("r1", "deny")]
+
+
+@pytest.mark.asyncio
+async def test_permission_overlay_expires_with_message():
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._dispatch(
+            PermissionRequest(
+                request_id="r-expired",
+                title="dangerous_tool",
+                options=[
+                    PermissionOption("allow", "Allow", "allow_once"),
+                    PermissionOption("deny", "Deny", "reject_once"),
+                ],
+            ),
+        )
+        await pilot.pause()
+
+        overlay = app.query_one(PermissionOverlay)
+        assert overlay.display
+
+        await app._dispatch(
+            PermissionExpired(
+                request_id="r-expired",
+                message=(
+                    "Approval request timed out. The tool call was blocked; "
+                    "start a new request to try again."
+                ),
+            ),
+        )
+        await pilot.pause()
+
+        assert not overlay.display
+        infos = [i.content.plain for i in app.query(InfoMessage)]
+        assert any("Approval request timed out" in i for i in infos)
+
+
+@pytest.mark.asyncio
+async def test_permission_overlay_formats_approval_targets():
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._dispatch(
+            PermissionRequest(
+                request_id="r-targets",
+                title="execute_shell_command requires approval (MEDIUM)",
+                tool_kind="execute",
+                params=(
+                    "command: git status\n"
+                    "approve_exact_target: git status\n"
+                    "approve_pattern_target: git *"
+                ),
+                options=[
+                    PermissionOption(
+                        "allow_once",
+                        "Allow Exact This Session",
+                        "allow_once",
+                    ),
+                    PermissionOption(
+                        "allow_always",
+                        "Allow Pattern This Session",
+                        "allow_always",
+                    ),
+                    PermissionOption("deny", "Deny", "reject_once"),
+                ],
+            ),
+        )
+        await pilot.pause()
+
+        overlay = app.query_one(PermissionOverlay)
+        option_text = "\n".join(
+            getattr(overlay.get_option_at_index(index).prompt, "plain", "")
+            for index in range(len(overlay.options))
+        )
+        assert "Command: git status" in option_text
+        assert "Exact Target: git status" in option_text
+        assert "Pattern Target: git *" in option_text
+        assert "approve_exact_target" not in option_text
+        assert "approve_pattern_target" not in option_text
+
+
+@pytest.mark.asyncio
+async def test_permission_overlay_shows_expiry_countdown():
+    transport = FakeTransport()
+    app = PawApp(transport)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._dispatch(
+            PermissionRequest(
+                request_id="r-countdown",
+                title="dangerous_tool",
+                expires_at=time.time() + 65,
+                options=[
+                    PermissionOption("allow", "Allow", "allow_once"),
+                    PermissionOption("deny", "Deny", "reject_once"),
+                ],
+            ),
+        )
+        await pilot.pause()
+
+        overlay = app.query_one(PermissionOverlay)
+        title = overlay.get_option_at_index(0).prompt
+        assert "Approval required" in title.plain
+        assert "expires in" in title.plain
+        assert "dangerous_tool" in title.plain
 
 
 @pytest.mark.asyncio

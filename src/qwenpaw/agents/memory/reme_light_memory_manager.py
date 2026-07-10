@@ -6,15 +6,12 @@ existing agent configs continue to work, but the implementation delegates to
 ReMe's application/job framework.
 """
 
-import json
 import logging
-import uuid
 from contextlib import suppress
 from typing import Any, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
-from agentscope.message import ToolCallBlock, ToolCallState
-from agentscope.message import ToolResultBlock, ToolResultState
+from agentscope.message import ToolResultState
 from agentscope.tool import ToolChunk
 
 from .base_memory_manager import BaseMemoryManager, memory_registry
@@ -23,11 +20,6 @@ from .reme_config import get_reme_app_config
 from ..model_factory import create_model_and_formatter
 from ...app.inbox_store import append_event as append_inbox_event
 from ...config import load_config
-from ...constant import (
-    AUTO_MEMORY_SEARCH_MESSAGE_TAG,
-    AUTO_MEMORY_SEARCH_TEXT,
-    QWENPAW_MESSAGE_TAG_KEY,
-)
 from ...config.config import load_agent_config, AgentProfileConfig
 
 if TYPE_CHECKING:
@@ -36,7 +28,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MAX_QUERY_CHARS = 50
 NO_MEMORY_RESULTS = "(no memory results)"
 INBOX_RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "auto_resource"}
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
@@ -404,6 +395,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         **kwargs: Any,
     ) -> dict | None:
         """Auto-search memory and expose it as a completed tool interaction."""
+        del agent_name
         del kwargs
         agent_config = load_agent_config(self.agent_id)
         memory_cfg = agent_config.running.reme_light_memory_config
@@ -417,10 +409,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         search_cfg = memory_cfg.auto_memory_search_config
 
+        max_results = max(1, search_cfg.max_results)
         response = await self._run_reme_job(
             "search",
             query=query,
-            limit=max(1, search_cfg.max_results),
+            limit=max_results,
             min_score=0,
         )
         if response is None or not response.success:
@@ -430,46 +423,15 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not text:
             return None
 
-        tool_call_id = uuid.uuid4().hex
-        tool_input = {
-            "query": query,
-            "max_results": search_cfg.max_results,
-        }
-        assistant_msg = Msg(
-            name=agent_name or self.agent_id,
-            role="assistant",
-            metadata={
-                QWENPAW_MESSAGE_TAG_KEY: AUTO_MEMORY_SEARCH_MESSAGE_TAG,
-            },
-            content=[
-                TextBlock(text=AUTO_MEMORY_SEARCH_TEXT),
-                ToolCallBlock(
-                    id=tool_call_id,
-                    name="memory_search",
-                    input=json.dumps(tool_input, ensure_ascii=False),
-                    state=ToolCallState.FINISHED,
-                ),
-            ],
-        )
-        tool_result_msg = Msg(
-            name=agent_name or self.agent_id,
-            role="assistant",
-            metadata={
-                QWENPAW_MESSAGE_TAG_KEY: AUTO_MEMORY_SEARCH_MESSAGE_TAG,
-            },
-            content=[
-                ToolResultBlock(
-                    id=tool_call_id,
-                    name="memory_search",
-                    output=[TextBlock(text=text)],
-                    state=ToolResultState.SUCCESS,
-                ),
-            ],
+        assistant_msg = self._build_auto_memory_search_msg(
+            query=query,
+            max_results=max_results,
+            text=text,
         )
         return {
             "query": query,
             "text": text,
-            "msg": msgs + [assistant_msg, tool_result_msg],
+            "msg": msgs + [assistant_msg],
         }
 
     async def auto_memory(
@@ -478,6 +440,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         **kwargs: Any,
     ) -> None:
         """Auto-extract memory for a prepared reply batch."""
+        if not all_messages:
+            return
+        all_messages = self._messages_without_auto_memory_search(all_messages)
         if not all_messages:
             return
         session_id = str(kwargs.get("session_id") or "")
@@ -505,20 +470,3 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
         if response is not None and not response.success:
             raise RuntimeError(str(response.answer))
-
-    @staticmethod
-    def _build_query(messages: list[Msg]) -> str:
-        parts = []
-        total = 0
-        for msg in reversed(messages):
-            if msg.role not in {"user", "assistant"}:
-                continue
-            text = (msg.get_text_content() or "").strip()
-            if not text:
-                continue
-            remaining = MAX_QUERY_CHARS - total - (1 if parts else 0)
-            if remaining <= 0:
-                break
-            parts.insert(0, text[-remaining:])
-            total += min(len(text), remaining) + (1 if len(parts) > 1 else 0)
-        return " ".join(parts).strip()

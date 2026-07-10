@@ -5,11 +5,13 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Type
-from pydantic import BaseModel, Field
-from pydantic import ConfigDict
 
 from agentscope.model import ChatModelBase
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
 from qwenpaw.exceptions import ProviderError
+
+from .context_windows import DEFAULT_CONTEXT_WINDOW, resolve_context_window
 
 if TYPE_CHECKING:
     from .multimodal_prober import ProbeResult
@@ -51,7 +53,7 @@ class ModelInfo(BaseModel):
         "response. Merged into generate_kwargs unless explicitly overridden.",
     )
     max_input_length: int = Field(
-        default=128 * 1024,
+        default=DEFAULT_CONTEXT_WINDOW,
         ge=1000,
         description="Maximum input context window size (tokens). "
         "Controls when context compaction is triggered.",
@@ -61,12 +63,21 @@ class ModelInfo(BaseModel):
         description="Per-model generation parameters that override "
         "provider-level generate_kwargs.",
     )
-    preserve_thinking: bool = Field(
+    relay_reasoning: bool = Field(
         default=True,
         description="Whether to relay reasoning_content (thinking traces) "
         "back in subsequent turns. When False the formatter omits "
         "reasoning_content from assistant wire messages.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _compat_preserve_thinking(cls, data: Any) -> Any:
+        """Accept legacy ``preserve_thinking`` key as alias."""
+        if isinstance(data, dict) and "preserve_thinking" in data:
+            data.setdefault("relay_reasoning", data.pop("preserve_thinking"))
+        return data
+
     thinking_enabled: bool | None = Field(
         default=None,
         description="Tri-state thinking toggle: None=auto (don't send, "
@@ -153,6 +164,14 @@ class ProviderInfo(BaseModel):
     api_key_prefix: str = Field(
         default="",
         description="Expected prefix for the API key (e.g., 'sk-')",
+    )
+    api_key_prefixes: List[str] = Field(
+        default_factory=list,
+        description=(
+            "List of accepted API key prefixes. "
+            "When non-empty, validation accepts any prefix in this list; "
+            "otherwise it falls back to api_key_prefix."
+        ),
     )
     is_local: bool = Field(
         default=False,
@@ -327,6 +346,13 @@ class Provider(ProviderInfo, ABC):
         if "api_key_prefix" in config and config["api_key_prefix"] is not None:
             self.api_key_prefix = str(config["api_key_prefix"])
         if (
+            "api_key_prefixes" in config
+            and config["api_key_prefixes"] is not None
+        ):
+            self.api_key_prefixes = [
+                str(p) for p in config["api_key_prefixes"] if p is not None
+            ]
+        if (
             "generate_kwargs" in config
             and config["generate_kwargs"] is not None
             and isinstance(config["generate_kwargs"], dict)
@@ -437,10 +463,10 @@ class Provider(ProviderInfo, ABC):
                 ):
                     model.max_input_length = int(config["max_input_length"])
                 if (
-                    "preserve_thinking" in config
-                    and config["preserve_thinking"] is not None
+                    "relay_reasoning" in config
+                    and config["relay_reasoning"] is not None
                 ):
-                    model.preserve_thinking = bool(config["preserve_thinking"])
+                    model.relay_reasoning = bool(config["relay_reasoning"])
                 if "thinking_enabled" in config:
                     model.thinking_enabled = (
                         bool(config["thinking_enabled"])
@@ -474,12 +500,12 @@ class Provider(ProviderInfo, ABC):
                 return model
         return None
 
-    def _get_preserve_thinking(self, model_id: str) -> bool:
-        """Return the ``preserve_thinking`` flag for *model_id* (default
+    def _get_relay_reasoning(self, model_id: str) -> bool:
+        """Return the ``relay_reasoning`` flag for *model_id* (default
         True)."""
         model_info = self.get_model_info(model_id)
         if model_info is not None:
-            return model_info.preserve_thinking
+            return model_info.relay_reasoning
         return True
 
     def _get_thinking_config(
@@ -508,17 +534,41 @@ class Provider(ProviderInfo, ABC):
         support thinking are unaffected.
         """
 
-    def _get_context_size(self, model_id: str) -> int:
-        """Return the context size for *model_id* from ``ModelInfo``.
+    def _context_catalog_enabled(self) -> bool:
+        """Whether the static context-window catalog applies here.
 
-        Used when constructing AgentScope chat model instances so that
-        ``model.context_size`` (which drives automatic context compression)
-        matches the user-configured ``max_input_length``.
+        Local-serving providers (Ollama) override this to ``False``: a model
+        family's cloud window says nothing about a local serve that
+        truncates at ``num_ctx`` — assuming 262k for a local
+        ``qwen3-coder:30b`` would disable compression while the server
+        silently drops the prompt head.
+        """
+        return True
+
+    def get_context_size(self, model_id: str) -> int:
+        """Resolve the context window for *model_id*.
+
+        Feeds ``model.context_size`` (which drives automatic context
+        compression) AND the display/usage path
+        (``config.get_model_max_input_length``) — both MUST go through this
+        method so the reported usage%% and the compaction trigger never
+        diverge. Resolution lives in
+        :func:`.context_windows.resolve_context_window`:
+        explicitly configured ``max_input_length`` > static catalog (unless
+        :meth:`_context_catalog_enabled` opts out) > 128k default.
         """
         model_info = self.get_model_info(model_id)
-        if model_info is not None:
-            return model_info.max_input_length
-        return ModelInfo.model_fields["max_input_length"].default
+        return resolve_context_window(
+            model_id,
+            configured=(
+                model_info.max_input_length if model_info is not None else None
+            ),
+            use_catalog=self._context_catalog_enabled(),
+        )
+
+    def _get_context_size(self, model_id: str) -> int:
+        """Alias of :meth:`get_context_size` kept for provider internals."""
+        return self.get_context_size(model_id)
 
     @abstractmethod
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
@@ -550,11 +600,23 @@ class Provider(ProviderInfo, ABC):
 
     async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
         """Return a ProviderInfo instance with the provider's details."""
-        api_key = (
-            self.api_key_prefix + "*" * 6
-            if mock_secret and self.api_key
-            else self.api_key
-        )
+        if mock_secret and self.api_key:
+            # Determine which prefix to show in the masked key.
+            # If api_key_prefixes is set, pick the one matching the
+            # actual key; otherwise fall back to api_key_prefix.
+            prefix_for_mask = self.api_key_prefix
+            if self.api_key_prefixes:
+                prefix_for_mask = next(
+                    (
+                        p
+                        for p in self.api_key_prefixes
+                        if self.api_key.startswith(p)
+                    ),
+                    self.api_key_prefix,
+                )
+            api_key = prefix_for_mask + "*" * 6
+        else:
+            api_key = self.api_key
         # Serialize models/extra_models to plain dicts so that
         # ProviderInfo constructs fresh ModelInfo instances using
         # the class in its own module scope.  This avoids pydantic
@@ -570,6 +632,7 @@ class Provider(ProviderInfo, ABC):
             models=[m.model_dump() for m in self.models],
             extra_models=[m.model_dump() for m in self.extra_models],
             api_key_prefix=self.api_key_prefix,
+            api_key_prefixes=self.api_key_prefixes,
             is_local=self.is_local,
             is_custom=self.is_custom,
             support_model_discovery=self.support_model_discovery,

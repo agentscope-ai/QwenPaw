@@ -1,4 +1,13 @@
-import { Layout, Space, Badge, Spin, Tooltip, Dropdown, Popover } from "antd";
+import {
+  Layout,
+  Space,
+  Badge,
+  Spin,
+  Tooltip,
+  Dropdown,
+  Popover,
+  message,
+} from "antd";
 import type { MenuProps } from "antd";
 import LanguageSwitcher, {
   LANGUAGE_LIST,
@@ -23,7 +32,8 @@ import {
   compareVersions,
 } from "./constants";
 import { useTheme } from "../contexts/ThemeContext";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Slot } from "../plugins/registry/Slot";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -80,6 +90,7 @@ export default function Header() {
   const [latestVersion, setLatestVersion] = useState<string>("");
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [updateMarkdown, setUpdateMarkdown] = useState<string>("");
+  const logoClicksRef = useRef<number[]>([]);
 
   useEffect(() => {
     api
@@ -87,6 +98,34 @@ export default function Header() {
       .then((res) => setVersion(res?.version ?? ""))
       .catch(() => {});
   }, []);
+
+  // Hidden gesture: 8 rapid clicks on the logo within 3 seconds toggles DevTools
+  // in the Tauri desktop build. This keeps DevTools inaccessible via the default
+  // context menu or keyboard shortcuts while still allowing support/debugging.
+  const handleLogoClick = () => {
+    if (!onDesktop) return;
+    const now = Date.now();
+    const windowStart = now - 3000;
+    logoClicksRef.current = logoClicksRef.current.filter(
+      (time) => time > windowStart,
+    );
+    logoClicksRef.current.push(now);
+    if (logoClicksRef.current.length >= 8) {
+      logoClicksRef.current = [];
+      invoke("open_devtools")
+        .then(() => message.success("DevTools opened"))
+        .catch((err: unknown) => {
+          const errMsg =
+            err instanceof Error
+              ? err.message
+              : typeof err === "string"
+              ? err
+              : JSON.stringify(err);
+          console.error("Failed to open DevTools:", errMsg);
+          message.error(`DevTools error: ${errMsg}`);
+        });
+    }
+  };
 
   // Web-only PyPI fallback: desktop path is owned by DesktopUpdateContext.
   useEffect(() => {
@@ -297,7 +336,7 @@ export default function Header() {
   return (
     <>
       <AntHeader className={styles.header}>
-        <div className={styles.logoWrapper}>
+        <div className={styles.logoWrapper} onClick={handleLogoClick}>
           {/*
             Slot lets a plugin replace the brand logo (e.g. a per-agent
             branding override). When no plugin registers a replacement —

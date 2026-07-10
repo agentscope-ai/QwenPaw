@@ -106,10 +106,15 @@ def _get_openai_retryable() -> tuple[type[Exception], ...]:
         try:
             import openai
 
-            _openai_retryable = (
-                openai.RateLimitError,
-                openai.APITimeoutError,
-                openai.APIConnectionError,
+            _openai_retryable = tuple(
+                cls
+                for cls in (
+                    openai.RateLimitError,
+                    openai.APITimeoutError,
+                    openai.APIConnectionError,
+                    getattr(openai, "InternalServerError", None),
+                )
+                if cls is not None
             )
         except ImportError:
             _openai_retryable = ()
@@ -147,6 +152,40 @@ def _get_httpx_retryable() -> tuple[type[Exception], ...]:
     return _httpx_retryable
 
 
+def _extract_status_code(exc: Exception) -> int | None:
+    """Best-effort HTTP status extraction from SDK exceptions.
+
+    Streaming SSE errors are raised as plain ``openai.APIError`` without a
+    ``status_code`` attribute; the gateway status is often only present in
+    ``body`` (e.g. ``{"status_code": 502, "error": {...}}``).
+    """
+    status = getattr(exc, "status_code", None)
+    if status is not None:
+        try:
+            return int(status)
+        except (TypeError, ValueError):
+            pass
+
+    body = getattr(exc, "body", None)
+    if not isinstance(body, dict):
+        return None
+
+    for container in (body, body.get("error")):
+        if not isinstance(container, dict):
+            continue
+        raw = container.get("status_code")
+        if raw is None:
+            raw = container.get("code")
+        if raw is None:
+            continue
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            continue
+
+    return None
+
+
 def _is_retryable(exc: Exception) -> bool:
     """Return *True* if *exc* should trigger a retry."""
     retryable = (
@@ -157,7 +196,7 @@ def _is_retryable(exc: Exception) -> bool:
     if retryable and isinstance(exc, retryable):
         return True
 
-    status = getattr(exc, "status_code", None)
+    status = _extract_status_code(exc)
     if status is not None and status in RETRYABLE_STATUS_CODES:
         return True
 
@@ -166,7 +205,7 @@ def _is_retryable(exc: Exception) -> bool:
 
 def _is_rate_limit(exc: Exception) -> bool:
     """Return *True* if *exc* is specifically a 429 rate-limit error."""
-    return getattr(exc, "status_code", None) == 429
+    return _extract_status_code(exc) == 429
 
 
 def _is_missing_reasoning_content_error(exc: Exception) -> bool:
@@ -177,7 +216,7 @@ def _is_missing_reasoning_content_error(exc: Exception) -> bool:
     conversation history was produced by a non-reasoning model, these
     fields are absent and the API rejects the request with a 400.
     """
-    if getattr(exc, "status_code", None) != 400:
+    if _extract_status_code(exc) != 400:
         return False
     return "reasoning_content" in str(exc)
 

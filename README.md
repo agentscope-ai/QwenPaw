@@ -60,23 +60,26 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 
 ## News
 
-- [2026-06-17] **v1.1.12 — Models Page Overhaul & Simple Mode** | Redesigned Models page with provider aggregation; new Simple Mode for streamlined navigation.
+- [2026-07-09] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | An AgentScope 2.0 based ground-up rewrite delivering the Agent OS architecture, Loop Engineering, Scroll Context, ReMe4 Memory, and a bundled Terminal UI.
 
   | Highlight | What's new |
   |-----------|------------|
-  | **Models Page Overhaul** | Provider Aggregation, Unified Card UI & Layout Redesign. |
-  | **Simple Mode** | Flat nav and sorted session list by updated time. |
-  | **Non-blocking Flush** | Adaptive throttling for all channels. |
-  | **Per-Turn Token Usage** | Token and context usage popover per turn. |
-  | **Desktop Port Persistence** | Persist backend port across restarts. |
+  | **Agent OS — Workspace** | Three pillars per agent: **Resources** (transparent on disk), **Governance** (allow/deny/ask/sandbox), **Sandbox** (macOS / Linux / Windows). |
+  | **Agent OS — Drivers** | Protocol-neutral MCP / A2A / ACP connector layer with encrypted credentials and per-call policy gate. |
+  | **Loop Engineering** | Advanced agent loop templates (Coding Mode, Mission Mode, more to come) with composable approval gates. |
+  | **Scroll Context** | Every turn persisted; evicted turns indexed with on-demand recall — nothing summarized away. |
+  | **ReMe4 Memory** | Turn-based auto tracking, usage-aware search, and backend-specific embeddings. |
+  | **Terminal UI (TUI)** | Full-screen terminal chat — same agent, memory, and sessions as Console and channels. |
 
-  Also: wide mode toggle, syntax highlighting, Langfuse agent loop grouping, Gemini tool schema fix. [v1.1.12 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
+  Built on Agent OS, we will be launching out-of-box QwenPaw applications — such as **QwenPaw Creator** and **QwenPaw Insight** — stay tuned.
+
+  [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+
+- [2026-06-17] **v1.1.12 — Models Page Overhaul & Simple Mode** | Redesigned Models page with provider aggregation; new Simple Mode for streamlined navigation. [v1.1.12 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 
 - [2026-06-11] **AgentScope Platform is live** — Free QwenPaw deployment, plugin sharing, and Skill marketplace. [Try it now →](https://platform.agentscope.io/)
 
 - [2026-06-10] **v1.1.11** — Free Model OAuth, Plugin Market, MCP Tool Whitelisting. [v1.1.11 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
-
-- [2026-06-01] **v1.1.10** — Spawn Subagent, Open Directory, Tencent Yuanbao channel. [v1.1.10 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
 [All release notes →](https://qwenpaw.agentscope.io/release-notes)
 
@@ -290,20 +293,20 @@ If you're not comfortable with command-line tools, you can download and use Qwen
 
 #### Download
 
-Download the desktop app from [the official download page](https://qwenpaw.agentscope.io/downloads):
-- **Windows**: `QwenPaw-Setup-<version>.exe`
-- **macOS**: `QwenPaw-<version>-macOS.zip` (Apple Silicon recommended)
+Download the desktop app (Tauri build) from [the official download page](https://qwenpaw.agentscope.io/downloads):
+- **Windows**: `QwenPaw-Tauri-<version>-Windows-setup.exe`
+- **macOS**: `QwenPaw-Tauri-<version>-macOS.zip` (Apple Silicon recommended)
 
 #### Features
 
 - ✅ **Zero configuration**: Download and double-click to run, no need to install Python or configure environment variables
 - ✅ **Cross-platform**: Supports Windows 10+ and macOS 14+
-- ✅ **Visual interface**: Automatically opens browser interface, no need to manually enter addresses
+- ✅ **Visual interface**: Automatically opens the app window, no need to manually enter addresses
 - ⚠️ **Beta stage**: Features are continuously being improved, feedback welcome
 
 #### First Launch
 
-**Important**: The first launch may take 10-60 seconds (depending on your system configuration). The application needs to initialize the Python environment and load dependencies. Please wait patiently for the browser window to open automatically.
+**Important**: The first launch may take 10-60 seconds (depending on your system configuration). The application needs to initialize the Python environment and load dependencies. Please wait patiently for the window to open automatically.
 
 #### macOS: Bypass System Security Restrictions
 
@@ -317,7 +320,7 @@ When you download the QwenPaw macOS app from Releases, macOS may show: *"Apple c
 
 - **Remove quarantine attribute (not recommended for most users)**
   In Terminal run:
-  `xattr -cr /Applications/QwenPaw.app`
+  `xattr -cr "/Applications/QwenPaw Desktop.app"`
   (or use the path to the `.app` after unzipping). This clears the "downloaded from the internet" quarantine flag so the warning usually does not appear, but is less safe and controllable than using **Right-click → Open**.
 
 For detailed usage instructions, troubleshooting, and common issues, see the [Desktop Application Guide](https://qwenpaw.agentscope.io/docs/desktop).
@@ -384,7 +387,7 @@ QwenPaw also provides the **QwenPaw-Flash** series — purpose-trained 2B / 4B /
 
 QwenPaw includes four core security layers:
 
-- **Sandbox** — Kernel-level execution isolation using Seatbelt (macOS) and Bubblewrap / Landlock (Linux). Shell commands run inside a restricted filesystem view.
+- **Sandbox** — Kernel-level execution isolation using Seatbelt (macOS), Bubblewrap / Landlock (Linux), and AppContainer (Windows). Shell commands run inside a restricted filesystem view.
 - **Tool Guard** — YAML rule engine with `ShellEvasionGuardian` inspects every tool call before execution, detecting command injection, path traversal, reverse shells, and obfuscated attacks. Configurable approval levels: STRICT / SMART / AUTO / OFF.
 - **File Guard** — Independent of Tool Guard; blocks agent access to sensitive files and directories (default-protects `~/.qwenpaw.secret/`, `~/.ssh`, etc.).
 - **Skill Scanner** — Pre-activation scanning with block / warn / off modes and whitelist support. Detects prompt injection, hardcoded secrets, data exfiltration, and more.

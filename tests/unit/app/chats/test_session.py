@@ -57,6 +57,14 @@ def test_safe_json_loads_recovers_trailing_garbage():
     assert _safe_json_loads(content) == {"k": "v"}
 
 
+def test_safe_json_loads_recovers_leading_whitespace_and_trailing_garbage():
+    # Pretty-printed or hand-edited files may include whitespace before the
+    # recoverable object while still retaining unrelated trailing bytes.
+    content = '\n  {"k": "v"}garbage'
+
+    assert _safe_json_loads(content) == {"k": "v"}
+
+
 def test_safe_json_loads_completely_corrupted_returns_empty_dict():
     # Contract: unparseable content returns {} rather than raising. The
     # function also logs a warning, but the warning message is an

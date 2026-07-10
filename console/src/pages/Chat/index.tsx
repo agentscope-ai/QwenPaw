@@ -69,6 +69,7 @@ import {
   type QueuedChatRequestData,
 } from "./chatRequestContext";
 import { migrateInputQueueStorage } from "./inputQueueStorage";
+import { applyApprovalLevelToRequestBody } from "./approvalPayload";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -115,6 +116,7 @@ import { openExternalLink } from "../../utils/openExternalLink";
 import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import ApprovalLevelToggle, {
+  normalizeLevel,
   type ToolExecutionLevel,
 } from "./components/ApprovalLevelToggle";
 
@@ -825,7 +827,31 @@ export default function ChatPage() {
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
   const controlledSdkSessionId = sessionApi.getLibrarySessionId(chatId);
+  // Keep approval overrides stable while a local session resolves to its
+  // backend ID. This is separate from the agent-scoped SDK queue key.
+  const approvalSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
+  const [runningConfigApprovalLevel, setRunningConfigApprovalLevel] =
+    useState<ToolExecutionLevel>("AUTO");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const config = await agentApi.getAgentRunningConfig();
+        if (!cancelled) {
+          setRunningConfigApprovalLevel(normalizeLevel(config.approval_level));
+        }
+      } catch {
+        if (!cancelled) {
+          setRunningConfigApprovalLevel("AUTO");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent, refreshKey]);
 
   useEffect(() => {
     void fetchAvailableLoopSkills();
@@ -997,7 +1023,7 @@ export default function ChatPage() {
       const request = approvalRequests.get(requestId);
       if (!request) return;
 
-      const rootSessionId = window.currentSessionId || chatId || "";
+      const rootSessionId = request.rootSessionId || request.sessionId;
 
       try {
         const cardElement = document.querySelector(
@@ -1041,7 +1067,7 @@ export default function ChatPage() {
       if (!request) return;
 
       // Use currentSessionId (root session) instead of request.sessionId (sub-agent session)
-      const rootSessionId = window.currentSessionId || chatId || "";
+      const rootSessionId = request.rootSessionId || request.sessionId;
 
       try {
         // Add exit animation class
@@ -1553,11 +1579,13 @@ export default function ChatPage() {
   );
 
   const customFetch = useCallback(
-    async (data: QueuedChatRequestData & {
-      input?: Array<Record<string, unknown>>;
-      biz_params?: Record<string, unknown>;
-      signal?: AbortSignal;
-    }): Promise<Response> => {
+    async (
+      data: QueuedChatRequestData & {
+        input?: Array<Record<string, unknown>>;
+        biz_params?: Record<string, unknown>;
+        signal?: AbortSignal;
+      },
+    ): Promise<Response> => {
       const { input = [], biz_params } = data;
       const session: SessionInfo = input[input.length - 1]?.session || {};
       const requestContext = resolveChatRequestContext({
@@ -1629,14 +1657,11 @@ export default function ChatPage() {
         }
       }
 
-      // Inject session-level approval_level into request_context
-      const sessionLevel = sessionApprovalLevelRef.current;
-      if (sessionLevel) {
-        const rc =
-          (requestBody.request_context as Record<string, unknown>) || {};
-        rc.approval_level = sessionLevel;
-        requestBody.request_context = rc;
-      }
+      applyApprovalLevelToRequestBody(
+        requestBody,
+        sessionApprovalLevelRef.current,
+        runningConfigApprovalLevel,
+      );
 
       const backendChatId =
         sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
@@ -1685,7 +1710,7 @@ export default function ChatPage() {
 
       return wrapChatResponseUsageStream(response, chatRef);
     },
-    [extLists, selectedAgent],
+    [extLists, selectedAgent, runningConfigApprovalLevel],
   );
 
   const handleFileUpload = useCallback(
@@ -2076,9 +2101,10 @@ export default function ChatPage() {
         ),
         actionAffix: (
           <ApprovalLevelToggle
-            chatId={chatId}
-            onChange={(level) => {
-              sessionApprovalLevelRef.current = level;
+            sessionId={approvalSessionId}
+            runningConfigApprovalLevel={runningConfigApprovalLevel}
+            onChange={(sessionOverride) => {
+              sessionApprovalLevelRef.current = sessionOverride;
             }}
           />
         ),
@@ -2108,6 +2134,15 @@ export default function ChatPage() {
             );
           },
           customRequest: handleFileUpload,
+        },
+        longTextUpload: {
+          ...((i18nConfig as any)?.sender?.longTextUpload ?? {}),
+          customRequest: handleFileUpload,
+          prompt: () =>
+            t(
+              "chat.longTextUploadPrompt",
+              "Please read the uploaded prompt file and answer it.",
+            ),
         },
         placeholder: extPlaceholder ?? t("chat.inputPlaceholder"),
         ...(extDisclaimer !== undefined ? { disclaimer: extDisclaimer } : {}),
@@ -2361,6 +2396,8 @@ export default function ChatPage() {
     controlledSdkSessionId,
     resolveBackendSessionId,
     resolveInputQueueSessionId,
+    runningConfigApprovalLevel,
+    approvalSessionId,
     onFileCardClick,
     whisperChecked,
     whisperEnabled,

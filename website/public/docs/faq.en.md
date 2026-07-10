@@ -107,10 +107,7 @@ docker run -p 127.0.0.1:8088:8088 \
   agentscope/qwenpaw:latest
 ```
 
-5. If using the Desktop app (Windows `.exe` or macOS `.zip`), you currently need to uninstall and reinstall:
-   - Uninstall QwenPaw on your machine
-   - Download the latest build: https://qwenpaw.agentscope.io/downloads
-   - Reinstall
+5. If using the Desktop app (Tauri build), it ships with a built-in in-app updater: on startup it automatically checks for new versions and prompts you in the UI, where you can choose "Install and Restart" to update now or "Update Later" to download in the background. You can also grab the latest build manually from the download page: https://qwenpaw.agentscope.io/downloads
 
 After upgrading, restart the service with `qwenpaw app`.
 

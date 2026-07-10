@@ -85,7 +85,7 @@ Think of QwenPaw as a small operating system for agents. The "kernel" is [AgentS
   <rect x="44" y="514" width="12" height="12" rx="3" fill="#f0921f"/>
   <text x="62" y="524" font-size="11" font-weight="700" fill="#f0921f">SANDBOX · execution base</text>
   <text x="250" y="524" font-size="9.5" fill="currentColor" fill-opacity="0.6">a fresh sandbox per tool call, destroyed after</text>
-  <text x="365" y="548" text-anchor="middle" font-size="10.5" fill="currentColor">Native OS isolation — macOS seatbelt · Linux bubblewrap/landlock · Windows (in development) · or none</text>
+  <text x="365" y="548" text-anchor="middle" font-size="10.5" fill="currentColor">Native OS isolation — macOS seatbelt · Linux bubblewrap/landlock · Windows AppContainer · or none</text>
   <!-- Drivers column -->
   <rect x="722" y="248" width="158" height="336" rx="10" fill="#eb5545" fill-opacity="0.05" stroke="#eb5545" stroke-opacity="0.45"/>
   <rect x="734" y="266" width="12" height="12" rx="3" fill="#eb5545"/>
@@ -384,7 +384,7 @@ Every tool call and every external action passes through a layered trust spine b
   <line x1="683" y1="226" x2="683" y2="252" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpSecArrow)"/>
   <rect x="560" y="256" width="246" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="683" y="275" text-anchor="middle" font-size="12" fill="currentColor">Tool guard — content screening</text><text x="683" y="289" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.65">path · pattern · shell-evasion checks</text>
   <line x1="683" y1="296" x2="683" y2="320" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpSecArrow)"/>
-  <rect x="560" y="324" width="246" height="44" rx="8" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.55"/><text x="683" y="343" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Execute in native OS sandbox</text><text x="683" y="358" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.7">seatbelt · bubblewrap · landlock · none</text>
+  <rect x="560" y="324" width="246" height="44" rx="8" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.55"/><text x="683" y="343" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Execute in native OS sandbox</text><text x="683" y="358" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.7">seatbelt · bubblewrap · landlock · appcontainer · none</text>
   <!-- side: skill scanner + secrets -->
   <rect x="40" y="256" width="280" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="180" y="275" text-anchor="middle" font-size="11.5" fill="currentColor">Skill scanner — gates skill installs</text><text x="180" y="289" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">static analysis before code can run</text>
   <rect x="40" y="324" width="280" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="180" y="343" text-anchor="middle" font-size="11.5" fill="currentColor">Encrypted credential store</text><text x="180" y="357" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">provider keys &amp; connector secrets at rest</text>
@@ -394,7 +394,7 @@ The layers:
 
 - **Governance policy** — every tool call is checked against built-in rules plus your own rules and resolved to _allow_, _deny_, _ask_, or _sandbox_. The check is unavoidable because tools are wrapped before the agent can call them. An _ask_ raises an approval you answer from the Console or your IM channel.
 - **Tool guard** — screens the _content_ of an allowed call for path traversal, sensitive files, risky patterns, and shell-evasion tricks.
-- **Sandbox** — runs risky execution inside the host's native isolation: seatbelt on macOS, bubblewrap (preferred) or landlock on Linux, or none. A fresh sandbox is created per tool call with declared mounts and deny paths. Native sandboxing on Windows is still under development (see the [Roadmap](./roadmap)).
+- **Sandbox** — runs risky execution inside the host's native isolation: seatbelt on macOS, bubblewrap (preferred) or landlock on Linux, AppContainer on Windows, or none. A fresh sandbox is created per tool call with declared mounts and deny paths.
 - **Skill scanner** — statically analyzes a skill's files before installation.
 - **Encrypted secrets** — provider keys and connector credentials are encrypted at rest.
 

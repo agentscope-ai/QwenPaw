@@ -3,7 +3,7 @@
 
 Each contributor is responsible for one fragment of the system prompt.
 ``build_default_prompt_manager`` assembles a :class:`PromptManager`
-pre-loaded with all 7 contributors, ready for ``build_sync(ctx)``.
+pre-loaded with the built-in contributors, ready for ``build_sync(ctx)``.
 
 Contributors read configuration from ``ctx.extras``:
 
@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SYSTEM_PROMPT_FILES = ("AGENTS.md", "SOUL.md", "PROFILE.md")
+
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -52,10 +54,18 @@ def _read_prompt_file(workspace_dir: Path, filename: str) -> str | None:
     Returns ``None`` when the file does not exist or is empty after
     stripping.
     """
-    path = workspace_dir / filename
-    if not path.exists():
-        return None
     try:
+        workspace_root = workspace_dir.resolve()
+        path = (workspace_root / filename).resolve()
+        if path == workspace_root or not path.is_relative_to(workspace_root):
+            logger.warning(
+                "Prompt file %s resolves outside workspace, skipping",
+                filename,
+            )
+            return None
+        if not path.is_file():
+            return None
+
         from ..agents.utils.file_handling import (
             read_text_file_with_encoding_fallback,
         )
@@ -69,6 +79,22 @@ def _read_prompt_file(workspace_dir: Path, filename: str) -> str | None:
     except Exception:
         logger.warning("Failed to read %s, skipping", filename)
         return None
+
+
+def _system_prompt_files(ctx: "HookContext") -> list[str]:
+    """Return prompt files configured for the current agent.
+
+    ``None`` means the profile predates the field, so use the historical
+    defaults. An empty list is meaningful and disables workspace prompt files.
+    """
+    extras = getattr(ctx, "extras", {}) or {}
+    agent_config = extras.get("agent_config")
+    if agent_config is None:
+        return list(DEFAULT_SYSTEM_PROMPT_FILES)
+    files = getattr(agent_config, "system_prompt_files", None)
+    if files is None:
+        return list(DEFAULT_SYSTEM_PROMPT_FILES)
+    return [str(filename) for filename in files]
 
 
 def _process_heartbeat_section(content: str, enabled: bool) -> str:
@@ -179,6 +205,49 @@ class ProfileMdContributor(SyncPromptContributor):
         if not content:
             return None
         return f"# PROFILE.md\n\n{content}"
+
+
+class WorkspacePromptFilesContributor(SyncPromptContributor):
+    """Load configured workspace markdown files in UI-configured order."""
+
+    name = "workspace_prompt_files"
+    priority = 10
+
+    def contribute_sync(self, ctx: "HookContext") -> str | None:
+        wd = getattr(ctx, "workspace_dir", None)
+        if not wd:
+            return None
+
+        workspace_dir = Path(wd)
+        extras = getattr(ctx, "extras", {}) or {}
+        parts: list[str] = []
+        for filename in _system_prompt_files(ctx):
+            content = _read_prompt_file(workspace_dir, filename)
+            if not content:
+                continue
+            if filename == "AGENTS.md":
+                content = self._process_agents_md(content, extras)
+            if not content:
+                continue
+            parts.append(f"# {filename}\n\n{content}")
+        return "\n\n".join(parts) or None
+
+    @staticmethod
+    def _process_agents_md(content: str, extras: dict[str, Any]) -> str:
+        heartbeat_enabled = extras.get("heartbeat_enabled", False)
+        try:
+            content = _process_heartbeat_section(content, heartbeat_enabled)
+        except Exception as e:
+            logger.warning("Failed to process heartbeat: %s", e)
+        memory_manager = extras.get("memory_manager")
+        try:
+            content = _process_memory_section(
+                content,
+                memory_manager,
+            )
+        except Exception as e:
+            logger.warning("Failed to process memory section: %s", e)
+        return content
 
 
 class MultimodalHintContributor(SyncPromptContributor):
@@ -296,9 +365,7 @@ class DriverPolicyHintContributor(SyncPromptContributor):
 
 _ALL_CONTRIBUTORS = (
     AgentIdentityContributor,
-    AgentsMdContributor,
-    SoulMdContributor,
-    ProfileMdContributor,
+    WorkspacePromptFilesContributor,
     MultimodalHintContributor,
     CodingModeContributor,
     ScrollContextContributor,
@@ -320,6 +387,7 @@ __all__ = [
     "AgentsMdContributor",
     "SoulMdContributor",
     "ProfileMdContributor",
+    "WorkspacePromptFilesContributor",
     "MultimodalHintContributor",
     "CodingModeContributor",
     "ScrollContextContributor",

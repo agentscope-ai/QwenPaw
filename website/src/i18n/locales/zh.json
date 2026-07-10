@@ -294,6 +294,7 @@
     "backup": "备份与恢复",
     "cli": "CLI",
     "plugins": "插件系统",
+    "pluginsMigration": "插件迁移指南",
     "architecture": "架构设计",
     "faq": "常见问题",
     "apiTutorial": "RESTful API 接口",
