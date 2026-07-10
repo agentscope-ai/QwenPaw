@@ -167,11 +167,70 @@ def _resolve_search_root(
     return search_root
 
 
+def _append_output_line(
+    matches: list[str],
+    total_chars: int,
+    line: str,
+) -> tuple[bool, int]:
+    """Append *line* to *matches* if limits allow."""
+    if len(matches) >= _MAX_MATCHES:
+        return False, total_chars
+    projected_total = total_chars + len(line) + 1
+    if projected_total > _MAX_OUTPUT_CHARS:
+        return False, total_chars
+    matches.append(line)
+    return True, projected_total
+
+
+def _format_grep_line(
+    disp_path: str,
+    ln: int,
+    content: str,
+    is_hit: bool,
+    *,
+    show_file: bool,
+) -> str:
+    prefix = ">" if is_hit else " "
+    if show_file:
+        return f"{disp_path}:{ln}:{prefix} {content}"
+    return f"{ln}:{prefix} {content}"
+
+
+def _emit_file_header_if_needed(
+    disp_path: str,
+    *,
+    show_file: bool,
+    single_file: bool,
+    headers_emitted: set[str],
+    matches: list[str],
+    total_chars: int,
+) -> tuple[bool, int]:
+    """Emit a file header when *show_file* is False and multiple files match."""
+    if show_file or single_file or disp_path in headers_emitted:
+        return True, total_chars
+
+    if headers_emitted and not (matches and matches[-1] == "---"):
+        success, total_chars = _append_output_line(matches, total_chars, "---")
+        if not success:
+            return False, total_chars
+
+    success, total_chars = _append_output_line(matches, total_chars, disp_path)
+    if not success:
+        return False, total_chars
+
+    headers_emitted.add(disp_path)
+    return True, total_chars
+
+
 def _emit_match_entries(
     entries: list[tuple[int, str, bool]],
     disp_path: str,
     matches: list[str],
     total_chars: int,
+    *,
+    show_file: bool,
+    single_file: bool,
+    headers_emitted: set[str],
 ) -> tuple[bool, int]:
     """Append a batch of context entries to matches.
 
@@ -189,16 +248,31 @@ def _emit_match_entries(
         Tuple of (success, new_total_chars). Success is True if all entries
         were appended, False if limits were reached.
     """
+    if not entries:
+        return True, total_chars
+
+    success, total_chars = _emit_file_header_if_needed(
+        disp_path,
+        show_file=show_file,
+        single_file=single_file,
+        headers_emitted=headers_emitted,
+        matches=matches,
+        total_chars=total_chars,
+    )
+    if not success:
+        return False, total_chars
+
     for ln, content, is_hit in entries:
-        if len(matches) >= _MAX_MATCHES:
+        entry = _format_grep_line(
+            disp_path,
+            ln,
+            content,
+            is_hit,
+            show_file=show_file,
+        )
+        success, total_chars = _append_output_line(matches, total_chars, entry)
+        if not success:
             return False, total_chars
-        prefix = ">" if is_hit else " "
-        entry = f"{disp_path}:{ln}:{prefix} {content}"
-        projected_total = total_chars + len(entry) + 1
-        if projected_total > _MAX_OUTPUT_CHARS:
-            return False, total_chars
-        total_chars = projected_total
-        matches.append(entry)
 
     return True, total_chars
 
@@ -210,6 +284,10 @@ def _output_context_for_hit(
     context_lines: int,
     matches: list[str],
     total_chars: int,
+    *,
+    show_file: bool,
+    single_file: bool,
+    headers_emitted: set[str],
 ) -> tuple[bool, int]:
     """Output context lines around a hit.
 
@@ -255,19 +333,18 @@ def _output_context_for_hit(
         display_path,
         matches,
         total_chars,
+        show_file=show_file,
+        single_file=single_file,
+        headers_emitted=headers_emitted,
     )
     if not success:
         return False, total_chars
 
     # Append separator if needed
     if context_lines > 0:
-        if len(matches) >= _MAX_MATCHES:
+        success, total_chars = _append_output_line(matches, total_chars, "---")
+        if not success:
             return False, total_chars
-        projected_total = total_chars + 4
-        if projected_total > _MAX_OUTPUT_CHARS:
-            return False, total_chars
-        matches.append("---")
-        total_chars = projected_total
 
     return True, total_chars
 
@@ -283,6 +360,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
     context_lines: int,
     cancel: threading.Event,
     include_pattern: "str | None",
+    show_file: bool = True,
 ) -> tuple[list[str], str]:
     """Walk *search_root*, grep every text file, return ``(lines, status)``.
 
@@ -296,6 +374,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
     matches: list[str] = []
     total_chars = 0
     status = "ok"
+    headers_emitted: set[str] = set()
 
     if single_file:
         file_iter: list[Path] = [search_root]
@@ -373,6 +452,9 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                                 context_lines,
                                 matches,
                                 total_chars,
+                                show_file=show_file,
+                                single_file=single_file,
+                                headers_emitted=headers_emitted,
                             )
                             if not success:
                                 status = (
@@ -395,6 +477,9 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                                 context_lines,
                                 matches,
                                 total_chars,
+                                show_file=show_file,
+                                single_file=single_file,
+                                headers_emitted=headers_emitted,
                             )
                             if not success:
                                 status = (
@@ -423,6 +508,9 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                         context_lines,
                         matches,
                         total_chars,
+                        show_file=show_file,
+                        single_file=single_file,
+                        headers_emitted=headers_emitted,
                     )
                     if not success:
                         status = (
@@ -489,9 +577,15 @@ async def grep_search(
     case_sensitive: bool = True,
     context_lines: int = 0,
     include_pattern: Optional[str] = None,
+    show_file: bool = True,
 ) -> ToolChunk:
     """Search file contents by pattern, recursively. Relative paths resolve
     from WORKING_DIR. Output format: ``path:line_number: content``.
+
+    When *show_file* is False, each match line omits the file path prefix
+    (``line_number:> content``).  For multi-file searches, the file path
+    is printed once before that file's matches, with ``---`` separating
+    file groups.
 
     Args:
         pattern (`str`):
@@ -508,6 +602,10 @@ async def grep_search(
         include_pattern (`str`, optional):
             Only search files whose **name** matches this glob
             (e.g. ``"*.py"``).  Defaults to None (all text files).
+        show_file (`bool`, optional):
+            Include the file path on every output line.  Defaults to True.
+            When False, multi-file results group matches by file with the
+            path shown once per file and ``---`` between file groups.
     """
     if not pattern:
         return _make_response("Error: No search `pattern` provided.")
@@ -536,6 +634,7 @@ async def grep_search(
                 context_lines,
                 cancel,
                 include_pattern,
+                show_file,
             )
         except Exception as exc:
             return [], f"error: {exc}"

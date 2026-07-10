@@ -477,7 +477,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return
 
         # Model produced text (wants to stop).
-        if stop_result.action == StopAction.CONTINUE:
+        if stop_result.action == StopAction.INTERRUPT_AND_CONTINUE:
             logger.info(
                 "Stop handler BLOCKED exit: %s",
                 stop_result.reason,

@@ -80,6 +80,7 @@ def _assert_request_time_stripped(formatter_class) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         original,
         formatter_class,
@@ -137,6 +138,7 @@ def test_multimodal_support_preserves_media(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         original,
         OpenAIChatFormatter,
@@ -163,6 +165,7 @@ def test_force_strip_media_flag_overrides_multimodal_support(
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         original,
         OpenAIChatFormatter,
@@ -182,6 +185,7 @@ def test_formatter_flags_returned_correctly() -> None:
         _normalized,
         is_anthropic,
         is_gemini,
+        is_response,
     ) = model_factory._normalize_messages_for_formatter(
         msgs,
         OpenAIChatFormatter,
@@ -190,6 +194,7 @@ def test_formatter_flags_returned_correctly() -> None:
 
     assert is_anthropic is False
     assert is_gemini is False
+    assert is_response is False
 
 
 def test_anthropic_flag_detected(monkeypatch) -> None:
@@ -210,6 +215,7 @@ def test_anthropic_flag_detected(monkeypatch) -> None:
         _normalized,
         is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         msgs,
         AnthropicChatFormatter,
@@ -237,6 +243,7 @@ def test_gemini_flag_detected(monkeypatch) -> None:
         _normalized,
         _is_anthropic,
         is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         msgs,
         GeminiChatFormatter,
@@ -261,6 +268,7 @@ def test_original_messages_not_modified_by_formatter_prep() -> None:
         _normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         [original],
         OpenAIChatFormatter,
@@ -311,6 +319,7 @@ def test_openai_formatter_strips_extra_content(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         _messages_with_extra_content(),
         OpenAIChatFormatter,
@@ -339,6 +348,7 @@ def test_anthropic_formatter_strips_extra_content(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         _messages_with_extra_content(),
         AnthropicChatFormatter,
@@ -368,6 +378,7 @@ def test_gemini_formatter_preserves_extra_content(monkeypatch) -> None:
         _normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         msgs,
         GeminiChatFormatter,
