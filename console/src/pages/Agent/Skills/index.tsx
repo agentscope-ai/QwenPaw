@@ -317,7 +317,7 @@ function SkillsPage() {
             </div>
           )}
 
-          {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+          {hasMore && <div ref={sentinelRef} style={{ height: 1, minHeight: 1, flexShrink: 0 }} />}
         </>
       )}
 
