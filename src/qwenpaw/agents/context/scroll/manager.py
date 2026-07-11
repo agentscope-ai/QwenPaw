@@ -21,6 +21,7 @@ import asyncio
 import logging
 import re
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -252,7 +253,11 @@ class ScrollContextManager:
         except Exception:  # noqa: BLE001 - archive is best-effort
             logger.warning("scroll dialog offload failed", exc_info=True)
 
-    async def compress(self, agent: Any, context_config: Any = None) -> None:
+    async def compress(  # pylint: disable=too-many-statements
+        self,
+        agent: Any,
+        context_config: Any = None,
+    ) -> None:
         """Evict the middle into the index; roll the index up under pressure.
 
         A single pressure pipeline — step 5 engages while the context still
@@ -277,6 +282,28 @@ class ScrollContextManager:
         """
         cfg = context_config or agent.context_config
         self.last_compress = {"evicted": 0, "compacted": 0, "folded": 0}
+        t0 = time.perf_counter()
+        stage_t0 = t0
+        timings: dict[str, float] = {}
+
+        def mark(stage: str) -> None:
+            nonlocal stage_t0
+            now = time.perf_counter()
+            timings[stage] = timings.get(stage, 0.0) + now - stage_t0
+            stage_t0 = now
+
+        def log_timings(outcome: str) -> None:
+            total = time.perf_counter() - t0
+            parts = " ".join(
+                f"{name}={elapsed * 1000:.1f}ms"
+                for name, elapsed in timings.items()
+            )
+            logger.info(
+                "scroll: compact timing outcome=%s total=%.1fms %s",
+                outcome,
+                total * 1000,
+                parts,
+            )
 
         # 1) Durability first — everything in the window is now in the DB. If
         #    the write-through failed (degraded durability), do NOT evict: the
@@ -284,18 +311,25 @@ class ScrollContextManager:
         #    rows that don't exist. Keep it live instead. Offloaded to a worker
         #    thread so the whole-window persist never blocks the event loop.
         if not await self._persist_guarded_async(agent):
+            mark("persist")
+            log_timings("persist_failed")
             return
+        mark("persist")
 
         # 2) Trigger check (reuse AgentScope's own token accounting). The
         #    count is kept — while nothing below rebuilds the context it is
         #    still exact, so the steady state pays ONE count per compress.
         kwargs = await as_internals.prepare_model_input(agent)
+        mark("prepare_input")
         trigger = cfg.trigger_ratio * agent.model.context_size
         tokens = await agent.model.count_tokens(**kwargs)
+        mark("count_tokens")
         if tokens < trigger:
             self._overflow_warned = False
+            log_timings("below_trigger")
             return
         if len(agent.state.context) <= 1:
+            log_timings("single_message")
             return
 
         # 3) Pairing-safe split; keep the recent tail, evict the middle.
@@ -305,6 +339,7 @@ class ScrollContextManager:
             reserve,
             kwargs.get("tools", []),
         )
+        mark("split")
         real = lambda msgs: [
             m for m in msgs if m.id not in self._synthetic_ids
         ]
@@ -329,6 +364,11 @@ class ScrollContextManager:
             # full live Msg from the context.
             tail = [m for m in tail if m.id not in active_ids]
             tail.extend(active_tail)
+        middle, tail = self._repair_dangling_user_boundary(
+            middle,
+            tail,
+            active_ids,
+        )
 
         if middle:
             # 3b) Optional legacy archive of the evicted turns (opt-in). The
@@ -336,13 +376,17 @@ class ScrollContextManager:
             #     redundant dialog/*.jsonl copy for external consumers. A
             #     write failure must never abort compaction.
             await self._offload_dialog(middle)
+            mark("offload_dialog")
 
             # 4) Fold the evicted middle into the index as a new Tier 0
             #    block.
             await self._index_evicted(agent, middle)
+            mark("index_evicted")
             self._rebuild_context(agent, tail)
+            mark("rebuild_context")
             self.last_compress["evicted"] = len(middle)
             tokens = await self._live_tokens(agent)
+            mark("live_tokens")
 
         # 5) Pressure-triggered compaction: shrink the index one step at a
         #    time until we fit (or it collapses to a single line). Always
@@ -350,16 +394,20 @@ class ScrollContextManager:
         #    empty middle must not leave an already-built index uncompacted.
         while tokens > reserve and self._index.compact():
             self._rebuild_context(agent, tail)
+            mark("compact_index")
             self.last_compress["compacted"] += 1
             tokens = await self._live_tokens(agent)
+            mark("live_tokens")
 
         compacted_results = self._compact_live_tool_results(agent)
+        mark("compact_tool_results")
         if compacted_results:
             logger.info(
                 "scroll: compacted %d live tool result preview(s)",
                 compacted_results,
             )
             tokens = await self._live_tokens(agent)
+            mark("live_tokens")
 
         # 6) Last resort — even with the middle evicted and the index
         #    compacted, the window is STILL past the compression trigger, so
@@ -372,9 +420,11 @@ class ScrollContextManager:
         #    ordinary long chats.
         if tokens > trigger:
             folded = self._fold_active_turn_results(agent)
+            mark("fold_active_turn")
             if folded:
                 self.last_compress["folded"] = folded
                 tokens = await self._live_tokens(agent)
+                mark("live_tokens")
         if tokens > trigger:
             # Once per overflow episode, not once per reasoning step — the
             # stuck state repeats every step until the turn ends.
@@ -388,6 +438,7 @@ class ScrollContextManager:
                 )
         else:
             self._overflow_warned = False
+        log_timings("done")
 
     async def _live_tokens(self, agent: Any) -> int:
         """Token count of the live context as the model would receive it."""
@@ -643,6 +694,46 @@ class ScrollContextManager:
                 if getattr(m, "id", None) not in self._synthetic_ids
             ]
         return []
+
+    def _repair_dangling_user_boundary(
+        self,
+        middle: list[Msg],
+        tail: list[Msg],
+        active_ids: set[str],
+    ) -> tuple[list[Msg], list[Msg]]:
+        """Avoid evicting only the user half of a completed exchange.
+
+        AgentScope's token split optimizes for a recent-tail token budget, so
+        it can place a user request at the end of ``middle`` while keeping the
+        corresponding assistant reply at the front of ``tail``. That is a poor
+        scroll boundary: user rows do not carry headlines, so the eviction
+        index must call the model to label a user-only span, and the live
+        window keeps an answer whose question was just archived. Pull the
+        leading non-user reply block(s) into ``middle`` unless they belong to
+        the active turn, preserving completed exchanges as the unit of
+        eviction. ``reserve`` is a soft target; semantic boundaries win.
+        """
+        if not middle or not tail:
+            return middle, tail
+        if getattr(middle[-1], "role", None) != "user":
+            return middle, tail
+
+        moved: list[Msg] = []
+        rest = list(tail)
+        while rest:
+            msg = rest[0]
+            mid = getattr(msg, "id", None)
+            if mid in active_ids or getattr(msg, "role", None) == "user":
+                break
+            moved.append(rest.pop(0))
+        if not moved:
+            return middle, tail
+        logger.info(
+            "scroll: moved %d reply msg(s) across split boundary to avoid "
+            "user-only eviction",
+            len(moved),
+        )
+        return [*middle, *moved], rest
 
     def _fold_active_turn_results(self, agent: Any) -> int:
         """Stub the active turn's completed tool results in place; returns

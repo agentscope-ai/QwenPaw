@@ -48,8 +48,11 @@ plus your earlier sessions. Pick an op:
     k to cast a wide net: query="tank OR aquarium OR goldfish", k=20. Your
     current in-progress turn is never a hit — it is already in front of you.
     Optional: kind="model_turn"/"tool_result"; all_agents=true to span every
-    agent; session_id/agent_id to pin a specific one (take precedence).
+    agent; session_id/agent_id to pin a specific one (take precedence). If a
+    large tool result was saved outside the DB, search can return a saved tool
+    output match with file_path and nearby matching lines.
   • op="recall_tool", tool_call_id="call_abc" — a tool call and its result.
+    For truncated large outputs, this also reports the saved full-output file.
 
 Rows come back with their seq so you can expand further. Commit an answer
 only from FULL turn text (expand/search return it), never from a headline

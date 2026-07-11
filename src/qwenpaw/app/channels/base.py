@@ -1028,20 +1028,18 @@ class BaseChannel(ABC):
         except Exception:  # noqa: BLE001 - fall back to the unstripped data
             return fallback
 
-        def walk(node: Any) -> None:
+        def walk(node: Any) -> Any:
+            if isinstance(node, str):
+                return strip_headline(node)
             if isinstance(node, dict):
-                if node.get("type") == "text" and isinstance(
-                    node.get("text"),
-                    str,
-                ):
-                    node["text"] = strip_headline(node["text"])
-                for value in node.values():
-                    walk(value)
-            elif isinstance(node, list):
-                for value in node:
-                    walk(value)
+                for key, value in list(node.items()):
+                    node[key] = walk(value)
+                return node
+            if isinstance(node, list):
+                return [walk(value) for value in node]
+            return node
 
-        walk(payload)
+        payload = walk(payload)
         return json.dumps(payload, ensure_ascii=False, default=str)
 
     def _serialize_event_for_sse(self, event: Any) -> str:

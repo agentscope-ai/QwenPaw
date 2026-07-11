@@ -393,6 +393,36 @@ async def test_compress_keeps_active_turn_live(store: HistoryStore):
     assert names.index("memory") < live_ids.index(cur_u.id)
 
 
+async def test_compress_does_not_evict_user_only_exchange_boundary(
+    store: HistoryStore,
+):
+    """If the split lands between an old user request and its assistant
+    reply, pull the reply into the evicted middle. Otherwise scroll archives a
+    user-only span, misses the existing assistant headline, and has to call
+    the model just to label the index."""
+    old_u = user("generate a long fixture")
+    old_a = assistant("fixture generated", headline="FIXTURE GENERATED")
+    cur_u = user("summarize it")
+    cur_a = assistant("summary", headline="SUMMARY")
+    ctx = [old_u, old_a, cur_u, cur_a]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    agent = FakeAgent(ctx, tokens=200)
+    agent._split_return = ([old_u], [old_a, cur_u, cur_a])
+
+    async def fail_summarize(*args, **kwargs):
+        raise AssertionError("user-only fallback summarization should not run")
+
+    mgr._summarize_span = fail_summarize
+
+    await mgr.compress(agent)
+
+    rendered = mgr._index.render()
+    assert "FIXTURE GENERATED" in rendered
+    assert old_a.id not in {m.id for m in agent.state.context}
+    assert cur_u.id in {m.id for m in agent.state.context}
+    assert cur_a.id in {m.id for m in agent.state.context}
+
+
 def continuation_stub(text: str = "Continue working on the task.") -> Msg:
     """The user-role stub loop gates / stop handlers inject mid-turn."""
     from qwenpaw.constant import (

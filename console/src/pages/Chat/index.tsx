@@ -541,11 +541,106 @@ function renderSuggestionLabel(command: string, description?: string) {
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
 const WIDE_MODE_STORAGE_KEY = "qwenpaw_chat_wide_mode";
+const HEADLINE_START_RE = /<!--\s*[⟦〚]/;
+const HEADLINE_CLOSE_RE = /[⟧〛]\s*-->/;
+const HEADLINE_LINE_RE =
+  /^[ \t]*(?:<!--)?[ \t]*[⟦〚][ \t]*(.+?)[ \t]*[⟧〛][ \t]*(?:-->)?[ \t]*$/gm;
+
+type HeadlineStreamFilterState = {
+  pending: string;
+  suppressing: boolean;
+};
 
 function isSkillAvailableInConsole(skill: SkillSpec): boolean {
   if (!skill.enabled) return false;
   const channels = skill.channels?.length ? skill.channels : ["all"];
   return channels.includes("all") || channels.includes(DEFAULT_CHANNEL);
+}
+
+function stripScrollHeadlines(text: string): string {
+  return text
+    .replace(HEADLINE_LINE_RE, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function findPotentialHeadlineStart(text: string): number {
+  const commentStart = text.lastIndexOf("<!--");
+  if (commentStart >= 0 && !HEADLINE_START_RE.test(text.slice(commentStart))) {
+    return commentStart;
+  }
+
+  const prefixes = ["<!--", "<!-", "<!", "<"];
+  for (const prefix of prefixes) {
+    if (text.endsWith(prefix)) {
+      return text.length - prefix.length;
+    }
+  }
+  return -1;
+}
+
+function filterHeadlineDelta(
+  delta: string,
+  state: HeadlineStreamFilterState,
+): string {
+  let text = state.pending + delta;
+  state.pending = "";
+  let out = "";
+
+  while (text) {
+    if (state.suppressing) {
+      const close = HEADLINE_CLOSE_RE.exec(text);
+      if (!close) {
+        return out;
+      }
+      text = text.slice(close.index + close[0].length);
+      state.suppressing = false;
+      continue;
+    }
+
+    const start = HEADLINE_START_RE.exec(text);
+    if (start) {
+      out += text.slice(0, start.index);
+      text = text.slice(start.index + start[0].length);
+      state.suppressing = true;
+      continue;
+    }
+
+    const potentialStart = findPotentialHeadlineStart(text);
+    if (potentialStart >= 0) {
+      out += text.slice(0, potentialStart);
+      state.pending = text.slice(potentialStart);
+      return out;
+    }
+
+    out += text;
+    return out;
+  }
+
+  return out;
+}
+
+function sanitizeHeadlinePayload(
+  node: unknown,
+  streamState: HeadlineStreamFilterState,
+): void {
+  if (!node || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    node.forEach((item) => sanitizeHeadlinePayload(item, streamState));
+    return;
+  }
+
+  const record = node as Record<string, unknown>;
+  if (typeof record.delta === "string") {
+    record.delta = filterHeadlineDelta(record.delta, streamState);
+  }
+  if (record.type === "text" && typeof record.text === "string") {
+    record.text = stripScrollHeadlines(record.text);
+  }
+
+  Object.values(record).forEach((value) =>
+    sanitizeHeadlinePayload(value, streamState),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1142,6 +1237,10 @@ export default function ChatPage() {
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
+  const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>({
+    pending: "",
+    suppressing: false,
+  });
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
   const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
   const queueSessionIdRef = useRef(queueSessionId);
@@ -2316,6 +2415,8 @@ export default function ChatPage() {
         }
       }
 
+      headlineStreamFilterRef.current = { pending: "", suppressing: false };
+
       const response = await fetch(getApiUrl("/console/chat"), {
         method: "POST",
         headers,
@@ -2865,8 +2966,13 @@ export default function ChatPage() {
         fetch: customFetch,
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
+          sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
           if (payloadCompletesResponse(payload)) {
+            headlineStreamFilterRef.current = {
+              pending: "",
+              suppressing: false,
+            };
             const output = payload.output;
             if (!output || (Array.isArray(output) && output.length === 0)) {
               const errorMsg =
@@ -2922,6 +3028,7 @@ export default function ChatPage() {
           };
 
           const reconnectIdentity = sessionApi.getSessionIdentity();
+          headlineStreamFilterRef.current = { pending: "", suppressing: false };
           const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
             headers,

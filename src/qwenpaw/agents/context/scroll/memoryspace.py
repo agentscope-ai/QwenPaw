@@ -40,6 +40,9 @@ _RECALL_EXCL_PLACEHOLDERS = ", ".join("?" for _ in _RECALL_TOOL_NAMES)
 _SYNTHETIC_USER_TAGS = ("loop_continuation", "auto_continue")
 
 _DATE_RE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
+_SAVED_TOOL_FILE_RE = re.compile(
+    r"call `read_file` with file_path=(.+?)\s+start_line=(\d+)",
+)
 
 _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 # FTS5's boolean operators are UPPERCASE-only; we pass these through bare so a
@@ -154,6 +157,7 @@ class MemorySpace:
         self._agent_id = agent_id
         self._session_suffix = sanitize_suffix(session_id)
         self._fts_ok: bool | None = None  # cached FTS5-availability check
+        self._history_root: Path | None = None
         # Cached active-turn floor. ``hist`` is attached read-only, so
         # MAX(seq) can't change over this instance's life — compute it once.
         # A separate flag distinguishes "not computed yet" from a real
@@ -162,6 +166,7 @@ class MemorySpace:
         self._floor_computed: bool = False
         if history_db_path is not None:
             abs_path = Path(history_db_path).expanduser().resolve()
+            self._history_root = abs_path.parent
             self._conn.execute(
                 "ATTACH DATABASE ? AS hist",
                 (f"file:{abs_path}?mode=ro",),
@@ -259,12 +264,13 @@ class MemorySpace:
         if not all_agents and self._agent_id:
             where.append("agent_id = ?")
             params.append(self._agent_id)
-        return self._select(
+        rows = self._select(
             "SELECT seq, kind, role, name, tool_input, tool_state, content "
             "FROM hist.conversation_history "
             "WHERE " + " AND ".join(where) + " ORDER BY seq",
             tuple(params),
         )
+        return self._attach_saved_tool_file_matches(rows, "")
 
     def sessions(
         self,
@@ -443,7 +449,7 @@ class MemorySpace:
         k: int = 10,
     ) -> list[dict]:
         """Full-text search over ``hist.conversation_history`` content
-        (FTS5).
+        (FTS5), with saved tool-output file fallback.
 
         Returns up to ``k`` rows ranked by relevance (bm25), each a dict with
         keys: ``seq``, ``session_id``, ``kind``, ``role``, ``name``,
@@ -453,7 +459,11 @@ class MemorySpace:
         all its sessions. Pass ``all_agents=True`` to span every agent, or pin
         a *specific* conversation / agent with ``session_id='cron:<job>'``
         and/or ``agent_id='<other>'`` (these AND-combine and take precedence).
-        ``kind`` optionally filters by row kind. The query is plain text:
+        ``kind`` optionally filters by row kind. If matching content lives in
+        a saved full tool-output file (because the history row only retained a
+        truncated preview), search can return a ``tool_result`` row whose
+        content is a small excerpt around the matching saved-file line, plus
+        the file path. The query is plain text:
         punctuation is treated as word separators (so ``C++`` searches the
         term ``C``), not FTS5 operators. Falls back to a LIKE scan if this
         SQLite lacks FTS5 or the query has no word tokens.
@@ -499,7 +509,7 @@ class MemorySpace:
         )
         params.append(int(k))
         try:
-            return [
+            rows = [
                 {kk: r[kk] for kk in r.keys()}
                 for r in self._conn.execute(sql, params)
             ]
@@ -507,6 +517,16 @@ class MemorySpace:
             # Backstop: any residual MATCH-grammar edge case the sanitizer
             # missed degrades to LIKE rather than crashing the recall call.
             return self._search_like(query, targets, kind, int(k))
+        if kind not in (None, "tool_result") or len(rows) >= int(k):
+            return rows
+        rows.extend(
+            self._search_saved_tool_files(
+                query,
+                targets,
+                limit=max(0, int(k) - len(rows)),
+            ),
+        )
+        return rows
 
     def _fts_available(self) -> bool:
         """True iff the read-only history DB has the FTS5 index table."""
@@ -554,6 +574,14 @@ class MemorySpace:
             {kk: r[kk] for kk in r.keys()}
             for r in self._conn.execute(sql, params)
         ]
+        if kind in (None, "tool_result") and len(rows) < int(k):
+            rows.extend(
+                self._search_saved_tool_files(
+                    query,
+                    targets,
+                    limit=max(0, int(k) - len(rows)),
+                ),
+            )
         # If this is the *FTS-unavailable* fallback (not just an
         # all-punctuation query on an FTS-capable build), tell the model its
         # search degraded:
@@ -563,6 +591,187 @@ class MemorySpace:
         if not self._fts_available():
             rows.insert(0, self._like_notice())
         return rows
+
+    def _saved_tool_candidates(
+        self,
+        targets: list[tuple[str, str]],
+        *,
+        limit: int = 200,
+    ) -> list[dict]:
+        """Tool-result rows whose truncated preview points at a saved file."""
+        where = [
+            "kind = 'tool_result'",
+            "content LIKE '%call `read_file` with file_path=%'",
+            f"(name IS NULL OR name NOT IN ({_RECALL_EXCL_PLACEHOLDERS}))",
+        ]
+        params: list = [*_RECALL_TOOL_NAMES]
+        excl = self._active_turn_exclusion()
+        if excl:
+            where.append(excl[0])
+            params.extend(excl[1])
+        for col, val in targets:
+            where.append(f"{col} = ?")
+            params.append(val)
+        sql = (
+            "SELECT seq, session_id, kind, role, name, headline, "
+            "tool_call_id, content FROM hist.conversation_history "
+            "WHERE " + " AND ".join(where) + " ORDER BY seq DESC LIMIT ?"
+        )
+        params.append(int(limit))
+        return [
+            {kk: r[kk] for kk in r.keys()}
+            for r in self._conn.execute(sql, params)
+        ]
+
+    def _search_saved_tool_files(
+        self,
+        query: str,
+        targets: list[tuple[str, str]],
+        *,
+        limit: int,
+    ) -> list[dict]:
+        """Search full saved tool-result files referenced by history rows."""
+        if limit <= 0:
+            return []
+        needles = self._query_needles(query)
+        if not needles:
+            return []
+        rows: list[dict] = []
+        seen: set[tuple[int, int]] = set()
+        for row in self._saved_tool_candidates(targets):
+            path = self._saved_tool_path(row.get("content"))
+            if path is None:
+                continue
+            for match in self._file_line_matches(path, needles):
+                key = (int(row["seq"]), int(match["line"]))
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(
+                    {
+                        "seq": row["seq"],
+                        "session_id": row.get("session_id"),
+                        "kind": row.get("kind"),
+                        "role": row.get("role"),
+                        "name": row.get("name"),
+                        "headline": (
+                            "saved tool output match at "
+                            f"{path.name}:{match['line']}"
+                        ),
+                        "content": (
+                            f"[saved tool output match]\n"
+                            f"tool_call_id={row.get('tool_call_id') or ''}\n"
+                            f"file_path={path}\n"
+                            f"line={match['line']}\n"
+                            f"{match['excerpt']}"
+                        ),
+                    },
+                )
+                if len(rows) >= limit:
+                    return rows
+        return rows
+
+    def _attach_saved_tool_file_matches(
+        self,
+        rows: list[dict],
+        query: str,
+    ) -> list[dict]:
+        """Annotate recall_tool rows with saved-file metadata when present."""
+        needles = self._query_needles(query)
+        out: list[dict] = []
+        for row in rows:
+            out.append(row)
+            path = self._saved_tool_path(row.get("content"))
+            if path is None:
+                continue
+            extra = {
+                "seq": row.get("seq"),
+                "kind": "_saved_tool_output",
+                "role": None,
+                "name": row.get("name"),
+                "tool_input": None,
+                "tool_state": row.get("tool_state"),
+                "content": (
+                    f"Full saved tool output is available at file_path={path}."
+                ),
+            }
+            if needles:
+                matches = self._file_line_matches(path, needles, limit=3)
+                if matches:
+                    content = str(extra["content"])
+                    extra["content"] = (
+                        content
+                        + "\n\n"
+                        + "\n\n".join(
+                            f"match line {m['line']}:\n{m['excerpt']}"
+                            for m in matches
+                        )
+                    )
+            out.append(extra)
+        return out
+
+    def _saved_tool_path(self, content: object) -> Path | None:
+        """Extract and validate a saved tool-result path from a notice."""
+        if self._history_root is None:
+            return None
+        match = _SAVED_TOOL_FILE_RE.search(str(content or ""))
+        if not match:
+            return None
+        try:
+            path = Path(match.group(1)).expanduser().resolve()
+            root = self._history_root.resolve()
+        except OSError:
+            return None
+        try:
+            path.relative_to(root)
+        except ValueError:
+            return None
+        if not path.is_file():
+            return None
+        return path
+
+    @staticmethod
+    def _query_needles(query: str) -> list[str]:
+        """Plain AND-style terms suitable for a saved-file line scan."""
+        return [
+            tok.casefold()
+            for tok in _FTS_TOKEN_RE.findall(query)
+            if tok not in _FTS_OPERATORS
+        ]
+
+    @staticmethod
+    def _file_line_matches(
+        path: Path,
+        needles: list[str],
+        *,
+        limit: int = 5,
+        context: int = 1,
+    ) -> list[dict]:
+        """Return line matches with a small surrounding excerpt."""
+        if not needles or limit <= 0:
+            return []
+        matches: list[dict] = []
+        try:
+            lines = path.read_text(
+                encoding="utf-8",
+                errors="replace",
+            ).splitlines()
+        except OSError:
+            return []
+        for idx, line in enumerate(lines):
+            folded = line.casefold()
+            if not all(needle in folded for needle in needles):
+                continue
+            lo = max(0, idx - context)
+            hi = min(len(lines), idx + context + 1)
+            excerpt = "\n".join(
+                f"{line_no}: {lines[line_no - 1]}"
+                for line_no in range(lo + 1, hi + 1)
+            )
+            matches.append({"line": idx + 1, "excerpt": excerpt})
+            if len(matches) >= limit:
+                break
+        return matches
 
     @staticmethod
     def _like_notice() -> dict:
