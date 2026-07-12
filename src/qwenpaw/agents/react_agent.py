@@ -226,6 +226,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 raise KeyError(
                     f"Could not load AgentState from snapshot: {exc}",
                 ) from exc
+            # ── Sanitize loaded context: orphan tool_result messages can
+            # persist in session JSON from an evicted tool_call and leak
+            # across session boundaries when the session is reloaded.
+            self._sanitize_loaded_context()
             # Rehydrate the scroll manager's bookkeeping so the restored window
             # is recognized as already durable (no re-append on resume).
             cm = getattr(self, "_context_manager", None)
@@ -247,6 +251,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
             self.state = AgentState()
             self.state.context.extend(msgs)
             self.state.summary = summary
+            # Same sanitize as 2.0 path above.
+            self._sanitize_loaded_context()
             logger.info(
                 "Migrated 1.x session: %d messages + summary(%d chars)",
                 len(msgs),
@@ -258,6 +264,26 @@ class QwenPawAgent(CodingModeMixin, Agent):
             raise KeyError(
                 "state_dict has neither 'state' nor 'memory' key",
             )
+
+    def _sanitize_loaded_context(self) -> None:
+        """Strip orphan tool_result messages from the loaded context.
+
+        Orphan tool_result messages (whose tool_call has been evicted)
+        can persist in session JSON and leak across session boundaries
+        when loaded by ``load_state_dict``.  Without sanitization here
+        they reach the model and cause ``400 - Messages with role 'tool'
+        must be a response to a preceding message with 'tool_calls'``.
+        """
+        try:
+            from .utils.tool_message_utils import _sanitize_tool_messages
+
+            self.state.context = _sanitize_tool_messages(
+                self.state.context,
+            )
+        except Exception:
+            # Best-effort: a corrupt context will be caught again by
+            # compress_context() on the next reasoning cycle.
+            pass
 
     async def close(self) -> None:
         """Shut down governor, release the history store, and clean up expired
