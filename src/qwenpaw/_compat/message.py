@@ -39,13 +39,16 @@ def _coerce_source(
 ) -> Base64Source | URLSource:
     """Normalize the legacy ``source`` dict to a 2.0 source model.
 
-    The old blocks accepted dicts like ``{"type": "url", "url": ...}`` or
+    The old blocks accepted plain file paths or dicts like
+    ``{"type": "url", "url": ...}`` and
     ``{"type": "base64", "data": ..., "media_type": ...}``.  In 2.0
     ``media_type`` is required, so we infer it from the URL extension /
     modality when the caller omitted it.
     """
     if isinstance(source, (Base64Source, URLSource)):
         return source
+    if isinstance(source, str):
+        source = {"type": "url", "url": source}
     if not isinstance(source, Mapping):
         raise TypeError(
             f"Unsupported source for media block: {type(source)!r}",
@@ -54,6 +57,8 @@ def _coerce_source(
     src_type = source.get("type")
     if src_type == "url":
         url = source["url"]
+        if isinstance(url, str) and url.startswith("/"):
+            url = f"file://{url}"
         media_type = source.get("media_type")
         if not media_type:
             guessed, _ = mimetypes.guess_type(str(url))
@@ -88,7 +93,7 @@ def _coerce_source(
 def _coerce_block(block: Any) -> Any:
     """Map a stored content block dict to a 2.0 block instance.
 
-    Old per-modality blocks (``image`` / ``audio`` / ``video``) are
+    Old per-modality blocks (``image`` / ``audio`` / ``video`` / ``file``) are
     rewritten to the unified ``DataBlock``; legacy ``tool_use`` blocks
     are rewritten to ``ToolCallBlock`` (with ``input`` JSON-encoded if
     needed).  Anything else is returned as-is so the union discriminator
@@ -97,7 +102,7 @@ def _coerce_block(block: Any) -> Any:
     if not isinstance(block, Mapping):
         return block
     btype = block.get("type")
-    if btype in ("image", "audio", "video"):
+    if btype in ("image", "audio", "video", "file"):
         source = block.get("source")
         if source is None:
             return block
