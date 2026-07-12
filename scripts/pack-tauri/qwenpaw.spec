@@ -65,6 +65,11 @@ datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
 # Include reme package data files (configs, tool yamls, etc.)
 datas += collect_data_files("reme")
 datas += collect_data_files("whisper")
+# AgentScope's Glob tool passes this helper's source path to a subprocess.
+datas += collect_data_files(
+    "agentscope.tool._builtin._scripts",
+    include_py_files=True,
+)
 
 # Collect package metadata for packages that use importlib.metadata at runtime.
 # Keep this allowlist in sync when adding runtime dependencies that query
@@ -140,6 +145,8 @@ a = Analysis(
         "dotenv",
         *collect_submodules("acp"),
         "acp",
+        # Glob resolves this package dynamically through importlib.resources.
+        *collect_submodules("agentscope.tool._builtin._scripts"),
         "psutil",
         "multipart",
         "websockets",
