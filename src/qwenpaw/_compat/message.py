@@ -97,7 +97,7 @@ def _coerce_block(block: Any) -> Any:
     if not isinstance(block, Mapping):
         return block
     btype = block.get("type")
-    if btype in ("image", "audio", "video"):
+    if btype in ("image", "audio", "video", "file"):
         source = block.get("source")
         if source is None:
             return block
