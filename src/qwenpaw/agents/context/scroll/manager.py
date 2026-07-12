@@ -36,6 +36,7 @@ from . import _as_internals as as_internals
 from .eviction_index import EvictionIndex, Leaf, Line
 from .history import HistoryStore
 from .serialize import msg_to_entries
+from ...utils.tool_message_utils import _remove_unpaired_tool_messages
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +330,14 @@ class ScrollContextManager:
             # full live Msg from the context.
             tail = [m for m in tail if m.id not in active_ids]
             tail.extend(active_tail)
+
+        # 3c) Sanitize: AgentScope's pairing-safe split only guarantees
+        #    intra-message block-level pairing. Standalone tool_result
+        #    messages (AgentScope 1.x flat-timeline format) can still be
+        #    orphaned across the compress/reserve boundary. Remove them
+        #    before the model sees them — the alternative is a 400
+        #    BadRequestError from the API.
+        tail = _remove_unpaired_tool_messages(tail)
 
         if middle:
             # 3b) Optional legacy archive of the evicted turns (opt-in). The
