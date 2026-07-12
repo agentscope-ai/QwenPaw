@@ -152,6 +152,25 @@ class QwenPawAgent(CodingModeMixin, Agent):
         compression. Otherwise fall back to AgentScope's native path, gated on
         ``context_compact_config.enabled``.
         """
+        # ── Always sanitize tool messages before any model call ──
+        # Orphan tool_result messages (whose tool_call was evicted by a
+        # prior compression) can survive in context across session
+        # boundaries. compress() itself only cleans during an active split;
+        # if the context is already corrupted but under the trigger
+        # threshold, the corrupt messages still reach the model → 400.
+        # This unconditional guard runs on every compress_context() call
+        # (which fires before every reasoning step), catching orphans that
+        # leaked through any path: loaded sessions, pre-patch corruption,
+        # or unaccounted edge cases.
+        try:
+            from .utils.tool_message_utils import _sanitize_tool_messages
+
+            sanitized = _sanitize_tool_messages(self.state.context)
+            if sanitized is not self.state.context:
+                self.state.context = sanitized
+        except Exception:
+            pass
+
         if self._context_manager is not None:
             await self._context_manager.compress(self, context_config)
             return
