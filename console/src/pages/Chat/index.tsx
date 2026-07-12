@@ -25,6 +25,10 @@ import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
+import {
+  useSessionListStore,
+  type ExtendedSession,
+} from "../../stores/sessionListStore";
 import { useCodingMode } from "../../stores/codingModeStore";
 import { useLoopStore, fetchAvailableLoopSkills } from "../../stores/loopStore";
 import { LoopCommandChip } from "../../components/LoopInput";
@@ -117,6 +121,40 @@ import {
   withSendLock,
   holdOwnershipLock,
 } from "../../stores/messageQueueStore";
+
+const BACKEND_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LOCAL_TIMESTAMP_SESSION_RE = /^\d+-[a-z0-9]+$/i;
+
+function resolveRuntimeSessionIdForModel(
+  chatId: string | null | undefined,
+  sessions: ExtendedSession[],
+): string | undefined {
+  const candidate = chatId || sessionApi.lastActiveChatId || undefined;
+  if (!candidate || candidate === "new") return undefined;
+
+  const matched = sessions.find(
+    (session) =>
+      session.id === candidate ||
+      session.realId === candidate ||
+      session.sessionId === candidate,
+  );
+  if (matched?.sessionId) {
+    if (LOCAL_TIMESTAMP_SESSION_RE.test(matched.sessionId) && !matched.realId) {
+      return undefined;
+    }
+    return matched.sessionId;
+  }
+
+  const backendSessionId = sessionApi.getBackendSessionId(candidate);
+  if (backendSessionId && backendSessionId !== candidate) {
+    return backendSessionId;
+  }
+
+  if (BACKEND_UUID_RE.test(candidate)) return undefined;
+  if (LOCAL_TIMESTAMP_SESSION_RE.test(candidate)) return undefined;
+  return candidate;
+}
 
 // ---------------------------------------------------------------------------
 // Background queue sender — keeps sending after ChatPage unmounts.
@@ -625,6 +663,7 @@ function useMultimodalCapabilities(
   locationPathname: string,
   _isChatActive: () => boolean,
   selectedAgent: string,
+  sessionId?: string,
 ) {
   const [multimodalCaps, setMultimodalCaps] = useState<{
     supportsMultimodal: boolean;
@@ -661,6 +700,7 @@ function useMultimodalCapabilities(
         providerApi.getActiveModels({
           scope: "effective",
           agent_id: selectedAgent,
+          ...(sessionId ? { session_id: sessionId } : {}),
         }),
       ]);
       const activeProviderId = activeModels?.active_llm?.provider_id;
@@ -689,17 +729,15 @@ function useMultimodalCapabilities(
     } catch {
       updateCapsIfChanged(noCaps);
     }
-  }, [selectedAgent, updateCapsIfChanged]);
+  }, [selectedAgent, sessionId, updateCapsIfChanged]);
 
   // Fetch caps on mount and whenever refreshKey changes
   useEffect(() => {
     fetchMultimodalCaps();
   }, [fetchMultimodalCaps, refreshKey]);
 
-  // Re-sync caps only when navigating FROM a non-chat page back to chat.
-  // Do NOT re-fetch when switching between sessions (e.g. /chat/A → /chat/B)
-  // because the agent/model config hasn't changed — avoids unnecessary
-  // models + active API calls on every session switch.
+  // Re-sync caps when navigating FROM a non-chat page back to chat.
+  // Session switches are handled by fetchMultimodalCaps changing with sessionId.
   const prevChatPathRef = useRef(locationPathname);
   useEffect(() => {
     const prev = prevChatPathRef.current;
@@ -1137,6 +1175,11 @@ export default function ChatPage() {
     }>
   >([]);
   const { selectedAgent } = useAgentStore();
+  const sessionsForModel = useSessionListStore((state) => state.sessions);
+  const currentModelSessionId = useMemo(
+    () => resolveRuntimeSessionIdForModel(chatId, sessionsForModel),
+    [chatId, sessionsForModel],
+  );
   const { toolRenderConfig } = usePlugins();
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
@@ -1592,6 +1635,7 @@ export default function ChatPage() {
     location.pathname,
     isChatActive,
     selectedAgent,
+    currentModelSessionId,
   );
 
   const { setLastChatId, getLastChatId } = useAgentStore();
@@ -1822,9 +1866,9 @@ export default function ChatPage() {
             .querySelector('[class*="sender"]')
             ?.querySelector("textarea") as HTMLTextAreaElement | null)
         : e.target instanceof HTMLTextAreaElement &&
-          e.target.closest('[class*="sender"]')
-        ? e.target
-        : null;
+            e.target.closest('[class*="sender"]')
+          ? e.target
+          : null;
       if (!textarea) return;
       const val = textarea.value.trim();
       if (!val) return;
@@ -2229,11 +2273,18 @@ export default function ChatPage() {
         "Content-Type": "application/json",
         ...buildAuthHeaders(),
       };
+      const { input = [], biz_params } = data;
+      const session: SessionInfo = input[input.length - 1]?.session || {};
+      const activeModelSessionId =
+        typeof session?.session_id === "string" && session.session_id
+          ? session.session_id
+          : currentModelSessionId;
 
       try {
         const activeModels = await providerApi.getActiveModels({
           scope: "effective",
           agent_id: selectedAgent,
+          ...(activeModelSessionId ? { session_id: activeModelSessionId } : {}),
         });
         if (
           !activeModels?.active_llm?.provider_id ||
@@ -2247,8 +2298,6 @@ export default function ChatPage() {
         return buildModelError();
       }
 
-      const { input = [], biz_params } = data;
-      const session: SessionInfo = input[input.length - 1]?.session || {};
       const lastInput = input.slice(-1);
       const lastMsg = lastInput[0];
       const rewrittenInput =
@@ -2330,7 +2379,12 @@ export default function ChatPage() {
 
       return wrapChatResponseUsageStream(response, chatRef);
     },
-    [extLists, selectedAgent, runningConfigApprovalLevel],
+    [
+      extLists,
+      selectedAgent,
+      currentModelSessionId,
+      runningConfigApprovalLevel,
+    ],
   );
 
   const handleFileUpload = useCallback(
@@ -2726,7 +2780,7 @@ export default function ChatPage() {
             />
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
-            <ModelSelector />
+            <ModelSelector sessionId={currentModelSessionId} />
             <ChatActionGroup
               onToggleHistory={
                 effectiveIsFullMode ? toggleHistoryPanel : undefined
@@ -3083,8 +3137,11 @@ export default function ChatPage() {
                       await providerApi.setActiveLlm({
                         provider_id: alt.provider_id,
                         model: alt.model_id,
-                        scope: "agent",
+                        scope: currentModelSessionId ? "session" : "agent",
                         agent_id: selectedAgent,
+                        ...(currentModelSessionId
+                          ? { session_id: currentModelSessionId }
+                          : {}),
                       });
                       window.dispatchEvent(new CustomEvent("model-switched"));
                       message.success(

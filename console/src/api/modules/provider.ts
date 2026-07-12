@@ -27,7 +27,7 @@ import type {
 } from "../types";
 
 function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
-  if (!params?.scope && !params?.agent_id) {
+  if (!params?.scope && !params?.agent_id && !params?.session_id) {
     return "/models/active";
   }
 
@@ -37,6 +37,9 @@ function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
   }
   if (params.agent_id) {
     searchParams.set("agent_id", params.agent_id);
+  }
+  if (params.session_id) {
+    searchParams.set("session_id", params.session_id);
   }
 
   return `/models/active?${searchParams.toString()}`;

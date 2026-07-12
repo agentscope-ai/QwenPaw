@@ -298,6 +298,15 @@ function ModelsPage() {
           <PageHeader
             parent={t("nav.settings")}
             current={t("models.llmTitle")}
+            extra={
+              <Button
+                icon={<ClusterOutlined />}
+                onClick={() => setSessionModelModalOpen(true)}
+                className={styles.sessionModelButton}
+              >
+                {t("models.sessionModelButton")}
+              </Button>
+            }
           />
           {/* ---- Scrollable Content ---- */}
           <div className={styles.content}>
@@ -336,13 +345,6 @@ function ModelsPage() {
                       {t("common.edit")}
                     </span>
                   </div>
-                  <Button
-                    icon={<ClusterOutlined />}
-                    onClick={() => setSessionModelModalOpen(true)}
-                    className={styles.sessionModelButton}
-                  >
-                    {t("models.sessionModelButton")}
-                  </Button>
                   {/* ---- Search ---- */}
                   <div className={styles.searchRow}>
                     <Input

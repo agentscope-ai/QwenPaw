@@ -96,18 +96,22 @@ export interface ActiveModelsInfo {
 }
 
 export type ActiveModelScope = "effective" | "global" | "agent";
+export type ActiveModelWriteScope =
+  Exclude<ActiveModelScope, "effective"> | "session";
 export type ModelSource = "session" | "agent" | "global" | "none";
 
 export interface GetActiveModelsRequest {
   scope?: ActiveModelScope;
   agent_id?: string;
+  session_id?: string;
 }
 
 export interface ModelSlotRequest {
   provider_id: string;
   model: string;
-  scope: Exclude<ActiveModelScope, "effective">;
+  scope: ActiveModelWriteScope;
   agent_id?: string;
+  session_id?: string;
 }
 
 export interface SessionModelInfo {

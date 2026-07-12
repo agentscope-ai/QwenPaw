@@ -13,7 +13,12 @@ import { AlertTriangle, Link as LinkIcon, Settings } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { providerApi } from "../../../api/modules/provider";
-import type { ProviderInfo, ActiveModelsInfo } from "../../../api/types";
+import type {
+  ProviderInfo,
+  ActiveModelsInfo,
+  GetActiveModelsRequest,
+  ModelSlotRequest,
+} from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
 import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
@@ -34,7 +39,11 @@ interface EligibleProvider {
   require_api_key?: boolean;
 }
 
-export default function ModelSelector() {
+interface ModelSelectorProps {
+  sessionId?: string | null;
+}
+
+export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
   const { t } = useTranslation();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [activeModels, setActiveModels] = useState<ActiveModelsInfo | null>(
@@ -65,6 +74,26 @@ export default function ModelSelector() {
   const navigate = useNavigate();
   const { selectedAgent } = useAgentStore();
   const { message } = useAppMessage();
+  const normalizedSessionId = sessionId || undefined;
+
+  const getActiveModelRequest = useCallback((): GetActiveModelsRequest => {
+    return {
+      scope: "effective",
+      agent_id: selectedAgent,
+      ...(normalizedSessionId ? { session_id: normalizedSessionId } : {}),
+    };
+  }, [selectedAgent, normalizedSessionId]);
+
+  const buildModelSlotRequest = useCallback(
+    (providerId: string, modelId: string): ModelSlotRequest => ({
+      provider_id: providerId,
+      model: modelId,
+      scope: normalizedSessionId ? "session" : "agent",
+      agent_id: selectedAgent,
+      ...(normalizedSessionId ? { session_id: normalizedSessionId } : {}),
+    }),
+    [selectedAgent, normalizedSessionId],
+  );
 
   const [showMoreFree, setShowMoreFree] = useState(false);
   const moreContentRef = useRef<HTMLDivElement>(null);
@@ -104,10 +133,7 @@ export default function ModelSelector() {
     try {
       const [provData, activeData] = await Promise.all([
         providerApi.listProviders(),
-        providerApi.getActiveModels({
-          scope: "effective",
-          agent_id: selectedAgent,
-        }),
+        providerApi.getActiveModels(getActiveModelRequest()),
       ]);
       if (Array.isArray(provData)) setProviders(provData);
       if (activeData) setActiveModels(activeData);
@@ -116,7 +142,7 @@ export default function ModelSelector() {
     } finally {
       setLoading(false);
     }
-  }, [selectedAgent]);
+  }, [getActiveModelRequest]);
 
   useEffect(() => {
     fetchData();
@@ -131,16 +157,13 @@ export default function ModelSelector() {
     const comingToChat = curr.startsWith("/chat") && !prev.startsWith("/chat");
     if (comingToChat) {
       providerApi
-        .getActiveModels({
-          scope: "effective",
-          agent_id: selectedAgent,
-        })
+        .getActiveModels(getActiveModelRequest())
         .then((activeData) => {
           if (activeData) setActiveModels(activeData);
         })
         .catch(() => {});
     }
-  }, [location.pathname, selectedAgent]);
+  }, [location.pathname, getActiveModelRequest]);
 
   // Eligible providers: configured + has models, OR is_free_tier
   const eligibleProviders: EligibleProvider[] = providers
@@ -276,17 +299,16 @@ export default function ModelSelector() {
       setOpen(next);
       if (next) {
         try {
-          const activeData = await providerApi.getActiveModels({
-            scope: "effective",
-            agent_id: selectedAgent,
-          });
+          const activeData = await providerApi.getActiveModels(
+            getActiveModelRequest(),
+          );
           if (activeData) setActiveModels(activeData);
         } catch {
           // ignore
         }
       }
     },
-    [selectedAgent],
+    [getActiveModelRequest],
   );
 
   const handleSelect = async (providerId: string, modelId: string) => {
@@ -334,10 +356,7 @@ export default function ModelSelector() {
     setSaving(true);
     try {
       await providerApi.setActiveLlm({
-        provider_id: providerId,
-        model: modelId,
-        scope: "agent",
-        agent_id: selectedAgent,
+        ...buildModelSlotRequest(providerId, modelId),
       });
       setActiveModels({
         active_llm: { provider_id: providerId, model: modelId },
@@ -365,10 +384,10 @@ export default function ModelSelector() {
       setSaving(true);
       try {
         await providerApi.setActiveLlm({
-          provider_id: oauthModal.providerId,
-          model: oauthModal.pendingModelId,
-          scope: "agent",
-          agent_id: selectedAgent,
+          ...buildModelSlotRequest(
+            oauthModal.providerId,
+            oauthModal.pendingModelId,
+          ),
         });
         setActiveModels({
           active_llm: {

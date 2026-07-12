@@ -314,6 +314,7 @@ export function SessionModelOverridesModal({
       onCancel={onClose}
       destroyOnClose
       width={980}
+      className={styles.sessionModelOverridesModal}
     >
       <div className={styles.sessionModelModal}>
         <div className={styles.sessionModelToolbar}>

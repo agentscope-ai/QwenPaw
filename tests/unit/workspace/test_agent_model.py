@@ -214,6 +214,125 @@ async def test_model_command_switches_current_session_only(
     )
 
 
+@pytest.mark.asyncio
+async def test_active_model_endpoint_prefers_session_override(
+    mock_agent_workspace,
+    monkeypatch,
+):  # pylint: disable=redefined-outer-name,unused-argument
+    """Test active model API resolves session overrides before agent default."""
+    from qwenpaw.app.routers import providers as providers_router
+
+    agent_config = load_agent_config("test_agent")
+    agent_config.active_model = ModelSlotConfig(
+        provider_id="openai",
+        model="gpt-4",
+    )
+    agent_config.session_model_overrides["console:session-1"] = (
+        ModelSlotConfig(
+            provider_id="anthropic",
+            model="claude-3-5-sonnet-20241022",
+        )
+    )
+    save_agent_config("test_agent", agent_config)
+
+    async def _get_agent_for_request(_request, agent_id=None):
+        return SimpleNamespace(agent_id=agent_id or "test_agent")
+
+    class _Manager:
+        def get_active_model(self):
+            return ModelSlotConfig(provider_id="global", model="default")
+
+    monkeypatch.setattr(
+        providers_router,
+        "get_agent_for_request",
+        _get_agent_for_request,
+    )
+
+    result = await providers_router.get_active_models(
+        request=SimpleNamespace(),
+        manager=_Manager(),
+        scope="effective",
+        agent_id="test_agent",
+        session_id="console:session-1",
+    )
+
+    assert result.active_llm == ModelSlotConfig(
+        provider_id="anthropic",
+        model="claude-3-5-sonnet-20241022",
+    )
+
+
+@pytest.mark.asyncio
+async def test_active_model_endpoint_writes_session_override_only(
+    mock_agent_workspace,
+    monkeypatch,
+):  # pylint: disable=redefined-outer-name,unused-argument
+    """Test active model API session scope does not modify agent default."""
+    from qwenpaw.app.routers import providers as providers_router
+
+    agent_config = load_agent_config("test_agent")
+    agent_config.active_model = ModelSlotConfig(
+        provider_id="openai",
+        model="gpt-4",
+    )
+    save_agent_config("test_agent", agent_config)
+
+    async def _get_agent_for_request(_request, agent_id=None):
+        return SimpleNamespace(agent_id=agent_id or "test_agent")
+
+    class _Provider:
+        def has_model(self, model_id):
+            return model_id == "claude-3-5-sonnet-20241022"
+
+    class _Manager:
+        def get_provider(self, provider_id):
+            if provider_id == "anthropic":
+                return _Provider()
+            return None
+
+        def maybe_probe_multimodal(self, _provider_id, _model):
+            return None
+
+    monkeypatch.setattr(
+        providers_router,
+        "get_agent_for_request",
+        _get_agent_for_request,
+    )
+    monkeypatch.setattr(
+        providers_router,
+        "schedule_agent_reload",
+        lambda *_args, **_kwargs: None,
+    )
+
+    result = await providers_router.set_active_model(
+        request=SimpleNamespace(),
+        manager=_Manager(),
+        body=providers_router.ModelSlotRequest(
+            provider_id="anthropic",
+            model="claude-3-5-sonnet-20241022",
+            scope="session",
+            agent_id="test_agent",
+            session_id="console:session-1",
+        ),
+    )
+
+    reloaded = load_agent_config("test_agent")
+    assert result.active_llm == ModelSlotConfig(
+        provider_id="anthropic",
+        model="claude-3-5-sonnet-20241022",
+    )
+    assert reloaded.active_model == ModelSlotConfig(
+        provider_id="openai",
+        model="gpt-4",
+    )
+    assert reloaded.session_model_overrides["console:session-1"] == (
+        ModelSlotConfig(
+            provider_id="anthropic",
+            model="claude-3-5-sonnet-20241022",
+        )
+    )
+
+
 def test_agent_model_config_persists_across_reloads(
     mock_agent_workspace,
 ):  # pylint: disable=redefined-outer-name,unused-argument

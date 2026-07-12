@@ -935,10 +935,36 @@
 
 /* ---- Session Model Overrides Modal ---- */
 
+.sessionModelOverridesModal {
+  max-width: calc(100vw - 32px);
+  top: 24px;
+
+  :global(.ant-modal-content) {
+    max-height: calc(100vh - 48px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  :global(.ant-modal-header) {
+    flex: 0 0 auto;
+  }
+
+  :global(.ant-modal-body) {
+    min-height: 0;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    overflow: hidden;
+  }
+}
+
 .sessionModelModal {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .sessionModelToolbar {
@@ -946,6 +972,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  flex: 0 0 auto;
 }
 
 .sessionModelDescription {
@@ -963,9 +990,12 @@
 }
 
 .sessionModelAgentList {
-  max-height: 64vh;
-  overflow: auto;
-  padding-right: 4px;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding-right: 8px;
   display: flex;
   flex-direction: column;
   gap: 14px;

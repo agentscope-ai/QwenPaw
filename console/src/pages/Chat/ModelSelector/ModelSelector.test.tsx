@@ -147,6 +147,16 @@ describe("ModelSelector", () => {
     });
   });
 
+  it("passes session_id when a session model scope is available", async () => {
+    renderWithProviders(<ModelSelector sessionId="console:session-1" />);
+    await screen.findAllByText("GPT-4");
+    expect(providerApi.getActiveModels).toHaveBeenCalledWith({
+      scope: "effective",
+      agent_id: "default",
+      session_id: "console:session-1",
+    });
+  });
+
   it("clicking trigger button opens dropdown and shows provider list", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ModelSelector />);
@@ -171,6 +181,24 @@ describe("ModelSelector", () => {
       model: "gpt-3.5-turbo",
       scope: "agent",
       agent_id: "default",
+    });
+  });
+
+  it("clicking a model writes a session override when sessionId is provided", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector sessionId="console:session-1" />);
+    await screen.findAllByText("GPT-4");
+
+    await user.click(screen.getAllByText("GPT-4")[0]);
+    const gpt35 = await screen.findByText("GPT-3.5 Turbo");
+    await user.click(gpt35);
+
+    expect(providerApi.setActiveLlm).toHaveBeenCalledWith({
+      provider_id: "openai",
+      model: "gpt-3.5-turbo",
+      scope: "session",
+      agent_id: "default",
+      session_id: "console:session-1",
     });
   });
 

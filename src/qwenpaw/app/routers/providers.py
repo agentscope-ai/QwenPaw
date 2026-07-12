@@ -43,11 +43,11 @@ ChatModelName = Literal[
     "DashScopeChatModel",
 ]
 
-# effective: agent-specific if set, otherwise global
+# effective: session-specific if set, then agent-specific, otherwise global
 # global: the global model only, ignoring any agent-specific setting
 # agent: a specific agent's model only, error if not set
 ActiveModelReadScope = Literal["effective", "global", "agent"]
-ActiveModelWriteScope = Literal["global", "agent"]
+ActiveModelWriteScope = Literal["global", "agent", "session"]
 ModelSource = Literal["session", "agent", "global", "none"]
 
 
@@ -93,11 +93,18 @@ class ModelSlotRequest(BaseModel):
     model: str = Field(..., description="Model identifier")
     scope: ActiveModelWriteScope = Field(
         ...,
-        description="Whether to update the global model or a specific agent",
+        description=(
+            "Whether to update the global model, a specific agent, "
+            "or a specific session"
+        ),
     )
     agent_id: Optional[str] = Field(
         default=None,
-        description="Target agent ID when scope is 'agent'",
+        description="Target agent ID when scope is 'agent' or 'session'",
+    )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Target runtime session ID when scope is 'session'",
     )
 
 
@@ -897,10 +904,11 @@ async def get_active_models(
     manager: ProviderManager = Depends(get_provider_manager),
     scope: ActiveModelReadScope = Query(default="effective"),
     agent_id: Optional[str] = Query(default=None),
+    session_id: Optional[str] = Query(default=None),
 ) -> ActiveModelsInfo:
     """Get active model by scope.
 
-    - effective: agent-specific first, otherwise global fallback
+    - effective: session-specific first, then agent-specific, then global
     - global: ProviderManager global model only
     - agent: a specific agent's configured model only
     """
@@ -922,15 +930,27 @@ async def get_active_models(
         if target_agent_id is None:
             workspace = await get_agent_for_request(request)
             target_agent_id = workspace.agent_id
-
-        agent_model = await _load_agent_model(request, target_agent_id)
-        if agent_model:
-            logger.info(
-                "Returning agent-specific model for %s: %s",
-                target_agent_id,
-                agent_model,
+        else:
+            workspace = await get_agent_for_request(
+                request,
+                agent_id=target_agent_id,
             )
-            return ActiveModelsInfo(active_llm=agent_model)
+            target_agent_id = workspace.agent_id
+
+        agent_config = load_agent_config(target_agent_id)
+        active_model, source = resolve_effective_model_slot(
+            agent_config=agent_config,
+            session_id=session_id,
+        )
+        if active_model:
+            logger.info(
+                "Returning %s model for %s session=%s: %s",
+                source,
+                target_agent_id,
+                session_id,
+                active_model,
+            )
+            return ActiveModelsInfo(active_llm=active_model)
     except (
         HTTPException,
         OSError,
@@ -997,10 +1017,47 @@ async def set_active_model(
     if not body.agent_id:
         raise HTTPException(
             status_code=400,
-            detail="agent_id is required when scope is 'agent'",
+            detail=f"agent_id is required when scope is '{body.scope}'",
         )
 
     _validate_model_slot(manager, body.provider_id, body.model)
+
+    if body.scope == "session":
+        if not body.session_id:
+            raise HTTPException(
+                status_code=400,
+                detail="session_id is required when scope is 'session'",
+            )
+
+        try:
+            workspace = await get_agent_for_request(
+                request,
+                agent_id=body.agent_id,
+            )
+            agent_config = load_agent_config(workspace.agent_id)
+            slot = ModelSlotConfig(
+                provider_id=body.provider_id,
+                model=body.model,
+            )
+            agent_config.session_model_overrides[body.session_id] = slot
+            save_agent_config(workspace.agent_id, agent_config)
+            schedule_agent_reload(request, workspace.agent_id)
+
+        except HTTPException:
+            raise
+        except (OSError, ValueError, TypeError, AppBaseException) as exc:
+            logger.warning(
+                "Failed to save active model to session config: %s",
+                exc,
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to save active model to session config",
+            ) from exc
+
+        manager.maybe_probe_multimodal(body.provider_id, body.model)
+        return ActiveModelsInfo(active_llm=slot)
 
     try:
         workspace = await get_agent_for_request(

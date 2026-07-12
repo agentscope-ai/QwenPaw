@@ -46,6 +46,17 @@ describe("providerApi", () => {
     );
   });
 
+  it("getActiveModels with session_id builds correct query", async () => {
+    await providerApi.getActiveModels({
+      scope: "effective",
+      agent_id: "agent-1",
+      session_id: "napcat_qq:private:12548040",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/models/active?scope=effective&agent_id=agent-1&session_id=napcat_qq%3Aprivate%3A12548040",
+    );
+  });
+
   it("setActiveLlm sends a PUT request", async () => {
     const body = {
       provider_id: "openai",
@@ -81,10 +92,7 @@ describe("providerApi", () => {
   });
 
   it("resetSessionModelOverride encodes ids and sends DELETE", async () => {
-    await providerApi.resetSessionModelOverride(
-      "agent/1",
-      "console:session-1",
-    );
+    await providerApi.resetSessionModelOverride("agent/1", "console:session-1");
     expect(request).toHaveBeenCalledWith(
       "/models/session-overrides/agent%2F1/console%3Asession-1",
       { method: "DELETE" },
