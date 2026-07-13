@@ -321,7 +321,14 @@ def _repair_empty_tool_inputs(
                         try:
                             parsed = json.loads(raw_str)
                         except json.JSONDecodeError:
-                            parsed, _ = _json_decoder.raw_decode(raw_str)
+                            start = json.decoder.WHITESPACE.match(
+                                raw_str,
+                                0,
+                            ).end()
+                            parsed, _ = _json_decoder.raw_decode(
+                                raw_str,
+                                start,
+                            )
                         if isinstance(parsed, dict) and parsed:
                             # All agentscope 2.0 formatters expect
                             # ToolCallBlock.input to be a JSON string
@@ -413,7 +420,14 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
                         # }trailing" json.loads raises "Extra data" but
                         # raw_decode can recover the leading valid object.
                         try:
-                            recovered, _ = _json_decoder.raw_decode(raw)
+                            start = json.decoder.WHITESPACE.match(
+                                raw,
+                                0,
+                            ).end()
+                            recovered, _ = _json_decoder.raw_decode(
+                                raw,
+                                start,
+                            )
                             if not isinstance(recovered, dict):
                                 raise json.JSONDecodeError(
                                     "recovered value is not a JSON object",

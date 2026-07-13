@@ -164,6 +164,8 @@ class Runtime:
                 yield ev
             raise
         except BaseException as e:
+            await self._try_save_on_cancel(ctx)
+
             ctx.error = e
             logger.error(
                 "runtime: unhandled error session=%s: %s",
@@ -176,7 +178,14 @@ class Runtime:
                 "_error_text",
                 str(e) or e.__class__.__name__,
             )
-            async for ev in envelope.error_envelope(err_text):
+            err_code = ctx.extras.get(
+                "_error_code",
+                e.__class__.__name__,
+            )
+            async for ev in envelope.error_envelope(
+                err_text,
+                err_code,
+            ):
                 yield ev
             raise
         finally:

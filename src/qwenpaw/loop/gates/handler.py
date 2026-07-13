@@ -4,14 +4,16 @@
 Architecture:
     StopHandler holds an ordered list of StopGate.
     Gates are checked in priority order (lower first).
-    Any gate returning STOP -> agent stops immediately.
-    Any gate returning CONTINUE -> loop keeps going.
-    No gates registered OR all None -> STOP.
+    TERMINATE -> agent stops immediately.
+    INTERRUPT_AND_CONTINUE -> call gate.build_continuation()
+        to get the message, then inject it.
+    BYPASS / None -> skip.
+    No gates or all BYPASS -> TERMINATE.
 """
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional
+from typing import Any
 
 from .base import (
     StopAction,
@@ -25,14 +27,15 @@ logger = logging.getLogger(__name__)
 class StopHandler:
     """Universal stop handler with composable gates.
 
-    Any gate returning STOP -> agent stops immediately.
-    Any gate returning CONTINUE -> loop keeps going.
-    No gates registered OR all None -> STOP.
+    TERMINATE -> agent stops immediately.
+    INTERRUPT_AND_CONTINUE -> inject prompt via
+        gate.build_continuation(), keep going.
+    BYPASS / None -> skip.
+    No gates or all BYPASS -> TERMINATE.
     """
 
     def __init__(self) -> None:
         self._gates: list[StopGate] = []
-        self._continuation_fn: (Optional[Callable[..., str]]) = None
 
     def register(self, gate: StopGate) -> None:
         """Register a gate and re-sort by priority."""
@@ -42,13 +45,6 @@ class StopHandler:
     def unregister(self, name: str) -> None:
         """Remove all gates matching *name*."""
         self._gates = [g for g in self._gates if g.name != name]
-
-    def set_continuation(
-        self,
-        fn: Callable[..., str],
-    ) -> None:
-        """Set callback that builds continuation msg."""
-        self._continuation_fn = fn
 
     @property
     def gates(self) -> list[StopGate]:
@@ -61,18 +57,19 @@ class StopHandler:
     ) -> StopHandlerResult:
         """Run all gates in priority order.
 
-        Any STOP  -> stop immediately.
-        Any CONTINUE -> loop keeps going.
-        All None / no gates -> STOP (no active loop).
+        TERMINATE -> stop immediately.
+        INTERRUPT_AND_CONTINUE -> inject prompt, keep going.
+        BYPASS / None -> gate idle, skip.
+        No gates or all BYPASS -> TERMINATE.
         """
         if not self._gates:
             return StopHandlerResult(
-                action=StopAction.STOP,
+                action=StopAction.TERMINATE,
             )
 
-        prompts: list[str] = []
         has_continue = False
         continue_result: StopHandlerResult | None = None
+        continue_gate: StopGate | None = None
 
         for gate in self._gates:
             try:
@@ -85,44 +82,34 @@ class StopHandler:
                 )
                 continue
 
-            if result is not None:
-                logger.debug(
-                    "StopGate '%s' fired: %s",
-                    gate.name,
-                    result.action.value,
-                )
-                if result.action == StopAction.STOP:
-                    return result
-                has_continue = True
-                if continue_result is None:
-                    continue_result = result
+            if result is None or (result.action == StopAction.BYPASS):
+                continue
 
-            prompt = gate.continuation_prompt()
-            if prompt:
-                prompts.append(prompt)
+            logger.debug(
+                "StopGate '%s' fired: %s",
+                gate.name,
+                result.action.value,
+            )
+            if result.action == StopAction.TERMINATE:
+                return result
+            has_continue = True
+            if continue_result is None:
+                continue_result = result
+                continue_gate = gate
 
         if not has_continue:
             return StopHandlerResult(
-                action=StopAction.STOP,
+                action=StopAction.TERMINATE,
             )
 
-        msg = continue_result.continuation_message if continue_result else ""
-        if self._continuation_fn:
-            try:
-                fn_msg = self._continuation_fn(ctx)
-            except Exception:
-                logger.warning(
-                    "continuation_fn raised",
-                    exc_info=True,
-                )
-                fn_msg = ""
-            if fn_msg:
-                msg = f"{msg}\n\n{fn_msg}" if msg else fn_msg
-        if prompts:
-            prefix = "\n\n".join(prompts)
-            msg = f"{prefix}\n\n{msg}" if msg else prefix
+        self._maybe_reset_peers(
+            continue_result,
+            continue_gate,
+        )
+
+        msg = continue_gate.build_continuation() if continue_gate else ""
         return StopHandlerResult(
-            action=StopAction.CONTINUE,
+            action=StopAction.INTERRUPT_AND_CONTINUE,
             continuation_message=msg,
             reason=(
                 continue_result.reason
@@ -130,6 +117,28 @@ class StopHandler:
                 else "Active gate continues"
             ),
         )
+
+    def _maybe_reset_peers(
+        self,
+        continue_result: StopHandlerResult | None,
+        continue_gate: StopGate | None,
+    ) -> None:
+        """Reset peer gates on sub-turn continuation.
+
+        IMPORTANT: When a gate triggers
+        INTERRUPT_AND_CONTINUE with reset_peers=True (e.g. rubric gate starting
+        a new sub-turn), reset all OTHER gates so they
+        begin the sub-turn with fresh state (iteration
+        counter, doom loop history, etc.).
+        Gates that merely inject warnings (e.g. doom
+        loop modify_prompt) keep reset_peers=False and
+        do NOT trigger peer resets.
+        """
+        if continue_result is None or not continue_result.reset_peers:
+            return
+        for gate in self._gates:
+            if gate is not continue_gate:
+                gate.reset()
 
 
 __all__ = ["StopHandler"]

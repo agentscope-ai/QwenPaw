@@ -41,6 +41,14 @@ def resolve_max_iterations(
     return running_config.max_iters
 
 
+def _reset_gates_for_new_turn(
+    handler: StopHandler,
+) -> None:
+    """Reset all gates for a new user turn."""
+    for gate in handler.gates:
+        gate.reset()
+
+
 def register_react_gates(
     workspace: Any,
     running_config: "AgentsRunningConfig",
@@ -48,6 +56,8 @@ def register_react_gates(
     """Register default ReAct StopHandler with configured gates.
 
     Idempotent: skips if already registered for this workspace.
+    Resets all gates on re-entry so each user turn starts
+    with fresh state.
 
     Args:
         workspace: The workspace/agent-workspace object
@@ -62,10 +72,17 @@ def register_react_gates(
         "_react_gates_registered",
         False,
     ):
-        return get_or_create_stop_handler(workspace)
+        handler = get_or_create_stop_handler(
+            workspace,
+        )
+        _reset_gates_for_new_turn(handler)
+        return handler
 
     loop_cfg = running_config.loop
-    handler = get_or_create_stop_handler(workspace)
+    handler = get_or_create_stop_handler(
+        workspace,
+        scope="default",
+    )
 
     # 1. Iteration Gate
     if loop_cfg.iteration.enabled:

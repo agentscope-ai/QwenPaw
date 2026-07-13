@@ -608,6 +608,12 @@ def agentscope_msg_to_message(
                     output=output,
                 ).model_dump(exclude_none=True)
 
+                tool_state = block.get("state")
+                if hasattr(tool_state, "value"):
+                    tool_state = tool_state.value
+                if tool_state is not None:
+                    output_data["state"] = tool_state
+
                 data_content = DataContent(
                     delta=False,
                     index=None,

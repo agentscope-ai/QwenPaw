@@ -39,6 +39,10 @@ function ModelsPage() {
   const { providers, activeModels, loading, error, fetchAll } = useProviders();
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  // Prevent browsers from autofilling the search input with saved credentials
+  // (e.g. the username from the login page). Browsers skip read-only inputs
+  // during autofill, so we make it editable only after the user focuses it.
+  const [searchReadOnly, setSearchReadOnly] = useState(true);
 
   // Shared Modal state — only one instance each instead of N per card
   const [configModalProvider, setConfigModalProvider] =
@@ -335,9 +339,11 @@ function ModelsPage() {
                       placeholder={t("models.searchPlaceholder")}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
+                      onFocus={() => setSearchReadOnly(false)}
                       className={styles.searchInput}
                       prefix={<SearchOutlined />}
                       allowClear
+                      readOnly={searchReadOnly}
                       autoComplete="off"
                       name="models-provider-search-nofill"
                       data-form-type="other"

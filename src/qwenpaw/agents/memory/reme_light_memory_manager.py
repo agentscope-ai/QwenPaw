@@ -377,11 +377,21 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not messages:
             return ""
 
+        session_id = str(kwargs.get("session_id") or "")
+        if not session_id:
+            logger.warning(
+                "ReMe summarize skipped; session_id is empty: "
+                "agent_id=%s messages=%s",
+                self.agent_id,
+                len(messages),
+            )
+            return ""
+
         response = await self._run_reme_job(
             "auto_memory",
             needs_llm=True,
             messages=[msg.model_dump(mode="json") for msg in messages],
-            session_id=str(kwargs.get("session_id") or ""),
+            session_id=session_id,
             memory_hint=str(kwargs.get("memory_hint") or ""),
         )
         if response is None:

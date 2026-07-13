@@ -79,10 +79,11 @@ async def run_stop_handlers(
         iteration: Current iteration number.
 
     Returns:
-        StopHandlerResult with STOP or CONTINUE.
+        StopHandlerResult with TERMINATE or
+        INTERRUPT_AND_CONTINUE.
     """
     if not handlers:
-        return StopHandlerResult(action=StopAction.STOP)
+        return StopHandlerResult(action=StopAction.TERMINATE)
 
     handlers = _filter_by_scope(handlers)
     handlers = sorted(handlers, key=lambda h: h.priority)
@@ -107,20 +108,20 @@ async def run_stop_handlers(
 
         if isinstance(result, StopHandlerResult):
             if result.action in (
-                StopAction.STOP,
-                StopAction.CONTINUE,
+                StopAction.TERMINATE,
+                StopAction.INTERRUPT_AND_CONTINUE,
             ):
                 return result
         elif isinstance(result, dict):
             action = result.get("action", "stop")
             if action == "stop":
                 return StopHandlerResult(
-                    action=StopAction.STOP,
+                    action=StopAction.TERMINATE,
                     reason=result.get("reason", ""),
                 )
             if action in ("continue", "block"):
                 return StopHandlerResult(
-                    action=StopAction.CONTINUE,
+                    action=StopAction.INTERRUPT_AND_CONTINUE,
                     continuation_message=result.get(
                         "message",
                         "",
@@ -128,7 +129,7 @@ async def run_stop_handlers(
                     reason=result.get("reason", ""),
                 )
 
-    return StopHandlerResult(action=StopAction.STOP)
+    return StopHandlerResult(action=StopAction.TERMINATE)
 
 
 def apply_stop_result(  # pylint: disable=protected-access
@@ -140,15 +141,25 @@ def apply_stop_result(  # pylint: disable=protected-access
     """Process stop_result and set pending state on agent.
 
     Called after _run_stop_handlers in a tool-call iteration.
-    Defers both STOP and CONTINUE actions to next iteration.
+    Defers both TERMINATE and INTERRUPT_AND_CONTINUE
+    actions to next iteration.
     """
     if is_tool_call:
-        if stop_result.action == StopAction.STOP and stop_result.reason:
+        if stop_result.action == StopAction.TERMINATE and stop_result.reason:
             logger.info(
                 "Gate wants stop (deferred): %s",
                 stop_result.reason,
             )
             agent._gate_pending_stop = stop_result
+        elif (
+            stop_result.action == StopAction.INTERRUPT_AND_CONTINUE
+            and stop_result.continuation_message
+        ):
+            logger.info(
+                "Gate wants continue (deferred): %s",
+                stop_result.reason,
+            )
+            agent._gate_pending_continue = stop_result.continuation_message
 
 
 def check_pending_gates(  # pylint: disable=protected-access
@@ -157,7 +168,7 @@ def check_pending_gates(  # pylint: disable=protected-access
     """Check and consume pending gate state.
 
     Returns:
-        StopHandlerResult if a pending STOP should be applied,
+        StopHandlerResult if pending TERMINATE applies,
         None otherwise (also injects pending continue into ctx).
     """
     pending = getattr(agent, "_gate_pending_stop", None)

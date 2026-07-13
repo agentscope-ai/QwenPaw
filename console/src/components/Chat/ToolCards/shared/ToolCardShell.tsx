@@ -8,6 +8,8 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 import type { ToolCallContent } from "./types";
+import DefaultBlock from "./DefaultBlock";
+import { stringifyResult } from "./utils";
 import styles from "./toolCards.module.less";
 
 export interface ToolCardShellProps {
@@ -62,14 +64,27 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
           {title}
           {isLoading && ` ${t("tool.loading")}`}
         </span>
-        {!isLoading && badges}
+        {!isLoading && !isError && badges}
         {inlineResult && (
           <span className={styles.toolCallInlineResult} title={inlineResult}>
             {inlineResult}
           </span>
         )}
       </summary>
-      {children}
+      {isError ? (
+        <>
+          <DefaultBlock
+            title="Input"
+            content={JSON.stringify(content.params, null, 2)}
+          />
+          <DefaultBlock
+            title="Error"
+            content={stringifyResult(content.result)}
+          />
+        </>
+      ) : (
+        children
+      )}
     </details>
   );
 };

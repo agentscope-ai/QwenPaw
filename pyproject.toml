@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "agentscope==2.0.4",
+    # TODO: delete the following after agentscope fixes the version of mcp
+    "mcp>=1.13.0,<2.0.0",
     "httpx>=0.27.0",
     "packaging>=24.0",
     "discord-py>=2.3",
