@@ -367,6 +367,47 @@ async def test_compress_does_not_index_boundary_msg_still_in_tail(
     assert boundary.id in {m.id for m in agent.state.context}
 
 
+async def test_compress_restores_complete_non_active_tool_boundary(
+    store: HistoryStore,
+):
+    """A retained non-active boundary Msg must not remain a block fragment.
+
+    AgentScope's splitter can reserve only the tool_result half of a Msg.  The
+    orphan sanitizer used to drop that fragment, silently losing the retained
+    boundary.  Restore the full live Msg before sanitizing instead.
+    """
+    old_u = user("older question")
+    old_a = assistant("older reply", headline="OLD")
+    boundary = assistant_with_tool("call-boundary")
+    cur_u = user("current request")
+    cur_a = assistant("current reply")
+    ctx = [old_u, old_a, boundary, cur_u, cur_a]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=200)
+    reserve_fragment = Msg(
+        name="a",
+        role="assistant",
+        content=[boundary.content[-1]],
+    )
+    object.__setattr__(reserve_fragment, "id", boundary.id)
+    agent._split_return = (
+        [old_u, old_a, boundary],
+        [reserve_fragment, cur_u, cur_a],
+    )
+
+    await mgr.compress(agent)
+
+    retained = next(
+        msg for msg in agent.state.context if msg.id == boundary.id
+    )
+    assert retained is boundary
+    assert [block.type for block in retained.content] == [
+        "text",
+        "tool_call",
+        "tool_result",
+    ]
+
+
 async def test_compress_keeps_active_turn_live(store: HistoryStore):
     """The token-based split may push the CURRENT user request (and its
     running assistant chain) into the compress half. The active turn must

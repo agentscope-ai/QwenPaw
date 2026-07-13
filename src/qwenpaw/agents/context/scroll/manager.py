@@ -349,6 +349,14 @@ class ScrollContextManager:
             m for m in msgs if m.id not in self._synthetic_ids
         ]
         tail = real(to_reserve)
+        # AgentScope may split the boundary Msg at block granularity and put
+        # deep-copied fragments (with the original id) into both halves.  A
+        # fragment is not a safe live-context unit: it can contain a
+        # tool_result without its tool_call, or vice versa.  Scroll treats the
+        # reserve target as soft, so restore every retained Msg from the live
+        # context before deciding what to evict.  This deliberately keeps the
+        # whole boundary message even when it costs a few extra tokens.
+        tail = self._restore_full_tail_messages(agent, tail)
         # AgentScope's pairing-safe split deep-copies the *boundary* Msg into
         # BOTH halves under the SAME id (its blocks divided between compress
         # and reserve). That id therefore appears in both to_compress and
@@ -365,8 +373,8 @@ class ScrollContextManager:
             if m.id not in tail_ids and m.id not in active_ids
         ]
         if active_tail:
-            # Replace any partial boundary deep-copy in the tail with the
-            # full live Msg from the context.
+            # Keep the whole active turn at the end in its original order.
+            # Partial boundary copies have already been restored above.
             tail = [m for m in tail if m.id not in active_ids]
             tail.extend(active_tail)
         middle, tail = self._repair_dangling_user_boundary(
@@ -757,6 +765,29 @@ class ScrollContextManager:
                 if getattr(m, "id", None) not in self._synthetic_ids
             ]
         return []
+
+    def _restore_full_tail_messages(
+        self,
+        agent: Any,
+        tail: list[Msg],
+    ) -> list[Msg]:
+        """Replace split boundary fragments with their full live messages.
+
+        AgentScope's compression splitter can divide one message's content
+        blocks between ``to_compress`` and ``to_reserve``.  Both fragments
+        keep the same message id, which is useful for native summarization but
+        unsafe for Scroll: Scroll retains the reserve half verbatim, where a
+        block-level split can create orphan tool calls/results.  Message ids
+        are stable in the live context, so use them to recover the original
+        object.  Unknown ids are kept unchanged for compatibility with custom
+        AgentScope splitters.
+        """
+        live_by_id = {
+            getattr(msg, "id", None): msg
+            for msg in getattr(agent.state, "context", []) or []
+            if getattr(msg, "id", None) not in self._synthetic_ids
+        }
+        return [live_by_id.get(getattr(msg, "id", None), msg) for msg in tail]
 
     def _repair_dangling_user_boundary(
         self,
