@@ -2,16 +2,22 @@ import React, { useState, useEffect, useMemo } from "react";
 import { SaveOutlined } from "@ant-design/icons";
 import { Select, Button } from "@agentscope-ai/design";
 import { agentsApi } from "../../../../../api";
-import type { ModelInfo, ProviderInfo } from "../../../../../api/types";
+import type {
+  ModelInfo,
+  ModelSlotConfig,
+  ProviderInfo,
+} from "../../../../../api/types";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
-import { useAgentStore } from "../../../../../stores/agentStore";
 import { getIsConfigured } from "../../utils";
 import styles from "../../index.module.less";
 
 interface VisualModelSectionProps {
   providers: ProviderInfo[];
-  onSaved: () => void;
+  agentId: string;
+  agentName: string;
+  initialVisualModel: ModelSlotConfig | null;
+  onSaved: (slot: ModelSlotConfig | null) => void;
 }
 
 function isMultimodalModel(m: ModelInfo): boolean {
@@ -20,42 +26,33 @@ function isMultimodalModel(m: ModelInfo): boolean {
 
 export const VisualModelSection = React.memo(function VisualModelSection({
   providers,
+  agentId,
+  agentName,
+  initialVisualModel,
   onSaved,
 }: VisualModelSectionProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const selectedAgent = useAgentStore((s) => s.selectedAgent);
   const [saving, setSaving] = useState(false);
   const [providerId, setProviderId] = useState<string>();
   const [modelId, setModelId] = useState<string>();
   const [dirty, setDirty] = useState(false);
-  const [agentDisplayName, setAgentDisplayName] = useState(selectedAgent);
 
   const eligible = useMemo(
     () =>
       providers.filter(
         (p) =>
           getIsConfigured(p) &&
-          p.models.length + p.extra_models.length > 0 &&
           [...p.models, ...p.extra_models].some(isMultimodalModel),
       ),
     [providers],
   );
 
   useEffect(() => {
-    let cancelled = false;
-    setAgentDisplayName(selectedAgent);
-    agentsApi.getAgent(selectedAgent).then((config) => {
-      if (cancelled) return;
-      setAgentDisplayName(config.name || selectedAgent);
-      setProviderId(config.visual_model?.provider_id || undefined);
-      setModelId(config.visual_model?.model || undefined);
-      setDirty(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAgent]);
+    setProviderId(initialVisualModel?.provider_id || undefined);
+    setModelId(initialVisualModel?.model || undefined);
+    setDirty(false);
+  }, [initialVisualModel, agentId]);
 
   const chosenProvider = providers.find((p) => p.id === providerId);
   const modelOptions = chosenProvider
@@ -65,19 +62,20 @@ export const VisualModelSection = React.memo(function VisualModelSection({
     : [];
 
   const handleSave = async () => {
+    const nextSlot: ModelSlotConfig | null =
+      providerId && modelId
+        ? { provider_id: providerId, model: modelId }
+        : null;
     setSaving(true);
     try {
-      await agentsApi.updateAgent(selectedAgent, {
-        id: selectedAgent,
-        name: agentDisplayName,
-        visual_model:
-          providerId && modelId
-            ? { provider_id: providerId, model: modelId }
-            : null,
+      await agentsApi.updateAgent(agentId, {
+        id: agentId,
+        name: agentName,
+        visual_model: nextSlot,
       });
       message.success(t("models.visualModelUpdated"));
       setDirty(false);
-      onSaved();
+      onSaved(nextSlot);
     } catch (error) {
       message.error(
         error instanceof Error ? error.message : t("models.failedToSave"),
@@ -94,7 +92,7 @@ export const VisualModelSection = React.memo(function VisualModelSection({
     <div className={styles.defaultLlmBody}>
       <p className={styles.slotDescription}>
         {t("models.visualModelDescription", {
-          agentName: agentDisplayName,
+          agentName,
         })}
       </p>
       <p className={styles.slotDescription}>

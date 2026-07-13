@@ -21,18 +21,9 @@ logger = logging.getLogger(__name__)
 
 
 def _has_visual_model_fallback() -> bool:
-    try:
-        from ...app.agent_context import get_current_agent_id
-        from ...config.config import load_agent_config
+    from ...providers.visual_model_service import get_visual_model_slot
 
-        agent_id = get_current_agent_id()
-        if not agent_id:
-            return False
-        cfg = load_agent_config(agent_id)
-        slot = cfg.visual_model if cfg else None
-        return bool(slot and slot.provider_id and slot.model)
-    except Exception:
-        return False
+    return get_visual_model_slot() is not None
 
 
 def _media_data_block(url: str, modality: str) -> DataBlock:

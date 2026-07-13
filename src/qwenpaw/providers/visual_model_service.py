@@ -221,13 +221,53 @@ def _record_visual_usage(
     )
 
 
-def _wrap_visual_chat_model(chat_model: Any, provider_id: str) -> Any:
-    """Apply the same Retry/RateLimit wrapper used for the primary model."""
-    from .retry_chat_model import (
-        RateLimitConfig,
-        RetryChatModel,
-        RetryConfig,
+def _retry_configs_from_running(
+    running: Any,
+) -> tuple[Any, Any]:
+    from .retry_chat_model import RateLimitConfig, RetryConfig
+
+    return (
+        RetryConfig(
+            enabled=running.llm_retry_enabled,
+            max_retries=running.llm_max_retries,
+            backoff_base=running.llm_backoff_base,
+            backoff_cap=running.llm_backoff_cap,
+        ),
+        RateLimitConfig(
+            max_concurrent=running.llm_max_concurrent,
+            max_qpm=running.llm_max_qpm,
+            pause_seconds=running.llm_rate_limit_pause,
+            jitter_range=running.llm_rate_limit_jitter,
+            acquire_timeout=running.llm_acquire_timeout,
+        ),
     )
+
+
+def get_visual_model_slot() -> ModelSlotConfig | None:
+    """Return the current agent's visual-model slot, or ``None`` if unset."""
+    try:
+        from ..app.agent_context import get_current_agent_id
+        from ..config.config import load_agent_config
+
+        agent_id = get_current_agent_id()
+        if not agent_id:
+            return None
+        slot = load_agent_config(agent_id).visual_model
+        if not slot or not slot.provider_id or not slot.model:
+            return None
+        return slot
+    except Exception:
+        return None
+
+
+def _wrap_visual_chat_model(
+    chat_model: Any,
+    provider_id: str,
+    *,
+    running: Any | None = None,
+) -> Any:
+    """Apply the same Retry/RateLimit wrapper used for the primary model."""
+    from .retry_chat_model import RetryChatModel
 
     # Collapse agentscope's inner retry loop; RetryChatModel owns retries.
     if hasattr(chat_model, "max_retries"):
@@ -239,28 +279,8 @@ def _wrap_visual_chat_model(chat_model: Any, provider_id: str) -> Any:
 
     retry_config = None
     rate_limit_config = None
-    try:
-        from ..app.agent_context import get_current_agent_id
-        from ..config.config import load_agent_config
-
-        agent_id = get_current_agent_id()
-        if agent_id:
-            running = load_agent_config(agent_id).running
-            retry_config = RetryConfig(
-                enabled=running.llm_retry_enabled,
-                max_retries=running.llm_max_retries,
-                backoff_base=running.llm_backoff_base,
-                backoff_cap=running.llm_backoff_cap,
-            )
-            rate_limit_config = RateLimitConfig(
-                max_concurrent=running.llm_max_concurrent,
-                max_qpm=running.llm_max_qpm,
-                pause_seconds=running.llm_rate_limit_pause,
-                jitter_range=running.llm_rate_limit_jitter,
-                acquire_timeout=running.llm_acquire_timeout,
-            )
-    except Exception:
-        pass
+    if running is not None:
+        retry_config, rate_limit_config = _retry_configs_from_running(running)
 
     return RetryChatModel(
         chat_model,
@@ -291,6 +311,8 @@ async def _transcribe(
     source: dict,
     slot: ModelSlotConfig,
     media_type: str,
+    *,
+    running: Any | None = None,
 ) -> str | None:
     raw = source.get("url", "") if source.get("type") == "url" else str(source)
     digest = hashlib.sha256(raw.encode()).hexdigest()
@@ -317,6 +339,7 @@ async def _transcribe(
     chat_model = _wrap_visual_chat_model(
         provider.get_chat_model_instance(slot.model),
         slot.provider_id,
+        running=running,
     )
     messages = [
         Msg(
@@ -361,14 +384,19 @@ async def _transcribe(
     return text
 
 
-async def _replace_block(block: Any, slot: ModelSlotConfig) -> Any | None:
+async def _replace_block(
+    block: Any,
+    slot: ModelSlotConfig,
+    *,
+    running: Any | None = None,
+) -> Any | None:
     media_type = _block_type_name(block)
     if not media_type:
         return None
     source = _block_source_dict(block)
     if not source:
         return None
-    desc = await _transcribe(source, slot, media_type)
+    desc = await _transcribe(source, slot, media_type, running=running)
     if not desc:
         # Keep the original media block so downstream strip/normalization
         # can handle it the same way as when visual fallback is absent.
@@ -379,10 +407,15 @@ async def _replace_block(block: Any, slot: ModelSlotConfig) -> Any | None:
     )
 
 
-async def _rewrite_content(content: list, slot: ModelSlotConfig) -> list:
+async def _rewrite_content(
+    content: list,
+    slot: ModelSlotConfig,
+    *,
+    running: Any | None = None,
+) -> list:
     out = []
     for block in content:
-        replaced = await _replace_block(block, slot)
+        replaced = await _replace_block(block, slot, running=running)
         if replaced:
             out.append(replaced)
             continue
@@ -390,7 +423,7 @@ async def _rewrite_content(content: list, slot: ModelSlotConfig) -> list:
         if output is not None:
             new_output = []
             for item in output:
-                sub = await _replace_block(item, slot)
+                sub = await _replace_block(item, slot, running=running)
                 new_output.append(sub or item)
             if isinstance(block, dict):
                 out.append({**block, "output": new_output})
@@ -419,9 +452,10 @@ async def apply_visual_fallback_to_messages(msgs: list) -> list:
         if not agent_id:
             return msgs
         cfg = load_agent_config(agent_id)
-        slot = cfg.visual_model if cfg else None
+        slot = cfg.visual_model
         if not slot or not slot.provider_id or not slot.model:
             return msgs
+        running = cfg.running
     except Exception:
         return msgs
 
@@ -432,9 +466,13 @@ async def apply_visual_fallback_to_messages(msgs: list) -> list:
     )
     out = []
     for msg in msgs:
-        if isinstance(msg.content, list) and _msg_has_media(msg):
+        if _msg_has_media(msg):
             copied = Msg.from_dict(deepcopy(msg.to_dict()))
-            copied.content = await _rewrite_content(copied.content, slot)
+            copied.content = await _rewrite_content(
+                copied.content,
+                slot,
+                running=running,
+            )
             out.append(copied)
         else:
             out.append(msg)

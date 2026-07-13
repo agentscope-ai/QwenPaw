@@ -62,6 +62,7 @@ function ModelsPage() {
   const [visualModalOpen, setVisualModalOpen] = useState(false);
   const selectedAgent = useAgentStore((s) => s.selectedAgent);
   const [visualModel, setVisualModel] = useState<ModelSlotConfig | null>(null);
+  const [visualAgentName, setVisualAgentName] = useState(selectedAgent);
   const [activeTab, setActiveTab] = useState<"cloud" | "local">(() => {
     const stored = localStorage.getItem("models_tab");
     return stored === "local" ? "local" : "cloud";
@@ -85,9 +86,11 @@ function ModelsPage() {
 
   useEffect(() => {
     let cancelled = false;
+    setVisualAgentName(selectedAgent);
     agentsApi.getAgent(selectedAgent).then((config) => {
       if (!cancelled) {
         setVisualModel(config.visual_model ?? null);
+        setVisualAgentName(config.name || selectedAgent);
       }
     });
     return () => {
@@ -611,10 +614,11 @@ function ModelsPage() {
             >
               <VisualModelSection
                 providers={providers}
-                onSaved={() => {
-                  agentsApi.getAgent(selectedAgent).then((config) => {
-                    setVisualModel(config.visual_model ?? null);
-                  });
+                agentId={selectedAgent}
+                agentName={visualAgentName}
+                initialVisualModel={visualModel}
+                onSaved={(slot) => {
+                  setVisualModel(slot);
                   setVisualModalOpen(false);
                 }}
               />
