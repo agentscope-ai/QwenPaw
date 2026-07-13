@@ -869,7 +869,7 @@ class AgentBuilder:
             agent_id=getattr(agent_config, "id", "default"),
         )
 
-    # pylint: disable=too-many-statements
+    # pylint: disable=too-many-statements,too-many-branches
     @staticmethod
     def _build_middlewares(
         ctx: Any,
