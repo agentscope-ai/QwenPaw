@@ -109,9 +109,14 @@ class ToolCoordinator:
                 elif event.type == "stream_closed":
                     break
                 elif event.type == "deadline_reached":
-                    self._handle_deadline_reached(ctx)
-                    terminal = "offload"
-                    break
+                    # TODO FIXME: offload is temporarily
+                    # disabled. cancel_event kills the
+                    # subprocess instead of backgrounding
+                    # it. See issue-offload-kills-subprocess.
+                    ctx.deadline = None
+                    # self._handle_deadline_reached(ctx)
+                    # terminal = "offload"
+                    # break
         finally:
             entry.stream.remove_subscriber(chunk_queue)
 

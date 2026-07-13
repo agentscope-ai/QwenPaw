@@ -205,6 +205,7 @@ async def test_async_finalizer_is_awaited():
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="offload globally disabled pending fix")
 async def test_background_completion_hint_uses_finalized_response(tmp_path):
     coordinator = ToolCoordinator(default_timeout_secs=0.001)
     tool_call = _ToolCall(id="call-bg", name="slow_tool")

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from agentscope.message import Msg, TextBlock
+
 
 def make_offload_hint_msg(entry: Any) -> Any:
     """Construct a hint Msg for a completed offloaded tool call.
@@ -14,8 +16,6 @@ def make_offload_hint_msg(entry: Any) -> Any:
     treat it as an ordinary assistant message — no ToolResultBlock means no
     orphan ``role=tool`` wire message and no tool-call pairing issues.
     """
-    from agentscope.message import Msg, TextBlock
-
     end = entry.end_state or "unknown"
     notification = TextBlock(
         type="text",
