@@ -243,15 +243,19 @@ def test_uvicorn_real_server_serves_on_windows(
         # Poll the server until it responds. Windows CI runners start the
         # uvicorn subprocess + agent loading noticeably slower than Linux/macOS
         # (ProactorEventLoop, cold FS, antivirus), so give it a generous budget.
-        deadline = time.monotonic() + 90
+        deadline = time.monotonic() + 120
         last_error: Exception | None = None
+        # Drain whatever the subprocess has printed so far on the loop so a
+        # hung uvicorn still surfaces its output if we time out.
+        proc_output = bytearray()
         while time.monotonic() < deadline:
             if proc.poll() is not None:
                 # Process exited early — capture output for diagnostics.
-                output = proc.stdout.read() if proc.stdout else b""
+                if proc.stdout:
+                    proc_output += proc.stdout.read() or b""
                 pytest.fail(
                     f"uvicorn subprocess exited early (code={proc.returncode}). "
-                    f"Output:\n{output.decode('utf-8', errors='replace')[:2000]}",
+                    f"Output:\n{proc_output.decode('utf-8', errors='replace')[:2000]}",
                 )
             try:
                 with urllib.request.urlopen(url, timeout=5) as resp:
@@ -264,9 +268,25 @@ def test_uvicorn_real_server_serves_on_windows(
                 last_error = exc
                 time.sleep(0.5)
 
+        # Timed out — force-kill the subprocess so its buffered stdout is
+        # flushed and we can see WHY uvicorn never bound the port instead of
+        # just "connection refused" with no context.
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        if proc.stdout:
+            try:
+                proc_output += proc.stdout.read() or b""
+            except Exception:  # noqa: BLE001
+                pass
         pytest.fail(
-            f"uvicorn server did not become ready within 90s. "
-            f"Last error: {last_error}",
+            f"uvicorn server did not become ready within 120s. "
+            f"Last error: {last_error}\n"
+            f"subproc alive={proc.poll() is None}\n"
+            f"subproc output:\n{proc_output.decode('utf-8', errors='replace')[:3000]}",
         )
     finally:
         proc.terminate()
