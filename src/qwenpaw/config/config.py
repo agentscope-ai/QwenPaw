@@ -2492,11 +2492,14 @@ def resolve_effective_model_slot(
 
     if agent_config is not None:
         if session_id:
-            overrides = getattr(
-                agent_config,
-                "session_model_overrides",
-                {},
-            ) or {}
+            overrides = (
+                getattr(
+                    agent_config,
+                    "session_model_overrides",
+                    {},
+                )
+                or {}
+            )
             override = overrides.get(session_id)
             if _model_slot_is_set(override):
                 return override, "session"
@@ -2543,7 +2546,7 @@ def clear_session_model_override(
     agent_id: str,
     session_id: str,
 ) -> tuple[AgentProfileConfig, bool]:
-    """Remove one session override. Returns updated config and deletion flag."""
+    """Remove one session override and return deletion status."""
     if not session_id:
         raise ConfigurationException(
             config_key="session_model_overrides",

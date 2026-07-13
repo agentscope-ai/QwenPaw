@@ -103,11 +103,11 @@ def test_session_model_override_can_be_set(
         provider_id="openai",
         model="gpt-4",
     )
-    agent_config.session_model_overrides["console:session-1"] = (
-        ModelSlotConfig(
-            provider_id="anthropic",
-            model="claude-3-5-sonnet-20241022",
-        )
+    agent_config.session_model_overrides[
+        "console:session-1"
+    ] = ModelSlotConfig(
+        provider_id="anthropic",
+        model="claude-3-5-sonnet-20241022",
     )
     save_agent_config("test_agent", agent_config)
 
@@ -133,11 +133,11 @@ def test_effective_model_resolution_prefers_session_then_agent(
         provider_id="openai",
         model="gpt-4",
     )
-    agent_config.session_model_overrides["console:session-1"] = (
-        ModelSlotConfig(
-            provider_id="anthropic",
-            model="claude-3-5-sonnet-20241022",
-        )
+    agent_config.session_model_overrides[
+        "console:session-1"
+    ] = ModelSlotConfig(
+        provider_id="anthropic",
+        model="claude-3-5-sonnet-20241022",
     )
 
     model_slot, source = resolve_effective_model_slot(
@@ -219,7 +219,7 @@ async def test_active_model_endpoint_prefers_session_override(
     mock_agent_workspace,
     monkeypatch,
 ):  # pylint: disable=redefined-outer-name,unused-argument
-    """Test active model API resolves session overrides before agent default."""
+    """Test active model API prefers session overrides."""
     from qwenpaw.app.routers import providers as providers_router
 
     agent_config = load_agent_config("test_agent")
@@ -227,11 +227,11 @@ async def test_active_model_endpoint_prefers_session_override(
         provider_id="openai",
         model="gpt-4",
     )
-    agent_config.session_model_overrides["console:session-1"] = (
-        ModelSlotConfig(
-            provider_id="anthropic",
-            model="claude-3-5-sonnet-20241022",
-        )
+    agent_config.session_model_overrides[
+        "console:session-1"
+    ] = ModelSlotConfig(
+        provider_id="anthropic",
+        model="claude-3-5-sonnet-20241022",
     )
     save_agent_config("test_agent", agent_config)
 
