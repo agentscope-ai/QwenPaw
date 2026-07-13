@@ -108,8 +108,9 @@ class ResourceGovernor:
 
         Uses the mtime-cached :func:`load_config`, so this is cheap on the
         hot path and automatically reflects Console updates (``save_config``
-        invalidates the cache). Fails open (returns ``True``) on any error
-        so a config glitch never silently drops sandbox isolation.
+        invalidates the cache). Defaults to False (sandbox off). On a config
+        read error it returns True (fail-safe): a glitch then routes the
+        command through the sandbox instead of running it unsandboxed.
         """
         try:
             from ..config import load_config
@@ -118,7 +119,7 @@ class ResourceGovernor:
         except Exception:
             logger.debug(
                 "ResourceGovernor: failed to read sandbox_enabled; "
-                "assuming enabled.",
+                "assuming enabled (fail-safe).",
                 exc_info=True,
             )
             return True
@@ -200,9 +201,15 @@ class ResourceGovernor:
         """
         decision = self.policy.evaluate(tc_spec)
 
-        # Early probe degradation: if sandbox is unavailable (platform
-        # unsupported OR the global security.sandbox_enabled switch is off),
-        # escalate SANDBOX_FALLBACK to ASK instead of running unsandboxed.
+        # Sandbox not usable (platform unsupported OR the global
+        # security.sandbox_enabled switch is off): a SANDBOX_FALLBACK cannot
+        # run inside a sandbox. Reaching this point means the command already
+        # cleared Phase 1 deep scan (CRITICAL → DENY), Phase 1.5 shell-danger
+        # keywords, and every builtin/user DENY/ASK rule — i.e. nothing
+        # flagged it. Rather than nag the user, run it unsandboxed (ALLOW).
+        # Only the sandbox isolation layer is dropped; Phase 0-2 protections
+        # stay fully in force. STRICT never reaches here (it returns ASK in
+        # evaluate() before producing SANDBOX_FALLBACK).
         if (
             decision.action is GovernanceAction.SANDBOX_FALLBACK
             and not self._sandbox_usable()
@@ -213,14 +220,13 @@ class ResourceGovernor:
                 else f"sandbox unavailable ({self._sandbox_capability.reason})"
             )
             logger.info(
-                "ResourceGovernor: %s, escalating "
-                "SANDBOX_FALLBACK to ASK for tool '%s'",
+                "ResourceGovernor: %s, running '%s' unsandboxed (ALLOW)",
                 reason,
                 tc_spec.tool_name,
             )
             decision = GovernanceDecision(
-                action=GovernanceAction.ASK,
-                reason=f"{reason}, ask user",
+                action=GovernanceAction.ALLOW,
+                reason=f"{reason}, running unsandboxed",
             )
 
         # compile sandbox config

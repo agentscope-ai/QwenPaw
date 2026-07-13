@@ -487,11 +487,12 @@ class TestAssertPolicySSHCommands:
         tc = _tc("Bash", "ls -la")
         decision = governor.assert_policy(tc)
         governor.audit(tc, decision)
-        # When sandbox is unavailable, SANDBOX_FALLBACK escalates to ASK
-        # So we just check it's not DENY or the SSH-related ASK
+        # Sandbox available -> SANDBOX_FALLBACK (runs in sandbox); sandbox
+        # unavailable -> ALLOW (runs unsandboxed, no prompt). Either way it
+        # must not be DENY or the SSH-related ASK.
         assert decision.action in (
             GovernanceAction.SANDBOX_FALLBACK,
-            GovernanceAction.ASK,
+            GovernanceAction.ALLOW,
         )
 
 
@@ -678,7 +679,9 @@ class TestGovernancePolicyEvaluate:
 
 
 class TestAssertPolicySandboxEscalation:
-    """When sandbox is unavailable, SANDBOX_FALLBACK should escalate to ASK."""
+    """When sandbox is unavailable, a shell SANDBOX_FALLBACK runs unsandboxed
+    (ALLOW) instead of prompting — the command already cleared all danger
+    checks, and the operator has accepted running without the sandbox."""
 
     @pytest.fixture()
     def governor_no_sandbox(self, tmp_path):
@@ -696,13 +699,13 @@ class TestAssertPolicySandboxEscalation:
         AuditLog._instance = None
         shutil.rmtree(gov._policy_dir, ignore_errors=True)
 
-    def test_bash_echo_escalates_to_ask(self, governor_no_sandbox):
+    def test_bash_echo_allows_unsandboxed(self, governor_no_sandbox):
         """Bash(echo hello) — no rule match → SANDBOX_FALLBACK, but sandbox
-        unavailable → escalate to ASK."""
+        unavailable → run unsandboxed (ALLOW)."""
         tc = _tc("Bash", "echo hello")
         decision = governor_no_sandbox.assert_policy(tc)
         governor_no_sandbox.audit(tc, decision)
-        assert decision.action == GovernanceAction.ASK
+        assert decision.action == GovernanceAction.ALLOW
 
 
 # ---------------------------------------------------------------------------

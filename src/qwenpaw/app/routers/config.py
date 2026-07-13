@@ -802,11 +802,11 @@ class SandboxSettingBody(BaseModel):
     """Global governance sandbox switch (``security.sandbox_enabled``)."""
 
     enabled: bool = Field(
-        default=True,
+        default=False,
         description=(
             "When True, shell tools with no matching rule run inside the "
-            "sandbox without prompting. When False, the sandbox is treated "
-            "as unavailable and such calls escalate to a user approval."
+            "sandbox without prompting. When False (default), such calls "
+            "run directly without the sandbox (no prompt)."
         ),
     )
 

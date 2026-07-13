@@ -21,7 +21,7 @@ export function useToolGuard() {
     Record<string, boolean>
   >({});
   const [enabled, setEnabled] = useState(true);
-  const [sandboxEnabled, setSandboxEnabled] = useState(true);
+  const [sandboxEnabled, setSandboxEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
