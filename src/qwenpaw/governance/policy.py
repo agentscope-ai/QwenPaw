@@ -530,7 +530,8 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         action=GovernanceAction.DENY,
         reason="Destructive GitHub API calls prohibited",
     ),
-    # ALLOW all other gh operations (agent needs write access for PR/issue management)
+    # ALLOW all other gh operations
+    # (agent needs write access for PR/issue management)
     GovernanceRule(
         match="Bash(gh)",
         action=GovernanceAction.ALLOW,
@@ -697,8 +698,7 @@ class GovernancePolicy:
                 if action == GovernanceAction.ALLOW and is_strict:
                     return GovernanceDecision(
                         action=GovernanceAction.ASK,
-                        reason="STRICT mode: all tool calls "
-                        "require approval",
+                        reason="STRICT mode: all tool calls require approval",
                         findings=findings or None,
                         source="STRICT mode",
                     )
@@ -718,8 +718,7 @@ class GovernancePolicy:
                 if action == GovernanceAction.ALLOW and is_strict:
                     return GovernanceDecision(
                         action=GovernanceAction.ASK,
-                        reason="STRICT mode: all tool calls "
-                        "require approval",
+                        reason="STRICT mode: all tool calls require approval",
                         findings=findings or None,
                         source="STRICT mode",
                     )
@@ -736,7 +735,7 @@ class GovernancePolicy:
             if is_strict:
                 return GovernanceDecision(
                     action=GovernanceAction.ASK,
-                    reason="STRICT mode: all tool calls " "require approval",
+                    reason="STRICT mode: all tool calls require approval",
                     findings=findings or None,
                     source="STRICT mode",
                 )
