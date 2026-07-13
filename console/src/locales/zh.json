@@ -1179,7 +1179,19 @@
     "availableSection": "未激活",
     "enableAction": "启用",
     "noEnabledChannels": "暂无已激活频道",
-    "goEnableChannels": "去启用频道"
+    "goEnableChannels": "去启用频道",
+    "zaloSetupGuide": "在 https://bot.zalo.me 创建 Bot，复制 Bot Token 并粘贴到下方。无需公网 URL 或 Webhook —— 频道通过轮询方式访问 Zalo Bot Platform。",
+    "zaloBotToken": "Zalo Bot Token",
+    "zaloBotTokenPlaceholder": "来自 https://bot.zalo.me 的 Bot Token",
+    "zaloBotTokenTooltip": "从 Zalo Bot Platform 管理后台获取的 Bot Token（格式：<bot_id>:<secret>）。",
+    "zaloApiBaseUrl": "API Base URL",
+    "zaloApiBaseUrlPlaceholder": "留空使用默认值",
+    "zaloApiBaseUrlTooltip": "覆盖官方 Zalo Bot API 端点，用于测试或私有部署。",
+    "zaloSecretToken": "Secret Token",
+    "zaloSecretTokenPlaceholder": "可选的 X-Api-Key 请求头值",
+    "zaloSecretTokenTooltip": "可选。当平台需要时，作为 X-Api-Key 请求头发送在出站 API 调用上。",
+    "zaloPollInterval": "轮询间隄（秒）",
+    "zaloPollIntervalTooltip": "getUpdates 长轮询调用之间的秒数。值越低 = 回复越快、API 配额消耗越多。默认 30。"
   },
   "sessions": {
     "title": "会话",

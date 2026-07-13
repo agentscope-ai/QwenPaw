@@ -36,6 +36,7 @@ const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "xiaoyi",
   "yuanbao",
   "slack",
+  "zalo",
 ];
 
 // Doc EN URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -62,6 +63,7 @@ const CHANNEL_DOC_EN_URLS: Partial<Record<ChannelKey, string>> = {
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=en#OneBot-v11-NapCat--QQ-full-protocol",
   slack: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Slack",
+  zalo: "https://qwenpaw.agentscope.io/docs/channels/?lang=en#Zalo",
 };
 
 // Doc ZH URLs per channel (anchors on https://qwenpaw.agentscope.io/docs/channels)
@@ -86,6 +88,7 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
   onebot:
     "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#OneBot-v11NapCat--QQ-完整协议",
   slack: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Slack",
+  zalo: "https://qwenpaw.agentscope.io/docs/channels/?lang=zh#Zalo",
 };
 
 const TWILIO_CONSOLE_URL = "https://console.twilio.com";
@@ -635,6 +638,53 @@ export function ChannelDrawer({
               valuePropName="checked"
             >
               <Switch />
+            </Form.Item>
+          </>
+        );
+
+      case "zalo":
+        return (
+          <>
+            <ConfigProvider prefixCls="ant">
+              <Alert
+                type="info"
+                showIcon
+                message={t("channels.zaloSetupGuide")}
+                style={{ marginBottom: 16 }}
+              />
+            </ConfigProvider>
+            <Form.Item
+              name="bot_token"
+              label={t("channels.zaloBotToken")}
+              rules={[{ required: true }]}
+              tooltip={t("channels.zaloBotTokenTooltip")}
+            >
+              <Input.Password
+                placeholder={t("channels.zaloBotTokenPlaceholder")}
+              />
+            </Form.Item>
+            <Form.Item
+              name="api_base_url"
+              label={t("channels.zaloApiBaseUrl")}
+              tooltip={t("channels.zaloApiBaseUrlTooltip")}
+            >
+              <Input placeholder={t("channels.zaloApiBaseUrlPlaceholder")} />
+            </Form.Item>
+            <Form.Item
+              name="secret_token"
+              label={t("channels.zaloSecretToken")}
+              tooltip={t("channels.zaloSecretTokenTooltip")}
+            >
+              <Input.Password
+                placeholder={t("channels.zaloSecretTokenPlaceholder")}
+              />
+            </Form.Item>
+            <Form.Item
+              name="poll_interval"
+              label={t("channels.zaloPollInterval")}
+              tooltip={t("channels.zaloPollIntervalTooltip")}
+            >
+              <InputNumber min={5} max={300} style={{ width: "100%" }} />
             </Form.Item>
           </>
         );

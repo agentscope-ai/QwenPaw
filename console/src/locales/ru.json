@@ -983,7 +983,19 @@
     "availableSection": "Доступные",
     "enableAction": "Активировать",
     "noEnabledChannels": "Нет активированных каналов",
-    "goEnableChannels": "Активировать каналы"
+    "goEnableChannels": "Активировать каналы",
+    "zaloSetupGuide": "Создайте бота на https://bot.zalo.me, скопируйте Bot Token и вставьте ниже. Публичный URL или вебхук не нужны — канал опрашивает Zalo Bot Platform.",
+    "zaloBotToken": "Zalo Bot Token",
+    "zaloBotTokenPlaceholder": "Bot token с https://bot.zalo.me",
+    "zaloBotTokenTooltip": "Bot token, полученный из консоли администратора Zalo Bot Platform (формат: <bot_id>:<secret>).",
+    "zaloApiBaseUrl": "API Base URL",
+    "zaloApiBaseUrlPlaceholder": "Оставьте пустым для значения по умолчанию",
+    "zaloApiBaseUrlTooltip": "Переопределяет официальный эндпоинт Zalo Bot API для тестирования или приватного развᴑртывания.",
+    "zaloSecretToken": "Secret Token",
+    "zaloSecretTokenPlaceholder": "Необязательное значение заголовка X-Api-Key",
+    "zaloSecretTokenTooltip": "Необязательно. Отправляется как заголовок X-Api-Key в исходящих API-вызовах, когда платформа этого требует.",
+    "zaloPollInterval": "Интервал опроса (сек)",
+    "zaloPollIntervalTooltip": "Секунды между вызовами long-poll getUpdates. Меньше = быстрее ответы, больше расход квоты API. По умолчанию 30."
   },
   "sessions": {
     "title": "Сессии",

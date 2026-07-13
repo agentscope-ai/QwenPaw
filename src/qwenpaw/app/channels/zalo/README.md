@@ -1,18 +1,20 @@
 # Zalo Bot Channel for QwenPaw
 
-Tich hop Zalo Bot (qua Zalo Bot Platform) voi QwenPaw thong qua **polling mode**.
-Khong can public URL, HTTPS, hay domain - chi can bot token.
+Integrates QwenPaw with the [Zalo Bot Platform](https://bot.zalo.me/) via **polling mode**.
+No public URL, HTTPS endpoint, or domain is required — only a bot token.
 
-## Setup nhanh
+## Quick Start
 
-### Buoc 1: Tao Zalo Bot
-1. Vao https://bot.zalo.me/
-2. Tao OA + Bot moi
-3. Luu **Bot Token** (dang: `<bot_id>:<secret>`)
+### Step 1: Create a Zalo Bot
 
-### Buoc 2: Cau hinh channel
+1. Go to <https://bot.zalo.me/> and sign in.
+2. Create a new Official Account (OA) + Bot.
+3. Save the **Bot Token** (format: `<bot_id>:<secret>`).
 
-Qua Web UI (`http://<host>:8088`) hoac sua `~/.qwenpaw/config.json`:
+### Step 2: Configure the channel
+
+Via the Web UI (`http://<host>:8088` → **Control → Channels → Zalo**) or by editing
+`~/.qwenpaw/config.json`:
 
 ```json
 {
@@ -26,82 +28,85 @@ Qua Web UI (`http://<host>:8088`) hoac sua `~/.qwenpaw/config.json`:
 }
 ```
 
-### Buoc 3: Restart
+### Step 3: Restart
 
 ```bash
 systemctl restart qwenpaw
 journalctl _PID=$(pgrep -f "qwenpaw app" | head -1) -f | grep zalo
 ```
 
-Logs mong doi:
+Expected logs:
 
 ```
 [zalo] bot connected: id=<bot_id> name=<display_name>
 [zalo] polling started (interval=30s)
 ```
 
-## Cau hinh
+## Configuration
 
-| Field | Default | Mo ta |
+| Field | Default | Description |
 |---|---|---|
-| `enabled` | false | Bat/tat channel |
-| `bot_token` | `` | Bot token tu Zalo Bot Platform |
-| `poll_interval` | 30 | Giay giua cac getUpdates long-poll |
-| `max_retries` | 3 | So lan retry khi API loi |
-| `max_message_len` | 2000 | Gioi han ky tu moi message |
-| `bot_prefix` | `` | Bot chi xu ly message bat dau bang prefix |
-| `filter_tool_messages` | true | An tool output khi user khong muon thay |
-| `filter_thinking` | true | An thinking/reasoning output |
-| `api_base_url` | https://bot-api.zaloplatforms.com | Zalo Bot API endpoint |
-| `allow_from` | [] | Whitelist chat_id (empty = open) |
-| `dm_policy` / `group_policy` | open | Quyen truy cap |
+| `enabled` | `false` | Enable/disable the channel |
+| `bot_token` | `""` | Bot token from the Zalo Bot Platform |
+| `poll_interval` | `30` | Seconds between `getUpdates` long-poll calls |
+| `max_retries` | `3` | Retry attempts on API error |
+| `max_message_len` | `2000` | Character limit per outbound message |
+| `bot_prefix` | `""` | Bot only handles messages starting with this prefix |
+| `filter_tool_messages` | `true` | Hide tool output from the user |
+| `filter_thinking` | `true` | Hide thinking/reasoning output |
+| `api_base_url` | *(official)* | Override the Zalo Bot API endpoint (testing/private deployments) |
+| `secret_token` | `""` | Optional `X-Api-Key` header value for outbound API calls |
+| `allow_from` | `[]` | Whitelist of chat IDs (empty = open) |
+| `dm_policy` / `group_policy` | `open` | Access control policy |
 
-## Slash commands
+## Slash Commands
 
-Bot nhan dien va xu ly cac lenh sau (gui truc tiep den agent):
+The bot recognizes and forwards these commands directly to the agent:
 
-- `/help` - Hien thi tro giup
-- `/start` - Gioi thieu bot
-- `/qwenpaw <query>` - Truy van agent (vd: `/qwenpaw tom tat tin tuc`)
+- `/help` — Show help
+- `/start` — Bot introduction
+- `/qwenpaw <query>` — Query the agent (e.g. `/qwenpaw summarize the news`)
 
-## Magic tokens (file/voice/image)
+## Magic Tokens (image / voice / sticker / file)
 
-Khi agent muon gui file qua Zalo (khong co native upload API), chen magic token
-trong text reply. Token bi strip khi gui, channel se trich xuat va goi API phu hop:
+Since the Zalo Bot API has no native file upload from the agent side, the agent can
+embed magic tokens in its text reply. Tokens are stripped before sending, and the
+channel extracts and calls the appropriate API:
 
-| Token | Y nghia |
+| Token | Meaning |
 |---|---|
-| `[IMAGE: https://...]` | Gui anh kem |
-| `[STICKER: sticker_id]` | Gui sticker Zalo |
-| `[VOICE: https://...]` | Gui voice message (.ogg/.mp3) |
-| `[LOCAL_FILE: /path/to/file]` | Gui file local (anh PNG/JPG gui truc tiep, PDF/ZIP/XLSX gui link) |
+| `[IMAGE: https://...]` | Send an image by URL |
+| `[STICKER: sticker_id]` | Send a Zalo sticker |
+| `[VOICE: https://...]` | Send a voice message (.ogg/.mp3) |
+| `[LOCAL_FILE: /path/to/file]` | Send a local file (PNG/JPG sent directly; PDF/ZIP/XLSX sent as a link) |
 
-Vi du:
+Example:
 
 ```
-Em vua ve chart Q4 cho anh nhe
+Here's the Q4 chart:
 [IMAGE: https://example.com/chart.png]
 ```
 
-Khi user gui anh/sticker/voice, bot nhan text marker va forward cho agent xu ly.
+When a user sends a photo/sticker/voice message, the bot receives a text marker and
+forwards it to the agent for processing.
 
-## Kien truc
+## Architecture
 
 ```
 Zalo Bot Platform
        |
-       | GET /bot<token>/getUpdates  (long-poll 30s)
+       | GET /bot<token>/getUpdates  (long-poll, 30s)
        v
-   ZaloChannel._poll_loop (asyncio task)
+   ZaloChannel._poll_loop  (asyncio task)
        |
        v
    ZaloChannel._dispatch_native_event
        |
        v
-   QwenPaw Agent (manager queue)
+   QwenPaw Agent  (manager queue)
        |
        v
-   ZaloChannel.send (text + magic tokens)
+   ZaloChannel.send  (text + magic tokens)
        |
        | POST /bot<token>/sendMessage
        | POST /bot<token>/sendPhoto
@@ -111,44 +116,37 @@ Zalo Bot Platform
    Zalo Bot Platform -> User
 ```
 
-## Tinh nang chinh
+## Features
 
-- 2-way text + image + sticker + voice
-- Typing indicator (auto, trong khi agent xu ly)
+- Two-way text + image + sticker + voice
+- Typing indicator (auto, while the agent is processing)
 - Slash commands (`/help`, `/start`, `/qwenpaw`)
-- Smart text routing (trich URL va magic tokens tu plain text)
-- Offset tracking (long-poll idempotent, khong trung event)
-- Dedup (seen message_ids)
-- Null/empty filter (skip LLM "null" / "None" leaks)
+- Smart text routing (extract URLs and magic tokens from plain text)
+- Offset tracking (long-poll is idempotent, no duplicate events)
+- Deduplication (seen `message_ids`)
+- Null/empty filtering (skips LLM "null" / "None" leaks)
 
-## Gioi han
+## Limitations
 
-- Chi polling (khong webhook) - phu hop personal bot, single instance
-- Long-poll 30s latency (acceptable cho chat)
-- Khong co native file upload qua Zalo API - phai dung URL public hoac LOCAL_FILE
-- Polling giu 1 connection HTTP keepalive toi Zalo API
+- Polling only (no webhook) — suitable for a personal single-instance bot
+- 30s long-poll latency (acceptable for chat)
+- No native file upload via the Zalo API — must use a public URL or `LOCAL_FILE`
+- Polling holds one keep-alive HTTP connection to the Zalo API
 
 ## Troubleshooting
 
-**Bot khong phan hoi:**
+**Bot does not respond:**
 
-1. Check token: `curl https://bot-api.zaloplatforms.com/bot<TOKEN>/getMe`
-2. Check journal: `journalctl _PID=$(pgrep -f "qwenpaw app" | head -1) -f | grep zalo`
-3. Test send bang tay:
-   ```
+1. Verify the token: `curl https://bot-api.zaloplatforms.com/bot<TOKEN>/getMe`
+2. Check the journal: `journalctl _PID=$(pgrep -f "qwenpaw app" | head -1) -f | grep zalo`
+3. Test sending manually:
+   ```bash
    curl -X POST https://bot-api.zaloplatforms.com/bot<TOKEN>/sendMessage \
         -H "Content-Type: application/json" \
         -d '{"recipient":{"id":"<chat_id>"},"message":{"text":"test"}}'
    ```
 
-**User gui tin nhan nhung khong thay log:**
+**User sends a message but no log appears:**
 
-- Co the message bi filter boi `allow_from` hoac `bot_prefix`
-- Kiem tra `bot_prefix` config
-
-## Phat trien
-
-```bash
-cd ~/.qwenpaw/custom_channels/zalo
-/root/.qwenpaw/venv/bin/python3 -c "from custom_channels.zalo import ZaloChannel; print(ZaloChannel)"
-```
+- The message may be filtered by `allow_from` or `bot_prefix`
+- Check the `bot_prefix` config value

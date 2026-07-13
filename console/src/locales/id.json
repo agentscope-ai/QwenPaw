@@ -521,7 +521,19 @@
     "slackBotTokenTooltip": "Slack Bot User OAuth Token, dimulai dengan xoxb-",
     "slackAppToken": "App Token",
     "slackAppTokenTooltip": "Slack App-Level Token untuk Socket Mode, dimulai dengan xapp-",
-    "slackProxyTooltip": "URL proxy HTTP untuk menghubungkan ke Slack API"
+    "slackProxyTooltip": "URL proxy HTTP untuk menghubungkan ke Slack API",
+    "zaloSetupGuide": "Buat bot di https://bot.zalo.me, salin Bot Token, dan tempel di bawah. Tidak perlu URL publik atau webhook — kanal melakukan polling ke Zalo Bot Platform.",
+    "zaloBotToken": "Zalo Bot Token",
+    "zaloBotTokenPlaceholder": "Bot token dari https://bot.zalo.me",
+    "zaloBotTokenTooltip": "Bot token yang diperoleh dari konsol admin Zalo Bot Platform (format: <bot_id>:<secret>).",
+    "zaloApiBaseUrl": "API Base URL",
+    "zaloApiBaseUrlPlaceholder": "Kosongkan untuk default",
+    "zaloApiBaseUrlTooltip": "Menimpa endpoint resmi Zalo Bot API untuk pengujian atau deployment privat.",
+    "zaloSecretToken": "Secret Token",
+    "zaloSecretTokenPlaceholder": "Nilai header X-Api-Key opsional",
+    "zaloSecretTokenTooltip": "Opsional. Dikirim sebagai header X-Api-Key pada panggilan API keluar saat platform memerlukannya.",
+    "zaloPollInterval": "Interval Polling (detik)",
+    "zaloPollIntervalTooltip": "Detik antara pemanggilan long-poll getUpdates. Lebih rendah = balasan lebih cepat, penggunaan kuota API lebih tinggi. Default 30."
   },
   "tools": {
     "title": "Tool Bawaan",

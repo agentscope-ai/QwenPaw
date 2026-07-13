@@ -1320,7 +1320,19 @@
     "availableSection": "Available",
     "enableAction": "Enable",
     "noEnabledChannels": "No enabled channels",
-    "goEnableChannels": "Enable channels"
+    "goEnableChannels": "Enable channels",
+    "zaloSetupGuide": "Create a bot at https://bot.zalo.me, copy the Bot Token, and paste it below. No public URL or webhook needed — the channel polls the Zalo Bot Platform.",
+    "zaloBotToken": "Zalo Bot Token",
+    "zaloBotTokenPlaceholder": "Bot token from https://bot.zalo.me",
+    "zaloBotTokenTooltip": "Bot token obtained from the Zalo Bot Platform admin console (format: <bot_id>:<secret>).",
+    "zaloApiBaseUrl": "API Base URL",
+    "zaloApiBaseUrlPlaceholder": "Leave empty for default",
+    "zaloApiBaseUrlTooltip": "Override the official Zalo Bot API endpoint for testing or private deployments.",
+    "zaloSecretToken": "Secret Token",
+    "zaloSecretTokenPlaceholder": "Optional X-Api-Key header value",
+    "zaloSecretTokenTooltip": "Optional. Sent as X-Api-Key header on outbound API calls when the platform requires one.",
+    "zaloPollInterval": "Poll Interval (sec)",
+    "zaloPollIntervalTooltip": "Seconds between getUpdates long-poll calls. Lower = faster replies, more API quota use. Default 30."
   },
   "sessions": {
     "title": "Sessions",

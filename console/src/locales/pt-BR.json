@@ -1189,7 +1189,19 @@
     "availableSection": "Disponíveis",
     "enableAction": "Ativar",
     "noEnabledChannels": "Nenhum canal ativado",
-    "goEnableChannels": "Ativar canais"
+    "goEnableChannels": "Ativar canais",
+    "zaloSetupGuide": "Crie um bot em https://bot.zalo.me, copie o Bot Token e cole abaixo. Não é necessário URL público ou webhook — o canal faz polling da Zalo Bot Platform.",
+    "zaloBotToken": "Zalo Bot Token",
+    "zaloBotTokenPlaceholder": "Bot token de https://bot.zalo.me",
+    "zaloBotTokenTooltip": "Bot token obtido no console de administração da Zalo Bot Platform (formato: <bot_id>:<secret>).",
+    "zaloApiBaseUrl": "API Base URL",
+    "zaloApiBaseUrlPlaceholder": "Deixe vazio para o padrão",
+    "zaloApiBaseUrlTooltip": "Sobrescreve o endpoint oficial da Zalo Bot API para testes ou implantações privadas.",
+    "zaloSecretToken": "Secret Token",
+    "zaloSecretTokenPlaceholder": "Valor de cabeçalho X-Api-Key opcional",
+    "zaloSecretTokenTooltip": "Opcional. Enviado como cabeçalho X-Api-Key em chamadas de API de saída quando a plataforma exige.",
+    "zaloPollInterval": "Intervalo de Polling (seg)",
+    "zaloPollIntervalTooltip": "Segundos entre chamadas de long-poll getUpdates. Menor = respostas mais rápidas, maior uso de cota de API. Padrão 30."
   },
   "sessions": {
     "title": "Sessoes",

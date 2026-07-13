@@ -983,7 +983,19 @@
     "availableSection": "未有効",
     "enableAction": "有効にする",
     "noEnabledChannels": "有効なチャンネルはありません",
-    "goEnableChannels": "チャンネルを有効にする"
+    "goEnableChannels": "チャンネルを有効にする",
+    "zaloSetupGuide": "https://bot.zalo.me でボットを作成し、Bot Token をコピーして以下に貼り付けてください。公開 URL や Webhook は不要 — チャンネルが Zalo Bot Platform をポーリングします。",
+    "zaloBotToken": "Zalo Bot Token",
+    "zaloBotTokenPlaceholder": "https://bot.zalo.me の Bot Token",
+    "zaloBotTokenTooltip": "Zalo Bot Platform 管理コンソールから取得した Bot Token（形式: <bot_id>:<secret>）。",
+    "zaloApiBaseUrl": "API Base URL",
+    "zaloApiBaseUrlPlaceholder": "デフォルトを使用する場合は空欄",
+    "zaloApiBaseUrlTooltip": "テストやプライベートデプロイのために官方 Zalo Bot API エンドポイントを上書きします。",
+    "zaloSecretToken": "Secret Token",
+    "zaloSecretTokenPlaceholder": "任意の X-Api-Key ヘッダー値",
+    "zaloSecretTokenTooltip": "任意。プラットフォームが要求する場合、送信 API コールに X-Api-Key ヘッダーとして送信されます。",
+    "zaloPollInterval": "ポーリング間隔（秒）",
+    "zaloPollIntervalTooltip": "getUpdates ロングポーリング呼び出しの間隔（秒）。低い値 = 高速な応答、API クオタ消費増。デフォルト 30。"
   },
   "sessions": {
     "title": "セッション",

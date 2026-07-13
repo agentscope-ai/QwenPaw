@@ -1109,7 +1109,19 @@
     "slackBotTokenTooltip": "Slack Bot User OAuth Token, bắt đầu bằng xoxb-",
     "slackAppToken": "App Token",
     "slackAppTokenTooltip": "Slack App-Level Token cho Socket Mode, bắt đầu bằng xapp-",
-    "slackProxyTooltip": "URL proxy HTTP để kết nối đến Slack API"
+    "slackProxyTooltip": "URL proxy HTTP để kết nối đến Slack API",
+    "zaloSetupGuide": "Tạo bot tại https://bot.zalo.me, sao chép Bot Token và dán vào bên dưới. Không cần URL công khai hay webhook — kênh tự lấy dữ liệu từ Zalo Bot Platform.",
+    "zaloBotToken": "Bot Token Zalo",
+    "zaloBotTokenPlaceholder": "Bot token từ https://bot.zalo.me",
+    "zaloBotTokenTooltip": "Bot token lấy từ trang quản trị Zalo Bot Platform (định dạng: <bot_id>:<secret>).",
+    "zaloApiBaseUrl": "API Base URL",
+    "zaloApiBaseUrlPlaceholder": "Để trống dùng mặc định",
+    "zaloApiBaseUrlTooltip": "Ghi đè endpoint API Zalo Bot chính thức, dùng cho test hoặc triển khai riêng.",
+    "zaloSecretToken": "Secret Token",
+    "zaloSecretTokenPlaceholder": "Giá trị header X-Api-Key (tùy chọn)",
+    "zaloSecretTokenTooltip": "Tùy chọn. Gửi kèm header X-Api-Key trên các cuộc gọi API ra khi nền tảng yêu cầu.",
+    "zaloPollInterval": "Khoảng poll (giây)",
+    "zaloPollIntervalTooltip": "Số giây giữa các lần gọi long-poll getUpdates. Giảm = phản hồi nhanh hơn, tốn quota API nhiều hơn. Mặc định 30."
   },
   "cronJobs": {
     "title": "Tác vụ định kỳ",
