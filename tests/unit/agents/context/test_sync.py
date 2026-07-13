@@ -95,6 +95,14 @@ def _write_session_1x(
     return path
 
 
+def _write_chats(path: Path, chats: list[dict]) -> Path:
+    path.write_text(
+        json.dumps({"version": 1, "chats": chats}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return path
+
+
 @pytest.fixture
 def store(tmp_path: Path) -> HistoryStore:
     h = HistoryStore(tmp_path / "history.db")
@@ -125,6 +133,149 @@ def test_legacy_1x_session_uses_filename_fallback_id(store, tmp_path: Path):
     assert report.rows_inserted > 0
     # No embedded id in 1.x → synthetic sync:<stem> session.
     assert store.count("sync:old") == report.rows_inserted
+
+
+def test_legacy_1x_session_uses_canonical_id_from_chat_registry(
+    store,
+    tmp_path: Path,
+):
+    sessions = tmp_path / "sessions"
+    _write_session_1x(
+        sessions / "console",
+        "default_legacy-session.json",
+        _sample_msgs(),
+    )
+    chats = _write_chats(
+        tmp_path / "chats.json",
+        [
+            {
+                "session_id": "legacy-session",
+                "user_id": "default",
+                "channel": "console",
+            },
+        ],
+    )
+
+    report = sync_sessions_to_history(
+        history=store,
+        sessions_dir=sessions,
+        chats_path=chats,
+    )
+
+    assert report.rows_inserted > 0
+    assert store.count("legacy-session") == report.rows_inserted
+    assert store.count("sync:default_legacy-session") == 0
+
+
+def test_chat_registry_overrides_internal_2x_agent_state_id(
+    store,
+    tmp_path: Path,
+):
+    sessions = tmp_path / "sessions"
+    _write_session_2x(
+        sessions / "console",
+        "default_request-session.json",
+        "internal-agent-state-id",
+        _sample_msgs(),
+    )
+    chats = _write_chats(
+        tmp_path / "chats.json",
+        [
+            {
+                "session_id": "request-session",
+                "user_id": "default",
+                "channel": "console",
+            },
+        ],
+    )
+
+    sync_sessions_to_history(
+        history=store,
+        sessions_dir=sessions,
+        chats_path=chats,
+    )
+
+    assert store.count("request-session") > 0
+    assert store.count("internal-agent-state-id") == 0
+
+
+def test_existing_synthetic_manifest_is_rekeyed_without_changing_seq(
+    store,
+    tmp_path: Path,
+):
+    sessions = tmp_path / "sessions"
+    _write_session_1x(
+        sessions / "console",
+        "default_legacy-session.json",
+        _sample_msgs(),
+    )
+    first = sync_sessions_to_history(
+        history=store,
+        sessions_dir=sessions,
+    )
+    assert first.rows_inserted > 0
+    before = store._conn.execute(
+        "SELECT seq FROM conversation_history "
+        "WHERE session_id='sync:default_legacy-session' ORDER BY seq",
+    ).fetchall()
+    before_seqs = [row["seq"] for row in before]
+
+    chats = _write_chats(
+        tmp_path / "chats.json",
+        [
+            {
+                "session_id": "legacy-session",
+                "user_id": "default",
+                "channel": "console",
+            },
+        ],
+    )
+    second = sync_sessions_to_history(
+        history=store,
+        sessions_dir=sessions,
+        chats_path=chats,
+    )
+
+    assert second.rows_inserted == 0
+    assert all(result.skipped for result in second.files)
+    assert store.count("sync:default_legacy-session") == 0
+    after = store._conn.execute(
+        "SELECT seq FROM conversation_history "
+        "WHERE session_id='legacy-session' ORDER BY seq",
+    ).fetchall()
+    assert [row["seq"] for row in after] == before_seqs
+    manifest = json.loads(
+        (sessions / MANIFEST_NAME).read_text(encoding="utf-8"),
+    )
+    assert (
+        manifest["files"]["console/default_legacy-session.json"]["session_id"]
+        == "legacy-session"
+    )
+
+
+def test_ambiguous_chat_filename_keeps_synthetic_fallback(
+    store,
+    tmp_path: Path,
+):
+    sessions = tmp_path / "sessions"
+    _write_session_1x(sessions, "default_a--b.json", _sample_msgs())
+    chats = _write_chats(
+        tmp_path / "chats.json",
+        [
+            {"session_id": "a:b", "user_id": "default", "channel": ""},
+            {"session_id": "a?b", "user_id": "default", "channel": ""},
+        ],
+    )
+
+    sync_sessions_to_history(
+        history=store,
+        sessions_dir=sessions,
+        chats_path=chats,
+    )
+
+    assert store.count("sync:default_a--b") > 0
+    assert store.count("a:b") == 0
+    assert store.count("a?b") == 0
 
 
 def test_sync_is_idempotent_via_manifest(store, tmp_path: Path):

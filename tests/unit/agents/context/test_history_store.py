@@ -97,6 +97,39 @@ def test_same_dedup_key_different_session_does_not_collide(
     assert store.count("s1") == 1 and store.count("s2") == 1
 
 
+def test_rekey_session_preserves_seq_and_deduplicates(store: HistoryStore):
+    kept = store.append(
+        session_id="real",
+        dedup_key="shared",
+        entry=_entry("live copy"),
+    )
+    duplicate = store.append(
+        session_id="sync:file",
+        dedup_key="shared",
+        entry=_entry("migration copy"),
+    )
+    moved = store.append(
+        session_id="sync:file",
+        dedup_key="unique",
+        entry=_entry("legacy only"),
+    )
+
+    moved_count, deduplicated = store.rekey_session("sync:file", "real")
+
+    assert (moved_count, deduplicated) == (1, 1)
+    assert store.count("sync:file") == 0
+    assert store.count("real") == 2
+    rows = store._conn.execute(
+        "SELECT seq, content FROM conversation_history "
+        "WHERE session_id='real' ORDER BY seq",
+    ).fetchall()
+    assert [(row["seq"], row["content"]) for row in rows] == [
+        (kept, "live copy"),
+        (moved, "legacy only"),
+    ]
+    assert duplicate not in {row["seq"] for row in rows}
+
+
 def test_null_dedup_key_is_never_deduped(store: HistoryStore):
     store.append(session_id="s", dedup_key=None, entry=_entry("x"))
     store.append(session_id="s", dedup_key=None, entry=_entry("x"))

@@ -462,7 +462,51 @@ class HistoryStore:
                     {int(row["seq"]): row["content"] for row in rows},
                 )
         return found
+    def rekey_session(self, source_id: str, target_id: str) -> tuple[int, int]:
+        """Move rows from one session id to another without changing seq.
 
+        Startup migration originally placed legacy 1.x rows under synthetic
+        ``sync:<filename>`` ids. Once the chat registry can recover the real
+        id, preserving ``seq`` matters: seq values are durable recall
+        addresses and may already appear in an eviction index. Rows whose
+        dedup key already exists under the target are dropped before the
+        update; all other rows are updated in place. The return value is
+        ``(moved, deduplicated)``.
+        """
+        if not source_id or not target_id or source_id == target_id:
+            return (0, 0)
+
+        with self._lock, self._conn:
+            duplicates = self._conn.execute(
+                "SELECT src.seq, src.content "
+                "FROM conversation_history AS src "
+                "WHERE src.session_id = ? AND src.dedup_key IS NOT NULL "
+                "AND EXISTS ("
+                "SELECT 1 FROM conversation_history AS dst "
+                "WHERE dst.session_id = ? "
+                "AND dst.dedup_key = src.dedup_key)",
+                (source_id, target_id),
+            ).fetchall()
+            if self._fts:
+                for row in duplicates:
+                    self._conn.execute(
+                        "INSERT INTO conversation_history_fts"
+                        "(conversation_history_fts, rowid, content) "
+                        "VALUES('delete', ?, ?)",
+                        (row["seq"], row["content"] or ""),
+                    )
+            if duplicates:
+                self._conn.executemany(
+                    "DELETE FROM conversation_history WHERE seq = ?",
+                    [(row["seq"],) for row in duplicates],
+                )
+
+            cur = self._conn.execute(
+                "UPDATE conversation_history SET session_id = ? "
+                "WHERE session_id = ?",
+                (target_id, source_id),
+            )
+            return (int(cur.rowcount), len(duplicates))
     @staticmethod
     def _purge_where(
         before: str,
