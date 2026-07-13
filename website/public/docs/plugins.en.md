@@ -1585,6 +1585,11 @@ class SampleChannelPlugin:
             channel_class=SampleChannel,
             label="Sample",
             description="Sample messaging channel integration",
+            icon="https://example.com/sample-icon.png",  # optional card icon (http/https only)
+            doc_url={  # optional doc link, plain string or localized dict (http/https only)
+                "zh": "https://example.com/docs?lang=zh",
+                "en": "https://example.com/docs?lang=en",
+            },
             config_fields=[
                 {
                     "name": "bot_token",
@@ -1602,11 +1607,14 @@ class SampleChannelPlugin:
                     "help": "Signing secret for request verification",
                 },
                 {
-                    "name": "default_channel",
-                    "label": "Default Channel",
-                    "type": "text",
+                    "name": "streaming_enabled",
+                    "label": {
+                        "zh-CN": "流式输出",
+                        "en-US": "Streaming Output",
+                    },
+                    "type": "switch",
                     "required": False,
-                    "placeholder": "#general",
+                    "default": False,
                 },
             ],
         )
@@ -1661,6 +1669,21 @@ def register(self, api: PluginApi):
   `SimpleNamespace`, not a dict.
 - `config_fields` defines the form fields shown in the Console settings
   drawer. Supported types: `text`, `password`, `number`, `switch`, `select`.
+- The `label`, `help`, and `placeholder` of each field accept either a
+  plain string or a localized dict. Dict keys support **both long codes
+  (e.g. `zh-CN`, `en-US`) and short codes (e.g. `zh`, `en`), which can be
+  mixed freely**. The value is resolved with fallback in order (exact locale
+  → short code → short-code prefix match → English → Chinese → first
+  non-empty value) so a missing locale never renders blank.
+- `icon` (optional) is a custom icon URL for the channel card. Only
+  `http`/`https` URLs are supported; other values are ignored and fall back
+  to the default icon.
+- `doc_url` (optional) is a documentation link for the channel. It can be a
+  plain string or a localized dict (e.g. `{"zh": "...", "en": "..."}`, same
+  long/short code rules as `label`). Only `http`/`https` URLs are supported;
+  the Console shows a "Doc" button in the settings drawer header that opens
+  the link for the current language, and hides it when the value is invalid
+  or missing.
 - Plugin channels share the same enable/disable, access control, and
   `bot_prefix` features as built-in channels.
 - If a plugin channel key conflicts with a built-in key, the built-in

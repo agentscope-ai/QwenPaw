@@ -234,7 +234,7 @@ function DoomLoopSection() {
                   >
                     <span
                       style={{
-                        color: "var(--text-secondary)",
+                        color: "var(--text-secondary, rgba(0,0,0,0.45))",
                         whiteSpace: "nowrap",
                       }}
                     >

@@ -258,6 +258,18 @@ const BrowserUseCard: React.FC<BrowserUseCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const title = getBrowserTitle(content.name, content.params || {}, t);
+
+  if (content.status === "error") {
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<ChromeOutlined />}
+        title={title}
+      />
+    );
+  }
+
   const resultText = formatBrowserResult(content.result);
 
   return (

@@ -36,7 +36,11 @@ from ..utils.logging import (
     setup_logger,
 )
 from ..utils.system_info import summarize_python_environment
-from .auth import AuthMiddleware, auto_register_from_env
+from .auth import (
+    AuthMiddleware,
+    auto_register_from_env,
+    check_proxy_config_sanity,
+)
 from .migration import (
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
@@ -48,6 +52,7 @@ from .routers import router as api_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
+from .routers.healthz import router as healthz_router
 from .routers.loops import router as loops_router
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
@@ -180,6 +185,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         raise RuntimeError(f"{message} Original error: {exc}") from exc
 
     auto_register_from_env()
+    check_proxy_config_sanity()
 
     try:
         from ..utils.telemetry import (
@@ -301,9 +307,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             from ..agents.tools import discover_builtin_tool_funcs
 
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_tool_funcs"
-            ] = discover_builtin_tool_funcs()
+            workspace_registry._bootstrap_kwargs["builtin_tool_funcs"] = (
+                discover_builtin_tool_funcs()
+            )
             logger.debug("Built-in tool funcs collected")
         except Exception:
             logger.debug(
@@ -431,9 +437,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         if _api_action_command_specs:
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_command_specs"
-            ] = _api_action_command_specs
+            workspace_registry._bootstrap_kwargs["builtin_command_specs"] = (
+                _api_action_command_specs
+            )
 
     except Exception:
         logger.debug(
@@ -471,6 +477,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         return await workspace_registry.get_agent(agent_id)
 
     app.state.get_agent_by_id = _get_agent_by_id
+
+    app.state.startup_ready = asyncio.Event()
+    app.state.startup_time = startup_start_time
 
     fast_elapsed = time.time() - startup_start_time
     logger.info(
@@ -658,6 +667,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             api_info = read_last_api()
             print_ready_banner(api_info, startup_elapsed)
+
+            app.state.startup_ready.set()
         except Exception:
             logger.error(
                 "Background startup encountered an error",
@@ -887,6 +898,8 @@ def get_doctor_runtime():
 
 
 app.include_router(api_router, prefix="/api")
+
+app.include_router(healthz_router, prefix="/api")
 
 app.include_router(tool_calls_router, prefix="/api")
 

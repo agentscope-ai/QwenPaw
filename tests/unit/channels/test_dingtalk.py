@@ -19,6 +19,7 @@ Run:
     pytest tests/unit/channels/test_dingtalk.py -v
     pytest tests/unit/channels/test_dingtalk.py::TestDingTalkSessionWebhook -v
 """
+
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 # pylint: disable=broad-exception-raised,using-constant-test,unused-import
 # pylint: disable=reimported
@@ -36,7 +37,6 @@ import pytest
 
 from qwenpaw.exceptions import ChannelError
 from tests.fixtures.channels.mock_http import MockAiohttpSession
-
 
 # =============================================================================
 # Fixtures
@@ -1585,6 +1585,95 @@ class TestDingTalkSendContentParts:
 
             mock_send.assert_not_called()
 
+    async def test_send_content_parts_whitespace_text_skipped(
+        self,
+        dingtalk_channel,
+    ):
+        """Whitespace-only text should not send a prefix-only message."""
+        from qwenpaw.app.channels.base import TextContent, ContentType
+
+        parts = [TextContent(type=ContentType.TEXT, text="   \n\t")]
+
+        with patch.object(
+            dingtalk_channel,
+            "send",
+            new_callable=AsyncMock,
+        ) as mock_send:
+            await dingtalk_channel.send_content_parts(
+                to_handle="dingtalk:sw:test",
+                parts=parts,
+                meta={"bot_prefix": "[TestBot] "},
+            )
+
+            mock_send.assert_not_called()
+
+    async def test_send_content_parts_text_failure_logs_without_strict_meta(
+        self,
+        dingtalk_channel,
+    ):
+        """Conversation replies should not fail the whole agent pipeline."""
+        from qwenpaw.app.channels.base import TextContent, ContentType
+
+        parts = [TextContent(type=ContentType.TEXT, text="Hello")]
+
+        with (
+            patch.object(
+                dingtalk_channel,
+                "_send_via_session_webhook",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_webhook,
+            patch.object(
+                dingtalk_channel,
+                "_try_open_api_fallback",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_fallback,
+        ):
+            # Should complete without raising even when both hops fail.
+            await dingtalk_channel.send_content_parts(
+                to_handle="dingtalk:sw:test",
+                parts=parts,
+                meta={"session_webhook": "http://webhook.url"},
+            )
+
+            # Verify the full webhook -> Open API fallback chain ran.
+            mock_webhook.assert_awaited()
+            mock_fallback.assert_awaited()
+
+    async def test_send_content_parts_text_failure_raises_for_api_send(
+        self,
+        dingtalk_channel,
+    ):
+        """Explicit API delivery failure should surface to callers."""
+        from qwenpaw.app.channels.base import TextContent, ContentType
+
+        parts = [TextContent(type=ContentType.TEXT, text="Hello")]
+
+        with (
+            patch.object(
+                dingtalk_channel,
+                "_send_via_session_webhook",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch.object(
+                dingtalk_channel,
+                "_try_open_api_fallback",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+        ):
+            with pytest.raises(ChannelError, match="Open API fallback"):
+                await dingtalk_channel.send_content_parts(
+                    to_handle="dingtalk:sw:test",
+                    parts=parts,
+                    meta={
+                        "_api_send": True,
+                        "session_webhook": "http://webhook.url",
+                    },
+                )
+
     async def test_send_content_parts_with_file(
         self,
         dingtalk_channel,
@@ -2649,35 +2738,67 @@ class TestDingTalkSendMethodsExtended:
             meta={},
         )
 
-    async def test_send_no_webhook_warning(
+    async def test_send_no_delivery_target_logs_without_strict_meta(
         self,
         dingtalk_channel,
         mock_http_session,
     ):
-        """Should log warning when no webhook available."""
-        from unittest.mock import patch
-
-        # Set http session (required for send to proceed)
+        """Conversation replies should not raise on missing target metadata."""
         dingtalk_channel._http = mock_http_session
 
-        # Patch logger.warning to capture the call
         with patch(
             "qwenpaw.app.channels.dingtalk.channel.logger.warning",
         ) as mock_warning:
+            # Should return quietly (no raise) for non-API sends.
             await dingtalk_channel.send(
                 to_handle="unknown_handle",
                 text="Test message",
                 meta={},
             )
 
-            # Check that the warning was logged with 'no sessionWebhook'
-            # Filter for calls containing 'no sessionWebhook'
-            warning_calls = [
-                call
-                for call in mock_warning.call_args_list
-                if "no sessionWebhook" in str(call)
-            ]
-            assert len(warning_calls) == 1
+        assert any(
+            "no sessionWebhook" in str(call)
+            for call in mock_warning.call_args_list
+        )
+
+    async def test_send_no_delivery_target_raises_for_api_send(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Explicit send should fail when no DingTalk target is reachable."""
+        dingtalk_channel._http = mock_http_session
+
+        with pytest.raises(ChannelError, match="no sessionWebhook"):
+            await dingtalk_channel.send(
+                to_handle="unknown_handle",
+                text="Test message",
+                meta={"_api_send": True},
+            )
+
+    async def test_send_open_api_fallback_failure_raises_for_api_send(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Open API transport failure should fail explicit sends."""
+        dingtalk_channel._http = mock_http_session
+
+        with patch.object(
+            dingtalk_channel,
+            "_send_robot_message",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            with pytest.raises(ChannelError, match="Open API send failed"):
+                await dingtalk_channel.send(
+                    to_handle="unknown_handle",
+                    text="Test message",
+                    meta={
+                        "_api_send": True,
+                        "conversation_id": "cid_test",
+                    },
+                )
 
 
 # =============================================================================

@@ -22,6 +22,17 @@ const GlobSearchCard: React.FC<GlobSearchCardProps> = ({
     ? t("tool.globSearch", { pattern })
     : t("tool.globSearchDefault");
 
+  if (content.status === "error") {
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<FolderOpenOutlined />}
+        title={title}
+      />
+    );
+  }
+
   const resultText = stringifyResult(content.result);
   const lineCount = countLines(resultText);
 

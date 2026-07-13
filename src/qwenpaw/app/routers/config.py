@@ -156,6 +156,8 @@ async def list_channel_schemas() -> dict:
             "description": reg.description,
             "plugin_id": reg.plugin_id,
             "config_fields": reg.config_fields,
+            "icon": reg.icon,
+            "doc_url": reg.doc_url,
         }
     return result
 

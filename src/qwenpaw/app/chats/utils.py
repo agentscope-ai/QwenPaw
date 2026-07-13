@@ -68,6 +68,7 @@ def build_env_context(
     add_hint: bool = True,
     default_shell: Optional[str] = None,
     project_dir: Optional[str] = None,
+    active_model_name: Optional[str] = None,
 ) -> str:
     """
     Build environment context with current request context prepended.
@@ -87,11 +88,27 @@ def build_env_context(
             directory" line is replaced with an explicit
             "Project directory" + "Agent workspace (internal)" pair
             so the LLM stops treating the workspace as home.
+        active_model_name: Current active model name for runtime
+            identity (e.g. "qwen-max", "gpt-4o").
 
     Returns:
         Formatted environment context string
     """
     parts = []
+
+    # Runtime identity
+    powered = f", powered by {active_model_name}" if active_model_name else ""
+    parts.append(
+        f"- About: You are a personal AI assistant{powered}. "
+        f"You operate in QwenPaw, an open-source agent "
+        f"framework built by AgentScope team from Qwen lab.",
+    )
+    parts.append(
+        "- GitHub: https://github.com/agentscope-ai/QwenPaw",
+    )
+    parts.append(
+        "- Docs: https://qwenpaw.agentscope.io/",
+    )
     user_tz = load_config().user_timezone or "UTC"
     try:
         now = datetime.now(ZoneInfo(user_tz))
@@ -590,6 +607,12 @@ def agentscope_msg_to_message(
                     name=block.get("name"),
                     output=output,
                 ).model_dump(exclude_none=True)
+
+                tool_state = block.get("state")
+                if hasattr(tool_state, "value"):
+                    tool_state = tool_state.value
+                if tool_state is not None:
+                    output_data["state"] = tool_state
 
                 data_content = DataContent(
                     delta=False,

@@ -38,7 +38,10 @@ vi.mock("../hooks/useMarketPlugins", () => ({
   }),
 }));
 
-function makePlugin(detailsUrl: string): MarketPluginEntry {
+function makePlugin(
+  detailsUrl: string,
+  qwenpawCompatLabels?: string[],
+): MarketPluginEntry {
   return {
     id: "@agentscope/demo",
     display_name: "Demo plugin",
@@ -49,6 +52,7 @@ function makePlugin(detailsUrl: string): MarketPluginEntry {
     downloads: 10,
     view_count: 20,
     details_url: detailsUrl,
+    qwenpaw_compat_labels: qwenpawCompatLabels,
     locales: {
       en: {
         description: "Demo description",
@@ -96,5 +100,18 @@ describe("MarketPluginList", () => {
 
     expect(windowOpen).not.toHaveBeenCalled();
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("shows the QwenPaw compatibility versions returned by the market", () => {
+    hoisted.plugins.push(
+      makePlugin("https://platform.agentscope.io/plugins/agentscope/demo", [
+        "1.x",
+        "2.x",
+      ]),
+    );
+
+    render(<MarketPluginList onInstalled={vi.fn()} />);
+
+    expect(screen.getByText("QwenPaw 1.x, 2.x")).toBeInTheDocument();
   });
 });

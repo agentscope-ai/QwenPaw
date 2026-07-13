@@ -544,6 +544,12 @@ class AgentBuilder:
             or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
         )
         request = getattr(ctx, "request", None)
+        _active = getattr(agent_config, "active_model", None)
+        _model_name = (
+            _active.model
+            if _active and getattr(_active, "model", None)
+            else None
+        )
         return build_env_context(
             session_id=getattr(ctx, "session_id", ""),
             user_id=(getattr(request, "user_id", None) if request else None),
@@ -552,6 +558,7 @@ class AgentBuilder:
             working_dir=ws,
             default_shell=_default_shell,
             project_dir=_project_dir,
+            active_model_name=_model_name,
         )
 
     @staticmethod

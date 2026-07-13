@@ -60,23 +60,24 @@
 
 ## 新闻
 
-- [2026-06-17] **v1.1.12 — 模型页面大改版 & 简洁模式** | 全新模型页面 Provider 聚合设计；新增简洁模式，扁平化导航。
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式发布** 🎉 | 基于 AgentScope 2.0 全面重构，Agent OS 架构、Loop Engineering、Scroll 上下文、ReMe v0.4.0 长期记忆与内置终端界面。
 
   | 亮点 | 更新内容 |
   |------|----------|
-  | **模型页面大改版** | Provider 聚合、统一卡片 UI 与布局重新设计。 |
-  | **简洁模式** | 扁平导航，会话列表按更新时间排序。 |
-  | **非阻塞消息发送** | 所有频道自适应节流。 |
-  | **每轮 Token 用量** | 每轮 token 与上下文用量弹窗。 |
-  | **桌面端端口持久化** | 跨重启保持后端端口。 |
+  | **Agent OS — 工作区** | 每个智能体三大支柱：**资源**（透明落盘）、**治理**（allow/deny/ask/sandbox）、**沙箱**（macOS / Linux / Windows）。 |
+  | **Agent OS — 驱动** | 协议中立的 MCP / A2A / ACP 连接器层，带加密凭据与逐次调用策略门控。 |
+  | **Loop Engineering** | 高级智能体循环模板（Coding Mode、Mission Mode，更多模板持续推出），配合可组合审批门控。 |
+  | **Scroll 上下文** | 每一轮都持久化；滚出窗口的轮次带索引，按需回放——不摘要、不丢失。 |
+  | **ReMe v0.4.0 长期记忆** | 按轮自动追踪、使用感知搜索、后端特定嵌入。 |
+  | **终端界面（TUI）** | 全屏终端对话——与控制台和频道共享同一智能体、记忆与会话。 |
 
-  另有：宽屏模式、代码语法高亮、Langfuse agent loop 分组、Gemini 工具 schema 修复。[v1.1.12 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
+  基于 Agent OS，我们将陆续推出开箱即用的 QwenPaw 应用小程序——如 **QwenPaw Creator**、**QwenPaw Insight** 等，敬请期待。 [v2.0.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+
+- [2026-06-17] **v1.1.12 — 模型页面大改版 & 简洁模式** | 全新模型页面 Provider 聚合设计；新增简洁模式，扁平化导航。[v1.1.12 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 
 - [2026-06-11] **AgentScope 体验平台上线** — 支持免费部署 QwenPaw、插件分享与 Skill 市场。[立即体验 →](https://platform.agentscope.io/)
 
 - [2026-06-10] **v1.1.11** — 免费模型 OAuth、插件市场、MCP 工具白名单。[v1.1.11 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
-
-- [2026-06-01] **v1.1.10** — 子 Agent 派生、打开目录、腾讯元宝频道。[v1.1.10 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
 [全部发布说明 →](https://qwenpaw.agentscope.io/release-notes)
 
