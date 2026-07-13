@@ -705,9 +705,10 @@ class AgentBuilder:
         offered to the model in this build.
 
         The REPL runs model-authored Python and so needs a sandbox. It is
-        worth registering only when one is actually available — meaning the
-        governor is present AND its platform probe found a sandbox — or when
-        the operator explicitly opted into unsandboxed recall (both the
+        worth registering only when one is actually usable — meaning the
+        governor's platform probe found a sandbox AND the global sandbox
+        switch is enabled — or when the operator explicitly opted into
+        unsandboxed recall (both the
         ``QWENPAW_ALLOW_UNSANDBOXED_RECALL`` env var and
         ``scroll_config.allow_unsandboxed``, via
         ``scroll_unsandboxed_allowed``).
@@ -720,12 +721,18 @@ class AgentBuilder:
         :meth:`_scroll_recall_runnable`, which gates whether scroll is wired at
         all; here scroll is already wired and structured recall is present.
         """
-        if governor is not None and getattr(
-            governor,
-            "sandbox_available",
-            False,
-        ):
-            return True
+        if governor is not None:
+            sandbox_usable = getattr(governor, "sandbox_usable", None)
+            if sandbox_usable is None:
+                # Compatibility for lightweight/custom governor objects that
+                # predate the effective-usability property.
+                sandbox_usable = getattr(
+                    governor,
+                    "sandbox_available",
+                    False,
+                )
+            if sandbox_usable:
+                return True
         try:
             from ..agents.context import scroll_unsandboxed_allowed
 
@@ -776,9 +783,10 @@ class AgentBuilder:
             )
         else:
             _logger.info(
-                "scroll: no sandbox available for recall_history_python — "
-                "registering only the structured recall_history tool "
-                "(no approval prompt, works without a sandbox)",
+                "scroll: sandbox unavailable or disabled for "
+                "recall_history_python — registering only the structured "
+                "recall_history tool (no approval prompt, works without a "
+                "sandbox)",
             )
 
     @staticmethod
