@@ -29,10 +29,17 @@ pytest.importorskip(
     "qwenpaw.app.runner.control_commands",
     reason="qwenpaw.app.runner was removed in AgentScope 2.0",
 )
-from qwenpaw.app.runner import (  # type: ignore[import]
+
+# ponytail: the qwenpaw.app.runner.control_commands.base module was removed
+# in AgentScope 2.0 (Aug 2026). This test file is now a dead contract with
+# no production code to validate. It is kept as a reference only and skipped
+# until the control-command system is re-introduced.
+pytest.skip(allow_module_level=True)
+
+from qwenpaw.app.runner import (  # type: ignore[import]  # noqa: E402
     control_commands,
 )
-from qwenpaw.app.runner.control_commands.base import (  # type: ignore[import]
+from qwenpaw.app.runner.control_commands.base import (  # type: ignore[import]  # noqa: E402
     BaseControlCommandHandler,
 )
 
