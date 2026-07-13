@@ -305,8 +305,10 @@ class AgentBuilder:
             effective_skills=effective_skills,
             governor=governor,
         )
-        if formatter is not None:
-            agent.formatter = formatter
+        # Must share the same formatter instance as innermost.model.formatter:
+        # react_agent gates request-time media strip on agent.formatter, while
+        # the model formats via that same object (visual fallback lives there).
+        agent.formatter = formatter
 
         # Register default ReAct gates (StopHandler).
         if workspace is not None:

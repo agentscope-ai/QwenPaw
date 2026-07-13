@@ -6,6 +6,7 @@ import type { ModelInfo, ProviderInfo } from "../../../../../api/types";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../../../stores/agentStore";
+import { getIsConfigured } from "../../utils";
 import styles from "../../index.module.less";
 
 interface VisualModelSectionProps {
@@ -15,16 +16,6 @@ interface VisualModelSectionProps {
 
 function isMultimodalModel(m: ModelInfo): boolean {
   return !!(m.supports_image || m.supports_video || m.supports_multimodal);
-}
-
-function isProviderConfigured(provider: ProviderInfo): boolean {
-  const hasModels = provider.models.length + provider.extra_models.length > 0;
-  if (!hasModels) return false;
-  if (provider.id === "qwenpaw-local") return true;
-  if (provider.require_api_key === false) return !!provider.base_url;
-  if (provider.is_custom) return !!provider.base_url;
-  if (provider.require_api_key ?? true) return !!provider.api_key;
-  return true;
 }
 
 export const VisualModelSection = React.memo(function VisualModelSection({
@@ -44,7 +35,8 @@ export const VisualModelSection = React.memo(function VisualModelSection({
     () =>
       providers.filter(
         (p) =>
-          isProviderConfigured(p) &&
+          getIsConfigured(p) &&
+          p.models.length + p.extra_models.length > 0 &&
           [...p.models, ...p.extra_models].some(isMultimodalModel),
       ),
     [providers],

@@ -10,7 +10,7 @@ import mimetypes
 from collections import OrderedDict
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import unquote
 
 from agentscope.message import DataBlock, Msg, TextBlock, URLSource
@@ -41,7 +41,7 @@ def _safe_attr(obj: Any, name: str) -> Any:
         return None
 
 
-def _block_type_name(block: Any) -> Optional[str]:
+def _block_type_name(block: Any) -> str | None:
     """Return ``image`` or ``video`` for dict or 2.0 DataBlock media."""
     if isinstance(block, dict):
         btype = block.get("type", "")
@@ -59,7 +59,7 @@ def _block_type_name(block: Any) -> Optional[str]:
     return None
 
 
-def _block_source_dict(block: Any) -> Optional[dict]:
+def _block_source_dict(block: Any) -> dict | None:
     """Normalize media block source for ``_transcribe``."""
     if isinstance(block, dict):
         btype = block.get("type", "")
@@ -75,7 +75,7 @@ def _block_source_dict(block: Any) -> Optional[dict]:
     return None
 
 
-def _tool_result_output(block: Any) -> Optional[list]:
+def _tool_result_output(block: Any) -> list | None:
     if _safe_attr(block, "type") != "tool_result":
         return None
     output = _safe_attr(block, "output")
@@ -96,7 +96,7 @@ def _msg_has_media(msg: Any) -> bool:
     return False
 
 
-def _local_path(url: str) -> Optional[Path]:
+def _local_path(url: str) -> Path | None:
     if not url or url.startswith(("http://", "https://", "data:")):
         return None
     try:
@@ -110,7 +110,7 @@ def _local_path(url: str) -> Optional[Path]:
         return None
 
 
-def _local_file_data_url(path: Path, media_type: str) -> Optional[str]:
+def _local_file_data_url(path: Path, media_type: str) -> str | None:
     if not path.is_file():
         return None
     if path.stat().st_size > _MAX_FILE_SIZE_BYTES:
@@ -126,7 +126,7 @@ def _local_file_data_url(path: Path, media_type: str) -> Optional[str]:
     return f"data:{mime};base64,{data}"
 
 
-def _media_url(source: dict, media_type: str) -> Optional[str]:
+def _media_url(source: dict, media_type: str) -> str | None:
     kind = source.get("type", "")
     if kind == "url":
         url = source.get("url", "")
@@ -221,11 +221,77 @@ def _record_visual_usage(
     )
 
 
+def _wrap_visual_chat_model(chat_model: Any, provider_id: str) -> Any:
+    """Apply the same Retry/RateLimit wrapper used for the primary model."""
+    from .retry_chat_model import (
+        RateLimitConfig,
+        RetryChatModel,
+        RetryConfig,
+    )
+
+    # Collapse agentscope's inner retry loop; RetryChatModel owns retries.
+    if hasattr(chat_model, "max_retries"):
+        chat_model.max_retries = 0
+    # Used by RetryChatModel.model_key for rate-limiter bucketing.
+    if getattr(chat_model, "_provider_id", None) is None:
+        # pylint: disable=protected-access
+        chat_model._provider_id = provider_id
+
+    retry_config = None
+    rate_limit_config = None
+    try:
+        from ..app.agent_context import get_current_agent_id
+        from ..config.config import load_agent_config
+
+        agent_id = get_current_agent_id()
+        if agent_id:
+            running = load_agent_config(agent_id).running
+            retry_config = RetryConfig(
+                enabled=running.llm_retry_enabled,
+                max_retries=running.llm_max_retries,
+                backoff_base=running.llm_backoff_base,
+                backoff_cap=running.llm_backoff_cap,
+            )
+            rate_limit_config = RateLimitConfig(
+                max_concurrent=running.llm_max_concurrent,
+                max_qpm=running.llm_max_qpm,
+                pause_seconds=running.llm_rate_limit_pause,
+                jitter_range=running.llm_rate_limit_jitter,
+                acquire_timeout=running.llm_acquire_timeout,
+            )
+    except Exception:
+        pass
+
+    return RetryChatModel(
+        chat_model,
+        retry_config=retry_config,
+        rate_limit_config=rate_limit_config,
+    )
+
+
+async def _consume_transcription_response(
+    response: Any,
+) -> tuple[str, Any]:
+    """Return ``(text, usage)`` from a streaming or non-streaming response."""
+    last_usage: Any = None
+    if hasattr(response, "__aiter__"):
+        text = ""
+        async for chunk in response:
+            part = _response_text(chunk)
+            if part:
+                text = part
+            usage = _safe_attr(chunk, "usage")
+            if usage is not None:
+                last_usage = usage
+        return text.strip(), last_usage
+    return _response_text(response).strip(), _safe_attr(response, "usage")
+
+
 async def _transcribe(
     source: dict,
     slot: ModelSlotConfig,
     media_type: str,
-) -> Optional[str]:
+) -> str | None:
     raw = source.get("url", "") if source.get("type") == "url" else str(source)
     digest = hashlib.sha256(raw.encode()).hexdigest()
     cache_key = f"{slot.provider_id}:{slot.model}:{digest}:{media_type}"
@@ -248,7 +314,10 @@ async def _transcribe(
     provider = ProviderManager.get_instance().get_provider(slot.provider_id)
     if not provider:
         return None
-    chat_model = provider.get_chat_model_instance(slot.model)
+    chat_model = _wrap_visual_chat_model(
+        provider.get_chat_model_instance(slot.model),
+        slot.provider_id,
+    )
     messages = [
         Msg(
             name="user",
@@ -260,21 +329,9 @@ async def _transcribe(
         ),
     ]
     try:
-        response = await chat_model(messages)
-        last_usage: Any = None
-        if hasattr(response, "__aiter__"):
-            text = ""
-            async for chunk in response:
-                part = _response_text(chunk)
-                if part:
-                    text = part
-                usage = _safe_attr(chunk, "usage")
-                if usage is not None:
-                    last_usage = usage
-            text = text.strip()
-        else:
-            last_usage = _safe_attr(response, "usage")
-            text = _response_text(response).strip()
+        text, last_usage = await _consume_transcription_response(
+            await chat_model(messages),
+        )
         _record_visual_usage(slot.provider_id, slot.model, last_usage)
     except Exception as exc:
         logger.warning(
@@ -311,10 +368,11 @@ async def _replace_block(block: Any, slot: ModelSlotConfig) -> Any | None:
     source = _block_source_dict(block)
     if not source:
         return None
-    desc = (
-        await _transcribe(source, slot, media_type)
-        or "(transcription unavailable)"
-    )
+    desc = await _transcribe(source, slot, media_type)
+    if not desc:
+        # Keep the original media block so downstream strip/normalization
+        # can handle it the same way as when visual fallback is absent.
+        return None
     return TextBlock(
         type="text",
         text=f"[{media_type.capitalize()} description: {desc}]",
