@@ -21,6 +21,30 @@ DEFAULT_MAX_BYTES = 50 * 1024
 # Maximum file size to read into memory (200MB)
 MAX_FILE_READ_BYTES = 200 * 1024 * 1024
 TRUNCATION_METADATA_KEY = "qwenpaw_truncation"
+MAX_TRUNCATION_NOTICE_BYTES = 1024
+
+
+def _fit_truncation_notice(notice: str, info: dict[str, Any]) -> str:
+    """Keep the user-facing recovery notice within its byte budget."""
+    if len(notice.encode("utf-8")) <= MAX_TRUNCATION_NOTICE_BYTES:
+        return notice
+
+    compact = (
+        TRUNCATION_NOTICE_MARKER
+        + "\nOutput truncated; recovery details are in "
+        "qwenpaw_truncation metadata."
+        f"\nTotal lines: {info['total_lines']}; "
+        f"excerpt starts at line {info['start_line']} and contains "
+        f"{info['excerpt_bytes']} bytes."
+        f"\nContinue with read_file at line {info['read_from']}."
+    )
+    compact_bytes = compact.encode("utf-8")
+    if len(compact_bytes) <= MAX_TRUNCATION_NOTICE_BYTES:
+        return compact
+    return compact_bytes[:MAX_TRUNCATION_NOTICE_BYTES].decode(
+        "utf-8",
+        errors="ignore",
+    )
 
 
 # pylint: disable=too-many-arguments
@@ -46,13 +70,14 @@ def build_truncation_metadata(
         "excerpt_bytes": excerpt_bytes,
         "read_from": read_from,
     }
-    info["notice"] = (
+    notice = (
         TRUNCATION_NOTICE_MARKER + "\nThe output above was truncated."
         f"\nThe full content is saved to the file and contains {total_lines} lines in total."
-        f"\nThis excerpt starts at line {start_line} and covers the next {max_bytes} bytes."
+        f"\nThis excerpt starts at line {start_line} and covers the next {excerpt_bytes} bytes."
         "\nIf the current content is not enough, call `read_file` with "
         f"file_path={file_path or ''} start_line={read_from} to read more."
     )
+    info["notice"] = _fit_truncation_notice(notice, info)
     return {TRUNCATION_METADATA_KEY: {str(block_index): info}}
 
 
@@ -203,9 +228,7 @@ def _retruncate(
 
     text_bytes = original_content.encode(encoding)
 
-    # Allow a small slack to avoid unnecessary re-truncation when content is just
-    # barely over the limit (e.g. due to minor encoding differences).
-    if len(text_bytes) <= max_bytes + 100:
+    if len(text_bytes) <= max_bytes:
         return text, {}
 
     # Re-slice to the new byte limit.

@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
     from ._coordinator import ToolCoordinator
 
+BackgroundResultProcessor = Callable[[Any], Any]
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,8 +29,10 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
     def __init__(
         self,
         coordinator: "ToolCoordinator",
+        background_result_processor: BackgroundResultProcessor | None = None,
     ) -> None:
         self._coordinator = coordinator
+        self._background_result_processor = background_result_processor
 
     async def on_acting(
         self,
@@ -49,5 +53,6 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
             session_id=session_id,
             agent_id=agent_id,
             root_session_id=root_session_id,
+            background_result_processor=self._background_result_processor,
         ):
             yield item

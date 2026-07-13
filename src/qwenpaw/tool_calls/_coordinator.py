@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 CompletionHandler = Callable[[ToolCallEntry], Awaitable[None]]
 OffloadedHandler = Callable[[ToolCallEntry], Awaitable[None]]
+BackgroundResultProcessor = Callable[[ToolResponse], ToolResponse]
 
 
 @dataclass
@@ -73,6 +74,7 @@ class ToolCoordinator:
         agent_id: str,
         root_session_id: str,
         deadline_override: float | None = None,
+        background_result_processor: BackgroundResultProcessor | None = None,
     ) -> AsyncGenerator[Any, None]:
         entry = self._create_entry(
             tool_call,
@@ -117,7 +119,7 @@ class ToolCoordinator:
             yield await self._finalize_completed(entry)
             return
 
-        yield await self._begin_offload(entry)
+        yield await self._begin_offload(entry, background_result_processor)
 
     @staticmethod
     def _handle_deadline_reached(ctx: ToolCallContext) -> None:
@@ -164,13 +166,14 @@ class ToolCoordinator:
     async def _begin_offload(
         self,
         entry: ToolCallEntry,
+        background_result_processor: BackgroundResultProcessor | None,
     ) -> ToolResponse:
         ctx = entry.ctx
         entry.status = ToolCallStatus.OFFLOADED
         ctx.deadline = None
 
         asyncio.create_task(
-            self._supervise(entry),
+            self._supervise(entry, background_result_processor),
             name=f"toolcall-supervise-{ctx.tool_call_id}",
         )
 
@@ -573,7 +576,11 @@ class ToolCoordinator:
         finally:
             reset_call_context(token)
 
-    async def _supervise(self, entry: ToolCallEntry) -> None:
+    async def _supervise(
+        self,
+        entry: ToolCallEntry,
+        background_result_processor: BackgroundResultProcessor | None,
+    ) -> None:
         bg = entry.background_task
         if bg is None:
             return
@@ -605,6 +612,14 @@ class ToolCoordinator:
         await self._await_background_task(entry)
 
         await self._finalize_completed(entry)
+
+        if background_result_processor is not None:
+            try:
+                entry.final_response = background_result_processor(
+                    entry.final_response,
+                )
+            except Exception:
+                logger.exception("background result processor failed")
 
         hint = make_offload_hint_msg(entry)
         async with self._hints_lock:

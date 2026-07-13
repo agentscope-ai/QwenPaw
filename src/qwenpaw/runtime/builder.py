@@ -869,22 +869,9 @@ class AgentBuilder:
             agent_id=getattr(agent_config, "id", "default"),
         )
 
+    # pylint: disable=too-many-statements
     @staticmethod
-    def _add_tool_result_pruning_middleware(
-        mws: list[Any],
-        mw: Any,
-        tool_coordinator: Any,
-    ) -> None:
-        """Add pruning middleware outside the coordinator when both exist."""
-        if mw is None:
-            return
-        if tool_coordinator is not None:
-            mws.insert(0, mw)
-            return
-        mws.append(mw)
-
-    @staticmethod
-    def _build_middlewares(  # pylint: disable=too-many-statements
+    def _build_middlewares(
         ctx: Any,
         agent_config: Any,
     ) -> list[Any]:
@@ -897,6 +884,20 @@ class AgentBuilder:
         """
         mws: list[Any] = []
 
+        pruning_middleware = None
+        try:
+            pruning_middleware = (
+                AgentBuilder._build_tool_result_pruning_middleware(
+                    ctx,
+                    agent_config,
+                )
+            )
+        except Exception:
+            _logger.debug(
+                "ToolResultPruningMiddleware not created",
+                exc_info=True,
+            )
+
         tool_coordinator = None
         app_services = getattr(ctx, "app_services", None)
         if app_services is not None:
@@ -908,9 +909,16 @@ class AgentBuilder:
             if tool_coordinator is not None:
                 from ..tool_calls import ToolCoordinatorMiddleware
 
+                if pruning_middleware is not None:
+                    mws.append(pruning_middleware)
                 mws.append(
                     ToolCoordinatorMiddleware(
                         coordinator=tool_coordinator,
+                        background_result_processor=(
+                            pruning_middleware.prune_tool_response
+                            if pruning_middleware is not None
+                            else None
+                        ),
                     ),
                 )
 
@@ -927,22 +935,8 @@ class AgentBuilder:
             except Exception:
                 _logger.debug("Memory middlewares not created", exc_info=True)
 
-        # Tiered tool-result pruning (ported from LightContextManager)
-        try:
-            mw = AgentBuilder._build_tool_result_pruning_middleware(
-                ctx,
-                agent_config,
-            )
-            AgentBuilder._add_tool_result_pruning_middleware(
-                mws,
-                mw,
-                tool_coordinator,
-            )
-        except Exception:
-            _logger.debug(
-                "ToolResultPruningMiddleware not created",
-                exc_info=True,
-            )
+        if tool_coordinator is None and pruning_middleware is not None:
+            mws.append(pruning_middleware)
 
         # Langfuse tool observability
         try:

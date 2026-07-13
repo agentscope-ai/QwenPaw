@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
 from dataclasses import dataclass, field
@@ -21,6 +22,8 @@ from qwenpaw.agents.middlewares import (  # noqa: E402
     ToolResultPruningMiddleware,
 )
 from qwenpaw.agents.tools.utils import (  # noqa: E402
+    build_truncation_metadata,
+    MAX_TRUNCATION_NOTICE_BYTES,
     truncate_text_output,
     TRUNCATION_METADATA_KEY,
 )
@@ -85,6 +88,11 @@ async def test_tool_response_is_pruned_before_yield(tmp_path):
     assert TRUNCATION_NOTICE_MARKER in result_text
     assert len(result_text.encode("utf-8")) < len(text.encode("utf-8"))
     truncation = result.metadata[TRUNCATION_METADATA_KEY]["0"]
+    assert truncation["excerpt_bytes"] <= 512
+    assert len(truncation["notice"].encode("utf-8")) <= 1024
+    assert len(result_text.encode("utf-8")) <= (
+        512 + MAX_TRUNCATION_NOTICE_BYTES
+    )
     assert truncation["file_path"]
     assert truncation["file_size_bytes"] == len(text.encode("utf-8"))
     assert truncation["start_line"] == 1
@@ -93,6 +101,42 @@ async def test_tool_response_is_pruned_before_yield(tmp_path):
     saved = list(tmp_path.iterdir())
     assert len(saved) == 1
     assert saved[0].read_text(encoding="utf-8") == text
+
+
+def test_notice_has_independent_one_kib_budget():
+    metadata = build_truncation_metadata(
+        file_path="/" + "long-path/" * 300,
+        file_size_bytes=100_000,
+        total_lines=1000,
+        start_line=1,
+        max_bytes=512,
+        excerpt_bytes=500,
+        read_from=10,
+    )
+
+    info = metadata[TRUNCATION_METADATA_KEY]["0"]
+    assert info["file_path"].startswith("/long-path/")
+    assert len(info["notice"].encode("utf-8")) <= 1024
+    assert TRUNCATION_NOTICE_MARKER in info["notice"]
+
+
+def test_retruncate_does_not_allow_byte_slack():
+    text = "\n".join("x" * 20 for _ in range(100))
+    first, metadata = truncate_text_output(
+        text,
+        total_lines=100,
+        max_bytes=1000,
+    )
+    second, updated = truncate_text_output(
+        first,
+        max_bytes=950,
+        metadata=metadata,
+    )
+
+    info = updated[TRUNCATION_METADATA_KEY]["0"]
+    excerpt = second[: -len(info["notice"])]
+    assert len(excerpt.encode("utf-8")) <= 950
+    assert info["max_bytes"] == 950
 
 
 @pytest.mark.asyncio
@@ -194,6 +238,75 @@ async def test_outer_pruning_caps_coordinator_final_tool_chunk_response(
     assert isinstance(final_response, ToolResponse)
     assert TRUNCATION_NOTICE_MARKER in result_text
     assert len(result_text.encode("utf-8")) < len(text.encode("utf-8"))
+
+
+@pytest.mark.asyncio
+async def test_background_completion_is_pruned_before_hint(tmp_path):
+    pruning = ToolResultPruningMiddleware(
+        recent_max_bytes=512,
+        tool_results_dir=str(tmp_path),
+    )
+    coordinator = ToolCoordinator(default_timeout_secs=0.001)
+    coordinator_middleware = ToolCoordinatorMiddleware(
+        coordinator,
+        background_result_processor=pruning.prune_tool_response,
+    )
+    tool_call = _ToolCall(id="call-bg", name="slow_tool")
+    text = "\n".join("x" * 80 for _ in range(30))
+
+    async def next_handler(
+        tool_call: _ToolCall,
+    ) -> AsyncGenerator[Any, None]:
+        await asyncio.sleep(0.02)
+        yield ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[TextBlock(type="text", text=text)],
+        )
+
+    agent = type(
+        "AgentStub",
+        (),
+        {
+            "_request_context": {
+                "session_id": "session-bg",
+                "agent_id": "agent-1",
+                "root_session_id": "root-1",
+            },
+            "state": type("StateStub", (), {"context": []})(),
+        },
+    )()
+
+    await _collect(
+        coordinator_middleware.on_acting(
+            agent,
+            {"tool_call": tool_call},
+            next_handler,
+        ),
+    )
+    for _ in range(100):
+        hints = await coordinator.pop_pending_hints("session-bg")
+        if hints:
+            break
+        await asyncio.sleep(0.01)
+    assert hints
+
+    result_block = next(
+        block
+        for block in hints[0].content
+        if getattr(block, "type", None) == "tool_result"
+    )
+    result_text = result_block.output[0].text
+    info = result_block.metadata[TRUNCATION_METADATA_KEY]["0"]
+    assert TRUNCATION_NOTICE_MARKER in result_text
+    assert info["excerpt_bytes"] <= 512
+    assert result_text.endswith(info["notice"])
+    assert len(result_text.encode("utf-8")) <= (
+        512 + MAX_TRUNCATION_NOTICE_BYTES
+    )
+    saved = list(tmp_path.iterdir())
+    assert len(saved) == 1
+    assert saved[0].read_text(encoding="utf-8") == text
 
 
 def test_retruncate_uses_metadata(tmp_path):
@@ -303,6 +416,11 @@ def test_builder_places_pruning_outside_tool_coordinator(tmp_path):
         if isinstance(middleware, ToolCoordinatorMiddleware)
     )
     assert pruning_index < coordinator_index
+    coordinator_middleware = middlewares[coordinator_index]
+    assert (
+        coordinator_middleware._background_result_processor
+        == middlewares[pruning_index].prune_tool_response
+    )
 
 
 def test_builder_adds_pruning_for_scroll_strategy(tmp_path):

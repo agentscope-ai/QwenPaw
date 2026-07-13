@@ -377,7 +377,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         events: list[Any] = []
         async for event in next_handler():
             if isinstance(event, ToolResponse):
-                event = self._prune_tool_response(event)
+                event = self.prune_tool_response(event)
             events.append(event)
             yield event
 
@@ -394,7 +394,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
     # Core pruning logic (ported from LightContextManager)
     # ------------------------------------------------------------------
 
-    def _prune_tool_response(
+    def prune_tool_response(
         self,
         response: ToolResponse,
     ) -> ToolResponse:
@@ -619,7 +619,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         except UnicodeEncodeError:
             return content, {}
 
-        if content_bytes <= max_bytes + 100:
+        if content_bytes <= max_bytes:
             return content, {}
 
         saved_path: str | None = None

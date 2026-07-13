@@ -31,6 +31,7 @@ def make_offload_hint_msg(entry: Any) -> Any:
         name=entry.ctx.tool_name,
         output=list(entry.final_response.content or []),
         state=entry.final_response.state,
+        metadata=dict(entry.final_response.metadata or {}),
     )
     # AgentScope 2.0 validates that system messages contain only text
     # blocks.  This hint must carry a ToolResultBlock so provider formatters
