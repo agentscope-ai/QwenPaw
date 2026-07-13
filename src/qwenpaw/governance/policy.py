@@ -190,94 +190,72 @@ class GovernanceRule:
 # builtin_rules
 # ---------------------------------------------------------------------------
 
+# (match, reason) pairs for builtin ASK rules, grouped by concern. Expanded
+# into GovernanceRule objects below. All share action=ASK / grantee="*" /
+# duration="permanent" defaults, so only match+reason need to vary.
+_BUILTIN_ASK_SPECS: List[tuple[str, str]] = [
+    # ── Resource protection (any tool access requires confirmation) ──
+    ("*(**/.env*)", "Env file may contain secrets/credentials"),
+    ("*(**/.ssh/**)", "SSH credentials directory"),
+    ("*(**/*.pem)", "Private key file"),
+    ("*(**/*.key)", "Private key file"),
+    ("*(**/*.p12)", "PKCS#12 certificate bundle"),
+    ("*(**/*.pfx)", "PKCS#12 certificate bundle"),
+    ("*(**/.aws/**)", "AWS credentials directory"),
+    ("*(**/.gnupg/**)", "GPG keys directory"),
+    ("*(**/.kube/**)", "Kubernetes config directory"),
+    ("*(**/.netrc)", "Netrc login credentials file"),
+    ("*(**/.npmrc)", "npm auth token file"),
+    ("*(**/.pypirc)", "PyPI API token file"),
+    # ── LLM provider / AI coding-assistant configs (may hold API keys) ──
+    # Generic-name fallback (api_key*/apikey*) catches future providers
+    # whose key file is named accordingly; vendor dirs cover the known
+    # ones. Shell rc files and PowerShell profiles are included because
+    # users frequently `export`/`setx` API keys into them.
+    ("*(**/api_key*)", "API key file by generic name"),
+    ("*(**/apikey*)", "API key file by generic name"),
+    ("*(**/.anthropic/**)", "Anthropic CLI/SDK config may contain API key"),
+    ("*(**/.config/anthropic/**)", "Anthropic config may contain API key"),
+    ("*(**/.openai/**)", "OpenAI config may contain API key"),
+    ("*(**/.config/openai/**)", "OpenAI config (XDG) may contain API key"),
+    ("*(**/.codex/**)", "OpenAI Codex CLI config may contain API key"),
+    ("*(**/.gemini/**)", "Gemini CLI config may contain API key"),
+    ("*(**/.config/gemini/**)", "Gemini config (XDG) may contain API key"),
+    ("*(**/.claude/**)", "Claude config/memory may contain API key"),
+    ("*(**/.cursor/**)", "Cursor config may contain token"),
+    ("*(**/.copilot/**)", "GitHub Copilot config may contain token"),
+    ("*(**/.codeium/**)", "Codeium config may contain token"),
+    ("*(**/.opencode/**)", "OpenCode config may contain API key"),
+    # ── Shell rc / history (users often `export` API keys here) ──
+    ("*(**/.bashrc)", "Shell rc may export API keys"),
+    ("*(**/.zshrc)", "Shell rc may export API keys"),
+    ("*(**/.profile)", "Shell rc may export API keys"),
+    ("*(**/.bash_profile)", "Shell rc may export API keys"),
+    ("*(**/.bash_history)", "Shell history may contain typed secrets"),
+    ("*(**/.zsh_history)", "Shell history may contain typed secrets"),
+    # ── Windows (PowerShell profile + history may hold keys) ──
+    ("*(**/Microsoft.PowerShell_profile.ps1)", "PS profile may setx API keys"),
+    ("*(**/ConsoleHost_history.txt)", "PowerShell may contain typed secrets"),
+]
+
+# (match, reason) pairs for builtin DENY rules — hard walls, never allowed.
+# NOTE: these glob patterns are best-effort fast-path checks. The
+# authoritative shell danger detection is in
+# ``_check_shell_danger_keywords()`` below, which uses regex to catch
+# command variants that fnmatch cannot match.
+_BUILTIN_DENY_SPECS: List[tuple[str, str]] = [
+    ("Bash(rm * -rf *//*)", "Root filesystem deletion"),
+    ("Bash(sudo *)", "Privilege escalation prohibited"),
+    ("Bash(gh repo delete *)", "Repository deletion prohibited"),
+    ("Bash(gh api -X DELETE *)", "Destructive GitHub API calls prohibited"),
+]
+
 DEFAULT_BUILTIN_RULES: List[GovernanceRule] = [
-    # ── Resource protection (any tool access requires user confirmation) ──
-    GovernanceRule(
-        match="*(**/.env*)",
-        action=GovernanceAction.ASK,
-        reason="Env file may contain secrets/credentials",
-    ),
-    GovernanceRule(
-        match="*(**/.ssh/**)",
-        action=GovernanceAction.ASK,
-        reason="SSH credentials directory",
-    ),
-    GovernanceRule(
-        match="*(**/*.pem)",
-        action=GovernanceAction.ASK,
-        reason="Private key file",
-    ),
-    GovernanceRule(
-        match="*(**/*.key)",
-        action=GovernanceAction.ASK,
-        reason="Private key file",
-    ),
-    GovernanceRule(
-        match="*(**/*.p12)",
-        action=GovernanceAction.ASK,
-        reason="PKCS#12 certificate bundle",
-    ),
-    GovernanceRule(
-        match="*(**/*.pfx)",
-        action=GovernanceAction.ASK,
-        reason="PKCS#12 certificate bundle",
-    ),
-    GovernanceRule(
-        match="*(**/.aws/**)",
-        action=GovernanceAction.ASK,
-        reason="AWS credentials directory",
-    ),
-    GovernanceRule(
-        match="*(**/.gnupg/**)",
-        action=GovernanceAction.ASK,
-        reason="GPG keys directory",
-    ),
-    GovernanceRule(
-        match="*(**/.kube/**)",
-        action=GovernanceAction.ASK,
-        reason="Kubernetes config directory",
-    ),
-    GovernanceRule(
-        match="*(**/.netrc)",
-        action=GovernanceAction.ASK,
-        reason="Netrc login credentials file",
-    ),
-    GovernanceRule(
-        match="*(**/.npmrc)",
-        action=GovernanceAction.ASK,
-        reason="npm auth token file",
-    ),
-    GovernanceRule(
-        match="*(**/.pypirc)",
-        action=GovernanceAction.ASK,
-        reason="PyPI API token file",
-    ),
-    # ── High-risk commands (hard wall, never allowed) ──
-    # NOTE: These glob patterns are best-effort fast-path checks.
-    # The authoritative shell danger detection is in
-    # ``_check_shell_danger_keywords()`` below, which uses regex to
-    # catch command variants that fnmatch cannot match.
-    GovernanceRule(
-        match="Bash(rm * -rf *//*)",
-        action=GovernanceAction.DENY,
-        reason="Root filesystem deletion",
-    ),
-    GovernanceRule(
-        match="Bash(sudo *)",
-        action=GovernanceAction.DENY,
-        reason="Privilege escalation prohibited",
-    ),
-    # ── Destructive GitHub CLI operations (hard wall, never allowed) ──
-    GovernanceRule(
-        match="Bash(gh repo delete *)",
-        action=GovernanceAction.DENY,
-        reason="Repository deletion prohibited",
-    ),
-    GovernanceRule(
-        match="Bash(gh api -X DELETE *)",
-        action=GovernanceAction.DENY,
-        reason="Destructive GitHub API calls prohibited",
-    ),
+    GovernanceRule(match=m, action=GovernanceAction.ASK, reason=r)
+    for m, r in _BUILTIN_ASK_SPECS
+] + [
+    GovernanceRule(match=m, action=GovernanceAction.DENY, reason=r)
+    for m, r in _BUILTIN_DENY_SPECS
 ]
 
 
