@@ -261,9 +261,9 @@ def test_uvicorn_real_server_serves_on_windows(
             try:
                 with urllib.request.urlopen(url, timeout=5) as resp:
                     body = resp.read().decode("utf-8", errors="replace")[:500]
-                    assert resp.status == 200, (
-                        f"Expected 200, got {resp.status}: {body}"
-                    )
+                    assert (
+                        resp.status == 200
+                    ), f"Expected 200, got {resp.status}: {body}"
                 return  # success - server is serving
             except (urllib.error.URLError, ConnectionError, OSError) as exc:
                 last_error = exc
