@@ -517,6 +517,11 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
     ),
     # ── GitHub CLI ──
     GovernanceRule(
+        match="Bash(gh)",
+        action=GovernanceAction.ALLOW,
+        reason="GitHub CLI operations",
+    ),
+    GovernanceRule(
         match="Bash(gh *)",
         action=GovernanceAction.ALLOW,
         reason="GitHub CLI operations",
