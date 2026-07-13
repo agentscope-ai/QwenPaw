@@ -383,6 +383,9 @@ DEFAULT_SANDBOX_DENY_PATHS: List[str] = [
     # pip / PyPI API tokens
     "~/.pypirc",
     # Other common sensitive configs
+    # NOTE: ~/.config/gh intentionally excluded — gh CLI needs to read its
+    # auth config (hosts.yml) for operations. The gh ALLOW rule + DENY for
+    # destructive subcommands provides the safety boundary instead.
     "~/.config/nix",  # Nix config
     "~/.netrc",  # generic login credentials
 ]
@@ -516,6 +519,18 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         reason="Coding project dir",
     ),
     # ── GitHub CLI ──
+    # DENY destructive operations first (first-match-wins)
+    GovernanceRule(
+        match="Bash(gh repo delete *)",
+        action=GovernanceAction.DENY,
+        reason="Repository deletion prohibited",
+    ),
+    GovernanceRule(
+        match="Bash(gh api -X DELETE *)",
+        action=GovernanceAction.DENY,
+        reason="Destructive GitHub API calls prohibited",
+    ),
+    # ALLOW all other gh operations (agent needs write access for PR/issue management)
     GovernanceRule(
         match="Bash(gh)",
         action=GovernanceAction.ALLOW,
