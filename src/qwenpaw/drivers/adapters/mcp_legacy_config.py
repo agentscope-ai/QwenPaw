@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -231,6 +233,18 @@ def legacy_mcp_client_to_driver(
     return card, credential
 
 
+ENV_VAR_PATTERN = re.compile(r"\$\{(\w+)\}")
+
+
+def _resolve_env_var(value: str) -> str:
+    """Replace ${VAR_NAME} patterns with their environment variable values."""
+
+    def _replace(m: re.Match) -> str:
+        return os.environ.get(m.group(1), m.group(0))
+
+    return ENV_VAR_PATTERN.sub(_replace, value)
+
+
 def _build_legacy_credential(
     client_key: str,
     oauth: Any,
@@ -245,7 +259,7 @@ def _build_legacy_credential(
     ref = mcp_credential_ref(client_key)
 
     for key, value in env_secrets.items():
-        secrets[key] = value
+        secrets[key] = _resolve_env_var(value)
 
     headers = endpoint.get("headers") if isinstance(endpoint, dict) else None
     for header, value in header_secrets.items():
@@ -254,7 +268,7 @@ def _build_legacy_credential(
             spec = headers.get(header)
             if isinstance(spec, dict) and spec.get("source") == "credential":
                 secret_key = str(spec.get("field") or secret_key)
-        secrets[secret_key] = value
+        secrets[secret_key] = _resolve_env_var(value)
 
     if oauth is not None:
         kind = CREDENTIAL_KIND_OAUTH_AUTH_CODE
@@ -275,7 +289,7 @@ def _build_legacy_credential(
         for key in ("access_token", "refresh_token", "client_secret"):
             value = getattr(oauth, key, "")
             if value:
-                secrets[key] = value
+                secrets[key] = _resolve_env_var(value)
 
     if not secrets and not public:
         return None
