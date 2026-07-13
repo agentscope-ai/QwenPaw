@@ -383,7 +383,6 @@ DEFAULT_SANDBOX_DENY_PATHS: List[str] = [
     # pip / PyPI API tokens
     "~/.pypirc",
     # Other common sensitive configs
-    "~/.config/gh",  # GitHub CLI
     "~/.config/nix",  # Nix config
     "~/.netrc",  # generic login credentials
 ]
@@ -515,6 +514,12 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         match="*(CODING_PROJECT_DIR/**)",
         action=GovernanceAction.ALLOW,
         reason="Coding project dir",
+    ),
+    # ── GitHub CLI ──
+    GovernanceRule(
+        match="Bash(gh *)",
+        action=GovernanceAction.ALLOW,
+        reason="GitHub CLI operations",
     ),
 ]
 
