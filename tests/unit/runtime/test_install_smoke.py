@@ -240,9 +240,10 @@ def test_uvicorn_real_server_serves_on_windows(
     )
 
     try:
-        # Poll the server until it responds (30s timeout — agent loading
-        # can be slow on Windows CI runners).
-        deadline = time.monotonic() + 30
+        # Poll the server until it responds. Windows CI runners start the
+        # uvicorn subprocess + agent loading noticeably slower than Linux/macOS
+        # (ProactorEventLoop, cold FS, antivirus), so give it a generous budget.
+        deadline = time.monotonic() + 90
         last_error: Exception | None = None
         while time.monotonic() < deadline:
             if proc.poll() is not None:
@@ -253,7 +254,7 @@ def test_uvicorn_real_server_serves_on_windows(
                     f"Output:\n{output.decode('utf-8', errors='replace')[:2000]}",
                 )
             try:
-                with urllib.request.urlopen(url, timeout=3) as resp:
+                with urllib.request.urlopen(url, timeout=5) as resp:
                     assert resp.status == 200, (
                         f"Expected 200, got {resp.status}: "
                         f"{resp.read().decode('utf-8', errors='replace')[:500]}"
@@ -264,7 +265,7 @@ def test_uvicorn_real_server_serves_on_windows(
                 time.sleep(0.5)
 
         pytest.fail(
-            f"uvicorn server did not become ready within 30s. "
+            f"uvicorn server did not become ready within 90s. "
             f"Last error: {last_error}",
         )
     finally:

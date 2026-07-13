@@ -28,6 +28,19 @@ from qwenpaw.security.tool_guard.guardians.rule_guardian import (
     _check_rm_targets_outside_workspace,
 )
 
+# These cases assert Unix ``rm`` semantics — absolute ``/``-rooted targets and
+# the ``\\rm`` / ``$(which rm)`` / ``command rm`` escape family. On Windows the
+# guard's ``/foo`` token is ambiguous with ``del /F``-style flags, so
+# ``_extract_rm_targets`` deliberately skips it (see rule_guardian._extract_rm_targets).
+# That platform quirk is unrelated to the #5090 bypass the contract pins; the
+# Unix command family only ever runs on POSIX anyway, so skip on win32.
+_unix_rm_only = pytest.mark.skipif(
+    "sys.platform == 'win32'",
+    reason="Unix ``rm`` semantics (``/abs`` targets, ``\\rm``, ``$(which rm)``) "
+    "are not exercised on Windows; guard treats ``/foo`` as a ``del`` flag there "
+    "(rule_guardian._extract_rm_targets). See #5090.",
+)
+
 
 @pytest.fixture
 def workspace(tmp_path: Path) -> Iterator[Path]:
@@ -68,6 +81,7 @@ def workspace(tmp_path: Path) -> Iterator[Path]:
         "rm -rf /var/log",
     ],
 )
+@_unix_rm_only
 def test_absolute_and_root_targets_blocked(
     workspace: Path,
     command: str,
@@ -112,6 +126,7 @@ def test_relative_path_escaping_workspace_blocked(workspace: Path) -> None:
     assert has_outside is True
 
 
+@_unix_rm_only
 def test_compound_command_with_outside_rm_blocked(workspace: Path) -> None:
     """Regression for #5090: a rm after a ``;`` / ``&&`` / ``|`` separator
     must still be analysed."""
@@ -121,6 +136,7 @@ def test_compound_command_with_outside_rm_blocked(workspace: Path) -> None:
     assert has_outside is True
 
 
+@_unix_rm_only
 def test_escaped_rm_bin_path_blocked(workspace: Path) -> None:
     """Regression for #5090: ``/bin/rm -rf /`` must be normalised so the rm
     token is recognised and the target flagged."""
@@ -128,12 +144,14 @@ def test_escaped_rm_bin_path_blocked(workspace: Path) -> None:
     assert has_outside is True
 
 
+@_unix_rm_only
 def test_backslash_rm_blocked(workspace: Path) -> None:
     """Regression for #5090: ``\\rm -rf /`` must be normalised and flagged."""
     has_outside, _ = _check_rm_targets_outside_workspace("\\rm -rf /")
     assert has_outside is True
 
 
+@_unix_rm_only
 def test_command_substitution_rm_blocked(workspace: Path) -> None:
     """Regression for #5090: ``$(which rm) -rf /`` must be normalised and
     flagged."""
@@ -141,6 +159,7 @@ def test_command_substitution_rm_blocked(workspace: Path) -> None:
     assert has_outside is True
 
 
+@_unix_rm_only
 def test_backtick_rm_blocked(workspace: Path) -> None:
     """Regression for #5090: `` `which rm` -rf / `` must be normalised and
     flagged."""
@@ -148,6 +167,7 @@ def test_backtick_rm_blocked(workspace: Path) -> None:
     assert has_outside is True
 
 
+@_unix_rm_only
 def test_command_prefix_rm_blocked(workspace: Path) -> None:
     """Regression for #5090: ``command rm -rf /`` must be normalised and
     flagged."""
@@ -155,6 +175,7 @@ def test_command_prefix_rm_blocked(workspace: Path) -> None:
     assert has_outside is True
 
 
+@_unix_rm_only
 def test_env_prefix_rm_blocked(workspace: Path) -> None:
     """Regression for #5090: ``env rm -rf /`` must be normalised."""
     has_outside, _ = _check_rm_targets_outside_workspace("env rm -rf /")
