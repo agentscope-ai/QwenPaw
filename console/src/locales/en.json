@@ -2582,6 +2582,7 @@
     "timeoutAutoDenied": "Timed out, auto denied",
     "acknowledge": "Got it",
     "approvePattern": "Always Allow",
+    "strictModeHint": "Always allow is unavailable in strict mode",
     "approveExact": "Just Once",
     "approvalScope": "Approval scope",
     "details": "Details"

@@ -31,6 +31,7 @@ import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
+import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
 import { PushMessageCard } from "./components";
 import { useInboxData } from "./hooks/useInboxData";
 import { useTraceViewer } from "./hooks/useTraceViewer";
@@ -86,6 +87,7 @@ export default function InboxPage() {
   const [messagesPage, setMessagesPage] = useState(1);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [batchMode, setBatchMode] = useState(false);
+  const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
   const agents = useAgentStore((state) => state.agents);
   const { approvals: pendingApprovals, setApprovals } = useApprovalContext();
   const {
@@ -464,6 +466,7 @@ export default function InboxPage() {
                   isGeneralized={approval.is_generalized}
                   exactTarget={approval.exact_target}
                   similarTarget={approval.similar_target}
+                  executionLevel={runningConfigApprovalLevel}
                   onApprove={(_reqId, scope) =>
                     handleApproveRequest(
                       approval.request_id,

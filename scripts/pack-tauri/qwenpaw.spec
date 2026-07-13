@@ -65,6 +65,15 @@ datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
 # Include reme package data files (configs, tool yamls, etc.)
 datas += collect_data_files("reme")
 datas += collect_data_files("whisper")
+datas += collect_data_files("agentscope")
+datas += collect_data_files(
+    "agentscope.tool._builtin._scripts",
+    include_py_files=True,
+)
+datas += collect_data_files(
+    "agentscope.workspace._mcp_gateway",
+    include_py_files=True,
+)
 
 # Collect package metadata for packages that use importlib.metadata at runtime.
 # Keep this allowlist in sync when adding runtime dependencies that query
@@ -146,6 +155,8 @@ a = Analysis(
         "modelscope",
         "modelscope.hub.api",
         "modelscope.hub.snapshot_download",
+        *collect_submodules("agentscope.tool._builtin._scripts"),
+        *collect_submodules("agentscope.workspace._mcp_gateway"),
         *collect_submodules("whisper"),
         *collect_submodules("chromadb"),
     ],

@@ -2398,6 +2398,7 @@
     "approveFailed": "承認に失敗しました",
     "denyFailed": "拒否に失敗しました",
     "approvePattern": "常に許可",
+    "strictModeHint": "厳格モードでは常に許可できません",
     "approveExact": "今回のみ",
     "approvalScope": "承認スコープ",
     "details": "詳細",

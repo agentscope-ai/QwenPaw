@@ -270,6 +270,62 @@ class TestDefaultPolicyLoad:
         decision = reloaded.evaluate(_tc("Edit", f"{cpd}/app.py"))
         assert decision.action is GovernanceAction.ALLOW
 
+    def test_new_default_rule_auto_migrated(self, tmp_path):
+        """A newly added DEFAULT_USER_RULES entry is auto-merged
+        into an existing policy.yaml without a manual whitelist."""
+        from unittest.mock import patch
+
+        ws = "/home/user/workspace"
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+
+        policy = _create_default_policy(workspace_dir=ws)
+        save_governance_policy(policy, str(policy_dir), ws)
+
+        new_rule = GovernanceRule(
+            match="NewTool(*)",
+            action=GovernanceAction.ALLOW,
+            reason="New tool auto-test",
+        )
+        patched = list(DEFAULT_USER_RULES) + [new_rule]
+        with patch(
+            "qwenpaw.governance.policy.DEFAULT_USER_RULES",
+            patched,
+        ):
+            reloaded = load_governance_policy(str(policy_dir), ws)
+        assert any(r.match == "NewTool(*)" for r in reloaded.user_rules)
+
+    def test_deleted_new_default_rule_stays_deleted(self, tmp_path):
+        """Once a new default rule is migrated and then deleted by
+        the user, it must not be re-added on subsequent loads."""
+        from unittest.mock import patch
+
+        ws = "/home/user/workspace"
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+
+        new_rule = GovernanceRule(
+            match="NewTool(*)",
+            action=GovernanceAction.ALLOW,
+            reason="New tool auto-test",
+        )
+        patched = list(DEFAULT_USER_RULES) + [new_rule]
+
+        with patch(
+            "qwenpaw.governance.policy.DEFAULT_USER_RULES",
+            patched,
+        ):
+            p1 = load_governance_policy(str(policy_dir), ws)
+            assert any(r.match == "NewTool(*)" for r in p1.user_rules)
+            # User deletes the rule
+            p1.user_rules = [
+                r for r in p1.user_rules if r.match != "NewTool(*)"
+            ]
+            save_governance_policy(p1, str(policy_dir), ws)
+
+            p2 = load_governance_policy(str(policy_dir), ws)
+        assert not any(r.match == "NewTool(*)" for r in p2.user_rules)
+
     @pytest.mark.parametrize(
         "ws, cpd, label",
         [
