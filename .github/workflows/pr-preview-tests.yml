@@ -1,0 +1,56 @@
+name: PR preview tests
+
+# Fork-local preview of the unit-test matrix from agentscope-ai/QwenPaw's
+# `.github/workflows/tests.yml`, WITHOUT its `approval-gate` (the upstream
+# `maintainer-approved` environment that gates every Tests run behind a manual
+# maintainer approval). Purpose: catch cross-OS regressions on this branch
+# *before* asking upstream to re-approve, so we don't loop on "approve ->
+# red -> fix -> re-approve".
+#
+# Triggers on any push to a `backend-*` branch (this PR's source branch family)
+# and on manual dispatch. Runs only `tests/unit`; we don't reproduce the
+# contract/integrated tiers or the npm console build (unit tests don't import
+# the built frontend — that build in upstream tests.yml is there for the
+# integrated tier, which reuses the same runner).
+
+on:
+  push:
+    branches:
+      - 'backend-regression'
+      - 'backend-*'
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    name: Unit Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Faithful copy of upstream tests.yml's unit-tests matrix.
+        python-version: ["3.11", "3.13"]
+        os: [ubuntu-latest]
+        include:
+          - os: macos-latest
+            python-version: "3.11"
+          - os: windows-latest
+            python-version: "3.11"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,test,full]"
+
+      - name: Run unit tests
+        shell: bash
+        run: pytest tests/unit -v
