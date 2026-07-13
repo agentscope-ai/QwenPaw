@@ -117,11 +117,12 @@ class DriverConfigService:
 
     async def save_policy(self, card: DriverCard) -> Path:
         """Persist policy changes and update the active Driver immediately."""
-        path = await self.card_store.save(card)
         manager = getattr(self._workspace, "driver_manager", None)
         if manager is not None:
             await manager.sync_driver_policy(card)
-        return path
+        else:
+            await self.card_store.save(card)
+        return self.card_path(card.name, protocol=card.protocol)
 
     async def reload_driver_best_effort(self, name: str) -> None:
         manager = getattr(self._workspace, "driver_manager", None)
