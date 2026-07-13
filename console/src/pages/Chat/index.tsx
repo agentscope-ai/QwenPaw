@@ -2037,24 +2037,18 @@ export default function ChatPage() {
     };
 
     sessionApi.onSessionRemoved = (removedId) => {
-      if (!isChatActiveRef.current) return;
-      // Clean up the queue for the removed session so stale items don't
-      // linger in storage or get sent after the conversation is deleted.
+      // Clean up the queue and abort any in-flight background send for the
+      // removed session so stale items don't linger in storage or get sent
+      // after the conversation is deleted. Navigation to a fresh chat is
+      // owned by the delete handlers (via the "qwenpaw:sidebar-new-chat"
+      // event), so this callback stays focused on resource cleanup and can
+      // run regardless of which session is currently active.
       try {
         useMessageQueueStore.getState().clear(removedId);
       } catch {
         // ignore
       }
-      // Clear URL when current session is removed
-      // Check if removed session matches current session (by realId or sessionId)
-      const currentRealId = sessionApi.getRealIdForSession(
-        chatIdRef.current || "",
-      );
-      if (chatIdRef.current === removedId || currentRealId === removedId) {
-        lastSessionIdRef.current = null;
-        stopBackgroundQueue(removedId);
-        navigateRef.current(buildCurrentBasePath(), { replace: true });
-      }
+      stopBackgroundQueue(removedId);
     };
 
     sessionApi.onSessionSelected = (
