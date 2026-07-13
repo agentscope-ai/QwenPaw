@@ -52,6 +52,42 @@ def test_append_is_idempotent_on_session_dedup_key(store: HistoryStore):
     assert store.count("s") == 1  # no duplicate row
 
 
+def test_append_many_batches_and_deduplicates(store: HistoryStore):
+    inserted = store.append_many(
+        session_id="s",
+        entries=[
+            (_entry("one"), "m1"),
+            (_entry("two"), "m2"),
+            (_entry("duplicate"), "m1"),
+        ],
+    )
+    assert inserted == 2
+    assert store.count("s") == 2
+
+    assert (
+        store.append_many(
+            session_id="s",
+            entries=[(_entry("one again"), "m1")],
+        )
+        == 0
+    )
+    assert store.count("s") == 2
+
+
+def test_append_many_populates_fts(store: HistoryStore):
+    if not store._fts:
+        pytest.skip("SQLite build lacks FTS5")
+    store.append_many(
+        session_id="s",
+        entries=[(_entry("batch aardvark"), "m1")],
+    )
+    rows = store._conn.execute(
+        "SELECT rowid FROM conversation_history_fts WHERE "
+        "conversation_history_fts MATCH 'aardvark'",
+    ).fetchall()
+    assert len(rows) == 1
+
+
 def test_same_dedup_key_different_session_does_not_collide(
     store: HistoryStore,
 ):
