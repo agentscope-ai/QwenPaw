@@ -5,7 +5,10 @@ from __future__ import annotations
 
 from acp import text_block
 
-from qwenpaw.agents.acp.meta import ACP_CODING_PROJECT_META_KEY
+from qwenpaw.agents.acp.meta import (
+    ACP_CODING_PROJECT_META_KEY,
+    ACP_EPHEMERAL_META_KEY,
+)
 from qwenpaw.agents.acp.server import QwenPawACPAgent
 
 
@@ -100,4 +103,26 @@ async def test_acp_resume_project_metadata_is_stripped(tmp_path):
     assert (
         workspace.requests[0].request_context[ACP_CODING_PROJECT_META_KEY]
         == project_dir
+    )
+
+
+async def test_acp_ephemeral_metadata_flows_to_request_context(tmp_path):
+    project_dir = str(tmp_path)
+    workspace = _FakeWorkspace()
+    agent = _TestACPAgent(workspace)
+    agent.on_connect(_FakeConn())
+
+    response = await agent.new_session(
+        cwd=project_dir,
+        **{ACP_EPHEMERAL_META_KEY: True},
+    )
+
+    await agent.prompt(
+        prompt=[text_block("warmup")],
+        session_id=response.session_id,
+    )
+
+    assert workspace.requests
+    assert (
+        workspace.requests[0].request_context[ACP_EPHEMERAL_META_KEY] is True
     )

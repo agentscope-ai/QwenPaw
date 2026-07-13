@@ -18,7 +18,7 @@
 
 - [ ] Core / Backend (app, agents, config, providers, utils, local_models)
 - [ ] Console (frontend web UI)
-- [ ] Channels (DingTalk, Feishu, QQ, Discord, iMessage, etc.)
+- [ ] Channels (DingTalk, Lark, QQ, Discord, iMessage, etc.)
 - [ ] Skills
 - [ ] CLI
 - [ ] Documentation (website)
@@ -34,7 +34,7 @@
 - [ ] Documentation updated (if needed)
 - [ ] Ready for review
 
-### For Channel Changes (DingTalk, Feishu, QQ, Console, etc.)
+### For Channel Changes (DingTalk, Lark, QQ, Console, etc.)
 
 - [ ] I ran `./scripts/check-channels.sh` (or `./scripts/check-channels.sh --changed`) and it passes
 - [ ] **Contract test** exists in `tests/contract/channels/test_<channel>_contract.py` (REQUIRED)

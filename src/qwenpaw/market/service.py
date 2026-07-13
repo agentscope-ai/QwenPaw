@@ -9,6 +9,7 @@ import inspect
 import logging
 from typing import Any
 
+from .categories import resolve as resolve_category
 from .providers import PROVIDERS
 from .schema import MarketResult, MarketSearchError, ProviderInfo
 
@@ -39,6 +40,7 @@ async def search_market(
     provider_pages: dict[str, int],
     limit: int = 10,
     lang: str = "en",
+    category: str | None = None,
 ) -> tuple[
     list[MarketResult],
     list[MarketSearchError],
@@ -53,7 +55,7 @@ async def search_market(
     ]
 
     coros = [
-        _run_one(key, query, capped_limit, page, lang)
+        _run_one(key, query, capped_limit, page, lang, category)
         for key, page in selected
     ]
     paired = await asyncio.gather(*coros)
@@ -80,6 +82,7 @@ async def _run_one(
     limit: int,
     page: int,
     lang: str,
+    category: str | None,
 ) -> tuple[list[MarketResult], bool, int | None] | MarketSearchError:
     provider = PROVIDERS[key]
     is_available, reason = provider.available()
@@ -88,10 +91,20 @@ async def _run_one(
             provider=key,
             message=reason or "provider unavailable",
         )
-    # Providers that don't declare a `lang` kwarg simply ignore it.
-    kwargs = _supported_kwargs(provider.search, lang=lang)
+    # Route the logical category per provider: a native filter code goes
+    # in as `category=`; otherwise its localized keyword replaces an empty
+    # query. `_supported_kwargs` drops any kwarg the provider doesn't take.
+    routing = resolve_category(category, key, lang)
+    native_code = routing["native_code"]
+    effective_query = query
+    if not query and routing["search_term"]:
+        effective_query = routing["search_term"]
+    candidates: dict[str, Any] = {"lang": lang}
+    if native_code:
+        candidates["category"] = native_code
+    kwargs = _supported_kwargs(provider.search, **candidates)
     try:
-        return await provider.search(query, limit, page, **kwargs)
+        return await provider.search(effective_query, limit, page, **kwargs)
     except Exception as exc:
         logger.warning(
             "Market provider %s failed for query=%r: %s",

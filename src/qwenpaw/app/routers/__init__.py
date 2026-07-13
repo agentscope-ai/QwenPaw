@@ -18,6 +18,7 @@ from .tools import router as tools_router
 from ..crons.api import router as cron_router
 from ..chats.api import router as runner_router
 from .console import router as console_router
+from .fork import router as fork_router
 from .token_usage import router as token_usage_router
 from .agent_stats import router as agent_stats_router
 from .auth import router as auth_router
@@ -30,12 +31,14 @@ from .backup import router as backup_router
 from .git import router as git_router
 from .coding_project import router as coding_project_router
 from .access_control import router as access_control_router
+from .provider_oauth import router as provider_oauth_router
 
 router = APIRouter()
 
 router.include_router(agents_router)
 router.include_router(config_router)
 router.include_router(console_router)
+router.include_router(fork_router)
 router.include_router(cron_router)
 router.include_router(local_models_router)
 router.include_router(mcp_oauth_router)
@@ -60,6 +63,7 @@ router.include_router(backup_router)
 router.include_router(git_router)
 router.include_router(coding_project_router)
 router.include_router(access_control_router)
+router.include_router(provider_oauth_router)
 
 
 def create_agent_scoped_router() -> APIRouter:

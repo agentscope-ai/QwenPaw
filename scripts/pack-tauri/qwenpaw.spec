@@ -55,6 +55,7 @@ _data_dirs = [
     ("security/tool_guard/rules", "qwenpaw/security/tool_guard/rules"),
     ("security/skill_scanner/rules", "qwenpaw/security/skill_scanner/rules"),
     ("security/skill_scanner/data", "qwenpaw/security/skill_scanner/data"),
+    ("app/channels/yuanbao/proto", "qwenpaw/app/channels/yuanbao/proto"),
 ]
 datas = [
     (str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()
@@ -120,6 +121,8 @@ a = Analysis(
         *collect_submodules("qwenpaw.cli"),
         # All channel adapters (imported on-demand at runtime)
         *collect_submodules("qwenpaw.app.channels"),
+        # ACP runner support is lazily imported by delegate_external_agent.
+        *collect_submodules("qwenpaw.agents.acp"),
         # ASGI app entry points
         "qwenpaw.app._app",
         "qwenpaw.app.multi_agent_manager",

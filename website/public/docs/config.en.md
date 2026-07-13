@@ -118,13 +118,6 @@ You can customize paths and behavior via environment variables:
 | `QWENPAW_TOOL_GUARD_ENABLED` | `true`  | Whether to enable tool guard                       |
 | `QWENPAW_SKILL_SCAN_MODE`    | `warn`  | Skill scanning mode (`block` / `warn` / `off`)     |
 
-**Memory & Retrieval:**
-
-| Variable               | Default | Description                                                     |
-| ---------------------- | ------- | --------------------------------------------------------------- |
-| `FTS_ENABLED`          | `true`  | Whether to enable BM25 full-text search                         |
-| `MEMORY_STORE_BACKEND` | `auto`  | Memory storage backend (`auto` / `local` / `chroma` / `sqlite`) |
-
 Example — use a different working dir for this shell:
 
 ```bash
@@ -421,40 +414,58 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **ReMeLight Memory Configuration (`reme_light_memory_config` object):**
 
-| Field                           | Type        | Default        | Description                                                                           |
-| ------------------------------- | ----------- | -------------- | ------------------------------------------------------------------------------------- |
-| `summarize_when_compact`        | bool        | `true`         | Whether to enable memory summarization during compaction                              |
-| `auto_memory_interval`          | int \| null | `1`            | Auto memory every N user queries. `1` runs after every user message; null disables it |
-| `dream_cron`                    | string      | `"0 23 * * *"` | Cron expression for dream-based memory optimization (empty to disable)                |
-| `rebuild_memory_index_on_start` | bool        | `false`        | Whether to rebuild memory search index on startup                                     |
-| `recursive_file_watcher`        | bool        | `false`        | Whether to watch memory directory recursively                                         |
-| `auto_memory_search_config`     | object      | _(see below)_  | Auto memory search configuration                                                      |
-| `embedding_model_config`        | object      | _(see below)_  | Embedding model configuration                                                         |
+| Field                           | Type        | Default          | Description                                                                                                        |
+| ------------------------------- | ----------- | ---------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `metadata_dir`                  | string      | `"mem_metadata"` | Subdirectory for ReMe persistent state                                                                             |
+| `session_dir`                   | string      | `"mem_session"`  | Subdirectory for ReMe source conversation logs used by auto-memory                                                 |
+| `mem_session_dir`               | string      | `"mem_agent"`    | Subdirectory for ReMe internal memory-agent sessions                                                               |
+| `resource_dir`                  | string      | `"resource"`     | Subdirectory for external assets                                                                                   |
+| `daily_dir`                     | string      | `"memory"`       | Subdirectory for daily memory                                                                                      |
+| `digest_dir`                    | string      | `"digest"`       | Subdirectory for digest memory                                                                                     |
+| `enable_search_raw_log`         | bool        | `false`          | Whether to enable raw log search                                                                                   |
+| `summarize_when_compact`        | bool        | `true`           | Whether to enable memory summarization during compaction                                                           |
+| `auto_memory_interval`          | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                   |
+| `dream_cron`                    | string      | `"0 23 * * *"`   | Cron expression for dream-based memory optimization (empty to disable)                                             |
+| `auto_memory_search_config`     | object      | _(see below)_    | Auto memory search configuration                                                                                   |
+| `embedding_model_config`        | object      | _(see below)_    | Embedding model configuration                                                                                      |
+| `rebuild_memory_index_on_start` | bool        | `false`          | Whether to clear and rebuild the memory search index when the agent starts; otherwise only new changes are indexed |
 
 **Auto Memory Search Configuration (`reme_light_memory_config.auto_memory_search_config` object):**
 
-| Field         | Type  | Default | Description                                              |
-| ------------- | ----- | ------- | -------------------------------------------------------- |
-| `enabled`     | bool  | `false` | Whether to auto search memory on every conversation turn |
-| `max_results` | int   | `1`     | Maximum results for auto memory search                   |
-| `timeout`     | float | `10.0`  | Timeout in seconds for auto memory search                |
+| Field         | Type | Default | Description                                              |
+| ------------- | ---- | ------- | -------------------------------------------------------- |
+| `enabled`     | bool | `false` | Whether to auto search memory on every conversation turn |
+| `max_results` | int  | `2`     | Maximum results for auto memory search                   |
 
 **Embedding Configuration (`reme_light_memory_config.embedding_model_config` object):**
 
-| Field              | Type   | Default    | Description                                             |
-| ------------------ | ------ | ---------- | ------------------------------------------------------- |
-| `backend`          | string | `"openai"` | Embedding backend type (e.g., `"openai"`)               |
-| `api_key`          | string | `""`       | API key for the embedding provider                      |
-| `base_url`         | string | `""`       | Custom API URL (optional)                               |
-| `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`) |
-| `dimensions`       | int    | `1024`     | Embedding vector dimensions                             |
-| `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                       |
-| `use_dimensions`   | bool   | `false`    | Whether to use custom dimensions                        |
-| `max_cache_size`   | int    | `3000`     | Maximum cache size                                      |
-| `max_input_length` | int    | `8192`     | Maximum input length for embeddings                     |
-| `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                 |
+| Field              | Type   | Default    | Description                                                                                    |
+| ------------------ | ------ | ---------- | ---------------------------------------------------------------------------------------------- |
+| `backend`          | string | `"openai"` | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`      |
+| `api_key`          | string | `""`       | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends         |
+| `base_url`         | string | `""`       | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host |
+| `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`)                                        |
+| `dimensions`       | int    | `1024`     | Embedding vector dimensions                                                                    |
+| `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                                                              |
+| `use_dimensions`   | bool   | `false`    | Whether to use custom dimensions                                                               |
+| `max_cache_size`   | int    | `10000`    | Maximum cache size                                                                             |
+| `max_input_length` | int    | `8192`     | Maximum input length for embeddings                                                            |
+| `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                                                        |
 
-These settings can also be changed in the Console under **Agent → Runtime Config**. Changes apply to new LLM requests after saving; restarting the service is not required.
+Vector retrieval is enabled only when the selected backend has the minimum runnable configuration. These conditions are aligned with AgentScope credential requirements:
+
+| Backend                                         | Enable condition                              | Credential mapping              |
+| ----------------------------------------------- | --------------------------------------------- | ------------------------------- |
+| `openai` / `dashscope` / `dashscope_multimodal` | Both `model_name` and `api_key` are non-empty | `api_key`; optional `base_url`  |
+| `gemini`                                        | Both `model_name` and `api_key` are non-empty | `api_key`                       |
+| `ollama`                                        | `model_name` is non-empty                     | optional `host` from `base_url` |
+
+When the enable condition is not met, ReMe still keeps keyword indexes and wikilink graph indexes, but the embedding vector index is disabled.
+
+These settings can also be changed in the Console under **Agent → Runtime Config**. Fields read directly from
+`agent.json`, such as auto-memory cadence and auto-search limits, apply to later turns after saving. Embedded ReMe
+component settings, such as directories and embedding configuration, require restarting the agent process so the ReMe
+application is constructed with the new configuration.
 
 ---
 
@@ -672,17 +683,11 @@ Memory files are stored in the agent workspace:
 
 ### Embedding Configuration
 
-Memory search relies on vector embeddings for semantic retrieval. Configuration priority: **config file > env var > default**.
+Memory search relies on vector embeddings for semantic retrieval.
 
-Recommended to configure in `agent.json` under `running.reme_light_memory_config.embedding_model_config`, which supports more parameters (e.g., `use_dimensions`). Environment variables serve as fallback only:
+Configure embeddings in `agent.json` under `running.reme_light_memory_config.embedding_model_config`, which supports backend selection and parameters such as `use_dimensions`:
 
-| Variable (Fallback)    | Description                       | Default |
-| ---------------------- | --------------------------------- | ------- |
-| `EMBEDDING_API_KEY`    | API key for the embedding service | ``      |
-| `EMBEDDING_BASE_URL`   | Embedding service URL             | ``      |
-| `EMBEDDING_MODEL_NAME` | Embedding model name              | ``      |
-
-> `api_key`, `model_name`, and `base_url` must all be non-empty to enable vector search in hybrid retrieval. See [Memory](./memory#embedding-configuration-optional) for full configuration details.
+> The vector-search enable condition is aligned with AgentScope credential requirements: OpenAI-compatible and Gemini backends require `model_name` plus `api_key`; Ollama only requires `model_name`. `base_url` is optional for OpenAI-compatible endpoints and is used as Ollama `host` when set. See [Memory](./memory#embedding-configuration-optional) for full configuration details.
 
 ---
 

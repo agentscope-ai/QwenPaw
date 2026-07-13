@@ -18,6 +18,17 @@ class ApprovalDecision(str, Enum):
     TIMEOUT = "timeout"
 
 
+class ApprovalScope(str, Enum):
+    """How widely an approved call should be remembered.
+
+    Orthogonal to :class:`ApprovalDecision` — only meaningful when the
+    decision is ``APPROVED``.
+    """
+
+    EXACT = "exact"  # record the literal target only
+    SIMILAR = "similar"  # record the generalized pattern
+
+
 def format_findings_summary(
     result: "ToolGuardResult",
     *,

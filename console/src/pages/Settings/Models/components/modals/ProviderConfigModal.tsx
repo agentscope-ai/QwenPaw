@@ -265,6 +265,7 @@ interface ProviderConfigModalProps {
     name: string;
     api_key?: string;
     api_key_prefix?: string;
+    api_key_prefixes?: string[];
     base_url?: string;
     is_custom: boolean;
     freeze_url: boolean;
@@ -360,15 +361,27 @@ export function ProviderConfigModal({
     [provider.id, provider.chat_model, effectiveChatModel],
   );
 
+  const validApiKeyPrefixes = useMemo(() => {
+    if (provider.api_key_prefixes && provider.api_key_prefixes.length > 0) {
+      return provider.api_key_prefixes;
+    }
+    if (provider.api_key_prefix) {
+      return [provider.api_key_prefix];
+    }
+    return [];
+  }, [provider.api_key_prefix, provider.api_key_prefixes]);
+
   const apiKeyPlaceholder = useMemo(() => {
     if (provider.api_key) {
       return t("models.leaveBlankKeep");
     }
-    if (provider.api_key_prefix) {
-      return t("models.enterApiKey", { prefix: provider.api_key_prefix });
+    if (validApiKeyPrefixes.length > 0) {
+      return t("models.enterApiKey", {
+        prefix: validApiKeyPrefixes.join(", "),
+      });
     }
     return t("models.enterApiKeyOptional");
-  }, [provider.api_key, provider.api_key_prefix, t]);
+  }, [provider.api_key, validApiKeyPrefixes, t]);
 
   const apiKeyLabel =
     isAnthropicProvider && authMode === "auth_token"
@@ -756,14 +769,16 @@ export function ProviderConfigModal({
               validator: (_, value) => {
                 if (
                   value &&
-                  provider.api_key_prefix &&
+                  validApiKeyPrefixes.length > 0 &&
                   authMode !== "auth_token" &&
-                  !value.startsWith(provider.api_key_prefix)
+                  !validApiKeyPrefixes.some((prefix) =>
+                    value.startsWith(prefix),
+                  )
                 ) {
                   return Promise.reject(
                     new Error(
                       t("models.apiKeyShouldStart", {
-                        prefix: provider.api_key_prefix,
+                        prefix: validApiKeyPrefixes.join(", "),
                       }),
                     ),
                   );

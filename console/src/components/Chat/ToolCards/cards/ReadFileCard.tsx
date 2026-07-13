@@ -20,6 +20,17 @@ const ReadFileCard: React.FC<ReadFileCardProps> = ({
   const file = shortFileName((params.file_path || params.path || "") as string);
   const title = file ? t("tool.readFile", { file }) : t("tool.readFileDefault");
 
+  if (content.status === "error") {
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<FileTextOutlined />}
+        title={title}
+      />
+    );
+  }
+
   const resultText = stringifyResult(content.result);
   const lineCount = countLines(resultText);
 

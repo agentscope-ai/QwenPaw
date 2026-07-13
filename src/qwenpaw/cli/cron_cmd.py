@@ -234,6 +234,7 @@ def _build_spec_from_cli(
     save_result_to_inbox: Optional[bool] = None,
     share_session: bool = True,
     timeout_seconds: int = 120,
+    tool_safety: bool = False,
 ) -> dict:
     """Build CronJobSpec JSON payload from CLI args (no id)."""
     schedule = _build_schedule_from_cli(
@@ -258,6 +259,7 @@ def _build_spec_from_cli(
         "max_concurrency": 1,
         "timeout_seconds": timeout_seconds,
         "misfire_grace_seconds": 600,
+        "tool_safety": tool_safety,
     }
     if task_type == "text":
         if not (text and text.strip()):
@@ -486,6 +488,16 @@ def _build_spec_from_cli(
     ),
 )
 @click.option(
+    "--tool-safety/--no-tool-safety",
+    default=False,
+    show_default=True,
+    help=(
+        "Tool execution safety check. When enabled, risky tool calls "
+        "require approval (may block unattended jobs). "
+        "When disabled, all tools execute without approval."
+    ),
+)
+@click.option(
     "--base-url",
     default=None,
     help="Override the API base URL. Defaults to global --host/--port.",
@@ -518,6 +530,7 @@ def create_job(
     save_result_to_inbox: Optional[bool],
     share_session: bool,
     timeout_seconds: int,
+    tool_safety: bool,
     base_url: Optional[str],
     agent_id: str,
 ) -> None:
@@ -575,6 +588,7 @@ def create_job(
             save_result_to_inbox=save_result_to_inbox,
             share_session=share_session,
             timeout_seconds=timeout_seconds,
+            tool_safety=tool_safety,
         )
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
@@ -604,6 +618,7 @@ def _resolve_update_spec(
     save_result_to_inbox: Optional[bool],
     share_session: Optional[bool],
     timeout_seconds: Optional[int],
+    tool_safety: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Merge CLI overrides with an existing cron-job spec.
 
@@ -663,6 +678,11 @@ def _resolve_update_spec(
         if timeout_seconds is not None
         else spec.get("runtime", {}).get("timeout_seconds", 120)
     )
+    t_tool_safety = (
+        tool_safety
+        if tool_safety is not None
+        else spec.get("runtime", {}).get("tool_safety", False)
+    )
 
     ext_dispatch = spec.get("dispatch", {})
     ext_target = ext_dispatch.get("target", {})
@@ -698,6 +718,7 @@ def _resolve_update_spec(
         save_result_to_inbox=t_save,
         share_session=t_share,
         timeout_seconds=t_timeout,
+        tool_safety=t_tool_safety,
     )
 
     # Preserve existing meta
@@ -829,6 +850,14 @@ def _resolve_update_spec(
     help="Maximum execution time in seconds.",
 )
 @click.option(
+    "--tool-safety/--no-tool-safety",
+    default=None,
+    help=(
+        "Tool execution safety check. When enabled, risky tool calls "
+        "require approval. When disabled, all tools execute without approval."
+    ),
+)
+@click.option(
     "--base-url",
     default=None,
     help="Override the API base URL.",
@@ -862,6 +891,7 @@ def update_job(
     save_result_to_inbox: Optional[bool],
     share_session: Optional[bool],
     timeout_seconds: Optional[int],
+    tool_safety: Optional[bool],
     base_url: Optional[str],
     agent_id: str,
 ) -> None:
@@ -906,6 +936,7 @@ def update_job(
             save_result_to_inbox=save_result_to_inbox,
             share_session=share_session,
             timeout_seconds=timeout_seconds,
+            tool_safety=tool_safety,
         )
 
     payload["id"] = job_id

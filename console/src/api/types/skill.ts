@@ -39,6 +39,8 @@ export interface PoolSkillSpec {
   last_updated?: string;
   emoji?: string;
   installed_from?: string;
+  auto_update?: boolean;
+  auto_update_targets?: string[] | null;
 }
 
 export interface BuiltinLanguageSpec {

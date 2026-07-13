@@ -70,6 +70,7 @@ class Envelope:
         self._seq_counter = 0
 
         self._error_text: str | None = None
+        self._error_code: str = "error"
         self._finalized = False
 
     # ------------------------------------------------------------------
@@ -736,8 +737,10 @@ class Envelope:
     async def error_envelope(
         self,
         error_text: str,
+        error_code: str = "error",
     ) -> AsyncGenerator[Any, None]:
         self._error_text = error_text
+        self._error_code = error_code
         async for obj in self._finalize_response():
             yield obj
 
@@ -756,19 +759,38 @@ class Envelope:
             yield obj
 
     async def _finalize_response(self) -> AsyncGenerator[Any, None]:
-        from ..schemas import RunStatus
+        from ..schemas import ContentType, RunStatus, TextContent
 
         if self._finalized:
             return
 
         if self._message_started:
-            self._completed_message.status = RunStatus.Completed
-            self._response.output.append(self._completed_message)
-            yield self._tag_seq(self._completed_message)
+            # Back-fill any partially accumulated text blocks that were
+            # not finalized (TEXT_BLOCK_END never fired, e.g. on cancel).
+            if not self._completed_message.content:
+                for state in self._text_blocks.values():
+                    text = state.get("text", "")
+                    if text:
+                        self._completed_message.content.append(
+                            TextContent(
+                                type=ContentType.TEXT,
+                                text=text,
+                                delta=False,
+                                index=state.get("index", 0),
+                            ),
+                        )
+
+            if self._completed_message.content:
+                self._completed_message.status = RunStatus.Completed
+                self._response.output.append(self._completed_message)
+                yield self._tag_seq(self._completed_message)
 
         if self._error_text:
             self._response.status = RunStatus.Failed
-            self._response.error = self._error_text
+            self._response.error = {
+                "code": self._error_code,
+                "message": self._error_text,
+            }
         else:
             self._response.status = RunStatus.Completed
         self._response.completed_at = datetime.now(timezone.utc).isoformat(
@@ -776,6 +798,55 @@ class Envelope:
         )
         yield self._tag_seq(self._response)
         self._finalized = True
+
+    # ------------------------------------------------------------------
+    # Partial content extraction (used by cancel-save)
+    # ------------------------------------------------------------------
+
+    def collect_partial_blocks(self) -> list[tuple[str, str]]:
+        """Return ``(block_type, content)`` tuples for streaming content
+        accumulated in this envelope that has **not** been finalized.
+
+        * ``("thinking", text)`` — from reasoning blocks whose envelope
+          status is still ``InProgress`` (i.e. the interrupted iteration).
+        * ``("text", text)`` — from text blocks (reset on every tool-call
+          start, so they belong to the current iteration only).
+
+        This is a public-API entry point so that callers (e.g.
+        ``Runtime._try_save_on_cancel``) do not need to reach into
+        private state.
+        """
+        from ..schemas import RunStatus
+
+        result: list[tuple[str, str]] = []
+
+        for state in self._reasoning_blocks.values():
+            env = state.get("envelope")
+            if env is not None and env.status == RunStatus.Completed:
+                continue
+            text = state.get("text", "")
+            if text:
+                result.append(("thinking", text))
+
+        for state in self._text_blocks.values():
+            text = state.get("text", "")
+            if text:
+                result.append(("text", text))
+
+        return result
+
+    def collect_tool_output(self) -> dict[str, str]:
+        """Return ``{call_id: accumulated_output}`` for tool calls that
+        received partial results before the stream was interrupted.
+
+        Only includes entries where ``output_text_acc`` is non-empty.
+        """
+        result: dict[str, str] = {}
+        for call_id, state in self._tool_calls.items():
+            output = state.get("output_text_acc", "")
+            if output:
+                result[call_id] = output
+        return result
 
     @property
     def response(self) -> Any:

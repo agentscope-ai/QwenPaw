@@ -51,7 +51,9 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
     ok, msg = await provider.check_connection(timeout=1)
 
     assert ok is False
-    assert msg == f"API error when connecting to `{provider.base_url}`"
+    assert msg.startswith(
+        f"API error when connecting to `{provider.base_url}`",
+    )
 
 
 async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:

@@ -58,8 +58,6 @@
   overflow: auto;
   height: calc(100vh - 64px) !important;
   padding: 0 16px;
-  display: flex;
-  flex-direction: column;
 
   // Hide scrollbar in browser
   &::-webkit-scrollbar {
@@ -81,18 +79,6 @@
   /* Firefox */
   -ms-overflow-style: none;
   /* IE and Edge */
-
-  // Ant Design wraps children in .qwenpaw-layout-sider-children; make it a
-  // flex column so our direct children (agentScopedSection, sessionList,
-  // collapseToggleContainer) become flex items and fill the sider correctly.
-  :global {
-    .qwenpaw-layout-sider-children {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-    }
-  }
 
   // Agent-scoped section: selector + Chat + Control + Workspace
   .agentScopedSection {
@@ -168,16 +154,27 @@
   }
 
   &.siderSimple {
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
 
+    // In simple mode the children wrapper must itself be a flex column so that
+    // agentScopedSection / sessionList / collapseToggleContainer become flex
+    // items and only the sessionList scrolls.
     :global {
       .qwenpaw-layout-sider-children {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
         overflow: hidden;
       }
     }
   }
 
   &.siderCollapsed {
+    display: flex;
+    flex-direction: column;
     padding: 0 8px;
 
     .agentSelectorContainer {

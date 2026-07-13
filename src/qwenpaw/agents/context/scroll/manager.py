@@ -7,27 +7,106 @@ two delegated hooks.
 
 * :meth:`on_save` — every live turn is persisted to the durable
   ``conversation_history`` as it enters the window (write-through).
-* :meth:`compress` — past the token threshold, keep a pinned head + recent tail
-  and fold the evicted middle into an in-context :class:`EvictionIndex`. No
+* :meth:`compress` — past the token threshold, keep the recent tail (and the
+  active turn) and fold the evicted middle into an in-context
+  :class:`EvictionIndex`. No
   summarization, nothing lost — every node points to a ``seq`` span recallable
-  via the sandboxed ``recall_history_python`` REPL.
+  via the structured ``recall_history`` tool (or the sandboxed
+  ``recall_history_python`` REPL).
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from agentscope.message import Msg, UserMsg
+from agentscope.message import Msg, TextBlock, UserMsg
 
+from ....constant import (
+    QWENPAW_MESSAGE_TAG_KEY,
+    SYNTHETIC_USER_MESSAGE_TAGS,
+)
+from ....utils.model_response import consume_model_response
 from . import _as_internals as as_internals
-from .eviction_index import EvictionIndex, Leaf
+from .eviction_index import EvictionIndex, Leaf, Line
 from .history import HistoryStore
 from .serialize import msg_to_entries
 
 logger = logging.getLogger(__name__)
+
+# Prefix of an in-place folded tool result (the last-resort pressure valve).
+# Doubles as the idempotence marker: an output starting with it is already a
+# stub and is never folded (or counted as reclaimable) again.
+_FOLD_MARK = "[scroll folded]"
+
+# Labelling an evicted span with no model headline: split it into numbered
+# sections (each a real seq sub-range the harness owns) and have one model call
+# write one headline per section. The model never emits a seq, so it can't
+# mis-address one.
+_INDEX_PROMPT = (
+    "You are indexing a stretch of conversation that scrolled out of a live "
+    "context window, so a future reader can find things in it again. It is "
+    "already split into numbered sections below.\n\n"
+    "For EACH numbered section write exactly ONE headline: at most ~15 words, "
+    "in the same language as the conversation, naming the single most "
+    "important fact, decision, result, or request in it. Output one per line "
+    "as `<n>: <headline>` where <n> is the section number. Cover every "
+    "section; no quotes, no extra prose, no blank lines."
+)
+_SUMMARY_INPUT_CHARS = 6000  # cap on the text sent to the model
+_SUMMARY_LINE_CHARS = 200  # mirrors serialize._HEADLINE_MAX
+_SUMMARY_MAX_LINES = 6  # ceiling on sections per span
+
+# One reply line: ``2: headline`` / ``[2] headline`` / ``2. headline``.
+_HEADLINE_LINE_RE = re.compile(r"^\[?\s*(\d+)\s*\]?\s*[:.：、)]?\s*(.+)$")
+
+
+@dataclass
+class _Section:
+    """A section of an evicted span: a real seq sub-range, the ``text`` shown
+    to the model, and an extractive ``fallback`` if the model skips it."""
+
+    seq_lo: int
+    seq_hi: int
+    text: str
+    fallback: str
+
+
+def _clean_headline(text: str) -> str:
+    """One index-safe line: first line, with quotes/``⟦⟧``/trailing
+    punctuation stripped."""
+    line = (text or "").strip().splitlines()[0] if text.strip() else ""
+    line = line.strip().strip("\"'`“”‘’")
+    line = line.replace("⟦", "").replace("⟧", "")
+    while line and line[-1] in ".,;:!?":
+        line = line[:-1].rstrip()
+    return line[:_SUMMARY_LINE_CHARS]
+
+
+def _headlines_by_section(raw: str, count: int) -> dict[int, str]:
+    """Map ``<n>: headline`` reply lines to section ``n`` (1-based). Bare lines
+    (no ``<n>:``) fill the next free section in order."""
+    out: dict[int, str] = {}
+    nxt = 1
+    for raw_line in (raw or "").splitlines():
+        stripped = raw_line.strip().lstrip("-*•").strip()
+        if not stripped:
+            continue
+        m = _HEADLINE_LINE_RE.match(stripped)
+        head = _clean_headline(m.group(2) if m else stripped)
+        n = int(m.group(1)) if m else 0
+        if not 1 <= n <= count:  # missing/out-of-range → next free section
+            while nxt <= count and nxt in out:
+                nxt += 1
+            n = nxt
+        if head and 1 <= n <= count:
+            out.setdefault(n, head)
+    return out
 
 
 class ScrollContextManager:
@@ -45,14 +124,18 @@ class ScrollContextManager:
         history: HistoryStore,
         session_id: str,
         agent_id: str | None = None,
-        pinned: int = 1,
         capped_results: dict[str, int] | None = None,
         offloader: Any = None,
+        summarize_unheadlined: bool = False,
+        summarize_timeout_s: int = 20,
     ) -> None:
         self._history = history
         self._session_id = session_id
         self._agent_id = agent_id
-        self._pinned = pinned
+        # Label an un-headlined evicted span with generated headlines instead
+        # of ``(no milestone)``. Off unless the wiring passes the config value.
+        self._summarize_unheadlined = summarize_unheadlined
+        self._summarize_timeout_s = summarize_timeout_s
         # Dialog archive: when an offloader is wired (``offload_dialog``, on by
         # default), evicted turns are also written to ``dialog/{date}.jsonl``
         # for external consumers. ``history.db`` remains the source of truth.
@@ -68,6 +151,10 @@ class ScrollContextManager:
         self._persisted_tcids: set[
             str
         ] = set()  # tool_call_ids whose result row is stored
+        self._seq_by_tcid: dict[
+            str,
+            int,
+        ] = {}  # tool_call_id -> its result row's seq (fold stubs point here)
         self._synthetic_ids: set[str] = set()  # placeholder msgs we inserted
         self._seq_by_id: dict[
             str,
@@ -83,6 +170,17 @@ class ScrollContextManager:
         ] = {}  # msg.id -> #non-result blocks persisted
         self._leaf_by_id: dict[str, Leaf] = {}  # msg.id -> its index leaf
         self._index = EvictionIndex(session_id=session_id, agent_id=agent_id)
+        # What the most recent compress() actually did — /compact reads this
+        # to report honestly (an in-place fold changes no message count, so
+        # the reply can't infer it from a before/after len()). Transient, not
+        # checkpointed.
+        self.last_compress: dict[str, int] = {
+            "evicted": 0,
+            "compacted": 0,
+            "folded": 0,
+        }
+        # Warn once per overflow episode, not once per reasoning step.
+        self._overflow_warned = False
 
     # -- delegated hooks -----------------------------------------------------
 
@@ -105,9 +203,22 @@ class ScrollContextManager:
         Returns ``True`` on success, ``False`` if a write outage was caught and
         recorded as degraded durability. Any other exception is a real bug and
         is left to propagate. Shared by :meth:`on_save` (which ignores the
-        result — best-effort) and :meth:`compress` (which must NOT evict when
-        this returns ``False``, or it would drop un-persisted turns).
+        result — best-effort) and :meth:`compress` (via
+        :meth:`_persist_guarded_async`, which must NOT evict when this returns
+        ``False``, or it would drop un-persisted turns).
+
+        The SQLite writes are synchronous. ``on_save`` runs this directly on
+        the event loop because its AgentScope hook is synchronous and its
+        write is incremental (one turn); ``compress`` instead offloads it to a
+        worker thread (see :meth:`_persist_guarded_async`) so the larger
+        whole-window persist never blocks the loop. ``HistoryStore`` serializes
+        both paths on its own lock.
         """
+        # Teardown race: a stop/cancel can close the store while a final
+        # ``on_save`` is still in flight. The connection was retired on
+        # purpose, so skip the write quietly instead of degrading durability.
+        if self._history.closed:
+            return True
         try:
             self._persist_new(agent)
             return True
@@ -115,6 +226,17 @@ class ScrollContextManager:
             self._history.note_write_failure(exc)
             logger.exception("ScrollContextManager write-through failed")
             return False
+
+    async def _persist_guarded_async(self, agent: Any) -> bool:
+        """Run :meth:`_persist_guarded` off the event loop.
+
+        ``compress`` is async and can persist the whole live window, which is
+        the write worth keeping off the loop. The synchronous SQLite work runs
+        in a worker thread; ``HistoryStore``'s connection is opened
+        ``check_same_thread=False`` and every access is serialized by its lock,
+        so this coexists safely with a concurrent on-loop ``on_save``.
+        """
+        return await asyncio.to_thread(self._persist_guarded, agent)
 
     async def _offload_dialog(self, middle: list[Msg]) -> None:
         """Best-effort legacy ``dialog/*.jsonl`` archive of evicted turns.
@@ -133,35 +255,50 @@ class ScrollContextManager:
     async def compress(self, agent: Any, context_config: Any = None) -> None:
         """Evict the middle into the index; roll the index up under pressure.
 
+        A single pressure pipeline — step 5 engages while the context still
+        overflows the reserve, step 6 only while it still overflows the
+        TRIGGER, so "nothing evictable" (a single-request session whose
+        active turn IS the whole context) is just step 4 running empty, not
+        a special case:
+
         1. persist     — every live turn is now durable.
         2. trigger     — under the token threshold? nothing to do.
-        3. split       — pinned head | evictable middle | recent tail.
-        4. add_eviction— fold the middle into the index as a new Tier 0 block,
-                         rebuild context = head + [index] + tail.
-        5. compact     — while the rebuilt context still overflows, shrink the
-                         index one step and rebuild. Always progresses.
+        3. split       — evictable middle | recent tail (+ active turn).
+        4. add_eviction— fold the middle (if any) into the index as a new
+                         Tier 0 block, rebuild context = [index] + tail.
+        5. compact     — while the rebuilt context still overflows the
+                         reserve, shrink the index one step and rebuild.
+                         Always progresses.
+        6. fold        — still past the compression TRIGGER even with
+                         everything evicted and the index compacted: stub
+                         the active turn's completed tool results in place
+                         (last resort; the request and the newest result
+                         stay verbatim).
         """
         cfg = context_config or agent.context_config
+        self.last_compress = {"evicted": 0, "compacted": 0, "folded": 0}
 
         # 1) Durability first — everything in the window is now in the DB. If
         #    the write-through failed (degraded durability), do NOT evict: the
         #    middle isn't durable, so folding it in would leave seq pointers to
-        #    rows that don't exist. Keep it live instead.
-        if not self._persist_guarded(agent):
+        #    rows that don't exist. Keep it live instead. Offloaded to a worker
+        #    thread so the whole-window persist never blocks the event loop.
+        if not await self._persist_guarded_async(agent):
             return
 
-        # 2) Trigger check (reuse AgentScope's own token accounting).
+        # 2) Trigger check (reuse AgentScope's own token accounting). The
+        #    count is kept — while nothing below rebuilds the context it is
+        #    still exact, so the steady state pays ONE count per compress.
         kwargs = await as_internals.prepare_model_input(agent)
-        if (
-            await agent.model.count_tokens(**kwargs)
-            < cfg.trigger_ratio * agent.model.context_size
-        ):
+        trigger = cfg.trigger_ratio * agent.model.context_size
+        tokens = await agent.model.count_tokens(**kwargs)
+        if tokens < trigger:
+            self._overflow_warned = False
             return
-        if len(agent.state.context) <= self._pinned + 1:
+        if len(agent.state.context) <= 1:
             return
 
-        # 3) Pairing-safe split; keep pinned head + recent tail, evict the
-        #    middle.
+        # 3) Pairing-safe split; keep the recent tail, evict the middle.
         reserve = cfg.reserve_ratio * agent.model.context_size
         to_compress, to_reserve = await as_internals.split_for_compression(
             agent,
@@ -171,7 +308,6 @@ class ScrollContextManager:
         real = lambda msgs: [
             m for m in msgs if m.id not in self._synthetic_ids
         ]
-        head = real(to_compress[: self._pinned])
         tail = real(to_reserve)
         # AgentScope's pairing-safe split deep-copies the *boundary* Msg into
         # BOTH halves under the SAME id (its blocks divided between compress
@@ -181,35 +317,75 @@ class ScrollContextManager:
         # visible, so it isn't evicted yet. It gets indexed in a later round
         # once it moves fully onto the compress side.
         tail_ids = {m.id for m in tail}
+        active_tail = self._active_turn_tail(agent)
+        active_ids = {m.id for m in active_tail}
         middle = [
             m
-            for m in real(to_compress[self._pinned :])
-            if m.id not in tail_ids
+            for m in real(to_compress)
+            if m.id not in tail_ids and m.id not in active_ids
         ]
-        if not middle:
-            return
+        if active_tail:
+            # Replace any partial boundary deep-copy in the tail with the
+            # full live Msg from the context.
+            tail = [m for m in tail if m.id not in active_ids]
+            tail.extend(active_tail)
 
-        # 3b) Optional legacy archive of the evicted turns (opt-in). The full
-        #     turns are already durable in history.db; this is a redundant
-        #     dialog/*.jsonl copy for external consumers. A write failure must
-        #     never abort compaction.
-        await self._offload_dialog(middle)
+        if middle:
+            # 3b) Optional legacy archive of the evicted turns (opt-in). The
+            #     full turns are already durable in history.db; this is a
+            #     redundant dialog/*.jsonl copy for external consumers. A
+            #     write failure must never abort compaction.
+            await self._offload_dialog(middle)
 
-        # 4) Fold the evicted middle into the index as a new Tier 0 block.
-        self._index_evicted(middle)
-        self._rebuild_context(agent, head, tail)
+            # 4) Fold the evicted middle into the index as a new Tier 0
+            #    block.
+            await self._index_evicted(agent, middle)
+            self._rebuild_context(agent, tail)
+            self.last_compress["evicted"] = len(middle)
+            tokens = await self._live_tokens(agent)
 
         # 5) Pressure-triggered compaction: shrink the index one step at a
         #    time until we fit (or it collapses to a single line). Always
-        #    terminates.
-        while (
-            await agent.model.count_tokens(
-                **(await as_internals.prepare_model_input(agent)),
-            )
-            > reserve
-            and self._index.compact()
-        ):
-            self._rebuild_context(agent, head, tail)
+        #    terminates. Runs even when nothing was evicted this round — an
+        #    empty middle must not leave an already-built index uncompacted.
+        while tokens > reserve and self._index.compact():
+            self._rebuild_context(agent, tail)
+            self.last_compress["compacted"] += 1
+            tokens = await self._live_tokens(agent)
+
+        # 6) Last resort — even with the middle evicted and the index
+        #    compacted, the window is STILL past the compression trigger, so
+        #    the pressure is the active turn itself (e.g. a single-request
+        #    cron run with a long tool chain). Stub its completed tool
+        #    results in place. Gated on the TRIGGER, not the reserve: the
+        #    reserve is a soft target, and an active turn slightly over it
+        #    still has most of the window as headroom — folding there would
+        #    snatch results the model fetched seconds ago in perfectly
+        #    ordinary long chats.
+        if tokens > trigger:
+            folded = self._fold_active_turn_results(agent)
+            if folded:
+                self.last_compress["folded"] = folded
+                tokens = await self._live_tokens(agent)
+        if tokens > trigger:
+            # Once per overflow episode, not once per reasoning step — the
+            # stuck state repeats every step until the turn ends.
+            if not self._overflow_warned:
+                self._overflow_warned = True
+                logger.warning(
+                    "scroll: context still over the compression trigger "
+                    "(%d > %d) after compaction and active-turn fold",
+                    tokens,
+                    trigger,
+                )
+        else:
+            self._overflow_warned = False
+
+    async def _live_tokens(self, agent: Any) -> int:
+        """Token count of the live context as the model would receive it."""
+        return await agent.model.count_tokens(
+            **(await as_internals.prepare_model_input(agent)),
+        )
 
     # -- write-through -------------------------------------------------------
 
@@ -226,7 +402,15 @@ class ScrollContextManager:
         grows — so every cell's tool-call blocks and any later ``⟦…⟧`` headline
         persist. Synthetic placeholders are never persisted.
         """
-        for msg in agent.state.context:
+        # pylint: disable=import-outside-toplevel
+        from ...memory.base_memory_manager import BaseMemoryManager
+
+        for raw_msg in agent.state.context:
+            msg = BaseMemoryManager.message_without_auto_memory_search(
+                raw_msg,
+            )
+            if msg is None:
+                continue
             mid = getattr(msg, "id", None) or str(id(msg))
             if mid in self._synthetic_ids:
                 continue
@@ -256,6 +440,7 @@ class ScrollContextManager:
                             dedup_key=tcid,
                         )
                     self._persisted_tcids.add(tcid)
+                    self._seq_by_tcid[tcid] = seq
                 else:
                     nblk = len(entry.blocks or ())
                     if mid in self._persisted_ids:
@@ -312,24 +497,146 @@ class ScrollContextManager:
 
     # -- eviction ------------------------------------------------------------
 
+    @staticmethod
+    def _is_continuation_stub(msg: Any) -> bool:
+        """True for runtime-injected user-role messages that extend a turn.
+
+        Loop gates and stop handlers append tagged ``role="user"`` stubs
+        ("Continue working on the task.") to keep a turn going. They are NOT
+        new requests: anchoring the active turn on one would make the REAL
+        request evictable middle again — the #5746 failure, loop-session
+        flavor.
+        """
+        metadata = getattr(msg, "metadata", None)
+        if not isinstance(metadata, dict):
+            return False
+        tag = metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+        return tag in SYNTHETIC_USER_MESSAGE_TAGS
+
+    def _active_turn_tail(self, agent: Any) -> list[Msg]:
+        """Return the current user turn and its in-progress assistant tail.
+
+        AgentScope's token-based split may evict the latest user request when
+        a long tool-running turn exceeds the reserve budget. Under scroll that
+        is unsafe: the model then only sees the eviction index and may answer
+        an older visible message instead of the active task. Keep the latest
+        real user message and everything after it live until the turn
+        finishes. Continuation stubs the runtime injects mid-turn are skipped
+        when anchoring — the extended turn stays anchored on the real request
+        that started it.
+        """
+        context = list(getattr(agent.state, "context", []) or [])
+        for idx in range(len(context) - 1, -1, -1):
+            msg = context[idx]
+            mid = getattr(msg, "id", None)
+            if mid in self._synthetic_ids:
+                continue
+            if getattr(msg, "role", None) != "user":
+                continue
+            if self._is_continuation_stub(msg):
+                continue
+            return [
+                m
+                for m in context[idx:]
+                if getattr(m, "id", None) not in self._synthetic_ids
+            ]
+        return []
+
+    def _fold_active_turn_results(self, agent: Any) -> int:
+        """Stub the active turn's completed tool results in place; returns
+        how many were folded.
+
+        Last-resort pressure valve: eviction and index compaction have run
+        and the window is still past the compression TRIGGER, so the bulk
+        is the active turn itself. The request text, tool calls, and
+        reasoning stay
+        verbatim — only tool_result outputs (all durable since step 1, and
+        typically the token mass) are replaced with a one-line recall
+        pointer. The newest result is kept live: it is the one the next
+        reasoning step most likely consumes.
+
+        Blocks are mutated in place, so the Msg object and its id are
+        untouched — the runtime keeps extending the same message, and the
+        write-through stays consistent (result rows are keyed by
+        tool_call_id and never re-persisted; the model_turn row tracks only
+        non-result blocks). compress() runs only between reasoning steps,
+        when every tool call already has its result, so pairing is never
+        broken.
+        """
+        results = [
+            block
+            for msg in self._active_turn_tail(agent)
+            for block in getattr(msg, "content", None) or []
+            if getattr(block, "type", None) == "tool_result"
+        ]
+        folded = 0
+        for block in results[:-1]:  # keep the newest result verbatim
+            if self._is_folded_stub(block):
+                continue
+            tcid = getattr(block, "id", None)
+            seq = self._seq_by_tcid.get(tcid) if tcid else None
+            # Point at the structured recall_history tool (in-process, no
+            # sandbox — works even where the Python REPL can't run); the
+            # REPL's ms.* helpers accept the same values.
+            if seq is not None:
+                where = f'recall_history(op="expand", lo={seq}, hi={seq})'
+            elif tcid:
+                where = (
+                    f'recall_history(op="recall_tool", '
+                    f"tool_call_id={tcid!r})"
+                )
+            else:
+                where = 'recall_history(op="search", query=...)'
+            block.output = [
+                TextBlock(
+                    type="text",
+                    text=(
+                        f"{_FOLD_MARK} full result stored in history — "
+                        f"re-read it with {where}"
+                    ),
+                ),
+            ]
+            folded += 1
+        if folded:
+            logger.info(
+                "scroll: folded %d completed tool result(s) of the active "
+                "turn to recall stubs",
+                folded,
+            )
+        return folded
+
+    @staticmethod
+    def _is_folded_stub(block: Any) -> bool:
+        """True if this result's output is already a fold stub."""
+        out = getattr(block, "output", None)
+        if isinstance(out, str):
+            return out.startswith(_FOLD_MARK)
+        if isinstance(out, list) and out:
+            first = out[0]
+            text = (
+                first.get("text", "")
+                if isinstance(first, dict)
+                else getattr(first, "text", "") or ""
+            )
+            return str(text).startswith(_FOLD_MARK)
+        return False
+
     def _rebuild_context(
         self,
         agent: Any,
-        head: list[Msg],
         tail: list[Msg],
     ) -> None:
-        """state.context = pinned head + the single index placeholder +
-        tail."""
+        """state.context = the single index placeholder + tail."""
         placeholder = UserMsg(name="memory", content=self._index.render())
         self._synthetic_ids.add(placeholder.id)
-        agent.state.context = head + [placeholder] + tail
+        agent.state.context = [placeholder] + tail
 
-    def _index_evicted(self, middle: list[Msg]) -> None:
+    async def _index_evicted(self, agent: Any, middle: list[Msg]) -> None:
         """Append the evicted middle to the index as one fresh Tier 0 block.
 
-        The block spans every evicted ``seq`` (so a range query recovers the
-        full turns, tool results included); its leaves are the model turns
-        that carry a headline.
+        The block spans every evicted ``seq``; its leaves are the model turns
+        that carry a headline. A span with no headlined turn is labelled by
+        generated headlines when enabled, else the bare ``(no milestone)``.
         """
         leaves: list[Leaf] = []
         lo: int | None = None
@@ -345,11 +652,136 @@ class ScrollContextManager:
                 leaves.append(leaf)
         if lo is None or hi is None:  # no known seq (shouldn't happen)
             return
+        fallback_lines = None
+        if not leaves and self._summarize_unheadlined:
+            fallback_lines = await self._summarize_span(
+                agent,
+                middle,
+                span_lo=lo,
+                span_hi=hi,
+            )
         self._index.add_eviction(
             leaves,
             seq_lo=lo,
             seq_hi=hi,
+            fallback_lines=fallback_lines,
         )
+
+    async def _summarize_span(
+        self,
+        agent: Any,
+        middle: list[Msg],
+        *,
+        span_lo: int,
+        span_hi: int,
+    ) -> list[Line] | None:
+        """Index an un-headlined span into ``Line`` entries, or ``None``.
+
+        One model call labels the harness-owned sections. Best-effort: a
+        missing/uncallable model, timeout, or any error yields ``None`` and the
+        caller keeps ``(no milestone)`` — the turns stay durable and recallable
+        regardless.
+        """
+        model = getattr(agent, "model", None)
+        if not callable(model):
+            return None
+        sections = self._segment_span(middle, span_lo=span_lo, span_hi=span_hi)
+        if not sections:
+            return None
+        body = "\n\n".join(
+            f"[{i}]\n{s.text}" for i, s in enumerate(sections, start=1)
+        )[:_SUMMARY_INPUT_CHARS]
+        messages = [
+            Msg(
+                name="system",
+                role="system",
+                content=[TextBlock(type="text", text=_INDEX_PROMPT)],
+            ),
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(type="text", text=body)],
+            ),
+        ]
+        try:
+            raw = await asyncio.wait_for(
+                consume_model_response(model, messages),
+                timeout=self._summarize_timeout_s,
+            )
+        except Exception:  # noqa: BLE001 - cosmetic label, never break evict
+            # ``CancelledError`` is a BaseException, so it still propagates.
+            logger.warning(
+                "scroll: un-headlined span index failed; "
+                "labelling it (no milestone)",
+                exc_info=True,
+            )
+            return None
+        # Attach each headline to its section's real seq range; a skipped
+        # section keeps its extractive fallback.
+        heads = _headlines_by_section(raw or "", len(sections))
+        return [
+            Line(s.seq_lo, s.seq_hi, head, head)
+            for i, s in enumerate(sections, start=1)
+            for head in [heads.get(i) or s.fallback]
+            if head
+        ]
+
+    def _segment_span(
+        self,
+        middle: list[Msg],
+        *,
+        span_lo: int,
+        span_hi: int,
+    ) -> list[_Section]:
+        """Split an evicted span into sections at ``user``-turn boundaries (one
+        exchange each), so every section's seq range comes from the persisted
+        turns, not the model. Exchanges beyond ``_SUMMARY_MAX_LINES`` are
+        merged into that many contiguous groups.
+        """
+        groups: list[list[Msg]] = []
+        for m in middle:
+            if not (m.get_text_content() or "").strip():
+                continue
+            role = getattr(m, "role", "") or getattr(m, "name", "")
+            if role == "user" or not groups:
+                groups.append([m])
+            else:
+                groups[-1].append(m)
+        if not groups:
+            return []
+        if (
+            len(groups) > _SUMMARY_MAX_LINES
+        ):  # fold to <= MAX contiguous groups
+            per = -(-len(groups) // _SUMMARY_MAX_LINES)  # ceil
+            groups = [
+                [m for g in groups[i : i + per] for m in g]
+                for i in range(0, len(groups), per)
+            ]
+        sections: list[_Section] = []
+        for group in groups:
+            lo: int | None = None
+            hi: int | None = None
+            for m in group:
+                mid = getattr(m, "id", None) or str(id(m))
+                rng = self._seq_by_id.get(mid)
+                if rng:
+                    lo = rng[0] if lo is None else min(lo, rng[0])
+                    hi = rng[1] if hi is None else max(hi, rng[1])
+            text = "\n".join(
+                f"{getattr(m, 'role', '') or getattr(m, 'name', '')}: "
+                f"{(m.get_text_content() or '').strip()}"
+                for m in group
+            )
+            first = (group[0].get_text_content() or "").strip()
+            sections.append(
+                _Section(
+                    seq_lo=lo if lo is not None else span_lo,
+                    seq_hi=hi if hi is not None else span_hi,
+                    text=text,
+                    fallback=_clean_headline(first) or "(no milestone)",
+                ),
+            )
+        return sections
 
     def describe_index(self) -> str:
         """The eviction-index tier/span map for the ``/compact`` reply (empty
@@ -370,6 +802,7 @@ class ScrollContextManager:
         return {
             "persisted_ids": sorted(self._persisted_ids),
             "persisted_tcids": sorted(self._persisted_tcids),
+            "seq_by_tcid": dict(self._seq_by_tcid),
             "synthetic_ids": sorted(self._synthetic_ids),
             "seq_by_id": {
                 k: [lo, hi] for k, (lo, hi) in self._seq_by_id.items()
@@ -390,6 +823,7 @@ class ScrollContextManager:
             return
         self._persisted_ids = set(data.get("persisted_ids", ()))
         self._persisted_tcids = set(data.get("persisted_tcids", ()))
+        self._seq_by_tcid = dict(data.get("seq_by_tcid", {}))
         self._synthetic_ids = set(data.get("synthetic_ids", ()))
         self._seq_by_id = {
             k: (lo, hi) for k, (lo, hi) in data.get("seq_by_id", {}).items()

@@ -10,7 +10,7 @@ use reqwest::{
 use serde::Deserialize;
 use tokio::{
     fs::File,
-    io::{AsyncWriteExt, BufWriter},
+    io::{AsyncReadExt, AsyncWriteExt, BufWriter},
 };
 
 const BACKEND_DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -118,7 +118,12 @@ fn parse_headers(headers: HashMap<String, String>) -> Result<HeaderMap, String> 
 
 #[cfg(test)]
 mod tests {
-    use super::parse_local_backend_url;
+    use std::sync::Mutex;
+
+    use super::{get_coding_directory, parse_local_backend_url};
+
+    /// Serialize tests that mutate process environment variables.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn accepts_loopback_backend_urls() {
@@ -138,4 +143,277 @@ mod tests {
         assert!(parse_local_backend_url("file:///C:/tmp/backup.zip").is_err());
         assert!(parse_local_backend_url("mailto:support@example.com").is_err());
     }
+
+    #[test]
+    fn coding_directory_prefers_agent_json_project_dir() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let working_dir = temp.path();
+
+        // Root config.json only contains the profile reference.
+        std::fs::write(
+            working_dir.join("config.json"),
+            serde_json::json!({
+                "agents": {
+                    "active_agent": "test-agent",
+                    "profiles": {
+                        "test-agent": {
+                            "id": "test-agent",
+                            "workspace_dir": working_dir.join("workspaces/test-agent").to_str().unwrap(),
+                            "enabled": true,
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        // Full agent config with a custom coding project dir.
+        let workspace_dir = working_dir.join("workspaces/test-agent");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+        let project_dir = working_dir.join("custom-project");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        std::fs::write(
+            workspace_dir.join("agent.json"),
+            serde_json::json!({
+                "id": "test-agent",
+                "workspace_dir": workspace_dir.to_str().unwrap(),
+                "coding_mode": {
+                    "enabled": true,
+                    "project_dir": project_dir.to_str().unwrap(),
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        std::env::set_var("QWENPAW_WORKING_DIR", working_dir);
+        let result = get_coding_directory(Some("test-agent")).unwrap();
+        std::env::remove_var("QWENPAW_WORKING_DIR");
+
+        assert_eq!(result, project_dir);
+    }
+
+    #[test]
+    fn coding_directory_falls_back_to_workspace_dir() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let working_dir = temp.path();
+
+        std::fs::write(
+            working_dir.join("config.json"),
+            serde_json::json!({
+                "agents": {
+                    "active_agent": "test-agent",
+                    "profiles": {
+                        "test-agent": {
+                            "id": "test-agent",
+                            "workspace_dir": working_dir.join("workspaces/test-agent").to_str().unwrap(),
+                            "enabled": true,
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let workspace_dir = working_dir.join("workspaces/test-agent");
+        std::fs::create_dir_all(&workspace_dir).unwrap();
+
+        std::env::set_var("QWENPAW_WORKING_DIR", working_dir);
+        let result = get_coding_directory(Some("test-agent")).unwrap();
+        std::env::remove_var("QWENPAW_WORKING_DIR");
+
+        assert_eq!(result, workspace_dir);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Local file reading for offline binary file preview
+// ---------------------------------------------------------------------------
+
+/// Maximum file size for binary preview (50 MB, matching the Python backend limit).
+const BINARY_FILE_MAX_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Read a binary file from the local workspace for offline preview.
+///
+/// This command enables the frontend to display images, PDFs, and other binary
+/// files in the code editor preview mode when the backend API is unavailable
+/// (e.g., offline desktop usage).
+///
+/// The `file_path` parameter is a relative path within the coding project directory.
+/// The `agent_id` parameter specifies which agent's workspace to use (from frontend state).
+#[tauri::command]
+pub(crate) async fn read_workspace_binary_file(
+    file_path: String,
+    agent_id: Option<String>,
+) -> Result<tauri::ipc::Response, String> {
+    let absolute_path = resolve_workspace_file_path(&file_path, agent_id.as_deref())?;
+
+    if !absolute_path.is_file() {
+        return Err(format!("path is not a file: {}", absolute_path.display()));
+    }
+
+    // Enforce size limit to prevent OOM on large files
+    let metadata = tokio::fs::metadata(&absolute_path)
+        .await
+        .map_err(|err| format!("failed to read file metadata: {err}"))?;
+
+    if metadata.len() > BINARY_FILE_MAX_BYTES {
+        return Err(format!(
+            "file too large for preview ({} MB > {} MB limit)",
+            metadata.len() / 1024 / 1024,
+            BINARY_FILE_MAX_BYTES / 1024 / 1024,
+        ));
+    }
+
+    let mut file = File::open(&absolute_path)
+        .await
+        .map_err(|err| format!("failed to open file: {err}"))?;
+
+    let mut buffer = Vec::with_capacity(metadata.len() as usize);
+    file.read_to_end(&mut buffer)
+        .await
+        .map_err(|err| format!("failed to read file: {err}"))?;
+
+    Ok(tauri::ipc::Response::new(buffer))
+}
+
+/// Resolve a relative workspace file path to an absolute path.
+///
+/// Reads the QwenPaw config to determine the coding project directory (or workspace
+/// directory if no custom project is set), then safely joins the relative path to
+/// prevent path traversal attacks.
+///
+/// If `agent_id` is provided, uses that agent's config; otherwise falls back to
+/// the active agent in config.json.
+fn resolve_workspace_file_path(
+    relative_path: &str,
+    agent_id: Option<&str>,
+) -> Result<PathBuf, String> {
+    if relative_path.trim().is_empty() {
+        return Err("file path is empty".into());
+    }
+
+    let coding_dir = get_coding_directory(agent_id)?;
+
+    // Safe join: resolve the path and ensure it stays within coding directory
+    let target = coding_dir.join(relative_path);
+    let canonical_target = target.canonicalize().map_err(|err| {
+        format!("failed to resolve file path '{}': {err}", target.display())
+    })?;
+
+    let canonical_coding_dir = coding_dir.canonicalize().map_err(|err| {
+        format!(
+            "failed to resolve coding directory '{}': {err}",
+            coding_dir.display()
+        )
+    })?;
+
+    if !canonical_target.starts_with(&canonical_coding_dir) {
+        return Err(format!(
+            "path traversal detected: '{}' resolves outside coding directory",
+            relative_path
+        ));
+    }
+
+    Ok(canonical_target)
+}
+
+/// Get the coding project directory from QwenPaw configuration.
+///
+/// Resolution order:
+/// 1. `QWENPAW_WORKING_DIR` / `COPAW_WORKING_DIR` environment variable
+/// 2. `~/.copaw` (legacy installation)
+/// 3. `~/.qwenpaw` (default)
+///
+/// Then reads the agent profile reference from root `config.json` to locate the
+/// agent's workspace directory, and loads the full agent configuration from
+/// `workspace/agent.json`:
+/// - If `coding_mode.project_dir` is set, use it
+/// - Otherwise fall back to `workspace_dir`
+///
+/// If `agent_id` is None, uses the active agent from config.json.
+fn get_coding_directory(agent_id: Option<&str>) -> Result<PathBuf, String> {
+    let working_dir = if let Ok(dir) = std::env::var("QWENPAW_WORKING_DIR") {
+        PathBuf::from(dir)
+    } else if let Ok(dir) = std::env::var("COPAW_WORKING_DIR") {
+        PathBuf::from(dir)
+    } else {
+        let home = dirs::home_dir().ok_or("failed to get home directory")?;
+        let copaw_legacy = home.join(".copaw");
+        if copaw_legacy.exists() {
+            copaw_legacy
+        } else {
+            home.join(".qwenpaw")
+        }
+    };
+
+    let config_path = working_dir.join("config.json");
+    if !config_path.exists() {
+        return Ok(working_dir);
+    }
+
+    let config_content = std::fs::read_to_string(&config_path)
+        .map_err(|err| format!("failed to read config.json: {err}"))?;
+
+    let config: serde_json::Value = serde_json::from_str(&config_content)
+        .map_err(|err| format!("failed to parse config.json: {err}"))?;
+
+    // Determine which agent to use
+    let target_agent = agent_id.unwrap_or_else(|| {
+        config
+            .get("agents")
+            .and_then(|a| a.get("active_agent"))
+            .and_then(|a| a.as_str())
+            .unwrap_or("default")
+    });
+
+    // Get agent profile reference from root config (contains workspace_dir only).
+    // The full agent configuration (including coding_mode.project_dir) is stored
+    // in workspace/agent.json.
+    let agent_profile = config
+        .get("agents")
+        .and_then(|a| a.get("profiles"))
+        .and_then(|p| p.get(target_agent))
+        .ok_or_else(|| format!("agent '{}' not found in config", target_agent))?;
+
+    let workspace_dir = agent_profile
+        .get("workspace_dir")
+        .and_then(|d| d.as_str())
+        .map(|d| expand_tilde(d))
+        .unwrap_or_else(|| working_dir.join("workspaces").join(target_agent));
+
+    // Load the full agent config from workspace/agent.json to read
+    // coding_mode.project_dir. Fall back to workspace_dir if the file is
+    // missing or cannot be parsed, matching the Python backend behavior.
+    let agent_config_path = workspace_dir.join("agent.json");
+    if agent_config_path.is_file() {
+        if let Ok(agent_config_content) = std::fs::read_to_string(&agent_config_path) {
+            if let Ok(agent_config) = serde_json::from_str::<serde_json::Value>(&agent_config_content) {
+                if let Some(project_dir) = agent_config
+                    .get("coding_mode")
+                    .and_then(|cm| cm.get("project_dir"))
+                    .and_then(|d| d.as_str())
+                    .map(|d| expand_tilde(d))
+                {
+                    return Ok(project_dir);
+                }
+            }
+        }
+    }
+
+    Ok(workspace_dir)
+}
+
+/// Expand `~` at the start of a path to the user's home directory.
+fn expand_tilde(path: &str) -> PathBuf {
+    if path.starts_with("~/") || path.starts_with("~\\") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(&path[2..]);
+        }
+    }
+    PathBuf::from(path)
 }

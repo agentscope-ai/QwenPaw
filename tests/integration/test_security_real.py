@@ -212,7 +212,8 @@ def test_tool_guard_blocks_dangerous_shell_via_agent_run(
     1. Register mock LLM provider.
     2. Drive MockLLM to emit a tool_call for ``execute_shell_command``
        with arguments ``{"command": "rm -rf /"}``.
-    3. Trigger an agent-type cron run.
+    3. Trigger an agent-type cron run with ``runtime.tool_safety=True``
+       so governance evaluation is enabled (default cron jobs use OFF).
     4. Poll history → expect either ``failure`` (auto-denied) or
        ``success`` with the denial surfaced as part of the response.
        The key invariant: the tool guard ran and prevented uncontrolled
@@ -255,6 +256,9 @@ def test_tool_guard_blocks_dangerous_shell_via_agent_run(
                 "session_id": "console:tg-blocks-sess",
             },
             "mode": "stream",
+        },
+        "runtime": {
+            "tool_safety": True,
         },
         "save_result_to_inbox": False,
     }

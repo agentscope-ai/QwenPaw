@@ -14,7 +14,7 @@ from qwenpaw.agents.command_handler import CommandHandler
 
 
 def _config(strategy="scroll"):
-    scroll_config = SimpleNamespace(db_filename="history.db", pinned=2)
+    scroll_config = SimpleNamespace(db_filename="history.db")
     lcc = SimpleNamespace(strategy=strategy, scroll_config=scroll_config)
     running = SimpleNamespace(light_context_config=lcc)
     return SimpleNamespace(running=running, id="ag1")

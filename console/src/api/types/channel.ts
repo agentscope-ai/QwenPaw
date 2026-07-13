@@ -57,6 +57,7 @@ export interface QQConfig extends BaseChannelConfig {
 
 export interface TelegramConfig extends BaseChannelConfig {
   bot_token: string;
+  base_url: string;
   http_proxy: string;
   http_proxy_auth: string;
   show_typing?: boolean;
@@ -90,6 +91,7 @@ export interface MatrixConfig extends BaseChannelConfig {
   homeserver: string;
   user_id: string;
   access_token: string;
+  streaming_enabled?: boolean;
 }
 
 export interface MattermostConfig extends BaseChannelConfig {

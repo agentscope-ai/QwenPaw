@@ -76,7 +76,7 @@ function ModelsPage() {
   }, [providers, searchParams, setSearchParams]);
 
   const refreshProvidersSilently = useCallback(() => {
-    void fetchAll(false);
+    return fetchAll(false);
   }, [fetchAll]);
 
   useEffect(() => {
@@ -381,6 +381,7 @@ function ModelsPage() {
                       prefix={<SearchOutlined />}
                       allowClear
                       autoComplete="off"
+                      name="models-provider-search-nofill"
                       data-form-type="other"
                     />
                     <Button
@@ -629,6 +630,7 @@ function ModelsPage() {
                 open={!!modelsModalProvider}
                 onClose={() => setModelsModalProvider(null)}
                 onSaved={refreshProvidersSilently}
+                onProviderUpdated={(p) => setModelsModalProvider(p)}
               />
             )}
 

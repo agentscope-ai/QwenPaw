@@ -4,7 +4,7 @@ QwenPaw 内置了安全功能，保护你的 Agent 在运行过程中产生的�
 
 ## 概述
 
-QwenPaw 的安全系统由四个核心安全层组成:
+QwenPaw 的安全系统由五个核心安全层组成:
 
 ```
 安全架构:
@@ -15,11 +15,15 @@ QwenPaw 的安全系统由四个核心安全层组成:
 │  阻止 Agent 访问受保护的文件和目录
 │
 ├─ 沙箱隔离 (Sandbox) — 操作系统内核级执行隔离
-│  利用平台原生机制 (Seatbelt / bubblewrap / Landlock) 将 Shell 命令
+│  利用平台原生机制 (Seatbelt / bubblewrap / Landlock / AppContainer) 将 Shell 命令
 │  限制在受限的文件系统视图内执行
 │
-└─ 技能扫描器 (Skill Scanner) — 技能安全预检
-   在技能启用前扫描恶意代码、硬编码密钥和安全威胁
+├─ 技能扫描器 (Skill Scanner) — 技能安全预检
+│  在技能启用前扫描恶意代码、硬编码密钥和安全威胁
+│
+└─ 访问策略 (Access Policy) — 声明式访问策略
+   控制谁可以在什么条件下调用哪些能力
+   支持工具级粒度和来源感知规则
 ```
 
 **附加功能**: Web 登录认证 — 为控制台提供可选的身份验证保护
@@ -30,6 +34,7 @@ QwenPaw 的安全系统由四个核心安全层组成:
 - **文件防护** 独立运行，保护敏感文件和目录免受未授权访问
 - **沙箱隔离** 在操作系统内核强制的隔离边界内执行 Shell 命令，将文件系统访问限制为仅已声明的路径
 - **技能扫描器** 在技能启用前运行，检测恶意代码和安全威胁
+- **访问策略** 对每次能力调用评估其来源、身份和目标——最终决定放行(allow)、拒绝(deny)或请求人工审批(ask)
 - **Web 登录认证** (可选) 控制对控制台界面的访问
 
 ---
@@ -367,26 +372,26 @@ QwenPaw 的安全系统由四个核心安全层组成:
 
 QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 
-| 平台    | 后端                   | 机制                                             | 检测方式                             |
-| ------- | ---------------------- | ------------------------------------------------ | ------------------------------------ |
-| macOS   | **Seatbelt**           | `sandbox-exec` + S-expression 策略文件           | PATH 上存在 `sandbox-exec`           |
-| Linux   | **Bubblewrap**（首选） | Mount namespace + User namespace + PID namespace | `bwrap` 二进制 + user namespace 支持 |
-| Linux   | **Landlock**（回退）   | Landlock LSM 内核模块 (5.13+)                    | 内核版本 + LSM 探测 + ABI 系统调用   |
-| Windows | 实验性                 | 开发中                                           | —                                    |
-| 所有    | **None**               | 无隔离（直接执行）                               | 无可用后端时使用                     |
+| 平台    | 后端                   | 机制                                             | 检测方式                                             |
+| ------- | ---------------------- | ------------------------------------------------ | ---------------------------------------------------- |
+| macOS   | **Seatbelt**           | `sandbox-exec` + S-expression 策略文件           | PATH 上存在 `sandbox-exec`                           |
+| Linux   | **Bubblewrap**（首选） | Mount namespace + User namespace + PID namespace | `bwrap` 二进制 + user namespace 支持                 |
+| Linux   | **Landlock**（回退）   | Landlock LSM 内核模块 (5.13+)                    | 内核版本 + LSM 探测 + ABI 系统调用                   |
+| Windows | **AppContainer**       | AppContainer profile + `icacls` ACL 强制访问控制 | Windows 10+（build 10240）+ PATH 上存在 `icacls.exe` |
+| 所有    | **None**               | 无隔离（直接执行）                               | 无可用后端时使用                                     |
 
 **Linux 探测优先级**：bubblewrap > Landlock > None。如果 `bwrap` 已安装且 user namespace 可用，则选择 bubblewrap。否则回退到 Landlock（如果内核支持）。
 
 **能力对比**：
 
-| 能力              | Seatbelt (macOS)  | Bubblewrap (Linux)    | Landlock (Linux) |
-| ----------------- | ----------------- | --------------------- | ---------------- |
-| 文件系统读控制    | 支持              | 支持                  | 支持             |
-| 文件系统写控制    | 支持              | 支持                  | 支持             |
-| deny_paths 不可见 | 否（访问拒绝）    | 是（未挂载）          | 否（访问拒绝）   |
-| PID 命名空间隔离  | 否                | 支持                  | 否               |
-| 最小化 /dev       | 支持（白名单）    | 支持（合成 devtmpfs） | 否               |
-| 网络控制          | 支持（允许/拒绝） | 计划中                | 否（需 ABI v4）  |
+| 能力              | Seatbelt (macOS)  | Bubblewrap (Linux)    | Landlock (Linux) | AppContainer (Windows) |
+| ----------------- | ----------------- | --------------------- | ---------------- | ---------------------- |
+| 文件系统读控制    | 支持              | 支持                  | 支持             | 支持                   |
+| 文件系统写控制    | 支持              | 支持                  | 支持             | 支持                   |
+| deny_paths 不可见 | 否（访问拒绝）    | 是（未挂载）          | 否（访问拒绝）   | 否（访问拒绝）         |
+| PID 命名空间隔离  | 否                | 支持                  | 否               | 否                     |
+| 最小化 /dev       | 支持（白名单）    | 支持（合成 devtmpfs） | 否               | 不适用                 |
+| 网络控制          | 支持（允许/拒绝） | 计划中                | 否（需 ABI v4）  | 支持（允许/拒绝）      |
 
 ### 隔离模型
 
@@ -404,16 +409,16 @@ QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 
 沙箱配置由治理策略引擎自动编译生成，用户通常无需手动设置。关键字段如下：
 
-| 字段              | 类型   | 默认值                      | 说明                                               |
-| ----------------- | ------ | --------------------------- | -------------------------------------------------- |
-| `mode`            | string | 自动检测                    | `seatbelt`、`bubblewrap`、`landlock` 或 `none`     |
-| `workspace_dir`   | string | Agent workspace             | 主工作目录（始终可写）                             |
-| `mounts`          | list   | 仅 workspace                | 已声明的文件系统路径及其权限                       |
-| `deny_paths`      | list   | `["~/.ssh", "~/.aws", ...]` | 需要阻止的敏感路径                                 |
-| `allow_read_all`  | bool   | `true`                      | 为 true 时，默认整个文件系统可读（deny-list 模式） |
-| `network_allow`   | list   | `["*"]`                     | 网络访问策略（当前允许所有）                       |
-| `timeout_seconds` | int    | `30`                        | 最大执行时间，超时后终止                           |
-| `env_vars`        | dict   | `{}`                        | 沙箱进程的额外环境变量                             |
+| 字段              | 类型   | 默认值                      | 说明                                                           |
+| ----------------- | ------ | --------------------------- | -------------------------------------------------------------- |
+| `mode`            | string | 自动检测                    | `seatbelt`、`bubblewrap`、`landlock`、`appcontainer` 或 `none` |
+| `workspace_dir`   | string | Agent workspace             | 主工作目录（始终可写）                                         |
+| `mounts`          | list   | 仅 workspace                | 已声明的文件系统路径及其权限                                   |
+| `deny_paths`      | list   | `["~/.ssh", "~/.aws", ...]` | 需要阻止的敏感路径                                             |
+| `allow_read_all`  | bool   | `true`                      | 为 true 时，默认整个文件系统可读（deny-list 模式）             |
+| `network_allow`   | list   | `["*"]`                     | 网络访问策略（当前允许所有）                                   |
+| `timeout_seconds` | int    | `30`                        | 最大执行时间，超时后终止                                       |
+| `env_vars`        | dict   | `{}`                        | 沙箱进程的额外环境变量                                         |
 
 **MountSpec** 条目：
 
@@ -427,11 +432,12 @@ QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 
 当沙箱内的命令尝试访问其允许视图之外的路径时，操作系统内核会阻止该操作。QwenPaw 通过匹配 stderr 模式来检测这些违规：
 
-| 平台       | 检测模式                                                                         |
-| ---------- | -------------------------------------------------------------------------------- |
-| Seatbelt   | `deny(N) file-read-data`、`Sandbox:`、`sandbox-exec:`、`Operation not permitted` |
-| Bubblewrap | `Permission denied`、`bwrap:`、`Operation not permitted`、`EACCES`               |
-| Landlock   | `Permission denied`、`Operation not permitted`                                   |
+| 平台         | 检测模式                                                                                 |
+| ------------ | ---------------------------------------------------------------------------------------- |
+| Seatbelt     | `deny(N) file-read-data`、`Sandbox:`、`sandbox-exec:`、`Operation not permitted`         |
+| Bubblewrap   | `Permission denied`、`bwrap:`、`Operation not permitted`、`EACCES`                       |
+| Landlock     | `Permission denied`、`Operation not permitted`                                           |
+| AppContainer | `Access is denied`、`error 5`、`0x80070005`、`Permission denied`、`拒绝访问`、`权限不足` |
 
 检测到违规时：
 
@@ -443,7 +449,9 @@ QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 
 - **网络隔离**：当前版本未实现。所有沙箱进程均可完全访问网络，不受 `network_allow` 设置影响。网络命名空间隔离（bubblewrap 的 `--unshare-net`）已计划。
 - **资源限制**：`max_processes` 和 `max_memory_mb` 字段存在于配置中，但当前无后端强制执行。
-- **Windows**：原生 Windows 沙箱支持为实验性功能，尚未投入生产。
+- **Windows AppContainer**：首次 ACL 设置需要管理员权限。AppContainer profile 会被保留以供相同配置的后续调用复用。
+- **Windows 最低版本要求**：AppContainer 需要 **Windows 10 版本 1507（build 10240）** 或更高版本。更早的 Windows 版本（Windows 7、8、8.1）不支持 AppContainer 隔离机制，将回退到 `mode=none`（无隔离）。
+- **Windows 系统目录 ACL 限制**：`icacls` ACL 设置无法修改某些受保护系统目录的权限，例如 `C:\Program Files`、`C:\Program Files (x86)`、`C:\Windows` 和 `C:\Windows\System32`。这些目录受 Windows 资源保护（WRP）和 TrustedInstaller 所有权保护。不过这通常不构成问题，因为 Windows 10+ 默认已为内置的 `ALL APPLICATION PACKAGES` SID（`S-1-15-2-1`）授予了这些路径的读取和执行权限，AppContainer 进程无需显式 ACL 授权即可读取系统二进制文件和库。
 - **deny_paths 文件级别 (Bubblewrap)**：`deny_paths` 中的单个文件会显示为空（绑定到 `/dev/null`）而非不存在。目录级别的 deny 使用 `--tmpfs` 真正不可见。
 
 ### 故障排除
@@ -469,6 +477,22 @@ bwrap --ro-bind / / --dev /dev --unshare-user --unshare-pid --proc /proc -- /bin
 ```
 
 如果 user namespace 被禁用（Docker 容器、部分安全加固内核），QwenPaw 会自动回退到 Landlock。
+
+**Windows: AppContainer ACL 设置失败**
+
+AppContainer 的 `icacls` ACL 操作需要管理员权限。如果看到 ACL 设置失败的警告：
+
+1. 以管理员身份运行 QwenPaw（右键 → 以管理员身份运行）
+2. 确认 `icacls.exe` 在 PATH 中（所有 Windows 版本均自带）
+3. 使用 `scripts/cleanup_windows_sandbox.py` 清理旧的 AppContainer profile 和 ACL
+
+**Windows: 不满足最低版本要求**
+
+AppContainer 需要 Windows 10（build 10240）或更高版本。如果探测输出中出现 `"AppContainer requires Windows 10+"` 消息，说明当前运行的 Windows 版本不受支持。请升级到 Windows 10 或更高版本以使用沙箱隔离。在旧版系统上，QwenPaw 将回退到 `mode=none`（无内核隔离）。
+
+**Windows: 系统目录（如 Program Files）ACL 授权失败**
+
+如果看到 `icacls` 对 `C:\Program Files` 或 `C:\Windows` 等路径报告警告，这是正常现象。这些目录由 TrustedInstaller 拥有并受 Windows 资源保护（WRP）——即使管理员也无法修改其 ACL。沙箱不需要对这些路径进行显式授权，因为 Windows 10+ 已通过内置的 `ALL APPLICATION PACKAGES` ACE 为所有 AppContainer 进程提供了读取+执行权限。如果你的工作流需要对 `Program Files` 下的路径进行写操作，请考虑使用其他工作目录，或添加一个指向用户拥有的位置的可写挂载点。
 
 **确认沙箱是否激活**
 
@@ -674,6 +698,145 @@ scanner = SkillScanner(policy=policy)
   }
 }
 ```
+
+---
+
+## 访问策略
+
+**访问策略**是一个声明式策略引擎，对每次能力调用裁定放行(allow)、拒绝(deny)或请求人工审批(ask)。每个服务客户端都拥有独立的访问策略，支持工具级粒度以及来源感知和身份感知的规则。当前已在 MCP 中实现，设计上可扩展到未来的其他协议集成。
+
+### 工作原理
+
+1. **独立策略配置** — 每个服务客户端(e.g. MCP client)拥有独立的访问策略。每次能力调用时都会评估策略。
+2. **三种效果**：
+   - `allow` — 调用立即执行
+   - `deny` — 调用被阻止，Agent 收到错误
+   - `ask` — 调用被挂起，等待用户在控制台中批准或拒绝
+3. **两级粒度**：
+   - **客户端级** — 默认效果应用于该客户端的所有能力
+   - **工具级** — 为特定工具覆盖默认效果（例如大多数工具放行，但禁止 `dangerous_tool`）
+4. **来源感知规则** — 规则可根据请求来源（如仅来自控制台、仅来自钉钉）和请求者身份（如特定用户）进行匹配
+5. **优先级裁决** — 多条规则匹配时，最具体的规则优先（见下文[策略裁决](#策略裁决)）
+
+### 策略模型
+
+每个客户端的策略由 `default_effect` 和一组 `rules` 组成：
+
+| 字段             | 说明                                                         |
+| ---------------- | ------------------------------------------------------------ |
+| `default_effect` | 无规则匹配时的效果：`allow`、`deny` 或 `ask`（默认: `deny`） |
+| `rules`          | 按优先级评估的策略规则列表                                   |
+
+**策略规则字段**：
+
+| 字段        | 类型   | 说明                                                                                    |
+| ----------- | ------ | --------------------------------------------------------------------------------------- |
+| `subject`   | string | 调用者身份模式。类型前缀格式：`user:xxx`、`session:xxx`、`channel:xxx`、`*`（匹配所有） |
+| `effect`    | string | `allow`、`deny` 或 `ask`                                                                |
+| `target`    | object | `{ kind, name }` — 目标能力。`kind`: `"tool"` 或 `"*"`。`name`: 工具名 或 `"*"`         |
+| `principal` | object | 来源匹配（可选，见下文）                                                                |
+
+**Principal 字段**（来源感知匹配）：
+
+| 字段            | 说明         | 示例                             |
+| --------------- | ------------ | -------------------------------- |
+| `source_type`   | 请求来自哪里 | `"channel"`                      |
+| `source_value`  | 具体来源     | `"console"`、`"dingtalk"`、`"*"` |
+| `subject_type`  | 来源内的范围 | `"all"`、`"user"`                |
+| `subject_value` | 具体身份     | `"admin"`、`"*"`                 |
+
+### 策略裁决
+
+工具被调用时，策略引擎评估所有匹配规则并选择最具体的一条：
+
+**匹配条件**（以下所有条件均需满足）：
+
+1. 规则的 `subject` 匹配请求的任一身份（用户、会话、渠道）
+2. 规则的 `principal` 匹配请求来源
+3. 规则的 `target` 匹配被调用的工具
+
+**优先级顺序**（从高到低）：
+
+| 优先级 | 维度      | 更具体者优先                                            |
+| ------ | --------- | ------------------------------------------------------- |
+| 1      | 目标名称  | 精确工具名 > 通配符 `*`                                 |
+| 2      | 目标类型  | `"tool"` > `"*"`                                        |
+| 3      | Principal | 指定字段越多 > 指定字段越少                             |
+| 4      | Subject   | 精确（`user:admin`）> 类型通配（`user:*`）> 全局（`*`） |
+| 5      | 严格程度  | `deny` > `ask` > `allow`                                |
+
+若无规则匹配，则应用 `default_effect`。
+
+**示例**：
+
+| 请求                        | 结果  | 原因                          |
+| --------------------------- | ----- | ----------------------------- |
+| `user:admin` 调用任意工具   | ALLOW | 精确 subject 匹配（优先级 4） |
+| 任何人调用 `dangerous_tool` | DENY  | 精确目标名称（优先级 1）      |
+| 控制台用户调用 `safe_tool`  | ALLOW | 目标名称 + principal 双重匹配 |
+| 钉钉用户调用 `other_tool`   | ASK   | 无规则匹配 → `default_effect` |
+
+### 审批流程
+
+当策略裁决结果为 `ask` 时：
+
+1. 工具调用被**挂起** — Agent 暂停执行
+2. 控制台中出现**审批卡片**，显示：
+   - 工具名称和参数
+   - 调用者身份和来源渠道
+   - 服务客户端名称
+3. 用户可以**批准**或**拒绝**：
+   - **批准** → 工具调用正常执行
+   - **拒绝** → Agent 收到权限被拒绝的错误，向用户解释原因
+4. 若超时未响应，调用将被拒绝
+
+> **提示**: 个人使用的可信客户端，可设置 `default_effect: allow` 跳过审批。对于共享或敏感场景的部署，建议使用 `ask` 作为默认值，并显式 `allow` 可信来源。
+
+### 在 MCP 中使用
+
+访问策略当前可用于 MCP 客户端。每个 MCP 客户端的策略存储在其 YAML 配置文件中：
+
+```yaml
+# drivers/mcp/hello-mcp.yaml
+name: hello-mcp
+protocol: mcp
+endpoint:
+  transport: stdio
+  command: python
+  args: ["./mcp_servers/hello_server.py"]
+  env:
+    ECHO_SECRET:
+      source: credential
+      credential: static
+      field: ECHO_SECRET
+config:
+  display_name: Hello MCP
+  description: 本地 stdio MCP 演示服务，提供 print_content 和 get_secret_status 两个工具
+enabled: true
+policy:
+  default_effect: ask
+  rules:
+    - subject: "*"
+      effect: deny
+      target: { kind: tool, name: get_secret_status }
+```
+
+#### 控制台管理
+
+在控制台 **智能体 → MCP** 页面中，点击任意 MCP 客户端卡片上的**工具&权限**即可打开访问策略面板：
+
+![access policy](https://img.alicdn.com/imgextra/i1/O1CN01HJgGjv1cQZ0TKGnfC_!!6000000003595-0-tps-3838-2076.jpg)
+
+- **设置默认效果** — 选择客户端级别的默认策略：询问（黄色）、放行（绿色）或拒绝（红色）
+- **添加客户端级规则** — 为特定来源或用户覆盖默认策略：
+  - 选择来源渠道（控制台、钉钉、Telegram 等）
+  - 可选限定到特定用户
+  - 为该来源/用户组合设置效果
+- **工具级默认** — 为单个工具设置不同的默认效果
+- **工具级规则** — 为工具级默认追加来源/用户特定的覆盖规则
+- **保存** — 点击"保存"持久化配置；**更改立即生效无需重启**
+
+> **注意**: 通过 YAML 文件创建的使用高级 subject 模式（如 `user:admin`、`session:xxx`）的规则会被保留，但无法在控制台中编辑。当存在此类规则时，弹窗会显示"未管理规则"计数。
 
 ---
 

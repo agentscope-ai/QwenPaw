@@ -13,6 +13,8 @@ import logging
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import qwenpaw.agents.context as context_mod
 from qwenpaw.agents.context import build_scroll_components
 from qwenpaw.config.config import LightContextConfig
@@ -45,6 +47,7 @@ def _notice_records(caplog) -> list[logging.LogRecord]:
     ]
 
 
+@pytest.mark.usefixtures("capture_qwenpaw_logs")
 def test_first_run_logs_notice_once(tmp_path: Path, caplog):
     db = tmp_path / "history.db"
     assert not db.exists()
@@ -81,6 +84,7 @@ def _size_records(caplog) -> list[logging.LogRecord]:
     ]
 
 
+@pytest.mark.usefixtures("capture_qwenpaw_logs")
 def test_large_existing_db_warns_about_retention(tmp_path: Path, caplog):
     # First build creates a small store (no size warning, just first-run).
     _build(tmp_path)

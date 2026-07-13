@@ -17,7 +17,12 @@ class TokenRecordingModelWrapper(ChatModelBase):
 
     _usage_by_session: dict[str, dict[str, Any]] = {}
 
-    def __init__(self, provider_id: str, model: ChatModelBase) -> None:
+    def __init__(
+        self,
+        provider_id: str,
+        model: ChatModelBase,
+        compact_threshold: float | None = None,
+    ) -> None:
         # agentscope 2.0 ChatModelBase requires credential/model/parameters.
         # Forward the wrapped model's own values so the base attributes stay
         # consistent (some downstream code reads ``self.model`` for logging).
@@ -31,6 +36,9 @@ class TokenRecordingModelWrapper(ChatModelBase):
         )
         self._model = model
         self._provider_id = provider_id
+        # Auto-compaction threshold (fraction of the window) for the UI, or
+        # None when compaction is disabled/unknown.
+        self._compact_threshold = compact_threshold
 
     def _record_usage(self, usage: ChatUsage | None) -> None:
         """Enqueue a usage event synchronously — never blocks the caller."""
@@ -60,6 +68,13 @@ class TokenRecordingModelWrapper(ChatModelBase):
             "prompt_tokens": pt,
             "completion_tokens": ct,
             "total_tokens": pt + ct,
+            # Context window of the wrapped model, so the UI can show how full
+            # the *current* context is (prompt_tokens / context_size), distinct
+            # from the cumulative session totals. 0 = unknown.
+            "context_size": int(getattr(self._model, "context_size", 0) or 0),
+            # Auto-compaction threshold (fraction of the window) so the UI can
+            # mark where context gets evicted. None = disabled/unknown.
+            "compact_threshold": self._compact_threshold,
         }
         self._store_usage(usage_data)
 

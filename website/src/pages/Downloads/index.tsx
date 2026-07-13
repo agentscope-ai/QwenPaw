@@ -16,6 +16,7 @@ import type { DesktopIndex, FileMetadata, MainIndex } from "./types";
 import {
   compareVersionDesc,
   detectOS,
+  isRecommendedDesktopPlatform,
   isPreviewVersion,
   orderVersionsWithDefault,
 } from "./utils";
@@ -145,6 +146,30 @@ export default function Downloads() {
     hasDesktop && (activeTab === "desktop" || !hasPlugins);
   const showPluginsPanel =
     hasPlugins && (activeTab === "plugins" || !hasDesktop);
+  const desktopPlatforms = Object.keys(desktopIndex?.platforms ?? {});
+  const sortedDesktopPlatforms = Object.fromEntries(
+    Object.entries(desktopIndex?.platforms ?? {}).sort(
+      ([platformA], [platformB]) => {
+        const aIsRecommended = isRecommendedDesktopPlatform(
+          platformA,
+          userOS,
+          desktopPlatforms,
+        );
+        const bIsRecommended = isRecommendedDesktopPlatform(
+          platformB,
+          userOS,
+          desktopPlatforms,
+        );
+        if (aIsRecommended !== bIsRecommended) return aIsRecommended ? -1 : 1;
+
+        const aIsTauri = platformA.endsWith("-tauri");
+        const bIsTauri = platformB.endsWith("-tauri");
+        if (aIsTauri !== bIsTauri) return aIsTauri ? -1 : 1;
+
+        return 0;
+      },
+    ),
+  ) as DesktopIndex["platforms"];
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -212,7 +237,7 @@ export default function Downloads() {
                   className="mb-12"
                 >
                   <PlatformGrid>
-                    {Object.entries(desktopIndex.platforms).map(
+                    {Object.entries(sortedDesktopPlatforms).map(
                       ([platform, platformData]) => {
                         const platformVersions = (platformData.versions || [])
                           .map((fileId) => desktopIndex.files[fileId])
@@ -238,7 +263,11 @@ export default function Downloads() {
                             icon={
                               PLATFORM_ICONS[platform] ?? PLATFORM_ICONS.win
                             }
-                            isRecommended={platform === userOS}
+                            isRecommended={isRecommendedDesktopPlatform(
+                              platform,
+                              userOS,
+                              desktopPlatforms,
+                            )}
                           />
                         );
                       },

@@ -1,12 +1,14 @@
 import { useState, useMemo, useEffect } from "react";
 import { Button, Form, Tabs } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import { useAgentConfig } from "./useAgentConfig.tsx";
 import {
   ReactAgentCard,
   LlmRetryCard,
   LlmRateLimiterCard,
   ToolExecutionLevelCard,
+  AgentLoopCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -18,7 +20,10 @@ import styles from "./index.module.less";
 
 function AgentConfigPage() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState("reactAgent");
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(
+    searchParams.get("tab") || "reactAgent",
+  );
   const {
     form,
     loading,
@@ -49,13 +54,18 @@ function AgentConfigPage() {
       .then((info) => {
         if (info.active_llm) {
           return api.listProviders().then((providers) => {
-            for (const p of providers) {
-              const all = [...(p.models ?? []), ...(p.extra_models ?? [])];
-              const m = all.find((m) => m.id === info.active_llm?.model);
-              if (m?.max_input_length) {
-                setMaxInputLength(m.max_input_length);
-                return;
-              }
+            const provider = providers.find(
+              (p) => p.id === info.active_llm?.provider_id,
+            );
+            const all = [
+              ...(provider?.models ?? []),
+              ...(provider?.extra_models ?? []),
+            ];
+            const model = all.find(
+              (item) => item.id === info.active_llm?.model,
+            );
+            if (model?.max_input_length != null) {
+              setMaxInputLength(model.max_input_length);
             }
           });
         }
@@ -82,6 +92,19 @@ function AgentConfigPage() {
               savingTimezone={savingTimezone}
               onTimezoneChange={handleTimezoneChange}
             />
+          </div>
+        ),
+      },
+      {
+        key: "agentLoop",
+        label: (
+          <span className={styles.tabLabel}>
+            {t("agentConfig.agentLoopTitle", "Agent Loop Settings")}
+          </span>
+        ),
+        children: (
+          <div className={styles.tabContent}>
+            <AgentLoopCard />
           </div>
         ),
       },
