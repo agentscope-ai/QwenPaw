@@ -97,7 +97,8 @@ export interface ActiveModelsInfo {
 
 export type ActiveModelScope = "effective" | "global" | "agent";
 export type ActiveModelWriteScope =
-  Exclude<ActiveModelScope, "effective"> | "session";
+  | Exclude<ActiveModelScope, "effective">
+  | "session";
 export type ModelSource = "session" | "agent" | "global" | "none";
 
 export interface GetActiveModelsRequest {

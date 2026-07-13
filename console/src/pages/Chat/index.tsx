@@ -1866,9 +1866,9 @@ export default function ChatPage() {
             .querySelector('[class*="sender"]')
             ?.querySelector("textarea") as HTMLTextAreaElement | null)
         : e.target instanceof HTMLTextAreaElement &&
-            e.target.closest('[class*="sender"]')
-          ? e.target
-          : null;
+          e.target.closest('[class*="sender"]')
+        ? e.target
+        : null;
       if (!textarea) return;
       const val = textarea.value.trim();
       if (!val) return;
