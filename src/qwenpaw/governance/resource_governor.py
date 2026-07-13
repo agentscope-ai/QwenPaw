@@ -142,6 +142,19 @@ class ResourceGovernor:
             str(self.coding_project_dir),
         )
 
+        # Persist the loaded policy back to disk.
+        try:
+            save_governance_policy(
+                self._policy,
+                str(self._policy_dir),
+                str(self.workspace_dir),
+                str(self.coding_project_dir),
+            )
+        except Exception:
+            logger.exception(
+                "ResourceGovernor.start: failed to persist policy.yaml",
+            )
+
         self._sandbox_capability = probe_sandbox_support()
         self._sandbox_available = self._sandbox_capability.supported
         if not self._sandbox_available:

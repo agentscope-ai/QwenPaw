@@ -267,6 +267,17 @@ DEFAULT_BUILTIN_RULES: List[GovernanceRule] = [
         action=GovernanceAction.DENY,
         reason="Privilege escalation prohibited",
     ),
+    # ── Destructive GitHub CLI operations (hard wall, never allowed) ──
+    GovernanceRule(
+        match="Bash(gh repo delete *)",
+        action=GovernanceAction.DENY,
+        reason="Repository deletion prohibited",
+    ),
+    GovernanceRule(
+        match="Bash(gh api -X DELETE *)",
+        action=GovernanceAction.DENY,
+        reason="Destructive GitHub API calls prohibited",
+    ),
 ]
 
 
@@ -401,42 +412,10 @@ FILE_WRITE_TOOLS: frozenset[str] = frozenset({"Write", "Edit", "Append"})
 # ---------------------------------------------------------------------------
 
 DEFAULT_USER_RULES: List[GovernanceRule] = [
-    # ── Internal tools (no side effects, always allowed) ──
-    GovernanceRule(
-        match="GetCurrentTime(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Read-only system tool",
-    ),
-    GovernanceRule(
-        match="GetTokenUsage(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Read-only usage query",
-    ),
-    GovernanceRule(
-        match="ListAgents(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Read-only agent list",
-    ),
-    GovernanceRule(
-        match="ChatWithAgent(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Inter-agent messaging",
-    ),
-    GovernanceRule(
-        match="SubmitToAgent(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Inter-agent task submission",
-    ),
-    GovernanceRule(
-        match="CheckAgentTask(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Read-only task status query",
-    ),
-    GovernanceRule(
-        match="DelegateExternalAgent(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Inter-agent delegation",
-    ),
+    # NOTE: Internal tools (GetCurrentTime, GetTokenUsage, ListAgents,
+    # ChatWithAgent, SubmitToAgent, CheckAgentTask, DelegateExternalAgent)
+    # need no rule here — they are registered as "internal" type and
+    # short-circuited to ALLOW in Phase 0 of evaluate().
     # ── File tools (operations within WORKSPACE_DIR, always allowed) ──
     GovernanceRule(
         match="Read(WORKSPACE_DIR/**)",
@@ -517,18 +496,6 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         match="*(CODING_PROJECT_DIR/**)",
         action=GovernanceAction.ALLOW,
         reason="Coding project dir",
-    ),
-    # ── GitHub CLI ──
-    # DENY destructive operations first (first-match-wins)
-    GovernanceRule(
-        match="Bash(gh repo delete *)",
-        action=GovernanceAction.DENY,
-        reason="Repository deletion prohibited",
-    ),
-    GovernanceRule(
-        match="Bash(gh api -X DELETE *)",
-        action=GovernanceAction.DENY,
-        reason="Destructive GitHub API calls prohibited",
     ),
     # ALLOW all other gh operations
     # (agent needs write access for PR/issue management)
