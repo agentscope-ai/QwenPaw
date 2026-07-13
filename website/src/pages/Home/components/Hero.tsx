@@ -174,9 +174,9 @@ export function Hero() {
               }}
             >
               <img
-                src="https://img.alicdn.com/imgextra/i1/O1CN01BLYCfm1Qyf5WcMDDf_!!6000000002045-2-tps-1924-1202.png"
+                src="https://img.alicdn.com/imgextra/i3/O1CN01C57zol1ud4um3nSMH_!!6000000006059-2-tps-1930-1202.png"
                 alt="QwenPaw console preview"
-                className="block h-auto max-h-full w-full rounded-t-[8px] object-top shadow-[0px_6px_56px_0px_rgba(38,33,29,0.24)] md:h-full md:object-cover"
+                className="block h-auto max-h-full w-full object-top md:h-full md:object-cover"
                 loading="lazy"
               />
             </motion.div>
