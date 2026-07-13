@@ -1,10 +1,7 @@
 import { useEffect, useState } from "react";
 import { agentApi } from "../api/modules/agent";
 import { useAgentStore } from "../stores/agentStore";
-import {
-  normalizeLevel,
-  type ToolExecutionLevel,
-} from "../utils/approval";
+import { normalizeLevel, type ToolExecutionLevel } from "../utils/approval";
 
 /**
  * Returns the running-config approval level for the currently selected agent.
