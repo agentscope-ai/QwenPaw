@@ -2601,6 +2601,7 @@
     "timeoutAutoDenied": "已超时，自动拒绝",
     "acknowledge": "我知道了",
     "approvePattern": "总是允许",
+    "strictModeHint": "严格模式下无法总是允许",
     "approveExact": "仅本次",
     "approvalScope": "批准范围",
     "details": "详细信息"
