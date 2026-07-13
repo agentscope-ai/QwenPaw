@@ -1,0 +1,37 @@
+/**
+ * Styles for the LocalPathLinkifier injected path links.
+ *
+ * These are global (non-module) selectors because the <a> elements are
+ * created via raw DOM APIs inside the MutationObserver, not by React —
+ * so CSS-module class-name hashing does not apply.  We scope them under
+ * `.qwenpaw-local-path-link` which is unique enough to avoid collisions.
+ */
+
+:global {
+  .qwenpaw-local-path-link {
+    color: var(--ant-color-link, #1677ff);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+    cursor: pointer;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.9em;
+    padding: 0 2px;
+    border-radius: 3px;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease;
+  }
+
+  .qwenpaw-local-path-link:hover {
+    background-color: var(--ant-color-primary-bg, rgba(22, 119, 255, 0.08));
+    color: var(--ant-color-link-hover, #4096ff);
+  }
+
+  .qwenpaw-local-path-link:active {
+    background-color: var(
+      --ant-color-primary-bg-hover,
+      rgba(22, 119, 255, 0.15)
+    );
+  }
+}

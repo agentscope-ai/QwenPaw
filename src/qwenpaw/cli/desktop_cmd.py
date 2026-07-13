@@ -38,6 +38,66 @@ class WebViewAPI:
             return
         webbrowser.open(url)
 
+    def open_in_explorer(self, path: str) -> bool:
+        """Open the system file explorer at the given local path.
+
+        If *path* points to a file, the parent directory is opened and
+        the file is selected (platform-permitting).  If it points to a
+        directory, that directory is opened directly.
+
+        Returns True on success, False on validation failure or error.
+        """
+        import platform
+        import re
+
+        trimmed = path.strip()
+        error = self._validate_explorer_path(trimmed, re)
+        if error:
+            logger.warning("[open_in_explorer] %s", error)
+            return False
+
+        try:
+            system = platform.system()
+            if system == "Windows":
+                if os.path.isdir(trimmed):
+                    subprocess.Popen(["explorer.exe", trimmed])
+                else:
+                    subprocess.Popen(
+                        ["explorer.exe", f"/select,{trimmed}"],
+                    )
+            elif system == "Darwin":
+                subprocess.Popen(["open", "-R", trimmed])
+            else:
+                # Linux / other Unix — open parent directory.
+                target = (
+                    trimmed
+                    if os.path.isdir(trimmed)
+                    else os.path.dirname(trimmed) or trimmed
+                )
+                subprocess.Popen(["xdg-open", target])
+            return True
+        except Exception:
+            logger.exception("[open_in_explorer] failed to open path")
+            return False
+
+    @staticmethod
+    def _validate_explorer_path(trimmed: str, re_mod) -> str | None:
+        """Return an error string if the path is invalid, else None."""
+        if not trimmed:
+            return "path is empty"
+        if re_mod.search(
+            r'[\x00-\x1f|&;$`(){}<>!\'"\n\r]',
+            trimmed,
+        ):
+            return "path contains forbidden characters"
+        if ".." in trimmed:
+            return "path contains traversal sequence (..)"
+        if not os.path.isabs(trimmed):
+            return "path is not absolute"
+        if not os.path.exists(trimmed):
+            return f"path does not exist: {trimmed}"
+        return None
+
     def save_file(
         self,
         url: str,
@@ -175,6 +235,9 @@ def desktop_cmd(
     port_file = str(WORKING_DIR / "desktop_port")
     port, held_socket = get_stable_port(port_file, host)
     url = f"http://{host}:{port}"
+    # Tag the URL so the frontend can detect it's running inside the
+    # pywebview desktop shell (mirrors what the Tauri bootstrap does).
+    desktop_url = f"{url}?desktop=1"
     click.echo(f"Starting QwenPaw app on {url} (port {port})")
     logger.info("Server subprocess starting...")
 
@@ -244,7 +307,7 @@ def desktop_cmd(
                 api = WebViewAPI()
                 webview.create_window(
                     "QwenPaw Desktop",
-                    url,
+                    desktop_url,
                     width=1280,
                     height=800,
                     text_select=True,

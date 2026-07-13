@@ -2,6 +2,7 @@
 
 mod backend;
 mod backend_download;
+mod explorer;
 mod external_link;
 mod updates;
 mod tray;
@@ -31,6 +32,7 @@ pub fn run() {
             backend::backend_startup_error,
             backend::restart_backend,
             external_link::open_external_link,
+            explorer::open_in_explorer,
             updates::check_desktop_update,
             updates::install_desktop_update,
             updates::download_desktop_update,

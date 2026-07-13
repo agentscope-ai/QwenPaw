@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "open-in-explorer"
+description = "Allows the frontend to open a local path in the system file explorer."
+commands.allow = ["open_in_explorer"]
