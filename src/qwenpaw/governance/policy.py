@@ -416,6 +416,42 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
     # ChatWithAgent, SubmitToAgent, CheckAgentTask, DelegateExternalAgent)
     # need no rule here — they are registered as "internal" type and
     # short-circuited to ALLOW in Phase 0 of evaluate().
+    # ── Read-only file tools (global allow) ──
+    # Reads are safe to allow on any path: the builtin sensitive-path ASK
+    # rules (*.env / .ssh / .aws / …) are evaluated BEFORE user_rules
+    # (Phase 2 builtin-first), so reading secrets still prompts. Note '**'
+    # is required here, not '*': file tools match via wcmatch where '*'
+    # does not cross '/', so '*' would only match a single path segment.
+    GovernanceRule(
+        match="Read(**)",
+        action=GovernanceAction.ALLOW,
+        reason="Read-only file access (global)",
+    ),
+    GovernanceRule(
+        match="Grep(**)",
+        action=GovernanceAction.ALLOW,
+        reason="Content search (global)",
+    ),
+    GovernanceRule(
+        match="Glob(**)",
+        action=GovernanceAction.ALLOW,
+        reason="File listing (global)",
+    ),
+    GovernanceRule(
+        match="ViewImage(**)",
+        action=GovernanceAction.ALLOW,
+        reason="Image view (global)",
+    ),
+    GovernanceRule(
+        match="ViewVideo(**)",
+        action=GovernanceAction.ALLOW,
+        reason="Video view (global)",
+    ),
+    GovernanceRule(
+        match="SendFileToUser(**)",
+        action=GovernanceAction.ALLOW,
+        reason="File send to user (global)",
+    ),
     # ── File tools (operations within WORKSPACE_DIR, always allowed) ──
     GovernanceRule(
         match="Read(WORKSPACE_DIR/**)",
