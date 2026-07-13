@@ -642,6 +642,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
             self.name,
         )
         mgr.clear_agent_tool_timeouts(agent_id)
+
+        shell_timeout = self._agent_config.running.shell_command_timeout
+        if shell_timeout > 0:
+            mgr.set_agent_tool_timeout(
+                agent_id,
+                "execute_shell_command",
+                float(shell_timeout),
+            )
+
         builtin_tools = (
             getattr(
                 getattr(self._agent_config, "tools", None),

@@ -516,6 +516,10 @@ async def execute_shell_command(
         if configured is not None:
             timeout = configured
 
+    from ...tool_calls import reschedule_call_timeout
+
+    reschedule_call_timeout(timeout)
+
     # Use current workspace_dir from context, fallback to WORKING_DIR
     if cwd is not None:
         working_dir = cwd

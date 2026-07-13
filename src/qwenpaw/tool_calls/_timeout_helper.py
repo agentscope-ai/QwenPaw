@@ -4,11 +4,41 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from typing import Any
 
 from ._ctxvars import get_call_context
 
 logger = logging.getLogger(__name__)
+
+
+def reschedule_call_timeout(timeout_secs: float) -> bool:
+    """Reset the active tool call deadline from the current time.
+
+    Tools use this after resolving a configured default or per-call timeout.
+    The coordinator is notified so an in-progress wait immediately observes
+    the new deadline. Calls outside a managed tool context are unchanged.
+
+    Args:
+        timeout_secs: Effective timeout in seconds.
+
+    Returns:
+        Whether an active call deadline was updated.
+    """
+    ctx = get_call_context()
+    if ctx is None:
+        return False
+
+    try:
+        timeout = float(timeout_secs)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(timeout) or timeout <= 0:
+        return False
+
+    ctx.deadline = asyncio.get_running_loop().time() + timeout
+    ctx.deadline_changed_event.set()
+    return True
 
 
 async def cancellable_wait(

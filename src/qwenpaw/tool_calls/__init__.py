@@ -9,7 +9,11 @@ from ._hooks import ToolHookRegistry
 from ._middleware import ToolCoordinatorMiddleware
 from ._result_limiter import ToolResultLimiter
 from ._stream import ToolStream
-from ._timeout_helper import cancellable_wait, effective_timeout
+from ._timeout_helper import (
+    cancellable_wait,
+    effective_timeout,
+    reschedule_call_timeout,
+)
 
 __all__ = [
     "CancelReason",
@@ -25,6 +29,7 @@ __all__ = [
     "cancellable_wait",
     "effective_timeout",
     "get_call_context",
+    "reschedule_call_timeout",
     "reset_call_context",
     "set_call_context",
 ]
