@@ -518,13 +518,6 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
     ),
 ]
 
-# Default user rules added after policy.yaml existed in the wild. Existing
-# persisted policies keep their user_rules, so migrate only these known safe
-# defaults instead of replacing user customizations wholesale.
-_MIGRATED_DEFAULT_USER_RULE_MATCHES = {
-    "*(CODING_PROJECT_DIR/**)",
-}
-
 
 # ---------------------------------------------------------------------------
 # GovernancePolicy
@@ -1050,10 +1043,10 @@ def load_governance_policy(
             coding_project_dir,
             applied_migrations=applied_migrations,
         )
-    # Record all known migrations as applied so the next save makes any
-    # user deletion of a migrated rule stick.
+    # Record all DEFAULT_USER_RULES as applied so the next save
+    # makes any user deletion of a default rule stick.
     applied_migrations = sorted(
-        set(applied_migrations) | _MIGRATED_DEFAULT_USER_RULE_MATCHES,
+        set(applied_migrations) | {r.match for r in DEFAULT_USER_RULES},
     )
     if not env_blacklist:
         env_blacklist = list(DEFAULT_ENV_BLACKLIST)
@@ -1211,7 +1204,7 @@ def _create_default_policy(
         execution_level="smart",
         sensitive_paths=list(_DEFAULT_SENSITIVE_PATHS),
         shell_evasion_checks=dict(_DEFAULT_SHELL_EVASION_CHECKS),
-        applied_migrations=sorted(_MIGRATED_DEFAULT_USER_RULE_MATCHES),
+        applied_migrations=sorted(r.match for r in DEFAULT_USER_RULES),
     )
 
 
@@ -1229,17 +1222,15 @@ def _merge_missing_default_user_rules(
     coding_project_dir: str = "",
     applied_migrations: List[str] | None = None,
 ) -> List[GovernanceRule]:
-    """Append migrated default user rules missing from a persisted policy.
+    """Append default user rules missing from a persisted policy.
 
     A rule whose match is recorded in ``applied_migrations`` is never
-    re-added: the migration already ran once, so a missing rule means the
-    user deleted it on purpose.
+    re-added: the migration already ran once, so a missing rule means
+    the user deleted it on purpose.
     """
     applied = set(applied_migrations or [])
     merged = list(user_rules)
     for default_rule in DEFAULT_USER_RULES:
-        if default_rule.match not in _MIGRATED_DEFAULT_USER_RULE_MATCHES:
-            continue
         if default_rule.match in applied:
             continue
         if _has_equivalent_rule(
