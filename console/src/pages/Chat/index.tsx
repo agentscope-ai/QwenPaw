@@ -3139,6 +3139,9 @@ export default function ChatPage() {
               isGeneralized={request.isGeneralized}
               exactTarget={request.exactTarget}
               similarTarget={request.similarTarget}
+              executionLevel={
+                sessionApprovalLevelRef.current ?? runningConfigApprovalLevel
+              }
               onApprove={(reqId, scope) => handleApprove(reqId, scope)}
               onDeny={handleDeny}
               onCancel={() => {
