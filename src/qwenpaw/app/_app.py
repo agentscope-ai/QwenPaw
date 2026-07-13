@@ -307,9 +307,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             from ..agents.tools import discover_builtin_tool_funcs
 
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_tool_funcs"] = (
-                discover_builtin_tool_funcs()
-            )
+            workspace_registry._bootstrap_kwargs[
+                "builtin_tool_funcs"
+            ] = discover_builtin_tool_funcs()
             logger.debug("Built-in tool funcs collected")
         except Exception:
             logger.debug(
@@ -437,9 +437,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         if _api_action_command_specs:
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_command_specs"] = (
-                _api_action_command_specs
-            )
+            workspace_registry._bootstrap_kwargs[
+                "builtin_command_specs"
+            ] = _api_action_command_specs
 
     except Exception:
         logger.debug(
