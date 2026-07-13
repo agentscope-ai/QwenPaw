@@ -657,6 +657,7 @@
     "tool": "Công cụ",
     "arguments": "Tham số",
     "approvePattern": "Luôn Cho Phép",
+    "strictModeHint": "Luôn cho phép không khả dụng trong chế độ nghiêm ngặt",
     "approveExact": "Chỉ Lần Này",
     "approvalScope": "Phạm vi phê duyệt",
     "details": "Chi tiết",

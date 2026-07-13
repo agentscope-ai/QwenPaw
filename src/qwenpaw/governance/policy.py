@@ -383,7 +383,9 @@ DEFAULT_SANDBOX_DENY_PATHS: List[str] = [
     # pip / PyPI API tokens
     "~/.pypirc",
     # Other common sensitive configs
-    "~/.config/gh",  # GitHub CLI
+    # NOTE: ~/.config/gh intentionally excluded — gh CLI needs to read its
+    # auth config (hosts.yml) for operations. The gh ALLOW rule + DENY for
+    # destructive subcommands provides the safety boundary instead.
     "~/.config/nix",  # Nix config
     "~/.netrc",  # generic login credentials
 ]
@@ -516,14 +518,31 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         action=GovernanceAction.ALLOW,
         reason="Coding project dir",
     ),
+    # ── GitHub CLI ──
+    # DENY destructive operations first (first-match-wins)
+    GovernanceRule(
+        match="Bash(gh repo delete *)",
+        action=GovernanceAction.DENY,
+        reason="Repository deletion prohibited",
+    ),
+    GovernanceRule(
+        match="Bash(gh api -X DELETE *)",
+        action=GovernanceAction.DENY,
+        reason="Destructive GitHub API calls prohibited",
+    ),
+    # ALLOW all other gh operations
+    # (agent needs write access for PR/issue management)
+    GovernanceRule(
+        match="Bash(gh)",
+        action=GovernanceAction.ALLOW,
+        reason="GitHub CLI operations",
+    ),
+    GovernanceRule(
+        match="Bash(gh *)",
+        action=GovernanceAction.ALLOW,
+        reason="GitHub CLI operations",
+    ),
 ]
-
-# Default user rules added after policy.yaml existed in the wild. Existing
-# persisted policies keep their user_rules, so migrate only these known safe
-# defaults instead of replacing user customizations wholesale.
-_MIGRATED_DEFAULT_USER_RULE_MATCHES = {
-    "*(CODING_PROJECT_DIR/**)",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -679,8 +698,7 @@ class GovernancePolicy:
                 if action == GovernanceAction.ALLOW and is_strict:
                     return GovernanceDecision(
                         action=GovernanceAction.ASK,
-                        reason="STRICT mode: all tool calls "
-                        "require approval",
+                        reason="STRICT mode: all tool calls require approval",
                         findings=findings or None,
                         source="STRICT mode",
                     )
@@ -700,8 +718,7 @@ class GovernancePolicy:
                 if action == GovernanceAction.ALLOW and is_strict:
                     return GovernanceDecision(
                         action=GovernanceAction.ASK,
-                        reason="STRICT mode: all tool calls "
-                        "require approval",
+                        reason="STRICT mode: all tool calls require approval",
                         findings=findings or None,
                         source="STRICT mode",
                     )
@@ -718,7 +735,7 @@ class GovernancePolicy:
             if is_strict:
                 return GovernanceDecision(
                     action=GovernanceAction.ASK,
-                    reason="STRICT mode: all tool calls " "require approval",
+                    reason="STRICT mode: all tool calls require approval",
                     findings=findings or None,
                     source="STRICT mode",
                 )
@@ -772,7 +789,10 @@ class GovernancePolicy:
 
         No findings (nothing matched, nothing flagged):
             - STRICT: ASK (all tools require approval)
-            - OTHERS: ASK (no allow rule hit).
+            - SMART / AUTO: ALLOW (deep scan cleared it and no protective
+              rule objected — asking here only trains users to rubber-stamp
+              benign calls; finding-driven approval is restored)
+            - OFF: ALLOW (guard effectively disabled)
         Has findings:
             - STRICT: ASK (any finding triggers approval)
             - SMART: INFO/LOW → ALLOW; MEDIUM+ → ASK
@@ -788,9 +808,14 @@ class GovernancePolicy:
                     reason="STRICT mode: all tool calls require approval",
                     source="fallback",
                 )
+            # SMART / AUTO / OFF: the deep scan surfaced nothing and no
+            # builtin/user rule objected. Asking the user here produces a
+            # flood of low-value prompts, so allow the call (finding-driven
+            # approval). Sensitive-path / dangerous-command protection still
+            # lives in Phase 1/1.5 and the builtin ASK/DENY rules.
             return GovernanceDecision(
-                action=GovernanceAction.ASK,
-                reason=f"{level.upper()} mode: no allow rule hit.",
+                action=GovernanceAction.ALLOW,
+                reason=f"{level.upper()} mode: no findings, no rule hit.",
                 source="fallback",
             )
 
@@ -1050,10 +1075,10 @@ def load_governance_policy(
             coding_project_dir,
             applied_migrations=applied_migrations,
         )
-    # Record all known migrations as applied so the next save makes any
-    # user deletion of a migrated rule stick.
+    # Record all DEFAULT_USER_RULES as applied so the next save
+    # makes any user deletion of a default rule stick.
     applied_migrations = sorted(
-        set(applied_migrations) | _MIGRATED_DEFAULT_USER_RULE_MATCHES,
+        set(applied_migrations) | {r.match for r in DEFAULT_USER_RULES},
     )
     if not env_blacklist:
         env_blacklist = list(DEFAULT_ENV_BLACKLIST)
@@ -1211,7 +1236,7 @@ def _create_default_policy(
         execution_level="smart",
         sensitive_paths=list(_DEFAULT_SENSITIVE_PATHS),
         shell_evasion_checks=dict(_DEFAULT_SHELL_EVASION_CHECKS),
-        applied_migrations=sorted(_MIGRATED_DEFAULT_USER_RULE_MATCHES),
+        applied_migrations=sorted(r.match for r in DEFAULT_USER_RULES),
     )
 
 
@@ -1229,17 +1254,15 @@ def _merge_missing_default_user_rules(
     coding_project_dir: str = "",
     applied_migrations: List[str] | None = None,
 ) -> List[GovernanceRule]:
-    """Append migrated default user rules missing from a persisted policy.
+    """Append default user rules missing from a persisted policy.
 
     A rule whose match is recorded in ``applied_migrations`` is never
-    re-added: the migration already ran once, so a missing rule means the
-    user deleted it on purpose.
+    re-added: the migration already ran once, so a missing rule means
+    the user deleted it on purpose.
     """
     applied = set(applied_migrations or [])
     merged = list(user_rules)
     for default_rule in DEFAULT_USER_RULES:
-        if default_rule.match not in _MIGRATED_DEFAULT_USER_RULE_MATCHES:
-            continue
         if default_rule.match in applied:
             continue
         if _has_equivalent_rule(

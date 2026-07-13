@@ -1,0 +1,85 @@
+name: Real behavior proof
+
+# Check that PRs from external contributors include a real problem
+# description and validation evidence in the PR body.  Maintainer and
+# bot PRs are auto-skipped.
+#
+# Ported from openclaw's real-behavior-proof system.  Complements
+# pr-spam-gate (which filters by volume) with a quality filter.
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  real-behavior-proof:
+    name: Real behavior proof
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Use the workflow revision, not the PR head — never run
+          # untrusted PR code.
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check real behavior proof
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/github/real_behavior_proof_check.py
+
+      - name: Add needs-context label on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            const labels = pr.labels.map(l => l.name);
+            if (!labels.includes("triage: needs-pr-context")) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                labels: ["triage: needs-pr-context"],
+              });
+            }
+
+      - name: Remove needs-context label on success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            const labels = pr.labels.map(l => l.name);
+            if (labels.includes("triage: needs-pr-context")) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                name: "triage: needs-pr-context",
+              });
+            }

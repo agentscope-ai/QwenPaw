@@ -33,12 +33,17 @@ from ....constant import (
     SYNTHETIC_USER_MESSAGE_TAGS,
     TRUNCATION_NOTICE_MARKER,
 )
-from ...tools.utils import save_text_output, truncate_text_output
+from ...tools.utils import (
+    save_text_output,
+    truncate_text_output,
+    TRUNCATION_METADATA_KEY,
+)
 from ....utils.model_response import consume_model_response
 from . import _as_internals as as_internals
 from .eviction_index import EvictionIndex, Leaf, Line
 from .history import HistoryStore
 from .serialize import msg_to_entries
+from ...utils.tool_message_utils import _remove_unpaired_tool_messages
 
 logger = logging.getLogger(__name__)
 
@@ -370,6 +375,14 @@ class ScrollContextManager:
             active_ids,
         )
 
+        # 3c) Sanitize: AgentScope's pairing-safe split only guarantees
+        #    intra-message block-level pairing. Standalone tool_result
+        #    messages (AgentScope 1.x flat-timeline format) can still be
+        #    orphaned across the compress/reserve boundary. Remove them
+        #    before the model sees them — the alternative is a 400
+        #    BadRequestError from the API.
+        tail = _remove_unpaired_tool_messages(tail)
+
         if middle:
             # 3b) Optional legacy archive of the evicted turns (opt-in). The
             #     full turns are already durable in history.db; this is a
@@ -472,9 +485,15 @@ class ScrollContextManager:
                     if isinstance(block, dict)
                     else getattr(block, "output", None)
                 )
+                metadata = (
+                    block.setdefault("metadata", {})
+                    if isinstance(block, dict)
+                    else block.metadata
+                )
                 pruned, changed = self._compact_tool_output(
                     output,
                     max_bytes,
+                    metadata,
                 )
                 if not changed:
                     continue
@@ -489,20 +508,32 @@ class ScrollContextManager:
         self,
         output: Any,
         max_bytes: int,
+        metadata: dict[str, Any],
     ) -> tuple[Any, bool]:
         if isinstance(output, str):
-            pruned = self._compact_tool_text(output, max_bytes)
+            pruned, patch = self._compact_tool_text(
+                output,
+                max_bytes,
+                metadata,
+            )
+            self._merge_truncation_metadata(metadata, patch)
             return pruned, pruned != output
         if not isinstance(output, list):
             return output, False
 
         changed = False
-        for block in output:
+        for index, block in enumerate(output):
             if isinstance(block, dict):
                 if block.get("type") != "text":
                     continue
                 text = block.get("text", "")
-                pruned = self._compact_tool_text(text, max_bytes)
+                pruned, patch = self._compact_tool_text(
+                    text,
+                    max_bytes,
+                    metadata,
+                    block_index=index,
+                )
+                self._merge_truncation_metadata(metadata, patch)
                 if pruned != text:
                     block["text"] = pruned
                     changed = True
@@ -510,17 +541,46 @@ class ScrollContextManager:
             if getattr(block, "type", None) != "text":
                 continue
             text = getattr(block, "text", "") or ""
-            pruned = self._compact_tool_text(text, max_bytes)
+            pruned, patch = self._compact_tool_text(
+                text,
+                max_bytes,
+                metadata,
+                block_index=index,
+            )
+            self._merge_truncation_metadata(metadata, patch)
             if pruned != text:
                 block.text = pruned
                 changed = True
         return output, changed
 
-    def _compact_tool_text(self, text: str, max_bytes: int) -> str:
+    @staticmethod
+    def _merge_truncation_metadata(
+        metadata: dict[str, Any],
+        patch: dict[str, Any],
+    ) -> None:
+        patch_by_block = patch.get(TRUNCATION_METADATA_KEY)
+        if not isinstance(patch_by_block, dict):
+            return
+        current = metadata.setdefault(TRUNCATION_METADATA_KEY, {})
+        if isinstance(current, dict):
+            current.update(patch_by_block)
+
+    def _compact_tool_text(
+        self,
+        text: str,
+        max_bytes: int,
+        metadata: dict[str, Any],
+        block_index: int = 0,
+    ) -> tuple[str, dict[str, Any]]:
         if not text:
-            return text
+            return text, {}
         if TRUNCATION_NOTICE_MARKER in text:
-            return truncate_text_output(text, max_bytes=max_bytes)
+            return truncate_text_output(
+                text,
+                max_bytes=max_bytes,
+                metadata=metadata,
+                block_index=block_index,
+            )
 
         try:
             should_compact = len(text.encode("utf-8")) > max_bytes + 100
@@ -528,6 +588,7 @@ class ScrollContextManager:
             should_compact = False
 
         compacted = text
+        metadata_patch: dict[str, Any] = {}
         if should_compact and self._tool_results_dir:
             try:
                 saved_path = save_text_output(text, self._tool_results_dir)
@@ -537,16 +598,18 @@ class ScrollContextManager:
                     exc,
                 )
             else:
-                candidate = truncate_text_output(
+                candidate, metadata_patch = truncate_text_output(
                     text,
                     start_line=1,
                     total_lines=text.count("\n") + 1,
                     max_bytes=max_bytes,
                     file_path=saved_path,
+                    file_size_bytes=len(text.encode("utf-8")),
+                    block_index=block_index,
                 )
                 if TRUNCATION_NOTICE_MARKER in candidate:
                     compacted = candidate
-        return compacted
+        return compacted, metadata_patch
 
     # -- write-through -------------------------------------------------------
 

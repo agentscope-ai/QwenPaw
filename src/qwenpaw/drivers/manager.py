@@ -173,6 +173,49 @@ class DriverManager:
             await self._shutdown_handler(old)
         return self._runtime_info_from_card(card)
 
+    async def refresh_driver(self, name: str) -> DriverRuntimeInfo | None:
+        """Apply an on-disk card change with the lightest safe action."""
+        path = await self._card_store.stored_path(name)
+        if path is None:
+            raise DriverNotFoundError(name)
+        card = await self._card_store.load_path(path)
+        card = self._validate_card_for_registered_protocol(card)
+
+        async with self._lock:
+            handler = self._handlers.get(name)
+            if handler is not None and not self._requires_reconnect(
+                handler.card,
+                card,
+            ):
+                handler.sync_runtime_metadata(card)
+                return self._runtime_info_from_card(card)
+
+        return await self.reload_driver(name)
+
+    async def sync_driver_policy(self, card: DriverCard) -> None:
+        """Persist and apply a Driver policy without reconnecting.
+
+        When the Driver is not active, only persistence is needed; the policy
+        will be loaded the next time the Driver starts.
+        """
+        card = self._validate_card_for_registered_protocol(card)
+        async with self._lock:
+            await self._card_store.save(card)
+            handler = self._handlers.get(card.name)
+            if handler is None or handler.card.protocol != card.protocol:
+                return
+            handler.set_policy(card.policy)
+
+    @staticmethod
+    def _requires_reconnect(old: DriverCard, new: DriverCard) -> bool:
+        return (
+            old.name != new.name
+            or old.protocol != new.protocol
+            or old.endpoint != new.endpoint
+            or old.credentials != new.credentials
+            or old.enabled != new.enabled
+        )
+
     async def delete_driver(self, name: str) -> None:
         """Delete persisted card and shutdown a published handler."""
         await self._card_store.delete(name)

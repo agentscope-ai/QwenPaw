@@ -7,7 +7,6 @@ from ._ctxvars import get_call_context, reset_call_context, set_call_context
 from ._entry import ToolCallEntry, ToolCallStatus
 from ._hooks import ToolHookRegistry
 from ._middleware import ToolCoordinatorMiddleware
-from ._result_limiter import ToolResultLimiter
 from ._stream import ToolStream
 from ._timeout_helper import cancellable_wait, effective_timeout
 
@@ -19,7 +18,6 @@ __all__ = [
     "ToolCallStatus",
     "ToolCoordinator",
     "ToolCoordinatorMiddleware",
-    "ToolResultLimiter",
     "ToolHookRegistry",
     "ToolStream",
     "cancellable_wait",

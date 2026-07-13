@@ -197,14 +197,13 @@ print(ms.agents())
 
 ### 工具结果
 
-当前有两个相关机制：
+工具结果统一由一个机制处理：
 
-| 机制                          | 默认状态                                     | 作用                                                                                                                                     |
-| ----------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `ToolResultLimiter`           | 由 `tool_result_pruning_config.enabled` 控制 | 工具结果进入 live context 前应用最近预览字节上限，超大 raw output 保存到 `tool_results/`，并返回 `read_file` 续读提示。                  |
-| `ToolResultPruningMiddleware` | 由 `tool_result_pruning_config.enabled` 控制 | 保留按字节裁剪工具结果的兼容路径。scroll 下 execution/recent 共享同一个字节上限，compact 后仍保留的 live preview 使用 compact 字节上限。 |
+| 机制                          | 默认状态                                                             | 作用                                                                                                                                                                                  |
+| ----------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ToolResultPruningMiddleware` | 所有上下文策略下均注册，由 `tool_result_pruning_config.enabled` 控制 | 按字节裁剪当前、后台完成及历史工具结果，把超大原始输出保存到 `tool_results/`，并记录按文本块隔离的恢复 metadata 与 `read_file` 续读提示。                                              |
 
-scroll 不再有独立的基于 token 的工具结果 cap。工具结果在执行层截断一次，history 中保存 live context 里的同一份 preview；只有 retained live context 被 compact 时才会再次缩小 preview。
+scroll 不再有独立的 token 工具结果 cap。recent 与 execution preview 共用 `pruning_recent_msg_max_bytes`；scroll compact 后，仍保留在 live context 的 preview 会缩小到 `pruning_old_msg_max_bytes`，完整 artifact 仍可回溯。
 
 ### 历史迁移（旧会话回填）
 

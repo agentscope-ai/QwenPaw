@@ -547,7 +547,7 @@ async def test_compress_retruncates_retained_tool_result_preview(
     tmp_path: Path,
 ):
     text = "\n".join(f"line {idx}: {'x' * 40}" for idx in range(100))
-    preview = truncate_text_output(
+    preview, metadata = truncate_text_output(
         text,
         start_line=1,
         total_lines=100,
@@ -555,6 +555,7 @@ async def test_compress_retruncates_retained_tool_result_preview(
         file_path="/tmp/full-tool-result.txt",
     )
     turn = assistant_with_tool("call-1", preview)
+    turn.content[2].metadata.update(metadata)
     ctx = [user("current request"), turn]
     mgr = make_manager(
         store,

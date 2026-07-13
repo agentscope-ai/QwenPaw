@@ -32,6 +32,7 @@ import SessionItem from "../../../../components/SessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
+import { useMessageQueueStore } from "../../../../stores/messageQueueStore";
 import {
   buildSessionPath,
   getSessionIdFromPath,
@@ -454,6 +455,15 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       }
 
       localStorage.removeItem(`approval_level-${sessionId}`);
+
+      // Clear the message queue for the deleted session so stale items don't
+      // linger in storage or get sent after deletion. The queue may be keyed
+      // by the local id or the resolved backend id, so clear both. Also notify
+      // the chat page (when mounted) to abort any in-flight background send.
+      const mq = useMessageQueueStore.getState();
+      mq.clear(sessionId);
+      if (backendId && backendId !== sessionId) mq.clear(backendId);
+      sessionApi.onSessionRemoved?.(backendId ?? sessionId);
 
       // Fetch the updated session list after deletion
       const freshList =

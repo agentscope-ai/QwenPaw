@@ -23,6 +23,7 @@ from qwenpaw.agents.tools.file_io import (
     read_file,
     write_file,
 )
+from qwenpaw.agents.tools.utils import TRUNCATION_METADATA_KEY
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +126,13 @@ class TestReadFile:
         text = result.content[0].text
         assert "line2" in text
         assert "line3" in text
+        info = result.metadata[TRUNCATION_METADATA_KEY]["0"]
+        assert info["file_path"] == str(f)
+        assert info["file_size_bytes"] == len(
+            f.read_text(encoding="utf-8").encode("utf-8"),
+        )
+        assert info["start_line"] == 2
+        assert text.endswith(info["notice"])
 
     @pytest.mark.asyncio
     async def test_read_start_line_exceeds_file(self, tmp_path):

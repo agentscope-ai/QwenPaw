@@ -198,14 +198,13 @@ Unsandboxed recall executes arbitrary host Python as the agent user and should o
 
 ### Tool Results
 
-There are two related mechanisms:
+Tool results are handled by one mechanism:
 
-| Mechanism                     | Default                                            | What it does                                                                                                                                                                      |
-| ----------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ToolResultLimiter`           | controlled by `tool_result_pruning_config.enabled` | Applies the recent preview byte limit before tool results enter live context, saves oversized raw output under `tool_results/`, and emits a `read_file` continuation hint.        |
-| `ToolResultPruningMiddleware` | controlled by `tool_result_pruning_config.enabled` | Keeps compatibility with byte-based tool-result pruning. Under scroll, recent/execution previews share one byte limit and compacted retained previews use the compact byte limit. |
+| Mechanism                     | Default                                                                                   | What it does                                                                                                                                                                                                                                    |
+| ----------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ToolResultPruningMiddleware` | registered for every context strategy; controlled by `tool_result_pruning_config.enabled` | Prunes current, background, and historical tool results by bytes, saves oversized raw output under `tool_results/`, and records block-scoped recovery metadata plus a `read_file` continuation hint.                                             |
 
-Scroll no longer has a separate token-based tool-result cap. Tool results are capped once at execution time, persisted to history exactly as they appear in live context, and re-truncated only when retained live context is compacted.
+Scroll no longer has a separate token-based tool-result cap. Recent and execution previews share `pruning_recent_msg_max_bytes`; after scroll compaction, retained live previews are reduced to `pruning_old_msg_max_bytes` while the full artifact remains recallable.
 
 ### Session Migration (Backfill)
 
