@@ -38,6 +38,7 @@ from .routers import router as api_router, create_agent_scoped_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
+from .routers.healthz import router as healthz_router
 from .routers.loops import router as loops_router
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
@@ -471,6 +472,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     app.state.get_agent_by_id = _get_agent_by_id
 
+    app.state.startup_ready = asyncio.Event()
+    app.state.startup_time = startup_start_time
+
     fast_elapsed = time.time() - startup_start_time
     logger.info(
         f"Server ready in {fast_elapsed:.3f}s "
@@ -657,6 +661,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             api_info = read_last_api()
             print_ready_banner(api_info, startup_elapsed)
+
+            app.state.startup_ready.set()
         except Exception:
             logger.error(
                 "Background startup encountered an error",
@@ -873,6 +879,8 @@ def get_doctor_runtime():
 
 
 app.include_router(api_router, prefix="/api")
+
+app.include_router(healthz_router, prefix="/api")
 
 app.include_router(tool_calls_router, prefix="/api")
 
