@@ -1,0 +1,31 @@
+{
+  "id": "ponytail",
+  "name": "Ponytail Quality",
+  "version": "4.8.3",
+  "description": "Lazy senior dev mode — forces the simplest, shortest solution that works: YAGNI, stdlib first, no unrequested abstractions, deletion over addition. Official QwenPaw plugin from github.com/DietrichGebert/ponytail.",
+  "author": "DietrichGebert / Ponytail Team",
+  "license": "MIT",
+  "homepage": "https://github.com/DietrichGebert/ponytail",
+  "type": "general",
+  "entry": {
+    "backend": "backend.py"
+  },
+  "meta": {
+    "tools": [
+      {
+        "name": "ponytail_review",
+        "description": "Review source code for Ponytail rule violations: YAGNI, unnecessary abstractions, stdlib alternatives, dead code, premature complexity. Provide file_path or code argument.",
+        "icon": "🐴"
+      },
+      {
+        "name": "ponytail_lint_prompt",
+        "description": "Given a code change or plan, analyze it against Ponytail Ultra rules before the agent writes code. Call this proactively to avoid violations.",
+        "icon": "🐴"
+      }
+    ]
+  },
+  "entry_points": {
+    "frontend": null,
+    "backend": "backend.py"
+  }
+}
