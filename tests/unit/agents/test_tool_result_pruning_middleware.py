@@ -251,6 +251,12 @@ async def test_background_completion_is_pruned_before_hint(tmp_path):
         coordinator,
         background_result_processor=pruning.prune_tool_response_async,
     )
+    background_completed = asyncio.Event()
+
+    async def on_completion(_entry: Any) -> None:
+        background_completed.set()
+
+    coordinator.on_completion(on_completion)
     tool_call = _ToolCall(id="call-bg", name="slow_tool")
     text = "\n".join("x" * 80 for _ in range(30))
 
@@ -284,11 +290,8 @@ async def test_background_completion_is_pruned_before_hint(tmp_path):
             next_handler,
         ),
     )
-    for _ in range(100):
-        hints = await coordinator.pop_pending_hints("session-bg")
-        if hints:
-            break
-        await asyncio.sleep(0.01)
+    await asyncio.wait_for(background_completed.wait(), timeout=5.0)
+    hints = await coordinator.pop_pending_hints("session-bg")
     assert hints
 
     result_block = next(
