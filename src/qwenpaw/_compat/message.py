@@ -84,15 +84,16 @@ def _coerce_source(
 # ---------------------------------------------------------------------------
 
 
-# pylint: disable=too-many-return-statements
+# pylint: disable=too-many-return-statements, too-many-branches
 def _coerce_block(block: Any) -> Any:
     """Map a stored content block dict to a 2.0 block instance.
 
     Old per-modality blocks (``image`` / ``audio`` / ``video``) are
     rewritten to the unified ``DataBlock``; legacy ``tool_use`` blocks
     are rewritten to ``ToolCallBlock`` (with ``input`` JSON-encoded if
-    needed).  Anything else is returned as-is so the union discriminator
-    on ``Msg.content`` can handle it.
+    needed); legacy ``file`` blocks are downgraded to text placeholders.
+    Anything else is returned as-is so the union discriminator on
+    ``Msg.content`` can handle it.
     """
     if not isinstance(block, Mapping):
         return block
@@ -124,6 +125,28 @@ def _coerce_block(block: Any) -> Any:
             new_block["output"] = [_coerce_block(b) for b in output]
             return new_block
         return block
+    if btype == "file":
+        filename = block.get("filename") or block.get("name") or ""
+        source = block.get("source")
+        if isinstance(source, Mapping):
+            source_type = source.get("type")
+            if source_type == "url":
+                path = source.get("url") or ""
+            elif source_type == "base64":
+                path = ""
+            else:
+                path = ""
+        else:
+            path = str(source) if source else ""
+        filename = (
+            filename or (path.rsplit("/", 1)[-1] if path else "") or "file"
+        )
+        text = (
+            f"File '{filename}' is available at: {path}"
+            if path
+            else f"File '{filename}'"
+        )
+        return {"type": "text", "text": text}
     return block
 
 
