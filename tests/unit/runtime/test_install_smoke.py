@@ -54,22 +54,19 @@ def _isolate_app_module_state() -> object:
     sys.modules is the idiomatic way, but snapshot/restore covers the
     deletion case too.)
     """
-    saved = {
-        name: mod
-        for name, mod in list(sys.modules.items())
-        if name.startswith("qwenpaw.app")
-    }
-    # remove any pre-existing app modules so the test's own import is
-    # the one that runs; the snapshot handles restore on teardown.
-    for name in list(sys.modules):
-        if name.startswith("qwenpaw.app"):
-            del sys.modules[name]
+    saved_app = sys.modules.get("qwenpaw.app._app")
+    # Only isolate the heavy app factory module this test imports.
+    # Blanket-deleting every qwenpaw.app.* (prior version) re-created
+    # agent_context etc. as new module objects, which broke sibling
+    # tests monkeypatching qwenpaw.app.agent_context.get_current_session_id
+    # (their patch landed on the old object; _record_usage imported the
+    # new one). Removing only _app avoids that cross-module aliasing.
+    sys.modules.pop("qwenpaw.app._app", None)
     yield
-    # teardown: drop anything our tests added, then re-add the snapshot
-    for name in list(sys.modules):
-        if name.startswith("qwenpaw.app"):
-            del sys.modules[name]
-    sys.modules.update(saved)
+    # teardown: drop the app factory our tests imported, restore prior
+    sys.modules.pop("qwenpaw.app._app", None)
+    if saved_app is not None:
+        sys.modules["qwenpaw.app._app"] = saved_app
 
 
 @pytest.fixture
