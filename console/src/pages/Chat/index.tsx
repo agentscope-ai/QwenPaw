@@ -105,10 +105,9 @@ import { openExternalLink } from "../../utils/openExternalLink";
 import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import MessageQueuePanel from "./components/MessageQueuePanel";
-import ApprovalLevelToggle, {
-  normalizeLevel,
-  type ToolExecutionLevel,
-} from "./components/ApprovalLevelToggle";
+import ApprovalLevelToggle from "./components/ApprovalLevelToggle";
+import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
+import { type ToolExecutionLevel } from "../../utils/approval";
 import {
   useMessageQueueStore,
   type QueueItem,
@@ -1154,27 +1153,7 @@ export default function ChatPage() {
   const prevQueueLenRef = useRef(messageQueue.length);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
-  const [runningConfigApprovalLevel, setRunningConfigApprovalLevel] =
-    useState<ToolExecutionLevel>("AUTO");
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const config = await agentApi.getAgentRunningConfig();
-        if (!cancelled) {
-          setRunningConfigApprovalLevel(normalizeLevel(config.approval_level));
-        }
-      } catch {
-        if (!cancelled) {
-          setRunningConfigApprovalLevel("AUTO");
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAgent, refreshKey]);
+  const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
 
   // Track pending attachments for queue support
   const pendingFileListRef = useRef<

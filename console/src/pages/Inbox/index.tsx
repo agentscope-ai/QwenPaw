@@ -30,12 +30,8 @@ import { ApprovalCard as GlobalApprovalCard } from "../../components/ApprovalCar
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
-import { agentApi } from "../../api/modules/agent";
 import sessionApi from "../Chat/sessionApi";
-import {
-  normalizeLevel,
-  type ToolExecutionLevel,
-} from "../Chat/components/ApprovalLevelToggle";
+import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
 import { PushMessageCard } from "./components";
 import { useInboxData } from "./hooks/useInboxData";
 import { useTraceViewer } from "./hooks/useTraceViewer";
@@ -91,8 +87,7 @@ export default function InboxPage() {
   const [messagesPage, setMessagesPage] = useState(1);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [batchMode, setBatchMode] = useState(false);
-  const [runningConfigApprovalLevel, setRunningConfigApprovalLevel] =
-    useState<ToolExecutionLevel>("AUTO");
+  const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
   const agents = useAgentStore((state) => state.agents);
   const { approvals: pendingApprovals, setApprovals } = useApprovalContext();
   const {
@@ -255,25 +250,6 @@ export default function InboxPage() {
   useEffect(() => {
     setMessagesPage(1);
   }, [selectedAgentFilter, selectedSourceTypeFilter]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const config = await agentApi.getAgentRunningConfig();
-        if (!cancelled) {
-          setRunningConfigApprovalLevel(normalizeLevel(config.approval_level));
-        }
-      } catch {
-        if (!cancelled) {
-          setRunningConfigApprovalLevel("AUTO");
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleViewMessage = (messageId: string) => {
     const found = pushMessages.find((item) => item.id === messageId);

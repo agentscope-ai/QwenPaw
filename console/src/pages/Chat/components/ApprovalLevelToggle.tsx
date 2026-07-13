@@ -10,15 +10,11 @@ import type { MenuProps } from "antd";
 import { Shield, Ban, AlertTriangle, CheckCircle } from "lucide-react";
 import { DownOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-
-export type ToolExecutionLevel = "STRICT" | "SMART" | "AUTO" | "OFF";
-
-const LEVELS: readonly ToolExecutionLevel[] = [
-  "STRICT",
-  "SMART",
-  "AUTO",
-  "OFF",
-];
+import {
+  LEVELS,
+  normalizeLevel,
+  type ToolExecutionLevel,
+} from "../../../utils/approval";
 
 const LEVEL_META: Record<
   ToolExecutionLevel,
@@ -32,13 +28,6 @@ const LEVEL_META: Record<
 
 function storageKey(chatId: string): string {
   return `approval_level-${chatId}`;
-}
-
-function normalizeLevel(raw: string | undefined): ToolExecutionLevel {
-  const upper = (raw || "AUTO").toUpperCase();
-  return LEVELS.includes(upper as ToolExecutionLevel)
-    ? (upper as ToolExecutionLevel)
-    : "AUTO";
 }
 
 interface ApprovalLevelToggleProps {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button, Card, Tag, Typography, Space, Tooltip } from "antd";
 import { Shield, Check, X, Clock, Copy, Info, AlertCircle } from "lucide-react";
-import type { ToolExecutionLevel } from "../../pages/Chat/components/ApprovalLevelToggle";
+import type { ToolExecutionLevel } from "../../utils/approval";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../stores/agentStore";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
