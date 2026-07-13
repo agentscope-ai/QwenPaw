@@ -174,7 +174,7 @@ def test_builder_places_pruning_outside_tool_coordinator(tmp_path):
     assert pruning_index < coordinator_index
 
 
-def test_builder_skips_pruning_for_scroll_strategy(tmp_path):
+def test_builder_adds_pruning_for_scroll_strategy(tmp_path):
     agent_config = types.SimpleNamespace(
         id="agent-1",
         running=types.SimpleNamespace(
@@ -191,7 +191,7 @@ def test_builder_skips_pruning_for_scroll_strategy(tmp_path):
 
     middlewares = AgentBuilder._build_middlewares(ctx, agent_config)
 
-    assert not any(
+    assert any(
         isinstance(middleware, ToolResultPruningMiddleware)
         for middleware in middlewares
     )

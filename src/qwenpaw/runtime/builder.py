@@ -837,15 +837,12 @@ class AgentBuilder:
         ctx: Any,
         agent_config: Any,
     ) -> Any:
-        """Build native tool-result pruning middleware when applicable."""
+        """Build the tool-result pruning middleware."""
         import os
 
         from ..agents.middlewares import ToolResultPruningMiddleware
 
         lcc = agent_config.running.light_context_config
-        if getattr(lcc, "strategy", "native") == "scroll":
-            return None
-
         trc = lcc.tool_result_pruning_config
         workspace = getattr(ctx, "workspace", None)
         workspace_dir = (
@@ -895,7 +892,6 @@ class AgentBuilder:
 
         Order (onion model, outermost first):
         1. ToolResultPruningMiddleware — tiered tool result pruning
-           (native strategy only; scroll uses durable cap middleware)
         2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
         """
