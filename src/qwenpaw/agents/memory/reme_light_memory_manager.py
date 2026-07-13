@@ -6,7 +6,10 @@ existing agent configs continue to work, but the implementation delegates to
 ReMe's application/job framework.
 """
 
+import base64
+import hashlib
 import logging
+import re
 from contextlib import suppress
 from typing import Any, TYPE_CHECKING
 
@@ -33,6 +36,58 @@ INBOX_RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "auto_resource"}
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 INBOX_EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
 MAX_INBOX_BODY_CHARS = 4000
+_REME_SESSION_ID_PREFIX = "qpsid_"
+_REME_SESSION_ID_B64_PREFIX = f"{_REME_SESSION_ID_PREFIX}b64_"
+_REME_SESSION_ID_HASH_PREFIX = f"{_REME_SESSION_ID_PREFIX}sha256_"
+_MAX_REME_SESSION_ID_CHARS = 240
+_WINDOWS_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_WINDOWS_RESERVED_FILENAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def _to_reme_session_id(session_id: str) -> str:
+    """Return a stable Windows-safe session ID for ReMe file storage.
+
+    ReMe 0.4 uses ``session_id`` as a filename component. QwenPaw channel
+    IDs deliberately contain separators such as ``telegram:123``, which are
+    valid logical identifiers but invalid Windows filenames. Keep ordinary
+    IDs unchanged for compatibility and encode only unsafe IDs. IDs beginning
+    with our encoding namespace are encoded as well, making the mapping
+    unambiguous for existing user-provided IDs.
+    """
+    filename_stem = session_id.split(".", 1)[0].upper()
+    is_safe = (
+        bool(session_id)
+        and session_id == session_id.strip()
+        and session_id not in {".", ".."}
+        and not session_id.endswith(".")
+        and not _WINDOWS_INVALID_FILENAME_CHARS.search(session_id)
+        and filename_stem not in _WINDOWS_RESERVED_FILENAMES
+        and not session_id.startswith(_REME_SESSION_ID_PREFIX)
+        and len(session_id) <= _MAX_REME_SESSION_ID_CHARS
+    )
+    if is_safe:
+        return session_id
+
+    encoded = (
+        base64.urlsafe_b64encode(session_id.encode("utf-8"))
+        .decode(
+            "ascii",
+        )
+        .rstrip("=")
+    )
+    encoded_session_id = f"{_REME_SESSION_ID_B64_PREFIX}{encoded}"
+    if len(encoded_session_id) <= _MAX_REME_SESSION_ID_CHARS:
+        return encoded_session_id
+
+    digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+    return f"{_REME_SESSION_ID_HASH_PREFIX}{digest}"
 
 
 def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
@@ -391,7 +446,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             "auto_memory",
             needs_llm=True,
             messages=[msg.model_dump(mode="json") for msg in messages],
-            session_id=session_id,
+            session_id=_to_reme_session_id(session_id),
             memory_hint=str(kwargs.get("memory_hint") or ""),
         )
         if response is None:

@@ -2101,6 +2101,34 @@ class SecurityConfig(BaseModel):
             "WARNING: Only add trusted IP addresses to this list."
         ),
     )
+    trusted_proxies: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Reverse proxy IP/CIDR list. X-Forwarded-For / X-Real-IP "
+            "headers are only trusted when the direct TCP peer matches "
+            "an entry in this list. Empty (default) = never trust proxy "
+            "headers. Example: ['127.0.0.1', '172.17.0.0/16']"
+        ),
+    )
+
+    @field_validator("trusted_proxies")
+    @classmethod
+    def _validate_trusted_proxies(cls, v: List[str]) -> List[str]:
+        import ipaddress as _ipaddress
+
+        _DENY = {"0.0.0.0/0", "::/0", "0.0.0.0", "::"}
+        cleaned = []
+        for entry in v:
+            entry = entry.strip()
+            if entry in _DENY:
+                raise ValueError(
+                    f"trusted_proxies must not contain"
+                    f" '{entry}' (equivalent to disabling"
+                    f" the security fix)",
+                )
+            net = _ipaddress.ip_network(entry, strict=False)
+            cleaned.append(str(net))
+        return cleaned
 
 
 class Config(BaseModel):

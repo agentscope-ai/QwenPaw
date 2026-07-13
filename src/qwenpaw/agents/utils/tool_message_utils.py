@@ -189,27 +189,48 @@ def _remove_unpaired_tool_messages(msgs: list) -> list:
 
 
 def _dedup_tool_blocks(msgs: list) -> list:
-    """Remove duplicate tool_use blocks (same ID) within a single message."""
+    """Remove duplicate tool_use/tool_result blocks sharing the same ID.
+
+    For both tool_call and tool_result blocks, if multiple blocks across
+    all messages share the same ID, only the first occurrence is kept.
+    Messages whose content becomes empty after dedup are dropped entirely.
+    """
     changed = False
     result: list = []
+    seen_call_ids: set[str] = set()
+    seen_result_ids: set[str] = set()
     for msg in msgs:
         if not isinstance(msg.content, list):
             result.append(msg)
             continue
-        seen_ids: set[str] = set()
         new_blocks: list = []
         deduped = False
         for block in msg.content:
-            if _is_tool_call(block) and _block_attr(block, "id"):
-                bid = _block_attr(block, "id")
-                if bid in seen_ids:
+            bid = _block_attr(block, "id")
+            if bid and _is_tool_call(block):
+                if bid in seen_call_ids:
+                    logger.debug(
+                        "Dropping duplicate tool_call block id=%s",
+                        bid,
+                    )
                     deduped = True
                     continue
-                seen_ids.add(bid)
+                seen_call_ids.add(bid)
+            elif bid and _is_tool_result(block):
+                if bid in seen_result_ids:
+                    logger.debug(
+                        "Dropping duplicate tool_result block id=%s",
+                        bid,
+                    )
+                    deduped = True
+                    continue
+                seen_result_ids.add(bid)
             new_blocks.append(block)
         if deduped:
-            msg.content = new_blocks
             changed = True
+            if not new_blocks:
+                continue
+            msg.content = new_blocks
         result.append(msg)
     return result if changed else msgs
 

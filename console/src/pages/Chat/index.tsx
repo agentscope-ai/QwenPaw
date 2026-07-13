@@ -105,10 +105,9 @@ import { openExternalLink } from "../../utils/openExternalLink";
 import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import MessageQueuePanel from "./components/MessageQueuePanel";
-import ApprovalLevelToggle, {
-  normalizeLevel,
-  type ToolExecutionLevel,
-} from "./components/ApprovalLevelToggle";
+import ApprovalLevelToggle from "./components/ApprovalLevelToggle";
+import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
+import { type ToolExecutionLevel } from "../../utils/approval";
 import {
   useMessageQueueStore,
   type QueueItem,
@@ -1154,27 +1153,7 @@ export default function ChatPage() {
   const prevQueueLenRef = useRef(messageQueue.length);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
-  const [runningConfigApprovalLevel, setRunningConfigApprovalLevel] =
-    useState<ToolExecutionLevel>("AUTO");
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const config = await agentApi.getAgentRunningConfig();
-        if (!cancelled) {
-          setRunningConfigApprovalLevel(normalizeLevel(config.approval_level));
-        }
-      } catch {
-        if (!cancelled) {
-          setRunningConfigApprovalLevel("AUTO");
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAgent, refreshKey]);
+  const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
 
   // Track pending attachments for queue support
   const pendingFileListRef = useRef<
@@ -1830,9 +1809,6 @@ export default function ChatPage() {
       if (!val) return;
       e.preventDefault();
       e.stopPropagation();
-      if (!chatId) {
-        return;
-      }
       const currentQ = useMessageQueueStore.getState().getQueue(queueSessionId);
       if (currentQ.length >= MAX_QUEUE_SIZE) {
         message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
@@ -2044,10 +2020,10 @@ export default function ChatPage() {
 
     const buildCurrentBasePath = () => buildBasePath(getCurrentRouteMode());
 
-    sessionApi.onSessionIdResolved = (_tempId, realId) => {
+    sessionApi.onSessionIdResolved = (tempId, realId) => {
       if (!isChatActiveRef.current) return;
       try {
-        useMessageQueueStore.getState().migrateQueue("new", realId);
+        useMessageQueueStore.getState().migrateQueue(tempId, realId);
       } catch {
         // ignore migration errors
       }
@@ -2061,16 +2037,18 @@ export default function ChatPage() {
     };
 
     sessionApi.onSessionRemoved = (removedId) => {
-      if (!isChatActiveRef.current) return;
-      // Clear URL when current session is removed
-      // Check if removed session matches current session (by realId or sessionId)
-      const currentRealId = sessionApi.getRealIdForSession(
-        chatIdRef.current || "",
-      );
-      if (chatIdRef.current === removedId || currentRealId === removedId) {
-        lastSessionIdRef.current = null;
-        navigateRef.current(buildCurrentBasePath(), { replace: true });
+      // Clean up the queue and abort any in-flight background send for the
+      // removed session so stale items don't linger in storage or get sent
+      // after the conversation is deleted. Navigation to a fresh chat is
+      // owned by the delete handlers (via the "qwenpaw:sidebar-new-chat"
+      // event), so this callback stays focused on resource cleanup and can
+      // run regardless of which session is currently active.
+      try {
+        useMessageQueueStore.getState().clear(removedId);
+      } catch {
+        // ignore
       }
+      stopBackgroundQueue(removedId);
     };
 
     sessionApi.onSessionSelected = (
@@ -2392,6 +2370,11 @@ export default function ChatPage() {
     const i18nConfig = getDefaultConfig(t);
     const commandSuggestions: CommandSuggestion[] = [
       {
+        command: "/new",
+        value: "new",
+        description: "",
+      },
+      {
         command: "/clear",
         value: "clear",
         description: t("chat.commands.clear.description"),
@@ -2418,7 +2401,7 @@ export default function ChatPage() {
       },
     ];
     const reservedCommands = new Set(
-      commandSuggestions.map((item) => item.value.trim()),
+      commandSuggestions.map((item) => item.command.slice(1).trim()),
     );
     const loopSkillNames = new Set(
       useLoopStore.getState().availableSkills.map((s) => s.name),
@@ -2457,9 +2440,6 @@ export default function ChatPage() {
           ?.querySelector("textarea") as HTMLTextAreaElement | null;
         const val = textarea?.value.trim() ?? "";
         if (!val) return false;
-        if (!chatId) {
-          return false;
-        }
         const currentQ = useMessageQueueStore
           .getState()
           .getQueue(queueSessionId);
@@ -3139,6 +3119,9 @@ export default function ChatPage() {
               isGeneralized={request.isGeneralized}
               exactTarget={request.exactTarget}
               similarTarget={request.similarTarget}
+              executionLevel={
+                sessionApprovalLevelRef.current ?? runningConfigApprovalLevel
+              }
               onApprove={(reqId, scope) => handleApprove(reqId, scope)}
               onDeny={handleDeny}
               onCancel={() => {

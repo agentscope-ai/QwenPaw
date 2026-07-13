@@ -9,6 +9,8 @@
     "github": "GitHub",
     "githubComingSoon": "Coming Soon",
     "lang": "中文",
+    "platform": "Platform",
+    "platformTitle": "AgentScope Platform",
     "agentscopeTeam": "AgentScope"
   },
   "hero": {
@@ -19,7 +21,8 @@
     "sub1": "and TUI — all upgraded, all yours.",
     "releaseNote": "QwenPaw {{version}} is released",
     "cta": "Read the docs",
-    "quickStart": "Quick Start"
+    "quickStart": "Quick Start",
+    "quickTry": "Try Now"
   },
   "follow": {
     "title": "Follow us",

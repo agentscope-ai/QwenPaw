@@ -1331,6 +1331,7 @@
     "timeoutAutoDenied": "Waktu habis, otomatis ditolak",
     "acknowledge": "Mengerti",
     "approvePattern": "Selalu Izinkan",
+    "strictModeHint": "Selalu izinkan tidak tersedia dalam mode ketat",
     "approveExact": "Hanya Sekali Ini",
     "approvalScope": "Lingkup Persetujuan",
     "details": "Detail"
