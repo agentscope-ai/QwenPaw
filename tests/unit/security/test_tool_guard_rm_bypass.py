@@ -28,16 +28,16 @@ from qwenpaw.security.tool_guard.guardians.rule_guardian import (
     _check_rm_targets_outside_workspace,
 )
 
-# These cases assert Unix ``rm`` semantics — absolute ``/``-rooted targets and
-# the ``\\rm`` / ``$(which rm)`` / ``command rm`` escape family. On Windows the
-# guard's ``/foo`` token is ambiguous with ``del /F``-style flags, so
-# ``_extract_rm_targets`` deliberately skips it (see rule_guardian._extract_rm_targets).
-# That platform quirk is unrelated to the #5090 bypass the contract pins; the
-# Unix command family only ever runs on POSIX anyway, so skip on win32.
+# These cases assert Unix ``rm`` semantics - absolute ``/``-rooted targets
+# and the ``\\rm`` / ``$(which rm)`` / ``command rm`` escape family. On
+# Windows the guard's ``/foo`` token is ambiguous with ``del /F`` flags, so
+# ``_extract_rm_targets`` skips it (see rule_guardian._extract_rm_targets).
+# That quirk is unrelated to the #5090 bypass; the Unix rm family only ever
+# runs on POSIX, so skip on win32.
 _unix_rm_only = pytest.mark.skipif(
     "sys.platform == 'win32'",
-    reason="Unix ``rm`` semantics (``/abs`` targets, ``\\rm``, ``$(which rm)``) "
-    "are not exercised on Windows; guard treats ``/foo`` as a ``del`` flag there "
+    reason="Unix rm semantics (/abs targets, \\rm, $(which rm)) not "
+    "exercised on Windows; guard treats /foo as a del flag there "
     "(rule_guardian._extract_rm_targets). See #5090.",
 )
 

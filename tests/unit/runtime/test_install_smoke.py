@@ -241,36 +241,37 @@ def test_uvicorn_real_server_serves_on_windows(
 
     try:
         # Poll the server until it responds. Windows CI runners start the
-        # uvicorn subprocess + agent loading noticeably slower than Linux/macOS
-        # (ProactorEventLoop, cold FS, antivirus), so give it a generous budget.
+        # uvicorn subprocess + agent loading slower than Linux/macOS
+        # (ProactorEventLoop, cold FS), so give it a generous budget.
         deadline = time.monotonic() + 120
         last_error: Exception | None = None
-        # Drain whatever the subprocess has printed so far on the loop so a
-        # hung uvicorn still surfaces its output if we time out.
+        # Drain subprocess output on the loop so a hung uvicorn still
+        # surfaces its output if we time out.
         proc_output = bytearray()
         while time.monotonic() < deadline:
             if proc.poll() is not None:
-                # Process exited early — capture output for diagnostics.
+                # Process exited early - capture output for diagnostics.
                 if proc.stdout:
                     proc_output += proc.stdout.read() or b""
+                msg = proc_output.decode("utf-8", errors="replace")[:2000]
                 pytest.fail(
-                    f"uvicorn subprocess exited early (code={proc.returncode}). "
-                    f"Output:\n{proc_output.decode('utf-8', errors='replace')[:2000]}",
+                    f"uvicorn subprocess exited early "
+                    f"(code={proc.returncode}). Output:\n{msg}",
                 )
             try:
                 with urllib.request.urlopen(url, timeout=5) as resp:
+                    body = resp.read().decode("utf-8", errors="replace")[:500]
                     assert resp.status == 200, (
-                        f"Expected 200, got {resp.status}: "
-                        f"{resp.read().decode('utf-8', errors='replace')[:500]}"
+                        f"Expected 200, got {resp.status}: {body}"
                     )
-                return  # success — server is serving
+                return  # success - server is serving
             except (urllib.error.URLError, ConnectionError, OSError) as exc:
                 last_error = exc
                 time.sleep(0.5)
 
-        # Timed out — force-kill the subprocess so its buffered stdout is
-        # flushed and we can see WHY uvicorn never bound the port instead of
-        # just "connection refused" with no context.
+        # Timed out - force-kill the subprocess so its buffered stdout is
+        # flushed and we can see WHY uvicorn never bound the port instead
+        # of just "connection refused" with no context.
         try:
             proc.terminate()
             proc.wait(timeout=5)
@@ -282,11 +283,12 @@ def test_uvicorn_real_server_serves_on_windows(
                 proc_output += proc.stdout.read() or b""
             except Exception:  # noqa: BLE001
                 pass
+        out = proc_output.decode("utf-8", errors="replace")[:3000]
         pytest.fail(
             f"uvicorn server did not become ready within 120s. "
             f"Last error: {last_error}\n"
             f"subproc alive={proc.poll() is None}\n"
-            f"subproc output:\n{proc_output.decode('utf-8', errors='replace')[:3000]}",
+            f"subproc output:\n{out}",
         )
     finally:
         proc.terminate()
