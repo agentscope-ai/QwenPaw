@@ -14,6 +14,7 @@ Currently provided:
   tool-call outputs so oversized results don't exhaust the context budget.
 """
 
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -413,6 +414,13 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         )
 
         return response
+
+    async def prune_tool_response_async(
+        self,
+        response: ToolResponse,
+    ) -> ToolResponse:
+        """Prune a response without blocking the asyncio event loop."""
+        return await asyncio.to_thread(self.prune_tool_response, response)
 
     def _prune_tool_results(self, messages: list["Msg"]) -> None:
         if not messages:

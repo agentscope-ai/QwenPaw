@@ -11,9 +11,7 @@ from agentscope.middleware import MiddlewareBase
 if TYPE_CHECKING:
     from agentscope.agent import Agent
 
-    from ._coordinator import ToolCoordinator
-
-BackgroundResultProcessor = Callable[[Any], Any]
+    from ._coordinator import BackgroundResultProcessor, ToolCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +27,7 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
     def __init__(
         self,
         coordinator: "ToolCoordinator",
-        background_result_processor: BackgroundResultProcessor | None = None,
+        background_result_processor: "BackgroundResultProcessor | None" = None,
     ) -> None:
         self._coordinator = coordinator
         self._background_result_processor = background_result_processor

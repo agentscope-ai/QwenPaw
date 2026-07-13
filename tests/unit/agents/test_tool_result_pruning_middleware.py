@@ -249,7 +249,7 @@ async def test_background_completion_is_pruned_before_hint(tmp_path):
     coordinator = ToolCoordinator(default_timeout_secs=0.001)
     coordinator_middleware = ToolCoordinatorMiddleware(
         coordinator,
-        background_result_processor=pruning.prune_tool_response,
+        background_result_processor=pruning.prune_tool_response_async,
     )
     tool_call = _ToolCall(id="call-bg", name="slow_tool")
     text = "\n".join("x" * 80 for _ in range(30))
@@ -307,6 +307,33 @@ async def test_background_completion_is_pruned_before_hint(tmp_path):
     saved = list(tmp_path.iterdir())
     assert len(saved) == 1
     assert saved[0].read_text(encoding="utf-8") == text
+
+
+@pytest.mark.asyncio
+async def test_async_response_pruning_runs_in_worker_thread(
+    tmp_path,
+    monkeypatch,
+):
+    pruning = ToolResultPruningMiddleware(
+        recent_max_bytes=128,
+        tool_results_dir=str(tmp_path),
+    )
+    response = ToolResponse(
+        content=[TextBlock(type="text", text="line\n" * 100)],
+    )
+    calls = []
+
+    async def fake_to_thread(func, *args):
+        calls.append((func, args))
+        return func(*args)
+
+    monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+    result = await pruning.prune_tool_response_async(response)
+
+    assert calls == [(pruning.prune_tool_response, (response,))]
+    assert TRUNCATION_NOTICE_MARKER in result.content[0].text
+    assert len(list(tmp_path.iterdir())) == 1
 
 
 def test_retruncate_uses_metadata(tmp_path):
@@ -419,7 +446,7 @@ def test_builder_places_pruning_outside_tool_coordinator(tmp_path):
     coordinator_middleware = middlewares[coordinator_index]
     assert (
         coordinator_middleware._background_result_processor
-        == middlewares[pruning_index].prune_tool_response
+        == middlewares[pruning_index].prune_tool_response_async
     )
 
 

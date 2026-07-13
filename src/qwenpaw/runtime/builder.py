@@ -915,7 +915,7 @@ class AgentBuilder:
                     ToolCoordinatorMiddleware(
                         coordinator=tool_coordinator,
                         background_result_processor=(
-                            pruning_middleware.prune_tool_response
+                            pruning_middleware.prune_tool_response_async
                             if pruning_middleware is not None
                             else None
                         ),

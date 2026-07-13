@@ -22,7 +22,10 @@ logger = logging.getLogger(__name__)
 
 CompletionHandler = Callable[[ToolCallEntry], Awaitable[None]]
 OffloadedHandler = Callable[[ToolCallEntry], Awaitable[None]]
-BackgroundResultProcessor = Callable[[ToolResponse], ToolResponse]
+BackgroundResultProcessor = Callable[
+    [ToolResponse],
+    Awaitable[ToolResponse],
+]
 
 
 @dataclass
@@ -615,7 +618,7 @@ class ToolCoordinator:
 
         if background_result_processor is not None:
             try:
-                entry.final_response = background_result_processor(
+                entry.final_response = await background_result_processor(
                     entry.final_response,
                 )
             except Exception:
