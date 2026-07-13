@@ -405,14 +405,16 @@ class ToolResultPruningMiddleware(MiddlewareBase):
             if self._block_type(block) != "text":
                 continue
             text = self._block_text(block)
-            pruned = self._truncate_tool_result(
+            pruned, metadata = self._truncate_tool_result(
                 text,
                 self._recent_max_bytes,
+                response.metadata,
             )
             if isinstance(block, dict):
                 block["text"] = pruned
             else:
                 block.text = pruned
+            response.metadata.update(metadata)
 
         return response
 
@@ -464,11 +466,22 @@ class ToolResultPruningMiddleware(MiddlewareBase):
                     if tool_id in exempt_tool_ids
                     else max_bytes
                 )
-                pruned = self._prune_output(output, effective_max)
+                block_metadata = (
+                    block.setdefault("metadata", {})
+                    if isinstance(block, dict)
+                    else block.metadata
+                )
+                pruned, metadata = self._prune_output(
+                    output,
+                    effective_max,
+                    block_metadata,
+                )
                 if isinstance(block, dict):
                     block["output"] = pruned
+                    block["metadata"].update(metadata)
                 else:
                     block.output = pruned
+                    block.metadata.update(metadata)
 
     def _detect_exempt_tool_ids(self, messages: list["Msg"]) -> Set[str]:
         exempt_ids: Set[str] = set()
@@ -532,43 +545,53 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         self,
         output: str | list[dict],
         max_bytes: int,
+        metadata: dict[str, Any],
         encoding: str = "utf-8",
-    ) -> str | list[dict]:
+    ) -> tuple[str | list[dict], dict[str, Any]]:
         if isinstance(output, str):
-            return self._truncate_tool_result(output, max_bytes, encoding)
+            return self._truncate_tool_result(
+                output,
+                max_bytes,
+                metadata,
+                encoding,
+            )
         if isinstance(output, list):
             for block in output:
                 if isinstance(block, dict) and block.get("type") == "text":
-                    block["text"] = self._truncate_tool_result(
+                    block["text"], patch = self._truncate_tool_result(
                         block.get("text", ""),
                         max_bytes,
+                        metadata,
                         encoding,
                     )
-        return output
+                    metadata.update(patch)
+        return output, metadata
 
     def _truncate_tool_result(
         self,
         content: str,
         max_bytes: int,
+        metadata: dict[str, Any] | None = None,
         encoding: str = "utf-8",
-    ) -> str:
+    ) -> tuple[str, dict[str, Any]]:
         if not content:
-            return content
+            return content, {}
 
         if TRUNCATION_NOTICE_MARKER in content:
             return truncate_text_output(
                 content,
                 max_bytes=max_bytes,
+                metadata=metadata,
                 encoding=encoding,
             )
 
         try:
             content_bytes = len(content.encode(encoding))
         except UnicodeEncodeError:
-            return content
+            return content, {}
 
         if content_bytes <= max_bytes + 100:
-            return content
+            return content, {}
 
         saved_path: str | None = None
         if self._tool_results_dir:

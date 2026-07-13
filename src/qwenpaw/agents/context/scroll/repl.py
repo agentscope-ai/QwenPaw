@@ -229,9 +229,11 @@ def make_recall_history_python(
         # would leave it looking perpetually in-flight to tool coordination,
         # persisted tool_state, and the model. Reflect the actual exit.
         state = ToolResultState.SUCCESS if code == 0 else ToolResultState.ERROR
+        text, metadata = truncate_text_output(text)
         return ToolChunk(
-            content=[TextBlock(type="text", text=truncate_text_output(text))],
+            content=[TextBlock(type="text", text=text)],
             state=state,
+            metadata=metadata,
         )
 
     recall_history_python.__doc__ = _DOC

@@ -20,6 +20,7 @@ sys.modules.setdefault("html2text", html2text_stub)
 from qwenpaw.agents.middlewares import (  # noqa: E402
     ToolResultPruningMiddleware,
 )
+from qwenpaw.agents.tools.utils import TRUNCATION_METADATA_KEY  # noqa: E402
 from qwenpaw.config.config import (  # noqa: E402
     LightContextConfig,
     ToolResultPruningConfig,
@@ -80,6 +81,11 @@ async def test_tool_response_is_pruned_before_yield(tmp_path):
     assert result is response
     assert TRUNCATION_NOTICE_MARKER in result_text
     assert len(result_text.encode("utf-8")) < len(text.encode("utf-8"))
+    truncation = result.metadata[TRUNCATION_METADATA_KEY]
+    assert truncation["file_path"]
+    assert truncation["file_size_bytes"] == len(text.encode("utf-8"))
+    assert truncation["start_line"] == 1
+    assert result_text.endswith(truncation["notice"])
 
     saved = list(tmp_path.iterdir())
     assert len(saved) == 1
@@ -142,6 +148,26 @@ async def test_outer_pruning_caps_coordinator_final_tool_chunk_response(
     assert isinstance(final_response, ToolResponse)
     assert TRUNCATION_NOTICE_MARKER in result_text
     assert len(result_text.encode("utf-8")) < len(text.encode("utf-8"))
+
+
+def test_retruncate_uses_metadata(tmp_path):
+    middleware = ToolResultPruningMiddleware(tool_results_dir=str(tmp_path))
+    text = "\n".join(f"line-{i}: " + "x" * 60 for i in range(100))
+
+    first, metadata = middleware._truncate_tool_result(text, 2000)
+    info = metadata[TRUNCATION_METADATA_KEY]
+    corrupted = first.replace("starts at line 1", "starts at line 999")
+    second, updated = middleware._truncate_tool_result(
+        corrupted,
+        500,
+        metadata,
+    )
+
+    new_info = updated[TRUNCATION_METADATA_KEY]
+    assert new_info["start_line"] == 1
+    assert new_info["max_bytes"] == 500
+    assert new_info["file_path"] == info["file_path"]
+    assert second.endswith(new_info["notice"])
 
 
 def test_builder_places_pruning_outside_tool_coordinator(tmp_path):
