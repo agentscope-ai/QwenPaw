@@ -61,6 +61,7 @@ def run_deep_scan(
     sensitive_paths: List[str],
     detection_rules: list[Any],
     shell_evasion_checks: dict[str, bool],
+    raw_params: dict[str, Any] | None = None,
 ) -> list[GuardFinding]:
     """Run all deep security detectors for one tool call.
 
@@ -73,6 +74,7 @@ def run_deep_scan(
         sensitive_paths: List of sensitive path prefixes from policy.yaml
         detection_rules: List of DetectionRuleConfig from policy.yaml
         shell_evasion_checks: Per-check enablement map from policy.yaml
+        raw_params: Full tool call parameters dict (for param-value scanning)
 
     Returns:
         Accumulated list of GuardFinding objects.
@@ -97,6 +99,7 @@ def run_deep_scan(
                 tool_name=tool_name,
                 target=target,
                 detection_rules=detection_rules,
+                raw_params=raw_params,
             ),
         )
 
@@ -348,12 +351,12 @@ def detect_dangerous_patterns(
     tool_name: str,
     target: str,
     detection_rules: list[Any],
+    raw_params: dict[str, Any] | None = None,
 ) -> list[GuardFinding]:
-    """Match tool target against regex detection rules.
+    """Match tool parameter values against regex detection rules.
 
-    Each rule specifies which tools and params it applies to.
-    Since GovernancePolicy passes `target` (the primary argument),
-    we match against that string.
+    Scans both the primary `target` and all string values in `raw_params`
+    to match the frontend Security page behavior ("匹配工具参数值").
     """
     findings: list[GuardFinding] = []
 
@@ -367,48 +370,63 @@ def detect_dangerous_patterns(
     }
     guard_tool_name = tool_aliases.get(tool_name, tool_name)
 
+    # Collect all scannable values: target + raw_params string values
+    scan_entries: list[tuple[str, str]] = [("target", target)]
+    if raw_params:
+        for param_name, param_value in raw_params.items():
+            if isinstance(param_value, str) and param_value:
+                # Avoid re-scanning target if it's already in params
+                if param_value != target:
+                    scan_entries.append((param_name, param_value))
+
     for rule in detection_rules:
         # Check if rule applies to this tool
         if rule.tools and guard_tool_name not in rule.tools:
             continue
 
         compiled_patterns, compiled_exclude = _get_compiled_patterns(rule)
+        matched = False
 
-        # Check exclude patterns first
-        if any(ep.search(target) for ep in compiled_exclude):
-            continue
+        for param_name, value in scan_entries:
+            if matched:
+                break
 
-        # Check match patterns
-        for pattern in compiled_patterns:
-            m = pattern.search(target)
-            if m:
-                # Context snippet around match
-                start = max(0, m.start() - 40)
-                end = min(len(target), m.end() + 40)
-                snippet = target[start:end]
+            # Check exclude patterns (against this value)
+            if any(ep.search(value) for ep in compiled_exclude):
+                continue
 
-                findings.append(
-                    GuardFinding(
-                        id=f"GUARD-{uuid.uuid4().hex[:12]}",
-                        rule_id=rule.id,
-                        category=rule.category,
-                        severity=rule.severity,
-                        title=f"[{rule.severity}] {rule.description}",
-                        description=(
-                            rule.description
-                            or f"Rule {rule.id} matched tool "
-                            f"'{tool_name}' target."
+            # Check match patterns
+            for pattern in compiled_patterns:
+                m = pattern.search(value)
+                if m:
+                    # Context snippet around match
+                    start = max(0, m.start() - 40)
+                    end = min(len(value), m.end() + 40)
+                    snippet = value[start:end]
+
+                    findings.append(
+                        GuardFinding(
+                            id=f"GUARD-{uuid.uuid4().hex[:12]}",
+                            rule_id=rule.id,
+                            category=rule.category,
+                            severity=rule.severity,
+                            title=f"[{rule.severity}] {rule.description}",
+                            description=(
+                                rule.description
+                                or f"Rule {rule.id} matched parameter "
+                                f"'{param_name}' of tool '{tool_name}'."
+                            ),
+                            tool_name=tool_name,
+                            param_name=param_name,
+                            matched_value=m.group(0),
+                            matched_pattern=pattern.pattern,
+                            snippet=snippet,
+                            remediation=rule.remediation,
+                            detector="pattern_detector",
                         ),
-                        tool_name=tool_name,
-                        param_name="target",
-                        matched_value=m.group(0),
-                        matched_pattern=pattern.pattern,
-                        snippet=snippet,
-                        remediation=rule.remediation,
-                        detector="pattern_detector",
-                    ),
-                )
-                break  # One match per rule is sufficient
+                    )
+                    matched = True
+                    break  # One match per rule is sufficient
 
     return findings
 

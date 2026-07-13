@@ -1237,3 +1237,234 @@ class TestGeneralizeTargetForApproval:
             "sandbox",
         )
         assert result == "echo $(date)"
+
+
+# ===========================================================================
+# TestDeepScanConfigMerge — verify _merge_config_rules bridges frontend
+# Security page rules into governance Phase 1.
+# ===========================================================================
+
+
+class TestDeepScanConfigMerge:
+    """Tests for GovernancePolicy._merge_config_rules().
+
+    Verifies that config.json security.tool_guard custom_rules,
+    disabled_rules, and shell_evasion_checks are merged into the
+    governance deep scan pipeline.
+    """
+
+    def _make_policy(self, tmp_path):
+        """Create a default policy for testing."""
+        policy = _create_default_policy(
+            str(tmp_path),
+            str(tmp_path),
+        )
+        policy.execution_level = "smart"
+        return policy
+
+    def test_deep_scan_merges_config_custom_rules(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A custom_rule from config.json should produce a finding in
+        governance Phase 1 deep scan."""
+        from unittest.mock import MagicMock
+
+        policy = self._make_policy(tmp_path)
+
+        # Mock load_config to return a config with a custom rule
+        mock_cfg = MagicMock()
+        mock_rule = MagicMock()
+        mock_rule.id = "CUSTOM_TEST_RULE"
+        mock_rule.tools = ["execute_shell_command"]
+        mock_rule.params = []
+        mock_rule.category = "command_injection"
+        mock_rule.severity = "HIGH"
+        mock_rule.patterns = [r"\btest_governance_bridge\b"]
+        mock_rule.exclude_patterns = []
+        mock_rule.description = "Test custom rule"
+        mock_rule.remediation = "Do not use test_governance_bridge"
+
+        mock_cfg.security.tool_guard.custom_rules = [mock_rule]
+        mock_cfg.security.tool_guard.disabled_rules = []
+        mock_cfg.security.tool_guard.shell_evasion_checks = {}
+
+        monkeypatch.setattr(
+            "qwenpaw.config.load_config",
+            lambda: mock_cfg,
+        )
+
+        tc = _tc("Bash", "echo test_governance_bridge")
+        findings = policy._deep_security_scan(tc, "shell")
+
+        # Should find at least one finding from our custom rule
+        rule_ids = [f.rule_id for f in findings]
+        assert "CUSTOM_TEST_RULE" in rule_ids
+
+    def test_deep_scan_disabled_rules_filter(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Rules listed in disabled_rules should not participate in
+        detection — neither policy.yaml rules nor config custom_rules."""
+        from unittest.mock import MagicMock
+        from qwenpaw.governance.policy import DetectionRuleConfig
+
+        policy = self._make_policy(tmp_path)
+
+        # Add a policy.yaml detection rule
+        yaml_rule = DetectionRuleConfig(
+            id="YAML_RULE_1",
+            tools=["execute_shell_command"],
+            patterns=[r"\byaml_pattern\b"],
+            severity="HIGH",
+            description="YAML rule",
+        )
+        policy.detection_rules = [yaml_rule]
+
+        # Mock config with disabled_rules that disables YAML_RULE_1
+        mock_cfg = MagicMock()
+        mock_cfg.security.tool_guard.custom_rules = []
+        mock_cfg.security.tool_guard.disabled_rules = ["YAML_RULE_1"]
+        mock_cfg.security.tool_guard.shell_evasion_checks = {}
+
+        monkeypatch.setattr(
+            "qwenpaw.config.load_config",
+            lambda: mock_cfg,
+        )
+
+        tc = _tc("Bash", "echo yaml_pattern")
+        findings = policy._deep_security_scan(tc, "shell")
+
+        # YAML_RULE_1 should be filtered out
+        rule_ids = [f.rule_id for f in findings]
+        assert "YAML_RULE_1" not in rule_ids
+
+    def test_deep_scan_config_shell_evasion_merge(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Shell evasion checks enabled in config.json should activate
+        in governance deep scan even if policy.yaml has them off."""
+        from unittest.mock import MagicMock
+
+        policy = self._make_policy(tmp_path)
+        # Policy has all evasion checks disabled
+        policy.shell_evasion_checks = {
+            "command_substitution": False,
+        }
+
+        # Config enables command_substitution
+        mock_cfg = MagicMock()
+        mock_cfg.security.tool_guard.custom_rules = []
+        mock_cfg.security.tool_guard.disabled_rules = []
+        mock_cfg.security.tool_guard.shell_evasion_checks = {
+            "command_substitution": True,
+        }
+
+        monkeypatch.setattr(
+            "qwenpaw.config.load_config",
+            lambda: mock_cfg,
+        )
+
+        # Command with $() substitution
+        tc = _tc("Bash", "echo $(whoami)")
+        findings = policy._deep_security_scan(tc, "shell")
+
+        # Should detect the command substitution
+        rule_ids = [f.rule_id for f in findings]
+        assert "SHELL_EVASION_COMMAND_SUBSTITUTION" in rule_ids
+
+    def test_deep_scan_config_load_failure_graceful(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """If load_config() raises, deep scan should still work using
+        policy.yaml rules only (graceful degradation)."""
+        from qwenpaw.governance.policy import DetectionRuleConfig
+
+        policy = self._make_policy(tmp_path)
+
+        # Add a policy.yaml rule that should still work
+        yaml_rule = DetectionRuleConfig(
+            id="YAML_FALLBACK_RULE",
+            tools=["execute_shell_command"],
+            patterns=[r"\bfallback_test\b"],
+            severity="MEDIUM",
+            description="Fallback rule",
+        )
+        policy.detection_rules = [yaml_rule]
+
+        # Make load_config raise
+        def _raise_config():
+            raise RuntimeError("config broken")
+
+        monkeypatch.setattr(
+            "qwenpaw.config.load_config",
+            _raise_config,
+        )
+
+        tc = _tc("Bash", "echo fallback_test")
+        findings = policy._deep_security_scan(tc, "shell")
+
+        # Should still detect via policy.yaml rule
+        rule_ids = [f.rule_id for f in findings]
+        assert "YAML_FALLBACK_RULE" in rule_ids
+
+
+# ===========================================================================
+# TestShellFindingDrivenApproval — shell commands with deep-scan findings
+# honor the execution-level severity threshold (Phase 3 fix).
+# ===========================================================================
+
+
+class TestShellFindingDrivenApproval:
+    """Phase 3 shell path: findings drive ASK instead of always falling to
+    SANDBOX_FALLBACK.
+
+    - HIGH/MEDIUM finding + SMART -> ASK
+    - INFO/LOW finding + SMART   -> SANDBOX_FALLBACK (sandbox is safety net)
+    - no finding + SMART         -> SANDBOX_FALLBACK
+    """
+
+    def _policy_with_shell_rule(self, severity: str):
+        """Build a SMART policy with one shell detection rule of *severity*."""
+        from qwenpaw.governance.policy import DetectionRuleConfig
+
+        policy = _create_default_policy(workspace_dir="/tmp/test-workspace")
+        policy.execution_level = "smart"
+        policy.detection_rules = [
+            DetectionRuleConfig(
+                id="SHELL_CUSTOM",
+                tools=["execute_shell_command"],
+                patterns=[r"\bmarker_token\b"],
+                severity=severity,
+                description="custom shell rule",
+            ),
+        ]
+        return policy
+
+    def test_high_finding_shell_smart_asks(self):
+        """HIGH finding on a shell command in SMART mode -> ASK."""
+        policy = self._policy_with_shell_rule("HIGH")
+        tc = _tc("Bash", "echo marker_token")
+        decision = policy.evaluate(tc)
+        assert decision.action is GovernanceAction.ASK
+
+    def test_low_finding_shell_smart_sandbox_fallback(self):
+        """INFO/LOW finding falls through to SANDBOX_FALLBACK."""
+        policy = self._policy_with_shell_rule("LOW")
+        tc = _tc("Bash", "echo marker_token")
+        decision = policy.evaluate(tc)
+        assert decision.action is GovernanceAction.SANDBOX_FALLBACK
+
+    def test_no_finding_shell_smart_sandbox_fallback(self):
+        """No finding -> SANDBOX_FALLBACK (unchanged behavior)."""
+        policy = self._policy_with_shell_rule("HIGH")
+        tc = _tc("Bash", "echo harmless")
+        decision = policy.evaluate(tc)
+        assert decision.action is GovernanceAction.SANDBOX_FALLBACK
