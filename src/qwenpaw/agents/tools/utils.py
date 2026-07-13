@@ -33,6 +33,7 @@ def build_truncation_metadata(
     max_bytes: int,
     excerpt_bytes: int,
     read_from: int,
+    block_index: int = 0,
 ) -> dict[str, Any]:
     """Build metadata and the matching user-facing truncation notice."""
     info = {
@@ -52,7 +53,7 @@ def build_truncation_metadata(
         "\nIf the current content is not enough, call `read_file` with "
         f"file_path={file_path or ''} start_line={read_from} to read more."
     )
-    return {TRUNCATION_METADATA_KEY: info}
+    return {TRUNCATION_METADATA_KEY: {str(block_index): info}}
 
 
 # pylint: disable=too-many-return-statements
@@ -65,6 +66,7 @@ def _truncate_fresh(
     file_path: str | None,
     file_size_bytes: int | None,
     encoding: str,
+    block_index: int,
 ) -> tuple[str, dict[str, Any]]:
     """Truncate fresh text (no prior truncation marker) by bytes with line integrity.
 
@@ -120,11 +122,16 @@ def _truncate_fresh(
         max_bytes=max_bytes,
         excerpt_bytes=len(result.encode(encoding)),
         read_from=read_from,
+        block_index=block_index,
     )
-    return result + metadata[TRUNCATION_METADATA_KEY]["notice"], metadata
+    info = metadata[TRUNCATION_METADATA_KEY][str(block_index)]
+    return result + info["notice"], metadata
 
 
-def _legacy_truncation_metadata(text: str) -> dict[str, Any]:
+def _legacy_truncation_metadata(
+    text: str,
+    block_index: int,
+) -> dict[str, Any]:
     """Recover enough metadata to compact persisted pre-metadata results."""
     notice = text.split(TRUNCATION_NOTICE_MARKER, 1)[1]
     patterns = {
@@ -151,6 +158,7 @@ def _legacy_truncation_metadata(text: str) -> dict[str, Any]:
         start_line=values["start_line"],
         max_bytes=values["max_bytes"],
         read_from=values["read_from"],
+        block_index=block_index,
     )
 
 
@@ -159,6 +167,7 @@ def _retruncate(
     max_bytes: int,
     metadata: dict[str, Any] | None,
     encoding: str,
+    block_index: int,
 ) -> tuple[str, dict[str, Any]]:
     """Re-truncate text that was previously truncated (contains TRUNCATION_NOTICE_MARKER).
 
@@ -166,10 +175,23 @@ def _retruncate(
     results created before truncation metadata was introduced.
     """
     current = dict(metadata or {})
-    if TRUNCATION_METADATA_KEY not in current:
-        current.update(_legacy_truncation_metadata(text))
-    info = current.get(TRUNCATION_METADATA_KEY)
+    by_block = current.get(TRUNCATION_METADATA_KEY)
+    if not isinstance(by_block, dict):
+        by_block = {}
+    info = by_block.get(str(block_index))
     if not isinstance(info, dict):
+        legacy = _legacy_truncation_metadata(text, block_index)
+        legacy_by_block = legacy.get(TRUNCATION_METADATA_KEY, {})
+        info = legacy_by_block.get(str(block_index))
+    if not isinstance(info, dict):
+        return text, {}
+
+    try:
+        start_line = int(str(info.get("start_line")))
+        total_lines = int(str(info.get("total_lines")))
+    except (TypeError, ValueError):
+        return text, {}
+    if start_line < 1 or total_lines < start_line:
         return text, {}
 
     old_notice = info.get("notice", "")
@@ -199,17 +221,19 @@ def _retruncate(
     # The next read should start at the line immediately after all complete lines.
     # max(1, ...) guards against the theoretical zero-newline case
     # (impossible when every line is shorter than DEFAULT_MAX_BYTES).
-    next_line = int(info["start_line"]) + max(1, newline_count)
+    next_line = start_line + max(1, newline_count)
     updated = build_truncation_metadata(
         file_path=info.get("file_path"),
         file_size_bytes=info.get("file_size_bytes"),
-        total_lines=int(info["total_lines"]),
-        start_line=int(info["start_line"]),
+        total_lines=total_lines,
+        start_line=start_line,
         max_bytes=max_bytes,
         excerpt_bytes=len(result.encode(encoding)),
         read_from=next_line,
+        block_index=block_index,
     )
-    return result + updated[TRUNCATION_METADATA_KEY]["notice"], updated
+    updated_info = updated[TRUNCATION_METADATA_KEY][str(block_index)]
+    return result + updated_info["notice"], updated
 
 
 # pylint: disable=too-many-arguments
@@ -222,6 +246,7 @@ def truncate_text_output(
     file_size_bytes: int | None = None,
     metadata: dict[str, Any] | None = None,
     encoding: str = "utf-8",
+    block_index: int = 0,
 ) -> tuple[str, dict[str, Any]]:
     """Truncate file output by bytes with line integrity.
 
@@ -259,6 +284,7 @@ def truncate_text_output(
                 max_bytes=max_bytes,
                 metadata=metadata,
                 encoding=encoding,
+                block_index=block_index,
             )
         else:
             return _truncate_fresh(
@@ -269,6 +295,7 @@ def truncate_text_output(
                 file_path=file_path,
                 file_size_bytes=file_size_bytes,
                 encoding=encoding,
+                block_index=block_index,
             )
     except Exception:
         logger.warning(

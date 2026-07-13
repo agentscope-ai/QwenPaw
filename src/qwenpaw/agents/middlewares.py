@@ -23,7 +23,11 @@ from agentscope.middleware import MiddlewareBase
 from agentscope.message import Msg
 from agentscope.tool import ToolResponse
 
-from .tools.utils import truncate_text_output, DEFAULT_MAX_BYTES
+from .tools.utils import (
+    truncate_text_output,
+    DEFAULT_MAX_BYTES,
+    TRUNCATION_METADATA_KEY,
+)
 from ..constant import (
     AUTO_CONTINUE_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
@@ -399,22 +403,14 @@ class ToolResultPruningMiddleware(MiddlewareBase):
             return response
 
         # Current responses are pruned per text block, not by aggregate
-        # ToolResponse byte size. We can tighten this later if real tool
-        # outputs need a response-wide budget.
-        for block in response.content or []:
-            if self._block_type(block) != "text":
-                continue
-            text = self._block_text(block)
-            pruned, metadata = self._truncate_tool_result(
-                text,
-                self._recent_max_bytes,
-                response.metadata,
-            )
-            if isinstance(block, dict):
-                block["text"] = pruned
-            else:
-                block.text = pruned
-            response.metadata.update(metadata)
+        # ToolResponse byte size. Multi-block truncation metadata is kept by
+        # content index so one block cannot influence another block's retry
+        # location or cached file path.
+        self._prune_text_blocks(
+            response.content or [],
+            self._recent_max_bytes,
+            response.metadata,
+        )
 
         return response
 
@@ -541,13 +537,52 @@ class ToolResultPruningMiddleware(MiddlewareBase):
             return block.get("text", "")
         return getattr(block, "text", "")
 
-    def _prune_output(
+    @staticmethod
+    def _set_block_text(block: Any, text: str) -> None:
+        if isinstance(block, dict):
+            block["text"] = text
+        else:
+            block.text = text
+
+    def _prune_text_blocks(
         self,
-        output: str | list[dict],
+        blocks: list[Any],
         max_bytes: int,
         metadata: dict[str, Any],
         encoding: str = "utf-8",
-    ) -> tuple[str | list[dict], dict[str, Any]]:
+    ) -> None:
+        """Prune text blocks while keeping metadata scoped to each block."""
+        text_indices = [
+            idx
+            for idx, block in enumerate(blocks)
+            if self._block_type(block) == "text"
+        ]
+        if not text_indices:
+            return
+
+        for idx in text_indices:
+            text = self._block_text(blocks[idx])
+            pruned, patch = self._truncate_tool_result(
+                text,
+                max_bytes,
+                metadata,
+                encoding,
+                block_index=idx,
+            )
+            self._set_block_text(blocks[idx], pruned)
+            patch_by_block = patch.get(TRUNCATION_METADATA_KEY)
+            if isinstance(patch_by_block, dict):
+                current = metadata.setdefault(TRUNCATION_METADATA_KEY, {})
+                if isinstance(current, dict):
+                    current.update(patch_by_block)
+
+    def _prune_output(
+        self,
+        output: str | list[Any],
+        max_bytes: int,
+        metadata: dict[str, Any],
+        encoding: str = "utf-8",
+    ) -> tuple[str | list[Any], dict[str, Any]]:
         if isinstance(output, str):
             return self._truncate_tool_result(
                 output,
@@ -556,15 +591,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
                 encoding,
             )
         if isinstance(output, list):
-            for block in output:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    block["text"], patch = self._truncate_tool_result(
-                        block.get("text", ""),
-                        max_bytes,
-                        metadata,
-                        encoding,
-                    )
-                    metadata.update(patch)
+            self._prune_text_blocks(output, max_bytes, metadata, encoding)
         return output, metadata
 
     def _truncate_tool_result(
@@ -573,6 +600,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         max_bytes: int,
         metadata: dict[str, Any] | None = None,
         encoding: str = "utf-8",
+        block_index: int = 0,
     ) -> tuple[str, dict[str, Any]]:
         if not content:
             return content, {}
@@ -583,6 +611,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
                 max_bytes=max_bytes,
                 metadata=metadata,
                 encoding=encoding,
+                block_index=block_index,
             )
 
         try:
@@ -611,6 +640,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
             max_bytes=max_bytes,
             file_path=saved_path,
             encoding=encoding,
+            block_index=block_index,
         )
 
 

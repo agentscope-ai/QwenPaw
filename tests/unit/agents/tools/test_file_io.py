@@ -126,7 +126,7 @@ class TestReadFile:
         text = result.content[0].text
         assert "line2" in text
         assert "line3" in text
-        info = result.metadata[TRUNCATION_METADATA_KEY]
+        info = result.metadata[TRUNCATION_METADATA_KEY]["0"]
         assert info["file_path"] == str(f)
         assert info["file_size_bytes"] == len(
             f.read_text(encoding="utf-8").encode("utf-8"),

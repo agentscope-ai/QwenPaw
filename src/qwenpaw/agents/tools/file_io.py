@@ -211,8 +211,8 @@ async def read_file(  # pylint: disable=too-many-return-statements
         )
 
         # Add continuation hint if partial read without truncation.
-        # Use TRUNCATION_NOTICE_MARKER format so ToolResultCompactor can
-        # re-truncate with the correct start_line when compacting old messages.
+        # Use TRUNCATION_NOTICE_MARKER format so ToolResultPruningMiddleware can
+        # re-truncate with the correct start_line when pruning old messages.
         if text == selected_content and e < total:
             content_bytes = len(text.encode("utf-8"))
             metadata = build_truncation_metadata(
@@ -224,7 +224,7 @@ async def read_file(  # pylint: disable=too-many-return-statements
                 excerpt_bytes=content_bytes,
                 read_from=e + 1,
             )
-            text += metadata[TRUNCATION_METADATA_KEY]["notice"]
+            text += metadata[TRUNCATION_METADATA_KEY]["0"]["notice"]
 
         return ToolChunk(
             is_last=True,
