@@ -21,6 +21,7 @@ export function useToolGuard() {
     Record<string, boolean>
   >({});
   const [enabled, setEnabled] = useState(true);
+  const [sandboxEnabled, setSandboxEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,9 +29,10 @@ export function useToolGuard() {
     setLoading(true);
     setError(null);
     try {
-      const [cfg, builtin] = await Promise.all([
+      const [cfg, builtin, sandbox] = await Promise.all([
         api.getToolGuard(),
         api.getBuiltinRules(),
+        api.getSandbox(),
       ]);
       setConfig(cfg);
       setEnabled(cfg.enabled);
@@ -39,6 +41,7 @@ export function useToolGuard() {
       setDisabledRules(new Set(cfg.disabled_rules ?? []));
       setAutoDenyRules(new Set(cfg.auto_denied_rules ?? []));
       setShellEvasionChecks(cfg.shell_evasion_checks ?? {});
+      setSandboxEnabled(sandbox.enabled);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Failed to load security config";
@@ -157,6 +160,8 @@ export function useToolGuard() {
     autoDenyRules,
     enabled,
     setEnabled,
+    sandboxEnabled,
+    setSandboxEnabled,
     mergedRules,
     shellEvasionChecks,
     toggleShellEvasionCheck,

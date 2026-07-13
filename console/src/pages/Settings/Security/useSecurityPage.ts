@@ -69,6 +69,8 @@ export function useSecurityPage() {
     builtinRules,
     enabled,
     setEnabled,
+    sandboxEnabled,
+    setSandboxEnabled,
     mergedRules,
     shellEvasionChecks,
     toggleShellEvasionCheck,
@@ -107,6 +109,7 @@ export function useSecurityPage() {
         shell_evasion_checks: savedBody.shell_evasion_checks,
       };
       await api.updateToolGuard(body);
+      await api.updateSandbox({ enabled: sandboxEnabled });
       setEnabled(body.enabled);
       message.success(t("security.saveSuccess"));
     } catch (err) {
@@ -119,7 +122,7 @@ export function useSecurityPage() {
     } finally {
       setSaving(false);
     }
-  }, [customRules, buildSaveBody, form, t]);
+  }, [customRules, buildSaveBody, form, t, sandboxEnabled, setEnabled, message]);
 
   const handleReset = useCallback(() => {
     form.resetFields();
@@ -220,6 +223,8 @@ export function useSecurityPage() {
     config,
     enabled,
     setEnabled,
+    sandboxEnabled,
+    setSandboxEnabled,
     toolOptions,
     saving,
     handleSave,

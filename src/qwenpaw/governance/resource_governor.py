@@ -102,6 +102,36 @@ class ResourceGovernor:
         """Probe result from start() (SandboxCapability)."""
         return self._sandbox_capability
 
+    @staticmethod
+    def _sandbox_globally_enabled() -> bool:
+        """Read the global ``security.sandbox_enabled`` switch (config.json).
+
+        Uses the mtime-cached :func:`load_config`, so this is cheap on the
+        hot path and automatically reflects Console updates (``save_config``
+        invalidates the cache). Fails open (returns ``True``) on any error
+        so a config glitch never silently drops sandbox isolation.
+        """
+        try:
+            from ..config import load_config
+
+            return bool(load_config().security.sandbox_enabled)
+        except Exception:
+            logger.debug(
+                "ResourceGovernor: failed to read sandbox_enabled; "
+                "assuming enabled.",
+                exc_info=True,
+            )
+            return True
+
+    def _sandbox_usable(self) -> bool:
+        """Effective sandbox availability: platform support AND global switch.
+
+        When the operator turns the switch off, the sandbox is treated as
+        if the platform did not support it — ``SANDBOX_FALLBACK`` then
+        escalates to ASK rather than running the command unsandboxed.
+        """
+        return self._sandbox_available and self._sandbox_globally_enabled()
+
     def start(self) -> None:
         """Load policy and probe sandbox capabilities."""
         self._policy_dir.mkdir(parents=True, exist_ok=True)
@@ -170,23 +200,27 @@ class ResourceGovernor:
         """
         decision = self.policy.evaluate(tc_spec)
 
-        # Early probe degradation: if sandbox is unavailable, escalate
-        # SANDBOX_FALLBACK to ASK
+        # Early probe degradation: if sandbox is unavailable (platform
+        # unsupported OR the global security.sandbox_enabled switch is off),
+        # escalate SANDBOX_FALLBACK to ASK instead of running unsandboxed.
         if (
             decision.action is GovernanceAction.SANDBOX_FALLBACK
-            and not self._sandbox_available
+            and not self._sandbox_usable()
         ):
+            reason = (
+                "sandbox disabled by config"
+                if self._sandbox_available
+                else f"sandbox unavailable ({self._sandbox_capability.reason})"
+            )
             logger.info(
-                "ResourceGovernor: sandbox unavailable, escalating "
+                "ResourceGovernor: %s, escalating "
                 "SANDBOX_FALLBACK to ASK for tool '%s'",
+                reason,
                 tc_spec.tool_name,
             )
             decision = GovernanceDecision(
                 action=GovernanceAction.ASK,
-                reason=(
-                    f"sandbox unavailable "
-                    f"({self._sandbox_capability.reason}), ask user"
-                ),
+                reason=f"{reason}, ask user",
             )
 
         # compile sandbox config

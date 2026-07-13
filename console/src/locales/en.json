@@ -2312,6 +2312,8 @@
     "toolGuardDescription": "Configure security scanning for tool calls. Dangerous operations will require your explicit approval before execution.",
     "enabled": "Enable Tool Guard",
     "enabledTooltip": "When enabled, tool calls are scanned for dangerous patterns before execution",
+    "sandboxEnabled": "Enable Sandbox Execution",
+    "sandboxEnabledTooltip": "When enabled, shell commands with no matching rule run silently inside the sandbox. When disabled, the sandbox is treated as unavailable and such commands require your approval before running unsandboxed. Secret-file and dangerous-command protections stay active either way.",
     "guardedTools": "Guarded Tools",
     "guardedToolsTooltip": "Tools that require approval when dangerous patterns are detected. Leave empty to use the built-in default set.",
     "guardedToolsPlaceholder": "Select tools or type custom tool names",

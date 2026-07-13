@@ -789,7 +789,10 @@ class GovernancePolicy:
 
         No findings (nothing matched, nothing flagged):
             - STRICT: ASK (all tools require approval)
-            - OTHERS: ASK (no allow rule hit).
+            - SMART / AUTO: ALLOW (deep scan cleared it and no protective
+              rule objected — asking here only trains users to rubber-stamp
+              benign calls; finding-driven approval is restored)
+            - OFF: ALLOW (guard effectively disabled)
         Has findings:
             - STRICT: ASK (any finding triggers approval)
             - SMART: INFO/LOW → ALLOW; MEDIUM+ → ASK
@@ -805,9 +808,14 @@ class GovernancePolicy:
                     reason="STRICT mode: all tool calls require approval",
                     source="fallback",
                 )
+            # SMART / AUTO / OFF: the deep scan surfaced nothing and no
+            # builtin/user rule objected. Asking the user here produces a
+            # flood of low-value prompts, so allow the call (finding-driven
+            # approval). Sensitive-path / dangerous-command protection still
+            # lives in Phase 1/1.5 and the builtin ASK/DENY rules.
             return GovernanceDecision(
-                action=GovernanceAction.ASK,
-                reason=f"{level.upper()} mode: no allow rule hit.",
+                action=GovernanceAction.ALLOW,
+                reason=f"{level.upper()} mode: no findings, no rule hit.",
                 source="fallback",
             )
 

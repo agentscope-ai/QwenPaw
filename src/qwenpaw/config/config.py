@@ -2085,6 +2085,17 @@ class SecurityConfig(BaseModel):
     skill_scanner: SkillScannerConfig = Field(
         default_factory=SkillScannerConfig,
     )
+    sandbox_enabled: bool = Field(
+        default=True,
+        description=(
+            "Global switch for governance sandbox execution. When True, "
+            "shell tools with no matching rule run inside the sandbox "
+            "(no user prompt). When False, the sandbox is treated as "
+            "unavailable: such calls escalate to a user approval (ASK) "
+            "instead of running unsandboxed. Phase 0-2 protections "
+            "(secret-file / dangerous-command blocking) are unaffected."
+        ),
+    )
     allow_no_auth_hosts: List[str] = Field(
         default_factory=lambda: ["127.0.0.1", "::1"],
         description=(
