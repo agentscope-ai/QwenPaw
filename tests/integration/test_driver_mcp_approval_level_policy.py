@@ -313,6 +313,44 @@ async def test_manual_policy_edit_applies_without_transport_reload(
 
 
 @pytest.mark.asyncio
+async def test_manual_endpoint_edit_reloads_transport(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_mcp_runtime_clients(monkeypatch)
+    manager = await _registry_with_policy(
+        tmp_path,
+        [PolicyRule(subject="*", effect="allow")],
+    )
+    original_client = FakeStdIOClient.instances[0]
+    watcher = DriverConfigWatcher(manager, tmp_path / "drivers")
+    baseline = await manager.card_store.snapshot()
+    watcher._last_snapshot = {  # pylint: disable=protected-access
+        path_id: (name, modified_at - 1.0)
+        for path_id, (name, modified_at) in baseline.items()
+    }
+
+    stored_path = card_path(
+        tmp_path / "drivers",
+        "policy_echo",
+        protocol="mcp",
+    )
+    edited_card = load_card(stored_path)
+    edited_card.endpoint = {
+        **edited_card.endpoint,
+        "command": "python-updated",
+    }
+    dump_card(edited_card, stored_path)
+
+    await watcher._check_once()  # pylint: disable=protected-access
+
+    assert len(FakeStdIOClient.instances) == 2
+    assert original_client.is_connected is False
+    assert FakeStdIOClient.instances[1].is_connected is True
+    assert FakeStdIOClient.instances[1].kwargs["command"] == "python-updated"
+
+
+@pytest.mark.asyncio
 async def test_driver_mcp_policy_ask_approve_resumes_client_call(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
