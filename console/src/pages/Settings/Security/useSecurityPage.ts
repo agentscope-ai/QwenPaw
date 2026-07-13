@@ -122,7 +122,15 @@ export function useSecurityPage() {
     } finally {
       setSaving(false);
     }
-  }, [customRules, buildSaveBody, form, t, sandboxEnabled, setEnabled, message]);
+  }, [
+    customRules,
+    buildSaveBody,
+    form,
+    t,
+    sandboxEnabled,
+    setEnabled,
+    message,
+  ]);
 
   const handleReset = useCallback(() => {
     form.resetFields();
