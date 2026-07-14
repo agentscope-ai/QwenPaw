@@ -960,6 +960,17 @@ class LightContextConfig(BaseModel):
         default_factory=ScrollContextConfig,
     )
 
+    @model_validator(mode="after")
+    def warn_deprecated_scroll_tool_cap(self) -> "LightContextConfig":
+        """Warn when the removed scroll-only tool cap is configured."""
+        if "tool_output_token_cap" in self.scroll_config.model_fields_set:
+            logger.warning(
+                "scroll_config.tool_output_token_cap is deprecated and "
+                "ignored; use tool_result_pruning_config."
+                "pruning_recent_msg_max_bytes instead (bytes, not tokens)",
+            )
+        return self
+
 
 class AutoTitleConfig(BaseModel):
     """Async chat-title generation configuration.

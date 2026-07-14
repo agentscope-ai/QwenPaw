@@ -206,6 +206,8 @@ Tool results are handled by one mechanism:
 
 Scroll no longer has a separate token-based tool-result cap. Recent and execution previews share `pruning_recent_msg_max_bytes`; after scroll compaction, retained live previews are reduced to `pruning_old_msg_max_bytes` while the full artifact remains recallable.
 
+`scroll_config.tool_output_token_cap` is accepted only so existing configuration files continue to load. It is ignored and an explicitly configured value produces a migration warning; replace it with `tool_result_pruning_config.pruning_recent_msg_max_bytes`, whose unit is bytes rather than model-estimated tokens. Disabling `tool_result_pruning_config.enabled` also disables Scroll's execution-time per-result bound.
+
 ### Session Migration (Backfill)
 
 Conversations that predate scroll — or any chats already stored as `sessions/*.json` in the workspace — are backfilled into `history.db` automatically, so older history stays recallable through the episodic-memory tools.
@@ -235,7 +237,6 @@ Relevant configuration is under `running.light_context_config`:
       },
       "scroll_config": {
         "db_filename": "history.db",
-        "tool_output_token_cap": 3000,
         "repl_timeout_s": 300,
         "history_retention_days": 30,
         "allow_unsandboxed": false,
@@ -262,7 +263,7 @@ Important fields:
 | `context_compact_config.compact_threshold_ratio` | `0.8`          | Trigger when model input reaches this fraction of context size.                                  |
 | `context_compact_config.reserve_threshold_ratio` | `0.1`          | Recent tail budget kept after eviction.                                                          |
 | `scroll_config.db_filename`                      | `"history.db"` | SQLite filename relative to the workspace.                                                       |
-| `scroll_config.tool_output_token_cap`            | `3000`         | Deprecated; tool result preview sizing is handled by `tool_result_pruning_config`.               |
+| `scroll_config.tool_output_token_cap`            | `3000`         | Deprecated and ignored; explicit values log a warning. Use `pruning_recent_msg_max_bytes`.        |
 | `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                                    |
 | `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                              |
 | `scroll_config.offload_dialog`                   | `false`        | Also write legacy `dialog/*.jsonl` archive. `history.db` remains the source of truth.            |

@@ -205,6 +205,8 @@ print(ms.agents())
 
 scroll 不再有独立的 token 工具结果 cap。recent 与 execution preview 共用 `pruning_recent_msg_max_bytes`；scroll compact 后，仍保留在 live context 的 preview 会缩小到 `pruning_old_msg_max_bytes`，完整 artifact 仍可回溯。
 
+`scroll_config.tool_output_token_cap` 仅为保证旧配置文件仍能加载而保留。该字段会被忽略；如果显式配置，将输出迁移 warning。请改用 `tool_result_pruning_config.pruning_recent_msg_max_bytes`，注意单位已从模型估算 token 改为 bytes。关闭 `tool_result_pruning_config.enabled` 也会同时关闭 scroll 的执行期单条工具结果上限。
+
 ### 历史迁移（旧会话回填）
 
 早于 scroll 的对话——或工作区里已有的任何 `sessions/*.json` 会话——会被自动回填进 `history.db`，这样旧历史依然能被情景记忆工具取回。
@@ -234,7 +236,6 @@ scroll 不再有独立的 token 工具结果 cap。recent 与 execution preview 
       },
       "scroll_config": {
         "db_filename": "history.db",
-        "tool_output_token_cap": 3000,
         "repl_timeout_s": 300,
         "history_retention_days": 30,
         "allow_unsandboxed": false,
@@ -261,7 +262,7 @@ scroll 不再有独立的 token 工具结果 cap。recent 与 execution preview 
 | `context_compact_config.compact_threshold_ratio` | `0.8`          | 模型输入达到上下文窗口该比例时触发。                                      |
 | `context_compact_config.reserve_threshold_ratio` | `0.1`          | 驱逐后保留最近尾部的预算。                                                |
 | `scroll_config.db_filename`                      | `"history.db"` | 相对工作区的 SQLite 文件名。                                              |
-| `scroll_config.tool_output_token_cap`            | `3000`         | 已废弃；工具结果预览大小由 `tool_result_pruning_config` 控制。            |
+| `scroll_config.tool_output_token_cap`            | `3000`         | 已废弃且会被忽略；显式配置会输出 warning。请改用 `pruning_recent_msg_max_bytes`。 |
 | `scroll_config.repl_timeout_s`                   | `300`          | `recall_history_python` 单次调用超时时间。                                |
 | `scroll_config.history_retention_days`           | `30`           | 自动清理早于该天数的历史行；设为 `0` 表示永久保留。                       |
 | `scroll_config.offload_dialog`                   | `false`        | 是否额外写旧版 `dialog/*.jsonl` 归档；`history.db` 仍是真相来源。         |

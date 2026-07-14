@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import types
 from dataclasses import dataclass, field
@@ -512,3 +513,54 @@ def test_builder_adds_pruning_for_scroll_strategy(tmp_path):
         isinstance(middleware, ToolCoordinatorMiddleware)
         for middleware in middlewares
     )
+
+
+def test_explicit_legacy_scroll_tool_cap_warns(caplog):
+    with caplog.at_level(logging.WARNING, logger="qwenpaw.config.config"):
+        LightContextConfig(
+            strategy="scroll",
+            scroll_config={"tool_output_token_cap": 1200},
+        )
+
+    assert "tool_output_token_cap is deprecated and ignored" in caplog.text
+    assert "pruning_recent_msg_max_bytes" in caplog.text
+    assert "bytes, not tokens" in caplog.text
+
+
+def test_default_legacy_scroll_tool_cap_does_not_warn(caplog):
+    with caplog.at_level(logging.WARNING, logger="qwenpaw.config.config"):
+        LightContextConfig(strategy="scroll")
+
+    assert "tool_output_token_cap is deprecated and ignored" not in caplog.text
+
+
+def test_scroll_pruning_disabled_leaves_current_result_unbounded(tmp_path):
+    agent_config = types.SimpleNamespace(
+        id="agent-1",
+        running=types.SimpleNamespace(
+            light_context_config=LightContextConfig(
+                strategy="scroll",
+                tool_result_pruning_config=ToolResultPruningConfig(
+                    enabled=False,
+                ),
+            ),
+        ),
+    )
+    ctx = types.SimpleNamespace(
+        app_services=types.SimpleNamespace(tool_coordinator=ToolCoordinator()),
+        workspace=types.SimpleNamespace(workspace_dir=str(tmp_path)),
+    )
+    middlewares = AgentBuilder._build_middlewares(ctx, agent_config)
+    pruning = next(
+        middleware
+        for middleware in middlewares
+        if isinstance(middleware, ToolResultPruningMiddleware)
+    )
+    text = "line\n" * 20_000
+    response = ToolResponse(content=[TextBlock(text=text)])
+
+    result = pruning.prune_tool_response(response)
+
+    assert result.content[0].text == text
+    assert TRUNCATION_NOTICE_MARKER not in result.content[0].text
+    assert not list((tmp_path / "tool_results").glob("*"))
