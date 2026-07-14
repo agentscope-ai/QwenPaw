@@ -11,7 +11,8 @@ import { ToolOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell } from "../shared";
 import { DefaultBlock } from "../shared";
-import { stringifyResult } from "../shared/utils";
+import InlineMediaText from "../shared/InlineMediaText";
+import { extractAllMediaFromResult, stringifyResult } from "../shared/utils";
 
 export interface GenericToolCardProps {
   content: ToolCallContent;
@@ -27,6 +28,8 @@ const GenericToolCard: React.FC<GenericToolCardProps> = ({
     ? `${content.serverLabel} / ${content.name}`
     : content.name;
   const resultText = stringifyResult(content.result);
+  const mediaList = extractAllMediaFromResult(content);
+  const hasOutput = resultText || mediaList.length > 0;
 
   return (
     <ToolCardShell
@@ -34,8 +37,17 @@ const GenericToolCard: React.FC<GenericToolCardProps> = ({
       title={t("tool.execute", { tool: toolLabel })}
       content={content}
       isStreaming={isStreaming}
+      disableAutoMedia
     >
-      {resultText && <DefaultBlock title="Output" content={resultText} />}
+      {hasOutput && (
+        <DefaultBlock
+          title="Output"
+          content={resultText}
+          renderContent={() => (
+            <InlineMediaText text={resultText} media={mediaList} />
+          )}
+        />
+      )}
     </ToolCardShell>
   );
 };

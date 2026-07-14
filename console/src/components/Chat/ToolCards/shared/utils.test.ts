@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { TFunction } from "i18next";
 import { formatAgentList, formatMemorySearch } from "./utils";
+
+vi.mock("@/api/modules/chat", () => ({
+  chatApi: {
+    filePreviewUrl: vi.fn((p: string) => `http://localhost:8000${p}`),
+  },
+}));
 
 const translate = ((key: string) => {
   const translations: Record<string, string> = {
@@ -108,5 +114,114 @@ describe("formatAgentList", () => {
       "| Coder | `agent-1` | Coding agent | ready |",
     );
     expect(formattedResult).not.toContain("|  | `` |  |  |");
+  });
+});
+
+import { extractAllMediaFromResult, type MediaInfo } from "./utils";
+import type { ToolCallContent } from "./types";
+
+const makeContent = (
+  result: unknown,
+  params?: Record<string, unknown>,
+): ToolCallContent => ({
+  type: "tool_call",
+  id: "test-id",
+  name: "test_tool",
+  params: params || {},
+  result,
+  status: "done",
+});
+
+describe("extractAllMediaFromResult", () => {
+  it("returns empty array when no media is found", () => {
+    expect(extractAllMediaFromResult(makeContent("plain text"))).toEqual([]);
+  });
+
+  it("extracts a single image from MCP content blocks", () => {
+    const content = makeContent([
+      { type: "image", source: { type: "url", url: "/uploads/img.png" } },
+      { type: "text", text: "Here is the image" },
+    ]);
+    const media = extractAllMediaFromResult(content);
+    expect(media).toHaveLength(1);
+    expect(media[0].type).toBe("image");
+    expect(media[0].name).toBe("img.png");
+  });
+
+  it("extracts multiple files from MCP content blocks", () => {
+    const content = makeContent([
+      { type: "image", source: { type: "url", url: "/uploads/a.png" } },
+      {
+        type: "file",
+        source: { type: "url", url: "/uploads/b.pdf" },
+        filename: "report.pdf",
+      },
+      { type: "video", source: { type: "url", url: "/uploads/c.mp4" } },
+    ]);
+    const media = extractAllMediaFromResult(content);
+    expect(media).toHaveLength(3);
+    expect(media.map((m: MediaInfo) => m.type)).toEqual([
+      "image",
+      "file",
+      "video",
+    ]);
+  });
+
+  it("parses JSON-string MCP blocks", () => {
+    const content = makeContent(
+      JSON.stringify([
+        { type: "audio", source: { type: "url", url: "/uploads/sound.mp3" } },
+      ]),
+    );
+    const media = extractAllMediaFromResult(content);
+    expect(media).toHaveLength(1);
+    expect(media[0].type).toBe("audio");
+  });
+
+  it("extracts path from plain text using saved-to pattern", () => {
+    const content = makeContent("Image saved to /tmp/output.png");
+    const media = extractAllMediaFromResult(content);
+    expect(media).toHaveLength(1);
+    expect(media[0].type).toBe("image");
+  });
+
+  it("falls back to params when result has no media", () => {
+    const content = makeContent("done", { image_path: "/tmp/params.png" });
+    const media = extractAllMediaFromResult(content);
+    expect(media).toHaveLength(1);
+    expect(media[0].type).toBe("image");
+  });
+
+  it("deduplicates by display URL", () => {
+    const content = makeContent([
+      { type: "image", source: { type: "url", url: "/uploads/img.png" } },
+      { type: "text", text: "see /uploads/img.png" },
+    ]);
+    const media = extractAllMediaFromResult(content);
+    expect(media).toHaveLength(1);
+  });
+
+  it("does not duplicate when params path differs from result block url", () => {
+    const content = makeContent(
+      JSON.stringify([
+        {
+          type: "image",
+          source: { type: "url", url: "file:///Users/zz/Desktop/尾巴帧.jpg" },
+        },
+        { type: "text", text: "Image loaded: 尾巴帧.jpg" },
+      ]),
+      { image_path: "尾巴帧.jpg" },
+    );
+    const media = extractAllMediaFromResult(content);
+    expect(media).toHaveLength(1);
+    expect(media[0].name).toBe("尾巴帧.jpg");
+    expect(media[0].rawUrl).toBe("file:///Users/zz/Desktop/尾巴帧.jpg");
+  });
+
+  it("preserves rawUrl on extracted media", () => {
+    const content = makeContent("Image saved to /tmp/output.png");
+    const media = extractAllMediaFromResult(content);
+    expect(media).toHaveLength(1);
+    expect(media[0].rawUrl).toBe("/tmp/output.png");
   });
 });

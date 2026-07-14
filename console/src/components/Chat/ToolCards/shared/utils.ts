@@ -106,6 +106,8 @@ export type MediaType = "image" | "video" | "audio" | "file";
 
 export interface MediaInfo {
   url: string;
+  /** Original URL/path as it appeared in the tool result or params. */
+  rawUrl?: string;
   name: string;
   type: MediaType;
   size?: number;
@@ -218,6 +220,101 @@ export function getMediaInfo(tc: ToolCallContent): MediaInfo | null {
   const mediaType = classifyMediaType(ext);
 
   return { url: toDisplayUrl(rawUrl), name, type: mediaType };
+}
+
+/** Extract all media references from a tool result and params. */
+export function extractAllMediaFromResult(tc: ToolCallContent): MediaInfo[] {
+  const params = tc.params || {};
+  const paramPath = getPathFromParams(params);
+  const result = tc.result;
+  const seen = new Map<string, MediaInfo>();
+
+  const addMedia = (rawUrl: string, filename?: string) => {
+    if (!rawUrl) return;
+    const url = toDisplayUrl(rawUrl);
+    if (seen.has(url)) return;
+    const name =
+      filename ||
+      rawUrl.split("/").pop() ||
+      paramPath.split("/").pop() ||
+      "file";
+    const ext = getFileExtFromPath(name);
+    seen.set(url, {
+      url,
+      rawUrl,
+      name,
+      type: classifyMediaType(ext),
+    });
+  };
+
+  // Whether any media was found in the result itself (blocks or text).
+  // When the result already contains media, skip the params fallback to avoid
+  // duplicates when the same file is referenced with different paths.
+  let foundFromResult = false;
+
+  // 1) MCP content blocks (array or JSON string)
+  let blocks: unknown[] | null = null;
+  if (typeof result === "string") {
+    try {
+      const parsed = JSON.parse(result);
+      if (Array.isArray(parsed)) blocks = parsed;
+    } catch {
+      // not JSON, keep null
+    }
+  } else if (Array.isArray(result)) {
+    blocks = result;
+  }
+
+  if (blocks) {
+    for (const block of blocks) {
+      if (!block || typeof block !== "object") continue;
+      const b = block as Record<string, unknown>;
+
+      if (b.source && typeof b.source === "object") {
+        const src = b.source as Record<string, unknown>;
+        if (typeof src.url === "string" && src.url) {
+          addMedia(
+            src.url,
+            typeof b.filename === "string" ? b.filename : undefined,
+          );
+          foundFromResult = true;
+        }
+      }
+
+      if (typeof b.url === "string" && b.url) {
+        addMedia(
+          b.url,
+          typeof b.filename === "string" ? b.filename : undefined,
+        );
+        foundFromResult = true;
+      }
+
+      if (typeof b.path === "string" && b.path) {
+        addMedia(
+          b.path,
+          typeof b.filename === "string" ? b.filename : undefined,
+        );
+        foundFromResult = true;
+      }
+    }
+  }
+
+  // 2) Plain text regex fallback
+  if (!blocks && typeof result === "string") {
+    const textUrl = extractUrlFromText(result);
+    if (textUrl) {
+      addMedia(textUrl);
+      foundFromResult = true;
+    }
+  }
+
+  // 3) Param path fallback for tools that pass path in arguments.
+  // Only used when the result itself did not already contain a media reference.
+  if (paramPath && !foundFromResult) {
+    addMedia(paramPath);
+  }
+
+  return Array.from(seen.values());
 }
 
 /** Try to extract a file URL from a text result via regex patterns */

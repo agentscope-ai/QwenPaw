@@ -266,6 +266,7 @@ const BrowserUseCard: React.FC<BrowserUseCardProps> = ({
         isStreaming={isStreaming}
         icon={<ChromeOutlined />}
         title={title}
+        disableAutoMedia
       />
     );
   }
@@ -278,6 +279,7 @@ const BrowserUseCard: React.FC<BrowserUseCardProps> = ({
       isStreaming={isStreaming}
       icon={<ChromeOutlined />}
       title={title}
+      disableAutoMedia
     >
       {resultText && <DefaultBlock title="Output" content={resultText} />}
     </ToolCardShell>

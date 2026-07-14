@@ -20,6 +20,8 @@ export interface DefaultBlockProps {
   title: string;
   content: string;
   copyTitle?: string;
+  /** Optional custom renderer for the content body. */
+  renderContent?: (content: string) => React.ReactNode;
 }
 
 /** Try to parse JSON. Returns parsed object or null. */
@@ -52,6 +54,7 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
   title,
   content,
   copyTitle,
+  renderContent,
 }) => {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -72,7 +75,10 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
       .catch(() => {});
   }, [content]);
 
-  const renderContent = () => {
+  const renderBody = () => {
+    if (renderContent) {
+      return renderContent(content);
+    }
     if (isMarkdown) {
       return (
         <div className={styles.defaultBlockContentMd}>
@@ -116,7 +122,7 @@ const DefaultBlock: React.FC<DefaultBlockProps> = ({
           {copied ? <CheckOutlined /> : <CopyOutlined />}
         </button>
       </div>
-      {renderContent()}
+      {renderBody()}
     </div>
   );
 };

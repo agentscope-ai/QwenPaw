@@ -2,8 +2,8 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { VideoCameraOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
-import { ToolCardShell, MediaPreview } from "../shared";
-import { shortFileName, getMediaInfo } from "../shared/utils";
+import { ToolCardShell } from "../shared";
+import { shortFileName } from "../shared/utils";
 
 export interface ViewVideoCardProps {
   content: ToolCallContent;
@@ -22,17 +22,13 @@ const ViewVideoCard: React.FC<ViewVideoCardProps> = ({
     ? t("tool.viewVideo", { file })
     : t("tool.viewVideoDefault");
 
-  const media = getMediaInfo(content);
-
   return (
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
       icon={<VideoCameraOutlined />}
       title={title}
-    >
-      {media && <MediaPreview media={media} />}
-    </ToolCardShell>
+    />
   );
 };
 

@@ -4,6 +4,9 @@ export { default as DefaultBlock } from "./DefaultBlock";
 export type { DefaultBlockProps } from "./DefaultBlock";
 export { default as MediaPreview } from "./MediaPreview";
 export type { MediaPreviewProps } from "./MediaPreview";
+export { default as ResultMediaPreviews } from "./ResultMediaPreviews";
+export type { ResultMediaPreviewsProps } from "./ResultMediaPreviews";
+export { extractAllMediaFromResult } from "./utils";
 export {
   toDisplayUrl,
   shortFileName,

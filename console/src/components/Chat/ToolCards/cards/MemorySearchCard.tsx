@@ -40,6 +40,7 @@ const MemorySearchCard: React.FC<MemorySearchCardProps> = ({
         isStreaming={isStreaming}
         icon={<BulbOutlined />}
         title={title}
+        disableAutoMedia
       />
     );
   }
@@ -58,6 +59,7 @@ const MemorySearchCard: React.FC<MemorySearchCardProps> = ({
       isStreaming={isStreaming}
       icon={<BulbOutlined />}
       title={title}
+      disableAutoMedia
     >
       {formattedResult && (
         <DefaultBlock title="Output" content={formattedResult} />

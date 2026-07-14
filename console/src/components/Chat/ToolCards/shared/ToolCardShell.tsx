@@ -9,6 +9,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import type { ToolCallContent } from "./types";
 import DefaultBlock from "./DefaultBlock";
+import ResultMediaPreviews from "./ResultMediaPreviews";
 import { stringifyResult } from "./utils";
 import styles from "./toolCards.module.less";
 
@@ -27,6 +28,8 @@ export interface ToolCardShellProps {
   badges?: React.ReactNode;
   /** Expandable body content. */
   children?: React.ReactNode;
+  /** Disable automatic media preview extraction from result. */
+  disableAutoMedia?: boolean;
 }
 
 const ToolCardShell: React.FC<ToolCardShellProps> = ({
@@ -37,6 +40,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
   inlineResult,
   badges,
   children,
+  disableAutoMedia = false,
 }) => {
   const { t } = useTranslation();
   const isLoading = content.status === "calling" && isStreaming;
@@ -83,7 +87,10 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
           />
         </>
       ) : (
-        children
+        <>
+          {children}
+          {!disableAutoMedia && <ResultMediaPreviews content={content} />}
+        </>
       )}
     </details>
   );
