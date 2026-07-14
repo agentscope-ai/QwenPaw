@@ -96,6 +96,7 @@ def create_doom_loop_gate(
             window_size=doom_cfg.window_size,
             similarity_threshold=(doom_cfg.similarity_threshold),
             stages=doom_cfg.stages,
+            exempt_tools=set(getattr(doom_cfg, "exempt_tools", [])),
         )
     except Exception:  # noqa: BLE001
         logger.debug(

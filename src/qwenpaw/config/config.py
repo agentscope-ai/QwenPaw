@@ -1104,6 +1104,25 @@ class DoomLoopConfig(BaseModel):
         default=False,
         description=("Also run during /goal and " "/mission loop modes"),
     )
+    exempt_tools: List[str] = Field(
+        default_factory=lambda: [
+            "recall_history",
+            "recall_history_python",
+            "read_file",
+        ],
+        description=(
+            "Tool names exempt from doom loop "
+            "detection. Read-only tools that are "
+            "legitimately called repeatedly "
+            "(e.g. memory recall, file reading) "
+            "should be listed here to avoid "
+            "false positives (#5906)."
+            " recall_history_python is the "
+            "sandboxed REPL used by default in "
+            "scroll context; recall_history is "
+            "the structured fallback."
+        ),
+    )
 
 
 class IterationGateConfig(BaseModel):

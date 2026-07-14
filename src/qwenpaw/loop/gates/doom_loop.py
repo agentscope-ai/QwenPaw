@@ -65,6 +65,7 @@ class DoomLoopGate(LoopGate):
         window_size: int = 3,
         similarity_threshold: float = 1.0,
         stages: list | None = None,
+        exempt_tools: set[str] | None = None,
     ) -> None:
         super().__init__()
         self._window_size = max(2, window_size)
@@ -73,6 +74,14 @@ class DoomLoopGate(LoopGate):
             stages or [],
             key=lambda s: s.after,
         )
+        self._exempt_tools = set(exempt_tools) if exempt_tools else set()
+
+        # Trade-off (#5906): fully exempting read-only tools means a
+        # model stuck in an infinite read-only loop (e.g. same
+        # recall_history call forever) is invisible to this gate and
+        # will burn tokens unchecked.  This is an accepted hotfix cost
+        # — the alternative (higher tolerance instead of full exempt)
+        # is tracked as a follow-up.
 
     def _ensure_state(self) -> _DoomState:
         """Get or create per-session state."""
@@ -93,6 +102,8 @@ class DoomLoopGate(LoopGate):
     ) -> None:
         """Record a completed tool call."""
         state = self._ensure_state()
+        if tool_name in self._exempt_tools:
+            return
         state.history.append(
             _ToolCallRecord(
                 tool_name=tool_name,
@@ -177,7 +188,15 @@ class DoomLoopGate(LoopGate):
         ctx: Any,
         state: _DoomState,
     ) -> None:
-        """Extract latest tool call from agent context."""
+        """Extract latest tool call from agent context.
+
+        Skips exempt tools — if the last tool call in the context
+        is exempt, continues scanning backwards for the next
+        non-exempt one.  ``last_recorded_iter`` is only advanced
+        after a record is actually appended (or no tool call at
+        all is found), so an exempt tool never silently swallows
+        a non-exempt call in the same iteration.
+        """
         if not isinstance(ctx, dict):
             return
         agent = ctx.get("agent")
@@ -186,7 +205,6 @@ class DoomLoopGate(LoopGate):
         cur_iter = ctx.get("iteration", 0)
         if cur_iter <= state.last_recorded_iter:
             return
-        state.last_recorded_iter = cur_iter
 
         context = getattr(
             getattr(agent, "state", None),
@@ -194,10 +212,12 @@ class DoomLoopGate(LoopGate):
             [],
         )
         if not context:
+            state.last_recorded_iter = cur_iter
             return
         last_msg = context[-1]
         content = getattr(last_msg, "content", None)
         if not content or not isinstance(content, list):
+            state.last_recorded_iter = cur_iter
             return
         for block in reversed(content):
             btype = getattr(block, "type", None)
@@ -209,6 +229,8 @@ class DoomLoopGate(LoopGate):
                     if isinstance(block, dict)
                     else getattr(block, "name", "")
                 )
+                if name in self._exempt_tools:
+                    continue
                 raw_input = (
                     block.get("input", "")
                     if isinstance(block, dict)
@@ -221,7 +243,9 @@ class DoomLoopGate(LoopGate):
                         args_hash=args_hash,
                     ),
                 )
+                state.last_recorded_iter = cur_iter
                 return
+        state.last_recorded_iter = cur_iter
 
     @staticmethod
     def _hash_args(raw_input: Any) -> str:
