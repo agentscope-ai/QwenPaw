@@ -31,12 +31,9 @@ from agentscope.message import Msg, TextBlock, UserMsg
 from ....constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SYNTHETIC_USER_MESSAGE_TAGS,
-    TRUNCATION_NOTICE_MARKER,
 )
 from ...tools.utils import (
-    save_text_output,
-    truncate_text_output,
-    TRUNCATION_METADATA_KEY,
+    ToolResultPruner,
 )
 from ....utils.model_response import consume_model_response
 from . import _as_internals as as_internals
@@ -146,7 +143,7 @@ class ScrollContextManager:
         self._summarize_unheadlined = summarize_unheadlined
         self._summarize_timeout_s = summarize_timeout_s
         self._compact_tool_result_max_bytes = compact_tool_result_max_bytes
-        self._tool_results_dir = tool_results_dir
+        self._tool_result_pruner = ToolResultPruner(tool_results_dir)
         # Dialog archive: when an offloader is wired (``offload_dialog``, on by
         # default), evicted turns are also written to ``dialog/{date}.jsonl``
         # for external consumers. ``history.db`` remains the source of truth.
@@ -498,10 +495,11 @@ class ScrollContextManager:
                     if isinstance(block, dict)
                     else block.metadata
                 )
-                pruned, changed = self._compact_tool_output(
+                pruned, changed = self._tool_result_pruner.prune_output(
                     output,
-                    max_bytes,
-                    metadata,
+                    max_bytes=max_bytes,
+                    metadata=metadata,
+                    fresh_size_slack_bytes=100,
                 )
                 if not changed:
                     continue
@@ -511,113 +509,6 @@ class ScrollContextManager:
                     block.output = pruned
                 compacted += 1
         return compacted
-
-    def _compact_tool_output(
-        self,
-        output: Any,
-        max_bytes: int,
-        metadata: dict[str, Any],
-    ) -> tuple[Any, bool]:
-        if isinstance(output, str):
-            pruned, patch = self._compact_tool_text(
-                output,
-                max_bytes,
-                metadata,
-            )
-            self._merge_truncation_metadata(metadata, patch)
-            return pruned, pruned != output
-        if not isinstance(output, list):
-            return output, False
-
-        changed = False
-        for index, block in enumerate(output):
-            if isinstance(block, dict):
-                if block.get("type") != "text":
-                    continue
-                text = block.get("text", "")
-                pruned, patch = self._compact_tool_text(
-                    text,
-                    max_bytes,
-                    metadata,
-                    block_index=index,
-                )
-                self._merge_truncation_metadata(metadata, patch)
-                if pruned != text:
-                    block["text"] = pruned
-                    changed = True
-                continue
-            if getattr(block, "type", None) != "text":
-                continue
-            text = getattr(block, "text", "") or ""
-            pruned, patch = self._compact_tool_text(
-                text,
-                max_bytes,
-                metadata,
-                block_index=index,
-            )
-            self._merge_truncation_metadata(metadata, patch)
-            if pruned != text:
-                block.text = pruned
-                changed = True
-        return output, changed
-
-    @staticmethod
-    def _merge_truncation_metadata(
-        metadata: dict[str, Any],
-        patch: dict[str, Any],
-    ) -> None:
-        patch_by_block = patch.get(TRUNCATION_METADATA_KEY)
-        if not isinstance(patch_by_block, dict):
-            return
-        current = metadata.setdefault(TRUNCATION_METADATA_KEY, {})
-        if isinstance(current, dict):
-            current.update(patch_by_block)
-
-    def _compact_tool_text(
-        self,
-        text: str,
-        max_bytes: int,
-        metadata: dict[str, Any],
-        block_index: int = 0,
-    ) -> tuple[str, dict[str, Any]]:
-        if not text:
-            return text, {}
-        if TRUNCATION_NOTICE_MARKER in text:
-            return truncate_text_output(
-                text,
-                max_bytes=max_bytes,
-                metadata=metadata,
-                block_index=block_index,
-            )
-
-        try:
-            should_compact = len(text.encode("utf-8")) > max_bytes + 100
-        except UnicodeEncodeError:
-            should_compact = False
-
-        compacted = text
-        metadata_patch: dict[str, Any] = {}
-        if should_compact and self._tool_results_dir:
-            try:
-                saved_path = save_text_output(text, self._tool_results_dir)
-            except OSError as exc:
-                logger.warning(
-                    "Failed to save live tool result before compacting: %s",
-                    exc,
-                )
-            else:
-                candidate, metadata_patch = truncate_text_output(
-                    text,
-                    start_line=1,
-                    total_lines=text.count("\n") + 1,
-                    max_bytes=max_bytes,
-                    file_path=saved_path,
-                    file_size_bytes=len(text.encode("utf-8")),
-                    block_index=block_index,
-                )
-                if TRUNCATION_NOTICE_MARKER in candidate:
-                    compacted = candidate
-        return compacted, metadata_patch
 
     # -- write-through -------------------------------------------------------
 

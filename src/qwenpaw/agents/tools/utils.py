@@ -112,6 +112,160 @@ def save_text_output(
     return str(path)
 
 
+class ToolResultPruner:
+    """Shared block-aware pruning for fresh and retained tool results."""
+
+    def __init__(self, output_dir: Path | str | None) -> None:
+        self._output_dir = output_dir or None
+
+    @staticmethod
+    def _block_type(block: Any) -> str | None:
+        if isinstance(block, dict):
+            return block.get("type")
+        return getattr(block, "type", None)
+
+    @staticmethod
+    def _block_text(block: Any) -> str:
+        if isinstance(block, dict):
+            return block.get("text", "")
+        return getattr(block, "text", "") or ""
+
+    @staticmethod
+    def _set_block_text(block: Any, text: str) -> None:
+        if isinstance(block, dict):
+            block["text"] = text
+        else:
+            block.text = text
+
+    @staticmethod
+    def _merge_metadata(
+        metadata: dict[str, Any],
+        patch: dict[str, Any],
+    ) -> None:
+        patch_by_block = patch.get(TRUNCATION_METADATA_KEY)
+        if not isinstance(patch_by_block, dict):
+            return
+        current = metadata.setdefault(TRUNCATION_METADATA_KEY, {})
+        if isinstance(current, dict):
+            current.update(patch_by_block)
+
+    @staticmethod
+    def _encode_text(text: str, encoding: str) -> bytes | None:
+        try:
+            return text.encode(encoding)
+        except UnicodeEncodeError:
+            return None
+
+    def _save_fresh_text(self, text: str, encoding: str) -> str | None:
+        try:
+            saved_path = save_text_output(
+                text,
+                self._output_dir,
+                encoding=encoding,
+            )
+        except OSError as exc:
+            logger.warning(
+                "Failed to save tool result to file; returning the original "
+                "result: %s",
+                exc,
+            )
+            return None
+        if saved_path is None:
+            logger.warning(
+                "Tool result exceeds the pruning limit but no artifact "
+                "directory is configured; returning the original result",
+            )
+        return saved_path
+
+    def prune_output(
+        self,
+        output: Any,
+        *,
+        max_bytes: int,
+        metadata: dict[str, Any],
+        encoding: str = "utf-8",
+        fresh_size_slack_bytes: int = 0,
+    ) -> tuple[Any, bool]:
+        """Prune string or text-block output and merge metadata in place."""
+        if isinstance(output, str):
+            pruned, patch = self.prune_text(
+                output,
+                max_bytes=max_bytes,
+                metadata=metadata,
+                encoding=encoding,
+                fresh_size_slack_bytes=fresh_size_slack_bytes,
+            )
+            self._merge_metadata(metadata, patch)
+            return pruned, pruned != output
+        if not isinstance(output, list):
+            return output, False
+
+        changed = False
+        for index, block in enumerate(output):
+            if self._block_type(block) != "text":
+                continue
+            text = self._block_text(block)
+            pruned, patch = self.prune_text(
+                text,
+                max_bytes=max_bytes,
+                metadata=metadata,
+                encoding=encoding,
+                block_index=index,
+                fresh_size_slack_bytes=fresh_size_slack_bytes,
+            )
+            self._merge_metadata(metadata, patch)
+            if pruned != text:
+                self._set_block_text(block, pruned)
+                changed = True
+        return output, changed
+
+    def prune_text(
+        self,
+        text: str,
+        *,
+        max_bytes: int,
+        metadata: dict[str, Any] | None = None,
+        encoding: str = "utf-8",
+        block_index: int = 0,
+        fresh_size_slack_bytes: int = 0,
+    ) -> tuple[str, dict[str, Any]]:
+        """Prune one text block, preserving fresh content unless saved."""
+        if not text:
+            return text, {}
+        if TRUNCATION_NOTICE_MARKER in text:
+            return truncate_text_output(
+                text,
+                max_bytes=max_bytes,
+                metadata=metadata,
+                encoding=encoding,
+                block_index=block_index,
+            )
+
+        text_bytes = self._encode_text(text, encoding)
+        if text_bytes is None or (
+            len(text_bytes) <= max_bytes + fresh_size_slack_bytes
+        ):
+            return text, {}
+
+        saved_path = self._save_fresh_text(text, encoding)
+        if saved_path is None:
+            return text, {}
+
+        candidate, patch = truncate_text_output(
+            text,
+            start_line=1,
+            total_lines=text.count("\n") + 1,
+            max_bytes=max_bytes,
+            file_path=saved_path,
+            file_size_bytes=len(text_bytes),
+            encoding=encoding,
+            block_index=block_index,
+        )
+        if TRUNCATION_NOTICE_MARKER not in candidate:
+            return text, {}
+        return candidate, patch
+
+
 # pylint: disable=too-many-return-statements
 # pylint: disable=too-many-arguments
 def _truncate_fresh(

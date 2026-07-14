@@ -26,6 +26,7 @@ from qwenpaw.agents.middlewares import (  # noqa: E402
 from qwenpaw.agents.tools.utils import (  # noqa: E402
     build_truncation_metadata,
     MAX_TRUNCATION_NOTICE_BYTES,
+    ToolResultPruner,
     truncate_text_output,
     TRUNCATION_METADATA_KEY,
 )
@@ -375,16 +376,16 @@ async def test_async_response_pruning_runs_in_worker_thread(
 
 
 def test_retruncate_uses_metadata(tmp_path):
-    middleware = ToolResultPruningMiddleware(tool_results_dir=str(tmp_path))
+    pruner = ToolResultPruner(tmp_path)
     text = "\n".join(f"line-{i}: " + "x" * 60 for i in range(100))
 
-    first, metadata = middleware._truncate_tool_result(text, 2000)
+    first, metadata = pruner.prune_text(text, max_bytes=2000)
     info = metadata[TRUNCATION_METADATA_KEY]["0"]
     corrupted = first.replace("starts at line 1", "starts at line 999")
-    second, updated = middleware._truncate_tool_result(
+    second, updated = pruner.prune_text(
         corrupted,
-        500,
-        metadata,
+        max_bytes=500,
+        metadata=metadata,
     )
 
     new_info = updated[TRUNCATION_METADATA_KEY]["0"]
