@@ -27,12 +27,14 @@ from qwenpaw.sandbox.windows_restricted_sandbox import (
     _AclEntry,
     _build_shell_command_line,
     _compute_config_fingerprint,
-    _is_cmd_exe,
-    _is_powershell_exe,
     _make_env_block,
     _make_random_cap_sid_string,
     _random_password,
     _sandboxes_dir,
+)
+from qwenpaw.sandbox.windows_sandbox import (
+    _is_cmd_exe,
+    _is_powershell_exe,
 )
 
 # ============================================================================
