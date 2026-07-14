@@ -617,8 +617,8 @@ class GovernancePolicy:
             Phase 2: Policy rules first-match-wins
                      (builtin_rules + user_rules)
             Phase 3: Fallback + execution_level threshold
-                     shell: findings honored (MEDIUM+ -> ASK), else
-                     SANDBOX_FALLBACK; other tools -> ASK
+                     shell: findings honored (MEDIUM+ -> ASK in SMART),
+                     else SANDBOX_FALLBACK; other tools -> fallback
 
         Returns: GovernanceDecision (with optional findings attached)
         """
@@ -802,7 +802,12 @@ class GovernancePolicy:
             from ..config import load_config
 
             cfg = load_config().security.tool_guard
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "_merge_config_rules: config load failed: %s; "
+                "using policy.yaml rules only",
+                exc,
+            )
             return list(self.detection_rules), dict(self.shell_evasion_checks)
 
         disabled_ids = set(cfg.disabled_rules or [])
@@ -817,11 +822,11 @@ class GovernancePolicy:
             if cr.id not in disabled_ids:
                 merged_rules.append(cr)
 
-        # OR-merge shell evasion checks
+        # Merge shell evasion checks: config values override policy.yaml
+        # defaults on overlapping keys (so the UI can turn checks OFF).
         merged_evasion = dict(self.shell_evasion_checks)
         for check_name, enabled in (cfg.shell_evasion_checks or {}).items():
-            if enabled:
-                merged_evasion[check_name] = True
+            merged_evasion[check_name] = enabled
 
         return merged_rules, merged_evasion
 

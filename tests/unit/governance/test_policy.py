@@ -1468,3 +1468,132 @@ class TestShellFindingDrivenApproval:
         tc = _tc("Bash", "echo harmless")
         decision = policy.evaluate(tc)
         assert decision.action is GovernanceAction.SANDBOX_FALLBACK
+
+
+# ===========================================================================
+# TestRawParamsScanning — H4: verify detection against non-target params
+# (e.g. Write content) and empty-target scenarios.
+# ===========================================================================
+
+
+class TestRawParamsScanning:
+    """Verify detect_dangerous_patterns scans raw_params, respects
+    rule.params, and works even when target is empty."""
+
+    def test_write_content_match(self):
+        """Pattern in Write content field triggers a finding."""
+        from qwenpaw.governance.detectors import detect_dangerous_patterns
+        from unittest.mock import MagicMock
+
+        rule = MagicMock()
+        rule.id = "CONTENT_RULE"
+        rule.tools = ["write_file"]
+        rule.params = ["content"]  # scoped to content only
+        rule.category = "data_exfiltration"
+        rule.severity = "HIGH"
+        rule.patterns = [r"\bsecret_token\b"]
+        rule.exclude_patterns = []
+        rule.description = "Detects secret token in content"
+        rule.remediation = "Remove secret"
+
+        findings = detect_dangerous_patterns(
+            tool_name="Write",
+            target="/tmp/out.txt",
+            detection_rules=[rule],
+            raw_params={
+                "file_path": "/tmp/out.txt",
+                "content": "this has secret_token inside",
+            },
+        )
+        assert len(findings) == 1
+        assert findings[0].rule_id == "CONTENT_RULE"
+        assert findings[0].param_name == "content"
+
+    def test_rule_params_scoping_excludes_unrelated(self):
+        """Rule with params=["content"] must NOT match the file_path param."""
+        from qwenpaw.governance.detectors import detect_dangerous_patterns
+        from unittest.mock import MagicMock
+
+        rule = MagicMock()
+        rule.id = "SCOPED_RULE"
+        rule.tools = ["write_file"]
+        rule.params = ["content"]  # only content
+        rule.category = "command_injection"
+        rule.severity = "HIGH"
+        rule.patterns = [r"secret"]  # matches in path too if unchecked
+        rule.exclude_patterns = []
+        rule.description = "scoped"
+        rule.remediation = ""
+
+        findings = detect_dangerous_patterns(
+            tool_name="Write",
+            target="/tmp/secret_dir/file.txt",
+            detection_rules=[rule],
+            raw_params={
+                "file_path": "/tmp/secret_dir/file.txt",
+                "content": "harmless text",
+            },
+        )
+        # "secret" is in file_path but rule only scopes to content
+        assert len(findings) == 0
+
+    def test_empty_target_raw_params_still_detected(self):
+        """When target is empty, raw_params values are still scanned."""
+        from qwenpaw.governance.detectors import detect_dangerous_patterns
+        from unittest.mock import MagicMock
+
+        rule = MagicMock()
+        rule.id = "EMPTY_TARGET_RULE"
+        rule.tools = []
+        rule.params = []
+        rule.category = "command_injection"
+        rule.severity = "MEDIUM"
+        rule.patterns = [r"\bdanger\b"]
+        rule.exclude_patterns = []
+        rule.description = "danger detected"
+        rule.remediation = ""
+
+        findings = detect_dangerous_patterns(
+            tool_name="Write",
+            target="",
+            detection_rules=[rule],
+            raw_params={
+                "file_path": "/tmp/a.txt",
+                "content": "this is danger content",
+            },
+        )
+        assert len(findings) == 1
+        assert findings[0].rule_id == "EMPTY_TARGET_RULE"
+        assert findings[0].param_name == "content"
+
+    def test_shell_evasion_config_can_disable(self):
+        """Config setting a check to False overrides policy.yaml True."""
+        from unittest.mock import MagicMock
+
+        policy = _create_default_policy(workspace_dir="/tmp/test-workspace")
+        policy.execution_level = "smart"
+        # Policy has command_substitution enabled
+        policy.shell_evasion_checks = {
+            "command_substitution": True,
+        }
+
+        # Config DISABLES it
+        mock_cfg = MagicMock()
+        mock_cfg.security.tool_guard.custom_rules = []
+        mock_cfg.security.tool_guard.disabled_rules = []
+        mock_cfg.security.tool_guard.shell_evasion_checks = {
+            "command_substitution": False,
+        }
+
+        import qwenpaw.config
+
+        original = qwenpaw.config.load_config
+        qwenpaw.config.load_config = lambda: mock_cfg
+        try:
+            tc = _tc("Bash", "echo $(whoami)")
+            findings = policy._deep_security_scan(tc, "shell")
+            # Should NOT detect command substitution (config disabled it)
+            rule_ids = [f.rule_id for f in findings]
+            assert "SHELL_EVASION_COMMAND_SUBSTITUTION" not in rule_ids
+        finally:
+            qwenpaw.config.load_config = original

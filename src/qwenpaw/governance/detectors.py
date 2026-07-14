@@ -93,7 +93,7 @@ def run_deep_scan(
         )
 
     # Detector 2: Pattern-based dangerous command detection
-    if detection_rules and target:
+    if detection_rules and (target or raw_params):
         findings.extend(
             detect_dangerous_patterns(
                 tool_name=tool_name,
@@ -346,7 +346,7 @@ def _get_compiled_patterns(
     return compiled, compiled_exclude
 
 
-def detect_dangerous_patterns(
+def detect_dangerous_patterns(  # noqa: E501  pylint: disable=too-many-locals,too-many-branches
     *,
     tool_name: str,
     target: str,
@@ -355,13 +355,14 @@ def detect_dangerous_patterns(
 ) -> list[GuardFinding]:
     """Match tool parameter values against regex detection rules.
 
-    Scans both the primary `target` and all string values in `raw_params`
-    to match the frontend Security page behavior ("匹配工具参数值").
+    Scans the primary `target` and string values in `raw_params`, honoring
+    each rule's `params` scope (empty = match all params). Aligns with the
+    frontend Security page semantics ("match tool parameter values").
     """
     findings: list[GuardFinding] = []
 
-    # Map governance tool names to tool_guard tool names for rule matching
-    # Policy uses "Bash", rules use "execute_shell_command"
+    # Map governance tool names to tool_guard tool names for rule matching.
+    # Policy uses "Bash"; rules use "execute_shell_command".
     tool_aliases = {
         "Bash": "execute_shell_command",
         "Read": "read_file",
@@ -370,19 +371,39 @@ def detect_dangerous_patterns(
     }
     guard_tool_name = tool_aliases.get(tool_name, tool_name)
 
-    # Collect all scannable values: target + raw_params string values
-    scan_entries: list[tuple[str, str]] = [("target", target)]
+    # Resolve the registry's primary param name for `target` so that
+    # rule.params filtering and finding.param_name use real names
+    # (e.g. "command" for Bash, "file_path" for Write).
+    from .tool_registry import (
+        DEFAULT_REGISTRY,
+    )  # pylint: disable=import-outside-toplevel
+
+    target_param_name = (
+        DEFAULT_REGISTRY.get_target_param(tool_name) or "target"
+    )
+
+    # Collect all scannable (param_name, value) pairs from raw_params.
+    # The target value is represented under its real param name.
+    scan_entries: list[tuple[str, str]] = []
     if raw_params:
         for param_name, param_value in raw_params.items():
             if isinstance(param_value, str) and param_value:
-                # Avoid re-scanning target if it's already in params
-                if param_value != target:
-                    scan_entries.append((param_name, param_value))
+                scan_entries.append((param_name, param_value))
+    # If target is non-empty and not already covered by raw_params, add it
+    # under the registry param name (fallback for callers without raw_params).
+    if target and not any(v == target for _, v in scan_entries):
+        scan_entries.insert(0, (target_param_name, target))
+
+    if not scan_entries:
+        return findings
 
     for rule in detection_rules:
         # Check if rule applies to this tool
         if rule.tools and guard_tool_name not in rule.tools:
             continue
+
+        # rule.params scoping: when non-empty, only scan listed params
+        rule_params = getattr(rule, "params", None) or []
 
         compiled_patterns, compiled_exclude = _get_compiled_patterns(rule)
         matched = False
@@ -390,6 +411,10 @@ def detect_dangerous_patterns(
         for param_name, value in scan_entries:
             if matched:
                 break
+
+            # Honor rule.params scope (H1 fix)
+            if rule_params and param_name not in rule_params:
+                continue
 
             # Check exclude patterns (against this value)
             if any(ep.search(value) for ep in compiled_exclude):
@@ -399,7 +424,6 @@ def detect_dangerous_patterns(
             for pattern in compiled_patterns:
                 m = pattern.search(value)
                 if m:
-                    # Context snippet around match
                     start = max(0, m.start() - 40)
                     end = min(len(value), m.end() + 40)
                     snippet = value[start:end]
