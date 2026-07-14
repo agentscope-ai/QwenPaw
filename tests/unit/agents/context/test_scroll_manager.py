@@ -691,6 +691,32 @@ async def test_steady_state_counts_once_and_warns_once(
     assert len(stuck) == 1
 
 
+async def test_manual_compact_trigger_does_not_warn_below_reserve(
+    store: HistoryStore,
+    caplog,
+):
+    """A manual /compact trigger is intentionally near zero and must not be
+    reported as a context overflow when the result fits the reserve target."""
+    import logging as _logging
+
+    class _ManualConfig:
+        trigger_ratio = 1e-6
+        reserve_ratio = 0.1
+
+    ctx = [user("old"), assistant("old reply"), user("current")]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=[200, 80])
+    agent._split_return = (ctx[:2], ctx[2:])
+
+    with caplog.at_level(_logging.WARNING):
+        await mgr.compress(agent, _ManualConfig())
+
+    assert not any(
+        "compression trigger" in record.getMessage()
+        for record in caplog.records
+    )
+
+
 async def test_empty_middle_still_compacts_index_under_pressure(
     store: HistoryStore,
 ):

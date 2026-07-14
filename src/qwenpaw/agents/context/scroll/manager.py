@@ -443,16 +443,22 @@ class ScrollContextManager:
                 self.last_compress["folded"] = folded
                 tokens = await self._live_tokens(agent)
                 mark("live_tokens")
-        if tokens > trigger:
-            # Once per overflow episode, not once per reasoning step — the
-            # stuck state repeats every step until the turn ends.
+        # Once per overflow episode, not once per reasoning step — the stuck
+        # state repeats every step until the turn ends. Manual /compact
+        # deliberately supplies a near-zero trigger to bypass the automatic
+        # gate. That synthetic trigger is not a meaningful overflow threshold:
+        # warn only if compaction also failed to reach the configured reserve
+        # target. During normal automatic compaction ``trigger`` is larger
+        # than ``reserve``, preserving the existing warning unchanged.
+        overflow_threshold = max(trigger, reserve)
+        if tokens > overflow_threshold:
             if not self._overflow_warned:
                 self._overflow_warned = True
                 logger.warning(
                     "scroll: context still over the compression trigger "
                     "(%d > %d) after compaction and active-turn fold",
                     tokens,
-                    trigger,
+                    overflow_threshold,
                 )
         else:
             self._overflow_warned = False

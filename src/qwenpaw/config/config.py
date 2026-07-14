@@ -38,6 +38,12 @@ from ..constant import (
 
 logger = logging.getLogger(__name__)
 
+# A legacy field can be present in the root config and in several agent
+# profiles, all of which may be validated repeatedly during one process
+# lifetime.  The migration reminder is useful once, but repeating it for
+# every request obscures real warnings.
+_legacy_scroll_tool_cap_warned = False
+
 
 # ============================================================================
 # Core config models (moved here to avoid circular imports)
@@ -846,9 +852,11 @@ class ScrollContextConfig(BaseModel):
     tool_output_token_cap: int = Field(
         default=3000,
         ge=100,
+        exclude=True,
         description=(
             "Deprecated scroll-only tool result cap. Tool output sizing is "
-            "handled by tool_result_pruning_config."
+            "handled by tool_result_pruning_config. Excluded when saving so "
+            "legacy configurations migrate on their next write."
         ),
     )
 
@@ -962,8 +970,13 @@ class LightContextConfig(BaseModel):
 
     @model_validator(mode="after")
     def warn_deprecated_scroll_tool_cap(self) -> "LightContextConfig":
-        """Warn when the removed scroll-only tool cap is configured."""
-        if "tool_output_token_cap" in self.scroll_config.model_fields_set:
+        """Warn once when the removed scroll-only tool cap is configured."""
+        global _legacy_scroll_tool_cap_warned
+        configured = (
+            "tool_output_token_cap" in self.scroll_config.model_fields_set
+        )
+        if configured and not _legacy_scroll_tool_cap_warned:
+            _legacy_scroll_tool_cap_warned = True
             logger.warning(
                 "scroll_config.tool_output_token_cap is deprecated and "
                 "ignored; use tool_result_pruning_config."

@@ -478,8 +478,18 @@ def test_builder_adds_pruning_for_scroll_strategy(tmp_path):
     )
 
 
-def test_explicit_legacy_scroll_tool_cap_warns(caplog):
+def test_explicit_legacy_scroll_tool_cap_warns_once_and_is_not_saved(
+    caplog,
+    monkeypatch,
+):
+    import qwenpaw.config.config as config_module
+
+    monkeypatch.setattr(config_module, "_legacy_scroll_tool_cap_warned", False)
     with caplog.at_level(logging.WARNING, logger="qwenpaw.config.config"):
+        config = LightContextConfig(
+            strategy="scroll",
+            scroll_config={"tool_output_token_cap": 1200},
+        )
         LightContextConfig(
             strategy="scroll",
             scroll_config={"tool_output_token_cap": 1200},
@@ -488,6 +498,8 @@ def test_explicit_legacy_scroll_tool_cap_warns(caplog):
     assert "tool_output_token_cap is deprecated and ignored" in caplog.text
     assert "pruning_recent_msg_max_bytes" in caplog.text
     assert "bytes, not tokens" in caplog.text
+    assert caplog.text.count("tool_output_token_cap is deprecated") == 1
+    assert "tool_output_token_cap" not in config.model_dump()["scroll_config"]
 
 
 def test_default_legacy_scroll_tool_cap_does_not_warn(caplog):
