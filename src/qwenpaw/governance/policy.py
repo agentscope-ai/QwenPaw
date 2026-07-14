@@ -236,6 +236,9 @@ _BUILTIN_ASK_SPECS: List[tuple[str, str]] = [
     # ── Windows (PowerShell profile + history may hold keys) ──
     ("*(**/Microsoft.PowerShell_profile.ps1)", "PS profile may setx API keys"),
     ("*(**/ConsoleHost_history.txt)", "PowerShell may contain typed secrets"),
+    ("Bash(sudo *)", "Privilege escalation, ASK"),
+    ("Bash(gh repo delete *)", "Repository deletion, ASK"),
+    ("Bash(gh api -X DELETE *)", "Destructive GitHub API calls, ASK"),
 ]
 
 # (match, reason) pairs for builtin DENY rules — hard walls, never allowed.
@@ -245,9 +248,6 @@ _BUILTIN_ASK_SPECS: List[tuple[str, str]] = [
 # command variants that fnmatch cannot match.
 _BUILTIN_DENY_SPECS: List[tuple[str, str]] = [
     ("Bash(rm * -rf *//*)", "Root filesystem deletion"),
-    ("Bash(sudo *)", "Privilege escalation prohibited"),
-    ("Bash(gh repo delete *)", "Repository deletion prohibited"),
-    ("Bash(gh api -X DELETE *)", "Destructive GitHub API calls prohibited"),
 ]
 
 DEFAULT_BUILTIN_RULES: List[GovernanceRule] = [
@@ -271,17 +271,6 @@ _SHELL_DANGER_PATTERNS: list[tuple[re.Pattern[str], str]] = [
             r"\brm\b(?=[^;|&]*\s+-[a-zA-Z]*[rR])[^;|&]*\s+/(?:\s|$|\*)",
         ),
         "Recursive deletion targeting root filesystem",
-    ),
-    # sudo in any position: start of command, after pipe/semicolon,
-    # subshell, absolute path, env prefix, xargs, etc.
-    (
-        re.compile(
-            r"(?:^|[;&|`]|\$\()\s*(?:/usr/s?bin/|/bin/)?sudo\b"
-            r"|\bxargs\s+.*\bsudo\b"
-            r"|\bcommand\s+sudo\b"
-            r"|\benv\s+.*\bsudo\b",
-        ),
-        "Privilege escalation (sudo)",
     ),
     # Fork bomb patterns
     (
