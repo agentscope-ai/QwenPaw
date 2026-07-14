@@ -586,9 +586,7 @@ async def execute_shell_command(
     if sandbox_config is not None:
         # Create a copy with resolved shell and timeout to avoid mutating
         # the shared config object (it may be reused across tool calls).
-        from dataclasses import replace as _dc_replace
-
-        sandbox_config = _dc_replace(
+        sandbox_config = replace(
             sandbox_config,
             shell_executable=shell_executable,
             timeout_seconds=int(timeout),
