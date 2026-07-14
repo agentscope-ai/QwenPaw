@@ -28,8 +28,6 @@ import ast
 import re
 from pathlib import Path
 
-import pytest
-
 # Modules whose import has strong global side-effects and which later tests
 # assert the absence of (see tauri/test_entry.py::_ensure_qwenpaw_app_not_loaded).
 # A test file importing any of these MUST isolate with an autouse fixture.
@@ -39,7 +37,7 @@ HEAVY_MODULES: frozenset[str] = frozenset({"qwenpaw.app._app"})
 # specific name) is the #5813 footgun: it re-creates sibling module objects.
 # e.g. `for name in list(sys.modules): if name.startswith("qwenpaw.app"): del`
 _PREFIX_DEL_PATTERN = re.compile(
-    r"\.startswith\(\s*[\"']qwenpaw\.[^\"']+[\"']\s*\)"
+    r"\.startswith\(\s*[\"']qwenpaw\.[^\"']+[\"']\s*\)",
 )
 
 TESTS_UNIT = Path(__file__).resolve().parent
@@ -139,11 +137,12 @@ def test_files_importing_heavy_module_isolate_with_autouse() -> None:
         if _imports_heavy_module(path) and not _has_autouse_fixture(path):
             offenders.append(
                 f"{path.relative_to(TESTS_UNIT)}: imports a heavy module "
-                f"({HEAVY_MODULES}) without an autouse isolation fixture"
+                f"({HEAVY_MODULES}) without an autouse isolation fixture",
             )
     assert not offenders, (
         "Tests importing heavy/side-effectful modules must isolate with an "
-        "autouse fixture that restores sys.modules on teardown:\n  - "
+        "autouse fixture that restores sys.modules on teardown "
+        "(declared in the test file itself or in a conftest.py):\n  - "
         + "\n  - ".join(offenders)
     )
 
@@ -166,7 +165,7 @@ def test_no_isolation_fixture_deletes_module_family_by_prefix() -> None:
             offenders.append(
                 f"{path.relative_to(TESTS_UNIT)}: deletes sys.modules by a "
                 f'family prefix (e.g. startswith("qwenpaw.app")) — re-imports '
-                f"siblings as new module objects and breaks monkeypatches"
+                f"siblings as new module objects and breaks monkeypatches",
             )
     assert not offenders, (
         "Isolation fixtures must not delete a whole module family; remove "

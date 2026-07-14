@@ -211,8 +211,7 @@ If you add or change platform support, please test on the affected OS and mentio
 - **Include a regression test for bug fixes** — a `fix:` PR should include a
   test that fails before the fix and passes after, pinning the behavior
   contract so it doesn't silently regress. Trivial fixes (typos, dep bumps,
-  docs) are exempt. AI agents and contributors: see `CLAUDE.md`/`AGENTS.md`
-  for the full test-isolation and CI-matrix rules.
+  docs) are exempt.
 - Update documentation for user-facing changes.
 - Use conventional commit messages and PR titles.
 - Be respectful and constructive (we follow a welcoming Code of Conduct).
