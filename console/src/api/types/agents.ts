@@ -13,6 +13,7 @@ export interface AgentSummary {
 
 export interface AgentListResponse {
   agents: AgentSummary[];
+  active_agent?: string;
 }
 
 export interface ReorderAgentsResponse {
