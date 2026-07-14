@@ -1338,7 +1338,29 @@
     "selectedItems": "Đã chọn {{count}} mục",
     "editSession": "Chỉnh sửa phiên",
     "pleaseInputName": "Vui lòng nhập tên phiên",
-    "sessionNamePlaceholder": "Tên phiên"
+    "sessionNamePlaceholder": "Tên phiên",
+    "activeTab": "Đang hoạt động",
+    "archivedTab": "Đã lưu trữ",
+    "archivedAtColumn": "Thời gian lưu trữ",
+    "archive": {
+      "action": "Lưu trữ",
+      "unaction": "Bỏ lưu trữ",
+      "batchAction": "Lưu trữ hàng loạt",
+      "batchUnaction": "Bỏ lưu trữ hàng loạt",
+      "success": "Đã lưu trữ cuộc trò chuyện",
+      "successHint": "Đã lưu trữ. Xem tại Bảng điều khiển > Phiên > Đã lưu trữ.",
+      "failed": "Lưu trữ thất bại",
+      "unarchiveSuccess": "Đã bỏ lưu trữ",
+      "unarchiveFailed": "Bỏ lưu trữ thất bại",
+      "batchSuccess": "Đã lưu trữ {{count}} cuộc trò chuyện",
+      "batchFailed": "Lưu trữ hàng loạt thất bại",
+      "batchUnarchiveSuccess": "Đã bỏ lưu trữ {{count}} cuộc trò chuyện",
+      "batchUnarchiveFailed": "Bỏ lưu trữ hàng loạt thất bại",
+      "groupLabel": "Đã lưu trữ ({{count}})",
+      "modalTitle": "Cuộc trò chuyện đã lưu trữ",
+      "unarchiveAll": "Bỏ lưu trữ tất cả",
+      "noArchived": "Không có cuộc trò chuyện đã lưu trữ"
+    }
   },
   "loop": {
     "gotoSettings": "Cài đặt Loop Agent"

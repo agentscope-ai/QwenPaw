@@ -357,13 +357,13 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **Light 工具结果修剪配置（`light_context_config.tool_result_pruning_config` 对象）：**
 
-| 字段                           | 类型 | 默认值  | 说明                       |
-| ------------------------------ | ---- | ------- | -------------------------- |
-| `enabled`                      | bool | `true`  | 是否启用工具结果修剪       |
-| `pruning_recent_n`             | int  | `2`     | 最近 N 条消息使用较高阈值  |
-| `pruning_old_msg_max_bytes`    | int  | `3000`  | 旧消息的工具结果字节阈值   |
-| `pruning_recent_msg_max_bytes` | int  | `50000` | 最近消息的工具结果字节阈值 |
-| `offload_retention_days`       | int  | `5`     | 工具结果文件保留天数       |
+| 字段                           | 类型 | 默认值  | 说明                                                                |
+| ------------------------------ | ---- | ------- | ------------------------------------------------------------------- |
+| `enabled`                      | bool | `true`  | 是否启用工具结果修剪                                                |
+| `pruning_recent_n`             | int  | `2`     | scroll compact 前，最近 N 条包含工具结果的消息使用最近预览阈值      |
+| `pruning_old_msg_max_bytes`    | int  | `3000`  | scroll compact 后仍保留在 live context 中的工具结果轻量预览字节阈值 |
+| `pruning_recent_msg_max_bytes` | int  | `50000` | 工具结果进入 context 前及仍属于 recent 时使用的预览字节阈值         |
+| `offload_retention_days`       | int  | `5`     | 工具结果文件保留天数                                                |
 
 **ReMeLight 记忆配置（`reme_light_memory_config` 对象）：**
 

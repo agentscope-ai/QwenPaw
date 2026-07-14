@@ -21,6 +21,7 @@ import asyncio
 import logging
 import re
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -30,6 +31,9 @@ from agentscope.message import Msg, TextBlock, UserMsg
 from ....constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SYNTHETIC_USER_MESSAGE_TAGS,
+)
+from ...tools.utils import (
+    ToolResultPruner,
 )
 from ....utils.model_response import consume_model_response
 from . import _as_internals as as_internals
@@ -125,10 +129,11 @@ class ScrollContextManager:
         history: HistoryStore,
         session_id: str,
         agent_id: str | None = None,
-        capped_results: dict[str, int] | None = None,
         offloader: Any = None,
         summarize_unheadlined: bool = False,
         summarize_timeout_s: int = 20,
+        compact_tool_result_max_bytes: int | None = None,
+        tool_results_dir: str | None = None,
     ) -> None:
         self._history = history
         self._session_id = session_id
@@ -137,15 +142,12 @@ class ScrollContextManager:
         # of ``(no milestone)``. Off unless the wiring passes the config value.
         self._summarize_unheadlined = summarize_unheadlined
         self._summarize_timeout_s = summarize_timeout_s
+        self._compact_tool_result_max_bytes = compact_tool_result_max_bytes
+        self._tool_result_pruner = ToolResultPruner(tool_results_dir)
         # Dialog archive: when an offloader is wired (``offload_dialog``, on by
         # default), evicted turns are also written to ``dialog/{date}.jsonl``
         # for external consumers. ``history.db`` remains the source of truth.
         self._offloader = offloader
-        # Shared with the cap middleware: tool_call_id -> seq of results it
-        # already wrote in full. We skip re-persisting their truncated stubs.
-        self._capped_results = (
-            capped_results if capped_results is not None else {}
-        )
         self._persisted_ids: set[
             str
         ] = set()  # msgs whose non-result row is stored
@@ -253,7 +255,11 @@ class ScrollContextManager:
         except Exception:  # noqa: BLE001 - archive is best-effort
             logger.warning("scroll dialog offload failed", exc_info=True)
 
-    async def compress(self, agent: Any, context_config: Any = None) -> None:
+    async def compress(  # pylint: disable=too-many-statements
+        self,
+        agent: Any,
+        context_config: Any = None,
+    ) -> None:
         """Evict the middle into the index; roll the index up under pressure.
 
         A single pressure pipeline — step 5 engages while the context still
@@ -278,6 +284,28 @@ class ScrollContextManager:
         """
         cfg = context_config or agent.context_config
         self.last_compress = {"evicted": 0, "compacted": 0, "folded": 0}
+        t0 = time.perf_counter()
+        stage_t0 = t0
+        timings: dict[str, float] = {}
+
+        def mark(stage: str) -> None:
+            nonlocal stage_t0
+            now = time.perf_counter()
+            timings[stage] = timings.get(stage, 0.0) + now - stage_t0
+            stage_t0 = now
+
+        def log_timings(outcome: str) -> None:
+            total = time.perf_counter() - t0
+            parts = " ".join(
+                f"{name}={elapsed * 1000:.1f}ms"
+                for name, elapsed in timings.items()
+            )
+            logger.info(
+                "scroll: compact timing outcome=%s total=%.1fms %s",
+                outcome,
+                total * 1000,
+                parts,
+            )
 
         # 1) Durability first — everything in the window is now in the DB. If
         #    the write-through failed (degraded durability), do NOT evict: the
@@ -285,18 +313,25 @@ class ScrollContextManager:
         #    rows that don't exist. Keep it live instead. Offloaded to a worker
         #    thread so the whole-window persist never blocks the event loop.
         if not await self._persist_guarded_async(agent):
+            mark("persist")
+            log_timings("persist_failed")
             return
+        mark("persist")
 
         # 2) Trigger check (reuse AgentScope's own token accounting). The
         #    count is kept — while nothing below rebuilds the context it is
         #    still exact, so the steady state pays ONE count per compress.
         kwargs = await as_internals.prepare_model_input(agent)
+        mark("prepare_input")
         trigger = cfg.trigger_ratio * agent.model.context_size
         tokens = await agent.model.count_tokens(**kwargs)
+        mark("count_tokens")
         if tokens < trigger:
             self._overflow_warned = False
+            log_timings("below_trigger")
             return
         if len(agent.state.context) <= 1:
+            log_timings("single_message")
             return
 
         # 3) Pairing-safe split; keep the recent tail, evict the middle.
@@ -306,10 +341,19 @@ class ScrollContextManager:
             reserve,
             kwargs.get("tools", []),
         )
+        mark("split")
         real = lambda msgs: [
             m for m in msgs if m.id not in self._synthetic_ids
         ]
         tail = real(to_reserve)
+        # AgentScope may split the boundary Msg at block granularity and put
+        # deep-copied fragments (with the original id) into both halves.  A
+        # fragment is not a safe live-context unit: it can contain a
+        # tool_result without its tool_call, or vice versa.  Scroll treats the
+        # reserve target as soft, so restore every retained Msg from the live
+        # context before deciding what to evict.  This deliberately keeps the
+        # whole boundary message even when it costs a few extra tokens.
+        tail = self._restore_full_tail_messages(agent, tail)
         # AgentScope's pairing-safe split deep-copies the *boundary* Msg into
         # BOTH halves under the SAME id (its blocks divided between compress
         # and reserve). That id therefore appears in both to_compress and
@@ -326,10 +370,15 @@ class ScrollContextManager:
             if m.id not in tail_ids and m.id not in active_ids
         ]
         if active_tail:
-            # Replace any partial boundary deep-copy in the tail with the
-            # full live Msg from the context.
+            # Keep the whole active turn at the end in its original order.
+            # Partial boundary copies have already been restored above.
             tail = [m for m in tail if m.id not in active_ids]
             tail.extend(active_tail)
+        middle, tail = self._repair_dangling_user_boundary(
+            middle,
+            tail,
+            active_ids,
+        )
 
         # 3c) Sanitize: AgentScope's pairing-safe split only guarantees
         #    intra-message block-level pairing. Standalone tool_result
@@ -345,13 +394,17 @@ class ScrollContextManager:
             #     redundant dialog/*.jsonl copy for external consumers. A
             #     write failure must never abort compaction.
             await self._offload_dialog(middle)
+            mark("offload_dialog")
 
             # 4) Fold the evicted middle into the index as a new Tier 0
             #    block.
             await self._index_evicted(agent, middle)
+            mark("index_evicted")
             self._rebuild_context(agent, tail)
+            mark("rebuild_context")
             self.last_compress["evicted"] = len(middle)
             tokens = await self._live_tokens(agent)
+            mark("live_tokens")
 
         # 5) Pressure-triggered compaction: shrink the index one step at a
         #    time until we fit (or it collapses to a single line). Always
@@ -359,8 +412,23 @@ class ScrollContextManager:
         #    empty middle must not leave an already-built index uncompacted.
         while tokens > reserve and self._index.compact():
             self._rebuild_context(agent, tail)
+            mark("compact_index")
             self.last_compress["compacted"] += 1
             tokens = await self._live_tokens(agent)
+            mark("live_tokens")
+
+        compacted_results = await asyncio.to_thread(
+            self._compact_live_tool_results,
+            agent,
+        )
+        mark("compact_tool_results")
+        if compacted_results:
+            logger.info(
+                "scroll: compacted %d live tool result preview(s)",
+                compacted_results,
+            )
+            tokens = await self._live_tokens(agent)
+            mark("live_tokens")
 
         # 6) Last resort — even with the middle evicted and the index
         #    compacted, the window is STILL past the compression trigger, so
@@ -373,28 +441,83 @@ class ScrollContextManager:
         #    ordinary long chats.
         if tokens > trigger:
             folded = self._fold_active_turn_results(agent)
+            mark("fold_active_turn")
             if folded:
                 self.last_compress["folded"] = folded
                 tokens = await self._live_tokens(agent)
-        if tokens > trigger:
-            # Once per overflow episode, not once per reasoning step — the
-            # stuck state repeats every step until the turn ends.
+                mark("live_tokens")
+        # Once per overflow episode, not once per reasoning step — the stuck
+        # state repeats every step until the turn ends. Manual /compact
+        # deliberately supplies a near-zero trigger to bypass the automatic
+        # gate. That synthetic trigger is not a meaningful overflow threshold:
+        # warn only if compaction also failed to reach the configured reserve
+        # target. During normal automatic compaction ``trigger`` is larger
+        # than ``reserve``, preserving the existing warning unchanged.
+        overflow_threshold = max(trigger, reserve)
+        if tokens > overflow_threshold:
             if not self._overflow_warned:
                 self._overflow_warned = True
                 logger.warning(
                     "scroll: context still over the compression trigger "
                     "(%d > %d) after compaction and active-turn fold",
                     tokens,
-                    trigger,
+                    overflow_threshold,
                 )
         else:
             self._overflow_warned = False
+        log_timings("done")
 
     async def _live_tokens(self, agent: Any) -> int:
         """Token count of the live context as the model would receive it."""
         return await agent.model.count_tokens(
             **(await as_internals.prepare_model_input(agent)),
         )
+
+    def _compact_live_tool_results(self, agent: Any) -> int:
+        """Shrink retained live tool-result previews after compaction."""
+        max_bytes = self._compact_tool_result_max_bytes
+        if not max_bytes or max_bytes <= 0:
+            return 0
+
+        compacted = 0
+        for msg in getattr(agent.state, "context", []) or []:
+            if getattr(msg, "id", None) in self._synthetic_ids:
+                continue
+            content = getattr(msg, "content", None)
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                btype = (
+                    block.get("type")
+                    if isinstance(block, dict)
+                    else getattr(block, "type", None)
+                )
+                if btype != "tool_result" or self._is_folded_stub(block):
+                    continue
+                output = (
+                    block.get("output")
+                    if isinstance(block, dict)
+                    else getattr(block, "output", None)
+                )
+                metadata = (
+                    block.setdefault("metadata", {})
+                    if isinstance(block, dict)
+                    else block.metadata
+                )
+                pruned, changed = self._tool_result_pruner.prune_output(
+                    output,
+                    max_bytes=max_bytes,
+                    metadata=metadata,
+                    fresh_size_slack_bytes=100,
+                )
+                if not changed:
+                    continue
+                if isinstance(block, dict):
+                    block["output"] = pruned
+                else:
+                    block.output = pruned
+                compacted += 1
+        return compacted
 
     # -- write-through -------------------------------------------------------
 
@@ -434,20 +557,12 @@ class ScrollContextManager:
                     anon_pos += 1
                     if tcid in self._persisted_tcids:
                         continue
-                    capped_seq = self._capped_results.get(tcid)
-                    if capped_seq is not None:
-                        # The cap middleware already wrote this result in
-                        # full; don't persist the in-context truncated stub.
-                        # Adopt its seq so the result still falls inside the
-                        # eviction span.
-                        seq = capped_seq
-                    else:
-                        seq = self._history.append(
-                            session_id=self._session_id,
-                            agent_id=self._agent_id,
-                            entry=entry,
-                            dedup_key=tcid,
-                        )
+                    seq = self._history.append(
+                        session_id=self._session_id,
+                        agent_id=self._agent_id,
+                        entry=entry,
+                        dedup_key=tcid,
+                    )
                     self._persisted_tcids.add(tcid)
                     self._seq_by_tcid[tcid] = seq
                 else:
@@ -551,6 +666,69 @@ class ScrollContextManager:
             ]
         return []
 
+    def _restore_full_tail_messages(
+        self,
+        agent: Any,
+        tail: list[Msg],
+    ) -> list[Msg]:
+        """Replace split boundary fragments with their full live messages.
+
+        AgentScope's compression splitter can divide one message's content
+        blocks between ``to_compress`` and ``to_reserve``.  Both fragments
+        keep the same message id, which is useful for native summarization but
+        unsafe for Scroll: Scroll retains the reserve half verbatim, where a
+        block-level split can create orphan tool calls/results.  Message ids
+        are stable in the live context, so use them to recover the original
+        object.  Unknown ids are kept unchanged for compatibility with custom
+        AgentScope splitters.
+        """
+        live_by_id = {
+            getattr(msg, "id", None): msg
+            for msg in getattr(agent.state, "context", []) or []
+            if getattr(msg, "id", None) not in self._synthetic_ids
+        }
+        return [live_by_id.get(getattr(msg, "id", None), msg) for msg in tail]
+
+    def _repair_dangling_user_boundary(
+        self,
+        middle: list[Msg],
+        tail: list[Msg],
+        active_ids: set[str],
+    ) -> tuple[list[Msg], list[Msg]]:
+        """Avoid evicting only the user half of a completed exchange.
+
+        AgentScope's token split optimizes for a recent-tail token budget, so
+        it can place a user request at the end of ``middle`` while keeping the
+        corresponding assistant reply at the front of ``tail``. That is a poor
+        scroll boundary: user rows do not carry headlines, so the eviction
+        index must call the model to label a user-only span, and the live
+        window keeps an answer whose question was just archived. Pull the
+        leading non-user reply block(s) into ``middle`` unless they belong to
+        the active turn, preserving completed exchanges as the unit of
+        eviction. ``reserve`` is a soft target; semantic boundaries win.
+        """
+        if not middle or not tail:
+            return middle, tail
+        if getattr(middle[-1], "role", None) != "user":
+            return middle, tail
+
+        move_count = 0
+        for msg in tail:
+            mid = getattr(msg, "id", None)
+            if mid in active_ids or getattr(msg, "role", None) == "user":
+                break
+            move_count += 1
+        if not move_count:
+            return middle, tail
+        moved = tail[:move_count]
+        rest = tail[move_count:]
+        logger.info(
+            "scroll: moved %d reply msg(s) across split boundary to avoid "
+            "user-only eviction",
+            len(moved),
+        )
+        return [*middle, *moved], rest
+
     def _fold_active_turn_results(self, agent: Any) -> int:
         """Stub the active turn's completed tool results in place; returns
         how many were folded.
@@ -600,7 +778,7 @@ class ScrollContextManager:
                 TextBlock(
                     type="text",
                     text=(
-                        f"{_FOLD_MARK} full result stored in history — "
+                        f"{_FOLD_MARK} result archived in scroll history — "
                         f"re-read it with {where}"
                     ),
                 ),

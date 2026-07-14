@@ -1009,7 +1009,29 @@
     "selectedItems": "Выбрано {{count}} элементов",
     "editSession": "Редактировать сессию",
     "pleaseInputName": "Пожалуйста, введите название сессии",
-    "sessionNamePlaceholder": "Название сессии"
+    "sessionNamePlaceholder": "Название сессии",
+    "activeTab": "Активные",
+    "archivedTab": "Архив",
+    "archivedAtColumn": "Дата архивации",
+    "archive": {
+      "action": "Архивировать",
+      "unaction": "Разархивировать",
+      "batchAction": "Архивировать выбранные",
+      "batchUnaction": "Разархивировать выбранные",
+      "success": "Чат архивирован",
+      "successHint": "Чат архивирован. Смотрите в Панель управления > Сессии > Архив.",
+      "failed": "Не удалось архивировать",
+      "unarchiveSuccess": "Чат разархивирован",
+      "unarchiveFailed": "Не удалось разархивировать",
+      "batchSuccess": "{{count}} чат(ов) архивировано",
+      "batchFailed": "Не удалось архивировать выбранные",
+      "batchUnarchiveSuccess": "{{count}} чат(ов) разархивировано",
+      "batchUnarchiveFailed": "Не удалось разархивировать выбранные",
+      "groupLabel": "Архив ({{count}})",
+      "modalTitle": "Архивированные чаты",
+      "unarchiveAll": "Разархивировать все",
+      "noArchived": "Нет архивированных чатов"
+    }
   },
   "environments": {
     "parent": "Настройки",

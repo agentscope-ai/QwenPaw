@@ -133,6 +133,11 @@ class ResourceGovernor:
         """
         return self._sandbox_available and self._sandbox_globally_enabled()
 
+    @property
+    def sandbox_usable(self) -> bool:
+        """Whether sandbox execution is supported and globally enabled."""
+        return self._sandbox_usable()
+
     def start(self) -> None:
         """Load policy and probe sandbox capabilities."""
         self._policy_dir.mkdir(parents=True, exist_ok=True)

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict
+from typing import Any, Dict, Literal, Optional
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 from qwenpaw.schemas import Message
 
 from ..channels.schema import DEFAULT_CHANNEL
@@ -60,10 +60,20 @@ class ChatSpec(BaseModel):
         default=False,
         description="Whether the chat is pinned to the top",
     )
+    archived_at: Optional[datetime] = Field(
+        default=None,
+        description="When the chat was archived; None means active",
+    )
     source: SessionSource = Field(
         default=SessionSource.chat,
         description="What initiated this session (chat, cron, …)",
     )
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def archived(self) -> bool:
+        """Whether this chat is archived (derived from archived_at)."""
+        return self.archived_at is not None
 
 
 class ChatUpdate(BaseModel):
@@ -91,6 +101,21 @@ class ChatHistory(BaseModel):
         default="idle",
         description="Conversation status: idle or running",
     )
+
+
+class BatchFailure(BaseModel):
+    """A single failure entry in a batch operation."""
+
+    chat_id: str
+    reason: Literal["not_found", "in_progress"]
+    message: str
+
+
+class BatchArchiveResult(BaseModel):
+    """Result of a batch archive/unarchive operation."""
+
+    succeeded: list[str] = Field(default_factory=list)
+    failed: list[BatchFailure] = Field(default_factory=list)
 
 
 class ChatsFile(BaseModel):

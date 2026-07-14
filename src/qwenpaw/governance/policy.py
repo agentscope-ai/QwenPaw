@@ -236,6 +236,9 @@ _BUILTIN_ASK_SPECS: List[tuple[str, str]] = [
     # ── Windows (PowerShell profile + history may hold keys) ──
     ("*(**/Microsoft.PowerShell_profile.ps1)", "PS profile may setx API keys"),
     ("*(**/ConsoleHost_history.txt)", "PowerShell may contain typed secrets"),
+    ("Bash(sudo *)", "Privilege escalation, ASK"),
+    ("Bash(gh repo delete *)", "Repository deletion, ASK"),
+    ("Bash(gh api -X DELETE *)", "Destructive GitHub API calls, ASK"),
 ]
 
 # (match, reason) pairs for builtin DENY rules — hard walls, never allowed.
@@ -245,9 +248,6 @@ _BUILTIN_ASK_SPECS: List[tuple[str, str]] = [
 # command variants that fnmatch cannot match.
 _BUILTIN_DENY_SPECS: List[tuple[str, str]] = [
     ("Bash(rm * -rf *//*)", "Root filesystem deletion"),
-    ("Bash(sudo *)", "Privilege escalation prohibited"),
-    ("Bash(gh repo delete *)", "Repository deletion prohibited"),
-    ("Bash(gh api -X DELETE *)", "Destructive GitHub API calls prohibited"),
 ]
 
 DEFAULT_BUILTIN_RULES: List[GovernanceRule] = [
@@ -271,17 +271,6 @@ _SHELL_DANGER_PATTERNS: list[tuple[re.Pattern[str], str]] = [
             r"\brm\b(?=[^;|&]*\s+-[a-zA-Z]*[rR])[^;|&]*\s+/(?:\s|$|\*)",
         ),
         "Recursive deletion targeting root filesystem",
-    ),
-    # sudo in any position: start of command, after pipe/semicolon,
-    # subshell, absolute path, env prefix, xargs, etc.
-    (
-        re.compile(
-            r"(?:^|[;&|`]|\$\()\s*(?:/usr/s?bin/|/bin/)?sudo\b"
-            r"|\bxargs\s+.*\bsudo\b"
-            r"|\bcommand\s+sudo\b"
-            r"|\benv\s+.*\bsudo\b",
-        ),
-        "Privilege escalation (sudo)",
     ),
     # Fork bomb patterns
     (
@@ -617,7 +606,8 @@ class GovernancePolicy:
             Phase 2: Policy rules first-match-wins
                      (builtin_rules + user_rules)
             Phase 3: Fallback + execution_level threshold
-                     shell → SANDBOX_FALLBACK, others → ASK
+                     shell: findings honored (MEDIUM+ -> ASK in SMART),
+                     else SANDBOX_FALLBACK; other tools -> fallback
 
         Returns: GovernanceDecision (with optional findings attached)
         """
@@ -720,6 +710,19 @@ class GovernancePolicy:
                     findings=findings or None,
                     source="STRICT mode",
                 )
+            # Finding-driven approval for shell: when the deep scan surfaced
+            # findings (e.g. a frontend custom rule matched the command),
+            # honor the execution-level severity threshold. MEDIUM+ findings
+            # in SMART, or any finding in AUTO/OFF, escalate to ASK so the
+            # user's own detection rules take effect for shell tools too.
+            # INFO/LOW findings (fallback returns ALLOW) fall through to the
+            # sandbox path below, where sandbox isolation is the safety net.
+            if findings:
+                fb = self._apply_execution_level_fallback(tc_spec, findings)
+                if fb.action is not GovernanceAction.ALLOW:
+                    return fb
+            # No findings (or only INFO/LOW): route to sandbox. When the
+            # sandbox is unusable, ResourceGovernor downgrades this to ALLOW.
             return GovernanceDecision(
                 action=GovernanceAction.SANDBOX_FALLBACK,
                 reason="sandbox fallback",
@@ -735,19 +738,31 @@ class GovernancePolicy:
     ) -> list[Any]:
         """Run deep security detectors (Phase 1).
 
+        Merges policy.yaml detection_rules/shell_evasion_checks with the
+        frontend Security page configuration (config.json →
+        security.tool_guard). Uses the mtime-cached load_config() so there
+        is negligible overhead on the hot path.  On config read failure the
+        scan falls back to policy.yaml-only rules (graceful degradation).
+
         Delegates to governance.detectors module.
         Returns a list of GuardFinding objects.
         """
         try:
             from .detectors import run_deep_scan
 
+            # Merge config.json custom_rules + shell_evasion_checks into
+            # the policy.yaml-sourced rules so frontend settings take
+            # effect in governance evaluation.
+            detection_rules, shell_evasion_checks = self._merge_config_rules()
+
             return run_deep_scan(
                 tool_name=tc_spec.tool_name,
                 target=tc_spec.target,
                 tool_type=tool_type,
                 sensitive_paths=self.sensitive_paths,
-                detection_rules=self.detection_rules,
-                shell_evasion_checks=self.shell_evasion_checks,
+                detection_rules=detection_rules,
+                shell_evasion_checks=shell_evasion_checks,
+                raw_params=tc_spec.raw_params,
             )
         except Exception as exc:
             logger.warning(
@@ -755,6 +770,54 @@ class GovernancePolicy:
                 exc,
             )
             return []
+
+    def _merge_config_rules(
+        self,
+    ) -> tuple[list[Any], dict[str, bool]]:
+        """Merge policy.yaml rules with config.json security.tool_guard.
+
+        Returns:
+            (merged_detection_rules, merged_shell_evasion_checks)
+
+        - custom_rules from config are appended to policy detection_rules.
+        - disabled_rules from config filter out rules by ID from both
+          policy.yaml and config custom_rules.
+        - shell_evasion_checks are OR-merged: enabled in either source
+          means enabled.
+        - On any config read error, returns the unmodified policy.yaml
+          values (graceful degradation).
+        """
+        try:
+            from ..config import load_config
+
+            cfg = load_config().security.tool_guard
+        except Exception as exc:
+            logger.warning(
+                "_merge_config_rules: config load failed: %s; "
+                "using policy.yaml rules only",
+                exc,
+            )
+            return list(self.detection_rules), dict(self.shell_evasion_checks)
+
+        disabled_ids = set(cfg.disabled_rules or [])
+
+        # Start with policy.yaml detection_rules, filtering disabled
+        merged_rules: list[Any] = [
+            r for r in self.detection_rules if r.id not in disabled_ids
+        ]
+
+        # Append config.json custom_rules (excluding disabled)
+        for cr in cfg.custom_rules or []:
+            if cr.id not in disabled_ids:
+                merged_rules.append(cr)
+
+        # Merge shell evasion checks: config values override policy.yaml
+        # defaults on overlapping keys (so the UI can turn checks OFF).
+        merged_evasion = dict(self.shell_evasion_checks)
+        for check_name, enabled in (cfg.shell_evasion_checks or {}).items():
+            merged_evasion[check_name] = enabled
+
+        return merged_rules, merged_evasion
 
     def _apply_execution_level_fallback(
         self,

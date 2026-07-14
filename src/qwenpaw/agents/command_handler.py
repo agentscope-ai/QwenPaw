@@ -6,6 +6,7 @@ This module handles system commands like /compact, /new, /clear, etc.
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -379,7 +380,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- No turns were evicted",
             )
         if index_text:
-            detail = f"**Eviction Index:**\n{index_text}\n"
+            detail = (
+                "**Archived Turns:**\n"
+                f"{self._format_scroll_compact_detail(index_text)}\n"
+            )
         else:
             detail = f"**Compressed Summary:**\n{summary}\n"
         # The fold rewrites tool results in place (message count unchanged),
@@ -396,6 +400,38 @@ class CommandHandler(ConversationCommandHandlerMixin):
             f"{folded_line}"
             f"{detail}",
         )
+
+    @staticmethod
+    def _format_scroll_compact_detail(
+        index_text: str,
+        *,
+        max_items: int = 5,
+    ) -> str:
+        """Return a user-readable summary of the scroll eviction index."""
+        headlines = []
+        for line in index_text.splitlines():
+            match = re.search(r"⟦\s*(.*?)\s*⟧", line)
+            if match:
+                headline = match.group(1).strip()
+                if headline:
+                    headlines.append(headline)
+
+        if not headlines:
+            return (
+                "- Older turns were archived and remain available through "
+                "scroll history."
+            )
+
+        shown = headlines[-max_items:]
+        lines = [f"- {headline}" for headline in shown]
+        remaining = len(headlines) - len(shown)
+        if remaining > 0:
+            lines.append(f"- ...and {remaining} older archived turn(s)")
+        lines.append(
+            "\nOlder turns were removed from the live context but remain "
+            "available in scroll history.",
+        )
+        return "\n".join(lines)
 
     @staticmethod
     def _scroll_index_text(agent: "Agent") -> str:

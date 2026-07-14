@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -363,7 +364,7 @@ def _execute_subprocess_sync(
 # Extra seconds added to the tool-call deadline to accommodate first-time
 # sandbox creation (user provisioning, profile creation, firewall rules, ACLs).
 # Subsequent calls hit the cache and need no extension.
-_SANDBOX_SETUP_DEADLINE_EXTENSION = 120.0
+_SANDBOX_SETUP_DEADLINE_EXTENSION = 180.0
 
 
 async def _execute_in_sandbox(
@@ -371,6 +372,7 @@ async def _execute_in_sandbox(
     sandbox_config: Any,
     timeout: float,
     cwd: str,
+    env: dict[str, str],
 ) -> ExecutionResult:
     """Execute a shell command inside the sandbox and return raw result.
 
@@ -383,6 +385,22 @@ async def _execute_in_sandbox(
     from ...sandbox import create_sandbox
     from ...tool_calls import get_call_context
 
+    # Sandbox backends rebuild their environment from os.environ. Carry over
+    # the PATH adjusted by the shell entrypoint unless policy set one itself.
+    sandbox_env = dict(sandbox_config.env_vars)
+    if not any(key.upper() == "PATH" for key in sandbox_env):
+        path_key = next(
+            (key for key in env if key.upper() == "PATH"),
+            "PATH",
+        )
+        sandbox_env[path_key] = env[path_key]
+
+    effective_config = replace(
+        sandbox_config,
+        timeout_seconds=int(timeout),
+        env_vars=sandbox_env,
+    )
+
     # Temporarily extend the tool-call deadline so that sandbox creation
     # does not consume the user's command timeout budget.
     ctx = get_call_context()
@@ -392,7 +410,7 @@ async def _execute_in_sandbox(
         ctx.deadline += _SANDBOX_SETUP_DEADLINE_EXTENSION
 
     try:
-        async with create_sandbox(sandbox_config) as sandbox:
+        async with create_sandbox(effective_config) as sandbox:
             # Restore the original deadline (plus only the command timeout)
             # now that sandbox setup is complete.
             if ctx is not None and original_deadline is not None:
@@ -580,6 +598,7 @@ async def execute_shell_command(
             sandbox_config,
             timeout,
             str(working_dir),
+            env,
         )
         # Sandbox violation: command tried to access something not permitted
         if result.sandbox_violation:

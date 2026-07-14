@@ -198,14 +198,17 @@ Unsandboxed recall executes arbitrary host Python as the agent user and should o
 
 ### Tool Results
 
-There are two related mechanisms:
+Tool results are handled by one mechanism:
 
-| Mechanism                     | Default                                                                                   | What it does                                                                                                                                                                                                                   |
-| ----------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ToolResultCapMiddleware`     | active with scroll                                                                        | If one tool result exceeds `scroll_config.tool_output_token_cap`, the full output is written to `history.db`, while the live context keeps a bounded preview and a `recall_history(op="recall_tool", tool_call_id=…)` pointer. |
-| `ToolResultPruningMiddleware` | registered for every context strategy; controlled by `tool_result_pruning_config.enabled` | Legacy tiered byte pruning for tool results, with optional file cache under `tool_results/`.                                                                                                                                   |
+| Mechanism                     | Default                                                                                   | What it does                                                                                                                                                                                                                                                                     |
+| ----------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ToolResultPruningMiddleware` | registered for every context strategy; controlled by `tool_result_pruning_config.enabled` | Prunes current and historical tool results by bytes, saves oversized raw output under `tool_results/`, and records block-scoped recovery metadata plus a `read_file` continuation hint. The background-completion path uses the same pruner when coordinator offload is enabled. |
 
-The scroll cap is token-based and uses durable recall. The legacy pruning middleware is byte-based and keeps compatibility with the previous tool-result offload behavior. Both are active under scroll.
+Scroll no longer has a separate token-based tool-result cap. Recent and execution previews share `pruning_recent_msg_max_bytes`; after scroll compaction, retained live previews are reduced to `pruning_old_msg_max_bytes` while the full artifact remains recallable.
+
+When unified pruning is enabled, QwenPaw makes AgentScope's built-in token-based tool-result cap non-binding. This prevents a second truncation pass from replacing the byte-bounded preview and discarding its block-scoped recovery metadata. If unified pruning is disabled, AgentScope's default cap remains active as a safety net.
+
+`scroll_config.tool_output_token_cap` is accepted only so existing configuration files continue to load. It is ignored and an explicitly configured value produces a migration warning; replace it with `tool_result_pruning_config.pruning_recent_msg_max_bytes`, whose unit is bytes rather than model-estimated tokens. Disabling `tool_result_pruning_config.enabled` also disables Scroll's execution-time per-result bound.
 
 ### Session Migration (Backfill)
 
@@ -236,7 +239,6 @@ Relevant configuration is under `running.light_context_config`:
       },
       "scroll_config": {
         "db_filename": "history.db",
-        "tool_output_token_cap": 3000,
         "repl_timeout_s": 300,
         "history_retention_days": 30,
         "allow_unsandboxed": false,
@@ -263,7 +265,7 @@ Important fields:
 | `context_compact_config.compact_threshold_ratio` | `0.8`          | Trigger when model input reaches this fraction of context size.                                  |
 | `context_compact_config.reserve_threshold_ratio` | `0.1`          | Recent tail budget kept after eviction.                                                          |
 | `scroll_config.db_filename`                      | `"history.db"` | SQLite filename relative to the workspace.                                                       |
-| `scroll_config.tool_output_token_cap`            | `3000`         | Token cap for one live tool result preview.                                                      |
+| `scroll_config.tool_output_token_cap`            | `3000`         | Deprecated and ignored; explicit values log a warning. Use `pruning_recent_msg_max_bytes`.       |
 | `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                                    |
 | `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                              |
 | `scroll_config.offload_dialog`                   | `false`        | Also write legacy `dialog/*.jsonl` archive. `history.db` remains the source of truth.            |
@@ -298,6 +300,6 @@ Set this when you want AgentScope's built-in behavior instead of scroll:
 }
 ```
 
-Native mode does not wire `ScrollContextManager`, `ToolResultCapMiddleware`, or `recall_history_python`. It uses AgentScope context compression with the same `compact_threshold_ratio` and `reserve_threshold_ratio` mapping.
+Native mode does not wire `ScrollContextManager` or `recall_history_python`. It uses AgentScope context compression with the same `compact_threshold_ratio` and `reserve_threshold_ratio` mapping.
 
 > **Tip:** Context configuration is typically managed through the Console (**Workspace → Running Config**) without manually editing `agent.json`.

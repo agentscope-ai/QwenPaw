@@ -290,6 +290,8 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     createdAt: chat.created_at ?? null,
     updatedAt: chat.updated_at ?? null,
     pinned: chat.pinned ?? false,
+    archived: chat.archived ?? false,
+    archivedAt: chat.archived_at ?? null,
   }) as ExtendedSession;
 
 /** Returns true when id is a local session id (timestamp-random, not a backend UUID). */
@@ -932,7 +934,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     this.sessionListRequest = (async () => {
       try {
-        const chats = await api.listChats();
+        const chats = await api.listChats({ archived: false });
         return this.applyChatsToSessionList(chats);
       } finally {
         this.sessionListRequest = null;

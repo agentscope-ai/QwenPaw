@@ -275,8 +275,6 @@ class AgentBuilder:
         sys_prompt = self.build_prompt(ctx, agent_config)
 
         middlewares = self._build_middlewares(ctx, agent_config)
-        if scroll is not None:
-            middlewares.append(scroll.cap_middleware)
 
         running_config = agent_config.running
 
@@ -623,9 +621,23 @@ class AgentBuilder:
         try:
             lcc = agent_config.running.light_context_config
             ccc = lcc.context_compact_config
+            trc = lcc.tool_result_pruning_config
+            # ToolResultPruningMiddleware already bounds fresh results by
+            # bytes and persists the full artifact before replacing them.
+            # AgentScope otherwise applies its own 50k-token split afterwards,
+            # creates a replacement ToolResultBlock, and drops QwenPaw's
+            # block-scoped truncation metadata.  Make that second cap
+            # non-binding while unified pruning is enabled; when pruning is
+            # disabled, retain AgentScope's default safety net.
+            tool_result_limit = (
+                2**63 - 1
+                if trc.enabled
+                else ContextConfig.model_fields["tool_result_limit"].default
+            )
             return ContextConfig(
                 trigger_ratio=ccc.compact_threshold_ratio,
                 reserve_ratio=ccc.reserve_threshold_ratio,
+                tool_result_limit=tool_result_limit,
             )
         except Exception:
             return ContextConfig()
@@ -707,9 +719,10 @@ class AgentBuilder:
         offered to the model in this build.
 
         The REPL runs model-authored Python and so needs a sandbox. It is
-        worth registering only when one is actually available — meaning the
-        governor is present AND its platform probe found a sandbox — or when
-        the operator explicitly opted into unsandboxed recall (both the
+        worth registering only when one is actually usable — meaning the
+        governor's platform probe found a sandbox AND the global sandbox
+        switch is enabled — or when the operator explicitly opted into
+        unsandboxed recall (both the
         ``QWENPAW_ALLOW_UNSANDBOXED_RECALL`` env var and
         ``scroll_config.allow_unsandboxed``, via
         ``scroll_unsandboxed_allowed``).
@@ -722,12 +735,18 @@ class AgentBuilder:
         :meth:`_scroll_recall_runnable`, which gates whether scroll is wired at
         all; here scroll is already wired and structured recall is present.
         """
-        if governor is not None and getattr(
-            governor,
-            "sandbox_available",
-            False,
-        ):
-            return True
+        if governor is not None:
+            sandbox_usable = getattr(governor, "sandbox_usable", None)
+            if sandbox_usable is None:
+                # Compatibility for lightweight/custom governor objects that
+                # predate the effective-usability property.
+                sandbox_usable = getattr(
+                    governor,
+                    "sandbox_available",
+                    False,
+                )
+            if sandbox_usable:
+                return True
         try:
             from ..agents.context import scroll_unsandboxed_allowed
 
@@ -778,9 +797,10 @@ class AgentBuilder:
             )
         else:
             _logger.info(
-                "scroll: no sandbox available for recall_history_python — "
-                "registering only the structured recall_history tool "
-                "(no approval prompt, works without a sandbox)",
+                "scroll: sandbox unavailable or disabled for "
+                "recall_history_python — registering only the structured "
+                "recall_history tool (no approval prompt, works without a "
+                "sandbox)",
             )
 
     @staticmethod
@@ -859,7 +879,11 @@ class AgentBuilder:
         return ToolResultPruningMiddleware(
             enabled=trc.enabled,
             recent_n=trc.pruning_recent_n,
-            old_max_bytes=trc.pruning_old_msg_max_bytes,
+            old_max_bytes=(
+                trc.pruning_recent_msg_max_bytes
+                if getattr(lcc, "strategy", "native") == "scroll"
+                else trc.pruning_old_msg_max_bytes
+            ),
             recent_max_bytes=trc.pruning_recent_msg_max_bytes,
             exempt_file_extensions={
                 e.lower() for e in trc.exempt_file_extensions

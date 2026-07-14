@@ -1217,7 +1217,29 @@
     "selectedItems": "{{count}} item dipilih",
     "editSession": "Edit Sesi",
     "pleaseInputName": "Harap masukkan nama sesi",
-    "sessionNamePlaceholder": "Nama sesi"
+    "sessionNamePlaceholder": "Nama sesi",
+    "activeTab": "Aktif",
+    "archivedTab": "Diarsipkan",
+    "archivedAtColumn": "Waktu Arsip",
+    "archive": {
+      "action": "Arsipkan",
+      "unaction": "Batalkan Arsip",
+      "batchAction": "Arsipkan Massal",
+      "batchUnaction": "Batalkan Arsip Massal",
+      "success": "Obrolan diarsipkan",
+      "successHint": "Obrolan diarsipkan. Lihat di Kontrol > Sesi > Diarsipkan.",
+      "failed": "Gagal mengarsipkan",
+      "unarchiveSuccess": "Arsip dibatalkan",
+      "unarchiveFailed": "Gagal membatalkan arsip",
+      "batchSuccess": "{{count}} obrolan diarsipkan",
+      "batchFailed": "Gagal mengarsipkan massal",
+      "batchUnarchiveSuccess": "{{count}} obrolan dibatalkan arsipnya",
+      "batchUnarchiveFailed": "Gagal membatalkan arsip massal",
+      "groupLabel": "Diarsipkan ({{count}})",
+      "modalTitle": "Obrolan yang Diarsipkan",
+      "unarchiveAll": "Batalkan Semua Arsip",
+      "noArchived": "Tidak ada obrolan yang diarsipkan"
+    }
   },
   "environments": {
     "parent": "Pengaturan",

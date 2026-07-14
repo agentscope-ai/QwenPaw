@@ -1009,7 +1009,29 @@
     "selectedItems": "{{count}} 件選択中",
     "editSession": "セッションを編集",
     "pleaseInputName": "セッション名を入力してください",
-    "sessionNamePlaceholder": "セッション名"
+    "sessionNamePlaceholder": "セッション名",
+    "activeTab": "アクティブ",
+    "archivedTab": "アーカイブ済み",
+    "archivedAtColumn": "アーカイブ日時",
+    "archive": {
+      "action": "アーカイブ",
+      "unaction": "アーカイブ解除",
+      "batchAction": "一括アーカイブ",
+      "batchUnaction": "一括アーカイブ解除",
+      "success": "チャットをアーカイブしました",
+      "successHint": "アーカイブしました。「コントロール＞セッション管理＞アーカイブ済み」で確認できます。",
+      "failed": "アーカイブに失敗しました",
+      "unarchiveSuccess": "アーカイブを解除しました",
+      "unarchiveFailed": "アーカイブ解除に失敗しました",
+      "batchSuccess": "{{count}} 件のチャットをアーカイブしました",
+      "batchFailed": "一括アーカイブに失敗しました",
+      "batchUnarchiveSuccess": "{{count}} 件のアーカイブを解除しました",
+      "batchUnarchiveFailed": "一括アーカイブ解除に失敗しました",
+      "groupLabel": "アーカイブ済み ({{count}})",
+      "modalTitle": "アーカイブ済みのチャット",
+      "unarchiveAll": "すべてアーカイブ解除",
+      "noArchived": "アーカイブ済みのチャットはありません"
+    }
   },
   "environments": {
     "parent": "設定",
