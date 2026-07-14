@@ -1,7 +1,7 @@
 # Skills
 
-**Skills** can come from packaged built-ins, the local skill pool, Skills Hub
-imports, or files you add yourself.
+**Skills** can come from packaged built-ins, the local skill pool, the Skill
+Market or URL imports, or files you add yourself.
 
 Two ways to manage skills:
 
@@ -58,8 +58,9 @@ a workspace first.
 Pool-side operations:
 
 - **Broadcast:** Copy a pool skill into one or more workspaces.
-- **Add to pool:** Create in the pool UI, import built-ins, import from a URL,
-  upload a zip, upload from a workspace, or place files on disk manually.
+- **Add to pool:** The pool page has a unified **Add Skill** entry (Create
+  Skill, Upload via Zip, Upload via URL, Browse Market). You can also import
+  built-ins, upload from a workspace, or place files on disk manually.
 - **Edit / rename:** Saving a normal shared skill under the same name edits
   that pool entry in place. Saving it under a new name creates a renamed
   entry. Builtin skills cannot be customized in place under the same name. To
@@ -106,20 +107,22 @@ Adding skills to the pool:
    - List: `qwenpaw cron list`
    - Check state: `qwenpaw cron state <job_id>`
 
-2. **Create directly in the pool UI**.
-   This creates a shared pool skill without first creating it in a workspace.
+2. **Through the unified "Add Skill" entry**.
+   The **Add Skill** dropdown at the top right of the pool page offers four
+   ways:
 
-3. **Import from URL into the pool**.
-   The pool page also supports importing from supported Hub / GitHub URLs.
+   - **Create Skill**: creates a shared pool skill without first creating it
+     in a workspace.
+   - **Upload via Zip**: import one or more packaged skill folders.
+   - **Upload via URL**: import directly from supported Hub / GitHub URLs.
+   - **Browse Market**: switch to the embedded Skill Market; clicking **Save**
+     on a card saves it into the pool (see **Skill Market** below).
 
-4. **Upload a zip into the pool**.
-   This is useful when you already have one or more packaged skill folders.
-
-5. **Upload from a workspace**.
+3. **Upload from a workspace**.
    On **Workspace → Skills**, click **Sync to Skill Pool** to publish a workspace skill to the
    pool.
 
-6. **Manual filesystem changes**.
+4. **Manual filesystem changes**.
    You can place folders directly under `$QWENPAW_WORKING_DIR/skill_pool/`, but this is not
    recommended. Direct pool edits can be lost or overwritten more easily,
    especially for customized skills. Be careful and treat this as an advanced
@@ -183,38 +186,29 @@ actually loads at runtime.
 
 ## Workspace
 
-The normal order for creating skills in a workspace is:
+The **Add Skill** dropdown at the top right of [Console](./console) →
+**Workspace → Skills** is the unified entry; skills added through it are
+**enabled by default**:
 
-### 1. From pool
+- **Load from Skill Pool**: pick the skills to load and confirm. This is the
+  preferred path for built-ins and shared reusable skills (the reverse
+  direction also works: click **Broadcast** on a skill in **Settings → Skill
+  Pool**). Name conflicts return an error with a suggested renamed target.
+- **Create Skill**: enter a name and content; the new skill is written into
+  the workspace's `skills/` directory and `skill.json`. The edit drawer also
+  offers **AI Optimize** (**beta**) — it may help rewrite content but does not
+  guarantee a working result; review before saving.
+- **Upload via Zip**: import one or more packaged skill folders.
+- **Upload via URL**: import from supported Hub / GitHub URLs — see **Import
+  from URL** below.
+- **Browse Market**: switch to the embedded Skill Market and click **Save** on
+  a card to install it into the current workspace — see
+  [Skill Market](#skill-market) below.
 
-This is the preferred path for both built-ins and shared reusable skills.
+Beyond that page, you can also write files manually or generate a skill from
+the current session with `/make-skill`, described below.
 
-1. Open **Skill Pool** in the Console.
-2. Click **Broadcast** on the skill you want.
-3. Select target workspace(s) and confirm.
-4. The skill is copied into the workspace and **enabled by default**.
-
-If the target workspace already has a skill with the same name, broadcast
-returns a conflict and suggests a renamed target.
-
-### 2. Create via UI
-
-In [Console](./console) → **Workspace → Skills**, you can create a skill by
-entering a name and content. The new workspace skill is written into
-`skills/` and `skill.json`, and is **enabled by default**.
-
-When editing a workspace skill in the drawer, the page also provides **AI
-Optimize**. This is only a **beta** feature. It may help rewrite or restructure
-skill content, but it does **not** guarantee a valid or working result. Always
-review the generated content manually before saving.
-
-### 3. Import from zip
-
-The workspace skill page also supports zip import. This is similar to adding a
-skill into the pool, except the target is the current workspace. Imported
-skills are **enabled by default**.
-
-### 4. Import from URL
+### Import from URL
 
 The workspace skill page supports importing from the following URL sources:
 
@@ -244,16 +238,18 @@ qwenpaw skills uninstall <skill_name> --agent-id <agent_id>
 
 #### Steps
 
-1. In [Console](./console) → **Workspace → Skills**, click **Import from Skills Hub**.
+1. In [Console](./console) → **Workspace → Skills**, click **Add Skill →
+   Upload via URL**.
 
    ![skill](https://img.alicdn.com/imgextra/i2/O1CN018GbM8v1Iuyyp9Cuyp_!!6000000000954-2-tps-3822-2070.png)
 
 2. Paste a skill URL in the pop-up window (see **URL acquisition example**
-   below).
+   below). The dialog lists the supported sources with an example URL for
+   each — click an example to fill it in.
 
    ![url](https://img.alicdn.com/imgextra/i4/O1CN01ztz7ds28L7zh408Si_!!6000000007915-2-tps-3822-2070.png)
 
-3. Confirm and wait for import to finish.
+3. Click **Confirm** and wait for import to finish.
 
    ![click](https://img.alicdn.com/imgextra/i3/O1CN01FXICJa1fcsUDbQpiv_!!6000000004028-2-tps-3822-2070.png)
 
@@ -291,7 +287,7 @@ qwenpaw skills uninstall <skill_name> --agent-id <agent_id>
   Console → Settings → Environments. See GitHub docs:
   [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
 
-### 5. Create manually in the workspace
+### Create manually in the workspace
 
 You can also create a workspace skill directly by writing files under
 `$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`, including using QwenPaw itself to help
@@ -331,24 +327,7 @@ This skill is used for…
 Manually placed skills are detected on the next manifest reconcile and added
 to `skill.json` as **disabled**. Enable them in the Console or CLI.
 
-### Auto sync (Skill Pool & Workspace)
-
-Turn on **Auto sync** for a pool skill and any change to its pool content is
-synced to the relevant workspaces automatically — no manual broadcast needed.
-
-- **How to enable:** Toggle it on the skill card in **Settings → Skill Pool**
-  (applies immediately), or enable it and pick associated agents in the skill
-  drawer (applies on save).
-- **Sync scope:**
-  - **Default** (no associated agents configured): syncs only to workspaces that
-    **already have the skill**; agents that never had it are not installed.
-  - **Explicit agents:** syncs to exactly those agents; ones in the list that
-    lack the skill get it installed, while agents not listed are left untouched.
-- **Change detection:** based on the content of `SKILL.md`.
-- **Inbox notification:** each run posts one message to the [Inbox](./console)
-  listing which agents each skill was synced to (sender shown as "Skill Pool").
-
-### 6. Create from current session via /make-skill (Beta)
+### Create from current session via /make-skill (Beta)
 
 When you've just walked through a workflow in chat: tried tools, hit
 errors, found a working approach.
@@ -370,6 +349,23 @@ your workspace, **enabled by default**.
 `/make-skill` is itself a built-in skill — make sure it's enabled in
 your workspace via `/skills` before invoking.
 
+### Auto sync (Skill Pool & Workspace)
+
+Turn on **Auto sync** for a pool skill and any change to its pool content is
+synced to the relevant workspaces automatically — no manual broadcast needed.
+
+- **How to enable:** Toggle it on the skill card in **Settings → Skill Pool**
+  (applies immediately), or enable it and pick associated agents in the skill
+  drawer (applies on save).
+- **Sync scope:**
+  - **Default** (no associated agents configured): syncs only to workspaces that
+    **already have the skill**; agents that never had it are not installed.
+  - **Explicit agents:** syncs to exactly those agents; ones in the list that
+    lack the skill get it installed, while agents not listed are left untouched.
+- **Change detection:** based on the content of `SKILL.md`.
+- **Inbox notification:** each run posts one message to the [Inbox](./console)
+  listing which agents each skill was synced to (sender shown as "Skill Pool").
+
 ---
 
 Common workspace operations:
@@ -377,8 +373,8 @@ Common workspace operations:
 - **Enable / disable:** Turn a skill on or off without changing its files.
 - **Delete:** Delete a workspace skill. If the skill is currently enabled, it
   is automatically disabled first.
-- **Upload to pool:** Publish a workspace skill to the shared pool for reuse by
-  other workspaces.
+- **Sync to Skill Pool:** Publish a workspace skill to the shared pool for
+  reuse by other workspaces.
 - **Edit channel scope / config:** Adjust where the skill applies and what
   runtime config it receives in this workspace.
 
@@ -386,20 +382,29 @@ Common workspace operations:
 
 ## Skill Market
 
-Search and install skills from multiple marketplaces in one place — open
-**Settings → Skill Market** in the Console. This is the search-driven alternative to the per-URL **Import from URL** flow above.
+Search and install skills from multiple marketplaces in one place. The market
+is embedded in the skill pages: on **Workspace → Skills** or **Settings →
+Skill Pool**, click **Add Skill → Browse Market** to switch to the market view
+(click **Back** or use browser back to return to the list). This is the
+search-driven alternative to the per-URL **Import from URL** flow above.
 
-Three providers ship out of the box:
+Four providers ship out of the box:
 
+- **QwenPaw** — public, always enabled.
 - **ClawHub** — public, always enabled.
 - **ModelScope** — public, always enabled.
-- **Aliyun** — requires credentials in **Settings → Environments**;
+- **Aliyun** — requires `ALIBABA_CLOUD_ACCESS_KEY_ID` /
+  `ALIBABA_CLOUD_ACCESS_KEY_SECRET` in **Settings → Environments**;
   without them the provider chip is disabled and the tooltip explains why.
 
 How it works:
 
-- Search runs in parallel across enabled providers; a failure on one provider surfaces as a banner while results from the others still render.
-- Each card has a target picker: **Pool** (shared) or **Workspace** (current agent).
+- Filter by **provider**, **category**, and keyword; categories map to each
+  provider's native category codes or equivalent search terms automatically.
+- Search runs across all enabled providers in parallel; one provider failing
+  doesn't block results from the others.
+- **Save** installs to where you entered from: the current workspace (from
+  **Workspace → Skills**) or the pool (from **Settings → Skill Pool**).
 - Installs run through a queue (one at a time) with retry and cancel; name conflicts surface as a failed item with the server message — rename the existing workspace skill and retry the install.
 
 After install, every skill remembers its origin in an `installed_from` field, shown in the skill drawer as **Installed from**. Values include `clawhub`,

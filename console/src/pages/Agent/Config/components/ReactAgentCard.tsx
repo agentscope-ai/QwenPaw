@@ -82,23 +82,6 @@ export function ReactAgentCard({
         </Form.Item>
 
         <Form.Item
-          label={t("agentConfig.maxIters")}
-          name="max_iters"
-          rules={[
-            { required: true, message: t("agentConfig.maxItersRequired") },
-            { type: "number", min: 1, message: t("agentConfig.maxItersMin") },
-          ]}
-          tooltip={t("agentConfig.maxItersTooltip")}
-          className={styles.reactAgentField}
-        >
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            placeholder={t("agentConfig.maxItersPlaceholder")}
-          />
-        </Form.Item>
-
-        <Form.Item
           label={t("agentConfig.shellCommandTimeout")}
           name="shell_command_timeout"
           rules={[
@@ -136,15 +119,6 @@ export function ReactAgentCard({
           />
         </Form.Item>
       </div>
-
-      <Form.Item
-        label={t("agentConfig.autoContinueOnTextOnly")}
-        name="auto_continue_on_text_only"
-        valuePropName="checked"
-        tooltip={t("agentConfig.autoContinueOnTextOnlyTooltip")}
-      >
-        <Switch />
-      </Form.Item>
 
       <Form.Item
         label={t("agentConfig.autoGenerateSessionTitle")}

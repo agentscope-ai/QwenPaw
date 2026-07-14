@@ -29,6 +29,10 @@ class ToolRegistry:
         # (e.g. Glob: pattern is a file glob, so path+pattern
         # forms a complete filesystem path pattern for rule matching).
         self._pattern_params: Dict[str, str] = {}
+        # Tools that refuse to run (fail closed) unless a sandbox_config is
+        # supplied — as opposed to shell tools like Bash that execute directly
+        # when unsandboxed. See ``requires_sandbox`` for why this matters.
+        self._sandbox_required: Dict[str, bool] = {}
 
     def register(
         self,
@@ -36,6 +40,7 @@ class ToolRegistry:
         tool_type: str,
         target_param: str,
         pattern_param: str = "",
+        sandbox_required: bool = False,
     ) -> None:
         """Register a tool.
 
@@ -46,11 +51,21 @@ class ToolRegistry:
             pattern_param: for file-search tools (e.g. Glob), the parameter
                 name holding the glob pattern. When set, ``extract_target``
                 combines path + pattern into a single filesystem path pattern.
+            sandbox_required: ``True`` for tools that **fail closed** without a
+                ``sandbox_config`` (e.g. ``recall_history_python``, which runs
+                model-authored Python and returns ``DENIED`` when no sandbox is
+                supplied). Distinct from mere shell-type: ``Bash`` is shell but
+                fail-*open* — it executes unsandboxed when no config is given.
+                Consumed by the approval_level=OFF path, which must still
+                compile a sandbox for these tools instead of letting them dead
+                -end in a sandbox-violation → approval loop.
         """
         self._types[tool_name] = tool_type
         self._target_params[tool_name] = target_param
         if pattern_param:
             self._pattern_params[tool_name] = pattern_param
+        if sandbox_required:
+            self._sandbox_required[tool_name] = True
 
     def register_python_name(self, python_name: str, policy_name: str) -> None:
         """Register a python function name → policy tool name mapping."""
@@ -66,6 +81,15 @@ class ToolRegistry:
         Returns "" if not registered.
         """
         return self._target_params.get(tool_name, "")
+
+    def requires_sandbox(self, tool_name: str) -> bool:
+        """Whether the tool fails closed without a ``sandbox_config``.
+
+        ``True`` only for tools that refuse to run unsandboxed (the REPL).
+        Returns ``False`` for unregistered tools and for fail-open shell
+        tools like ``Bash`` that execute directly when no sandbox is given.
+        """
+        return self._sandbox_required.get(tool_name, False)
 
     def python_to_policy_name(self, python_name: str) -> str:
         """Map a python function name to a policy tool name.
@@ -93,6 +117,10 @@ class ToolRegistry:
         # 1) Get base path from input
         path = input_data.get(param, "")
         path = str(path) if path else ""
+
+        # Expand a leading ``~`` to the user's home directory
+        if path:
+            path = os.path.expanduser(path)
 
         # 2) For file tools, resolve empty/relative path using workspace_dir
         if self._types.get(tool_name) == "file" and workspace_dir:
@@ -125,68 +153,90 @@ class ToolRegistry:
 def _create_default_registry() -> ToolRegistry:
     """Create and populate the default ToolRegistry."""
     registry = ToolRegistry()
-
-    # ── File tools (12) ──
-    registry.register("Read", "file", "file_path")
-    registry.register("Write", "file", "file_path")
-    registry.register("Edit", "file", "file_path")
-    registry.register("Append", "file", "file_path")
-    registry.register("Grep", "file", "path")
-    registry.register("Glob", "file", "path", pattern_param="pattern")
-    registry.register("SendFileToUser", "file", "file_path")
-    registry.register("ViewImage", "file", "image_path")
-    registry.register("ViewVideo", "file", "video_path")
-    registry.register("DesktopScreenshot", "file", "path")
-    registry.register("SetUserTimezone", "file", "timezone")
-
-    # ── Network tools (1) ──
-    registry.register("Browser", "network", "url")
-
-    # ── Shell tools (1) ──
-    registry.register("Bash", "shell", "command")
-
-    # ── Internal tools (7) ──
-    registry.register("GetCurrentTime", "internal", "")
-    registry.register("GetTokenUsage", "internal", "")
-    registry.register("ListAgents", "internal", "")
-    registry.register("MaterializeSkill", "internal", "")
-    registry.register("ChatWithAgent", "internal", "agent_id")
-    registry.register("SubmitToAgent", "internal", "agent_id")
-    registry.register("CheckAgentTask", "internal", "task_id")
-    registry.register("SpawnSubagent", "internal", "")
-    registry.register("DelegateExternalAgent", "internal", "runner")
-    registry.register("RecallHistoryPython", "shell", "source")
-    registry.register("MemorySearch", "internal", "")
-
-    # ── Python function name mappings ──
-    registry.register_python_name("execute_shell_command", "Bash")
-    registry.register_python_name("read_file", "Read")
-    registry.register_python_name("write_file", "Write")
-    registry.register_python_name("edit_file", "Edit")
-    registry.register_python_name("memory_search", "MemorySearch")
-    registry.register_python_name("append_file", "Append")
-    registry.register_python_name("grep_search", "Grep")
-    registry.register_python_name("glob_search", "Glob")
-    registry.register_python_name("browser_use", "Browser")
-    registry.register_python_name("desktop_screenshot", "DesktopScreenshot")
-    registry.register_python_name("send_file_to_user", "SendFileToUser")
-    registry.register_python_name("view_image", "ViewImage")
-    registry.register_python_name("view_video", "ViewVideo")
-    registry.register_python_name("get_current_time", "GetCurrentTime")
-    registry.register_python_name("set_user_timezone", "SetUserTimezone")
-    registry.register_python_name("get_token_usage", "GetTokenUsage")
-    registry.register_python_name(
-        "delegate_external_agent",
-        "DelegateExternalAgent",
-    )
-    registry.register_python_name("list_agents", "ListAgents")
-    registry.register_python_name("chat_with_agent", "ChatWithAgent")
-    registry.register_python_name("submit_to_agent", "SubmitToAgent")
-    registry.register_python_name("check_agent_task", "CheckAgentTask")
-    registry.register_python_name("spawn_subagent", "SpawnSubagent")
-    registry.register_python_name("materialize_skill", "MaterializeSkill")
-
+    _register_builtin_tools(registry)
+    _register_python_name_mappings(registry)
     return registry
+
+
+def _register_builtin_tools(r: ToolRegistry) -> None:
+    """Register all built-in tool types."""
+    # ── File tools ──
+    for name, param in [
+        ("Read", "file_path"),
+        ("Write", "file_path"),
+        ("Edit", "file_path"),
+        ("Append", "file_path"),
+        ("Grep", "path"),
+        ("SendFileToUser", "file_path"),
+        ("ViewImage", "image_path"),
+        ("ViewVideo", "video_path"),
+        ("DesktopScreenshot", "path"),
+        ("SetUserTimezone", "timezone"),
+    ]:
+        r.register(name, "file", param)
+    r.register("Glob", "file", "path", pattern_param="pattern")
+
+    # ── Network / Shell ──
+    r.register("Browser", "network", "url")
+    r.register("WebSearch", "network", "search_term")
+    r.register("WebFetch", "network", "url")
+    r.register("Bash", "shell", "command")
+    # Fail-closed: the REPL runs model-authored Python and returns DENIED
+    # unless a sandbox_config is supplied (unlike Bash, which is fail-open).
+    r.register("RecallHistoryPython", "shell", "source", sandbox_required=True)
+    # Structured recall: bound-parameter read-only queries over history.db —
+    # the model supplies scalars, never code, so no sandbox/approval needed.
+    r.register("RecallHistory", "internal", "op")
+
+    # ── Internal tools ──
+    for name, param in [
+        ("GetCurrentTime", ""),
+        ("GetTokenUsage", ""),
+        ("ListAgents", ""),
+        ("MaterializeSkill", ""),
+        ("ChatWithAgent", "agent_id"),
+        ("SubmitToAgent", "agent_id"),
+        ("CheckAgentTask", "task_id"),
+        ("SpawnSubagent", ""),
+        ("DelegateExternalAgent", "runner"),
+        ("MemorySearch", ""),
+    ]:
+        r.register(name, "internal", param)
+
+
+def _register_python_name_mappings(
+    r: ToolRegistry,
+) -> None:
+    """Register python func name → policy name maps."""
+    mappings = {
+        "execute_shell_command": "Bash",
+        "read_file": "Read",
+        "write_file": "Write",
+        "edit_file": "Edit",
+        "memory_search": "MemorySearch",
+        "append_file": "Append",
+        "grep_search": "Grep",
+        "glob_search": "Glob",
+        "browser_use": "Browser",
+        "web_search": "WebSearch",
+        "web_fetch": "WebFetch",
+        "desktop_screenshot": "DesktopScreenshot",
+        "send_file_to_user": "SendFileToUser",
+        "view_image": "ViewImage",
+        "view_video": "ViewVideo",
+        "get_current_time": "GetCurrentTime",
+        "set_user_timezone": "SetUserTimezone",
+        "get_token_usage": "GetTokenUsage",
+        "delegate_external_agent": "DelegateExternalAgent",
+        "list_agents": "ListAgents",
+        "chat_with_agent": "ChatWithAgent",
+        "submit_to_agent": "SubmitToAgent",
+        "check_agent_task": "CheckAgentTask",
+        "spawn_subagent": "SpawnSubagent",
+        "materialize_skill": "MaterializeSkill",
+    }
+    for py_name, policy_name in mappings.items():
+        r.register_python_name(py_name, policy_name)
 
 
 DEFAULT_REGISTRY = _create_default_registry()

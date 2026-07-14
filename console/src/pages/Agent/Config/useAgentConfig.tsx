@@ -8,6 +8,7 @@ import { useAgentStore } from "../../../stores/agentStore";
 import {
   CONTEXT_MANAGER_BACKEND_MAPPINGS,
   MEMORY_MANAGER_BACKEND_MAPPINGS,
+  MEMORY_MANAGER_BACKEND_OPTIONS,
 } from "../../../constants/backendMappings";
 import type { ToolExecutionLevel } from "./components/ToolExecutionLevelCard";
 
@@ -45,14 +46,23 @@ export function useAgentConfig() {
           ? config.context_manager_backend
           : "light";
       const memoryBackend =
-        config.memory_manager_backend in MEMORY_MANAGER_BACKEND_MAPPINGS
+        config.memory_manager_backend in MEMORY_MANAGER_BACKEND_MAPPINGS ||
+        MEMORY_MANAGER_BACKEND_OPTIONS.some(
+          (o) => o.value === config.memory_manager_backend,
+        )
           ? config.memory_manager_backend
           : "remelight";
       form.setFieldsValue({
-        max_iters: config.max_iters,
-        auto_continue_on_text_only: config.auto_continue_on_text_only ?? false,
         shell_command_timeout: config.shell_command_timeout ?? 60.0,
         shell_command_executable: config.shell_command_executable ?? "",
+        loop: {
+          ...config.loop,
+          iteration: {
+            ...config.loop?.iteration,
+            max_iterations:
+              config.loop?.iteration?.max_iterations ?? config.max_iters ?? 100,
+          },
+        },
         llm_retry_enabled: config.llm_retry_enabled,
         llm_max_retries: config.llm_max_retries,
         llm_backoff_base: config.llm_backoff_base,

@@ -18,6 +18,9 @@ const defaultConfig = {
   sender: {
     attachments: true,
     maxLength: 10000,
+    longTextUpload: {
+      enabled: true,
+    },
     disclaimer: "Works for you, grows with you",
   },
   welcome: {

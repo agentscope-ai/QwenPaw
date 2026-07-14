@@ -1,3 +1,20 @@
+.headerActions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.nodeSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nodeLabel {
+  font-size: 14px;
+  font-weight: 500;
+}
+
 @media (max-width: 768px) {
   .pageHeader {
     flex-direction: column;
@@ -19,6 +36,11 @@
       width: 100%;
       justify-content: flex-start;
     }
+  }
+
+  .headerActions {
+    width: 100%;
+    flex-wrap: wrap;
   }
 
   .channelsGridMobile {

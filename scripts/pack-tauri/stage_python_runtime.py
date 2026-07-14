@@ -22,13 +22,20 @@ import re
 import sys
 import tarfile
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
-RELEASES_API = (
+RELEASES_API_BASE = (
     "https://api.github.com/repos/astral-sh/"
-    "python-build-standalone/releases/latest"
+    "python-build-standalone/releases"
 )
+DEFAULT_RELEASE = "20260623"
+RELEASE_ENV = "QWENPAW_PYTHON_BUILD_STANDALONE_RELEASE"
+HTTP_ATTEMPTS = 4
+HTTP_TIMEOUT_SECONDS = 120
+RETRYABLE_HTTP_STATUS = {408, 429, 500, 502, 503, 504}
 
 
 def _host_triple() -> str:
@@ -63,22 +70,104 @@ def _http_get(url: str) -> bytes:
     if token:
         request.add_header("Authorization", f"Bearer {token}")
     request.add_header("User-Agent", "qwenpaw-build")
-    with urllib.request.urlopen(request, timeout=120) as resp:
-        return resp.read()
+    for attempt in range(1, HTTP_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=HTTP_TIMEOUT_SECONDS,
+            ) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            if (
+                exc.code not in RETRYABLE_HTTP_STATUS
+                or attempt == HTTP_ATTEMPTS
+            ):
+                raise
+            wait = 2 ** (attempt - 1)
+            print(
+                f"HTTP {exc.code} fetching {url}; "
+                f"retrying in {wait}s ({attempt}/{HTTP_ATTEMPTS})",
+            )
+        except OSError as exc:
+            if attempt == HTTP_ATTEMPTS:
+                raise
+            wait = 2 ** (attempt - 1)
+            print(
+                f"{type(exc).__name__} fetching {url}: {exc}; "
+                f"retrying in {wait}s ({attempt}/{HTTP_ATTEMPTS})",
+            )
+        time.sleep(wait)
+    raise RuntimeError(f"failed to fetch {url}")
 
 
-def _find_asset_url(xy: str, triple: str) -> str:
-    data = json.loads(_http_get(RELEASES_API).decode("utf-8"))
+def _release_url(release: str | None) -> str:
+    if release and release.lower() != "latest":
+        return f"{RELEASES_API_BASE}/tags/{release}"
+    return f"{RELEASES_API_BASE}/latest"
+
+
+def _release_data(release: str | None) -> dict[str, object]:
+    return json.loads(_http_get(_release_url(release)).decode("utf-8"))
+
+
+def _preferred_release() -> str:
+    release = os.environ.get(RELEASE_ENV, DEFAULT_RELEASE).strip()
+    return release or "latest"
+
+
+def _asset_url_from_release(
+    data: dict[str, object],
+    xy: str,
+    triple: str,
+) -> str | None:
     pattern = re.compile(
         rf"^cpython-{re.escape(xy)}\.\d+\+\d+-{re.escape(triple)}"
         r"-install_only\.tar\.gz$",
     )
     for asset in data.get("assets", []):
-        if pattern.match(asset.get("name", "")):
-            return asset["browser_download_url"]
+        if not isinstance(asset, dict):
+            continue
+        if pattern.match(str(asset.get("name", ""))):
+            return str(asset["browser_download_url"])
+    return None
+
+
+def _find_asset_url(xy: str, triple: str, release: str) -> tuple[str, str]:
+    if release and release.lower() != "latest":
+        try:
+            data = _release_data(release)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise
+            print(
+                f"python-build-standalone release {release} not found; "
+                "falling back to latest",
+            )
+        else:
+            url = _asset_url_from_release(data, xy, triple)
+            if url:
+                return url, release
+            print(
+                f"no python-build-standalone install_only asset for "
+                f"Python {xy} / {triple} in release {release}; "
+                "falling back to latest",
+            )
+
+    data = _release_data(None)
+    url = _asset_url_from_release(data, xy, triple)
+    if url:
+        return url, str(data.get("tag_name", "latest"))
     raise SystemExit(
         f"no python-build-standalone install_only asset for "
         f"Python {xy} / {triple} in the latest release",
+    )
+
+
+def _is_staged(dest: Path, marker: Path, marker_value: str) -> bool:
+    return (
+        _python_exe(dest).is_file()
+        and marker.is_file()
+        and marker.read_text(encoding="utf-8").strip() == marker_value
     )
 
 
@@ -101,17 +190,26 @@ def main() -> None:
     dest = Path(args.dest).resolve()
     marker = dest / ".python-runtime-version"
 
-    already_staged = (
-        _python_exe(dest).is_file()
-        and marker.is_file()
-        and marker.read_text(encoding="utf-8").strip() == f"{xy}-{triple}"
-    )
-    if already_staged:
-        print(f"python-runtime already staged ({xy}-{triple}); skipping")
+    preferred_release = _preferred_release()
+    marker_value = f"{xy}-{triple}-{preferred_release}"
+    # Fast path for pinned releases; latest/fallback cache hits need resolving
+    # first so the marker check uses the actual release tag.
+    if preferred_release.lower() != "latest" and _is_staged(
+        dest,
+        marker,
+        marker_value,
+    ):
+        print(f"python-runtime already staged ({marker_value}); skipping")
+        return
+
+    print(f"Resolving standalone CPython {xy} for {triple}...")
+    url, release = _find_asset_url(xy, triple, preferred_release)
+    marker_value = f"{xy}-{triple}-{release}"
+    if _is_staged(dest, marker, marker_value):
+        print(f"python-runtime already staged ({marker_value}); skipping")
         return
 
     print(f"Staging standalone CPython {xy} for {triple}...")
-    url = _find_asset_url(xy, triple)
     print(f"Downloading {url}")
 
     if dest.exists():
@@ -142,7 +240,7 @@ def main() -> None:
     exe = _python_exe(dest)
     if not exe.is_file():
         raise SystemExit(f"staging failed: interpreter missing at {exe}")
-    marker.write_text(f"{xy}-{triple}", encoding="utf-8")
+    marker.write_text(marker_value, encoding="utf-8")
     print(f"Staged python-runtime at {dest / 'python'}")
 
 

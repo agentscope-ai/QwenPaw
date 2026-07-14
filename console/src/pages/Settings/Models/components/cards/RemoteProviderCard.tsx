@@ -111,7 +111,9 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
                 value={apiKeyInput}
                 onChange={(e) => setApiKeyInput(e.target.value)}
                 placeholder={
-                  provider.api_key_prefix
+                  provider.api_key_prefixes?.length
+                    ? `${provider.api_key_prefixes.join(", ")}...`
+                    : provider.api_key_prefix
                     ? `${provider.api_key_prefix}...`
                     : "sk-..."
                 }

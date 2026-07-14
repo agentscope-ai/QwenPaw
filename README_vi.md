@@ -60,23 +60,24 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 ## Tin Tức
 
-- [2026-06-17] **v1.1.12 — Trang Mô Hình Đổi Mới & Chế Độ Đơn Giản** | Trang mô hình thiết kế lại với tổng hợp nhà cung cấp; Chế độ Đơn giản mới cho điều hướng gọn gàng.
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory và TUI tích hợp.
 
   | Nổi bật | Nội dung mới |
   |-----------|------------|
-  | **Trang Mô Hình Đổi Mới** | Tổng hợp nhà cung cấp, UI thẻ thống nhất & thiết kế bố cục mới. |
-  | **Chế Độ Đơn Giản** | Điều hướng phẳng, danh sách phiên sắp xếp theo thời gian cập nhật. |
-  | **Gửi Tin Không Chặn** | Điều tiết thích ứng cho tất cả kênh. |
-  | **Token Mỗi Lượt** | Cửa sổ hiển thị token và ngữ cảnh sử dụng mỗi lượt. |
-  | **Lưu Cổng Desktop** | Giữ cổng backend qua các lần khởi động lại. |
+  | **Agent OS — Workspace** | Ba trụ cột mỗi agent: **Resources** (lưu trữ minh bạch trên đĩa), **Governance** (allow/deny/ask/sandbox), **Sandbox** (macOS / Linux / Windows). |
+  | **Agent OS — Drivers** | Lớp connector trung lập giao thức MCP / A2A / ACP với credentials mã hóa và policy gate mỗi lần gọi. |
+  | **Loop Engineering** | Mẫu vòng lặp agent nâng cao (Coding Mode, Mission Mode, thêm nhiều sắp tới) với cổng phê duyệt kết hợp. |
+  | **Scroll Context** | Mọi lượt được lưu trữ; lượt bị đẩy ra có chỉ mục, recall theo yêu cầu — không tóm tắt, không mất. |
+  | **ReMe v0.4.0 Long-term Memory** | Theo dõi tự động theo lượt, tìm kiếm nhận biết mức sử dụng, embedding riêng backend. |
+  | **Terminal UI (TUI)** | Chat terminal toàn màn hình — cùng agent, bộ nhớ và phiên với Console và kênh. |
 
-  Ngoài ra: chế độ rộng, tô sáng cú pháp, nhóm Langfuse theo vòng lặp agent, sửa schema công cụ Gemini. [Ghi chú phát hành v1.1.12 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
+  Dựa trên Agent OS, chúng tôi sẽ ra mắt các ứng dụng QwenPaw sẵn sàng sử dụng — như **QwenPaw Creator** và **QwenPaw Insight** — hãy theo dõi. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+
+- [2026-06-17] **v1.1.12 — Trang Mô Hình Đổi Mới & Chế Độ Đơn Giản** | Trang mô hình thiết kế lại với tổng hợp nhà cung cấp; Chế độ Đơn giản mới. [Ghi chú phát hành v1.1.12 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 
 - [2026-06-11] **AgentScope Platform ra mắt** — Triển khai QwenPaw miễn phí, chia sẻ plugin và Chợ Skills. [Dùng thử ngay →](https://platform.agentscope.io/)
 
 - [2026-06-10] **v1.1.11** — OAuth Mô hình Miễn phí, Chợ Plugin, Danh sách trắng MCP. [Ghi chú phát hành v1.1.11 →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
-
-- [2026-06-01] **v1.1.10** — Sinh tác nhân con (Spawn Subagent), Mở thư mục, kênh Tencent Yuanbao. [Ghi chú phát hành v1.1.10 →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
 [Tất cả ghi chú phát hành →](https://qwenpaw.agentscope.io/release-notes)
 
@@ -290,20 +291,20 @@ Nếu bạn không quen với công cụ dòng lệnh, bạn có thể tải xu�
 
 #### Tải Xuống
 
-Tải ứng dụng desktop từ [trang tải xuống chính thức](https://qwenpaw.agentscope.io/downloads):
-- **Windows**: `QwenPaw-Setup-<version>.exe`
-- **macOS**: `QwenPaw-<version>-macOS.zip` (khuyên dùng Apple Silicon)
+Tải ứng dụng desktop (bản Tauri) từ [trang tải xuống chính thức](https://qwenpaw.agentscope.io/downloads):
+- **Windows**: `QwenPaw-Tauri-<version>-Windows-setup.exe`
+- **macOS**: `QwenPaw-Tauri-<version>-macOS.zip` (khuyên dùng Apple Silicon)
 
 #### Tính Năng
 
 - ✅ **Không cấu hình**: Tải về và nhấp đúp để chạy, không cần cài Python hay cấu hình biến môi trường
 - ✅ **Đa nền tảng**: Hỗ trợ Windows 10+ và macOS 14+
-- ✅ **Giao diện trực quan**: Tự động mở giao diện trình duyệt, không cần nhập địa chỉ thủ công
+- ✅ **Giao diện trực quan**: Tự động mở cửa sổ ứng dụng, không cần nhập địa chỉ thủ công
 - ⚠️ **Giai đoạn Beta**: Các tính năng đang được liên tục cải thiện, rất mong nhận phản hồi
 
 #### Lần Đầu Khởi Động
 
-**Quan trọng**: Lần đầu khởi động có thể mất 10-60 giây (tùy thuộc vào cấu hình hệ thống của bạn). Ứng dụng cần khởi tạo môi trường Python và tải các phụ thuộc. Vui lòng kiên nhẫn chờ cửa sổ trình duyệt tự động mở.
+**Quan trọng**: Lần đầu khởi động có thể mất 10-60 giây (tùy thuộc vào cấu hình hệ thống của bạn). Ứng dụng cần khởi tạo môi trường Python và tải các phụ thuộc. Vui lòng kiên nhẫn chờ cửa sổ tự động mở.
 
 #### macOS: Vượt Qua Rào Cản Bảo Mật Hệ Thống
 
@@ -317,7 +318,7 @@ Khi bạn tải ứng dụng macOS QwenPaw từ Releases, macOS có thể hiển
 
 - **Xóa thuộc tính cách ly (không khuyên dùng cho hầu hết người dùng)**
   Trong Terminal chạy:
-  `xattr -cr /Applications/QwenPaw.app`
+  `xattr -cr "/Applications/QwenPaw Desktop.app"`
   (hoặc dùng đường dẫn tới tệp `.app` sau khi giải nén). Thao tác này xóa cờ cách ly "đã tải xuống từ internet" để cảnh báo thường không xuất hiện, nhưng kém an toàn và kiểm soát hơn so với dùng **Nhấp chuột phải → Open**.
 
 Để biết hướng dẫn sử dụng chi tiết, khắc phục sự cố và các vấn đề thường gặp, xem [Hướng dẫn ứng dụng Desktop](https://qwenpaw.agentscope.io/docs/desktop).
@@ -384,7 +385,7 @@ QwenPaw cũng cung cấp dòng **QwenPaw-Flash** — mô hình 2B / 4B / 9B hu�
 
 QwenPaw bao gồm bốn lớp bảo mật cốt lõi:
 
-- **Sandbox** — Cách ly thực thi cấp kernel bằng Seatbelt (macOS) và Bubblewrap / Landlock (Linux). Lệnh shell chạy trong phạm vi hệ thống tệp bị hạn chế.
+- **Sandbox** — Cách ly thực thi cấp kernel bằng Seatbelt (macOS), Bubblewrap / Landlock (Linux) và AppContainer (Windows). Lệnh shell chạy trong phạm vi hệ thống tệp bị hạn chế.
 - **Tool Guard** — Công cụ quy tắc YAML với `ShellEvasionGuardian` kiểm tra mọi lệnh gọi công cụ trước khi thực thi, phát hiện command injection, path traversal, reverse shell và tấn công che giấu. Mức phê duyệt cấu hình được: STRICT / SMART / AUTO / OFF.
 - **File Guard** — Độc lập với Tool Guard; chặn tác nhân truy cập tệp và thư mục nhạy cảm (mặc định bảo vệ `~/.qwenpaw.secret/`, `~/.ssh`, v.v.).
 - **Skill Scanner** — Quét trước khi kích hoạt với chế độ block / warn / off và hỗ trợ danh sách trắng. Phát hiện prompt injection, khóa nhúng cứng, rò rỉ dữ liệu, v.v.

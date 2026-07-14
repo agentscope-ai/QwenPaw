@@ -12,6 +12,7 @@ from textual.widget import Widget
 from textual.widgets import Collapsible, Markdown, Static
 
 from ._anim import TICK, pulse, spinner
+from ._format import summarize_params
 
 
 class _Bubble(Static):
@@ -84,6 +85,9 @@ class WelcomeMessage(Static):
         self,
         palette: tuple[str, str, str] | None = None,
         accent: str | None = None,
+        *,
+        workspace_dir: str | None = None,
+        project_dir: str | None = None,
     ) -> None:
         # ``_frame`` is the colour-gradient phase and stays fixed at 0: the
         # vertical colour wash is static. The startup *motion* is positional —
@@ -91,6 +95,8 @@ class WelcomeMessage(Static):
         # (see :meth:`on_mount`), independent of the gradient.
         self._frame = 0
         self._accent = accent
+        self._workspace_dir = workspace_dir
+        self._project_dir = project_dir
         self._gradient_stops = (
             "#bfe1ff",
             "#8fd7ff",
@@ -159,7 +165,28 @@ class WelcomeMessage(Static):
         body = Text()
         for row in self._render_pixel_rows():
             body.append(row)
+        self._append_context(body)
         return body
+
+    def _append_context(self, body: Text) -> None:
+        lines = []
+        if self._workspace_dir:
+            lines.append(
+                (
+                    "Agent directory (sessions, memory & skills): ",
+                    self._workspace_dir,
+                ),
+            )
+        if self._project_dir:
+            lines.append(("Project directory: ", self._project_dir))
+        if not lines:
+            return
+        body.append("\n\n")
+        for index, (label, path) in enumerate(lines):
+            body.append(label, style="bold #8a8a8a")
+            body.append(path, style="#b0b0b0")
+            if index + 1 < len(lines):
+                body.append("\n")
 
     def _render_pixel_rows(self) -> list[Text]:
         rows: list[Text] = []
@@ -259,7 +286,9 @@ class WelcomeMessage(Static):
                     dest[col] = (
                         _bright_dot_hex(color) if char == "O" else color
                     )
-        return _canvas_to_text(canvas), settled
+        body = _canvas_to_text(canvas)
+        self._append_context(body)
+        return body, settled
 
 
 def _canvas_to_text(canvas: list[list[str | None]]) -> Text:
@@ -475,6 +504,7 @@ class ActivityLine(_Bubble):
     """Single friendly row for the current hidden thought/tool chain."""
 
     _TERMINAL = {"completed", "failed"}
+    _INSPECT_HINT = ", ctrl+i to inspect"
 
     def __init__(self) -> None:
         self._mode = "thinking"
@@ -550,6 +580,7 @@ class ActivityLine(_Bubble):
         if self._summary:
             text.append("  ")
             text.append(self._summary, style="#7fb7d9")
+        text.append(self._INSPECT_HINT, style="#5a5a5a")
         return text
 
     def _tool_label(self, title: str | None, kind: str | None) -> str:
@@ -559,10 +590,7 @@ class ActivityLine(_Bubble):
         return kind or "tool"
 
     def _tool_summary(self, params: str | None) -> str:
-        if not params:
-            return ""
-        first = params.strip().splitlines()[0].strip()
-        return first[:72] + " ..." if len(first) > 72 else first
+        return summarize_params(params)
 
 
 class FileLinkBox(_Bubble):

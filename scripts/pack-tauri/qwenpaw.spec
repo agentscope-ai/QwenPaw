@@ -55,6 +55,7 @@ _data_dirs = [
     ("security/tool_guard/rules", "qwenpaw/security/tool_guard/rules"),
     ("security/skill_scanner/rules", "qwenpaw/security/skill_scanner/rules"),
     ("security/skill_scanner/data", "qwenpaw/security/skill_scanner/data"),
+    ("app/channels/yuanbao/proto", "qwenpaw/app/channels/yuanbao/proto"),
 ]
 datas = [
     (str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()
@@ -64,6 +65,15 @@ datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
 # Include reme package data files (configs, tool yamls, etc.)
 datas += collect_data_files("reme")
 datas += collect_data_files("whisper")
+datas += collect_data_files("agentscope")
+datas += collect_data_files(
+    "agentscope.tool._builtin._scripts",
+    include_py_files=True,
+)
+datas += collect_data_files(
+    "agentscope.workspace._mcp_gateway",
+    include_py_files=True,
+)
 
 # Collect package metadata for packages that use importlib.metadata at runtime.
 # Keep this allowlist in sync when adding runtime dependencies that query
@@ -120,6 +130,8 @@ a = Analysis(
         *collect_submodules("qwenpaw.cli"),
         # All channel adapters (imported on-demand at runtime)
         *collect_submodules("qwenpaw.app.channels"),
+        # ACP runner support is lazily imported by delegate_external_agent.
+        *collect_submodules("qwenpaw.agents.acp"),
         # ASGI app entry points
         "qwenpaw.app._app",
         "qwenpaw.app.multi_agent_manager",
@@ -143,6 +155,8 @@ a = Analysis(
         "modelscope",
         "modelscope.hub.api",
         "modelscope.hub.snapshot_download",
+        *collect_submodules("agentscope.tool._builtin._scripts"),
+        *collect_submodules("agentscope.workspace._mcp_gateway"),
         *collect_submodules("whisper"),
         *collect_submodules("chromadb"),
     ],

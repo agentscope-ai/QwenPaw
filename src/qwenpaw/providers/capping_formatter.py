@@ -43,6 +43,8 @@ from agentscope.formatter import (
     GeminiChatFormatter,
     OpenAIChatFormatter,
 )
+
+from agentscope.formatter import OpenAIResponseFormatter
 from agentscope.message import Base64Source, URLSource
 from pydantic import Field
 
@@ -82,6 +84,7 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
     """
 
     max_bytes: int = Field(default=MAX_INLINE_MEDIA_BYTES, ge=0)
+    relay_reasoning_content: bool = Field(default=True)
 
     @staticmethod
     def _inline_media_size(source: Any) -> int | None:
@@ -222,5 +225,30 @@ class _CappingDashScopeFormatter(
         if capped is not None:
             return capped
         return super()._format_audio_source(
+            self._local_source_to_base64(source),
+        )
+
+
+class _CappingOpenAIResponseFormatter(
+    OpenAIResponseFormatter,
+    CappingFormatterMixin,
+):
+    """OpenAI Responses API formatter that caps oversized local media."""
+
+    def _placeholder(self, kind: str, size: int) -> dict[str, Any]:
+        # Responses API uses ``input_text`` / ``output_text`` — not the
+        # generic ``text`` type used by Chat Completions.  Capped media
+        # almost always comes from user messages, so ``input_text`` is
+        # the correct type here.
+        return {
+            "type": "input_text",
+            "text": self._placeholder_text(kind, size),
+        }
+
+    def _format_image_source(self, source: Any) -> dict[str, Any]:
+        capped = self._maybe_cap(source, "image")
+        if capped is not None:
+            return capped
+        return super()._format_image_source(
             self._local_source_to_base64(source),
         )

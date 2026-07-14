@@ -162,6 +162,16 @@ class JobRuntimeSpec(BaseModel):
             "If False, creates isolated context with unique run ID."
         ),
     )
+    tool_safety: bool = Field(
+        default=False,
+        description=(
+            "Tool execution safety for this cron job. "
+            "When enabled (True), uses AUTO mode — risky tools require "
+            "approval (may block unattended execution). "
+            "When disabled (False), uses OFF mode — all tools execute "
+            "without approval checks, suitable for trusted automated tasks."
+        ),
+    )
 
 
 class CronJobRequest(BaseModel):

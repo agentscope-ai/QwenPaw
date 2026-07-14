@@ -138,52 +138,6 @@ def _load_prompt_file(filename: str) -> str:
 _CLOUDPAW_BASE_SUPPLEMENT = _load_prompt_file("base_supplement.md")
 
 
-_CLOUDPAW_PRD_FIX_PROMPT = """\
-⚠️ **prd.json schema validation FAILED**. Problems found:
-{problems}
-
-You MUST fix prd.json using the `manage_prd` tool.
-Do NOT use `write_file` or `edit_file` to modify prd.json.
-
-If prd.json does not exist yet, use:
-```
-manage_prd(
-    loop_dir="{loop_dir}",
-    operation="create",
-    project="<short name>",
-    description="<one-line summary>",
-    stories=[
-        {{
-            "id": "US-001",
-            "title": "<short title>",
-            "description": "As a <user>, I want <feature> so that <benefit>",
-            "acceptanceCriteria": ["<verifiable criterion 1>", ...],
-            "priority": 1
-        }}
-    ]
-)
-```
-
-If prd.json exists but has wrong structure, delete it and recreate:
-```
-manage_prd(loop_dir="{loop_dir}", operation="delete", \
-story_ids=[<all existing IDs>])
-```
-Then use `manage_prd(operation="create", ...)` to recreate with the \
-correct format.
-
-**Rules:**
-- The `manage_prd` tool automatically creates `userStories` with correct schema
-- Each story MUST have: id, title, description, acceptanceCriteria, priority
-- `id` format: "US-001", "US-002", etc.
-- `acceptanceCriteria` MUST be a non-empty array of strings
-- `priority` MUST be a positive integer (NOT boolean)
-
-Fix prd.json NOW using `manage_prd`. Keep the same task decomposition \
-but use the tool instead of writing the file directly.
-"""
-
-
 # ---------------------------------------------------------------------------
 # ACP permission auto-approve for trusted runners (iac-code)
 # ---------------------------------------------------------------------------
@@ -781,8 +735,8 @@ def _patch_mission_master_prompt() -> None:
     builder is called unchanged.
     """
     try:
-        from qwenpaw.agents.mission import prompts as mission_prompts
-        from qwenpaw.agents.mission.prompts import (
+        from qwenpaw.modes.mission import prompts as mission_prompts
+        from qwenpaw.modes.mission.prompts import (
             WORKER_PROMPT_TEMPLATE,
             _build_git_sections,
             build_master_prompt as _original_build_master_prompt,
@@ -877,22 +831,11 @@ def _patch_mission_master_prompt() -> None:
     mission_prompts.build_master_prompt = _patched_build_master_prompt
 
     try:
-        from qwenpaw.agents.mission import handler as mission_handler
+        from qwenpaw.modes.mission import handler as mission_handler
 
         mission_handler.build_master_prompt = _patched_build_master_prompt
     except (ImportError, AttributeError):
         pass
-
-    # Also patch _PRD_FIX_PROMPT in mission_runner so that when PRD
-    # validation fails, the fix prompt tells the agent to use manage_prd
-    # instead of write_file.
-    try:
-        from qwenpaw.agents.mission import mission_runner
-
-        mission_runner._PRD_FIX_PROMPT = _CLOUDPAW_PRD_FIX_PROMPT
-        logger.info("[CloudPaw] Patched _PRD_FIX_PROMPT to use manage_prd")
-    except (ImportError, AttributeError) as exc:
-        logger.warning("Failed to patch _PRD_FIX_PROMPT: %s", exc)
 
     logger.info(
         "[CloudPaw] Replaced build_master_prompt with CloudPaw version "

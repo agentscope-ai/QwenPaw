@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import plistlib
+import shlex
 import shutil
 import socket
 import subprocess
@@ -278,6 +279,31 @@ def _get_win32_default_browser() -> Tuple[Optional[str], Optional[str]]:
     return (None, None)
 
 
+def _exec_executable_token(exec_value: str) -> Optional[str]:
+    """Extract the real executable from a .desktop ``Exec=`` value.
+
+    Handles the common ``env VAR=val /path/to/browser %U`` form (seen with
+    IME setups, e.g. ``Exec=env GTK_IM_MODULE=ibus /usr/bin/google-chrome``)
+    by skipping a leading ``env`` wrapper and any ``VAR=VALUE`` assignments,
+    so the browser binary is returned instead of ``env``.
+    """
+    try:
+        tokens = shlex.split(exec_value)
+    except ValueError:
+        tokens = exec_value.split()
+    idx = 0
+    if idx < len(tokens) and Path(tokens[idx]).name == "env":
+        idx += 1
+        # Skip VAR=VALUE assignments that follow the `env` wrapper.
+        while (
+            idx < len(tokens)
+            and "=" in tokens[idx]
+            and not tokens[idx].startswith("/")
+        ):
+            idx += 1
+    return tokens[idx] if idx < len(tokens) else None
+
+
 def _get_linux_default_browser() -> Tuple[Optional[str], Optional[str]]:
     """Return (browser_kind, executable_path) for Linux default HTTP
     handler.
@@ -307,7 +333,11 @@ def _get_linux_default_browser() -> Tuple[Optional[str], Optional[str]]:
             with open(path, encoding="utf-8") as f:
                 for line in f:
                     if line.strip().startswith("Exec="):
-                        exe = line.split("=", 1)[1].strip().split()[0]
+                        exe = _exec_executable_token(
+                            line.split("=", 1)[1].strip(),
+                        )
+                        if not exe:
+                            break
                         if exe.startswith("/") and Path(exe).is_file():
                             return _linux_desktop_to_kind_and_path(exe)
                         for p in ["/usr/bin", "/usr/local/bin"]:
@@ -890,3 +920,41 @@ def is_qwenpaw_running() -> bool:
 
     except Exception:
         return False
+
+
+def sanitize_mcp_clients(
+    data: dict,
+    agent_id: str,
+) -> None:
+    """Drop invalid MCP client entries in-place.
+
+    Iterates over ``data["mcp"]["clients"]`` and removes
+    entries that fail ``MCPClientConfig`` validation so that
+    one broken MCP client does not prevent the whole agent
+    from loading.
+    """
+    from .config import MCPClientConfig
+
+    mcp = data.get("mcp")
+    if not isinstance(mcp, dict):
+        return
+    clients = mcp.get("clients")
+    if not isinstance(clients, dict):
+        return
+    bad_keys: list[str] = []
+    for key, val in clients.items():
+        if not isinstance(val, dict):
+            bad_keys.append(key)
+            continue
+        try:
+            MCPClientConfig.model_validate(
+                {**val, "name": key},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                f"Agent '{agent_id}': skipping invalid "
+                f"MCP client '{key}': {exc}",
+            )
+            bad_keys.append(key)
+    for key in bad_keys:
+        del clients[key]

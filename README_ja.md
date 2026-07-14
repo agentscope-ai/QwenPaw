@@ -60,23 +60,24 @@
 
 ## ニュース
 
-- [2026-06-17] **v1.1.12 — モデルページ大刷新 & シンプルモード** | Provider 集約による新モデルページデザイン、フラットナビのシンプルモード追加。
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式リリース** 🎉 | AgentScope 2.0 ベースの全面リライト：Agent OS アーキテクチャ、Loop Engineering、Scroll Context、ReMe v0.4.0 Long-term Memory、組み込み TUI を提供。
 
   | ハイライト | 内容 |
   |-----------|------|
-  | **モデルページ大刷新** | Provider 集約、統一カード UI & レイアウト刷新。 |
-  | **シンプルモード** | フラットナビ、更新時間順セッションリスト。 |
-  | **ノンブロッキングフラッシュ** | 全チャネルで適応型スロットリング。 |
-  | **ターンごとのトークン使用量** | ターンごとのトークン＆コンテキスト使用量ポップオーバー。 |
-  | **デスクトップポート永続化** | 再起動後もバックエンドポートを維持。 |
+  | **Agent OS — Workspace** | エージェントごとの 3 本柱：**Resources**（透明なディスク保存）、**Governance**（allow/deny/ask/sandbox）、**Sandbox**（macOS / Linux / Windows）。 |
+  | **Agent OS — Drivers** | プロトコル中立な MCP / A2A / ACP コネクタ層、暗号化資格情報と呼び出しごとのポリシーゲート付き。 |
+  | **Loop Engineering** | 高度なエージェントループテンプレート（Coding Mode、Mission Mode、今後さらに追加予定）と組み合わせ可能な承認ゲート。 |
+  | **Scroll Context** | 全ターンを永続化；退去ターンはインデックス付きでオンデマンド再生 — 要約なし、情報欠落なし。 |
+  | **ReMe v0.4.0 Long-term Memory** | ターンベースの自動追跡、利用感知型検索、バックエンド固有の埋め込み。 |
+  | **Terminal UI (TUI)** | フルスクリーンターミナルチャット — Console やチャネルと同一のエージェント・記憶・セッション。 |
 
-  その他：ワイドモード、シンタックスハイライト、Langfuse エージェントループグルーピング、Gemini ツールスキーマ修正。[v1.1.12 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
+  Agent OS をベースに、すぐに使える QwenPaw アプリケーション — **QwenPaw Creator**、**QwenPaw Insight** など — を順次リリース予定です。 [v2.0.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+
+- [2026-06-17] **v1.1.12 — モデルページ大刷新 & シンプルモード** | Provider 集約による新モデルページデザイン、フラットナビのシンプルモード追加。[v1.1.12 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 
 - [2026-06-11] **AgentScope プラットフォーム公開** — QwenPaw の無料デプロイ、プラグイン共有、Skill マーケットに対応。[今すぐ試す →](https://platform.agentscope.io/)
 
 - [2026-06-10] **v1.1.11** — 無料モデル OAuth、プラグインマーケット、MCP ツールホワイトリスト。[v1.1.11 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
-
-- [2026-06-01] **v1.1.10** — サブエージェント生成、ディレクトリを開く、Tencent Yuanbao チャネル。[v1.1.10 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.10)
 
 [すべてのリリースノート →](https://qwenpaw.agentscope.io/release-notes)
 
@@ -290,20 +291,20 @@ QwenPaw を Alibaba Cloud（ECS）で実行するには、ワンクリックデ�
 
 #### ダウンロード
 
-[公式ダウンロードページ](https://qwenpaw.agentscope.io/downloads) からデスクトップアプリをダウンロード:
-- **Windows**: `QwenPaw-Setup-<version>.exe`
-- **macOS**: `QwenPaw-<version>-macOS.zip` (Apple Silicon 推奨)
+[公式ダウンロードページ](https://qwenpaw.agentscope.io/downloads) からデスクトップアプリ（Tauri 版）をダウンロード:
+- **Windows**: `QwenPaw-Tauri-<version>-Windows-setup.exe`
+- **macOS**: `QwenPaw-Tauri-<version>-macOS.zip` (Apple Silicon 推奨)
 
 #### 特徴
 
 - ✅ **ゼロ設定**: ダウンロードしてダブルクリックするだけで実行可能、Python のインストールや環境変数の設定は不要
 - ✅ **クロスプラットフォーム**: Windows 10+ と macOS 14+ に対応
-- ✅ **ビジュアルインターフェース**: ブラウザインターフェースが自動的に開き、手動でアドレスを入力する必要はありません
+- ✅ **ビジュアルインターフェース**: アプリのウィンドウが自動的に開き、手動でアドレスを入力する必要はありません
 - ⚠️ **Beta 段階**: 機能は継続的に改善中、フィードバックを歓迎します
 
 #### 初回起動
 
-**重要**: 初回起動には 10〜60 秒かかる場合があります（システム構成によります）。アプリケーションは Python 環境の初期化と依存関係の読み込みが必要です。ブラウザウィンドウが自動的に開くまでお待ちください。
+**重要**: 初回起動には 10〜60 秒かかる場合があります（システム構成によります）。アプリケーションは Python 環境の初期化と依存関係の読み込みが必要です。ウィンドウが自動的に開くまでお待ちください。
 
 #### macOS: システムセキュリティ制限の回避
 
@@ -317,7 +318,7 @@ Releases から QwenPaw macOS アプリをダウンロードすると、macOS �
 
 - **検疫属性の削除（ほとんどのユーザーには非推奨）**
   ターミナルで実行:
-  `xattr -cr /Applications/QwenPaw.app`
+  `xattr -cr "/Applications/QwenPaw Desktop.app"`
   （または解凍後の `.app` へのパスを使用）。これにより「インターネットからダウンロードされた」検疫フラグがクリアされ、通常は警告が表示されなくなりますが、**右クリック → 開く** を使用するよりも安全性と制御性が低くなります。
 
 詳細な使用方法、トラブルシューティング、よくある問題については、[デスクトップアプリケーションガイド](https://qwenpaw.agentscope.io/docs/desktop) を参照してください。
@@ -384,7 +385,7 @@ QwenPaw は **QwenPaw-Flash** シリーズも提供 — エージェントシナ
 
 QwenPaw には 4 つのコアセキュリティレイヤーが含まれています：
 
-- **Sandbox** — macOS では Seatbelt、Linux では Bubblewrap / Landlock によるカーネルレベルの実行分離。シェルコマンドは制限されたファイルシステムビュー内で実行されます。
+- **Sandbox** — macOS では Seatbelt、Linux では Bubblewrap / Landlock、Windows では AppContainer によるカーネルレベルの実行分離。シェルコマンドは制限されたファイルシステムビュー内で実行されます。
 - **Tool Guard** — YAML ルールエンジンと `ShellEvasionGuardian` が実行前にすべてのツール呼び出しを検査し、コマンドインジェクション、パストラバーサル、リバースシェル、難読化攻撃を検出。承認レベル設定可能：STRICT / SMART / AUTO / OFF。
 - **File Guard** — Tool Guard とは独立；エージェントの機密ファイル・ディレクトリへのアクセスをブロック（デフォルトで `~/.qwenpaw.secret/`、`~/.ssh` などを保護）。
 - **Skill Scanner** — block / warn / off モードとホワイトリスト対応の事前アクティベーションスキャン。プロンプトインジェクション、ハードコードされた秘密情報、データ流出などを検出。

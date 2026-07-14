@@ -681,7 +681,7 @@ class TestMatrixChannelStartStop:
     ):
         """Test that start creates and configures AsyncClient."""
         with patch(
-            "qwenpaw.app.channels.matrix.channel.QwenPawMatrixClient",
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
             return_value=mock_async_client,
         ):
             await matrix_channel.start()
@@ -697,7 +697,7 @@ class TestMatrixChannelStartStop:
     ):
         """Test that start creates sync task."""
         with patch(
-            "qwenpaw.app.channels.matrix.channel.QwenPawMatrixClient",
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
             return_value=mock_async_client,
         ):
             await matrix_channel.start()
@@ -712,7 +712,7 @@ class TestMatrixChannelStartStop:
     ):
         """Test that stop cancels sync task."""
         with patch(
-            "qwenpaw.app.channels.matrix.channel.QwenPawMatrixClient",
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
             return_value=mock_async_client,
         ):
             await matrix_channel.start()
@@ -725,7 +725,7 @@ class TestMatrixChannelStartStop:
     async def test_stop_closes_client(self, matrix_channel, mock_async_client):
         """Test that stop closes the client."""
         with patch(
-            "qwenpaw.app.channels.matrix.channel.QwenPawMatrixClient",
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
             return_value=mock_async_client,
         ):
             await matrix_channel.start()

@@ -1005,7 +1005,9 @@ class DingTalkChannel(BaseChannel):
         else:
             norm = dingtalk_markdown.normalize_dingtalk_markdown(text)
             msg_key = "sampleMarkdown"
-            msg_param = json.dumps({"title": f"💬{norm[:10]}...", "text": norm})
+            msg_param = json.dumps(
+                {"title": f"💬{norm[:10]}...", "text": norm},
+            )
 
         return await self._send_robot_message(
             msg_key=msg_key,
@@ -1863,6 +1865,7 @@ class DingTalkChannel(BaseChannel):
         """
         if not parts:
             return
+        api_send = self._api_send_delivery_errors(meta)
         text_parts = []
         media_parts: List[OutgoingContentPart] = []
         for p in parts:
@@ -1876,9 +1879,13 @@ class DingTalkChannel(BaseChannel):
                 p.get("refusal") if isinstance(p, dict) else None
             )
             if t == ContentType.TEXT and text_val:
-                text_parts.append(text_val or "")
+                text = str(text_val)
+                if text.strip():
+                    text_parts.append(text)
             elif t == ContentType.REFUSAL and refusal_val:
-                text_parts.append(refusal_val or "")
+                refusal = str(refusal_val)
+                if refusal.strip():
+                    text_parts.append(refusal)
             elif t == ContentType.IMAGE:
                 media_parts.append(p)
             elif t == ContentType.FILE:
@@ -1889,10 +1896,15 @@ class DingTalkChannel(BaseChannel):
                 media_parts.append(p)
         body = "\n".join(text_parts) if text_parts else ""
         prefix = (meta or {}).get("bot_prefix", "") or ""
-        if prefix and body:
+        if prefix and body.strip():
             body = prefix + "  " + body
-        elif prefix and not body and not media_parts:
-            body = prefix
+        if not body.strip() and not media_parts:
+            logger.info(
+                "dingtalk send_content_parts: skip empty content "
+                "to_handle=%s",
+                to_handle[:40] if to_handle else "",
+            )
+            return
         session_webhook = await self._get_session_webhook_for_send(
             to_handle,
             meta,
@@ -1983,6 +1995,11 @@ class DingTalkChannel(BaseChannel):
                 )
                 if fallback_ok:
                     return
+                self._raise_delivery_error_if_api_send(
+                    api_send,
+                    "DingTalk send failed via sessionWebhook and "
+                    "Open API fallback",
+                )
             for i, part in enumerate(media_parts):
                 logger.info(
                     "dingtalk send_content_parts: "
@@ -2030,13 +2047,23 @@ class DingTalkChannel(BaseChannel):
             if params["conversation_id"]:
                 # Send text body first via Open API if present
                 if body.strip():
-                    await self._send_via_open_api(
+                    text_ok = await self._send_via_open_api(
                         body.strip(),
                         conversation_id=params["conversation_id"],
                         conversation_type=params["conversation_type"],
                         sender_staff_id=params["sender_staff_id"],
                         bot_prefix="",
                     )
+                    if not text_ok:
+                        logger.warning(
+                            "dingtalk send_content_parts: Open API text "
+                            "send failed",
+                        )
+                        self._raise_delivery_error_if_api_send(
+                            api_send,
+                            "DingTalk send failed: Open API text "
+                            "send failed",
+                        )
                 for i, part in enumerate(media_parts):
                     logger.info(
                         "dingtalk send_content_parts: "
@@ -2058,7 +2085,26 @@ class DingTalkChannel(BaseChannel):
                 len(media_parts),
             )
 
-        await self.send(to_handle, body.strip() or prefix, meta)
+        if body.strip():
+            await self.send(to_handle, body.strip(), meta)
+
+    @staticmethod
+    def _api_send_delivery_errors(meta: Optional[Dict[str, Any]]) -> bool:
+        """Return whether API send delivery failures should propagate."""
+        if not meta:
+            return False
+        return bool(meta.get("_api_send"))
+
+    @staticmethod
+    def _raise_delivery_error_if_api_send(
+        api_send: bool,
+        message: str,
+    ) -> None:
+        if api_send:
+            raise ChannelError(
+                channel_name="dingtalk",
+                message=message,
+            )
 
     def merge_native_items(self, items: List[Any]) -> Any:
         """Merge payloads (content_parts + meta) for DingTalk."""
@@ -3304,15 +3350,24 @@ class DingTalkChannel(BaseChannel):
         2) to_handle: dingtalk:sw:<sender> (stored) or http(s) url
         3) Open API fallback when webhook is expired or unavailable.
 
-        If no webhook is found and no Open API params,
-        logs warning and returns.
+        If strict delivery is requested and no webhook/Open API target is
+        available, raises ChannelError so explicit callers do not report
+        delivery success for an unreachable target.
         """
         if not self.enabled:
             return
-        if self._http is None:
-            return
-
         meta = meta or {}
+        api_send = self._api_send_delivery_errors(meta)
+
+        if self._http is None:
+            logger.warning(
+                "DingTalkChannel.send: HTTP session is not initialized",
+            )
+            self._raise_delivery_error_if_api_send(
+                api_send,
+                "DingTalk HTTP session is not initialized",
+            )
+            return
 
         # direct webhook provided in meta (current request, always valid)
         session_webhook = meta.get("session_webhook") or meta.get(
@@ -3347,17 +3402,27 @@ class DingTalkChannel(BaseChannel):
                 logger.warning(
                     "DingTalkChannel.send: no sessionWebhook and no "
                     "conversation_id for to_handle=%s. User must have "
-                    "chatted with the bot first. Skip sending.",
+                    "chatted with the bot first.",
                     to_handle,
                 )
+                self._raise_delivery_error_if_api_send(
+                    api_send,
+                    "DingTalk send failed: no sessionWebhook or "
+                    "conversation_id available",
+                )
                 return
-            await self._send_via_open_api(
+            ok = await self._send_via_open_api(
                 text,
                 conversation_id=params["conversation_id"],
                 conversation_type=params["conversation_type"],
                 sender_staff_id=params["sender_staff_id"],
                 bot_prefix="",
             )
+            if not ok:
+                self._raise_delivery_error_if_api_send(
+                    api_send,
+                    "DingTalk Open API send failed",
+                )
             return
 
         logger.info(
@@ -3392,15 +3457,25 @@ class DingTalkChannel(BaseChannel):
                 "DingTalkChannel.send: Open API fallback skipped: "
                 "no conversation_id available",
             )
+            self._raise_delivery_error_if_api_send(
+                api_send,
+                "DingTalk send failed: sessionWebhook failed and "
+                "no conversation_id is available",
+            )
             return
 
-        await self._send_via_open_api(
+        ok = await self._send_via_open_api(
             text,
             conversation_id=params["conversation_id"],
             conversation_type=params["conversation_type"],
             sender_staff_id=params["sender_staff_id"],
             bot_prefix="",
         )
+        if not ok:
+            self._raise_delivery_error_if_api_send(
+                api_send,
+                "DingTalk Open API send failed",
+            )
 
     async def _get_access_token(self) -> str:
         """Get and cache DingTalk accessToken for 1 hour (instance-level)."""

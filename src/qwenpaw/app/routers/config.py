@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
@@ -38,6 +39,11 @@ from ...config.config import (
     WecomConfig,
 )
 from ...agents.acp.core import ACPConfig, ACPAgentConfig
+from ...agents.acp.node_runtime import (
+    ACPNodeRuntimeStatus,
+    get_node_runtime_status,
+    resolve_node_runtime,
+)
 
 from .schemas_config import (
     ChannelHealthResponse,
@@ -72,6 +78,10 @@ _ALLOWED_ACP_TOOL_PARSE_MODES = {
     "update_detail",
     "call_detail",
 }
+
+
+class ACPNodeRuntimeUpdate(BaseModel):
+    node_path: str = ""
 
 
 @router.get(
@@ -124,6 +134,32 @@ async def list_channels(request: Request) -> dict:
 async def list_channel_types() -> List[str]:
     """Return available channel type identifiers (env-filtered)."""
     return list(get_available_channels())
+
+
+@router.get(
+    "/channels/schemas",
+    summary="Get plugin channel config schemas",
+    description=(
+        "Return config_fields metadata for plugin-registered channels "
+        "so the frontend can render dynamic forms."
+    ),
+)
+async def list_channel_schemas() -> dict:
+    """Return plugin channel schemas for frontend form rendering."""
+    from ...plugins.registry import PluginRegistry
+
+    registry = PluginRegistry()
+    result: dict = {}
+    for key, reg in registry.get_registered_channels().items():
+        result[key] = {
+            "label": reg.label,
+            "description": reg.description,
+            "plugin_id": reg.plugin_id,
+            "config_fields": reg.config_fields,
+            "icon": reg.icon,
+            "doc_url": reg.doc_url,
+        }
+    return result
 
 
 @router.put(
@@ -430,6 +466,49 @@ async def put_acp_config(
 
 
 @router.get(
+    "/acp/node-runtime",
+    response_model=ACPNodeRuntimeStatus,
+    summary="Get ACP Node runtime",
+    description="Return configured and detected Node runtimes for ACP",
+)
+async def get_acp_node_runtime() -> ACPNodeRuntimeStatus:
+    """Return global ACP Node runtime status."""
+    node_path = load_config().acp.node_path
+    return await asyncio.to_thread(get_node_runtime_status, node_path)
+
+
+@router.put(
+    "/acp/node-runtime",
+    response_model=ACPNodeRuntimeStatus,
+    summary="Update ACP Node runtime",
+    description="Update the global Node runtime used by ACP subprocesses",
+)
+async def put_acp_node_runtime(
+    body: ACPNodeRuntimeUpdate = Body(...),
+) -> ACPNodeRuntimeStatus:
+    """Update global ACP Node runtime path."""
+    node_path = body.node_path.strip()
+    if node_path:
+        candidate = await asyncio.to_thread(resolve_node_runtime, node_path)
+        if not candidate.available:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "reason_code": candidate.reason_code,
+                    "reason": candidate.reason,
+                },
+            )
+
+    config = load_config()
+    config.acp.node_path = node_path
+    save_config(config)
+    return await asyncio.to_thread(
+        get_node_runtime_status,
+        config.acp.node_path,
+    )
+
+
+@router.get(
     "/acp/{agent_name}",
     response_model=ACPAgentConfig,
     summary="Get ACP agent config",
@@ -548,8 +627,6 @@ async def put_heartbeat(
     save_agent_config(agent.agent_id, agent.config)
 
     # Reschedule heartbeat (async, non-blocking)
-    import asyncio
-
     async def reschedule_in_background():
         try:
             if agent.cron_manager is not None:
@@ -575,7 +652,6 @@ async def run_heartbeat_now(request: Request) -> Any:
     """Trigger one heartbeat run in background for quick testing."""
     from ..agent_context import get_agent_for_request
     from ..crons.heartbeat import run_heartbeat_once
-    import asyncio
     import logging
 
     workspace = await get_agent_for_request(request)
@@ -717,6 +793,49 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
         )
         for r in rules
     ]
+
+
+# ── Security / Sandbox ───────────────────────────────────────────────
+
+
+class SandboxSettingBody(BaseModel):
+    """Global governance sandbox switch (``security.sandbox_enabled``)."""
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "When True, shell tools with no matching rule run inside the "
+            "sandbox without prompting. When False (default), such calls "
+            "run directly without the sandbox (no prompt)."
+        ),
+    )
+
+
+@router.get(
+    "/security/sandbox",
+    response_model=SandboxSettingBody,
+    summary="Get global sandbox switch",
+)
+async def get_sandbox_setting() -> SandboxSettingBody:
+    config = load_config()
+    return SandboxSettingBody(enabled=config.security.sandbox_enabled)
+
+
+@router.put(
+    "/security/sandbox",
+    response_model=SandboxSettingBody,
+    summary="Update global sandbox switch",
+)
+async def put_sandbox_setting(
+    body: SandboxSettingBody = Body(...),
+) -> SandboxSettingBody:
+    config = load_config()
+    config.security.sandbox_enabled = body.enabled
+    save_config(config)
+    # No governor reload needed: ResourceGovernor reads this switch via the
+    # mtime-cached load_config() on each policy evaluation, and save_config
+    # invalidates that cache, so the change takes effect on the next call.
+    return body
 
 
 # ── Security / File Guard ────────────────────────────────────────────

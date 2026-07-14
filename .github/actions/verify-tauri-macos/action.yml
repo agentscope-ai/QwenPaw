@@ -42,4 +42,4 @@ runs:
           --base-url "$BASE_URL" \
           --ui-mode tauri-macos \
           --headed \
-          "${extra_flags[@]}"
+          ${extra_flags[@]+"${extra_flags[@]}"}

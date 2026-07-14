@@ -6,6 +6,7 @@ This module handles system commands like /compact, /new, /clear, etc.
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -235,6 +236,26 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Check if memory manager is available."""
         return self.memory_manager is not None
 
+    def _current_session_id(self) -> str:
+        """Resolve the active session id on a best-effort basis.
+
+        Prefers the explicitly-injected ``session_id`` (standalone slash
+        command mode), falls back to ``state.session_id``, and finally to the
+        request-scoped ``get_current_session_id()`` ContextVar (seeded by the
+        contextvars setup hook). The last fallback covers reconstructed-state
+        paths where ``state.session_id`` is absent but the dispatching request
+        carried one. Command-triggered memory archival relies on this so ReMe
+        ``auto_memory`` never runs with an empty ``session_id``.
+        """
+        from ..app.agent_context import get_current_session_id
+
+        return str(
+            self._session_id
+            or getattr(self._state, "session_id", "")
+            or get_current_session_id()
+            or "",
+        )
+
     def _forced_context_config(self, agent: "Agent"):
         """Clone the agent's ContextConfig for a manual ``/compact``.
 
@@ -306,6 +327,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         # (``state.summary`` stays empty); native fills ``state.summary``.
         # Capture whichever applies.
         index_text = ""
+        compress_stats: dict = {}
         try:
             # Agent-backed mode: ``QwenPawAgent.compress_context`` already
             # routes to scroll or native by itself. Standalone mode builds a
@@ -323,11 +345,16 @@ class CommandHandler(ConversationCommandHandlerMixin):
                     await scroll_mgr.compress(agent, forced_cfg)
                     self._updated_scroll_state = scroll_mgr.to_dict()
                     index_text = scroll_mgr.describe_index()
+                    compress_stats = dict(scroll_mgr.last_compress)
                 finally:
                     scroll_mgr.close()
             else:
                 await agent.compress_context(forced_cfg)
                 index_text = self._scroll_index_text(agent)
+                cm = getattr(agent, "_context_manager", None)
+                compress_stats = dict(
+                    getattr(cm, "last_compress", None) or {},
+                )
         except Exception as e:
             logger.exception("compress_context failed: %s", e)
             return await self._make_system_msg(
@@ -339,24 +366,72 @@ class CommandHandler(ConversationCommandHandlerMixin):
         evicted = max(0, before - after)
         reme_cfg = agent_config.running.reme_light_memory_config
         if self._has_memory_manager() and reme_cfg.summarize_when_compact:
-            self.memory_manager.add_summarize_task(messages=messages)
+            self.memory_manager.add_summarize_task(
+                messages=messages,
+                session_id=self._current_session_id(),
+            )
 
         summary = self._get_summary()
-        if evicted == 0 and not summary and not index_text:
+        folded = int(compress_stats.get("folded", 0) or 0)
+        if evicted == 0 and folded == 0 and not summary and not index_text:
             return await self._make_system_msg(
                 "ℹ️ **Nothing to compact.**\n\n"
                 f"- Context is already minimal ({before} message(s))\n"
                 "- No turns were evicted",
             )
         if index_text:
-            detail = f"**Eviction Index:**\n{index_text}\n"
+            detail = (
+                "**Archived Turns:**\n"
+                f"{self._format_scroll_compact_detail(index_text)}\n"
+            )
         else:
             detail = f"**Compressed Summary:**\n{summary}\n"
+        # The fold rewrites tool results in place (message count unchanged),
+        # so it must be reported explicitly — a fold-only run used to claim
+        # "Nothing to compact" while live outputs were replaced with stubs.
+        folded_line = (
+            f"- Tool results folded to recall stubs: {folded}\n"
+            if folded
+            else ""
+        )
         return await self._make_system_msg(
             f"✅ **Compact Complete!**\n\n"
             f"- Messages compacted: {evicted}\n"
+            f"{folded_line}"
             f"{detail}",
         )
+
+    @staticmethod
+    def _format_scroll_compact_detail(
+        index_text: str,
+        *,
+        max_items: int = 5,
+    ) -> str:
+        """Return a user-readable summary of the scroll eviction index."""
+        headlines = []
+        for line in index_text.splitlines():
+            match = re.search(r"⟦\s*(.*?)\s*⟧", line)
+            if match:
+                headline = match.group(1).strip()
+                if headline:
+                    headlines.append(headline)
+
+        if not headlines:
+            return (
+                "- Older turns were archived and remain available through "
+                "scroll history."
+            )
+
+        shown = headlines[-max_items:]
+        lines = [f"- {headline}" for headline in shown]
+        remaining = len(headlines) - len(shown)
+        if remaining > 0:
+            lines.append(f"- ...and {remaining} older archived turn(s)")
+        lines.append(
+            "\nOlder turns were removed from the live context but remain "
+            "available in scroll history.",
+        )
+        return "\n".join(lines)
 
     @staticmethod
     def _scroll_index_text(agent: "Agent") -> str:
@@ -444,10 +519,19 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 history=history,
                 session_id=session_id,
                 agent_id=self._agent_id,
-                pinned=sc.pinned,
                 # Already gated: the adapter only supplies an offloader when
                 # ``offload_dialog`` is on, so this archives iff configured.
                 offloader=self._offloader,
+                summarize_unheadlined=getattr(
+                    sc,
+                    "summarize_unheadlined_evictions",
+                    True,
+                ),
+                summarize_timeout_s=getattr(
+                    sc,
+                    "summarize_eviction_timeout_seconds",
+                    20,
+                ),
             )
         except Exception:
             logger.exception("Failed to build scroll manager for /compact")
@@ -472,7 +556,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- Enable memory manager to use this feature",
             )
 
-        self.memory_manager.add_summarize_task(messages=messages)
+        self.memory_manager.add_summarize_task(
+            messages=messages,
+            session_id=self._current_session_id(),
+        )
         self._set_summary("")
 
         await self._persist_and_clear()
@@ -732,7 +819,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         try:
             await self.memory_manager.auto_memory(
                 memory_messages,
-                session_id=str(getattr(self._state, "session_id", "") or ""),
+                session_id=self._current_session_id(),
                 reply_id=reply_ids[-1],
                 reply_ids=reply_ids,
             )

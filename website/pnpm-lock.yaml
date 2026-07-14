@@ -28,6 +28,9 @@ importers:
       i18next:
         specifier: ^25.8.20
         version: 25.10.9(typescript@5.6.3)
+      js-yaml:
+        specifier: ^4.3.0
+        version: 4.3.0
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@18.3.1)
@@ -83,9 +86,9 @@ importers:
       "@tailwindcss/vite":
         specifier: ^4.2.2
         version: 4.2.2(vite@6.4.1(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.32.0))
-      "@types/highlight.js":
-        specifier: ^10.1.0
-        version: 10.1.0
+      "@types/js-yaml":
+        specifier: ^4.0.9
+        version: 4.0.9
       "@types/node":
         specifier: ^25.5.0
         version: 25.5.0
@@ -2333,12 +2336,11 @@ packages:
         integrity: sha512-WPs+bbQw5aCj+x6laNGWLH3wviHtoCv/P3+otBhbOhJgG8qtpdAMlTCxLtsTWA7LH1Oh/bFCHsBn0TPS5m30EQ==,
       }
 
-  "@types/highlight.js@10.1.0":
+  "@types/js-yaml@4.0.9":
     resolution:
       {
-        integrity: sha512-77hF2dGBsOgnvZll1vymYiNUtqJ8cJfXPD6GG/2M0aLRc29PkvB7Au6sIDjIEFcSICBhCh2+Pyq6WSRS7LUm6A==,
+        integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==,
       }
-    deprecated: This is a stub types definition. highlight.js provides its own type definitions, so you do not need this installed.
 
   "@types/mdast@4.0.4":
     resolution:
@@ -4101,10 +4103,10 @@ packages:
         integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==,
       }
 
-  js-yaml@4.1.1:
+  js-yaml@4.3.0:
     resolution:
       {
-        integrity: sha512-qQKT4zQxXl8lLwBtHMWwaTcGfFOZviOJet3Oy/xmGk2gZH677CJM9EvtfdSkgWcATZhj/55JZ0rmy3myCT5lsA==,
+        integrity: sha512-1td788aAnnZ5qs7V2QIRl1owjtYpbKt749Y3xauqQgwIIGF/xXWz1wMTEBx5O3LK3lXLVuqXPdPxj2BoFHaW9Q==,
       }
     hasBin: true
 
@@ -7681,9 +7683,7 @@ snapshots:
     dependencies:
       "@types/unist": 3.0.3
 
-  "@types/highlight.js@10.1.0":
-    dependencies:
-      highlight.js: 11.11.1
+  "@types/js-yaml@4.0.9": {}
 
   "@types/mdast@4.0.4":
     dependencies:
@@ -7926,7 +7926,7 @@ snapshots:
     dependencies:
       env-paths: 2.2.1
       import-fresh: 3.3.1
-      js-yaml: 4.1.1
+      js-yaml: 4.3.0
       parse-json: 5.2.0
     optionalDependencies:
       typescript: 5.6.3
@@ -8686,7 +8686,7 @@ snapshots:
 
   js-tokens@4.0.0: {}
 
-  js-yaml@4.1.1:
+  js-yaml@4.3.0:
     dependencies:
       argparse: 2.0.1
 
