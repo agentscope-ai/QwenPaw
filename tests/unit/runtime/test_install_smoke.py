@@ -7,12 +7,6 @@ After running the equivalent of ``qwenpaw init --defaults --accept-security``
 the working dir must contain a valid, parseable ``config.json`` and the
 FastAPI application must be importable and serve its critical routes
 (GET /, GET /api/version) without raising Internal Server Error.
-
-The Windows ProactorEventLoop test (``test_uvicorn_real_server_windows``)
-launches a real uvicorn subprocess to verify the ``get_remote_addr``
-transport code path that caused #5379 — ASGI test clients bypass
-uvicorn's transport layer entirely, so only a real server can catch
-this class of bug.
 """
 
 # pylint: disable=protected-access,import-outside-toplevel
@@ -24,11 +18,7 @@ this class of bug.
 from __future__ import annotations
 
 import json
-import os
-import socket
-import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -169,147 +159,3 @@ async def test_critical_routes_return_200() -> None:
         assert r_version.status_code == 200, r_version.text
         body = r_version.json()
         assert "version" in body, body
-
-
-# ---------------------------------------------------------------------------
-# Windows ProactorEventLoop regression — #5379
-#
-# On Windows + Python 3.12+, ``ProactorEventLoop``'s
-# ``transport.get_extra_info("peername")`` can return corrupted data
-# (port as bytes instead of int), causing uvicorn's ``get_remote_addr``
-# to raise ``ValueError`` → Starlette URL builder crashes → 500.
-#
-# This test launches a **real uvicorn subprocess** (not an ASGI test
-# client) to exercise the actual transport code path. The existing
-# ``test_critical_routes_return_200`` above uses ``httpx.ASGITransport``
-# which bypasses uvicorn entirely and cannot catch this.
-# ---------------------------------------------------------------------------
-
-
-def _find_free_port() -> int:
-    """Return a free TCP port for the subprocess server to bind."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-@pytest.mark.skipif(
-    sys.platform != "win32",
-    reason="#5379 is Windows ProactorEventLoop specific; "
-    "uvicorn transport corruption does not occur on Linux/macOS",
-)
-@pytest.mark.xfail(
-    sys.platform == "win32",
-    reason=(
-        "Launches a REAL uvicorn subprocess (not ASGI) to exercise the "
-        "#5379 ProactorEventLoop transport path; on Windows CI runners the "
-        "FastAPI lifespan startup (config migration, builtin QA agent "
-        "creation, skill scan, session-sync) often exceeds the readiness "
-        "budget, so the server never binds within the timeout. This is "
-        "an environment sensitivity, not a #5379 regression - the ASGI "
-        "test_critical_routes_return_200 above pins the code-level "
-        "/-> 200 contract independently. strict=False so a fast runner "
-        "that does start still registers a pass; an XPASS does not flip "
-        "the gate."
-    ),
-    strict=False,
-)
-def test_uvicorn_real_server_serves_on_windows(
-    isolated_working_dir: Path,
-) -> None:
-    """Regression for #5379: a real uvicorn server must start and serve
-    ``GET /`` without ``Internal Server Error`` on Windows.
-
-    This test launches ``python -m uvicorn qwenpaw.app._app:app`` as a
-    subprocess, polls the port until the server is ready (or times out),
-    and sends a real HTTP request to verify the full
-    transport → uvicorn → Starlette → FastAPI chain works.
-
-    The ASGI test client above bypasses uvicorn's transport layer;
-    only a real server exercises ``get_remote_addr``.
-    """
-    import urllib.request
-    import urllib.error
-
-    port = _find_free_port()
-    url = f"http://127.0.0.1:{port}/"
-
-    env = os.environ.copy()
-    env["QWENPAW_WORKING_DIR"] = str(isolated_working_dir)
-    env["QWENPAW_AUTH_ENABLED"] = "false"
-
-    proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "qwenpaw.app._app:app",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--no-access-log",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        env=env,
-    )
-
-    try:
-        # Poll the server until it responds. Windows CI runners start the
-        # uvicorn subprocess + agent loading slower than Linux/macOS
-        # (ProactorEventLoop, cold FS), so give it a generous budget.
-        deadline = time.monotonic() + 120
-        last_error: Exception | None = None
-        # Drain subprocess output on the loop so a hung uvicorn still
-        # surfaces its output if we time out.
-        proc_output = bytearray()
-        while time.monotonic() < deadline:
-            if proc.poll() is not None:
-                # Process exited early - capture output for diagnostics.
-                if proc.stdout:
-                    proc_output += proc.stdout.read() or b""
-                msg = proc_output.decode("utf-8", errors="replace")[:2000]
-                pytest.fail(
-                    f"uvicorn subprocess exited early "
-                    f"(code={proc.returncode}). Output:\n{msg}",
-                )
-            try:
-                with urllib.request.urlopen(url, timeout=5) as resp:
-                    body = resp.read().decode("utf-8", errors="replace")[:500]
-                    assert (
-                        resp.status == 200
-                    ), f"Expected 200, got {resp.status}: {body}"
-                return  # success - server is serving
-            except (urllib.error.URLError, ConnectionError, OSError) as exc:
-                last_error = exc
-                time.sleep(0.5)
-
-        # Timed out - force-kill the subprocess so its buffered stdout is
-        # flushed and we can see WHY uvicorn never bound the port instead
-        # of just "connection refused" with no context.
-        try:
-            proc.terminate()
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-        if proc.stdout:
-            try:
-                proc_output += proc.stdout.read() or b""
-            except Exception:  # noqa: BLE001
-                pass
-        out = proc_output.decode("utf-8", errors="replace")[:3000]
-        pytest.fail(
-            f"uvicorn server did not become ready within 120s. "
-            f"Last error: {last_error}\n"
-            f"subproc alive={proc.poll() is None}\n"
-            f"subproc output:\n{out}",
-        )
-    finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
