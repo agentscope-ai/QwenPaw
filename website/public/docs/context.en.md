@@ -202,7 +202,7 @@ Tool results are handled by one mechanism:
 
 | Mechanism                     | Default                                                                                   | What it does                                                                                                                                                                                         |
 | ----------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ToolResultPruningMiddleware` | registered for every context strategy; controlled by `tool_result_pruning_config.enabled` | Prunes current, background, and historical tool results by bytes, saves oversized raw output under `tool_results/`, and records block-scoped recovery metadata plus a `read_file` continuation hint. |
+| `ToolResultPruningMiddleware` | registered for every context strategy; controlled by `tool_result_pruning_config.enabled` | Prunes current and historical tool results by bytes, saves oversized raw output under `tool_results/`, and records block-scoped recovery metadata plus a `read_file` continuation hint. The background-completion path uses the same pruner when coordinator offload is enabled. |
 
 Scroll no longer has a separate token-based tool-result cap. Recent and execution previews share `pruning_recent_msg_max_bytes`; after scroll compaction, retained live previews are reduced to `pruning_old_msg_max_bytes` while the full artifact remains recallable.
 

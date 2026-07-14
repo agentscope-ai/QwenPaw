@@ -201,7 +201,7 @@ print(ms.agents())
 
 | 机制                          | 默认状态                                                             | 作用                                                                                                                                      |
 | ----------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `ToolResultPruningMiddleware` | 所有上下文策略下均注册，由 `tool_result_pruning_config.enabled` 控制 | 按字节裁剪当前、后台完成及历史工具结果，把超大原始输出保存到 `tool_results/`，并记录按文本块隔离的恢复 metadata 与 `read_file` 续读提示。 |
+| `ToolResultPruningMiddleware` | 所有上下文策略下均注册，由 `tool_result_pruning_config.enabled` 控制 | 按字节裁剪当前和历史工具结果，把超大原始输出保存到 `tool_results/`，并记录按文本块隔离的恢复 metadata 与 `read_file` 续读提示；当 coordinator offload 启用时，后台完成路径也使用同一个 pruner。 |
 
 scroll 不再有独立的 token 工具结果 cap。recent 与 execution preview 共用 `pruning_recent_msg_max_bytes`；scroll compact 后，仍保留在 live context 的 preview 会缩小到 `pruning_old_msg_max_bytes`，完整 artifact 仍可回溯。
 

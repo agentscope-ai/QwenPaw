@@ -276,67 +276,29 @@ async def test_outer_pruning_caps_coordinator_final_tool_chunk_response(
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="offload globally disabled pending fix")
-async def test_background_completion_is_pruned_before_hint(tmp_path):
+async def test_configured_background_result_processor_prunes_response(
+    tmp_path,
+):
     pruning = ToolResultPruningMiddleware(
         recent_max_bytes=512,
         tool_results_dir=str(tmp_path),
     )
-    coordinator = ToolCoordinator(default_timeout_secs=0.001)
     coordinator_middleware = ToolCoordinatorMiddleware(
-        coordinator,
+        ToolCoordinator(),
         background_result_processor=pruning.prune_tool_response_async,
     )
-    background_completed = asyncio.Event()
-
-    async def on_completion(_entry: Any) -> None:
-        background_completed.set()
-
-    coordinator.on_completion(on_completion)
-    tool_call = _ToolCall(id="call-bg", name="slow_tool")
     text = "\n".join("x" * 80 for _ in range(30))
-
-    async def next_handler(
-        tool_call: _ToolCall,
-    ) -> AsyncGenerator[Any, None]:
-        await asyncio.sleep(0.02)
-        yield ToolChunk(
-            is_last=True,
-            state=ToolResultState.SUCCESS,
-            content=[TextBlock(type="text", text=text)],
-        )
-
-    agent = type(
-        "AgentStub",
-        (),
-        {
-            "_request_context": {
-                "session_id": "session-bg",
-                "agent_id": "agent-1",
-                "root_session_id": "root-1",
-            },
-            "state": type("StateStub", (), {"context": []})(),
-        },
-    )()
-
-    await _collect(
-        coordinator_middleware.on_acting(
-            agent,
-            {"tool_call": tool_call},
-            next_handler,
-        ),
+    response = ToolResponse(
+        id="call-bg",
+        content=[TextBlock(type="text", text=text)],
     )
-    await asyncio.wait_for(background_completed.wait(), timeout=5.0)
-    hints = await coordinator.pop_pending_hints("session-bg")
-    assert hints
 
-    result_block = next(
-        block
-        for block in hints[0].content
-        if getattr(block, "type", None) == "tool_result"
-    )
-    result_text = result_block.output[0].text
-    info = result_block.metadata[TRUNCATION_METADATA_KEY]["0"]
+    processor = coordinator_middleware._background_result_processor
+    assert processor is not None
+    result = await processor(response)
+
+    result_text = result.content[0].text
+    info = result.metadata[TRUNCATION_METADATA_KEY]["0"]
     assert TRUNCATION_NOTICE_MARKER in result_text
     assert info["excerpt_bytes"] <= 512
     assert result_text.endswith(info["notice"])
