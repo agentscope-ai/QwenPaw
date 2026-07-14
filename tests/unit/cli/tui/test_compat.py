@@ -22,7 +22,10 @@ def test_hit_testing_ignores_detached_widget(monkeypatch):
         lambda _screen, _x, _y: (detached, Offset(0, 0)),
     )
 
-    assert compat._safe_get_widget_and_offset_at(Screen(), 1, 1) == (None, None)
+    assert compat._safe_get_widget_and_offset_at(Screen(), 1, 1) == (
+        None,
+        None,
+    )
 
 
 def test_hit_testing_preserves_attached_widget(monkeypatch):
@@ -52,4 +55,7 @@ def test_apply_textual_compat_is_idempotent(monkeypatch):
     compat.apply_textual_compat()
     compat.apply_textual_compat()
 
-    assert Screen.get_widget_and_offset_at is compat._safe_get_widget_and_offset_at
+    assert (
+        Screen.get_widget_and_offset_at
+        is compat._safe_get_widget_and_offset_at
+    )
