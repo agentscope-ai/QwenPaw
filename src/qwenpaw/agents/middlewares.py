@@ -630,16 +630,9 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         if content_bytes <= max_bytes:
             return content, {}
 
-        saved_path: str | None = None
-        if self._tool_results_dir:
-            try:
-                tool_result_dir = Path(self._tool_results_dir)
-                tool_result_dir.mkdir(parents=True, exist_ok=True)
-                fp = tool_result_dir / f"{uuid.uuid4().hex}.txt"
-                fp.write_text(content, encoding=encoding)
-                saved_path = str(fp)
-            except OSError as e:
-                logger.warning("Failed to save tool result to file: %s", e)
+        saved_path = self._save_tool_result(content, encoding)
+        if saved_path is None:
+            return content, {}
 
         return truncate_text_output(
             content,
@@ -650,6 +643,33 @@ class ToolResultPruningMiddleware(MiddlewareBase):
             encoding=encoding,
             block_index=block_index,
         )
+
+    def _save_tool_result(
+        self,
+        content: str,
+        encoding: str,
+    ) -> str | None:
+        """Persist a full tool result, returning ``None`` on failure."""
+        if not self._tool_results_dir:
+            logger.warning(
+                "Tool result exceeds the pruning limit but no artifact "
+                "directory is configured; returning the original result",
+            )
+            return None
+
+        try:
+            tool_result_dir = Path(self._tool_results_dir)
+            tool_result_dir.mkdir(parents=True, exist_ok=True)
+            fp = tool_result_dir / f"{uuid.uuid4().hex}.txt"
+            fp.write_text(content, encoding=encoding)
+        except OSError as e:
+            logger.warning(
+                "Failed to save tool result to file; returning the original "
+                "result: %s",
+                e,
+            )
+            return None
+        return str(fp)
 
 
 class LangfuseToolSpanMiddleware(MiddlewareBase):

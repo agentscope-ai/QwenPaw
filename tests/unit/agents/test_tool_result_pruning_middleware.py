@@ -8,6 +8,7 @@ import asyncio
 import sys
 import types
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, AsyncGenerator
 
 import pytest
@@ -101,6 +102,38 @@ async def test_tool_response_is_pruned_before_yield(tmp_path):
     saved = list(tmp_path.iterdir())
     assert len(saved) == 1
     assert saved[0].read_text(encoding="utf-8") == text
+
+
+@pytest.mark.asyncio
+async def test_tool_response_write_failure_fails_open(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    tool_results_dir = tmp_path / "tool_results"
+    middleware = ToolResultPruningMiddleware(
+        recent_max_bytes=512,
+        tool_results_dir=str(tool_results_dir),
+    )
+    text = "\n".join("x" * 80 for _ in range(30))
+    response = ToolResponse(
+        id="call-1",
+        content=[TextBlock(type="text", text=text)],
+    )
+
+    def fail_write(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_text", fail_write)
+
+    result = middleware.prune_tool_response(response)
+
+    assert result is response
+    assert result.content[0].text == text
+    assert TRUNCATION_NOTICE_MARKER not in result.content[0].text
+    assert TRUNCATION_METADATA_KEY not in result.metadata
+    assert not list(tool_results_dir.iterdir())
+    assert "returning the original result" in caplog.text
 
 
 def test_notice_has_independent_one_kib_budget():
