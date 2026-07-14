@@ -206,6 +206,8 @@ Tool results are handled by one mechanism:
 
 Scroll no longer has a separate token-based tool-result cap. Recent and execution previews share `pruning_recent_msg_max_bytes`; after scroll compaction, retained live previews are reduced to `pruning_old_msg_max_bytes` while the full artifact remains recallable.
 
+When unified pruning is enabled, QwenPaw makes AgentScope's built-in token-based tool-result cap non-binding. This prevents a second truncation pass from replacing the byte-bounded preview and discarding its block-scoped recovery metadata. If unified pruning is disabled, AgentScope's default cap remains active as a safety net.
+
 `scroll_config.tool_output_token_cap` is accepted only so existing configuration files continue to load. It is ignored and an explicitly configured value produces a migration warning; replace it with `tool_result_pruning_config.pruning_recent_msg_max_bytes`, whose unit is bytes rather than model-estimated tokens. Disabling `tool_result_pruning_config.enabled` also disables Scroll's execution-time per-result bound.
 
 ### Session Migration (Backfill)

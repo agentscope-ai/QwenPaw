@@ -621,9 +621,23 @@ class AgentBuilder:
         try:
             lcc = agent_config.running.light_context_config
             ccc = lcc.context_compact_config
+            trc = lcc.tool_result_pruning_config
+            # ToolResultPruningMiddleware already bounds fresh results by
+            # bytes and persists the full artifact before replacing them.
+            # AgentScope otherwise applies its own 50k-token split afterwards,
+            # creates a replacement ToolResultBlock, and drops QwenPaw's
+            # block-scoped truncation metadata.  Make that second cap
+            # non-binding while unified pruning is enabled; when pruning is
+            # disabled, retain AgentScope's default safety net.
+            tool_result_limit = (
+                2**63 - 1
+                if trc.enabled
+                else ContextConfig.model_fields["tool_result_limit"].default
+            )
             return ContextConfig(
                 trigger_ratio=ccc.compact_threshold_ratio,
                 reserve_ratio=ccc.reserve_threshold_ratio,
+                tool_result_limit=tool_result_limit,
             )
         except Exception:
             return ContextConfig()

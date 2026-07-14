@@ -478,6 +478,88 @@ def test_builder_adds_pruning_for_scroll_strategy(tmp_path):
     )
 
 
+def test_context_config_disables_agentscope_duplicate_tool_result_cap():
+    agent_config = types.SimpleNamespace(
+        running=types.SimpleNamespace(
+            light_context_config=LightContextConfig(
+                strategy="scroll",
+                tool_result_pruning_config=ToolResultPruningConfig(
+                    enabled=True,
+                    pruning_recent_msg_max_bytes=200_000,
+                ),
+            ),
+        ),
+    )
+
+    context_config = AgentBuilder._build_context_config(agent_config)
+
+    assert context_config.tool_result_limit == 2**63 - 1
+
+
+@pytest.mark.asyncio
+async def test_agentscope_does_not_resplit_pruned_tool_result():
+    from agentscope.agent import Agent
+
+    agent_config = types.SimpleNamespace(
+        running=types.SimpleNamespace(
+            light_context_config=LightContextConfig(
+                strategy="scroll",
+                tool_result_pruning_config=ToolResultPruningConfig(
+                    enabled=True,
+                ),
+            ),
+        ),
+    )
+    context_config = AgentBuilder._build_context_config(agent_config)
+
+    class _TokenModel:
+        async def count_tokens(self, *args, **kwargs):
+            return 60_000
+
+    shim = types.SimpleNamespace(
+        name="agent",
+        model=_TokenModel(),
+        context_config=context_config,
+    )
+    result = ToolResultBlock(
+        id="call-large",
+        name="execute_shell_command",
+        output=[TextBlock(text="already byte-bounded")],
+        metadata={TRUNCATION_METADATA_KEY: {"0": {"file_path": "saved"}}},
+    )
+
+    reserved, offloaded = await Agent._split_tool_result_for_compression(
+        shim,
+        result,
+    )
+
+    assert reserved is result
+    assert offloaded is None
+    assert reserved.metadata == result.metadata
+
+
+def test_context_config_keeps_agentscope_cap_when_pruning_is_disabled():
+    from agentscope.agent import ContextConfig
+
+    agent_config = types.SimpleNamespace(
+        running=types.SimpleNamespace(
+            light_context_config=LightContextConfig(
+                strategy="scroll",
+                tool_result_pruning_config=ToolResultPruningConfig(
+                    enabled=False,
+                ),
+            ),
+        ),
+    )
+
+    context_config = AgentBuilder._build_context_config(agent_config)
+
+    assert (
+        context_config.tool_result_limit
+        == ContextConfig.model_fields["tool_result_limit"].default
+    )
+
+
 def test_explicit_legacy_scroll_tool_cap_warns_once_and_is_not_saved(
     caplog,
     monkeypatch,
