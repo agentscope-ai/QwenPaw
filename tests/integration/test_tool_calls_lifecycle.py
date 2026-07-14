@@ -775,14 +775,24 @@ def test_offload_while_running(
     """POST .../offload → 202 while tool is running.
 
     Test purpose:
-      - Verify the offload endpoint transitions a running tool call
-        to OFFLOADED state and returns 202.
+      - Verify the offload endpoint accepts a running tool call and
+        returns 202/accepted.
 
     Test flow:
       1. Submit shell sleep task.
       2. Poll for entry.
       3. POST offload → 202.
-      4. GET detail → status should be 'offloaded'.
+      4. GET detail → 200; status is 'running' or 'offloaded'.
+
+    Note:
+      The OFFLOADED state transition is temporarily disabled by
+      upstream PR #6058 ("temporarily disable broken offload
+      mechanism"): the deadline_reached branch in
+      tool_calls/_coordinator.py is commented out, so a running tool
+      stays 'running' instead of moving to 'offloaded'. The POST
+      endpoint still returns 202/accepted, so we keep that happy-path
+      coverage and accept both statuses until upstream re-enables the
+      mechanism.
 
     API endpoints:
       - POST /api/tool-calls/{session_id}/{tool_call_id}/offload
@@ -818,7 +828,12 @@ def test_offload_while_running(
             timeout=_HTTP_TIMEOUT,
         )
         assert detail_resp.status_code == 200, app_server.logs_tail()
-        assert detail_resp.json()["status"] == "offloaded", detail_resp.json()
+        # offload transition temporarily disabled upstream (#6058):
+        # tool stays 'running'; becomes 'offloaded' once re-enabled.
+        assert detail_resp.json()["status"] in (
+            "running",
+            "offloaded",
+        ), detail_resp.json()
     finally:
         srv, _ = mock_llm
         srv.force_tool_call = False
