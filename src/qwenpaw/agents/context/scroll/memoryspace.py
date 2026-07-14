@@ -686,7 +686,7 @@ class MemorySpace:
         if not needles:
             return []
         rows: list[dict] = []
-        seen: set[tuple[int, int]] = set()
+        seen: set[tuple[int, str, int]] = set()
         budget = self._new_saved_tool_scan_budget()
         before_seq: int | None = None
         while len(rows) < limit and not budget.is_exhausted():
@@ -699,44 +699,48 @@ class MemorySpace:
             for row in candidates:
                 if budget.is_exhausted():
                     break
-                path = self._saved_tool_path(row.get("content"))
-                if path is None:
-                    continue
-                matches = self._file_line_matches(
-                    path,
-                    needles,
-                    budget=budget,
-                )
-                for match in matches:
-                    key = (int(row["seq"]), int(match["line"]))
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    rows.append(
-                        {
-                            "seq": row["seq"],
-                            "session_id": row.get("session_id"),
-                            "kind": row.get("kind"),
-                            "role": row.get("role"),
-                            "name": row.get("name"),
-                            "headline": (
-                                "saved tool output match at "
-                                f"{path.name}:{match['line']}"
-                            ),
-                            "content": (
-                                f"[saved tool output match]\n"
-                                f"tool_call_id="
-                                f"{row.get('tool_call_id') or ''}\n"
-                                f"file_path={path}\n"
-                                f"line={match['line']}\n"
-                                f"{match['excerpt']}"
-                            ),
-                        },
+                for path in self._saved_tool_paths(row.get("content")):
+                    if budget.is_exhausted():
+                        break
+                    matches = self._file_line_matches(
+                        path,
+                        needles,
+                        budget=budget,
                     )
-                    if len(rows) >= limit:
-                        return rows
-                if budget.is_exhausted():
-                    break
+                    for match in matches:
+                        key = (
+                            int(row["seq"]),
+                            str(path),
+                            int(match["line"]),
+                        )
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        rows.append(
+                            {
+                                "seq": row["seq"],
+                                "session_id": row.get("session_id"),
+                                "kind": row.get("kind"),
+                                "role": row.get("role"),
+                                "name": row.get("name"),
+                                "headline": (
+                                    "saved tool output match at "
+                                    f"{path.name}:{match['line']}"
+                                ),
+                                "content": (
+                                    f"[saved tool output match]\n"
+                                    f"tool_call_id="
+                                    f"{row.get('tool_call_id') or ''}\n"
+                                    f"file_path={path}\n"
+                                    f"line={match['line']}\n"
+                                    f"{match['excerpt']}"
+                                ),
+                            },
+                        )
+                        if len(rows) >= limit:
+                            return rows
+                    if budget.is_exhausted():
+                        break
             before_seq = min(int(row["seq"]) for row in candidates)
             if len(candidates) < _SAVED_TOOL_CANDIDATE_PAGE_SIZE:
                 break
@@ -755,41 +759,40 @@ class MemorySpace:
         budget = self._new_saved_tool_scan_budget()
         for row in rows:
             out.append(row)
-            path = self._saved_tool_path(row.get("content"))
-            if path is None:
-                continue
-            extra = {
-                "seq": row.get("seq"),
-                "kind": "_saved_tool_output",
-                "role": None,
-                "name": row.get("name"),
-                "tool_input": None,
-                "tool_state": row.get("tool_state"),
-                "content": (
-                    f"Full saved tool output is available at file_path={path}."
-                ),
-            }
-            if needles:
-                matches = self._file_line_matches(
-                    path,
-                    needles,
-                    limit=3,
-                    budget=budget,
-                )
-                if matches:
-                    content = str(extra["content"])
-                    extra["content"] = (
-                        content
-                        + "\n\n"
-                        + "\n\n".join(
-                            f"match line {m['line']}:\n{m['excerpt']}"
-                            for m in matches
-                        )
+            for path in self._saved_tool_paths(row.get("content")):
+                extra = {
+                    "seq": row.get("seq"),
+                    "kind": "_saved_tool_output",
+                    "role": None,
+                    "name": row.get("name"),
+                    "tool_input": None,
+                    "tool_state": row.get("tool_state"),
+                    "content": (
+                        "Full saved tool output is available at "
+                        f"file_path={path}."
+                    ),
+                }
+                if needles and not budget.is_exhausted():
+                    matches = self._file_line_matches(
+                        path,
+                        needles,
+                        limit=3,
+                        budget=budget,
                     )
-            out.append(extra)
-            if budget.is_exhausted():
-                out.append(self._artifact_scan_notice())
-                break
+                    if matches:
+                        content = str(extra["content"])
+                        extra["content"] = (
+                            content
+                            + "\n\n"
+                            + "\n\n".join(
+                                f"match line {m['line']}:\n{m['excerpt']}"
+                                for m in matches
+                            )
+                        )
+                out.append(extra)
+                if budget.is_exhausted():
+                    out.append(self._artifact_scan_notice())
+                    return out
         return out
 
     def _new_saved_tool_scan_budget(self) -> _ScanBudget:
@@ -798,25 +801,27 @@ class MemorySpace:
             deadline=time.monotonic() + self._saved_tool_scan_max_seconds,
         )
 
-    def _saved_tool_path(self, content: object) -> Path | None:
-        """Extract and validate a saved tool-result path from a notice."""
+    def _saved_tool_paths(self, content: object) -> list[Path]:
+        """Extract and validate all saved tool-result paths from notices."""
         if self._history_root is None:
-            return None
-        match = _SAVED_TOOL_FILE_RE.search(str(content or ""))
-        if not match:
-            return None
+            return []
         try:
-            path = Path(match.group(1)).expanduser().resolve()
             root = self._history_root.resolve()
         except OSError:
-            return None
-        try:
-            path.relative_to(root)
-        except ValueError:
-            return None
-        if not path.is_file():
-            return None
-        return path
+            return []
+        paths: list[Path] = []
+        seen: set[Path] = set()
+        for match in _SAVED_TOOL_FILE_RE.finditer(str(content or "")):
+            try:
+                path = Path(match.group(1)).expanduser().resolve()
+                path.relative_to(root)
+            except (OSError, ValueError):
+                continue
+            if path in seen or not path.is_file():
+                continue
+            seen.add(path)
+            paths.append(path)
+        return paths
 
     @staticmethod
     def _query_needles(query: str) -> list[str]:

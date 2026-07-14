@@ -589,6 +589,87 @@ def _saved_tool_notice(path: Path) -> str:
     )
 
 
+def test_saved_tool_search_checks_each_multiblock_artifact(tmp_path: Path):
+    decoy_file = tmp_path / "first-block.txt"
+    decoy_file.write_text("nothing relevant\n", encoding="utf-8")
+    target_file = tmp_path / "second-block.txt"
+    target_file.write_text("the deepneedle is here\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="multi-block-result",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content=(
+                _saved_tool_notice(decoy_file)
+                + "\n\n"
+                + _saved_tool_notice(target_file)
+            ),
+            tool_call_id="multi-block-call",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        rows = space.search("deepneedle", k=1)
+    finally:
+        space.close()
+
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "tool_result"
+    assert f"file_path={target_file}" in rows[0]["content"]
+    assert "deepneedle" in rows[0]["content"]
+
+
+def test_recall_tool_annotates_each_multiblock_artifact(tmp_path: Path):
+    first_file = tmp_path / "first-block.txt"
+    first_file.write_text("first block\n", encoding="utf-8")
+    second_file = tmp_path / "second-block.txt"
+    second_file.write_text("second block\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="multi-block-result",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content=(
+                _saved_tool_notice(first_file)
+                + "\n\n"
+                + _saved_tool_notice(second_file)
+            ),
+            tool_call_id="multi-block-call",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        rows = space.recall_tool("multi-block-call")
+    finally:
+        space.close()
+
+    artifacts = [
+        row["content"] for row in rows if row["kind"] == "_saved_tool_output"
+    ]
+    assert artifacts == [
+        f"Full saved tool output is available at file_path={first_file}.",
+        f"Full saved tool output is available at file_path={second_file}.",
+    ]
+
+
 def test_saved_tool_search_pages_past_first_200_candidates(tmp_path: Path):
     target_file = tmp_path / "target.txt"
     target_file.write_text("the deepneedle is here\n", encoding="utf-8")
