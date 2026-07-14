@@ -118,6 +118,7 @@ PROJECT_NAME = "QwenPaw"
 # Message metadata tags shared across agent middleware and memory managers.
 QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
 AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY = "auto_memory_search_block_ids"
+EXTERNAL_USER_QUERY_MESSAGE_TAG = "external_user_query"
 AUTO_CONTINUE_MESSAGE_TAG = "auto_continue"
 LOOP_CONTINUATION_MESSAGE_TAG = "loop_continuation"
 # User-role messages the runtime injects to keep a turn going. They are NOT

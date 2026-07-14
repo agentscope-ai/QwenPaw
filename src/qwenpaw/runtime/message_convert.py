@@ -8,6 +8,11 @@ from typing import Any, List
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from ..constant import (
+    EXTERNAL_USER_QUERY_MESSAGE_TAG,
+    QWENPAW_MESSAGE_TAG_KEY,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -161,5 +166,15 @@ def _request_input_to_msgs(
         if not blocks:
             continue
 
-        out.append(Msg(name=role, role=role, content=blocks))
+        metadata = {}
+        if role == "user":
+            metadata[QWENPAW_MESSAGE_TAG_KEY] = EXTERNAL_USER_QUERY_MESSAGE_TAG
+        out.append(
+            Msg(
+                name=role,
+                role=role,
+                content=blocks,
+                metadata=metadata,
+            ),
+        )
     return out

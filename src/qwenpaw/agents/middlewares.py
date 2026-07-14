@@ -28,6 +28,7 @@ from .tools.utils import (
 )
 from ..constant import (
     AUTO_CONTINUE_MESSAGE_TAG,
+    EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
 )
 
@@ -76,13 +77,14 @@ class MemoryMiddleware(MiddlewareBase):
         if self._is_automation_request(agent):
             return await next_handler(**input_kwargs)
 
-        turn_marker = self._latest_user_turn_marker(agent.state.context)
+        query_msg = self._latest_external_user_query(agent.state.context)
+        turn_marker = query_msg.id if query_msg is not None else ""
         turn_state = self._auto_memory_turn_state(agent)
         if turn_marker and turn_marker != turn_state.get("searched_turn"):
             turn_state["searched_turn"] = turn_marker
             try:
                 result = await self._memory_manager.auto_memory_search(
-                    list(agent.state.context),
+                    query_msg,
                     agent_name=agent.name,
                     session_id=agent.state.session_id,
                     user_turn_id=turn_marker,
@@ -281,6 +283,19 @@ class MemoryMiddleware(MiddlewareBase):
         return msg.role == "user" and cls._message_tag(msg) not in {
             AUTO_CONTINUE_MESSAGE_TAG,
         }
+
+    @classmethod
+    def _latest_external_user_query(
+        cls,
+        messages: list["Msg"],
+    ) -> "Msg | None":
+        for msg in reversed(messages):
+            if (
+                msg.role == "user"
+                and cls._message_tag(msg) == EXTERNAL_USER_QUERY_MESSAGE_TAG
+            ):
+                return msg
+        return None
 
     @staticmethod
     def _latest_user_turn_marker(messages: list["Msg"]) -> str:
