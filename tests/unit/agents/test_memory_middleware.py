@@ -271,6 +271,42 @@ class TestOnReplyAutomationSkip:
         mm.auto_memory.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_internal_user_message_is_excluded_from_memory(self):
+        """Internal user-role controls must not enter auto-memory."""
+        mm = _make_memory_manager(interval=1)
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        query = _user_msg("real query")
+        reply = Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(text="reply")],
+        )
+        continuation = Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="[WARNING] Repetitive pattern detected.")],
+            metadata={
+                QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
+            },
+        )
+        final_reply = Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(text="done")],
+        )
+        agent.state.context = [query, reply, continuation, final_reply]
+
+        async def _next(**_kwargs):
+            yield "done"
+
+        async for _ in mw.on_reply(agent, {}, _next):
+            pass
+
+        mm.auto_memory.assert_awaited_once()
+        assert mm.auto_memory.await_args.args[0] == [query, reply, final_reply]
+
+    @pytest.mark.asyncio
     async def test_interval_state_survives_middleware_rebuild(self):
         """A rebuilt middleware must keep interval state on the manager."""
         mm = _make_memory_manager(interval=2)
