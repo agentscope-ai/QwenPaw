@@ -66,6 +66,10 @@ class ErrorNormalizeHook(LifecycleHook):
             )
 
         ctx.extras["_error_text"] = error_text
+        ctx.extras["_error_code"] = (
+            getattr(normalized, "error_code", None)
+            or normalized.__class__.__name__
+        )
         return HookResult()
 
 

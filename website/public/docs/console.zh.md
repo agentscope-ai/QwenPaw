@@ -438,7 +438,26 @@ Console 页面左上角的 **当前智能体** 用于切换当前操作对象；
 配置**各频道发来的语音/音频**在进入模型前的处理方式（与聊天里的语音输入、频道语音消息共用这套设置）。
 
 - **音频模式**：**自动** — 先按下方转写设置转成文字再交给模型（多数模型适用）；**原生** — 直接把音频当附件交给模型（仅部分支持音频的模型可用）。
-- **转写后端**：**关闭**；**Whisper API** — 使用兼容 OpenAI `audio/transcriptions` 的提供商，需在 [模型](#模型) 中配置好对应密钥并在此选中提供商；**本地 Whisper** — 本机运行，需安装 `ffmpeg` 与 `pip install 'qwenpaw[whisper]'`。
+- **转写后端**：**关闭**；**Whisper API**；**本地 Whisper**。
+
+**Whisper API 安装配置：**
+
+1. 在 [模型](#模型) 中添加兼容 OpenAI 的提供商。
+2. 确认该提供商支持 `audio/transcriptions`，并已配置有效 API Key。
+3. 回到本页，将该提供商选为 Whisper API 后端。
+
+**本地 Whisper 安装配置：**
+
+1. 使用系统包管理器安装 `ffmpeg`。
+2. 在运行 QwenPaw 的 Python 环境中安装可选依赖：`pip install "qwenpaw[whisper]"`。
+3. 重启 QwenPaw，然后在本页选择 **本地 Whisper**。
+
+可用以下命令验证本地安装：
+
+```bash
+ffmpeg -version
+python -c "import whisper; print('openai-whisper installed')"
+```
 
 保存后对新收到的语音生效。详情以页面内说明为准。
 

@@ -1343,6 +1343,178 @@ pip install "qwenpaw[sip,sip-livekit]"
 | `welcome_greeting`   | string | `"Hi! This is QwenPaw. How can I help you?"` | 欢迎语（接通电话后的第一句话）                         |
 | `call_timeout`       | float  | `30.0`                                       | 呼出超时时间（秒）                                     |
 
+## Azure Bot（Microsoft 机器人服务）
+
+Azure Bot channel 基于 [Bot Framework](https://dev.botframework.com/) Webhook 协议，支持将 QwenPaw 接入 **Microsoft Teams**、**Web Chat**、**DirectLine** 等所有 Azure Bot Service 支持的频道。
+
+配置分为以下几步：先在 **Microsoft Entra ID** 注册应用以获取凭证，再创建 **Azure Bot** 资源并关联已有注册，最后将 QwenPaw 的 Webhook 地址填入并启用目标频道。
+
+> **提示**：Azure Bot 是**插件频道**，并非内置频道。使用前请先在 QwenPaw 控制台的**插件市场**中搜索并安装 `azure-bot` 插件；安装完成后，该频道才会出现在「频道」设置中。
+
+### 第一步：创建应用注册（App Registration）
+
+在此步骤中获取三个必要凭证：`app_id`、`tenant_id`、`app_password`。
+
+1. 打开 [Azure 门户](https://portal.azure.com/)，在顶部搜索栏输入 `Microsoft Entra ID`，点击进入。
+
+   ![Microsoft Entra ID](https://img.alicdn.com/imgextra/i3/O1CN01sFcUI11x1vdPfro5i_!!6000000006384-2-tps-1540-880.png)
+
+2. 点击页面顶部的 **"+ 添加（+ Add）"** 按钮，在下拉菜单中选择 **"应用注册（App registration）"**。
+
+   ![App registration](https://img.alicdn.com/imgextra/i4/O1CN01Mlk83h1TmhbuJIWQe_!!6000000002425-2-tps-1531-838.png)
+
+3. 填写注册信息：
+
+   - **名称（Name）**：自定义，如 `QwenPaw-Bot`
+   - **受支持的帐户类型（Supported account types）**：选第一项 **"仅此组织目录中的帐户（Accounts in this organizational directory only）"**（单租户）
+   - **重定向 URI（Redirect URI）**：留空
+
+   点击 **"注册（Register）"**。
+
+   ![Register](https://img.alicdn.com/imgextra/i2/O1CN01XKfBNU1VYcfLwQhXl_!!6000000002665-2-tps-1543-831.png)
+
+4. 注册完成后，在应用概述页面记录以下两个 ID：
+
+   - **应用程序（客户端）ID（Application (client) ID）** → 即 `app_id`
+   - **目录（租户）ID（Directory (tenant) ID）** → 即 `tenant_id`
+
+   ![Application ID 和 Directory ID](https://img.alicdn.com/imgextra/i2/O1CN01IoyGl71EK6e1jd9DQ_!!6000000000332-2-tps-1535-836.png)
+
+5. 在左侧菜单点击 **"证书和机密（Certificates & secrets）"** → 选择 **"客户端机密（Client secrets）"** 标签 → 点击 **"新建客户端机密（New client secret）"**。
+
+   填写描述（如 `qwenpaw`），选择合适的有效期，点击 **"添加（Add）"**。
+
+   ![Add](https://img.alicdn.com/imgextra/i3/O1CN01IfUrY727KNkaWwu8g_!!6000000007778-2-tps-1544-836.png)
+
+6. 机密创建后，**立即复制 "值（Value）" 列** → 即 `app_password`。
+
+   > **注意：** 离开此页面后 Value 将永久隐藏，无法再次查看，务必立即保存！
+
+   ![复制客户端机密的 Value 列](https://img.alicdn.com/imgextra/i2/O1CN01KzpIc11aDcaFe0U0i_!!6000000003296-2-tps-1543-833.png)
+
+### 第二步：创建 Azure Bot 资源
+
+1. 在 Azure 门户顶部搜索栏输入 `Azure Bot`，点击搜索结果中的 **Azure Bot**，然后点击 **"创建（Create）"**。
+
+   ![Azure Bot](https://img.alicdn.com/imgextra/i1/O1CN01u7ZxBm1PdlPrl6sKI_!!6000000001864-2-tps-1545-836.png)
+
+2. 填写基础信息：
+
+   - **机器人句柄（Bot handle）**：全局唯一，可自定义（如 `qwenpaw-bot`）
+   - **订阅（Subscription）**：选择你的订阅
+   - **资源组（Resource group）**：选择已有或新建
+   - **定价层（Pricing tier）**：`F0 (Free)` 即可
+   - **Microsoft 应用类型（Type of App）**：选 **"单租户（Single Tenant）"**
+   - **创建类型（Creation type）**：选 **"使用现有应用注册（Use existing app registration）"**
+   - **应用 ID（App ID）**：粘贴第一步的 `app_id`
+   - **应用租户 ID（App tenant ID）**：粘贴第一步的 `tenant_id`
+
+   ![Azure Bot](https://img.alicdn.com/imgextra/i4/O1CN01gly9dG1fIGgGQVTqq_!!6000000003983-2-tps-1535-829.png)
+
+3. 点击 **"查看 + 创建（Review + create）"**，验证通过后点击 **"创建（Create）"**，等待部署完成后点击 **"转到资源（Go to resource）"**。
+
+   ![create](https://img.alicdn.com/imgextra/i2/O1CN01LA5fDL1KzDtdLmH8c_!!6000000001234-2-tps-1544-834.png)
+
+### 第三步：暴露 Webhook 端点
+
+QwenPaw 会在本地启动一个独立 HTTP 服务（默认端口 `3978`）接收 Azure 转发的消息。Azure Bot Service 要求该端点**可从公网通过 HTTPS 访问**。
+
+**方式 A：固定域名 + 反向代理（推荐生产环境）**
+
+如果 QwenPaw 运行在有公网 IP 的服务器上，使用 Nginx 反向代理并配置 HTTPS 证书，Webhook 地址形如：
+
+```
+https://your-domain.com/api/messages
+```
+
+**方式 B：本地开发 — 使用 ngrok 内网穿透**
+
+```bash
+ngrok http 3978
+```
+
+ngrok 启动后会输出一个临时公网地址，Webhook URL 即：
+
+```
+https://xxxx.ngrok-free.app/api/messages
+```
+
+> **注意：** ngrok 免费版每次重启地址会变更，需同步更新 Azure Bot 的 Messaging Endpoint。生产环境请使用固定域名。
+
+### 第四步：配置消息端点（Messaging Endpoint）
+
+1. 进入刚创建的 Azure Bot 资源，在左侧菜单点击 **"配置（Configuration）"**。
+2. 在 **消息端点（Messaging endpoint）** 字段填入你的公网 Webhook 地址：
+
+   ```
+   https://<your-domain-or-ngrok>/api/messages
+   ```
+
+3. 点击 **"应用（Apply）"** 保存。
+
+   ![Messaging endpoint](https://img.alicdn.com/imgextra/i2/O1CN01S6WH5O1dbqNUWATNo_!!6000000003755-2-tps-1544-839.png)
+
+### 第五步：启用目标频道（可选）
+
+在 Azure Bot 资源左侧菜单，点击 **"频道（Channels）"**，即可看到所有支持的频道列表（Teams、Web Chat、Slack 等）。根据需要点击对应频道图标，按提示完成授权并点击 **"应用（Apply）"** 启用。
+
+![Channels](https://img.alicdn.com/imgextra/i3/O1CN01cpH8jd1rS8bZYQpCE_!!6000000005629-2-tps-1533-839.png)
+
+### 第六步：绑定配置
+
+可以在控制台前端配置，或直接修改 `agent.json`。
+
+**方法 1：** 在控制台中配置
+
+进入 **控制（Control） → 频道（Channels）**，找到 **Azure Bot**，点击后填入以下信息：
+
+- **App ID**：第一步的 Application (client) ID
+- **App Password**：第一步的 Client Secret Value
+- **Tenant ID**：第一步的 Directory (tenant) ID
+
+![控制台 Azure Bot 配置抽屉界面](https://img.alicdn.com/imgextra/i1/O1CN01k7dvrw1rBBwztyPTz_!!6000000005592-2-tps-1549-880.png)
+
+**方法 2：** 修改 `agent.json`
+
+在智能体工作区的 `agent.json`（如 `~/.qwenpaw/workspaces/default/agent.json`）里找到 `channels.azure_bot`，填入对应信息：
+
+```json
+"azure_bot": {
+  "enabled": true,
+  "app_id": "第一步的 Application (client) ID",
+  "app_password": "第一步的 Client Secret Value",
+  "tenant_id": "第一步的 Directory (tenant) ID",
+  "http_port": 3978,
+  "share_session_in_group": false,
+  "require_mention": false
+}
+```
+
+保存后若服务已运行会自动重载；未运行则执行 `qwenpaw app` 启动。
+
+**Azure Bot 专属字段说明：**
+
+| 字段                     | 类型   | 默认值       | 说明                                                                                  |
+| ------------------------ | ------ | ------------ | ------------------------------------------------------------------------------------- |
+| `app_id`                 | string | `""`（必填） | Microsoft 应用 ID（即 Azure AD Client ID）                                            |
+| `app_password`           | string | `""`（必填） | 客户端机密值（Client Secret Value）                                                   |
+| `tenant_id`              | string | `""`（必填） | Azure AD 目录租户 ID（Directory tenant ID）                                           |
+| `http_port`              | int    | `3978`       | Webhook 监听端口，需与 Messaging Endpoint 中填写的端口一致                            |
+| `http_host`              | string | `"0.0.0.0"`  | Webhook 监听地址，通常保持默认                                                        |
+| `media_dir`              | string | `null`       | 媒体文件下载目录（留空则使用工作区 `media/` 子目录）                                  |
+| `share_session_in_group` | bool   | `false`      | 群聊中是否所有成员共享同一会话；`true` 时整个群共用一个会话，`false` 时各成员独立会话 |
+
+### 注意事项
+
+- **HTTPS 必须**：Azure Bot Service 要求 Messaging Endpoint 使用 HTTPS，本地开发请使用 ngrok 或配置了 SSL 的反向代理。
+- **端口防火墙**：确保服务器安全组 / 防火墙已开放 `http_port`（默认 3978）的入站流量，或通过反向代理在标准端口（443）上对外提供服务。
+- **群聊 @mention**：在 Teams 群聊中建议开启 `require_mention: true`，避免每条群消息都触发机器人回复；私聊不受此限制。
+- **多频道并行**：同一个 Azure Bot 资源可同时连接 Teams、Web Chat、DirectLine 等多个频道，QwenPaw 会自动识别来源频道并路由回复。
+- **会话引用持久化**：QwenPaw 将各用户 / 群聊的会话引用保存在工作区的 `azure_bot_refs.json` 中，重启后可继续主动向用户发送消息。
+- **客户端机密有效期**：Azure AD 客户端机密有效期最长 2 年，到期需重新生成并更新 `app_password` 配置。
+
+---
+
 ## Slack
 
 ### 创建 Slack 应用
@@ -1485,6 +1657,7 @@ pip install "qwenpaw[sip,sip-livekit]"
 | 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                                                          |
 | 元宝       | yuanbao    | app_id, app_secret；可选 api_domain, media_dir                                                         |
 | Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid；可选 tts_provider, stt_provider |
+| Azure Bot  | azure_bot  | app_id, app_password, tenant_id；可选 http_port, media_dir, share_session_in_group                     |
 
 所有频道均支持本页顶部「通用字段」中介绍的访问控制字段（`dm_policy`、`group_policy`、`allow_from`、`deny_message`、`require_mention`）。
 
@@ -1527,6 +1700,7 @@ pip install "qwenpaw[sip,sip-livekit]"
 | 小艺       | ✓        | ✓        | ✗        | ✗        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
 | 元宝       | ✓        | ✓        | ✗        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Voice      | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        |
+| Azure Bot  | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 
 说明：
 
@@ -1543,6 +1717,7 @@ pip install "qwenpaw[sip,sip-livekit]"
 - **小艺**：支持接收文本、图片（JPEG/PNG/BMP/WEBP）和文件（PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT）；平台限制不支持视频和音频。
 - **元宝**：支持接收文本、图片、音频；发送支持文本、图片、视频、音频和文件（通过 COS CDN 上传）；平台不转发视频消息给 Bot。
 - **Voice**：纯语音通话频道，接收用户语音并转为文本，Agent 回复转为语音播放；不支持其他格式。
+- **Azure Bot**：支持接收和发送文本、图片、视频、音频和文件；发送附件通过 Bot Framework Upload API 实现，单文件大小上限为 **180 KB**，超限文件将以提示消息代替发送。
 
 ### 通过 HTTP 修改配置
 

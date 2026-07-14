@@ -23,19 +23,26 @@ import GenericToolCard from "../cards/GenericToolCard";
 // ---------------------------------------------------------------------------
 
 const ERROR_STATUSES = new Set(["failed", "rejected", "canceled"]);
+const TOOL_ERROR_STATES = new Set(["error", "interrupted", "denied"]);
 
 /**
  * Derive the tool execution status from V1 message data.
  *
- * No result item (content[1]) → tool hasn't produced output yet → "calling".
- * Message-level status on tool_call messages reflects *delivery*, not execution,
- * so we only consult it when a result item exists.
+ * Checks the tool-execution-layer `state` (nested inside resultItem.data)
+ * first — it reflects the real outcome of the tool call. Falls back to
+ * message-level `status` for delivery state.
  */
 function deriveToolStatus(
   resultItem: Record<string, unknown> | undefined,
   data: Record<string, unknown>,
 ): ToolCallStatus {
   if (!resultItem) return "calling";
+
+  const resultData = (resultItem?.data ?? {}) as Record<string, unknown>;
+  const toolState = resultData.state as string;
+  if (toolState && TOOL_ERROR_STATES.has(toolState)) {
+    return "error";
+  }
 
   const rawStatus =
     (data.status as string) || (resultItem.status as string) || "";

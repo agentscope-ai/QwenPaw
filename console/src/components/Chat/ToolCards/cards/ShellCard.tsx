@@ -22,12 +22,25 @@ const ShellCard: React.FC<ShellCardProps> = ({ content, isStreaming }) => {
     (content.params?.command as string) ||
     (content.params?.cmd as string) ||
     "";
+  const title = command ? t("tool.shell", { command }) : t("tool.shellDefault");
+
+  if (content.status === "error") {
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<CodeOutlined />}
+        title={title}
+      />
+    );
+  }
+
   const resultText = stringifyResult(content.result);
 
   return (
     <ToolCardShell
       icon={<CodeOutlined />}
-      title={command ? t("tool.shell", { command }) : t("tool.shellDefault")}
+      title={title}
       content={content}
       isStreaming={isStreaming}
     >

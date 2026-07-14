@@ -7,6 +7,7 @@ with a StopHandler-compatible gate that checks
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +36,8 @@ class _MissionState:
     loop_dir: Path
     active: bool = True
     phase: str = "prd_generation"
+    last_prd: dict | None = None
+    last_cfg: dict | None = None
 
 
 class MissionGate(LoopGate):
@@ -43,8 +46,8 @@ class MissionGate(LoopGate):
     Activated when ``loop_config.json`` phase transitions
     to ``execution_confirmed`` or ``execution``.
     Each ``check()`` reads prd.json and returns:
-    - STOP if all stories passed or phase is terminal
-    - CONTINUE with remaining summary otherwise
+    - TERMINATE if all stories passed or terminal phase
+    - INTERRUPT_AND_CONTINUE with remaining summary
     """
 
     @property
@@ -57,76 +60,100 @@ class MissionGate(LoopGate):
 
     async def check(  # pylint: disable=too-many-return-statements
         self,
-        ctx: Any,  # pylint: disable=unused-argument
-    ) -> Optional[StopHandlerResult]:
+        ctx: Any,
+    ) -> StopHandlerResult:
         """Evaluate mission completion."""
+        _bypass = StopHandlerResult(
+            action=StopAction.BYPASS,
+        )
+        if isinstance(ctx, dict) and ctx.get(
+            "has_tool_calls",
+        ):
+            return _bypass
+
         state: Optional[_MissionState] = self._state()
         if state is None:
             state = self._try_restore(ctx)
         if state is None or not state.active:
-            return None
+            return _bypass
 
         from .state import (
             read_loop_config,
             read_prd,
         )
 
-        cfg = read_loop_config(state.loop_dir)
+        cfg = await asyncio.to_thread(
+            read_loop_config,
+            state.loop_dir,
+        )
         phase = cfg.get("current_phase", "")
         state.phase = phase
 
         if phase in _TERMINAL_PHASES:
             self.deactivate()
             return StopHandlerResult(
-                action=StopAction.STOP,
+                action=StopAction.TERMINATE,
                 reason=f"Mission {phase}",
             )
 
         if phase not in _EXEC_PHASES:
-            return None
+            return _bypass
 
-        return self._eval_prd(
-            read_prd(state.loop_dir),
-            cfg,
+        prd = await asyncio.to_thread(
+            read_prd,
+            state.loop_dir,
         )
+        return self._eval_prd(prd, cfg)
 
     def _eval_prd(
         self,
         prd: dict,
         cfg: dict,
-    ) -> Optional[StopHandlerResult]:
+    ) -> StopHandlerResult:
         """Evaluate PRD completion status."""
         from .state import (
             get_all_passed,
         )
 
         if not prd:
-            return None
+            return StopHandlerResult(
+                action=StopAction.BYPASS,
+            )
 
         stories = prd.get("userStories", [])
         if not stories:
             self.deactivate()
             return StopHandlerResult(
-                action=StopAction.STOP,
+                action=StopAction.TERMINATE,
                 reason="No user stories in prd.json",
             )
 
         if get_all_passed(prd):
             self.deactivate()
             return StopHandlerResult(
-                action=StopAction.STOP,
+                action=StopAction.TERMINATE,
                 reason="All stories passed",
             )
 
+        state: Optional[_MissionState] = self._state()
+        if state is not None:
+            state.last_prd = prd
+            state.last_cfg = cfg
+
         return StopHandlerResult(
-            action=StopAction.CONTINUE,
-            continuation_message=(self._remaining_summary(prd, cfg)),
+            action=StopAction.INTERRUPT_AND_CONTINUE,
             reason="Mission in progress",
         )
 
-    def continuation_prompt(self) -> str:
-        """Fallback prompt when check() returns None."""
-        return ""
+    def build_continuation(self) -> str:
+        """Build remaining-story summary for injection."""
+        state: Optional[_MissionState] = self._state()
+        if state is None or state.last_prd is None or state.last_cfg is None:
+            return ""
+        return self._remaining_summary(
+            state.last_prd,
+            state.last_cfg,
+        )
 
     def activate_for_mission(
         self,

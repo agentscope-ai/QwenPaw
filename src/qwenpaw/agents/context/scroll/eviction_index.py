@@ -30,6 +30,28 @@ from dataclasses import dataclass
 # block and folds the other (_TIER_CAP - 1) into one block a tier higher.
 _TIER_CAP = 10
 
+# The seam banner closing the index placeholder. It is the LAST thing the model
+# reads before the live tail, so the structural signal sits right where the
+# confusion happens: the placeholder is a ``user`` message and so is the real
+# request that follows it (two consecutive ``user`` turns — the one shape we
+# can't avoid, since Anthropic requires the first body message to be ``user``
+# and can't take a ``system`` message mid-context). A weak model (GLM/DeepSeek)
+# otherwise latches onto a ``⟦headline⟧`` in the map above and answers it. This
+# banner is a positional delimiter — the same trick hermes-agent uses with its
+# ``[CONTEXT SUMMARY]`` label — telling the model, at the seam, which side is
+# archive and which side is the request. Constant text, so it never breaks the
+# placeholder's KV-cache prefix.
+_LIVE_TURN_BANNER = [
+    "",
+    "═══════════════ END OF ARCHIVED INDEX ═══════════════",
+    "The CURRENT LIVE TURN is the message(s) that follow this one. Answer the "
+    "most recent USER message there — NEVER a ⟦headline⟧ listed in the map "
+    "above; those are archived, not requests. If your current request is not "
+    "visible in the live turn, recall it first (see above); if recall cannot "
+    "retrieve it, say so — never answer an older message as if it were the "
+    "request.",
+]
+
 
 @dataclass(frozen=True)
 class Leaf:
@@ -125,19 +147,28 @@ class EvictionIndex:
         *,
         seq_lo: int,
         seq_hi: int,
+        fallback_lines: list[Line] | None = None,
     ) -> None:
         """Drop one eviction onto Tier 0 as a new block, then run the carry.
 
         ``leaves`` are the evicted milestone turns; ``seq_lo``/``seq_hi`` is
         the *full* evicted span (tool results and unheadlined turns
         included) so a range query recovers everything.
+
+        ``fallback_lines`` stands in for a span that produced no ``leaves`` (a
+        legacy 1.x span, or a tool-heavy stretch the model never headlined):
+        generated ``Line`` entries — each a seq sub-range with a synthesized
+        headline — that tile the span the way real milestones would. Empty or
+        ``None`` keeps the bare ``(no milestone)`` marker. The full turns stay
+        recoverable by the block's seq span either way.
         """
         lines = [
             Line(lf.seq, lf.seq, lf.headline, lf.headline) for lf in leaves
         ]
         if not lines:
-            # An eviction with no headlined turns is still addressable by span.
-            lines = [Line(seq_lo, seq_hi, "(no milestone)", "(no milestone)")]
+            lines = fallback_lines or [
+                Line(seq_lo, seq_hi, "(no milestone)", "(no milestone)"),
+            ]
         if not self._tiers:
             self._tiers.append([])
         self._tiers[0].append(Block(seq_lo, seq_hi, lines))
@@ -255,11 +286,12 @@ class EvictionIndex:
         out = [
             "<system-info>",
             "[context compressed] The turns below were evicted from the live "
-            "window but remain durable in conversation_history. This is their "
-            "index: read it top (oldest) to bottom (most recently "
-            "compressed); "
-            "the recent live turns follow below. Each "
-            "'·' line is a seq span you can re-expand.",
+            "window but remain durable in conversation_history. This is an "
+            "ARCHIVED MAP for reference only — NOT the live conversation. "
+            "Read it top (oldest) to bottom (most recently compressed); the "
+            "live "
+            "turns follow after the banner at the end. Each '·' line is a seq "
+            "span you can re-expand.",
             "",
             "Re-expand a span with the recall_history tool: "
             'recall_history(op="expand", lo, hi) for the full turns (seq is '
@@ -268,13 +300,12 @@ class EvictionIndex:
             "(sessions, custom SQL) use a more advanced Python recall tool "
             "if one is available to you.",
             "",
-            "If the user's CURRENT request is not visible among the live "
-            "turns below, do NOT answer an older visible message as if it "
-            "were the request — recall the missing span first; if recall "
-            "cannot retrieve it, say so explicitly instead of guessing.",
-            "",
         ]
         out.extend(self._tier_lines())
+        # The seam banner closes the block right before the live tail — the
+        # structural anchor that keeps the model answering the request below,
+        # not a headline in the map above.
+        out.extend(_LIVE_TURN_BANNER)
         out.append("</system-info>")
         return "\n".join(out)
 

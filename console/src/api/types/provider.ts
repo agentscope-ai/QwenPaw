@@ -9,7 +9,7 @@ export interface ModelInfo {
   max_tokens: number;
   max_input_length: number;
   generate_kwargs: Record<string, unknown>;
-  preserve_thinking: boolean;
+  relay_reasoning: boolean;
   thinking_enabled: boolean | null;
   thinking_budget: number | null;
   reasoning_effort: string | null;
@@ -134,7 +134,7 @@ export interface ModelConfigRequest {
   max_tokens?: number;
   max_input_length?: number;
   generate_kwargs?: Record<string, unknown>;
-  preserve_thinking?: boolean;
+  relay_reasoning?: boolean;
   thinking_enabled?: boolean | null;
   thinking_budget?: number | null;
   reasoning_effort?: string | null;

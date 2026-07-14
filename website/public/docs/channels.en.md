@@ -1312,6 +1312,178 @@ After configuration, start a call from your SIP phone or browser:
 
 ---
 
+## Azure Bot (Microsoft Bot Service)
+
+The Azure Bot channel is built on the [Bot Framework](https://dev.botframework.com/) Webhook protocol, connecting QwenPaw to **Microsoft Teams**, **Web Chat**, **DirectLine**, and any other channel supported by Azure Bot Service.
+
+Setup involves three phases: register an application in **Microsoft Entra ID** to obtain credentials, create an **Azure Bot** resource linked to that registration, then point the Messaging Endpoint at QwenPaw's Webhook and enable your target channel(s).
+
+> **Note**: Azure Bot is a **plugin channel**, not a built-in one. Before configuring it, search for and install the `azure-bot` plugin from the **Plugin Marketplace** in the QwenPaw Console. The channel appears in the Channels settings only after installation.
+
+### Step 1: Create an App Registration
+
+This step yields the three required credentials: `app_id`, `tenant_id`, and `app_password`.
+
+1. Open the [Azure Portal](https://portal.azure.com/), type `Microsoft Entra ID` in the top search bar, and click to enter.
+
+   ![Microsoft Entra ID](https://img.alicdn.com/imgextra/i3/O1CN01sFcUI11x1vdPfro5i_!!6000000006384-2-tps-1540-880.png)
+
+2. On the **Default Directory | Overview** page, click the **"+ Add"** button at the top and choose **"App registration"** from the dropdown.
+
+   ![App registration](https://img.alicdn.com/imgextra/i4/O1CN01Mlk83h1TmhbuJIWQe_!!6000000002425-2-tps-1531-838.png)
+
+3. Fill in the registration form:
+
+   - **Name**: Any name, e.g. `QwenPaw-Bot`
+   - **Supported account types**: Select the first option — **"Accounts in this organizational directory only"** (Single tenant)
+   - **Redirect URI**: Leave blank
+
+   Click **"Register"**.
+
+   ![Register](https://img.alicdn.com/imgextra/i2/O1CN01XKfBNU1VYcfLwQhXl_!!6000000002665-2-tps-1543-831.png)
+
+4. After registration, on the application Overview page, note the two IDs:
+
+   - **Application (client) ID** → `app_id`
+   - **Directory (tenant) ID** → `tenant_id`
+
+   ![Application ID and Directory ID](https://img.alicdn.com/imgextra/i2/O1CN01IoyGl71EK6e1jd9DQ_!!6000000000332-2-tps-1535-836.png)
+
+5. In the left menu, click **"Certificates & secrets"** → select the **"Client secrets"** tab → click **"New client secret"**.
+
+   Enter a description (e.g. `qwenpaw`), choose an expiry, and click **"Add"**.
+
+   ![New client secret](https://img.alicdn.com/imgextra/i3/O1CN01IfUrY727KNkaWwu8g_!!6000000007778-2-tps-1544-836.png)
+
+6. Once created, **immediately copy the "Value" column** → this is `app_password`.
+
+   > **Warning:** The Value is hidden permanently after you leave this page — save it now!
+
+   ![Copy client secret Value](https://img.alicdn.com/imgextra/i2/O1CN01KzpIc11aDcaFe0U0i_!!6000000003296-2-tps-1543-833.png)
+
+### Step 2: Create the Azure Bot Resource
+
+1. In the Azure Portal search bar, type `Azure Bot`, click the **Azure Bot** result, then click **"Create"**.
+
+   ![Azure Bot](https://img.alicdn.com/imgextra/i1/O1CN01u7ZxBm1PdlPrl6sKI_!!6000000001864-2-tps-1545-836.png)
+
+2. Fill in the details:
+
+   - **Bot handle**: Globally unique, e.g. `qwenpaw-bot`
+   - **Subscription**: Select your subscription
+   - **Resource group**: Select an existing group or create new
+   - **Pricing tier**: `F0 (Free)` is sufficient
+   - **Type of App**: **"Single Tenant"**
+   - **Creation type**: **"Use existing app registration"**
+   - **App ID**: Paste the `app_id` from Step 1
+   - **App tenant ID**: Paste the `tenant_id` from Step 1
+
+   ![Azure Bot create form](https://img.alicdn.com/imgextra/i4/O1CN01gly9dG1fIGgGQVTqq_!!6000000003983-2-tps-1535-829.png)
+
+3. Click **"Review + create"**, then **"Create"** after validation passes. When deployment completes, click **"Go to resource"**.
+
+   ![Review + create](https://img.alicdn.com/imgextra/i2/O1CN01LA5fDL1KzDtdLmH8c_!!6000000001234-2-tps-1544-834.png)
+
+### Step 3: Expose the Webhook Endpoint
+
+QwenPaw starts a standalone HTTP server (default port `3978`) to receive messages forwarded by Azure. Azure Bot Service requires this endpoint to be **publicly reachable over HTTPS**.
+
+**Option A: Fixed domain + reverse proxy (recommended for production)**
+
+If QwenPaw runs on a server with a public IP, set up Nginx with an SSL certificate. The Webhook URL will look like:
+
+```
+https://your-domain.com/api/messages
+```
+
+**Option B: Local development — ngrok tunnel**
+
+```bash
+ngrok http 3978
+```
+
+ngrok outputs a temporary public URL. Your Webhook URL becomes:
+
+```
+https://xxxx.ngrok-free.app/api/messages
+```
+
+> **Note:** The free tier of ngrok generates a new URL on each restart — remember to update the Messaging Endpoint in Azure. Use a fixed domain for production.
+
+### Step 4: Set the Messaging Endpoint
+
+1. Open the Azure Bot resource you just created, and click **"Configuration"** in the left menu.
+2. In the **Messaging endpoint** field, enter your public Webhook URL:
+
+   ```
+   https://<your-domain-or-ngrok>/api/messages
+   ```
+
+3. Click **"Apply"** to save.
+
+   ![Messaging endpoint](https://img.alicdn.com/imgextra/i2/O1CN01S6WH5O1dbqNUWATNo_!!6000000003755-2-tps-1544-839.png)
+
+### Step 5: Enable Channels (Optional)
+
+In the Azure Bot resource, click **"Channels"** in the left menu to see the full list of supported channels (Teams, Web Chat, Slack, etc.). Click the icon for the channel you want, follow the prompts to authorize, then click **"Apply"** to enable it.
+
+![Channels](https://img.alicdn.com/imgextra/i3/O1CN01cpH8jd1rS8bZYQpCE_!!6000000005629-2-tps-1533-839.png)
+
+### Step 6: Connect to QwenPaw
+
+Configure via the Console UI or by editing `agent.json` directly.
+
+**Method 1:** Configure in the Console
+
+Go to **Control → Channels**, click **Azure Bot**, and fill in:
+
+- **App ID**: Application (client) ID from Step 1
+- **App Password**: Client Secret Value from Step 1
+- **Tenant ID**: Directory (tenant) ID from Step 1
+
+![Console Azure Bot configuration](https://img.alicdn.com/imgextra/i1/O1CN01k7dvrw1rBBwztyPTz_!!6000000005592-2-tps-1549-880.png)
+
+**Method 2:** Edit `agent.json`
+
+Find `channels.azure_bot` in your agent's `agent.json` (e.g. `~/.qwenpaw/workspaces/default/agent.json`) and fill in:
+
+```json
+"azure_bot": {
+  "enabled": true,
+  "app_id": "Application (client) ID from Step 1",
+  "app_password": "Client Secret Value from Step 1",
+  "tenant_id": "Directory (tenant) ID from Step 1",
+  "http_port": 3978,
+  "share_session_in_group": false,
+  "require_mention": false
+}
+```
+
+The config reloads automatically when the service is running; otherwise run `qwenpaw app` to start.
+
+**Azure Bot-specific fields:**
+
+| Field                    | Type   | Default         | Description                                                                                              |
+| ------------------------ | ------ | --------------- | -------------------------------------------------------------------------------------------------------- |
+| `app_id`                 | string | `""` (required) | Microsoft Application (client) ID                                                                        |
+| `app_password`           | string | `""` (required) | Client Secret Value                                                                                      |
+| `tenant_id`              | string | `""` (required) | Azure AD Directory (tenant) ID — required for Single Tenant apps                                         |
+| `http_port`              | int    | `3978`          | Webhook listening port; must match the port in the Messaging Endpoint URL                                |
+| `http_host`              | string | `"0.0.0.0"`     | Webhook listening address; keep the default in most cases                                                |
+| `media_dir`              | string | `null`          | Directory for downloaded media files (defaults to the `media/` subdirectory of the workspace)            |
+| `share_session_in_group` | bool   | `false`         | If `true`, all group members share one session; if `false` (default), each member gets their own session |
+
+### Notes
+
+- **HTTPS required**: Azure Bot Service requires the Messaging Endpoint to use HTTPS. Use ngrok or an SSL-terminated reverse proxy for local development.
+- **Firewall**: Make sure your server's security group / firewall allows inbound traffic on `http_port` (default 3978), or expose only the reverse proxy on port 443.
+- **Group @mention**: In Teams group chats, setting `require_mention: true` is recommended to prevent the bot from responding to every group message; this does not affect direct messages.
+- **Multi-channel**: A single Azure Bot resource can simultaneously connect to Teams, Web Chat, DirectLine, and more — QwenPaw automatically routes replies to the correct channel.
+- **Session reference persistence**: QwenPaw stores per-user / per-group conversation references in `azure_bot_refs.json` in the workspace directory, enabling proactive outbound messages after restarts.
+- **Client secret expiry**: Azure AD client secrets have a maximum lifetime of 2 years. Regenerate and update `app_password` before expiry.
+
+---
+
 ## Slack
 
 ### Create the Slack App
@@ -1453,6 +1625,7 @@ Find `channels.slack` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces
 | XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                                                          |
 | Yuanbao    | yuanbao    | app_id, app_secret; optional api_domain, media_dir                                                         |
 | Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid; optional tts_provider, stt_provider |
+| Azure Bot  | azure_bot  | app_id, app_password, tenant_id; optional http_port, media_dir, share_session_in_group                     |
 
 All channels also support the common access control fields (`dm_policy`, `group_policy`, `allow_from`, `deny_message`, `require_mention`) documented in the common fields section below.
 
@@ -1497,6 +1670,7 @@ done). **✗** = not supported (not possible on this channel).
 | XiaoYi     | ✓         | ✓          | ✗          | ✗          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | Yuanbao    | ✓         | ✓          | ✗          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Voice      | ✗         | ✗          | ✗          | ✓          | ✗         | ✗         | ✗          | ✗          | ✓          | ✗         |
+| Azure Bot  | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 
 Notes:
 
@@ -1519,6 +1693,7 @@ Notes:
 - **XiaoYi**: Supports receiving text, images (JPEG/PNG/BMP/WEBP), and files (PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT); video and audio are not supported by the platform.
 - **Yuanbao**: Supports receiving text, images, and audio; sending supports text, images, video, audio, and files (via COS CDN upload); the platform does not forward video messages to bots.
 - **Voice**: Phone call interaction via Twilio ConversationRelay. Receives audio (speech) and sends audio (TTS). All communication is voice-based; text/image/video/file are not supported over phone calls.
+- **Azure Bot**: Supports receiving and sending text, image, video, audio, and file. Outbound attachments are sent via the Bot Framework Upload API; the per-file size limit is **180 KB** — files exceeding this limit are replaced with an error notification.
 
 ### Changing config via HTTP
 

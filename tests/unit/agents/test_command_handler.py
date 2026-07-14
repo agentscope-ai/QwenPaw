@@ -314,6 +314,22 @@ async def test_compact_uses_manual_force_context_config() -> None:
     assert "Compact Complete" in msg.get_text_content()
 
 
+def test_scroll_compact_detail_hides_internal_index_terms() -> None:
+    index_text = (
+        "===== Tier 0 (recently compressed) =====\n"
+        "  [seq 2850–2852]\n"
+        "    · seq 2851  ⟦ 执行 yes | head -n 3000 成功，输出 3000 行重复字符串 ⟧"
+    )
+
+    # pylint: disable=protected-access
+    detail = CommandHandler._format_scroll_compact_detail(index_text)
+
+    assert "执行 yes | head -n 3000 成功" in detail
+    assert "Tier 0" not in detail
+    assert "seq 2851" not in detail
+    assert "live context" in detail
+
+
 @pytest.mark.asyncio
 async def test_compact_under_native_keeps_configured_reserve() -> None:
     """Under native, manual /compact forces the trigger but must NOT shrink the

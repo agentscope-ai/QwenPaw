@@ -26,7 +26,7 @@ jobs:
 
     env:
       REVIEW_PROVIDER: dashscope
-      REVIEW_MODEL: qwen3.7-max
+      REVIEW_MODEL: ${{ vars.REVIEW_MODEL || 'qwen3.6-plus' }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
       PR_REPO: ${{ github.event.pull_request.base.repo.full_name }}
       QWENPAW_TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS: 1
@@ -94,7 +94,7 @@ jobs:
           import urllib.request
 
           expected_provider = os.environ.get("REVIEW_PROVIDER", "dashscope")
-          expected_model = os.environ.get("REVIEW_MODEL", "qwen3.7-max")
+          expected_model = os.environ.get("REVIEW_MODEL", "qwen3.6-plus")
 
           with urllib.request.urlopen("http://localhost:8088/api/models/active?scope=global") as resp:
               data = json.load(resp)

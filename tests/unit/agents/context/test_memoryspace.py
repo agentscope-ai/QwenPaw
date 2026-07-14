@@ -576,3 +576,230 @@ def test_recall_values_with_sql_metacharacters_are_bound(tmp_path: Path):
         ]
     finally:
         space.close()
+
+
+# -- saved tool-output search -----------------------------------------------
+
+
+def _saved_tool_notice(path: Path, *, quoted: bool = False) -> str:
+    rendered_path = f'"{path}"' if quoted else str(path)
+    return (
+        "[tool output truncated]\n"
+        "If more content is needed, call `read_file` with "
+        f"file_path={rendered_path} start_line=1 to read more."
+    )
+
+
+def test_saved_tool_paths_accept_quoted_and_legacy_paths_with_spaces(
+    tmp_path: Path,
+):
+    artifact_dir = tmp_path / "tool results with spaces"
+    artifact_dir.mkdir()
+    quoted_file = artifact_dir / "quoted result.txt"
+    quoted_file.write_text("quoted\n", encoding="utf-8")
+    legacy_file = artifact_dir / "legacy result.txt"
+    legacy_file.write_text("legacy\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        paths = space._saved_tool_paths(
+            _saved_tool_notice(quoted_file, quoted=True)
+            + "\n"
+            + _saved_tool_notice(legacy_file),
+        )
+    finally:
+        space.close()
+
+    assert paths == [quoted_file.resolve(), legacy_file.resolve()]
+
+
+def test_saved_tool_search_checks_each_multiblock_artifact(tmp_path: Path):
+    decoy_file = tmp_path / "first-block.txt"
+    decoy_file.write_text("nothing relevant\n", encoding="utf-8")
+    target_file = tmp_path / "second-block.txt"
+    target_file.write_text("the deepneedle is here\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="multi-block-result",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content=(
+                _saved_tool_notice(decoy_file)
+                + "\n\n"
+                + _saved_tool_notice(target_file)
+            ),
+            tool_call_id="multi-block-call",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        rows = space.search("deepneedle", k=1)
+    finally:
+        space.close()
+
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "tool_result"
+    assert f"file_path={target_file}" in rows[0]["content"]
+    assert "deepneedle" in rows[0]["content"]
+
+
+def test_recall_tool_annotates_each_multiblock_artifact(tmp_path: Path):
+    first_file = tmp_path / "first-block.txt"
+    first_file.write_text("first block\n", encoding="utf-8")
+    second_file = tmp_path / "second-block.txt"
+    second_file.write_text("second block\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="multi-block-result",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content=(
+                _saved_tool_notice(first_file)
+                + "\n\n"
+                + _saved_tool_notice(second_file)
+            ),
+            tool_call_id="multi-block-call",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        rows = space.recall_tool("multi-block-call")
+    finally:
+        space.close()
+
+    artifacts = [
+        row["content"] for row in rows if row["kind"] == "_saved_tool_output"
+    ]
+    assert artifacts == [
+        f"Full saved tool output is available at file_path={first_file}.",
+        f"Full saved tool output is available at file_path={second_file}.",
+    ]
+
+
+def test_saved_tool_search_pages_past_first_200_candidates(tmp_path: Path):
+    target_file = tmp_path / "target.txt"
+    target_file.write_text("the deepneedle is here\n", encoding="utf-8")
+    decoy_file = tmp_path / "decoy.txt"
+    decoy_file.write_text("nothing relevant\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="oldest-target",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content=_saved_tool_notice(target_file),
+            tool_call_id="target-call",
+        ),
+    )
+    for index in range(200):
+        history.append(
+            session_id="archive",
+            agent_id="ag1",
+            dedup_key=f"newer-decoy-{index}",
+            entry=LogEntry(
+                kind="tool_result",
+                role="assistant",
+                content=_saved_tool_notice(decoy_file),
+                tool_call_id=f"decoy-{index}",
+            ),
+        )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        rows = space.search("deepneedle", k=1)
+    finally:
+        space.close()
+
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "tool_result"
+    assert "tool_call_id=target-call" in rows[0]["content"]
+    assert "deepneedle" in rows[0]["content"]
+
+
+def test_saved_tool_file_search_streams_without_read_text(
+    tmp_path: Path,
+    monkeypatch,
+):
+    artifact = tmp_path / "large.txt"
+    artifact.write_text(
+        "before\nneedle match\nafter\n",
+        encoding="utf-8",
+    )
+
+    def fail_read_text(*args, **kwargs):
+        raise AssertionError("saved artifact search must stream")
+
+    monkeypatch.setattr(Path, "read_text", fail_read_text)
+
+    matches = MemorySpace._file_line_matches(artifact, ["needle"])
+
+    assert matches == [
+        {
+            "line": 2,
+            "excerpt": "1: before\n2: needle match\n3: after",
+        },
+    ]
+
+
+def test_saved_tool_search_reports_exhausted_scan_budget(tmp_path: Path):
+    artifact = tmp_path / "large.txt"
+    artifact.write_text("x" * 100 + " needle\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="large-result",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content=_saved_tool_notice(artifact),
+            tool_call_id="large-call",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+        saved_tool_scan_max_bytes=32,
+    )
+
+    try:
+        rows = space.search("needle", k=3)
+    finally:
+        space.close()
+
+    notices = [row for row in rows if row["kind"] == "_notice"]
+    assert len(notices) == 1
+    assert "Results are partial" in notices[0]["content"]
