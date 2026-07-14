@@ -570,9 +570,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     async def _process_new(self, messages: list[Msg], _args: str = "") -> Msg:
         """Process /new command."""
+        self._reset_stop_gates()
         if not messages:
             self._set_summary("")
-            self._reset_stop_gates()
             return await self._make_system_msg(
                 "**No messages to summarize.**\n\n"
                 "- Current memory is empty\n"
@@ -595,7 +595,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self._set_summary("")
 
         await self._persist_and_clear()
-        self._reset_stop_gates()
         return await self._make_system_msg(
             "**New Conversation Started!**\n\n"
             "- Summary task started in background\n"

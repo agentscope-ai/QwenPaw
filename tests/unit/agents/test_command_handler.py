@@ -62,6 +62,60 @@ async def test_clear_resets_stop_gates_and_pending_gate_state() -> None:
 
 
 @pytest.mark.asyncio
+async def test_new_empty_resets_stop_gates() -> None:
+    agent = _make_agent()
+    agent._gate_pending_stop = object()
+    agent._gate_pending_continue = "stale"
+    stop_handler = MagicMock()
+    ctx = SimpleNamespace(
+        workspace=SimpleNamespace(
+            _stop_handler=stop_handler,
+        ),
+        agent=agent,
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        prompt_context=ctx,
+    )
+
+    await handler.handle_command("/new")
+
+    stop_handler.reset.assert_called_once_with()
+    assert agent._gate_pending_stop is None
+    assert agent._gate_pending_continue is None
+
+
+@pytest.mark.asyncio
+async def test_new_no_mem_mgr_resets_stop_gates() -> None:
+    agent = _make_agent()
+    agent.state.context = [
+        _msg("user", "hi"),
+    ]
+    agent._gate_pending_stop = object()
+    agent._gate_pending_continue = "stale"
+    stop_handler = MagicMock()
+    ctx = SimpleNamespace(
+        workspace=SimpleNamespace(
+            _stop_handler=stop_handler,
+        ),
+        agent=agent,
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        prompt_context=ctx,
+    )
+
+    msg = await handler.handle_command("/new")
+
+    stop_handler.reset.assert_called_once_with()
+    assert agent._gate_pending_stop is None
+    assert agent._gate_pending_continue is None
+    assert "Memory Manager Disabled" in msg.get_text_content()
+
+
+@pytest.mark.asyncio
 async def test_system_prompt_command_returns_current_prompt() -> None:
     agent = _make_agent()
 
