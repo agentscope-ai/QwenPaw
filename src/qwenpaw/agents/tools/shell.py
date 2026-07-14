@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -368,13 +369,28 @@ async def _execute_in_sandbox(
     sandbox_config: Any,
     timeout: float,
     cwd: str,
+    env: dict[str, str],
 ) -> ExecutionResult:
     """Execute a shell command inside the sandbox and return raw result."""
     from ...sandbox import create_sandbox
 
-    sandbox_config.timeout_seconds = int(timeout)
+    # Sandbox backends rebuild their environment from os.environ. Carry over
+    # the PATH adjusted by the shell entrypoint unless policy set one itself.
+    sandbox_env = dict(sandbox_config.env_vars)
+    if not any(key.upper() == "PATH" for key in sandbox_env):
+        path_key = next(
+            (key for key in env if key.upper() == "PATH"),
+            "PATH",
+        )
+        sandbox_env[path_key] = env[path_key]
 
-    async with create_sandbox(sandbox_config) as sandbox:
+    effective_config = replace(
+        sandbox_config,
+        timeout_seconds=int(timeout),
+        env_vars=sandbox_env,
+    )
+
+    async with create_sandbox(effective_config) as sandbox:
         result = await sandbox.execute(cmd, cwd=cwd)
 
     return result
@@ -543,6 +559,7 @@ async def execute_shell_command(
             sandbox_config,
             timeout,
             str(working_dir),
+            env,
         )
         # Sandbox violation: command tried to access something not permitted
         if result.sandbox_violation:
