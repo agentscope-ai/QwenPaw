@@ -343,10 +343,9 @@ class TestACLCommandGeneration:
         manifest = asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
 
         assert "grant_paths" in manifest
-        assert "inheritance_broken_paths" in manifest
+        assert "deny_paths" in manifest
         assert r"C:\project" in manifest["grant_paths"]
-        broken = manifest["inheritance_broken_paths"]
-        assert r"C:\Users\testuser\.ssh" in broken
+        assert r"C:\Users\testuser\.ssh" in manifest["deny_paths"]
 
 
 # ============================================================================

@@ -32,6 +32,8 @@ from .windows_sandbox import (
     _decode_pipe_output,
     _get_python_install_dir,
     _is_admin,
+    _is_cmd_exe,
+    _is_powershell_exe,
 )
 
 logger = logging.getLogger(__name__)
