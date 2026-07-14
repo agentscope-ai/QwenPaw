@@ -247,7 +247,7 @@ jobs:
             \`\`\`
 
             - [ ] Image pulled successfully
-            - [ ] Container starts, \`http://localhost:7860\` reachable
+            - [ ] Container starts, \`http://localhost:8088\` reachable
             - [ ] Model configured (API key + model saved without error)
             - [ ] Basic chat works (message sent, normal reply received)
 
