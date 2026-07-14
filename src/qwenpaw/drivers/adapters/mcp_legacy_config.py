@@ -11,10 +11,12 @@ from typing import Any
 
 import yaml
 
+from .env_ref import env_ref
 from .mcp_console import (
     mcp_credential_ref,
     mcp_oauth_credential_ref,
     normalize_secret_key,
+    plan_env_ref_bindings,
     source_binding_from_split,
     split_mcp_binding,
 )
@@ -164,18 +166,22 @@ def legacy_mcp_client_to_driver(
         "headers",
         dict(getattr(config, "headers", {}) or {}),
     )
+    env_plan = plan_env_ref_bindings(env_secrets)
+    header_plan = plan_env_ref_bindings(header_secrets)
 
     endpoint: dict[str, Any]
     if transport == "stdio":
+        env_binding = source_binding_from_split(
+            env_public,
+            {key: key for key in env_plan.plain_secrets},
+            credential_alias,
+        )
+        env_binding.update(env_plan.env_bindings)
         endpoint = {
             "transport": "stdio",
             "command": str(getattr(config, "command", "") or ""),
             "args": list(getattr(config, "args", []) or []),
-            "env": source_binding_from_split(
-                env_public,
-                {key: key for key in env_secrets},
-                credential_alias,
-            ),
+            "env": env_binding,
         }
         cwd = str(getattr(config, "cwd", "") or "")
         if cwd:
@@ -183,33 +189,44 @@ def legacy_mcp_client_to_driver(
     else:
         used: set[str] = set()
         header_secret_refs: dict[str, str] = {}
-        for header in header_secrets:
+        for header in header_plan.plain_secrets:
             secret_key = normalize_secret_key(header, used)
             used.add(secret_key)
             header_secret_refs[header] = secret_key
+        header_binding = source_binding_from_split(
+            header_public,
+            header_secret_refs,
+            credential_alias,
+        )
+        header_binding.update(header_plan.env_bindings)
         endpoint = {
             "transport": transport,
             "url": str(getattr(config, "url", "") or ""),
-            "headers": source_binding_from_split(
-                header_public,
-                header_secret_refs,
-                credential_alias,
-            ),
+            "headers": header_binding,
         }
 
     credential = _build_legacy_credential(
         client_key,
         oauth,
-        env_secrets,
-        header_secrets,
+        env_plan.plain_secrets,
+        header_plan.plain_secrets,
         endpoint,
         now,
     )
+    credentials = _legacy_credential_refs(credential)
+    for alias, var in {
+        **env_plan.env_aliases,
+        **header_plan.env_aliases,
+    }.items():
+        credentials[alias] = CredentialRef(
+            kind=CREDENTIAL_KIND_STATIC,
+            ref=env_ref(var),
+        )
     card = DriverCard(
         name=client_key,
         protocol=PROTOCOL_MCP,
         endpoint=endpoint,
-        credentials=_legacy_credential_refs(credential),
+        credentials=credentials,
         config={
             "display_name": str(getattr(config, "name", "") or client_key),
             "description": str(getattr(config, "description", "") or ""),
