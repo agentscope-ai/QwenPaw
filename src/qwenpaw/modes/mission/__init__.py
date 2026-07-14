@@ -106,6 +106,14 @@ class MissionMode(AgentMode):
                 ),
             )
 
+    def on_conversation_reset(
+        self,
+        workspace: object,  # noqa: ARG002
+    ) -> None:
+        """Clear active mission gate state."""
+        if self._gate is not None:
+            self._gate.deactivate()
+
     def is_active(self, ctx: HookContext) -> bool:
         return bool(
             (ctx.session_state or {}).get(

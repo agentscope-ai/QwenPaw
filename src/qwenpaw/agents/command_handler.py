@@ -210,19 +210,32 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def _reset_stop_gates(  # pylint: disable=protected-access
         self,
     ) -> None:
-        """Clear loop-gate state on conversation reset."""
-        workspace = getattr(
+        """Reset all gate / mode state on /new or /clear."""
+        ws = getattr(
             self._prompt_context,
             "workspace",
             None,
         )
-        handler = getattr(
-            workspace,
-            "_stop_handler",
-            None,
-        )
+        if ws is None:
+            return
+
+        handler = getattr(ws, "_stop_handler", None)
         if handler is not None:
             handler.reset()
+
+        for mode in getattr(
+            getattr(ws, "plugins", None),
+            "modes",
+            [],
+        ):
+            try:
+                mode.on_conversation_reset(ws)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "mode '%s' reset raised",
+                    getattr(mode, "name", "?"),
+                    exc_info=True,
+                )
 
         agent = self._agent or getattr(
             self._prompt_context,
@@ -230,13 +243,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
             None,
         )
         if agent is not None:
-            if hasattr(agent, "_gate_pending_stop"):
-                agent._gate_pending_stop = None
-            if hasattr(
-                agent,
-                "_gate_pending_continue",
-            ):
-                agent._gate_pending_continue = None
+            agent._gate_pending_stop = None
+            agent._gate_pending_continue = None
 
     def is_command(self, query: str | None) -> bool:
         """Check if the query is a system command (alias for mixin)."""

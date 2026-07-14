@@ -141,6 +141,13 @@ class GoalMode(AgentMode):
         if key is not None:
             self._sessions.pop(key, None)
 
+    def on_conversation_reset(
+        self,
+        workspace: object,  # noqa: ARG002
+    ) -> None:
+        """Clear all goal sessions on /new or /clear."""
+        self._sessions.clear()
+
     # ---- AgentMode interface ----
 
     def commands(self) -> list[CommandSpec]:
