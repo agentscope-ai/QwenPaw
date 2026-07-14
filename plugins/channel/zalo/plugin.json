@@ -1,0 +1,26 @@
+{
+  "id": "zalo-bot",
+  "name": "Zalo Bot",
+  "version": "1.0.0",
+  "type": "channel",
+  "description": "Zalo Bot channel for QwenPaw (polling-only, no public URL or webhook required). Connects QwenPaw to Zalo via the Zalo Bot Platform long-polling API.",
+  "description_i18n": {
+    "zh-CN": "Zalo Bot 频道（轮询模式，无需公网 URL / webhook）。通过 Zalo Bot Platform 长轮询 API 将 QwenPaw 接入 Zalo。",
+    "en-US": "Zalo Bot channel for QwenPaw (polling-only, no public URL or webhook required). Connects QwenPaw to Zalo via the Zalo Bot Platform long-polling API.",
+    "ja-JP": "Zalo Bot チャネル（ポーリング専用、公開 URL / webhook 不要）。Zalo Bot Platform のロングポーリング API で QwenPaw を Zalo に接続します。",
+    "ru-RU": "Канал Zalo Bot для QwenPaw (только опрос, без публичного URL / webhook). Подключает QwenPaw к Zalo через API длинного опроса Zalo Bot Platform.",
+    "pt-BR": "Canal Zalo Bot para QwenPaw (somente polling, sem URL pública / webhook). Conecta o QwenPaw ao Zalo via API de long-polling do Zalo Bot Platform.",
+    "vi-VN": "Kênh Zalo Bot cho QwenPaw (chỉ polling, không cần URL công khai / webhook). Kết nối QwenPaw với Zalo qua API long-polling của Zalo Bot Platform.",
+    "id-ID": "Kanal Zalo Bot untuk QwenPaw (khusus polling, tanpa URL publik / webhook). Menghubungkan QwenPaw ke Zalo via API long-polling Zalo Bot Platform."
+  },
+  "author": "Lam Nguyen",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": [
+    "httpx>=0.24.0"
+  ],
+  "qwenpaw_version": {
+    "min": "2.0.0"
+  }
+}
