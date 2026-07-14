@@ -285,10 +285,16 @@ Embedding configuration for vector semantic search, located in `running.reme_lig
 | `enable_cache`     | Whether to enable Embedding cache                                                              | `true`   |
 | `use_dimensions`   | Whether to pass dimensions parameter in API                                                    | `false`  |
 | `max_cache_size`   | Maximum Embedding cache entries                                                                | `10000`  |
-| `max_input_length` | Maximum input length per Embedding request                                                     | `8192`   |
+| `max_input_length` | Approximate character budget per Embedding request                                             | `8192`   |
 | `max_batch_size`   | Maximum batch size for Embedding requests                                                      | `10`     |
 
 > `use_dimensions` is for cases where some vLLM models don't support the dimensions parameter. Set to `false` to skip it.
+
+Starting with ReMe 0.4.1.0, embedding input truncation uses a more conservative budget for token-dense CJK and other
+full-width characters and reserves an additional safety margin. This prevents long Chinese memory entries from
+exceeding the model context window and returning HTTP 400 with combinations such as Ollama and bge-m3.
+`max_input_length` remains an approximate character budget rather than a strict token limit calculated by the model's
+tokenizer. Reduce it further when using a model with a smaller context window.
 
 Vector retrieval is enabled only when the selected backend has the minimum runnable configuration. These conditions are aligned with AgentScope credential requirements:
 

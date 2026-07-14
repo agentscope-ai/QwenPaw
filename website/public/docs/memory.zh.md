@@ -234,10 +234,15 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 | `enable_cache`     | 是否启用 Embedding 缓存                                                               | `true`   |
 | `use_dimensions`   | 是否在 API 请求中传递 dimensions 参数                                                 | `false`  |
 | `max_cache_size`   | Embedding 缓存最大条目数                                                              | `10000`  |
-| `max_input_length` | 单次 Embedding 最大输入长度                                                           | `8192`   |
+| `max_input_length` | 单次 Embedding 的近似字符预算                                                         | `8192`   |
 | `max_batch_size`   | Embedding 批处理最大数量                                                              | `10`     |
 
 > `use_dimensions` 用于某些 vLLM 模型不支持 dimensions 参数的情况，设为 `false` 可跳过该参数。
+
+从 ReMe 0.4.1.0 开始，Embedding 输入截断会为 token 密度更高的 CJK 和其他全角字符采用更保守的预算，
+并预留安全余量。这可以避免较长的中文记忆在 Ollama + bge-m3 等组合下超过模型上下文窗口并返回 HTTP 400。
+`max_input_length` 仍是近似字符预算，并非模型 tokenizer 计算出的严格 token 上限；如果所用模型的上下文窗口更小，
+仍应相应调低该值。
 
 向量检索只有在当前后端具备最低可运行配置时才会启用；这些条件与 AgentScope credential 要求保持一致：
 
