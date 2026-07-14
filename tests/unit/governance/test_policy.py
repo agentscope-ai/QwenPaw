@@ -332,6 +332,61 @@ class TestDefaultPolicyLoad:
             p2 = load_governance_policy(str(policy_dir), ws)
         assert not any(r.match == "NewTool(*)" for r in p2.user_rules)
 
+    def test_websearch_webfetch_auto_merged_and_persisted(self, tmp_path):
+        """A policy.yaml saved before WebSearch/WebFetch became default
+        rules gains both rules on load (in-memory + evaluate() allows),
+        and a subsequent save persists them back to the file.
+
+        Reproduces the upgrade path: an existing user has no
+        WebSearch/WebFetch rule on disk; after load the new tools must be
+        governed by an auto-merged ALLOW, and after save the on-disk file
+        must reflect that so the rules survive a restart.
+        """
+        ws = "/home/user/workspace"
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+
+        # Build a "pre-WebSearch" policy: defaults minus the two web rules,
+        # with no migration marker (as an old on-disk file would have).
+        policy = _create_default_policy(workspace_dir=ws)
+        policy.user_rules = [
+            r
+            for r in policy.user_rules
+            if r.match not in ("WebSearch(**)", "WebFetch(**)")
+        ]
+        policy.applied_migrations = []
+        save_governance_policy(policy, str(policy_dir), ws)
+
+        # Sanity: the on-disk file predates WebSearch/WebFetch.
+        yaml_text = (policy_dir / "policy.yaml").read_text(encoding="utf-8")
+        assert "WebSearch" not in yaml_text
+        assert "WebFetch" not in yaml_text
+
+        # 1) load → the missing default rules are auto-merged into memory.
+        reloaded = load_governance_policy(str(policy_dir), ws)
+        matches = {r.match for r in reloaded.user_rules}
+        assert "WebSearch(**)" in matches
+        assert "WebFetch(**)" in matches
+
+        # 2) The merged rules actually govern evaluation (not dead weight):
+        # both web tools resolve to ALLOW via user_rules.
+        for tool, target in (
+            ("WebSearch", "climate news"),
+            ("WebFetch", "https://example.com"),
+        ):
+            decision = reloaded.evaluate(_tc(tool, target))
+            assert decision.action is GovernanceAction.ALLOW, (
+                f"{tool} should be ALLOW after merge, got {decision.action} "
+                f"(source={decision.source})"
+            )
+            assert decision.source == "user_rules"
+
+        # 3) save → the merged rules are persisted to the on-disk file.
+        save_governance_policy(reloaded, str(policy_dir), ws)
+        saved_text = (policy_dir / "policy.yaml").read_text(encoding="utf-8")
+        assert "WebSearch(**)" in saved_text
+        assert "WebFetch(**)" in saved_text
+
     @pytest.mark.parametrize(
         "ws, cpd, label",
         [
