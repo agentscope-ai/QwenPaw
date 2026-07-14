@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -35,6 +36,31 @@ async def test_process_clear_returns_clear_history_metadata() -> None:
     msg = await handler.handle_command("/clear")
 
     assert msg.metadata == {"clear_history": True, "clear_plan": True}
+
+
+@pytest.mark.asyncio
+async def test_clear_resets_stop_gates() -> None:
+    agent = _make_agent()
+    agent._gate_pending_stop = object()
+    agent._gate_pending_continue = "cont"
+    stop_handler = MagicMock()
+    ctx = SimpleNamespace(
+        workspace=SimpleNamespace(
+            _stop_handler=stop_handler,
+        ),
+        agent=agent,
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        prompt_context=ctx,
+    )
+
+    await handler.handle_command("/clear")
+
+    stop_handler.reset.assert_called_once()
+    assert agent._gate_pending_stop is None
+    assert agent._gate_pending_continue is None
 
 
 @pytest.mark.asyncio
