@@ -9,6 +9,7 @@ Requires Windows 10 1507+ (build 10240), icacls.exe, and Python ctypes.
 """
 
 import asyncio
+import atexit
 import ctypes
 import ctypes.wintypes
 import hashlib
@@ -16,6 +17,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -313,61 +315,35 @@ async def _run_icacls(args: List[str], timeout: int = 120) -> Tuple[bool, str]:
         return False, str(e)
 
 
-async def _break_and_set_acl(
-    path: str,
-    sid: str,
-    ace_type: str,
-    permission: str,
-) -> bool:
-    """Breaks inheritance, removes existing ACEs for SID, then applies an ACE.
+async def _set_acl_deny(path: str, sid: str, permission: str) -> bool:
+    """Applies a deny ACE on a path for the AppContainer SID.
 
-    This is the shared implementation for both mount grants and deny paths.
-    AppContainer tokens ignore explicit deny ACEs when an inherited allow
-    ACE exists, so breaking inheritance is always required first.
+    Uses a single icacls command without breaking inheritance. Explicit
+    deny ACEs take precedence over inherited allow ACEs in standard
+    Windows DACL evaluation order (explicit deny > explicit allow >
+    inherited deny > inherited allow).
 
     Args:
-        path: Filesystem path to set ACL on.
+        path: Filesystem path to deny access on.
         sid: AppContainer SID string (``S-1-15-2-...``).
-        ace_type: Either ``"grant"`` or ``"deny"``.
-        permission: Permission string: ``"F"``, ``"RX"``, or ``"R"`` for
-            grants; ``"F"`` for deny (full deny).
+        permission: Permission string, typically ``"F"`` (full deny).
 
     Returns:
-        True only if all three icacls steps succeed.
+        True if the icacls command succeeded.
     """
-    # Step 1: Break inheritance (convert inherited ACEs to explicit)
-    ok1, err1 = await _run_icacls([path, "/inheritance:d"])
-    if not ok1:
-        logger.warning("Failed to disable inheritance on %s: %s", path, err1)
-
-    # Step 2: Remove all existing ACEs for this SID
-    ok2, err2 = await _run_icacls([path, "/remove", f"*{sid}"])
-    if not ok2:
-        logger.warning("Failed to remove ACL for SID on %s: %s", path, err2)
-
-    # Step 3: Apply the grant or deny ACE (inheritable to children)
-    ace_flag = "/deny" if ace_type == "deny" else "/grant"
-    ok3, err3 = await _run_icacls(
-        [path, ace_flag, f"*{sid}:(OI)(CI)({permission})"],
+    ok, err = await _run_icacls(
+        [path, "/deny", f"*{sid}:(OI)(CI)({permission})"],
     )
-    if not ok3:
-        logger.warning(
-            "Failed to %s %s ACL on %s: %s",
-            ace_type,
-            permission,
-            path,
-            err3,
-        )
-
-    return ok1 and ok2 and ok3
+    if not ok:
+        logger.warning("Failed to deny %s on %s: %s", permission, path, err)
+    return ok
 
 
 async def _set_acl_grant(path: str, sid: str, permission: str) -> bool:
     """Grants an inheritable ACE on a path for the AppContainer SID.
 
-    Unlike ``_break_and_set_acl``, this does NOT break inheritance. It is
-    used for additive grants (e.g. system drive RX, workspace F) where
-    inherited permissions from parent directories should be preserved.
+    Does NOT break inheritance — used for additive grants (workspace F,
+    mount RX/F) where inherited permissions should be preserved.
 
     Args:
         path: Filesystem path to grant access on.
@@ -416,7 +392,7 @@ async def _apply_all_acls(config: SandboxConfig, sid: str) -> Dict[str, Any]:
     via the built-in ``ALL APPLICATION PACKAGES`` (S-1-15-2-1) ACE on Windows
     10+, and everything else must be explicitly mounted.
 
-    Simple grants (additive, no inheritance break):
+    Grants (additive, single-step):
         Workspace (F) and non-workspace mounts (F or RX).
 
     Python interpreter grant:
@@ -426,9 +402,10 @@ async def _apply_all_acls(config: SandboxConfig, sid: str) -> Dict[str, Any]:
         (e.g. per-user installs under ``%LOCALAPPDATA%``) lack the
         ``ALL APPLICATION PACKAGES`` ACE that system-wide installs carry.
 
-    Break-and-set (break inheritance first, depth-sorted):
-        Only deny_paths.  Breaking inheritance eliminates inherited allow
-        ACEs that would bypass deny rules.
+    Deny paths (single-step deny ACE):
+        Explicit deny ACEs are applied directly without breaking
+        inheritance. Explicit deny ACEs take precedence over inherited
+        allow ACEs in standard Windows DACL evaluation order.
 
     Args:
         config: Sandbox configuration specifying paths and permissions.
@@ -438,7 +415,7 @@ async def _apply_all_acls(config: SandboxConfig, sid: str) -> Dict[str, Any]:
         An ACL manifest dict recording all paths that were modified.
     """
     grant_paths: List[str] = []
-    inheritance_broken_paths: List[str] = []
+    deny_paths: List[str] = []
 
     # ── Workspace grant ──────────────────────────────────────────────
     grant_paths.append(config.workspace_dir)
@@ -466,24 +443,16 @@ async def _apply_all_acls(config: SandboxConfig, sid: str) -> Dict[str, Any]:
                 python_dir,
             )
 
-    # ── Deny paths (break-and-set, depth-sorted) ─────────────────────
-    from pathlib import PureWindowsPath as _WP
-
-    deny_entries: List[str] = []
+    # ── Deny paths (single-step deny ACE) ─────────────────────────────
     for deny_path in config.deny_paths:
         expanded = os.path.expanduser(deny_path)
         if os.path.exists(expanded):
-            deny_entries.append(expanded)
-
-    deny_entries.sort(key=lambda e: len(_WP(e).parts))
-
-    for path in deny_entries:
-        inheritance_broken_paths.append(path)
-        await _break_and_set_acl(path, sid, "deny", "F")
+            deny_paths.append(expanded)
+            await _set_acl_deny(expanded, sid, "F")
 
     return {
         "grant_paths": grant_paths,
-        "inheritance_broken_paths": inheritance_broken_paths,
+        "deny_paths": deny_paths,
     }
 
 
@@ -1195,6 +1164,7 @@ def _save_container_metadata(
         "container_name": container_name,
         "sid": sid,
         "workspace_dir": workspace_dir,
+        "owner_pid": os.getpid(),
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     if acl_manifest is not None:
@@ -1377,7 +1347,8 @@ class WindowsSandbox:
                 proc_handle,
                 stdout_handle,
                 stderr_handle,
-            ) = _create_process_in_appcontainer(
+            ) = await asyncio.to_thread(
+                _create_process_in_appcontainer,
                 cmd,
                 self._container_sid,
                 capabilities,
@@ -1448,3 +1419,234 @@ class WindowsSandbox:
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.stop()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Shutdown cleanup (mirrors restricted sandbox's atexit approach)
+# ═══════════════════════════════════════════════════════════════════════════
+
+_state_dir = (
+    Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / ".qwenpaw"
+)
+
+
+def _is_pid_alive(pid: int) -> bool:
+    """Checks whether a process with the given PID is still running."""
+    if pid <= 0:
+        return False
+    _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    try:
+        kernel32 = _get_kernel32()
+        handle = kernel32.OpenProcess(
+            _PROCESS_QUERY_LIMITED_INFORMATION,
+            False,
+            pid,
+        )
+        if not handle:
+            return False
+        exit_code = ctypes.wintypes.DWORD(0)
+        kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+        kernel32.CloseHandle(handle)
+        return exit_code.value == 259  # STILL_ACTIVE
+    except OSError:
+        return False
+
+
+def _run_icacls_sync(args: List[str]) -> bool:
+    """Runs icacls synchronously (for use in shutdown cleanup)."""
+    try:
+        result = subprocess.run(
+            ["icacls"] + args,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _verify_acl_removed_sync(path: str, sid: str) -> bool:
+    """Verifies that a SID no longer appears in the DACL of a path."""
+    if not os.path.exists(path):
+        return True
+    try:
+        result = subprocess.run(
+            ["icacls", path],
+            capture_output=True,
+            timeout=180,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    output = result.stdout.decode("utf-8", errors="replace")
+    if sid in output:
+        return False
+    if sid.upper() in output.upper():
+        return False
+    return True
+
+
+def _remove_acl_with_verify_sync(path: str, sid: str) -> bool:
+    """Removes ACEs for a SID using multi-strategy retry with verification.
+
+    Mirrors the approach in scripts/cleanup_windows_sandbox.py:
+      1. Basic /remove
+      2. Recursive /remove /T /C
+      3. Explicit /remove:g and /remove:d
+      4. /inheritance:e (re-enable inheritance) then /remove again
+      5. Break inheritance then /remove
+      6. Non-recursive /reset on target path only, then /remove
+         (last resort — resets only the target directory's DACL,
+         does not affect child objects)
+    """
+    if not os.path.exists(path):
+        return True
+
+    strategies = [
+        # Strategy 1: simple remove
+        lambda: _run_icacls_sync([path, "/remove", f"*{sid}"]),
+        # Strategy 2: recursive remove
+        lambda: _run_icacls_sync([path, "/remove", f"*{sid}", "/T", "/C"]),
+        # Strategy 3: explicit grant + deny removal
+        lambda: (
+            _run_icacls_sync([path, "/remove:g", f"*{sid}", "/T", "/C"]),
+            _run_icacls_sync([path, "/remove:d", f"*{sid}", "/T", "/C"]),
+        ),
+        # Strategy 4: re-enable inheritance then remove again
+        lambda: (
+            _run_icacls_sync([path, "/inheritance:e"]),
+            _run_icacls_sync([path, "/remove", f"*{sid}", "/T", "/C"]),
+        ),
+        # Strategy 5: break inheritance (copy), then remove
+        lambda: (
+            _run_icacls_sync([path, "/inheritance:d"]),
+            _run_icacls_sync([path, "/remove", f"*{sid}", "/T", "/C"]),
+        ),
+        # Strategy 6: non-recursive reset on target path only, then remove
+        # (resets only the target directory's DACL to inherited defaults,
+        # does NOT affect child objects — safe for workspace directories)
+        lambda: (
+            _run_icacls_sync([path, "/reset"]),
+            _run_icacls_sync([path, "/remove", f"*{sid}", "/T", "/C"]),
+        ),
+    ]
+
+    for attempt, strategy in enumerate(strategies, 1):
+        strategy()
+
+        if attempt > 1:
+            time.sleep(1)
+
+        if _verify_acl_removed_sync(path, sid):
+            return True
+
+    logger.warning(
+        "ACL for SID %s could NOT be removed from %s after %d attempts",
+        sid,
+        path,
+        len(strategies),
+    )
+    return False
+
+
+def _cleanup_single_container(meta: dict, meta_file: Path) -> None:
+    """Cleans up a single AppContainer sandbox from its metadata.
+
+    Steps (mirroring scripts/cleanup_windows_sandbox.py):
+      1. Remove ACL entries (grants and denies) from recorded paths
+      2. Delete the AppContainer profile
+      3. Delete the metadata JSON file
+    """
+    container_name = meta.get("container_name", "")
+    sid = meta.get("sid", "")
+    workspace_dir = meta.get("workspace_dir", "")
+    acl_manifest = meta.get("acl_manifest")
+
+    # Step 1: Remove ACL entries
+    if sid:
+        if acl_manifest:
+            # Collect all recorded paths (grants, denies, legacy keys)
+            all_paths = (
+                acl_manifest.get("grant_paths", [])
+                + acl_manifest.get("deny_paths", [])
+                + acl_manifest.get("inheritance_broken_paths", [])
+            )
+            for path in all_paths:
+                if path:
+                    _remove_acl_with_verify_sync(path, sid)
+            if workspace_dir:
+                _remove_acl_with_verify_sync(workspace_dir, sid)
+        elif workspace_dir:
+            _remove_acl_with_verify_sync(workspace_dir, sid)
+
+    # Step 2: Delete the AppContainer profile
+    if container_name:
+        try:
+            userenv = _get_userenv()
+            userenv.DeleteAppContainerProfile(
+                ctypes.c_wchar_p(container_name),
+            )
+        except OSError:
+            pass
+
+    # Step 3: Delete the metadata JSON file
+    try:
+        meta_file.unlink()
+    except OSError:
+        pass
+
+
+def shutdown_cleanup() -> None:
+    """Destroys AppContainer sandboxes owned by this process or orphaned.
+
+    For each container metadata file in ~/.qwenpaw/containers/:
+      - Skips containers owned by other still-running processes
+      - Removes filesystem ACL entries
+      - Deletes the AppContainer profile
+      - Deletes the metadata JSON file
+
+    Safe to call multiple times (idempotent).
+    """
+    containers_dir = _state_dir / "containers"
+    if not containers_dir.exists() or not list(containers_dir.glob("*.json")):
+        return
+
+    my_pid = os.getpid()
+
+    for meta_file in containers_dir.glob("*.json"):
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        owner_pid = meta.get("owner_pid")
+
+        # Skip containers owned by other still-running processes
+        if owner_pid is not None and owner_pid != my_pid:
+            if _is_pid_alive(owner_pid):
+                logger.debug(
+                    "Skipping container %s — owner pid %d still alive",
+                    meta.get("container_name", "?"),
+                    owner_pid,
+                )
+                continue
+
+        container_name = meta.get("container_name", "")
+        if container_name:
+            logger.info("Cleaning AppContainer: %s", container_name)
+            _cleanup_single_container(meta, meta_file)
+
+    # Clean up the containers directory if now empty
+    if containers_dir.exists() and not list(containers_dir.glob("*.json")):
+        try:
+            containers_dir.rmdir()
+        except OSError:
+            pass
+
+
+# ── atexit safety net ──
+# Register shutdown_cleanup as an atexit handler so that AppContainer
+# profiles and ACLs are cleaned up on exit. The handler is best-effort
+# and will NOT run on SIGKILL, power loss, or os._exit().
+atexit.register(shutdown_cleanup)

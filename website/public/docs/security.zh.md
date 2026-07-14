@@ -454,6 +454,7 @@ QwenPaw 在启动时自动检测最佳可用的沙箱后端：
 - **网络隔离**：当前版本未实现。所有沙箱进程均可完全访问网络，不受 `network_allow` 设置影响。网络命名空间隔离（bubblewrap 的 `--unshare-net`）已计划。
 - **资源限制**：`max_processes` 和 `max_memory_mb` 字段存在于配置中，但当前无后端强制执行。
 - **Windows AppContainer**（`allow_read_all=False`）：首次 ACL 设置需要管理员权限。AppContainer profile 会被保留以供相同配置的后续调用复用。
+- **Windows AppContainer 文件删除受限**（`allow_read_all=False`）：在 AppContainer 模式下，沙箱内的进程可能无法删除工作区中的文件。此问题不影响 `allow_read_all=True`（Restricted_token）模式。我们正在研究解决方案。
 - **Windows Restricted_token**（`allow_read_all=True`）：创建专用本地用户和管理 WFP 防火墙规则需要管理员权限。使用 `CreateRestrictedToken` 的 Restricted_token 模式创建受限令牌。专用用户和防火墙规则会被保留以供复用。
 - **Windows 最低版本要求**：两种 Windows 后端均需要 **Windows 10 版本 1507（build 10240）** 或更高版本。更早的 Windows 版本（Windows 7、8、8.1）不支持这些隔离机制，将回退到 `mode=none`（无隔离）。
 - **Windows 系统目录 ACL 限制**（仅 AppContainer）：`icacls` ACL 设置无法修改某些受保护系统目录的权限，例如 `C:\Program Files`、`C:\Program Files (x86)`、`C:\Windows` 和 `C:\Windows\System32`。这些目录受 Windows 资源保护（WRP）和 TrustedInstaller 所有权保护。

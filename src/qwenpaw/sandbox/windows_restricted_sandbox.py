@@ -11,6 +11,7 @@ Requires Windows 10 1507+, administrator privileges, and Python ctypes.
 
 import asyncio
 import atexit
+import base64
 import ctypes
 import ctypes.wintypes
 import hashlib
@@ -19,6 +20,7 @@ import logging
 import os
 import random
 import struct
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -512,6 +514,45 @@ def _create_well_known_sid(sid_type: int) -> bytes:
     return bytes(buf)
 
 
+def _lookup_account_sid(
+    account_name: str,
+) -> Optional[Tuple[ctypes.Array, int]]:
+    """Resolves an account name to a SID buffer via LookupAccountNameW.
+
+    Returns (sid_buf, sid_size) or None if the account is not found.
+    The returned sid_buf can be cast to ctypes.c_void_p for use as a PSID.
+    """
+    advapi32 = _get_advapi32()
+    sid_size = ctypes.wintypes.DWORD(0)
+    domain_size = ctypes.wintypes.DWORD(0)
+    sid_use = ctypes.wintypes.DWORD(0)
+    advapi32.LookupAccountNameW(
+        None,
+        ctypes.c_wchar_p(account_name),
+        None,
+        ctypes.byref(sid_size),
+        None,
+        ctypes.byref(domain_size),
+        ctypes.byref(sid_use),
+    )
+    if sid_size.value == 0:
+        return None
+    sid_buf = (ctypes.c_ubyte * sid_size.value)()
+    domain_buf = ctypes.create_unicode_buffer(domain_size.value)
+    ok = advapi32.LookupAccountNameW(
+        None,
+        ctypes.c_wchar_p(account_name),
+        sid_buf,
+        ctypes.byref(sid_size),
+        domain_buf,
+        ctypes.byref(domain_size),
+        ctypes.byref(sid_use),
+    )
+    if not ok:
+        return None
+    return sid_buf, sid_size.value
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Sandbox user provisioning
 # ═══════════════════════════════════════════════════════════════════════════
@@ -524,6 +565,96 @@ def _random_password(length: int = 24) -> str:
         "0123456789!@#$%^&*()-_=+"
     )
     return "".join(random.choice(chars) for _ in range(length))
+
+
+class _DATA_BLOB(ctypes.Structure):
+    """Win32 DATA_BLOB structure for DPAPI calls."""
+
+    _fields_ = [
+        ("cbData", ctypes.wintypes.DWORD),
+        ("pbData", ctypes.c_void_p),
+    ]
+
+
+def _local_free(ptr: int) -> None:
+    """Calls kernel32.LocalFree with correct pointer type for 64-bit."""
+    ctypes.windll.kernel32.LocalFree(ctypes.c_void_p(ptr))
+
+
+def _dpapi_encrypt(plaintext: str) -> str:
+    """Encrypts a string using DPAPI (current user scope).
+
+    Returns a base64-encoded ciphertext string. Only the same Windows
+    user account that encrypted the data can decrypt it.
+    """
+    data = plaintext.encode("utf-8")
+    blob_in = _DATA_BLOB(
+        cbData=len(data),
+        pbData=ctypes.cast(
+            (ctypes.c_byte * len(data))(*data),
+            ctypes.c_void_p,
+        ),
+    )
+    blob_out = _DATA_BLOB()
+
+    if not ctypes.windll.crypt32.CryptProtectData(
+        ctypes.byref(blob_in),
+        None,  # description
+        None,  # optional entropy
+        None,  # reserved
+        None,  # prompt struct
+        0,  # flags
+        ctypes.byref(blob_out),
+    ):
+        raise OSError(
+            f"CryptProtectData failed: error={ctypes.get_last_error()}",
+        )
+
+    try:
+        enc_bytes = (ctypes.c_byte * blob_out.cbData).from_address(
+            blob_out.pbData,
+        )
+        return base64.b64encode(bytes(enc_bytes)).decode("ascii")
+    finally:
+        _local_free(blob_out.pbData)
+
+
+def _dpapi_decrypt(ciphertext_b64: str) -> str:
+    """Decrypts a DPAPI-protected base64-encoded string.
+
+    Returns the original plaintext. Raises OSError if decryption fails
+    (e.g. different user account or corrupted data).
+    """
+    data = base64.b64decode(ciphertext_b64)
+    blob_in = _DATA_BLOB(
+        cbData=len(data),
+        pbData=ctypes.cast(
+            (ctypes.c_byte * len(data))(*data),
+            ctypes.c_void_p,
+        ),
+    )
+    blob_out = _DATA_BLOB()
+
+    if not ctypes.windll.crypt32.CryptUnprotectData(
+        ctypes.byref(blob_in),
+        None,  # description out
+        None,  # optional entropy
+        None,  # reserved
+        None,  # prompt struct
+        0,  # flags
+        ctypes.byref(blob_out),
+    ):
+        raise OSError(
+            f"CryptUnprotectData failed: error={ctypes.get_last_error()}",
+        )
+
+    try:
+        dec_bytes = (ctypes.c_byte * blob_out.cbData).from_address(
+            blob_out.pbData,
+        )
+        return bytes(dec_bytes).decode("utf-8")
+    finally:
+        _local_free(blob_out.pbData)
 
 
 class _USER_INFO_1(ctypes.Structure):
@@ -651,35 +782,13 @@ def _grant_batch_logon_right(username: str) -> None:
     """
     advapi32 = _get_advapi32()
 
-    # Look up the account SID
-    sid_size = ctypes.wintypes.DWORD(0)
-    domain_size = ctypes.wintypes.DWORD(0)
-    sid_use = ctypes.wintypes.DWORD(0)
-    advapi32.LookupAccountNameW(
-        None,
-        ctypes.c_wchar_p(username),
-        None,
-        ctypes.byref(sid_size),
-        None,
-        ctypes.byref(domain_size),
-        ctypes.byref(sid_use),
-    )
-    sid_buf = (ctypes.c_ubyte * sid_size.value)()
-    domain_buf = ctypes.create_unicode_buffer(domain_size.value)
-    ok = advapi32.LookupAccountNameW(
-        None,
-        ctypes.c_wchar_p(username),
-        sid_buf,
-        ctypes.byref(sid_size),
-        domain_buf,
-        ctypes.byref(domain_size),
-        ctypes.byref(sid_use),
-    )
-    if not ok:
+    result = _lookup_account_sid(username)
+    if result is None:
         raise OSError(
             f"LookupAccountNameW failed for '{username}': "
             f"error={ctypes.get_last_error()}",
         )
+    sid_buf, _ = result
     psid = ctypes.cast(sid_buf, ctypes.c_void_p)
 
     # Open LSA policy
@@ -829,34 +938,54 @@ class _SID_AND_ATTRIBUTES(ctypes.Structure):
     ]
 
 
-def _get_logon_sid_bytes(h_token: ctypes.wintypes.HANDLE) -> bytes:
-    """Extracts the logon SID bytes from a token."""
+def _get_token_info_raw(
+    h_token: ctypes.wintypes.HANDLE,
+    info_class: int,
+    label: str,
+) -> ctypes.Array:
+    """Two-pass GetTokenInformation: returns the raw buffer."""
     advapi32 = _get_advapi32()
-
     needed = ctypes.c_uint32(0)
     advapi32.GetTokenInformation(
         h_token,
-        _TokenGroups,
+        info_class,
         None,
         0,
         ctypes.byref(needed),
     )
     if needed.value == 0:
-        raise OSError("GetTokenInformation(TokenGroups) size query returned 0")
-
+        raise OSError(f"GetTokenInformation({label}) size query returned 0")
     buf = (ctypes.c_ubyte * needed.value)()
     ok = advapi32.GetTokenInformation(
         h_token,
-        _TokenGroups,
+        info_class,
         buf,
         needed.value,
         ctypes.byref(needed),
     )
     if not ok:
         raise OSError(
-            "GetTokenInformation(TokenGroups) failed: "
+            f"GetTokenInformation({label}) failed: "
             f"error={ctypes.get_last_error()}",
         )
+    return buf
+
+
+def _copy_sid_from_ptr(sid_ptr_val: int) -> bytes:
+    """Copies a SID from a raw pointer value into a bytes object."""
+    advapi32 = _get_advapi32()
+    psid = ctypes.c_void_p(sid_ptr_val)
+    sid_len = advapi32.GetLengthSid(psid)
+    if sid_len == 0:
+        return b""
+    sid_buf = (ctypes.c_ubyte * sid_len)()
+    advapi32.CopySid(sid_len, sid_buf, psid)
+    return bytes(sid_buf)
+
+
+def _get_logon_sid_bytes(h_token: ctypes.wintypes.HANDLE) -> bytes:
+    """Extracts the logon SID bytes from a token."""
+    buf = _get_token_info_raw(h_token, _TokenGroups, "TokenGroups")
 
     # Parse TOKEN_GROUPS
     group_count = struct.unpack_from("<I", bytes(buf), 0)[0]
@@ -874,45 +1003,16 @@ def _get_logon_sid_bytes(h_token: ctypes.wintypes.HANDLE) -> bytes:
             attrs = struct.unpack_from("<I", bytes(buf), entry_offset + 4)[0]
 
         if (attrs & _SE_GROUP_LOGON_ID) == _SE_GROUP_LOGON_ID:
-            psid = ctypes.c_void_p(sid_ptr_val)
-            sid_len = advapi32.GetLengthSid(psid)
-            if sid_len == 0:
-                continue
-            sid_buf = (ctypes.c_ubyte * sid_len)()
-            advapi32.CopySid(sid_len, sid_buf, psid)
-            return bytes(sid_buf)
+            sid_bytes = _copy_sid_from_ptr(sid_ptr_val)
+            if sid_bytes:
+                return sid_bytes
 
     raise OSError("Logon SID not found in token groups")
 
 
 def _get_user_sid_bytes(h_token: ctypes.wintypes.HANDLE) -> bytes:
     """Extracts the user SID bytes from a token."""
-    advapi32 = _get_advapi32()
-
-    needed = ctypes.c_uint32(0)
-    advapi32.GetTokenInformation(
-        h_token,
-        _TokenUser,
-        None,
-        0,
-        ctypes.byref(needed),
-    )
-    if needed.value == 0:
-        raise OSError("GetTokenInformation(TokenUser) size query returned 0")
-
-    buf = (ctypes.c_ubyte * needed.value)()
-    ok = advapi32.GetTokenInformation(
-        h_token,
-        _TokenUser,
-        buf,
-        needed.value,
-        ctypes.byref(needed),
-    )
-    if not ok:
-        raise OSError(
-            "GetTokenInformation(TokenUser) failed: "
-            f"error={ctypes.get_last_error()}",
-        )
+    buf = _get_token_info_raw(h_token, _TokenUser, "TokenUser")
 
     ptr_size = ctypes.sizeof(ctypes.c_void_p)
     if ptr_size == 8:
@@ -920,13 +1020,10 @@ def _get_user_sid_bytes(h_token: ctypes.wintypes.HANDLE) -> bytes:
     else:
         sid_ptr_val = struct.unpack_from("<I", bytes(buf), 0)[0]
 
-    psid = ctypes.c_void_p(sid_ptr_val)
-    sid_len = advapi32.GetLengthSid(psid)
-    if sid_len == 0:
+    sid_bytes = _copy_sid_from_ptr(sid_ptr_val)
+    if not sid_bytes:
         raise OSError("GetLengthSid(TokenUser) failed")
-    sid_buf = (ctypes.c_ubyte * sid_len)()
-    advapi32.CopySid(sid_len, sid_buf, psid)
-    return bytes(sid_buf)
+    return sid_bytes
 
 
 def _create_restricted_token(
@@ -1047,6 +1144,24 @@ class _EXPLICIT_ACCESS_W(ctypes.Structure):
     ]
 
 
+def _build_explicit_access(
+    psid: ctypes.c_void_p,
+    access_mask: int,
+    access_mode: int,
+    inheritance: int = 0,
+) -> _EXPLICIT_ACCESS_W:
+    entry = _EXPLICIT_ACCESS_W()
+    entry.grfAccessPermissions = access_mask
+    entry.grfAccessMode = access_mode
+    entry.grfInheritance = inheritance
+    entry.Trustee.pMultipleTrustee = None
+    entry.Trustee.MultipleTrusteeOperation = 0
+    entry.Trustee.TrusteeForm = _TRUSTEE_IS_SID
+    entry.Trustee.TrusteeType = _TRUSTEE_IS_UNKNOWN
+    entry.Trustee.ptstrName = psid
+    return entry
+
+
 class _TOKEN_DEFAULT_DACL(ctypes.Structure):
     _fields_ = [("DefaultDacl", ctypes.c_void_p)]
 
@@ -1081,16 +1196,11 @@ def _set_default_dacl(
     if not sids:
         return
 
-    entries = (_EXPLICIT_ACCESS_W * len(sids))()
-    for i, sid in enumerate(sids):
-        entries[i].grfAccessPermissions = _GENERIC_ALL
-        entries[i].grfAccessMode = _GRANT_ACCESS
-        entries[i].grfInheritance = 0
-        entries[i].Trustee.pMultipleTrustee = None
-        entries[i].Trustee.MultipleTrusteeOperation = 0
-        entries[i].Trustee.TrusteeForm = _TRUSTEE_IS_SID
-        entries[i].Trustee.TrusteeType = _TRUSTEE_IS_UNKNOWN
-        entries[i].Trustee.ptstrName = sid
+    built = [
+        _build_explicit_access(sid, _GENERIC_ALL, _GRANT_ACCESS)
+        for sid in sids
+    ]
+    entries = (_EXPLICIT_ACCESS_W * len(sids))(*built)
 
     p_new_dacl = ctypes.c_void_p()
     res = advapi32.SetEntriesInAclW(
@@ -1208,23 +1318,12 @@ def _set_path_ace(
     psid: ctypes.c_void_p,
     access_mask: int,
     access_mode: int,
-    *,
-    propagate: bool = True,
 ) -> bool:
     """Sets a single ACE on a filesystem path's DACL.
 
     Common implementation for all ACL operations (allow-read, allow-full,
-    deny-all).
-
-    When *propagate* is True (default) the ACE is set with inheritable flags
-    and ``SetNamedSecurityInfoW`` propagates it to all existing child objects.
-    This can be extremely slow for large directory trees.
-
-    When *propagate* is False the ACE is still marked inheritable (so future
-    access checks on children inherit it dynamically via NTFS) but we use
-    the handle-based ``SetSecurityInfo`` API which does NOT recursively
-    update existing children.  This is orders-of-magnitude faster for large
-    trees (e.g. conda environments with thousands of files).
+    deny-all). The ACE is set with inheritable flags and
+    ``SetNamedSecurityInfoW`` propagates it to all existing child objects.
     """
     _ensure_privileges()
     advapi32 = _get_advapi32()
@@ -1246,15 +1345,12 @@ def _set_path_ace(
         logger.warning("GetNamedSecurityInfoW failed for %s: %d", path, code)
         return False
 
-    entry = _EXPLICIT_ACCESS_W()
-    entry.grfAccessPermissions = access_mask
-    entry.grfAccessMode = access_mode
-    entry.grfInheritance = _CONTAINER_INHERIT_ACE | _OBJECT_INHERIT_ACE
-    entry.Trustee.pMultipleTrustee = None
-    entry.Trustee.MultipleTrusteeOperation = 0
-    entry.Trustee.TrusteeForm = _TRUSTEE_IS_SID
-    entry.Trustee.TrusteeType = _TRUSTEE_IS_UNKNOWN
-    entry.Trustee.ptstrName = psid
+    entry = _build_explicit_access(
+        psid,
+        access_mask,
+        access_mode,
+        _CONTAINER_INHERIT_ACE | _OBJECT_INHERIT_ACE,
+    )
 
     p_new_dacl = ctypes.c_void_p()
     code2 = advapi32.SetEntriesInAclW(
@@ -1269,59 +1365,15 @@ def _set_path_ace(
         logger.warning("SetEntriesInAclW failed for %s: %d", path, code2)
         return False
 
-    if propagate:
-        # Path-based API: propagates inheritable ACEs to all existing
-        # children recursively.  Slow for large trees.
-        code3 = advapi32.SetNamedSecurityInfoW(
-            ctypes.c_wchar_p(path),
-            _SE_FILE_OBJECT,
-            _DACL_SECURITY_INFORMATION,
-            None,
-            None,
-            p_new_dacl,
-            None,
-        )
-    else:
-        # Handle-based API: writes the DACL on the directory itself
-        # WITHOUT propagating to existing children.  Children still
-        # inherit dynamically during access checks via NTFS inheritance.
-        _FILE_READ_ATTRIBUTES = 0x00000080
-        _READ_CONTROL = 0x00020000
-        _WRITE_DAC = 0x00040000
-        _FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
-        h_dir = kernel32.CreateFileW(
-            ctypes.c_wchar_p(path),
-            _READ_CONTROL | _WRITE_DAC | _FILE_READ_ATTRIBUTES,
-            0x00000007,  # FILE_SHARE_READ|WRITE|DELETE
-            None,
-            3,  # OPEN_EXISTING
-            _FILE_FLAG_BACKUP_SEMANTICS,  # required for directories
-            0,
-        )
-        if not h_dir or h_dir == ctypes.c_void_p(-1).value:
-            code3 = ctypes.get_last_error() or 5  # ACCESS_DENIED
-            logger.warning(
-                "CreateFileW failed for %s (no-propagate): %d",
-                path,
-                code3,
-            )
-        else:
-            code3 = advapi32.SetSecurityInfo(
-                h_dir,
-                _SE_FILE_OBJECT,
-                _DACL_SECURITY_INFORMATION,
-                None,
-                None,
-                p_new_dacl,
-                None,
-            )
-            kernel32.CloseHandle(h_dir)
-            if code3 != 0:
-                logger.warning(
-                    "SetSecurityInfo failed for %s: %d",
-                    path,
-                    code3,
-                )
+    code3 = advapi32.SetNamedSecurityInfoW(
+        ctypes.c_wchar_p(path),
+        _SE_FILE_OBJECT,
+        _DACL_SECURITY_INFORMATION,
+        None,
+        None,
+        p_new_dacl,
+        None,
+    )
 
     ok = code3 == 0
 
@@ -1330,7 +1382,7 @@ def _set_path_ace(
     if p_sd:
         kernel32.LocalFree(p_sd)
 
-    if not ok and propagate:
+    if not ok:
         logger.warning("SetNamedSecurityInfoW failed for %s: %d", path, code3)
 
     return ok
@@ -1362,24 +1414,6 @@ def _add_allow_ace(path: str, psid: ctypes.c_void_p) -> bool:
 def _add_allow_read_ace(path: str, psid: ctypes.c_void_p) -> bool:
     """Grants read+execute (no write) access."""
     return _set_path_ace(path, psid, _ACL_READ_EXECUTE, _SET_ACCESS)
-
-
-def _add_allow_read_ace_fast(path: str, psid: ctypes.c_void_p) -> bool:
-    """Grants read+execute without propagating to existing children.
-
-    Uses the handle-based SetSecurityInfo API which avoids the expensive
-    recursive propagation that SetNamedSecurityInfoW performs.  The ACE is
-    still marked inheritable so NTFS dynamically inherits it during access
-    checks on child objects.  This is safe for read-only grants on large
-    directory trees (e.g. Python/conda installations).
-    """
-    return _set_path_ace(
-        path,
-        psid,
-        _ACL_READ_EXECUTE,
-        _SET_ACCESS,
-        propagate=False,
-    )
 
 
 def _add_deny_all_ace(path: str, psid: ctypes.c_void_p) -> bool:
@@ -1419,17 +1453,11 @@ def _allow_null_device(psid: ctypes.c_void_p) -> None:
         ctypes.byref(p_sd),
     )
     if code == 0:
-        entry = _EXPLICIT_ACCESS_W()
-        entry.grfAccessPermissions = (
-            _FILE_GENERIC_READ | _FILE_GENERIC_WRITE | _FILE_GENERIC_EXECUTE
+        entry = _build_explicit_access(
+            psid,
+            _FILE_GENERIC_READ | _FILE_GENERIC_WRITE | _FILE_GENERIC_EXECUTE,
+            _SET_ACCESS,
         )
-        entry.grfAccessMode = _SET_ACCESS
-        entry.grfInheritance = 0
-        entry.Trustee.pMultipleTrustee = None
-        entry.Trustee.MultipleTrusteeOperation = 0
-        entry.Trustee.TrusteeForm = _TRUSTEE_IS_SID
-        entry.Trustee.TrusteeType = _TRUSTEE_IS_UNKNOWN
-        entry.Trustee.ptstrName = psid
 
         p_new_dacl = ctypes.c_void_p()
         code2 = advapi32.SetEntriesInAclW(
@@ -1485,21 +1513,8 @@ def _ensure_python_dir_group_acl() -> None:
         return
 
     # Resolve the group SID via LookupAccountNameW
-    advapi32 = _get_advapi32()
-
-    sid_size = ctypes.wintypes.DWORD(0)
-    domain_size = ctypes.wintypes.DWORD(0)
-    sid_use = ctypes.wintypes.DWORD(0)
-    advapi32.LookupAccountNameW(
-        None,
-        ctypes.c_wchar_p(SANDBOX_USERS_GROUP),
-        None,
-        ctypes.byref(sid_size),
-        None,
-        ctypes.byref(domain_size),
-        ctypes.byref(sid_use),
-    )
-    if sid_size.value == 0:
+    result = _lookup_account_sid(SANDBOX_USERS_GROUP)
+    if result is None:
         # Group doesn't exist yet — will be created during provisioning.
         # Mark as granted so we don't retry on every sandbox creation;
         # the per-user fallback in _apply_all_acls will handle it.
@@ -1510,25 +1525,7 @@ def _ensure_python_dir_group_acl() -> None:
         _python_dir_acl_granted = True
         return
 
-    sid_buf = (ctypes.c_ubyte * sid_size.value)()
-    domain_buf = ctypes.create_unicode_buffer(domain_size.value)
-    ok = advapi32.LookupAccountNameW(
-        None,
-        ctypes.c_wchar_p(SANDBOX_USERS_GROUP),
-        sid_buf,
-        ctypes.byref(sid_size),
-        domain_buf,
-        ctypes.byref(domain_size),
-        ctypes.byref(sid_use),
-    )
-    if not ok:
-        logger.warning(
-            "_ensure_python_dir_group_acl: LookupAccountNameW failed: %d",
-            ctypes.get_last_error(),
-        )
-        _python_dir_acl_granted = True
-        return
-
+    sid_buf, _ = result
     group_psid = ctypes.cast(sid_buf, ctypes.c_void_p)
 
     # Check if the group already has an ACE on the Python dir by attempting
@@ -1622,59 +1619,38 @@ def _apply_all_acls(  # pylint: disable=too-many-branches
     psid = _string_to_sid(cap_sid_string)
     entries: List[_AclEntry] = []
 
-    try:
-        # ── Capability SID: full access on workspace and writable mounts
-        #    (satisfies restricting SID check for write operations) ──
-        _add_allow_ace(config.workspace_dir, psid)
-        entries.append(_AclEntry(config.workspace_dir, "allow_full", "cap"))
-
+    def _grant_workspace_and_mounts(
+        sid: ctypes.c_void_p,
+        sid_label: str,
+    ) -> None:
+        _add_allow_ace(config.workspace_dir, sid)
+        entries.append(
+            _AclEntry(config.workspace_dir, "allow_full", sid_label),
+        )
         for mount in config.mounts:
             if os.path.exists(mount.path):
                 if mount.writable:
-                    _add_allow_ace(mount.path, psid)
-                    entries.append(_AclEntry(mount.path, "allow_full", "cap"))
+                    _add_allow_ace(mount.path, sid)
+                    entries.append(
+                        _AclEntry(mount.path, "allow_full", sid_label),
+                    )
                 else:
-                    _add_allow_read_ace(mount.path, psid)
-                    entries.append(_AclEntry(mount.path, "allow_read", "cap"))
+                    _add_allow_read_ace(mount.path, sid)
+                    entries.append(
+                        _AclEntry(mount.path, "allow_read", sid_label),
+                    )
 
-        # ── Python interpreter grant (group-based, one-time) ─────────
-        # The Python installation directory (derived from sys.executable)
-        # may reside under a per-user location (e.g. conda env under
-        # %USERPROFILE%) whose DACL does not grant access to the sandbox
-        # user.  Instead of granting per-sandbox ACEs (which triggers
-        # expensive recursive propagation on large directory trees like
-        # conda envs, ~68s each time), we grant RX to the QwenpawUsers
-        # group ONCE.  All sandbox users are members of this group, so
-        # they inherit read access without per-sandbox ACL operations.
+    try:
+        _grant_workspace_and_mounts(psid, "cap")
+
         _ensure_python_dir_group_acl()
         python_dir = _get_python_install_dir()
         if python_dir and os.path.isdir(python_dir):
             entries.append(_AclEntry(python_dir, "allow_read", "group"))
 
-        # ── User SID ACEs: satisfy the normal DACL check ──
         user_psid = _string_to_sid(user_sid_string)
         try:
-            _add_allow_ace(config.workspace_dir, user_psid)
-            entries.append(
-                _AclEntry(config.workspace_dir, "allow_full", "user"),
-            )
-
-            for mount in config.mounts:
-                if os.path.exists(mount.path):
-                    if mount.writable:
-                        _add_allow_ace(mount.path, user_psid)
-                        entries.append(
-                            _AclEntry(mount.path, "allow_full", "user"),
-                        )
-                    else:
-                        _add_allow_read_ace(mount.path, user_psid)
-                        entries.append(
-                            _AclEntry(mount.path, "allow_read", "user"),
-                        )
-
-            # Python interpreter access is handled by the group-based
-            # grant above (_ensure_python_dir_group_acl) — no per-user
-            # ACL needed since all sandbox users belong to QwenpawUsers.
+            _grant_workspace_and_mounts(user_psid, "user")
 
             for deny_path in config.deny_paths:
                 expanded = os.path.expanduser(deny_path)
@@ -1706,7 +1682,6 @@ def _install_wfp_block_filters(username: str, user_sid: str) -> bool:
     Installs both outbound and inbound block rules. Runs on the host side
     (as administrator), not inside the sandbox.
     """
-    import subprocess
 
     rule_name_out = f"QwenPaw_Block_{username}_Out"
     rule_name_in = f"QwenPaw_Block_{username}_In"
@@ -1730,20 +1705,7 @@ def _install_wfp_block_filters(username: str, user_sid: str) -> bool:
         f"-LocalUser '{sddl_user}' -Enabled True"
     )
 
-    result = subprocess.run(
-        [
-            "powershell.exe",
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            ps_script,
-        ],
-        capture_output=True,
-        timeout=30,
-        check=False,
-    )
+    result = _run_powershell(ps_script)
     if result.returncode != 0:
         stdout_msg = result.stdout.decode("utf-8", errors="replace").strip()
         stderr_msg = result.stderr.decode("utf-8", errors="replace").strip()
@@ -1875,16 +1837,12 @@ def _grant_object_access(  # pylint: disable=too-many-return-statements
 
     old_dacl = _p_dacl if _dacl_present.value else None
 
-    # Build new ACE: GENERIC_ALL for the sandbox user
-    entry = _EXPLICIT_ACCESS_W()
-    entry.grfAccessPermissions = _GENERIC_ALL
-    entry.grfAccessMode = _GRANT_ACCESS
-    entry.grfInheritance = _CONTAINER_INHERIT_ACE | _OBJECT_INHERIT_ACE
-    entry.Trustee.pMultipleTrustee = None
-    entry.Trustee.MultipleTrusteeOperation = 0
-    entry.Trustee.TrusteeForm = _TRUSTEE_IS_SID
-    entry.Trustee.TrusteeType = _TRUSTEE_IS_UNKNOWN
-    entry.Trustee.ptstrName = psid
+    entry = _build_explicit_access(
+        psid,
+        _GENERIC_ALL,
+        _GRANT_ACCESS,
+        _CONTAINER_INHERIT_ACE | _OBJECT_INHERIT_ACE,
+    )
 
     p_new_dacl = ctypes.c_void_p()
     code = advapi32.SetEntriesInAclW(
@@ -2117,20 +2075,8 @@ def _create_stdio_pipes(
     return stdout_read, stdout_write, stderr_read, stderr_write
 
 
-def _is_powershell_exe(executable: Optional[str]) -> bool:
-    """Check if the given executable path is a PowerShell variant."""
-    if not executable:
-        return False
-    name = os.path.basename(executable).lower()
-    return name in ("powershell", "powershell.exe", "pwsh", "pwsh.exe")
-
-
-def _is_cmd_exe(executable: Optional[str]) -> bool:
-    """Check if the given executable path is cmd.exe."""
-    if not executable:
-        return False
-    name = os.path.basename(executable).lower()
-    return name in ("cmd", "cmd.exe")
+_POWERSHELL_NAMES = {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}
+_CMD_NAMES = {"cmd", "cmd.exe"}
 
 
 def _build_shell_command_line(
@@ -2148,13 +2094,16 @@ def _build_shell_command_line(
     The sandbox itself is the security boundary, not execution policy or shell
     restrictions.
     """
-    if shell_executable and _is_powershell_exe(shell_executable):
+    name = (
+        os.path.basename(shell_executable).lower() if shell_executable else ""
+    )
+    if shell_executable and name in _POWERSHELL_NAMES:
         ps_cmd = cmd.replace('"', '\\"')
         return (
             f"{shell_executable} -NoProfile -NonInteractive "
             f'-ExecutionPolicy Bypass -Command "{ps_cmd}"'
         )
-    elif not shell_executable or _is_cmd_exe(shell_executable):
+    elif not shell_executable or name in _CMD_NAMES:
         shell = shell_executable or "cmd.exe"
         return f'{shell} /c "{cmd}"'
     else:
@@ -2488,6 +2437,25 @@ def _find_reusable_sandbox(
     return _restore_from_metadata(meta, meta_file)
 
 
+def _resolve_profile_dir(
+    h_token: ctypes.wintypes.HANDLE,
+    username: str,
+    stored_path: Optional[str] = None,
+) -> str:
+    """Resolves the user profile directory with fallback chain.
+
+    Tries stored_path (if valid), then GetUserProfileDirectoryW,
+    then constructs C:\\Users\\<username>.
+    """
+    if stored_path and os.path.isdir(stored_path):
+        return stored_path
+    api_path = _get_profile_directory(h_token)
+    if api_path:
+        return api_path
+    sys_drive = os.environ.get("SystemDrive", "C:")
+    return os.path.join(sys_drive + os.sep, "Users", username)
+
+
 def _restore_from_metadata(
     meta: Dict[str, Any],
     meta_file: Path,
@@ -2495,10 +2463,34 @@ def _restore_from_metadata(
     """Restores a sandbox instance from persisted metadata."""
     try:
         username = meta["username"]
-        password = _random_password()
-        if not _ensure_local_user(username, password):
-            return None
-        h_user_token = _logon_user(username, password)
+
+        # Try to use the persisted DPAPI-encrypted password to avoid
+        # unnecessary password resets (which generate 4724 audit events).
+        password = None
+        encrypted_password = meta.get("encrypted_password")
+        if encrypted_password:
+            try:
+                password = _dpapi_decrypt(encrypted_password)
+            except OSError:
+                logger.debug(
+                    "DPAPI decryption failed for %s; will reset password",
+                    username,
+                )
+
+        if password:
+            # Try logging in with the persisted password first
+            try:
+                h_user_token = _logon_user(username, password)
+            except OSError:
+                # Password may be stale (manually changed externally);
+                # fall back to reset
+                password = None
+
+        if not password:
+            password = _random_password()
+            if not _ensure_local_user(username, password):
+                return None
+            h_user_token = _logon_user(username, password)
 
         # Ensure WindowStation/Desktop access for restored sandboxes too
         user_sid = meta.get("user_sid", "")
@@ -2514,23 +2506,11 @@ def _restore_from_metadata(
             for e in meta.get("acl_entries", [])
         ]
 
-        # Resolve profile directory: prefer stored value from metadata.
-        # Only query the API if the stored path is explicitly set but missing;
-        # for old metadata without profile_dir, construct the expected path
-        # to maintain backward compatibility with pre-existing sandboxes.
-        profile_dir = meta.get("profile_dir")
-        if profile_dir and not os.path.isdir(profile_dir):
-            # Stored path no longer valid — try querying the OS.
-            profile_dir = _get_profile_directory(h_user_token)
-        if not profile_dir:
-            # Old metadata without profile_dir or API query failed.
-            # Fall back to the conventional path.
-            sys_drive = os.environ.get("SystemDrive", "C:")
-            profile_dir = os.path.join(
-                sys_drive + os.sep,
-                "Users",
-                meta["username"],
-            )
+        profile_dir = _resolve_profile_dir(
+            h_user_token,
+            meta["username"],
+            meta.get("profile_dir"),
+        )
 
         return _SandboxInstance(
             sandbox_id=meta["sandbox_id"],
@@ -2578,14 +2558,8 @@ def _create_new_sandbox(
     # This properly registers the profile in the ProfileList registry so that
     # LOGON_WITH_PROFILE will use the correct directory without appending a
     # machine-name suffix (e.g. "qwenpaw_xxx.DESKTOP-E7LJ27U").
-    profile_dir = _create_user_profile(user_sid_string, username)
-    if not profile_dir:
-        # Profile may already exist (restored user), query its actual path.
-        profile_dir = _get_profile_directory(h_user_token)
-    if not profile_dir:
-        # Last resort fallback — construct the expected path.
-        sys_drive = os.environ.get("SystemDrive", "C:")
-        profile_dir = os.path.join(sys_drive + os.sep, "Users", username)
+    _create_user_profile(user_sid_string, username)
+    profile_dir = _resolve_profile_dir(h_user_token, username)
 
     # Ensure essential subdirectories exist for TEMP/APPDATA.
     for sub in (
@@ -2630,6 +2604,14 @@ def _create_new_sandbox(
     sb_dir = _sandboxes_dir(_sandbox_state_dir)
     sb_dir.mkdir(parents=True, exist_ok=True)
     meta_path = sb_dir / f"{sandbox_id}.json"
+    # Encrypt password via DPAPI for persistence (avoids password resets
+    # on restore, which generate noisy 4724 audit events).
+    encrypted_password = None
+    try:
+        encrypted_password = _dpapi_encrypt(password)
+    except OSError:
+        logger.debug("DPAPI encryption unavailable; password not persisted")
+
     meta = {
         "sandbox_id": sandbox_id,
         "username": username,
@@ -2638,6 +2620,8 @@ def _create_new_sandbox(
         "config_fingerprint": fingerprint,
         "network_blocked": network_blocked,
         "profile_dir": profile_dir,
+        "owner_pid": os.getpid(),
+        "encrypted_password": encrypted_password,
         "acl_entries": [
             {
                 "path": e.path,
@@ -2811,7 +2795,8 @@ class WindowsRestrictedSandbox:
                 stdout_handle,
                 stderr_handle,
                 job_handle,
-            ) = _create_process_with_token(
+            ) = await asyncio.to_thread(
+                _create_process_with_token,
                 h_token,
                 cmd,
                 effective_cwd,
@@ -2911,10 +2896,43 @@ class WindowsRestrictedSandbox:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _run_powershell(
+    script: str,
+    timeout: int = 30,
+) -> "subprocess.CompletedProcess":
+    return subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ],
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _run_cmd_sync(
+    args: List[str],
+    timeout: int = 30,
+) -> Optional["subprocess.CompletedProcess"]:
+    try:
+        return subprocess.run(
+            args,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
 def _remove_firewall_rules_sync(username: str) -> bool:
     """Removes firewall block rules for a sandbox user (synchronous)."""
-    import subprocess as _sp
-
     rule_name_out = f"QwenPaw_Block_{username}_Out"
     rule_name_in = f"QwenPaw_Block_{username}_In"
     ps_script = (
@@ -2924,80 +2942,43 @@ def _remove_firewall_rules_sync(username: str) -> bool:
         f"-ErrorAction SilentlyContinue"
     )
     try:
-        result = _sp.run(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                ps_script,
-            ],
-            capture_output=True,
-            timeout=30,
-            check=False,
-        )
+        result = _run_powershell(ps_script)
         return result.returncode == 0
-    except (OSError, _sp.TimeoutExpired):
+    except (OSError, Exception):
         return False
 
 
 def _delete_local_user_sync(username: str) -> bool:
     """Deletes a local Windows user account."""
-    import subprocess as _sp
-
-    try:
-        result = _sp.run(
-            ["net", "user", username, "/delete"],
-            capture_output=True,
-            timeout=30,
-            check=False,
-        )
-        return result.returncode == 0
-    except (OSError, _sp.TimeoutExpired):
-        return False
+    result = _run_cmd_sync(["net", "user", username, "/delete"])
+    return result is not None and result.returncode == 0
 
 
 def _remove_profile_dir_sync(username: str) -> bool:
     """Removes user profile directory with takeown + icacls + rmtree."""
     import shutil
     import stat
-    import subprocess as _sp
 
     sys_drive = os.environ.get("SystemDrive", "C:")
     profile_dir = os.path.join(sys_drive + os.sep, "Users", username)
     if not os.path.exists(profile_dir):
         return True
 
-    # Take ownership (handles TrustedInstaller-owned directories like WinX)
-    try:
-        _sp.run(
-            ["takeown", "/F", profile_dir, "/R", "/A", "/D", "Y"],
-            capture_output=True,
-            timeout=300,
-            check=False,
-        )
-    except (OSError, _sp.TimeoutExpired):
-        pass
-
-    # Grant Administrators full control
-    try:
-        _sp.run(
-            [
-                "icacls",
-                profile_dir,
-                "/grant",
-                "Administrators:(OI)(CI)F",
-                "/T",
-                "/C",
-            ],
-            capture_output=True,
-            timeout=300,
-            check=False,
-        )
-    except (OSError, _sp.TimeoutExpired):
-        pass
+    _run_cmd_sync(
+        ["takeown", "/F", profile_dir, "/R", "/A", "/D", "Y"],
+        timeout=300,
+    )
+    _run_cmd_sync(
+        [
+            "icacls",
+            profile_dir,
+            "/grant",
+            "Administrators:(OI)(CI)F",
+            "/T",
+            "/C",
+        ],
+        timeout=300,
+    )
 
     # Remove with error handler
     def _on_rm_error(func, path, _exc_info):
@@ -3021,36 +3002,18 @@ def _remove_profile_dir_sync(username: str) -> bool:
 
 def _run_icacls_sync(args: List[str]) -> bool:
     """Runs icacls synchronously, returns True on success."""
-    import subprocess as _sp
-
-    try:
-        result = _sp.run(
-            ["icacls"] + args,
-            capture_output=True,
-            timeout=180,
-            check=False,
-        )
-        return result.returncode == 0
-    except (OSError, _sp.TimeoutExpired):
-        return False
+    result = _run_cmd_sync(["icacls"] + args, timeout=180)
+    return result is not None and result.returncode == 0
 
 
 def _verify_acl_removed_sync(path: str, sid: str) -> bool:
     """Verifies that a SID no longer appears in the DACL of a path."""
-    import subprocess as _sp
-
     if not os.path.exists(path):
         return True
-    try:
-        result = _sp.run(
-            ["icacls", path],
-            capture_output=True,
-            timeout=180,
-            check=False,
-        )
-        output = result.stdout.decode("utf-8", errors="replace")
-    except (OSError, _sp.TimeoutExpired):
+    result = _run_cmd_sync(["icacls", path], timeout=180)
+    if result is None:
         return False
+    output = result.stdout.decode("utf-8", errors="replace")
     if sid in output:
         return False
     if sid.upper() in output.upper():
@@ -3065,8 +3028,11 @@ def _remove_acl_with_verify_sync(path: str, sid: str) -> bool:
       1. Basic /remove
       2. Recursive /remove /T /C
       3. Explicit /remove:g and /remove:d
-      4. /reset /T /C then /remove again
+      4. /inheritance:e (re-enable inheritance) then /remove again
       5. Break inheritance then /remove
+      6. Non-recursive /reset on target path only, then /remove
+         (last resort — resets only the target directory's DACL,
+         does not affect child objects)
     """
     if not os.path.exists(path):
         return True
@@ -3081,14 +3047,21 @@ def _remove_acl_with_verify_sync(path: str, sid: str) -> bool:
             _run_icacls_sync([path, "/remove:g", f"*{sid}", "/T", "/C"]),
             _run_icacls_sync([path, "/remove:d", f"*{sid}", "/T", "/C"]),
         ),
-        # Strategy 4: reset inheritance then remove again
+        # Strategy 4: re-enable inheritance then remove again
         lambda: (
-            _run_icacls_sync([path, "/reset", "/T", "/C"]),
+            _run_icacls_sync([path, "/inheritance:e"]),
             _run_icacls_sync([path, "/remove", f"*{sid}", "/T", "/C"]),
         ),
         # Strategy 5: break inheritance (copy), then remove
         lambda: (
             _run_icacls_sync([path, "/inheritance:d"]),
+            _run_icacls_sync([path, "/remove", f"*{sid}", "/T", "/C"]),
+        ),
+        # Strategy 6: non-recursive reset on target path only, then remove
+        # (resets only the target directory's DACL to inherited defaults,
+        # does NOT affect child objects — safe for workspace directories)
+        lambda: (
+            _run_icacls_sync([path, "/reset"]),
             _run_icacls_sync([path, "/remove", f"*{sid}", "/T", "/C"]),
         ),
     ]
@@ -3111,10 +3084,42 @@ def _remove_acl_with_verify_sync(path: str, sid: str) -> bool:
     return False
 
 
-def shutdown_cleanup() -> None:
-    """Destroys all sandbox instances created during this process lifetime.
+def _is_pid_alive(pid: int) -> bool:
+    """Checks whether a process with the given PID is still running.
 
-    Performs full cleanup for each sandbox found on disk:
+    Uses kernel32.OpenProcess with PROCESS_QUERY_LIMITED_INFORMATION.
+    Returns False if the process does not exist or has terminated.
+    """
+    if pid <= 0:
+        return False
+    _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    try:
+        kernel32 = _get_kernel32()
+        handle = kernel32.OpenProcess(
+            _PROCESS_QUERY_LIMITED_INFORMATION,
+            False,
+            pid,
+        )
+        if not handle:
+            return False
+        # Process exists — check if it has exited
+        exit_code = ctypes.wintypes.DWORD(0)
+        kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+        kernel32.CloseHandle(handle)
+        # STILL_ACTIVE (259) means the process is still running
+        return exit_code.value == 259
+    except OSError:
+        return False
+
+
+def shutdown_cleanup() -> None:
+    """Destroys sandbox instances owned by this process or orphaned.
+
+    Performs full cleanup for each sandbox found on disk whose owner
+    process is no longer running (or is our own PID). Sandboxes owned
+    by other still-running QwenPaw processes are left untouched.
+
+    Cleanup steps per sandbox:
       - Removes filesystem ACL entries
       - Removes Windows Firewall block rules
       - Deletes local user accounts
@@ -3130,11 +3135,26 @@ def shutdown_cleanup() -> None:
     if not sb_dir.exists() or not list(sb_dir.glob("*.json")):
         return
 
+    my_pid = os.getpid()
+
     for meta_file in sb_dir.glob("*.json"):
         try:
             meta = json.loads(meta_file.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
+
+        owner_pid = meta.get("owner_pid")
+
+        # Skip sandboxes owned by other still-running processes
+        if owner_pid is not None and owner_pid != my_pid:
+            if _is_pid_alive(owner_pid):
+                logger.debug(
+                    "Skipping sandbox %s — owner pid %d still alive",
+                    meta.get("sandbox_id", "?"),
+                    owner_pid,
+                )
+                continue
+
         username = meta.get("username", "")
         if username:
             logger.info(

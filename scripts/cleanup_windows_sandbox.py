@@ -176,8 +176,12 @@ def _remove_acl_with_verify(path: str, sid: str, label: str) -> bool:
       2. Recursive ``/remove /T /C`` to catch inherited ACEs on children.
       3. Explicit ``/remove:g`` (grant) and ``/remove:d`` (deny) variants
          which target specific ACE types that ``/remove`` alone may miss.
-      4. ``/reset /T /C`` to reset inherited ACLs from parent, then remove
-         again (handles cases where a parent re-propagates the ACE).
+      4. ``/inheritance:e`` to re-enable inheritance, then remove again
+         (handles cases where a broken inheritance prevents ACE removal).
+      5. ``/inheritance:d`` to break inheritance (copy), then remove.
+      6. Non-recursive ``/reset`` on target path only, then remove
+         (last resort — resets only the target directory's DACL to
+         inherited defaults, does not affect child objects).
 
     Each strategy is followed by a verification check. If verification
     passes at any point the function returns True immediately.
@@ -205,14 +209,21 @@ def _remove_acl_with_verify(path: str, sid: str, label: str) -> bool:
             _run_icacls([path, "/remove:g", f"*{sid}", "/T", "/C"]),
             _run_icacls([path, "/remove:d", f"*{sid}", "/T", "/C"]),
         ),
-        # Strategy 4: reset inheritance then remove again
+        # Strategy 4: re-enable inheritance then remove again
         lambda: (
-            _run_icacls([path, "/reset", "/T", "/C"]),
+            _run_icacls([path, "/inheritance:e"]),
             _run_icacls([path, "/remove", f"*{sid}", "/T", "/C"]),
         ),
         # Strategy 5: break inheritance (copy), then remove
         lambda: (
             _run_icacls([path, "/inheritance:d"]),
+            _run_icacls([path, "/remove", f"*{sid}", "/T", "/C"]),
+        ),
+        # Strategy 6: non-recursive reset on target path only, then remove
+        # (resets only the target directory's DACL to inherited defaults,
+        # does NOT affect child objects — safe for workspace directories)
+        lambda: (
+            _run_icacls([path, "/reset"]),
             _run_icacls([path, "/remove", f"*{sid}", "/T", "/C"]),
         ),
     ]

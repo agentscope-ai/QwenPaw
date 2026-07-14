@@ -51,6 +51,9 @@ from .windows_restricted_sandbox import (
     shutdown_cleanup as _restricted_shutdown_cleanup,
 )
 from .windows_sandbox import WindowsSandbox
+from .windows_sandbox import (
+    shutdown_cleanup as _appcontainer_shutdown_cleanup,
+)
 
 __all__ = [
     "BubblewrapSandbox",
@@ -75,10 +78,11 @@ __all__ = [
 def shutdown_all_sandboxes() -> None:
     """Destroys all Windows sandbox artifacts on application exit.
 
-    Calls the restricted-token sandbox cleanup. Safe to call on non-Windows
+    Calls both sandbox backend cleanups. Safe to call on non-Windows
     platforms (no-op). Safe to call multiple times.
     """
     import sys
 
     if sys.platform == "win32":
         _restricted_shutdown_cleanup()
+        _appcontainer_shutdown_cleanup()
