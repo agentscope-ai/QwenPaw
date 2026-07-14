@@ -207,19 +207,35 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Write the rolling compaction summary."""
         self._state.summary = value or ""
 
-    def _reset_stop_gates(self) -> None:
-        """Clear loop-gate state for commands that reset conversation state."""
-        workspace = getattr(self._prompt_context, "workspace", None)
-        handler = getattr(workspace, "_stop_handler", None)
-        reset = getattr(handler, "reset", None)
-        if callable(reset):
-            reset()
+    def _reset_stop_gates(  # pylint: disable=protected-access
+        self,
+    ) -> None:
+        """Clear loop-gate state on conversation reset."""
+        workspace = getattr(
+            self._prompt_context,
+            "workspace",
+            None,
+        )
+        handler = getattr(
+            workspace,
+            "_stop_handler",
+            None,
+        )
+        if handler is not None:
+            handler.reset()
 
-        agent = self._agent or getattr(self._prompt_context, "agent", None)
+        agent = self._agent or getattr(
+            self._prompt_context,
+            "agent",
+            None,
+        )
         if agent is not None:
             if hasattr(agent, "_gate_pending_stop"):
                 agent._gate_pending_stop = None
-            if hasattr(agent, "_gate_pending_continue"):
+            if hasattr(
+                agent,
+                "_gate_pending_continue",
+            ):
                 agent._gate_pending_continue = None
 
     def is_command(self, query: str | None) -> bool:
