@@ -734,6 +734,14 @@ class AgentBuilder:
         tool, which needs no sandbox. This is narrower than
         :meth:`_scroll_recall_runnable`, which gates whether scroll is wired at
         all; here scroll is already wired and structured recall is present.
+
+        Note: this is a build-time decision. Registration is evaluated once
+        when the agent is built; toggling ``security.sandbox_enabled`` at
+        runtime does NOT add or remove the REPL from an already-running
+        agent. The switch is still honoured on the execution path
+        (``_prepare_off_mode_sandbox`` / ``_sandbox_usable``) -- an already
+        registered REPL will simply skip sandbox provisioning once the switch
+        is off. Rebuild the agent to change which tools are offered.
         """
         if governor is not None:
             sandbox_usable = getattr(governor, "sandbox_usable", None)

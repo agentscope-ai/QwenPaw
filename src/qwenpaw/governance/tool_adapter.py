@@ -194,11 +194,19 @@ def _prepare_off_mode_sandbox(tool: Any, governor: Any) -> None:
     unsandboxed by design, and forcing a sandbox on them would silently narrow
     their filesystem access.
 
-    A no-op (leaving ``sandbox_config=None``) when the platform has no sandbox:
-    such a REPL is never registered in the first place, or it tolerates
-    unsandboxed execution via ``allow_unsandboxed``.
+    A no-op (leaving ``sandbox_config=None``) when the sandbox is not usable
+    -- either the platform has no sandbox, or the operator turned the global
+    ``security.sandbox_enabled`` switch off. In both cases such a REPL is
+    never registered in the first place, or it tolerates unsandboxed
+    execution via ``allow_unsandboxed``.
+
+    Uses ``governor.sandbox_usable`` (platform support AND the global switch)
+    rather than the platform-only ``sandbox_available`` probe, so that an
+    explicit ``sandbox_enabled=false`` is honoured on the OFF-mode path just
+    like it is on the normal policy path (see
+    :meth:`ResourceGovernor._sandbox_usable`).
     """
-    if governor is None or not getattr(governor, "sandbox_available", False):
+    if governor is None or not getattr(governor, "sandbox_usable", False):
         return
     policy_name = DEFAULT_REGISTRY.python_to_policy_name(
         getattr(tool, "name", "Unknown"),
