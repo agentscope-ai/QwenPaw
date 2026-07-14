@@ -3254,7 +3254,7 @@ class TestDingTalkLoadSessionWebhookEntry:
 # =============================================================================
 
 
-# ponytail: class-level @pytest.mark.asyncio removed because the three
+# Class-level @pytest.mark.asyncio removed because the three
 # test_get_response_error_message* methods are sync (def not async def),
 # which raises PytestWarnings. Only the actual async methods retain the
 # mark via pytestmark in a subclass if needed.

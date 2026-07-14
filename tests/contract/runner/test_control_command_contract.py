@@ -24,13 +24,7 @@ from typing import get_type_hints
 
 import pytest
 
-# pylint: disable=no-name-in-module
-pytest.importorskip(
-    "qwenpaw.app.runner.control_commands",
-    reason="qwenpaw.app.runner was removed in AgentScope 2.0",
-)
-
-# ponytail: the qwenpaw.app.runner.control_commands.base module was removed
+# The qwenpaw.app.runner.control_commands.base module was removed
 # in AgentScope 2.0 (Aug 2026). This test file is now a dead contract with
 # no production code to validate. It is kept as a reference only and skipped
 # until the control-command system is re-introduced.
