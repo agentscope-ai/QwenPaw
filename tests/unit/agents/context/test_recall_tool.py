@@ -18,7 +18,10 @@ from agentscope.message import ToolResultState
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.memoryspace import MemorySpace
-from qwenpaw.agents.context.scroll.recall_tool import make_recall_history
+from qwenpaw.agents.context.scroll.recall_tool import (
+    RecallLoopGuard,
+    make_recall_history,
+)
 from qwenpaw.agents.context.types import LogEntry
 
 
@@ -106,6 +109,66 @@ async def test_recall_tool_by_call_id(tool):
     chunk = await tool(op="recall_tool", tool_call_id="call_abc")
     assert chunk.state == ToolResultState.SUCCESS
     assert "RESULT-FULL" in _text(chunk)
+
+
+async def test_folded_recall_target_is_blocked_until_turn_changes(
+    history_db: Path,
+):
+    guard = RecallLoopGuard()
+    guard.begin_turn("user-1")
+    guard.block("expand", {"op": "expand", "lo": 1, "hi": 3})
+    guarded_tool = make_recall_history(
+        history_db_path=str(history_db),
+        session_id="s1",
+        agent_id="ag1",
+        loop_guard=guard,
+    )
+
+    blocked = await guarded_tool(op="expand", lo=1, hi=3)
+    assert "RECALL LOOP BLOCKED" in _text(blocked)
+
+    narrower = await guarded_tool(op="expand", lo=1, hi=2)
+    assert "RECALL LOOP BLOCKED" not in _text(narrower)
+    assert "hello there" in _text(narrower)
+
+    guard.begin_turn("user-2")
+    allowed_again = await guarded_tool(op="expand", lo=1, hi=3)
+    assert "RECALL LOOP BLOCKED" not in _text(allowed_again)
+
+
+async def test_recall_output_has_small_default_budget(tmp_path: Path):
+    history = HistoryStore(tmp_path / "large-history.db")
+    history.append(
+        session_id="old",
+        agent_id="ag1",
+        dedup_key="large",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="line of history\n" * 5000,
+        ),
+    )
+    history.close()
+    guard = RecallLoopGuard()
+    guard.begin_turn("user-1")
+    bounded_tool = make_recall_history(
+        history_db_path=str(tmp_path / "large-history.db"),
+        session_id="current",
+        agent_id="ag1",
+        loop_guard=guard,
+    )
+
+    chunk = await bounded_tool(op="expand", lo=1, hi=1)
+    assert len(_text(chunk).encode("utf-8")) < 18 * 1024
+    assert "[recall output truncated]" in _text(chunk)
+    assert "Do NOT recall this tool result" in _text(chunk)
+
+    repeated = await bounded_tool(op="expand", lo=1, hi=1)
+    assert "RECALL LOOP BLOCKED" in _text(repeated)
+
+    guard.begin_turn("user-2")
+    next_turn = await bounded_tool(op="expand", lo=1, hi=1)
+    assert "[recall output truncated]" in _text(next_turn)
 
 
 async def test_recall_queries_run_outside_event_loop(tool, monkeypatch):

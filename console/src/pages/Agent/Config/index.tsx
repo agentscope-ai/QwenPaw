@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Button, Form, Tabs } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
@@ -16,6 +16,7 @@ import {
   MEMORY_MANAGER_BACKEND_MAPPINGS,
 } from "@/constants/backendMappings";
 import api from "@/api";
+import { useAgentStore } from "@/stores/agentStore";
 import styles from "./index.module.less";
 
 function AgentConfigPage() {
@@ -46,12 +47,20 @@ function AgentConfigPage() {
     Form.useWatch("context_manager_backend", form) || "light";
   const memoryBackend =
     Form.useWatch("memory_manager_backend", form) || "remelight";
+  const { selectedAgent } = useAgentStore();
 
   const [maxInputLength, setMaxInputLength] = useState(131072);
-  useEffect(() => {
-    api
-      .getActiveModels({ scope: "effective" })
+  const refreshEffectiveContextWindow = useCallback(() => {
+    return api
+      .getActiveModels({
+        scope: "effective",
+        agent_id: selectedAgent || undefined,
+      })
       .then((info) => {
+        if (info.effective_max_input_length != null) {
+          setMaxInputLength(info.effective_max_input_length);
+          return;
+        }
         if (info.active_llm) {
           return api.listProviders().then((providers) => {
             const provider = providers.find(
@@ -71,7 +80,39 @@ function AgentConfigPage() {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [selectedAgent]);
+
+  useEffect(() => {
+    refreshEffectiveContextWindow();
+  }, [refreshEffectiveContextWindow]);
+
+  useEffect(() => {
+    const handleModelSwitch = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | {
+            agentId?: string;
+            effectiveMaxInputLength?: number | null;
+          }
+        | undefined;
+      if (detail?.agentId && detail.agentId !== selectedAgent) return;
+      if (detail?.effectiveMaxInputLength != null) {
+        setMaxInputLength(detail.effectiveMaxInputLength);
+        return;
+      }
+      refreshEffectiveContextWindow();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshEffectiveContextWindow();
+      }
+    };
+    window.addEventListener("model-switched", handleModelSwitch);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("model-switched", handleModelSwitch);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [refreshEffectiveContextWindow, selectedAgent]);
 
   const dynamicTabs = useMemo(() => {
     const baseTabs = [

@@ -18,6 +18,7 @@ two delegated hooks.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import sqlite3
@@ -40,6 +41,7 @@ from . import _as_internals as as_internals
 from .eviction_index import EvictionIndex, Leaf, Line
 from .history import HistoryStore
 from .serialize import msg_to_entries
+from ..types import ContextWindowUnfitError
 from ...utils.tool_message_utils import _remove_unpaired_tool_messages
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ logger = logging.getLogger(__name__)
 # Doubles as the idempotence marker: an output starting with it is already a
 # stub and is never folded (or counted as reclaimable) again.
 _FOLD_MARK = "[scroll folded]"
+_RECALL_FOLD_MARK = "[scroll recall folded]"
 
 # Labelling an evicted span with no model headline: split it into numbered
 # sections (each a real seq sub-range the harness owns) and have one model call
@@ -66,6 +69,21 @@ _INDEX_PROMPT = (
 _SUMMARY_INPUT_CHARS = 6000  # cap on the text sent to the model
 _SUMMARY_LINE_CHARS = 200  # mirrors serialize._HEADLINE_MAX
 _SUMMARY_MAX_LINES = 6  # ceiling on sections per span
+_EMERGENCY_TRANSCRIPT_CHARS = 12_000
+_EMERGENCY_BLOCK_CHARS = 1_000
+_EMERGENCY_PROMPT = (
+    "Create a continuation checkpoint for an agent whose active turn no "
+    "longer fits its context window. The transcript is a TEXT-ONLY ledger; "
+    "tool calls and results have already been persisted separately. Preserve "
+    "the original task, completed work, important evidence/decisions, exact "
+    "file paths and identifiers, blockers, and concrete next steps. Never "
+    "invent a successful action. Keep the checkpoint concise and actionable."
+)
+_MINIMAL_HISTORY_POINTER = (
+    "<system-info>Older conversation history is archived in history.db. "
+    "Use recall_history with a targeted keyword search when evidence is "
+    "needed; do not broadly expand the whole archive.</system-info>"
+)
 
 # One reply line: ``2: headline`` / ``[2] headline`` / ``2. headline``.
 _HEADLINE_LINE_RE = re.compile(r"^\[?\s*(\d+)\s*\]?\s*[:.：、)]?\s*(.+)$")
@@ -134,6 +152,7 @@ class ScrollContextManager:
         summarize_timeout_s: int = 20,
         compact_tool_result_max_bytes: int | None = None,
         tool_results_dir: str | None = None,
+        recall_loop_guard: Any = None,
     ) -> None:
         self._history = history
         self._session_id = session_id
@@ -144,6 +163,7 @@ class ScrollContextManager:
         self._summarize_timeout_s = summarize_timeout_s
         self._compact_tool_result_max_bytes = compact_tool_result_max_bytes
         self._tool_result_pruner = ToolResultPruner(tool_results_dir)
+        self._recall_loop_guard = recall_loop_guard
         # Dialog archive: when an offloader is wired (``offload_dialog``, on by
         # default), evicted turns are also written to ``dialog/{date}.jsonl``
         # for external consumers. ``history.db`` remains the source of truth.
@@ -182,8 +202,219 @@ class ScrollContextManager:
             "compacted": 0,
             "folded": 0,
         }
+        self.last_compress_result: dict[str, Any] = {
+            "status": "FIT",
+            "tokens": None,
+            "hard_limit": None,
+        }
         # Warn once per overflow episode, not once per reasoning step.
         self._overflow_warned = False
+
+    @staticmethod
+    def _recall_terminal_stub() -> str:
+        return (
+            f"{_RECALL_FOLD_MARK} The previous recall result was too large "
+            "and has left the live context. Do NOT recall this tool result or "
+            "retry the same parameters. Narrow the seq range, use a more "
+            "specific keyword search, or continue from the archived summary."
+        )
+
+    @staticmethod
+    def _tool_call_inputs(agent: Any) -> dict[str, dict[str, Any]]:
+        calls: dict[str, dict[str, Any]] = {}
+        for msg in getattr(agent.state, "context", []) or []:
+            for block in getattr(msg, "content", None) or []:
+                if getattr(block, "type", None) != "tool_call":
+                    continue
+                if getattr(block, "name", None) != "recall_history":
+                    continue
+                raw = getattr(block, "input", None)
+                if isinstance(raw, str):
+                    try:
+                        raw = json.loads(raw)
+                    except (TypeError, ValueError):
+                        raw = {}
+                if isinstance(raw, dict):
+                    calls[str(getattr(block, "id", ""))] = raw
+        return calls
+
+    def _block_recall_target(
+        self,
+        tool_call_id: str | None,
+        call_inputs: dict[str, dict[str, Any]],
+    ) -> None:
+        if self._recall_loop_guard is None or not tool_call_id:
+            return
+        payload = call_inputs.get(str(tool_call_id))
+        if not payload:
+            return
+        op = str(payload.get("op") or "")
+        if op:
+            self._recall_loop_guard.block(op, payload)
+
+    @staticmethod
+    def _block_text(block: Any) -> str:
+        """Bounded text representation for emergency summarization."""
+        btype = getattr(block, "type", None)
+        if btype == "text":
+            value = getattr(block, "text", "") or ""
+        elif btype == "thinking":
+            value = getattr(block, "thinking", "") or ""
+        elif btype == "tool_call":
+            value = (
+                f"Tool call id={getattr(block, 'id', '')} "
+                f"name={getattr(block, 'name', '')} "
+                f"input={getattr(block, 'input', '')}"
+            )
+        elif btype == "tool_result":
+            value = (
+                f"Tool result id={getattr(block, 'id', '')} "
+                f"name={getattr(block, 'name', '')}; full output archived. "
+                f"Live preview={getattr(block, 'output', '')}"
+            )
+        else:
+            value = str(block)
+        value = str(value).strip()
+        if len(value) > _EMERGENCY_BLOCK_CHARS:
+            value = value[:_EMERGENCY_BLOCK_CHARS] + "…"
+        return value
+
+    def _active_turn_transcript(self, active: list[Msg]) -> str:
+        lines: list[str] = []
+        for msg in active:
+            role = getattr(msg, "role", None) or getattr(msg, "name", "")
+            for block in getattr(msg, "content", None) or []:
+                value = self._block_text(block)
+                if value:
+                    lines.append(f"{role}: {value}")
+        transcript = "\n".join(lines)
+        if len(transcript) <= _EMERGENCY_TRANSCRIPT_CHARS:
+            return transcript
+        # Preserve both the original request at the head and the most recent
+        # progress/next-step evidence at the tail.
+        head = _EMERGENCY_TRANSCRIPT_CHARS * 2 // 3
+        tail = _EMERGENCY_TRANSCRIPT_CHARS - head
+        return (
+            transcript[:head]
+            + "\n[… middle of active turn archived …]\n"
+            + transcript[-tail:]
+        )
+
+    # pylint: disable-next=too-many-return-statements
+    async def _emergency_summarize_active_turn(
+        self,
+        agent: Any,
+        *,
+        hard_limit: int,
+    ) -> int | None:
+        """Replace an oversized active tool trace with a text checkpoint.
+
+        This deliberately does not invoke AgentScope's full native compressor:
+        raw tool blocks are serialized to plain text first, so its own
+        summarization request cannot contain mismatched tool call/result
+        structures. The original blocks are already durable in history.db.
+        """
+        active = self._active_turn_tail(agent)
+        if len(active) < 2:
+            return None
+        assistant_msgs = [
+            msg
+            for msg in active[1:]
+            if getattr(msg, "role", None) == "assistant"
+        ]
+        if not assistant_msgs:
+            return None
+        transcript = self._active_turn_transcript(active)
+        if not transcript:
+            return None
+        cfg = getattr(agent, "context_config", None)
+        summary_schema = getattr(cfg, "summary_schema", None)
+        summary_template = getattr(cfg, "summary_template", None)
+        model = getattr(agent, "model", None)
+        generate = getattr(model, "generate_structured_output", None)
+        if (
+            not summary_schema
+            or not summary_template
+            or not callable(generate)
+        ):
+            return None
+        messages = [
+            Msg(
+                name="system",
+                role="system",
+                content=[TextBlock(type="text", text=_EMERGENCY_PROMPT)],
+            ),
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(type="text", text=transcript)],
+            ),
+        ]
+        schema_tool = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "generate_structured_output",
+                    "description": "Generate the emergency checkpoint.",
+                    "parameters": summary_schema,
+                },
+            },
+        ]
+        summary_input_tokens = await model.count_tokens(messages, schema_tool)
+        if summary_input_tokens >= hard_limit:
+            logger.warning(
+                "scroll: emergency summary input itself is unfit (%d >= %d)",
+                summary_input_tokens,
+                hard_limit,
+            )
+            return None
+        try:
+            response = await asyncio.wait_for(
+                generate(messages=messages, structured_model=summary_schema),
+                timeout=self._summarize_timeout_s,
+            )
+            content = (
+                response.get("content")
+                if isinstance(response, dict)
+                else getattr(response, "content", None)
+            )
+            if not isinstance(content, dict):
+                return None
+            checkpoint = summary_template.format(**content)
+        except Exception:  # noqa: BLE001 - hard-fit fallback is best effort
+            logger.warning(
+                "scroll: emergency active-turn summarization failed",
+                exc_info=True,
+            )
+            return None
+
+        # Keep the original user request verbatim and preserve the current
+        # assistant Msg identity so AgentScope can continue extending it.
+        current_reply = assistant_msgs[-1]
+        current_reply.content = [
+            TextBlock(
+                type="text",
+                text=(
+                    "<system-info>Emergency active-turn checkpoint; full "
+                    "tool evidence remains in scroll history.</system-info>\n"
+                    + checkpoint
+                ),
+            ),
+        ]
+        placeholder = UserMsg(name="memory", content=_MINIMAL_HISTORY_POINTER)
+        self._synthetic_ids.add(placeholder.id)
+        agent.state.context = [placeholder, active[0], current_reply]
+        sanitized = _remove_unpaired_tool_messages(agent.state.context)
+        agent.state.context = sanitized
+        tokens = await self._live_tokens(agent)
+        logger.warning(
+            "scroll: emergency active-turn checkpoint reduced context to %d "
+            "tokens (hard limit %d)",
+            tokens,
+            hard_limit,
+        )
+        self.last_compress["summarized"] = 1
+        return tokens
 
     # -- delegated hooks -----------------------------------------------------
 
@@ -255,7 +486,8 @@ class ScrollContextManager:
         except Exception:  # noqa: BLE001 - archive is best-effort
             logger.warning("scroll dialog offload failed", exc_info=True)
 
-    async def compress(  # pylint: disable=too-many-statements
+    # pylint: disable-next=too-many-statements,too-many-branches
+    async def compress(
         self,
         agent: Any,
         context_config: Any = None,
@@ -284,6 +516,16 @@ class ScrollContextManager:
         """
         cfg = context_config or agent.context_config
         self.last_compress = {"evicted": 0, "compacted": 0, "folded": 0}
+        hard_limit = int(agent.model.context_size)
+        self.last_compress_result = {
+            "status": "FIT",
+            "tokens": None,
+            "hard_limit": hard_limit,
+        }
+        if self._recall_loop_guard is not None:
+            active = self._active_turn_tail(agent)
+            turn_id = getattr(active[0], "id", None) if active else None
+            self._recall_loop_guard.begin_turn(turn_id)
         t0 = time.perf_counter()
         stage_t0 = t0
         timings: dict[str, float] = {}
@@ -314,6 +556,19 @@ class ScrollContextManager:
         #    thread so the whole-window persist never blocks the event loop.
         if not await self._persist_guarded_async(agent):
             mark("persist")
+            kwargs = await as_internals.prepare_model_input(agent)
+            mark("prepare_input")
+            tokens = await agent.model.count_tokens(**kwargs)
+            mark("count_tokens")
+            self.last_compress_result["tokens"] = tokens
+            self.last_compress_result["status"] = "DEGRADED_FIT"
+            if tokens > hard_limit:
+                self.last_compress_result["status"] = "UNFIT"
+                log_timings("persist_failed_unfit")
+                raise ContextWindowUnfitError(
+                    tokens=tokens,
+                    hard_limit=hard_limit,
+                )
             log_timings("persist_failed")
             return
         mark("persist")
@@ -328,9 +583,19 @@ class ScrollContextManager:
         mark("count_tokens")
         if tokens < trigger:
             self._overflow_warned = False
+            self.last_compress_result["tokens"] = tokens
             log_timings("below_trigger")
             return
         if len(agent.state.context) <= 1:
+            self.last_compress_result["tokens"] = tokens
+            if tokens > hard_limit:
+                self.last_compress_result["status"] = "UNFIT"
+                log_timings("single_message_unfit")
+                raise ContextWindowUnfitError(
+                    tokens=tokens,
+                    hard_limit=hard_limit,
+                )
+            self.last_compress_result["status"] = "DEGRADED_FIT"
             log_timings("single_message")
             return
 
@@ -454,7 +719,27 @@ class ScrollContextManager:
         # target. During normal automatic compaction ``trigger`` is larger
         # than ``reserve``, preserving the existing warning unchanged.
         overflow_threshold = max(trigger, reserve)
+        emergency_used = False
+        self.last_compress_result["tokens"] = tokens
+        if tokens > hard_limit:
+            emergency_tokens = await self._emergency_summarize_active_turn(
+                agent,
+                hard_limit=hard_limit,
+            )
+            mark("emergency_summary")
+            if emergency_tokens is not None:
+                emergency_used = True
+                tokens = emergency_tokens
+                self.last_compress_result["tokens"] = tokens
+            if tokens > hard_limit:
+                self.last_compress_result["status"] = "UNFIT"
+                log_timings("unfit")
+                raise ContextWindowUnfitError(
+                    tokens=tokens,
+                    hard_limit=hard_limit,
+                )
         if tokens > overflow_threshold:
+            self.last_compress_result["status"] = "DEGRADED_FIT"
             if not self._overflow_warned:
                 self._overflow_warned = True
                 logger.warning(
@@ -464,6 +749,9 @@ class ScrollContextManager:
                     overflow_threshold,
                 )
         else:
+            self.last_compress_result["status"] = (
+                "DEGRADED_FIT" if emergency_used else "FIT"
+            )
             self._overflow_warned = False
         log_timings("done")
 
@@ -473,6 +761,7 @@ class ScrollContextManager:
             **(await as_internals.prepare_model_input(agent)),
         )
 
+    # pylint: disable-next=too-many-branches
     def _compact_live_tool_results(self, agent: Any) -> int:
         """Shrink retained live tool-result previews after compaction."""
         max_bytes = self._compact_tool_result_max_bytes
@@ -480,6 +769,7 @@ class ScrollContextManager:
             return 0
 
         compacted = 0
+        recall_inputs = self._tool_call_inputs(agent)
         for msg in getattr(agent.state, "context", []) or []:
             if getattr(msg, "id", None) in self._synthetic_ids:
                 continue
@@ -499,6 +789,33 @@ class ScrollContextManager:
                     if isinstance(block, dict)
                     else getattr(block, "output", None)
                 )
+                name = (
+                    block.get("name")
+                    if isinstance(block, dict)
+                    else getattr(block, "name", None)
+                )
+                if name == "recall_history":
+                    rendered = str(output)
+                    if len(rendered.encode("utf-8")) <= max_bytes:
+                        continue
+                    tool_call_id = (
+                        block.get("id")
+                        if isinstance(block, dict)
+                        else getattr(block, "id", None)
+                    )
+                    terminal = [
+                        TextBlock(
+                            type="text",
+                            text=self._recall_terminal_stub(),
+                        ),
+                    ]
+                    if isinstance(block, dict):
+                        block["output"] = terminal
+                    else:
+                        block.output = terminal
+                    self._block_recall_target(tool_call_id, recall_inputs)
+                    compacted += 1
+                    continue
                 metadata = (
                     block.setdefault("metadata", {})
                     if isinstance(block, dict)
@@ -756,11 +1073,19 @@ class ScrollContextManager:
             for block in getattr(msg, "content", None) or []
             if getattr(block, "type", None) == "tool_result"
         ]
+        recall_inputs = self._tool_call_inputs(agent)
         folded = 0
         for block in results[:-1]:  # keep the newest result verbatim
             if self._is_folded_stub(block):
                 continue
             tcid = getattr(block, "id", None)
+            if getattr(block, "name", None) == "recall_history":
+                block.output = [
+                    TextBlock(type="text", text=self._recall_terminal_stub()),
+                ]
+                self._block_recall_target(tcid, recall_inputs)
+                folded += 1
+                continue
             seq = self._seq_by_tcid.get(tcid) if tcid else None
             # Point at the structured recall_history tool (in-process, no
             # sandbox — works even where the Python REPL can't run); the
@@ -797,7 +1122,7 @@ class ScrollContextManager:
         """True if this result's output is already a fold stub."""
         out = getattr(block, "output", None)
         if isinstance(out, str):
-            return out.startswith(_FOLD_MARK)
+            return out.startswith((_FOLD_MARK, _RECALL_FOLD_MARK))
         if isinstance(out, list) and out:
             first = out[0]
             text = (
@@ -805,7 +1130,7 @@ class ScrollContextManager:
                 if isinstance(first, dict)
                 else getattr(first, "text", "") or ""
             )
-            return str(text).startswith(_FOLD_MARK)
+            return str(text).startswith((_FOLD_MARK, _RECALL_FOLD_MARK))
         return False
 
     def _rebuild_context(

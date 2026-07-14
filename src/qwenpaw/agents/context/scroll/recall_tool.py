@@ -21,18 +21,74 @@ re-read path works everywhere.
 # the model-facing JSON schema from the wrapped function's runtime
 # annotations, and stringified ones fail pydantic's resolution.
 import asyncio
+import json
 import logging
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
-from ...tools.utils import truncate_text_output  # repo-standard output bound
 from ....runtime.tool_registry import ToolDescriptor
 
 logger = logging.getLogger(__name__)
 
 _OPS = ("expand", "search", "recall_tool")
+_DEFAULT_RECALL_MAX_BYTES = 16 * 1024
+_MAX_RECALL_MAX_BYTES = 50 * 1024
+_RECALL_TRUNCATION_NOTICE = (
+    "\n\n[recall output truncated]\n"
+    "The recall result exceeded its bounded live-context budget. Do NOT "
+    "recall this tool result. Narrow the seq range, use a more specific "
+    "keyword search, or continue from the archived summary."
+)
+
+
+@dataclass
+class RecallLoopGuard:
+    """Block recall targets whose result was folded in the active turn."""
+
+    turn_id: str | None = None
+    blocked: set[str] = field(default_factory=set)
+
+    @staticmethod
+    def key(op: str, payload: dict[str, Any]) -> str:
+        normalized = dict(payload)
+        normalized.setdefault("k", 10)
+        normalized.setdefault("all_agents", False)
+        relevant = {
+            key: normalized.get(key)
+            for key in (
+                "lo",
+                "hi",
+                "query",
+                "k",
+                "kind",
+                "all_agents",
+                "session_id",
+                "agent_id",
+                "tool_call_id",
+            )
+            if normalized.get(key) is not None
+        }
+        return f"{op}:" + json.dumps(
+            relevant,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    def begin_turn(self, turn_id: str | None) -> None:
+        if turn_id != self.turn_id:
+            self.turn_id = turn_id
+            self.blocked.clear()
+
+    def block(self, op: str, payload: dict[str, Any]) -> None:
+        self.blocked.add(self.key(op, payload))
+
+    def is_blocked(self, op: str, payload: dict[str, Any]) -> bool:
+        return self.key(op, payload) in self.blocked
+
 
 _DOC = """Recall your recorded conversation history (raw turns) — structured.
 
@@ -76,6 +132,8 @@ Args:
         (e.g. "cron:<job>").
     agent_id (str): search only — pin one agent's history.
     tool_call_id (str): recall_tool only — the tool call to re-read.
+    max_bytes (int): Maximum response size in bytes. Defaults to a bounded
+        16 KiB so one recall cannot immediately force another compaction.
 """
 
 # Keys rendered per row, in display order, when present and non-empty.
@@ -108,6 +166,7 @@ def make_recall_history(
     history_db_path: str,
     session_id: str | None,
     agent_id: str | None = None,
+    loop_guard: RecallLoopGuard | None = None,
 ):
     """Build a ``recall_history`` tool bound to one session's history.
 
@@ -147,6 +206,26 @@ def make_recall_history(
                 f"RECALL FAILED — unknown op {op!r}. Use one of: "
                 f"{', '.join(_OPS)}.",
                 False,
+            )
+        payload = {
+            "lo": lo,
+            "hi": hi,
+            "query": query,
+            "k": k,
+            "kind": kind,
+            "all_agents": all_agents,
+            "session_id": q_session_id,
+            "agent_id": q_agent_id,
+            "tool_call_id": tool_call_id,
+        }
+        if loop_guard is not None and loop_guard.is_blocked(op, payload):
+            return (
+                "RECALL LOOP BLOCKED — this exact recall target was already "
+                "returned and then folded out of the current live turn. Do "
+                "not retry it with the same parameters. Narrow the seq "
+                "range, use a more specific keyword search, or continue "
+                "from the archived summary.",
+                True,
             )
         ms = _open_ms()
         try:
@@ -208,6 +287,7 @@ def make_recall_history(
         session_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         tool_call_id: Optional[str] = None,
+        max_bytes: int = _DEFAULT_RECALL_MAX_BYTES,
     ) -> ToolChunk:
         try:
             text, ok = await asyncio.to_thread(
@@ -234,7 +314,41 @@ def make_recall_history(
                 "explicitly that you could not retrieve the context.",
                 False,
             )
-        text, metadata = truncate_text_output(text)
+        bounded_max_bytes = max(
+            1024,
+            min(int(max_bytes), _MAX_RECALL_MAX_BYTES),
+        )
+        encoded = text.encode("utf-8")
+        metadata: dict[str, Any] = {}
+        if len(encoded) > bounded_max_bytes:
+            notice = _RECALL_TRUNCATION_NOTICE.encode("utf-8")
+            excerpt_budget = max(0, bounded_max_bytes - len(notice))
+            excerpt = encoded[:excerpt_budget].decode("utf-8", errors="ignore")
+            if "\n" in excerpt:
+                excerpt = excerpt.rsplit("\n", 1)[0]
+            text = excerpt + _RECALL_TRUNCATION_NOTICE
+            metadata = {
+                "qwenpaw_recall": {
+                    "truncated": True,
+                    "original_bytes": len(encoded),
+                    "max_bytes": bounded_max_bytes,
+                },
+            }
+            if loop_guard is not None:
+                loop_guard.block(
+                    op,
+                    {
+                        "lo": lo,
+                        "hi": hi,
+                        "query": query,
+                        "k": k,
+                        "kind": kind,
+                        "all_agents": all_agents,
+                        "session_id": session_id,
+                        "agent_id": agent_id,
+                        "tool_call_id": tool_call_id,
+                    },
+                )
         return ToolChunk(
             content=[TextBlock(type="text", text=text)],
             state=ToolResultState.SUCCESS if ok else ToolResultState.ERROR,

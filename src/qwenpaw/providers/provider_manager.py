@@ -2217,6 +2217,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     "generate_kwargs",
                     "max_tokens",
                     "max_input_length",
+                    "max_input_length_configured",
                     "relay_reasoning",
                     "thinking_enabled",
                     "thinking_budget",
@@ -2244,6 +2245,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                                 model.max_input_length = cfg[
                                     "max_input_length"
                                 ]
+                            model.max_input_length_configured = bool(
+                                cfg.get("max_input_length_configured", False),
+                            )
                             if cfg.get("relay_reasoning") is not None:
                                 model.relay_reasoning = cfg["relay_reasoning"]
                             if cfg.get("thinking_enabled") is not None:

@@ -21,7 +21,8 @@ from agentscope.message import (
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
-from qwenpaw.agents.context.types import LogEntry
+from qwenpaw.agents.context.scroll.recall_tool import RecallLoopGuard
+from qwenpaw.agents.context.types import ContextWindowUnfitError, LogEntry
 from qwenpaw.agents.memory.base_memory_manager import BaseMemoryManager
 from qwenpaw.agents.tools.utils import truncate_text_output
 from qwenpaw.constant import AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY
@@ -672,6 +673,121 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
     assert out_text(0).count("[scroll folded]") == 1
     assert out_text(2) == "RESULT-2"
     assert mgr.last_compress["folded"] == 0  # nothing newly folded
+
+
+async def test_large_recall_result_becomes_terminal_stub_and_blocks_retry(
+    store: HistoryStore,
+):
+    guard = RecallLoopGuard()
+    recall_turn = Msg(
+        name="a",
+        role="assistant",
+        content=[
+            ToolCallBlock(
+                type="tool_call",
+                id="recall-1",
+                name="recall_history",
+                input='{"op":"expand","lo":10,"hi":20}',
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="recall-1",
+                name="recall_history",
+                output=[TextBlock(type="text", text="history\n" * 100)],
+            ),
+        ],
+    )
+    ctx = [user("find the old decision"), recall_turn]
+    mgr = make_manager(
+        store,
+        compact_tool_result_max_bytes=100,
+        recall_loop_guard=guard,
+    )
+    agent = FakeAgent(ctx, tokens=[600, 90])
+    agent._split_return = (ctx, [])
+
+    await mgr.compress(agent)
+
+    output = recall_turn.content[1].output[0].text
+    assert output.startswith("[scroll recall folded]")
+    assert "Do NOT recall this tool result" in output
+    assert guard.is_blocked("expand", {"lo": 10, "hi": 20})
+
+
+async def test_single_message_over_hard_limit_fails_closed(
+    store: HistoryStore,
+):
+    mgr = make_manager(store)
+    agent = FakeAgent([user("oversized request")], tokens=1200)
+
+    with pytest.raises(ContextWindowUnfitError) as exc:
+        await mgr.compress(agent)
+
+    assert exc.value.tokens == 1200
+    assert exc.value.hard_limit == 1000
+    assert mgr.last_compress_result["status"] == "UNFIT"
+
+
+async def test_emergency_summary_uses_text_only_tool_ledger_and_fits(
+    store: HistoryStore,
+):
+    class EmergencyModel(FakeModel):
+        def __init__(self) -> None:
+            super().__init__([1200, 100, 300], context_size=1000)
+            self.summary_messages = None
+
+        async def generate_structured_output(
+            self,
+            *,
+            messages,
+            structured_model,
+        ):
+            self.summary_messages = messages
+            return SimpleNamespace(
+                content={
+                    "task_overview": "update the skill",
+                    "current_state": "target file and comparison rule found",
+                    "important_discoveries": "KEEP and FIX must be paired",
+                    "next_steps": "edit and validate SKILL.md",
+                    "context_to_preserve": "keep four pattern categories",
+                },
+            )
+
+    active_reply = assistant_with_tool("call-read", "very large file output")
+    ctx = [user("add comparison analysis to SKILL.md"), active_reply]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx)
+    agent.model = EmergencyModel()
+    agent.context_config = SimpleNamespace(
+        trigger_ratio=0.1,
+        reserve_ratio=0.5,
+        summary_schema={"type": "object"},
+        summary_template=(
+            "Task: {task_overview}\nState: {current_state}\n"
+            "Discoveries: {important_discoveries}\nNext: {next_steps}\n"
+            "Preserve: {context_to_preserve}"
+        ),
+    )
+    agent._split_return = (ctx, [])
+
+    await mgr.compress(agent)
+
+    assert mgr.last_compress_result == {
+        "status": "DEGRADED_FIT",
+        "tokens": 300,
+        "hard_limit": 1000,
+    }
+    assert mgr.last_compress["summarized"] == 1
+    assert len(agent.state.context) == 3
+    assert "Emergency active-turn checkpoint" in active_reply.content[0].text
+    assert "edit and validate SKILL.md" in active_reply.content[0].text
+    assert agent.model.summary_messages is not None
+    summary_block_types = {
+        block.type
+        for msg in agent.model.summary_messages
+        for block in msg.content
+    }
+    assert summary_block_types == {"text"}
 
 
 async def test_steady_state_counts_once_and_warns_once(
