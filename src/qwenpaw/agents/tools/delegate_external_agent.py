@@ -684,6 +684,18 @@ async def _stream_action_responses(
         return
 
     event = final_text_event or final_fallback_event or run_result.get("event")
+    # Skip the final block if its text was already streamed as a snapshot.
+    rendered_final = render_event_text(event) if event else None
+    already_streamed = (
+        rendered_final is not None
+        and rendered_final.strip() in seen_stream_items
+    )
+    if already_streamed:
+        yield response_text(
+            f"runner: {runner_name} working directory: {execution_cwd}",
+            is_last=True,
+        )
+        return
     yield format_final_assistant_response(
         runner_name=runner_name,
         execution_cwd=execution_cwd,
