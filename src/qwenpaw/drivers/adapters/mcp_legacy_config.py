@@ -39,6 +39,7 @@ from ..contracts import (
 )
 from ..credentials.types import CredentialRecord
 from ..manager import DriverManager
+from ..storage import load_card
 
 
 @dataclass
@@ -68,6 +69,19 @@ class LegacyMCPMigrationReport:
         default_factory=list,
     )
     warnings: list[LegacyMCPMigrationWarning] = field(default_factory=list)
+
+
+@dataclass
+class LegacyMCPUpgradedBinding:
+    card_name: str
+    container: str
+    key: str
+    var: str
+
+
+@dataclass
+class LegacyMCPUpgradeReport:
+    upgraded: list[LegacyMCPUpgradedBinding] = field(default_factory=list)
 
 
 async def migrate_legacy_mcp_if_needed(
@@ -334,6 +348,194 @@ def _write_report(cards_dir: Path, report: LegacyMCPMigrationReport) -> None:
         return
     cards_dir.mkdir(parents=True, exist_ok=True)
     path = cards_dir / ".legacy_mcp_migration_report.yaml"
+    payload = asdict(report)
+    path.write_text(
+        yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+
+async def upgrade_legacy_mcp_credentials(
+    driver_manager: DriverManager,
+) -> LegacyMCPUpgradeReport:
+    """Self-heal MCP cards migrated before the #6029 fix.
+
+    Re-runs the ``env:`` conversion over already-migrated cards whose
+    credential secrets still hold a literal single ``${VAR}``.  Uses the
+    same ``plan_env_ref_bindings`` as fresh migration, so the decision
+    boundary is identical: real secrets (no ``${WORD}``) are untouched.
+    """
+    report = LegacyMCPUpgradeReport()
+    for path in await driver_manager.card_store.list_paths():
+        card = await asyncio.to_thread(load_card, path)
+        if card.protocol != PROTOCOL_MCP:
+            continue
+        await _upgrade_one_card(card, driver_manager, report)
+    await asyncio.to_thread(
+        _write_upgrade_report,
+        driver_manager.cards_dir,
+        report,
+    )
+    return report
+
+
+async def _upgrade_one_card(
+    card: DriverCard,
+    driver_manager: DriverManager,
+    report: LegacyMCPUpgradeReport,
+) -> None:
+    endpoint = card.endpoint
+    if not isinstance(endpoint, dict):
+        return
+    to_clear: dict[str, set[str]] = {}
+    changed = False
+    for container_name in ("headers", "env"):
+        container = endpoint.get(container_name)
+        if not isinstance(container, dict):
+            continue
+        for key, spec in list(container.items()):
+            planned = await _plan_binding_upgrade(
+                spec,
+                card,
+                driver_manager,
+            )
+            if planned is None:
+                continue
+            new_spec, alias, var, store_ref, field_name = planned
+            container[key] = new_spec
+            card.credentials[alias] = CredentialRef(
+                kind=CREDENTIAL_KIND_STATIC,
+                ref=env_ref(var),
+            )
+            to_clear.setdefault(store_ref, set()).add(field_name)
+            report.upgraded.append(
+                LegacyMCPUpgradedBinding(
+                    card_name=card.name,
+                    container=container_name,
+                    key=str(key),
+                    var=var,
+                ),
+            )
+            changed = True
+    if not changed:
+        return
+    await _clear_upgraded_secrets(driver_manager, card, to_clear)
+    await driver_manager.card_store.save(card)
+
+
+def _credential_source_ref(
+    spec: Any,
+    card: DriverCard,
+) -> tuple[str, str] | None:
+    """Return (store_ref, field) for an upgradable credential binding."""
+    if not isinstance(spec, dict) or spec.get("source") != "credential":
+        return None
+    alias = str(spec.get("credential") or "")
+    field_name = str(spec.get("field") or "")
+    if not alias or not field_name:
+        return None
+    cred_ref = card.credentials.get(alias)
+    store_ref = str(getattr(cred_ref, "ref", "") or "")
+    if not store_ref or store_ref.startswith("env:"):
+        return None
+    return store_ref, field_name
+
+
+async def _plan_binding_upgrade(
+    spec: Any,
+    card: DriverCard,
+    driver_manager: DriverManager,
+) -> tuple[dict[str, str], str, str, str, str] | None:
+    resolved = _credential_source_ref(spec, card)
+    if resolved is None:
+        return None
+    store_ref, field_name = resolved
+    try:
+        record = await driver_manager.credential_store.get(store_ref)
+    except Exception:
+        return None
+    literal = record.secrets.get(field_name)
+    if not isinstance(literal, str):
+        return None
+    plan = plan_env_ref_bindings({field_name: literal})
+    new_spec = plan.env_bindings.get(field_name)
+    if new_spec is None:
+        return None
+    new_alias, var = next(iter(plan.env_aliases.items()))
+    return new_spec, new_alias, var, store_ref, field_name
+
+
+async def _clear_upgraded_secrets(
+    driver_manager: DriverManager,
+    card: DriverCard,
+    to_clear: dict[str, set[str]],
+) -> None:
+    store = driver_manager.credential_store
+    for store_ref, fields in to_clear.items():
+        try:
+            record = await store.get(store_ref)
+        except Exception:
+            continue
+        remaining = {
+            key: value
+            for key, value in record.secrets.items()
+            if key not in fields
+        }
+        if remaining:
+            await store.put(
+                CredentialRecord(
+                    ref=record.ref,
+                    kind=record.kind,
+                    public=record.public,
+                    secrets=remaining,
+                    meta=record.meta,
+                ),
+            )
+            continue
+        await store.delete(store_ref)
+        _prune_orphan_credential_aliases(card, store_ref)
+
+
+def _prune_orphan_credential_aliases(
+    card: DriverCard,
+    store_ref: str,
+) -> None:
+    referenced = _referenced_aliases(card)
+    orphans = [
+        alias
+        for alias, cred in dict(card.credentials).items()
+        if str(getattr(cred, "ref", "") or "") == store_ref
+        and alias not in referenced
+    ]
+    for alias in orphans:
+        card.credentials.pop(alias, None)
+
+
+def _referenced_aliases(card: DriverCard) -> set[str]:
+    referenced: set[str] = set()
+    endpoint = card.endpoint
+    if not isinstance(endpoint, dict):
+        return referenced
+    for container_name in ("headers", "env"):
+        container = endpoint.get(container_name)
+        if not isinstance(container, dict):
+            continue
+        for spec in container.values():
+            if isinstance(spec, dict) and spec.get("source") == "credential":
+                alias = str(spec.get("credential") or "")
+                if alias:
+                    referenced.add(alias)
+    return referenced
+
+
+def _write_upgrade_report(
+    cards_dir: Path,
+    report: LegacyMCPUpgradeReport,
+) -> None:
+    if not report.upgraded:
+        return
+    cards_dir.mkdir(parents=True, exist_ok=True)
+    path = cards_dir / ".legacy_mcp_upgrade_report.yaml"
     payload = asdict(report)
     path.write_text(
         yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
