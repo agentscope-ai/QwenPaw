@@ -57,6 +57,13 @@ import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
 import { applyApprovalLevelToRequestBody } from "./approvalPayload";
+import {
+  createHeadlineFilterState,
+  filterHeadlineDelta,
+  flushHeadlineFilter,
+  type HeadlineStreamFilterState,
+  stripScrollHeadlines,
+} from "./headlineFilter";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -540,83 +547,11 @@ function renderSuggestionLabel(command: string, description?: string) {
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
 const WIDE_MODE_STORAGE_KEY = "qwenpaw_chat_wide_mode";
-const HEADLINE_START_RE = /<!--\s*[⟦〚]/;
-const HEADLINE_CLOSE_RE = /[⟧〛]\s*-->/;
-const HEADLINE_LINE_RE =
-  /^[ \t]*(?:<!--)?[ \t]*[⟦〚][ \t]*(.+?)[ \t]*[⟧〛][ \t]*(?:-->)?[ \t]*$/gm;
-
-type HeadlineStreamFilterState = {
-  pending: string;
-  suppressing: boolean;
-};
 
 function isSkillAvailableInConsole(skill: SkillSpec): boolean {
   if (!skill.enabled) return false;
   const channels = skill.channels?.length ? skill.channels : ["all"];
   return channels.includes("all") || channels.includes(DEFAULT_CHANNEL);
-}
-
-function stripScrollHeadlines(text: string): string {
-  return text
-    .replace(HEADLINE_LINE_RE, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function findPotentialHeadlineStart(text: string): number {
-  const commentStart = text.lastIndexOf("<!--");
-  if (commentStart >= 0 && !HEADLINE_START_RE.test(text.slice(commentStart))) {
-    return commentStart;
-  }
-
-  const prefixes = ["<!--", "<!-", "<!", "<"];
-  for (const prefix of prefixes) {
-    if (text.endsWith(prefix)) {
-      return text.length - prefix.length;
-    }
-  }
-  return -1;
-}
-
-function filterHeadlineDelta(
-  delta: string,
-  state: HeadlineStreamFilterState,
-): string {
-  let text = state.pending + delta;
-  state.pending = "";
-  let out = "";
-
-  while (text) {
-    if (state.suppressing) {
-      const close = HEADLINE_CLOSE_RE.exec(text);
-      if (!close) {
-        return out;
-      }
-      text = text.slice(close.index + close[0].length);
-      state.suppressing = false;
-      continue;
-    }
-
-    const start = HEADLINE_START_RE.exec(text);
-    if (start) {
-      out += text.slice(0, start.index);
-      text = text.slice(start.index + start[0].length);
-      state.suppressing = true;
-      continue;
-    }
-
-    const potentialStart = findPotentialHeadlineStart(text);
-    if (potentialStart >= 0) {
-      out += text.slice(0, potentialStart);
-      state.pending = text.slice(potentialStart);
-      return out;
-    }
-
-    out += text;
-    return out;
-  }
-
-  return out;
 }
 
 function sanitizeHeadlinePayload(
@@ -1236,10 +1171,9 @@ export default function ChatPage() {
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
-  const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>({
-    pending: "",
-    suppressing: false,
-  });
+  const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
+    createHeadlineFilterState(),
+  );
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
   const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
   const queueSessionIdRef = useRef(queueSessionId);
@@ -2393,7 +2327,7 @@ export default function ChatPage() {
         }
       }
 
-      headlineStreamFilterRef.current = { pending: "", suppressing: false };
+      headlineStreamFilterRef.current = createHeadlineFilterState();
 
       const response = await fetch(getApiUrl("/console/chat"), {
         method: "POST",
@@ -2949,11 +2883,15 @@ export default function ChatPage() {
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
           if (payloadCompletesResponse(payload)) {
-            headlineStreamFilterRef.current = {
-              pending: "",
-              suppressing: false,
-            };
+            const trailing = flushHeadlineFilter(
+              headlineStreamFilterRef.current,
+            );
+            headlineStreamFilterRef.current = createHeadlineFilterState();
             const output = payload.output;
+            // A completed response normally carries canonical full output,
+            // which already contains any ordinary trailing prefix. Use the
+            // flushed delta only when that canonical output is absent, so it
+            // is neither lost nor duplicated.
             if (!output || (Array.isArray(output) && output.length === 0)) {
               const errorMsg =
                 (payload.error as any)?.message || t("chat.emptyOutputError");
@@ -2961,7 +2899,7 @@ export default function ChatPage() {
                 {
                   type: "message",
                   role: "assistant",
-                  content: [{ type: "text", text: errorMsg }],
+                  content: [{ type: "text", text: trailing || errorMsg }],
                 },
               ];
             }
@@ -3008,7 +2946,7 @@ export default function ChatPage() {
           };
 
           const reconnectIdentity = sessionApi.getSessionIdentity();
-          headlineStreamFilterRef.current = { pending: "", suppressing: false };
+          headlineStreamFilterRef.current = createHeadlineFilterState();
           const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
             headers,
