@@ -32,4 +32,22 @@ async def split_for_compression(
     """Pairing-safe split of the live context into (to_compress, to_reserve),
     reserving roughly ``reserve`` tokens of the recent tail."""
     # pylint: disable-next=protected-access
-    return await agent._split_context_for_compression(reserve, tools)
+    to_compress, to_reserve = await agent._split_context_for_compression(
+        reserve,
+        tools,
+    )
+
+    # DeepSeek/OpenAI constraint: tool messages must be preceded by
+    # assistant message with tool_calls. Shift messages from to_compress
+    # to to_reserve to prevent orphaned tool messages at start of reserve.
+    while to_reserve and to_compress:
+        first_msg = to_reserve[0]
+        role = getattr(first_msg, "role", None) or (
+            first_msg.get("role") if isinstance(first_msg, dict) else None
+        )
+        if role == "tool":
+            to_reserve.insert(0, to_compress.pop())
+        else:
+            break
+
+    return to_compress, to_reserve

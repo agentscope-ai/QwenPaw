@@ -62,3 +62,44 @@ async def test_adapter_forwards_to_the_wrapped_methods():
         ["t"],
     ) == (["compress"], ["reserve"])
     assert seen == {"prepare": True, "split": (0.1, ["t"])}
+
+
+async def test_split_for_compression_keeps_tool_messages_with_assistant():
+    class FakeAgent:
+        async def _split_context_for_compression(self, reserve, tools):
+            _ = (reserve, tools)
+            # Simulate a split that cuts right after the assistant message,
+            # leaving the tool responses in the reserved list.
+
+            class Msg:
+                def __init__(self, role, content):
+                    self.role = role
+                    self.content = content
+
+            to_compress = [
+                Msg("user", "hi"),
+                Msg("assistant", "call tool"),
+            ]
+            to_reserve = [
+                Msg("tool", "result A"),
+                Msg("tool", "result B"),
+                Msg("assistant", "final answer"),
+            ]
+            return (to_compress, to_reserve)
+
+    agent = FakeAgent()
+    to_compress, to_reserve = await _as_internals.split_for_compression(
+        agent,
+        0.1,
+        ["t"],
+    )
+
+    # Move assistant message to start of reserve list to pair with tool
+    assert len(to_compress) == 1
+    assert to_compress[0].role == "user"
+
+    assert len(to_reserve) == 4
+    assert to_reserve[0].role == "assistant"
+    assert to_reserve[1].role == "tool"
+    assert to_reserve[2].role == "tool"
+    assert to_reserve[3].role == "assistant"
