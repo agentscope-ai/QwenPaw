@@ -32,6 +32,7 @@ from qwenpaw.app.channels.renderer import (
 from qwenpaw.schemas import (
     AudioContent,
     ContentType,
+    DataContent,
     FileContent,
     ImageContent,
     Message,
@@ -204,6 +205,84 @@ class TestMessageToParts:
         r = MessageRenderer(RenderStyle(filter_tool_messages=True))
         msg = _mk_message([], MessageType.FUNCTION_CALL)
         assert r.message_to_parts(msg) == []
+
+    def test_filter_tool_calls_keeps_tool_outputs(self):
+        r = MessageRenderer(RenderStyle(filter_tool_calls=True))
+        call_msg = _mk_message(
+            [DataContent(data={"name": "Bash", "arguments": "ls -la"})],
+            MessageType.FUNCTION_CALL,
+        )
+        output_msg = _mk_message(
+            [DataContent(data={"name": "Bash", "output": "done"})],
+            MessageType.FUNCTION_CALL_OUTPUT,
+        )
+
+        assert r.message_to_parts(call_msg) == []
+        output_parts = r.message_to_parts(output_msg)
+        assert any("done" in getattr(p, "text", "") for p in output_parts)
+
+    def test_filter_tool_outputs_keeps_tool_calls(self):
+        r = MessageRenderer(RenderStyle(filter_tool_outputs=True))
+        call_msg = _mk_message(
+            [DataContent(data={"name": "Bash", "arguments": "ls -la"})],
+            MessageType.FUNCTION_CALL,
+        )
+        output_msg = _mk_message(
+            [DataContent(data={"name": "Bash", "output": "done"})],
+            MessageType.FUNCTION_CALL_OUTPUT,
+        )
+
+        call_parts = r.message_to_parts(call_msg)
+        assert any("ls -la" in getattr(p, "text", "") for p in call_parts)
+        assert r.message_to_parts(output_msg) == []
+
+    def test_tool_call_args_limit_is_configurable(self):
+        r = MessageRenderer(RenderStyle(tool_call_args_limit=3))
+        msg = _mk_message(
+            [DataContent(data={"name": "Bash", "arguments": "abcdef"})],
+            MessageType.FUNCTION_CALL,
+        )
+
+        parts = r.message_to_parts(msg)
+        assert any("abc..." in getattr(p, "text", "") for p in parts)
+        assert not any("abcdef" in getattr(p, "text", "") for p in parts)
+
+    def test_tool_output_head_tail_truncation(self):
+        r = MessageRenderer(
+            RenderStyle(tool_output_head_chars=4, tool_output_tail_chars=3),
+        )
+        msg = _mk_message(
+            [DataContent(data={"name": "Bash", "output": "abcdefghij"})],
+            MessageType.FUNCTION_CALL_OUTPUT,
+        )
+
+        text = "\n".join(
+            getattr(p, "text", "") for p in r.message_to_parts(msg)
+        )
+        assert "abcd\n...\nhij" in text
+        assert "abcdefghij" not in text
+
+    def test_tool_output_block_text_truncation(self):
+        r = MessageRenderer(
+            RenderStyle(tool_output_head_chars=4, tool_output_tail_chars=3),
+        )
+        msg = _mk_message(
+            [
+                DataContent(
+                    data={
+                        "name": "Bash",
+                        "output": '[{"type":"text","text":"abcdefghij"}]',
+                    },
+                ),
+            ],
+            MessageType.FUNCTION_CALL_OUTPUT,
+        )
+
+        text = "\n".join(
+            getattr(p, "text", "") for p in r.message_to_parts(msg)
+        )
+        assert "abcd\n...\nhij" in text
+        assert "abcdefghij" not in text
 
 
 # ---------------------------------------------------------------------------

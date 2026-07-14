@@ -124,6 +124,11 @@ class BaseChannel(ABC):
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         filter_tool_messages: bool = False,
+        filter_tool_calls: bool = False,
+        filter_tool_outputs: bool = False,
+        tool_call_args_limit: int = 200,
+        tool_output_head_chars: int = 500,
+        tool_output_tail_chars: int = 0,
         filter_thinking: bool = False,
         dm_policy: str = "open",
         group_policy: str = "open",
@@ -139,6 +144,11 @@ class BaseChannel(ABC):
         self._on_reply_sent = on_reply_sent
         self._show_tool_details = show_tool_details
         self._filter_tool_messages = filter_tool_messages
+        self._filter_tool_calls = filter_tool_calls
+        self._filter_tool_outputs = filter_tool_outputs
+        self._tool_call_args_limit = tool_call_args_limit
+        self._tool_output_head_chars = tool_output_head_chars
+        self._tool_output_tail_chars = tool_output_tail_chars
         self._filter_thinking = filter_thinking
         self._no_text_debounce = no_text_debounce
         self.streaming_enabled = streaming_enabled
@@ -163,8 +173,13 @@ class BaseChannel(ABC):
         self._render_style = RenderStyle(
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
+            filter_tool_calls=filter_tool_calls,
+            filter_tool_outputs=filter_tool_outputs,
             filter_thinking=filter_thinking,
             internal_tools=internal_tools,
+            tool_call_args_limit=tool_call_args_limit,
+            tool_output_head_chars=tool_output_head_chars,
+            tool_output_tail_chars=tool_output_tail_chars,
         )
         self._renderer = MessageRenderer(self._render_style)
         self._http: Optional[Any] = None
@@ -176,6 +191,37 @@ class BaseChannel(ABC):
         self._debounce_seconds: float = 0.0
         self._debounce_pending: Dict[str, List[Any]] = {}
         self._debounce_timers: Dict[str, asyncio.Task[None]] = {}
+
+    def apply_render_config(
+        self,
+        *,
+        show_tool_details: Optional[bool] = None,
+        filter_tool_messages: Optional[bool] = None,
+        filter_tool_calls: Optional[bool] = None,
+        filter_tool_outputs: Optional[bool] = None,
+        filter_thinking: Optional[bool] = None,
+        tool_call_args_limit: Optional[int] = None,
+        tool_output_head_chars: Optional[int] = None,
+        tool_output_tail_chars: Optional[int] = None,
+    ) -> None:
+        """Apply common channel rendering knobs after construction."""
+        updates = {
+            "show_tool_details": show_tool_details,
+            "filter_tool_messages": filter_tool_messages,
+            "filter_tool_calls": filter_tool_calls,
+            "filter_tool_outputs": filter_tool_outputs,
+            "filter_thinking": filter_thinking,
+            "tool_call_args_limit": tool_call_args_limit,
+            "tool_output_head_chars": tool_output_head_chars,
+            "tool_output_tail_chars": tool_output_tail_chars,
+        }
+        for name, value in updates.items():
+            if value is None:
+                continue
+            if name.endswith("_limit") or name.endswith("_chars"):
+                value = max(0, int(value))
+            setattr(self._render_style, name, value)
+            setattr(self, f"_{name}", value)
 
     def _is_native_payload(self, payload: Any) -> bool:
         """True if payload is a native dict that can be time-debounced."""
@@ -1106,6 +1152,11 @@ class BaseChannel(ABC):
         filter_tool_messages: bool = False,
         no_text_debounce: bool = True,
         filter_thinking: bool = False,
+        filter_tool_calls: bool = False,
+        filter_tool_outputs: bool = False,
+        tool_call_args_limit: int = 200,
+        tool_output_head_chars: int = 500,
+        tool_output_tail_chars: int = 0,
     ) -> "BaseChannel":
         raise NotImplementedError
 
@@ -1482,7 +1533,7 @@ class BaseChannel(ABC):
         status = getattr(event, "status", None)
         if status != RunStatus.InProgress:
             return False
-        if self._filter_tool_messages:
+        if self._filter_tool_messages or self._filter_tool_outputs:
             return False
         data = getattr(event, "data", None) or {}
         if not isinstance(data, dict) or "output" not in data:
@@ -1851,7 +1902,7 @@ class BaseChannel(ABC):
         preserve from self. filter_tool_messages and filter_thinking are
         per-channel config, so we read from new config.
         """
-        return self.__class__.from_config(
+        channel = self.__class__.from_config(
             process=self._process,
             config=config,
             on_reply_sent=self._on_reply_sent,
@@ -1867,6 +1918,29 @@ class BaseChannel(ABC):
                 False,
             ),
         )
+        channel.apply_render_config(
+            show_tool_details=getattr(self, "_show_tool_details", True),
+            filter_tool_messages=getattr(
+                config,
+                "filter_tool_messages",
+                False,
+            ),
+            filter_tool_calls=getattr(config, "filter_tool_calls", False),
+            filter_tool_outputs=getattr(config, "filter_tool_outputs", False),
+            filter_thinking=getattr(config, "filter_thinking", False),
+            tool_call_args_limit=getattr(config, "tool_call_args_limit", 200),
+            tool_output_head_chars=getattr(
+                config,
+                "tool_output_head_chars",
+                500,
+            ),
+            tool_output_tail_chars=getattr(
+                config,
+                "tool_output_tail_chars",
+                0,
+            ),
+        )
+        return channel
 
     async def health_check(self) -> Dict[str, Any]:
         """Return health status for this channel.

@@ -159,34 +159,19 @@ class ChannelManager:
             if not enabled:
                 continue
 
-            # Handle both Pydantic objects (built-in)
-            # and dicts (custom channels)
-            if isinstance(ch_cfg, dict):
-                filter_tool_messages = ch_cfg.get(
-                    "filter_tool_messages",
-                    False,
-                )
-                filter_thinking = ch_cfg.get("filter_thinking", False)
-                no_text_debounce = ch_cfg.get(
-                    "no_text_debounce",
-                    True,
-                )
-            else:
-                filter_tool_messages = getattr(
-                    ch_cfg,
-                    "filter_tool_messages",
-                    False,
-                )
-                filter_thinking = getattr(
-                    ch_cfg,
-                    "filter_thinking",
-                    False,
-                )
-                no_text_debounce = getattr(
-                    ch_cfg,
-                    "no_text_debounce",
-                    True,
-                )
+            def cfg_value(name: str, default: Any) -> Any:
+                if isinstance(ch_cfg, dict):
+                    return ch_cfg.get(name, default)
+                return getattr(ch_cfg, name, default)
+
+            filter_tool_messages = cfg_value("filter_tool_messages", False)
+            filter_tool_calls = cfg_value("filter_tool_calls", False)
+            filter_tool_outputs = cfg_value("filter_tool_outputs", False)
+            filter_thinking = cfg_value("filter_thinking", False)
+            tool_call_args_limit = cfg_value("tool_call_args_limit", 200)
+            tool_output_head_chars = cfg_value("tool_output_head_chars", 500)
+            tool_output_tail_chars = cfg_value("tool_output_tail_chars", 0)
+            no_text_debounce = cfg_value("no_text_debounce", True)
 
             from_config_kwargs = {
                 "process": process,
@@ -194,7 +179,12 @@ class ChannelManager:
                 "on_reply_sent": on_last_dispatch,
                 "show_tool_details": show_tool_details,
                 "filter_tool_messages": filter_tool_messages,
+                "filter_tool_calls": filter_tool_calls,
+                "filter_tool_outputs": filter_tool_outputs,
                 "filter_thinking": filter_thinking,
+                "tool_call_args_limit": tool_call_args_limit,
+                "tool_output_head_chars": tool_output_head_chars,
+                "tool_output_tail_chars": tool_output_tail_chars,
                 "no_text_debounce": no_text_debounce,
                 "workspace_dir": workspace_dir,
             }
@@ -216,7 +206,18 @@ class ChannelManager:
                 }
 
             try:
-                channels.append(ch_cls.from_config(**filtered_kwargs))
+                channel = ch_cls.from_config(**filtered_kwargs)
+                channel.apply_render_config(
+                    show_tool_details=show_tool_details,
+                    filter_tool_messages=filter_tool_messages,
+                    filter_tool_calls=filter_tool_calls,
+                    filter_tool_outputs=filter_tool_outputs,
+                    filter_thinking=filter_thinking,
+                    tool_call_args_limit=tool_call_args_limit,
+                    tool_output_head_chars=tool_output_head_chars,
+                    tool_output_tail_chars=tool_output_tail_chars,
+                )
+                channels.append(channel)
             except Exception as e:
                 logger.warning(
                     "Failed to initialize channel '%s', skipping: %s",

@@ -43,8 +43,13 @@ class RenderStyle:
     supports_code_fence: bool = True
     use_emoji: bool = True
     filter_tool_messages: bool = False
+    filter_tool_calls: bool = False
+    filter_tool_outputs: bool = False
     filter_thinking: bool = False
     internal_tools: frozenset = frozenset()
+    tool_call_args_limit: int = 200
+    tool_output_head_chars: int = 500
+    tool_output_tail_chars: int = 0
 
 
 def _fmt_tool_call(
@@ -63,7 +68,7 @@ def _fmt_tool_call(
 
 def _fmt_tool_output_label(name: str, style: RenderStyle) -> str:
     if style.use_emoji:
-        return f"✅ **{name}**:"
+        return f"\u2705 **{name}**:"
     if style.supports_markdown:
         return f"**{name}**:"
     return f"{name}:"
@@ -73,6 +78,26 @@ def _fmt_code_block(preview: str, style: RenderStyle) -> str:
     if style.supports_code_fence:
         return f"\n```\n{preview}\n```"
     return f"\n{preview}"
+
+
+def _truncate_preview(
+    text: Any,
+    *,
+    head_chars: int,
+    tail_chars: int = 0,
+) -> str:
+    raw = str(text or "")
+    head = max(0, int(head_chars or 0))
+    tail = max(0, int(tail_chars or 0))
+    if head == 0 and tail == 0:
+        return "..."
+    if len(raw) <= head + tail:
+        return raw
+    if tail == 0:
+        return raw[:head] + "..."
+    if head == 0:
+        return "...\n" + raw[-tail:]
+    return raw[:head] + "\n...\n" + raw[-tail:]
 
 
 class MessageRenderer:
@@ -111,14 +136,48 @@ class MessageRenderer:
                 name = data.get("name") or "tool"
                 if s.show_tool_details:
                     args = data.get("arguments") or "{}"
-                    args_preview = (
-                        args[:200] + "..." if len(args) > 200 else args
+                    args_preview = _truncate_preview(
+                        args,
+                        head_chars=s.tool_call_args_limit,
                     )
                 else:
                     args_preview = "..."
                 text = _fmt_tool_call(name, args_preview, s)
                 out.append(TextContent(text=text))
             return out
+
+        def _media_parts_for_tool_output(
+            content_list: list,
+        ) -> List[_OutgoingPart]:
+            media_types = (
+                ContentType.IMAGE,
+                ContentType.AUDIO,
+                ContentType.VIDEO,
+                ContentType.FILE,
+            )
+            media_parts: List[_OutgoingPart] = []
+            for c in content_list:
+                if getattr(c, "type", None) != ContentType.DATA:
+                    continue
+                data = getattr(c, "data", None) or {}
+                name = data.get("name") or "tool"
+                if name in s.internal_tools:
+                    continue
+                output = data.get("output", "")
+                try:
+                    output = json.loads(output)
+                except json.JSONDecodeError:
+                    pass
+                if isinstance(output, list):
+                    block_parts = _blocks_to_parts(output)
+                    media_parts.extend(
+                        [
+                            p
+                            for p in block_parts
+                            if getattr(p, "type", None) in media_types
+                        ],
+                    )
+            return media_parts
 
         def _blocks_to_parts(blocks: list) -> List[_OutgoingPart]:
             result: List[_OutgoingPart] = []
@@ -142,7 +201,15 @@ class MessageRenderer:
                     else:
                         btype = "file"
                 if btype == "text" and b.get("text"):
-                    result.append(TextContent(text=b["text"]))
+                    result.append(
+                        TextContent(
+                            text=_truncate_preview(
+                                b["text"],
+                                head_chars=s.tool_output_head_chars,
+                                tail_chars=s.tool_output_tail_chars,
+                            ),
+                        ),
+                    )
                     continue
                 if btype in ("image", "audio", "video", "file"):
                     src = b.get("source") or {}
@@ -177,7 +244,15 @@ class MessageRenderer:
                             )
                 if btype == "thinking" and b.get("thinking"):
                     if not s.filter_thinking:
-                        result.append(TextContent(text=b["thinking"]))
+                        result.append(
+                            TextContent(
+                                text=_truncate_preview(
+                                    b["thinking"],
+                                    head_chars=s.tool_output_head_chars,
+                                    tail_chars=s.tool_output_tail_chars,
+                                ),
+                            ),
+                        )
             return result
 
         def _parts_for_tool_output(content_list: list) -> List[_OutgoingPart]:
@@ -211,7 +286,7 @@ class MessageRenderer:
                             ContentType.FILE,
                         )
                         # Internal tools (e.g. view_image/view_video) produce
-                        # media for the LLM, not the user — skip.
+                        # media for the LLM, not the user; skip.
                         media_parts = (
                             []
                             if name in s.internal_tools
@@ -233,7 +308,11 @@ class MessageRenderer:
 
                 if isinstance(output, str):
                     preview = (
-                        (output[:500] + "..." if len(output) > 500 else output)
+                        _truncate_preview(
+                            output,
+                            head_chars=s.tool_output_head_chars,
+                            tail_chars=s.tool_output_tail_chars,
+                        )
                         if s.show_tool_details
                         else "..."
                     )
@@ -248,7 +327,11 @@ class MessageRenderer:
                 if output is not None:
                     raw = str(output)
                     preview = (
-                        (raw[:500] + "..." if len(raw) > 500 else raw)
+                        _truncate_preview(
+                            raw,
+                            head_chars=s.tool_output_head_chars,
+                            tail_chars=s.tool_output_tail_chars,
+                        )
                         if s.show_tool_details
                         else "..."
                     )
@@ -265,7 +348,7 @@ class MessageRenderer:
             MessageType.PLUGIN_CALL,
             MessageType.MCP_TOOL_CALL,
         ):
-            if s.filter_tool_messages:
+            if s.filter_tool_messages or s.filter_tool_calls:
                 return []
             parts = _parts_for_tool_call(content)
             if not parts:
@@ -277,36 +360,8 @@ class MessageRenderer:
             MessageType.PLUGIN_CALL_OUTPUT,
             MessageType.MCP_TOOL_CALL_OUTPUT,
         ):
-            if s.filter_tool_messages:
-                media_types = (
-                    ContentType.IMAGE,
-                    ContentType.AUDIO,
-                    ContentType.VIDEO,
-                    ContentType.FILE,
-                )
-                media_parts = []
-                for c in content:
-                    if getattr(c, "type", None) != ContentType.DATA:
-                        continue
-                    data = getattr(c, "data", None) or {}
-                    name = data.get("name") or "tool"
-                    if name in s.internal_tools:
-                        continue
-                    output = data.get("output", "")
-                    try:
-                        output = json.loads(output)
-                    except json.JSONDecodeError:
-                        pass
-                    if isinstance(output, list):
-                        block_parts = _blocks_to_parts(output)
-                        media_parts.extend(
-                            [
-                                p
-                                for p in block_parts
-                                if getattr(p, "type", None) in media_types
-                            ],
-                        )
-                return media_parts
+            if s.filter_tool_messages or s.filter_tool_outputs:
+                return _media_parts_for_tool_output(content)
             parts = _parts_for_tool_output(content)
             if not parts:
                 parts = [TextContent(text=f"[{msg_type}]")]
@@ -316,7 +371,7 @@ class MessageRenderer:
         for c in content:
             ctype = getattr(c, "type", None)
             if ctype == ContentType.TEXT and getattr(c, "text", None):
-                # Hide the scroll headline (⟦ … ⟧) from display; it stays in
+                # Hide scroll headline markers from display; they stay in
                 # context and the durable index. No-op when absent.
                 text = strip_headline(c.text)
                 if text:

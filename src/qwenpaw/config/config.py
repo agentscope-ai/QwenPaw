@@ -200,6 +200,11 @@ class BaseChannelConfig(BaseModel):
     enabled: bool = False
     bot_prefix: str = ""
     filter_tool_messages: bool = False
+    filter_tool_calls: bool = False
+    filter_tool_outputs: bool = False
+    tool_call_args_limit: int = Field(default=200, ge=0)
+    tool_output_head_chars: int = Field(default=500, ge=0)
+    tool_output_tail_chars: int = Field(default=0, ge=0)
     filter_thinking: bool = False
     dm_policy: Literal["open", "allowlist"] = "open"
     group_policy: Literal["open", "allowlist"] = "open"
