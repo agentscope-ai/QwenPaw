@@ -2453,6 +2453,7 @@
     "approveFailed": "Falhou ao aprovar",
     "denyFailed": "Falhou ao negar",
     "approvePattern": "Sempre Permitir",
+    "strictModeHint": "Sempre permitir não está disponível no modo estrito",
     "approveExact": "Apenas Desta Vez",
     "approvalScope": "Escopo de aprovação",
     "details": "Detalhes",

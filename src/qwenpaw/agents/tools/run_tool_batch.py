@@ -73,7 +73,7 @@ def _extract_text(response: ToolResponse) -> str:
 
 # Error prefixes/patterns used by built-in tools (plain-text responses).
 # Covers:
-#   file_io / file_search / view_media / send_file
+#   file_io / file_search / view_media / send_file / get_current_time
 #       / delegate_external_agent          →  "Error: ..."
 #   agent_management (chat/submit/check)   →  "ERROR: ..."
 #   shell (non-zero exit)                  →  "Command failed ..."

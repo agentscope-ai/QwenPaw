@@ -9,17 +9,20 @@
     "github": "GitHub",
     "githubComingSoon": "Coming Soon",
     "lang": "中文",
+    "platform": "Platform",
+    "platformTitle": "AgentScope Platform",
     "agentscopeTeam": "AgentScope"
   },
   "hero": {
     "titleleft": "Your Personal",
     "titleright": "AI assistant",
     "slogan": "Works for you, grows with you",
-    "sub": "{{version}}: QwenPaw custom LLMs, safety architecture, multi-agent collaboration,",
-    "sub1": "and memory management — all upgraded, all yours.",
+    "sub": "{{version}}: QwenPaw custom Agent OS, Loop Engineering, Scroll Context, ReMe v0.4,",
+    "sub1": "and TUI — all upgraded, all yours.",
     "releaseNote": "QwenPaw {{version}} is released",
     "cta": "Read the docs",
-    "quickStart": "Quick Start"
+    "quickStart": "Quick Start",
+    "quickTry": "Try Now"
   },
   "follow": {
     "title": "Follow us",
@@ -51,26 +54,21 @@
     "sub": "Memory and personalization under your control.",
     "learnMore": "Learn more",
     "cards": {
-      "skills": {
-        "title": "Security Architecture",
-        "desc": "QwenPaw 1.0 adopts a three-layer defense architecture—Tool Guard, File Guard, and Skill Scanner—to protect against runtime threats, unauthorized file access, and risky skill installations across all agent operations."
+      "agentOs": {
+        "title": "Agent OS",
+        "desc": "QwenPaw 2.0 introduces Agent OS Foundation, an open intelligence layer powered by an OS-like Harness that connects models and applications. More QwenPaw-powered mini apps and lightweight applications are on the way."
       },
-      "control": {
-        "title": "Multi-agent Workspaces",
-        "desc": "QwenPaw 1.0 enables multiple isolated agent workspaces to run concurrently within a single instance, each with independent configurations and memory, supporting asynchronous collaboration for complex multi-role tasks."
+      "tui": {
+        "title": "Terminal UI",
+        "desc": "A full-screen terminal chat experience built with Textual, featuring streaming responses, rendered tool calls, and session management—with sessions and memory shared across the console and channels."
       },
-      "apps": {
-        "title": "QwenPaw Custom Models",
-        "desc": "QwenPaw 1.0 introduces the QwenPaw-Flash series—purpose-built small models for local deployment that require no cloud dependency, offer one-click setup, and are specifically optimized for high-frequency tasks such as document processing, memory update, and information retrieval.",
-        "learnMoreHref": "https://huggingface.co/agentscope-ai"
+      "scrollContext": {
+        "title": "Scroll Context",
+        "desc": "Every conversation turn is persisted to SQLite in real time. When the context window fills, indexed entries are evicted instead of summarized, while the original content remains available for on-demand recall."
       },
-      "memory": {
-        "title": "Memory",
-        "desc": "Compress context and tool output; turn experience into reusable memory—personalization stays under your control."
-      },
-      "toolkit": {
-        "title": "Tools, Skills & MCP",
-        "desc": "20+ built-in tools and skills with hot reload; plug in MCP and add skills anytime—your toolkit grows with QwenPaw."
+      "loopEngineering": {
+        "title": "Loop Engineering",
+        "desc": "Agent execution moves from hard-coded logic to composable orchestration. Workflows can already be assembled through plugin interfaces, with more loop-control patterns coming as official “Oh-My-Paw” plugins."
       }
     }
   },

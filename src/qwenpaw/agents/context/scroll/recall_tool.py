@@ -229,9 +229,11 @@ def make_recall_history(
                 "explicitly that you could not retrieve the context.",
                 False,
             )
+        text, metadata = truncate_text_output(text)
         return ToolChunk(
-            content=[TextBlock(type="text", text=truncate_text_output(text))],
+            content=[TextBlock(type="text", text=text)],
             state=ToolResultState.SUCCESS if ok else ToolResultState.ERROR,
+            metadata=metadata,
         )
 
     recall_history.__doc__ = _DOC

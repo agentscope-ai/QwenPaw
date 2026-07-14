@@ -494,7 +494,8 @@ application is constructed with the new configuration.
 
 This timezone is used for:
 
-- Displaying the current time prepended to each user message
+- Displaying the current time in the agent's system prompt
+- The `get_current_time` tool
 - Default timezone for new cron jobs (CLI and console)
 - Heartbeat active hours evaluation
 

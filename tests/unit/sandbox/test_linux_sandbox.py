@@ -337,15 +337,19 @@ class TestLinuxSandboxRuleCompilation:
 
 
 # ============================================================================
-# Governance: sandbox_available=False → SANDBOX_FALLBACK escalates to ASK
+# Governance: sandbox_available=False when the platform cannot sandbox
 # ============================================================================
 
 
 class TestGovernanceSandboxUnavailable:
-    """Test SANDBOX_FALLBACK escalates to ASK when sandbox unavailable."""
+    """Probe degradation: sandbox_available is False when unsupported.
+
+    (A shell SANDBOX_FALLBACK then runs unsandboxed via ALLOW in
+    ``assert_policy``; that behavior is covered in test_policy.py.)
+    """
 
     def test_sandbox_fallback_becomes_ask(self):
-        """When sandbox is unavailable, SANDBOX_FALLBACK should become ASK."""
+        """When the platform cannot sandbox, ``sandbox_available`` is False."""
         cap = SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,

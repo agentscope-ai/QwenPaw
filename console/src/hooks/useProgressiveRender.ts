@@ -37,7 +37,7 @@ export function useProgressiveRender<T>(items: T[]) {
           loadMore();
         }
       },
-      { rootMargin: "200px" },
+      { root: null, rootMargin: "200px" },
     );
 
     observer.observe(sentinel);

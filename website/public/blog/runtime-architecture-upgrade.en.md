@@ -444,7 +444,7 @@ Adding a new management interface = writing one `@api_action` method. Triple reg
 
 `ToolCoordinator` (`src/qwenpaw/tool_calls/`) provides **single tool call granularity** control. In the old system, `/stop` could only kill the entire agent. Now individual tool calls can be tracked, cancelled, or backgrounded.
 
-Key components include `ToolCallEntry` (per-call state), `ToolCallStatus` (PENDING → RUNNING → DONE / CANCELLED state machine), `ToolCoordinatorMiddleware` (injected into agent middleware stack), `ToolResultLimiter` (result size limiting), `ToolStream` (streaming tool output), `ToolCallContext` / `ToolHookRegistry` (HITL lifecycle hooks), etc.
+Key components include `ToolCallEntry` (per-call state), `ToolCallStatus` (PENDING → RUNNING → DONE / CANCELLED state machine), `ToolCoordinatorMiddleware` (injected into agent middleware stack), `ToolResultPruningMiddleware` (tool result pruning), `ToolStream` (streaming tool output), `ToolCallContext` / `ToolHookRegistry` (HITL lifecycle hooks), etc.
 
 ### ApprovalCoordinator — Cross-Agent Approval
 

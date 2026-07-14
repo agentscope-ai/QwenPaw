@@ -363,7 +363,7 @@ class MockLLMHandler(BaseHTTPRequestHandler):
     Behaviour matrix (checked in order):
       1. ``server.force_error`` is True  → 422
       2. Request has ``tools`` AND no ``role=tool`` message
-         → stream a tool_call for ``get_token_usage``
+         → stream a tool_call for ``get_current_time``
       3. Request has a ``role=tool`` message (round 2)
          → stream text summarising the tool result
       4. Otherwise → stream ``MOCK_LLM_RESPONSE``
@@ -512,7 +512,7 @@ class MockLLMHandler(BaseHTTPRequestHandler):
         tool_name = getattr(
             self.server,
             "tool_call_name",
-            "get_token_usage",
+            "get_current_time",
         )
         tool_args = getattr(self.server, "tool_call_arguments", "{}")
 
