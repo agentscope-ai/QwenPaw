@@ -23,8 +23,7 @@ import each session's saved messages into its ``history.db``. The import is:
 
 When ``chats.json`` maps a session file, its chat ``session_id`` is canonical,
 so synced rows land under the same conversation id the live Scroll writer
-uses. Unregistered files fall back to an embedded AgentState id and finally to
-a synthetic ``sync:<filename>`` id.
+uses. Files not registered there are reported as orphans and not imported.
 """
 
 from __future__ import annotations
@@ -63,6 +62,7 @@ class FileResult:
     rows_processed: int = 0  # LogEntry rows attempted
     rows_inserted: int = 0  # rows actually new (delta of history.count)
     skipped: bool = False  # short-circuited via manifest (already synced)
+    orphaned: bool = False  # not referenced by the supplied chat registry
     errored: bool = False  # file unreadable / not a recognizable session
 
 
@@ -78,7 +78,10 @@ class SyncReport:
             {
                 f.session_id
                 for f in self.files
-                if not f.skipped and not f.errored and f.session_id
+                if not f.skipped
+                and not f.orphaned
+                and not f.errored
+                and f.session_id
             },
         )
 
@@ -89,12 +92,16 @@ class SyncReport:
         return sum(
             f.rows_inserted
             for f in self.files
-            if not f.skipped and not f.errored
+            if not f.skipped and not f.orphaned and not f.errored
         )
 
     @property
     def synced_files(self) -> int:
-        return sum(1 for f in self.files if not f.skipped and not f.errored)
+        return sum(
+            1
+            for f in self.files
+            if not f.skipped and not f.orphaned and not f.errored
+        )
 
     @property
     def skipped_files(self) -> int:
@@ -103,6 +110,10 @@ class SyncReport:
     @property
     def errored_files(self) -> int:
         return sum(1 for f in self.files if f.errored)
+
+    @property
+    def orphaned_files(self) -> int:
+        return sum(1 for f in self.files if f.orphaned)
 
     @property
     def unparseable(self) -> int:
@@ -122,6 +133,8 @@ class SyncReport:
         ]
         if self.skipped_files:
             parts.append(f"{self.skipped_files} unchanged")
+        if self.orphaned_files:
+            parts.append(f"{self.orphaned_files} orphaned")
         if self.aged_out:
             parts.append(
                 f"{self.aged_out} message(s) older than retention",
@@ -168,16 +181,16 @@ def _save_manifest(manifest_path: Path, manifest: dict) -> None:
 
 def _extract_session(
     data: dict,
-    stem: str,
-    session_id_override: str | None = None,
+    session_id: str,
 ) -> tuple[str, list[Msg], int]:
     """Pull ``(session_id, messages, unparseable)`` from a session state dict.
 
     Handles both on-disk shapes ``QwenPawAgent.load_state_dict`` accepts: the
-    2.0 ``{"state": {...}}`` (where the real ``session_id`` lives) and the 1.x
-    legacy ``{"memory": {...}}``. Both reduce to a flat list of payloads, then
-    a tolerant decode loop: a payload the current ``Msg`` schema can't validate
-    is counted unparseable and skipped, never aborting the file.
+    2.0 ``{"state": {...}}`` and the 1.x legacy ``{"memory": {...}}``. The
+    caller supplies the canonical registry ID; embedded state IDs are ignored.
+    Both shapes reduce to a flat list of payloads, then a tolerant decode loop:
+    a payload the current ``Msg`` schema can't validate is counted unparseable
+    and skipped, never aborting the file.
     """
     agent = data.get("agent")
     if not isinstance(agent, dict):
@@ -185,12 +198,8 @@ def _extract_session(
         agent = data
 
     raw_msgs: list = []
-    session_id = ""
-
     state = agent.get("state")
     if isinstance(state, dict):
-        # 2.0 format — session_id lives here.
-        session_id = state.get("session_id") or ""
         ctx = state.get("context")
         if isinstance(ctx, list):
             raw_msgs = ctx
@@ -205,14 +214,6 @@ def _extract_session(
                 else:
                     raw_msgs.append(item)
 
-    # The chat registry is authoritative when it maps this exact file. The
-    # AgentScope 2.0 state id is an internal AgentState id and can differ from
-    # the request/chat session id used by Scroll's live writer. Legacy 1.x
-    # state has no embedded id at all.
-    session_id = session_id_override or session_id
-    if not session_id:
-        session_id = f"{_SESSION_PREFIX}{stem}"
-
     messages: list[Msg] = []
     unparseable = 0
     for item in raw_msgs:
@@ -223,8 +224,8 @@ def _extract_session(
         except Exception as exc:  # noqa: BLE001 - tolerate any bad message
             unparseable += 1
             logger.warning(
-                "session-sync: skipping bad message in %s: %s",
-                stem,
+                "session-sync: skipping bad message for %s: %s",
+                session_id,
                 exc,
             )
     return session_id, messages, unparseable
@@ -238,7 +239,7 @@ def _sync_file(
     agent_id: str | None,
     dry_run: bool,
     cutoff: str | None = None,
-    session_id_override: str | None = None,
+    session_id: str,
 ) -> FileResult:
     """Import one ``sessions/*.json`` file into ``conversation_history``.
 
@@ -263,11 +264,7 @@ def _sync_file(
         return res
 
     try:
-        session_id, messages, unparseable = _extract_session(
-            data,
-            path.stem,
-            session_id_override,
-        )
+        session_id, messages, unparseable = _extract_session(data, session_id)
     except Exception as exc:  # noqa: BLE001 - one bad file must not abort sync
         res.errored = True
         logger.warning(
@@ -360,7 +357,7 @@ def _iter_session_files(sessions_path: Path):
 
 
 def _load_chat_session_id_map(
-    chats_path: str | Path | None,
+    chats_path: str | Path,
 ) -> dict[str, str]:
     """Map session file paths to canonical ids from ``chats.json``.
 
@@ -371,8 +368,6 @@ def _load_chat_session_id_map(
     collision between different session ids is treated as ambiguous and
     omitted rather than guessing.
     """
-    if chats_path is None:
-        return {}
     path = Path(chats_path).expanduser()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -432,15 +427,55 @@ def _load_chat_session_id_map(
     return mapping
 
 
+def _report_orphan(
+    report: SyncReport,
+    rel_name: str,
+) -> None:
+    """Record a session file that is absent from the chat registry."""
+    report.files.append(FileResult(filename=rel_name, orphaned=True))
+
+
+def _rekey_synthetic_manifest_session(
+    history: "HistoryStore",
+    prior: dict | None,
+    canonical_id: str | None,
+    *,
+    manifest_matches: bool,
+    dry_run: bool,
+) -> bool:
+    """Rekey an unchanged file previously imported under ``sync:*``."""
+    if not (
+        manifest_matches
+        and not dry_run
+        and canonical_id
+        and prior
+        and prior.get("session_id") != canonical_id
+        and str(prior.get("session_id") or "").startswith(_SESSION_PREFIX)
+    ):
+        return False
+
+    source_id = str(prior.get("session_id") or "")
+    moved, deduplicated = history.rekey_session(source_id, canonical_id)
+    prior["session_id"] = canonical_id
+    logger.info(
+        "session-sync: rekeyed %s -> %s (%d moved, %d deduplicated)",
+        source_id,
+        canonical_id,
+        moved,
+        deduplicated,
+    )
+    return True
+
+
 def sync_sessions_to_history(
     *,
     history: "HistoryStore",
     sessions_dir: str | Path,
+    chats_path: str | Path,
     agent_id: str | None = None,
     dry_run: bool = False,
     use_manifest: bool = True,
     retention_days: int = 0,
-    chats_path: str | Path | None = None,
 ) -> SyncReport:
     """Import every ``sessions/*.json`` under *sessions_dir* into *history*.
 
@@ -451,8 +486,9 @@ def sync_sessions_to_history(
     ``retention_days`` (0 = keep forever) skips messages older than the window,
     so we don't import rows the same-boot purge would delete. A fully aged-out
     session imports 0 rows, and its manifest entry lets later boots skip it.
-    ``chats_path`` optionally supplies the authoritative chat-to-file mapping
-    needed to recover request session ids from legacy and AgentScope state.
+    ``chats_path`` is the authoritative registry: only session files with an
+    exact chat mapping are imported. Unreferenced files are reported as
+    orphans and left untouched.
     """
     sessions_path = Path(sessions_dir).expanduser()
     report = SyncReport()
@@ -474,6 +510,11 @@ def sync_sessions_to_history(
     dirty = False
 
     for path, rel_name in _iter_session_files(sessions_path):
+        canonical_id = canonical_ids.get(rel_name)
+        if canonical_id is None:
+            _report_orphan(report, rel_name)
+            continue
+
         try:
             digest = _sha256(path)
         except OSError as exc:
@@ -484,38 +525,17 @@ def sync_sessions_to_history(
             continue
 
         prior = files_meta.get(rel_name)
-        canonical_id = canonical_ids.get(rel_name)
         manifest_matches = bool(
             use_manifest and prior and prior.get("sha256") == digest,
         )
-        canonical_changed = bool(
-            canonical_id and prior and prior.get("session_id") != canonical_id,
-        )
-        synthetic_prior = str(
-            prior.get("session_id") if prior else "",
-        ).startswith(_SESSION_PREFIX)
-        if (
-            manifest_matches
-            and not dry_run
-            and canonical_changed
-            and synthetic_prior
+        if _rekey_synthetic_manifest_session(
+            history,
+            prior,
+            canonical_id,
+            manifest_matches=manifest_matches,
+            dry_run=dry_run,
         ):
-            assert prior is not None
-            assert canonical_id is not None
-            source_id = str(prior.get("session_id") or "")
-            moved, deduplicated = history.rekey_session(
-                source_id,
-                canonical_id,
-            )
-            prior["session_id"] = canonical_id
             dirty = True
-            logger.info(
-                "session-sync: rekeyed %s -> %s (%d moved, %d deduplicated)",
-                source_id,
-                canonical_id,
-                moved,
-                deduplicated,
-            )
         canonical_matches = bool(
             not canonical_id
             or (prior and prior.get("session_id") == canonical_id),
@@ -543,7 +563,7 @@ def sync_sessions_to_history(
             agent_id=agent_id,
             dry_run=dry_run,
             cutoff=cutoff,
-            session_id_override=canonical_id,
+            session_id=canonical_id,
         )
         report.files.append(res)
         if res.errored:
@@ -566,6 +586,14 @@ def sync_sessions_to_history(
                 "rows_inserted": res.rows_inserted,
             }
             dirty = True
+
+    if report.orphaned_files:
+        logger.warning(
+            "session-sync: skipped %d orphaned session file(s) not registered "
+            "in %s",
+            report.orphaned_files,
+            chats_path,
+        )
 
     if use_manifest and not dry_run and dirty:
         _save_manifest(manifest_path, manifest)
@@ -657,6 +685,7 @@ def _sync_all_scroll_agents() -> None:
         # all collapse onto one workspace.
         workspace_dir = Path(agent_ref.workspace_dir).expanduser()
         sessions_dir = workspace_dir / "sessions"
+        chats_path = workspace_dir / "chats.json"
         if not sessions_dir.is_dir():
             logger.info("session-sync[%s]: no sessions to sync", agent_id)
             continue
@@ -665,10 +694,16 @@ def _sync_all_scroll_agents() -> None:
         # one-time migration isn't a silent stall. Later startups have a
         # manifest and skip straight through.
         if not (sessions_dir / MANIFEST_NAME).exists():
-            pending = sum(1 for _ in _iter_session_files(sessions_dir))
+            canonical_ids = _load_chat_session_id_map(chats_path)
+            pending = sum(
+                1
+                for _path, rel_name in _iter_session_files(sessions_dir)
+                if rel_name in canonical_ids
+            )
             if pending:
                 logger.warning(
-                    "session-sync[%s]: first run — importing %d session "
+                    "session-sync[%s]: first run — importing %d registered "
+                    "session "
                     "file(s) into history.db. This one-time migration may "
                     "take a moment; later startups skip unchanged files.",
                     agent_id,
@@ -684,7 +719,7 @@ def _sync_all_scroll_agents() -> None:
                 sessions_dir=sessions_dir,
                 agent_id=agent_id,
                 retention_days=retention_days,
-                chats_path=workspace_dir / "chats.json",
+                chats_path=chats_path,
             )
             _purge_old_history(history, retention_days, agent_id)
         except Exception as exc:  # noqa: BLE001 - isolate one agent's failure

@@ -4,7 +4,7 @@
 
 Pins the rollout-critical guarantees: non-destructive (source files untouched),
 idempotent (re-runs and the DB UNIQUE index insert nothing new), faithful (rows
-land under the session's embedded ``session_id`` and match the live writer),
+land under the registered canonical ``session_id`` and match the live writer),
 and robust (empty dir / corrupt file never raise).
 """
 
@@ -103,6 +103,29 @@ def _write_chats(path: Path, chats: list[dict]) -> Path:
     return path
 
 
+def _chat(session_id: str, *, channel: str = "", user_id: str = "") -> dict:
+    return {
+        "session_id": session_id,
+        "user_id": user_id,
+        "channel": channel,
+    }
+
+
+def _sync_registered(
+    history: HistoryStore,
+    sessions_dir: Path,
+    chats: list[dict],
+    **kwargs,
+):
+    chats_path = _write_chats(sessions_dir.parent / "chats.json", chats)
+    return sync_sessions_to_history(
+        history=history,
+        sessions_dir=sessions_dir,
+        chats_path=chats_path,
+        **kwargs,
+    )
+
+
 @pytest.fixture
 def store(tmp_path: Path) -> HistoryStore:
     h = HistoryStore(tmp_path / "history.db")
@@ -110,14 +133,19 @@ def store(tmp_path: Path) -> HistoryStore:
     h.close()
 
 
-def test_syncs_session_into_history_under_embedded_id(store, tmp_path: Path):
+def test_syncs_session_under_registered_id(store, tmp_path: Path):
     sessions = tmp_path / "sessions"
-    _write_session_2x(sessions, "conv.json", "real-sid-123", _sample_msgs())
-    report = sync_sessions_to_history(history=store, sessions_dir=sessions)
+    _write_session_2x(
+        sessions,
+        "canonical-sid.json",
+        "internal-state-id",
+        _sample_msgs(),
+    )
+    report = _sync_registered(store, sessions, [_chat("canonical-sid")])
     assert report.rows_inserted > 0
     assert report.sessions == 1
-    # Rows land under the session's OWN embedded id, not the filename.
-    assert store.count("real-sid-123") == report.rows_inserted
+    assert store.count("canonical-sid") == report.rows_inserted
+    assert store.count("internal-state-id") == 0
     # Faithful: the tool result is recallable by its call id.
     rows = store._conn.execute(
         "SELECT content FROM conversation_history "
@@ -126,13 +154,12 @@ def test_syncs_session_into_history_under_embedded_id(store, tmp_path: Path):
     assert rows and rows[0]["content"] == "found it"
 
 
-def test_legacy_1x_session_uses_filename_fallback_id(store, tmp_path: Path):
+def test_legacy_1x_session_requires_registered_id(store, tmp_path: Path):
     sessions = tmp_path / "sessions"
     _write_session_1x(sessions, "old.json", _sample_msgs())
-    report = sync_sessions_to_history(history=store, sessions_dir=sessions)
+    report = _sync_registered(store, sessions, [_chat("old")])
     assert report.rows_inserted > 0
-    # No embedded id in 1.x → synthetic sync:<stem> session.
-    assert store.count("sync:old") == report.rows_inserted
+    assert store.count("old") == report.rows_inserted
 
 
 def test_legacy_1x_session_uses_canonical_id_from_chat_registry(
@@ -204,16 +231,36 @@ def test_existing_synthetic_manifest_is_rekeyed_without_changing_seq(
     tmp_path: Path,
 ):
     sessions = tmp_path / "sessions"
-    _write_session_1x(
+    path = _write_session_1x(
         sessions / "console",
         "default_legacy-session.json",
         _sample_msgs(),
     )
-    first = sync_sessions_to_history(
-        history=store,
-        sessions_dir=sessions,
+    first = sync_mod._sync_file(
+        store,
+        path,
+        "console/default_legacy-session.json",
+        agent_id=None,
+        dry_run=False,
+        session_id="sync:default_legacy-session",
     )
     assert first.rows_inserted > 0
+    sync_mod._save_manifest(
+        sessions / MANIFEST_NAME,
+        {
+            "version": 1,
+            "files": {
+                "console/default_legacy-session.json": {
+                    "sha256": sync_mod._sha256(path),
+                    "session_id": "sync:default_legacy-session",
+                    "messages": first.messages,
+                    "aged_out": first.aged_out,
+                    "rows_processed": first.rows_processed,
+                    "rows_inserted": first.rows_inserted,
+                },
+            },
+        },
+    )
     before = store._conn.execute(
         "SELECT seq FROM conversation_history "
         "WHERE session_id='sync:default_legacy-session' ORDER BY seq",
@@ -253,7 +300,7 @@ def test_existing_synthetic_manifest_is_rekeyed_without_changing_seq(
     )
 
 
-def test_ambiguous_chat_filename_keeps_synthetic_fallback(
+def test_ambiguous_chat_filename_is_reported_as_orphan(
     store,
     tmp_path: Path,
 ):
@@ -267,25 +314,67 @@ def test_ambiguous_chat_filename_keeps_synthetic_fallback(
         ],
     )
 
-    sync_sessions_to_history(
+    report = sync_sessions_to_history(
         history=store,
         sessions_dir=sessions,
         chats_path=chats,
     )
 
-    assert store.count("sync:default_a--b") > 0
+    assert report.orphaned_files == 1
+    assert report.rows_inserted == 0
+    assert report.files[0].orphaned
+    assert store.count("sync:default_a--b") == 0
     assert store.count("a:b") == 0
     assert store.count("a?b") == 0
 
 
+def test_unregistered_sessions_emit_one_aggregate_warning(
+    store,
+    tmp_path: Path,
+    caplog,
+):
+    sessions = tmp_path / "sessions"
+    _write_session_2x(
+        sessions / "console",
+        "default_deleted-session.json",
+        "internal-agent-state-id",
+        _sample_msgs(),
+    )
+    _write_session_1x(sessions, "legacy-orphan.json", _sample_msgs())
+    chats = _write_chats(tmp_path / "chats.json", [])
+
+    with caplog.at_level(logging.WARNING, logger=sync_mod.logger.name):
+        report = sync_sessions_to_history(
+            history=store,
+            sessions_dir=sessions,
+            chats_path=chats,
+        )
+
+    assert report.orphaned_files == 2
+    assert report.synced_files == 0
+    assert report.rows_inserted == 0
+    assert "2 orphaned" in report.summary()
+    assert store.count("internal-agent-state-id") == 0
+    assert not (sessions / MANIFEST_NAME).exists()
+    orphan_warnings = [
+        record
+        for record in caplog.records
+        if "orphaned session file(s)" in record.getMessage()
+    ]
+    assert len(orphan_warnings) == 1
+    assert (
+        "skipped 2 orphaned session file(s)" in orphan_warnings[0].getMessage()
+    )
+
+
 def test_sync_is_idempotent_via_manifest(store, tmp_path: Path):
     sessions = tmp_path / "sessions"
-    _write_session_2x(sessions, "conv.json", "sid", _sample_msgs())
-    sync_sessions_to_history(history=store, sessions_dir=sessions)
+    _write_session_2x(sessions, "sid.json", "sid", _sample_msgs())
+    _sync_registered(store, sessions, [_chat("sid")])
     total = store.count("sid")
     assert (sessions / MANIFEST_NAME).exists()
 
-    second = sync_sessions_to_history(history=store, sessions_dir=sessions)
+    second = _sync_registered(store, sessions, [_chat("sid")])
     assert second.rows_inserted == 0
     assert all(f.skipped for f in second.files)
     assert store.count("sid") == total
@@ -298,12 +387,12 @@ def test_manifest_skip_self_heals_when_db_was_reset(tmp_path: Path):
     on, but history.db is recreated empty. The verified skip must re-sync.
     """
     sessions = tmp_path / "sessions"
-    _write_session_2x(sessions, "conv.json", "sid", _sample_msgs())
+    _write_session_2x(sessions, "sid.json", "sid", _sample_msgs())
 
     db_path = tmp_path / "history.db"
     h1 = HistoryStore(db_path)
     try:
-        sync_sessions_to_history(history=h1, sessions_dir=sessions)
+        _sync_registered(h1, sessions, [_chat("sid")])
         assert h1.count("sid") > 0
         assert (sessions / MANIFEST_NAME).exists()  # manifest claims synced
     finally:
@@ -318,7 +407,7 @@ def test_manifest_skip_self_heals_when_db_was_reset(tmp_path: Path):
     h2 = HistoryStore(db_path)  # fresh, empty
     try:
         assert h2.count("sid") == 0
-        report = sync_sessions_to_history(history=h2, sessions_dir=sessions)
+        report = _sync_registered(h2, sessions, [_chat("sid")])
         # Verified skip detected the empty session and re-synced it.
         assert report.rows_inserted > 0
         assert h2.count("sid") > 0
@@ -329,16 +418,18 @@ def test_manifest_skip_self_heals_when_db_was_reset(tmp_path: Path):
 def test_idempotent_even_without_manifest(store, tmp_path: Path):
     """Without the manifest, the DB UNIQUE index still blocks duplicates."""
     sessions = tmp_path / "sessions"
-    _write_session_2x(sessions, "conv.json", "sid", _sample_msgs())
-    sync_sessions_to_history(
-        history=store,
-        sessions_dir=sessions,
+    _write_session_2x(sessions, "sid.json", "sid", _sample_msgs())
+    _sync_registered(
+        store,
+        sessions,
+        [_chat("sid")],
         use_manifest=False,
     )
     total = store.count("sid")
-    sync_sessions_to_history(
-        history=store,
-        sessions_dir=sessions,
+    _sync_registered(
+        store,
+        sessions,
+        [_chat("sid")],
         use_manifest=False,
     )
     assert store.count("sid") == total
@@ -347,9 +438,9 @@ def test_idempotent_even_without_manifest(store, tmp_path: Path):
 
 def test_sync_never_touches_source_files(store, tmp_path: Path):
     sessions = tmp_path / "sessions"
-    path = _write_session_2x(sessions, "conv.json", "sid", _sample_msgs())
+    path = _write_session_2x(sessions, "sid.json", "sid", _sample_msgs())
     before = path.read_bytes()
-    sync_sessions_to_history(history=store, sessions_dir=sessions)
+    _sync_registered(store, sessions, [_chat("sid")])
     assert path.read_bytes() == before  # byte-for-byte unchanged
 
 
@@ -357,18 +448,22 @@ def test_channel_subdir_sessions_are_covered(store, tmp_path: Path):
     sessions = tmp_path / "sessions"
     _write_session_2x(
         sessions / "discord",
-        "conv.json",
+        "chan-sid.json",
         "chan-sid",
         _sample_msgs(),
     )
-    report = sync_sessions_to_history(history=store, sessions_dir=sessions)
+    report = _sync_registered(
+        store,
+        sessions,
+        [_chat("chan-sid", channel="discord")],
+    )
     assert store.count("chan-sid") > 0
-    assert any(f.filename == "discord/conv.json" for f in report.files)
+    assert any(f.filename == "discord/chan-sid.json" for f in report.files)
 
 
 def test_dotted_archive_dirs_are_skipped(store, tmp_path: Path):
     sessions = tmp_path / "sessions"
-    _write_session_2x(sessions, "conv.json", "sid", _sample_msgs())
+    _write_session_2x(sessions, "sid.json", "sid", _sample_msgs())
     # A .weixin-legacy archive copy must NOT be re-imported.
     _write_session_2x(
         sessions / ".weixin-legacy",
@@ -376,17 +471,18 @@ def test_dotted_archive_dirs_are_skipped(store, tmp_path: Path):
         "archived-sid",
         _sample_msgs(),
     )
-    sync_sessions_to_history(history=store, sessions_dir=sessions)
+    _sync_registered(store, sessions, [_chat("sid")])
     assert store.count("sid") > 0
     assert store.count("archived-sid") == 0
 
 
 def test_dry_run_inserts_nothing_and_writes_no_manifest(store, tmp_path: Path):
     sessions = tmp_path / "sessions"
-    _write_session_2x(sessions, "conv.json", "sid", _sample_msgs())
-    report = sync_sessions_to_history(
-        history=store,
-        sessions_dir=sessions,
+    _write_session_2x(sessions, "sid.json", "sid", _sample_msgs())
+    report = _sync_registered(
+        store,
+        sessions,
+        [_chat("sid")],
         dry_run=True,
     )
     assert store.count("sid") == 0
@@ -395,10 +491,7 @@ def test_dry_run_inserts_nothing_and_writes_no_manifest(store, tmp_path: Path):
 
 
 def test_missing_sessions_dir_is_a_noop(store, tmp_path: Path):
-    report = sync_sessions_to_history(
-        history=store,
-        sessions_dir=tmp_path / "nope",
-    )
+    report = _sync_registered(store, tmp_path / "nope", [])
     assert not report.files
     assert report.summary() == "no sessions to sync"
 
@@ -406,16 +499,20 @@ def test_missing_sessions_dir_is_a_noop(store, tmp_path: Path):
 def test_empty_sessions_dir_is_a_noop(store, tmp_path: Path):
     sessions = tmp_path / "sessions"
     sessions.mkdir()
-    report = sync_sessions_to_history(history=store, sessions_dir=sessions)
+    report = _sync_registered(store, sessions, [])
     assert not report.files
     assert report.summary() == "no sessions to sync"
 
 
 def test_corrupt_session_file_is_skipped_not_fatal(store, tmp_path: Path):
     sessions = tmp_path / "sessions"
-    _write_session_2x(sessions, "good.json", "good-sid", _sample_msgs())
+    _write_session_2x(sessions, "good-sid.json", "good-sid", _sample_msgs())
     (sessions / "bad.json").write_text("{ not valid json", encoding="utf-8")
-    report = sync_sessions_to_history(history=store, sessions_dir=sessions)
+    report = _sync_registered(
+        store,
+        sessions,
+        [_chat("good-sid"), _chat("bad")],
+    )
     assert report.errored_files == 1
     assert store.count("good-sid") > 0  # the good file still landed
 
@@ -428,11 +525,11 @@ def test_unparseable_message_counted_not_fatal(store, tmp_path: Path):
         "session_id": "sid",
         "context": [good, "not a message at all"],
     }
-    (sessions / "conv.json").write_text(
+    (sessions / "sid.json").write_text(
         json.dumps({"agent": {"state": state}}),
         encoding="utf-8",
     )
-    report = sync_sessions_to_history(history=store, sessions_dir=sessions)
+    report = _sync_registered(store, sessions, [_chat("sid")])
     assert report.unparseable >= 1
     assert store.count("sid") >= 1  # the good message still landed
 
@@ -467,13 +564,14 @@ def test_retention_skips_messages_older_than_window(store, tmp_path: Path):
     u, a = _sample_msgs()
     _write_session_dated(
         sessions,
-        "conv.json",
+        "sid.json",
         "sid",
         [(u, old), (a, recent)],
     )
-    report = sync_sessions_to_history(
-        history=store,
-        sessions_dir=sessions,
+    report = _sync_registered(
+        store,
+        sessions,
+        [_chat("sid")],
         retention_days=30,
     )
     assert report.aged_out == 1  # the 40-day-old user turn was skipped
@@ -492,13 +590,14 @@ def test_retention_zero_keeps_everything(store, tmp_path: Path):
     u, a = _sample_msgs()
     _write_session_dated(
         sessions,
-        "conv.json",
+        "sid.json",
         "sid",
         [(u, ancient), (a, ancient)],
     )
-    report = sync_sessions_to_history(
-        history=store,
-        sessions_dir=sessions,
+    report = _sync_registered(
+        store,
+        sessions,
+        [_chat("sid")],
         retention_days=0,
     )
     assert report.aged_out == 0
@@ -514,11 +613,12 @@ def test_fully_aged_session_imports_nothing_and_skips_on_rerun(
     sessions = tmp_path / "sessions"
     old = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
     u, a = _sample_msgs()
-    _write_session_dated(sessions, "conv.json", "sid", [(u, old), (a, old)])
+    _write_session_dated(sessions, "sid.json", "sid", [(u, old), (a, old)])
 
-    r1 = sync_sessions_to_history(
-        history=store,
-        sessions_dir=sessions,
+    r1 = _sync_registered(
+        store,
+        sessions,
+        [_chat("sid")],
         retention_days=30,
     )
     assert r1.rows_inserted == 0
@@ -526,9 +626,10 @@ def test_fully_aged_session_imports_nothing_and_skips_on_rerun(
     assert store.count("sid") == 0
 
     # File unchanged → manifest skip, not re-read (no churn).
-    r2 = sync_sessions_to_history(
-        history=store,
-        sessions_dir=sessions,
+    r2 = _sync_registered(
+        store,
+        sessions,
+        [_chat("sid")],
         retention_days=30,
     )
     assert all(f.skipped for f in r2.files)
@@ -579,9 +680,13 @@ def test_first_run_emits_console_notice_then_stays_quiet(
     workspace = tmp_path / "ws"
     _write_session_2x(
         workspace / "sessions",
-        "conv.json",
+        "sid.json",
         "sid",
         _sample_msgs(),
+    )
+    _write_chats(
+        workspace / "chats.json",
+        [{"session_id": "sid", "user_id": "sid", "channel": ""}],
     )
     _stub_config_loaders(monkeypatch, workspace)
 
