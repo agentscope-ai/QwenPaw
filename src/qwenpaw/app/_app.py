@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=redefined-outer-name,unused-argument
-import inspect
 import asyncio
+import inspect
 import mimetypes
 import os
 import sys
@@ -13,43 +13,49 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
+from ..__version__ import __version__
+from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path
 from ..constant import (
+    CORS_ORIGINS,
     DOCS_ENABLED,
     LOG_LEVEL_ENV,
-    CORS_ORIGINS,
-    WORKING_DIR,
     PROJECT_NAME,
+    WORKING_DIR,
 )
-from ..__version__ import __version__
-from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
+from ..envs import load_envs_into_environ
+from ..local_models.manager import LocalModelManager
+from ..providers.provider_manager import ProviderManager
 from ..utils.logging import (
-    setup_logger,
-    add_project_file_handler,
     LOG_FILE_PATH,
+    add_project_file_handler,
+    setup_logger,
 )
 from ..utils.system_info import summarize_python_environment
-from .auth import AuthMiddleware, auto_register_from_env
-from .routers import router as api_router, create_agent_scoped_router
+from .auth import (
+    AuthMiddleware,
+    auto_register_from_env,
+    check_proxy_config_sanity,
+)
+from .migration import (
+    ensure_default_agent_exists,
+    ensure_qa_agent_exists,
+    migrate_legacy_skills_to_skill_pool,
+    migrate_legacy_workspace_to_default_agent,
+)
+from .routers import create_agent_scoped_router
+from .routers import router as api_router
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
+from .routers.healthz import router as healthz_router
 from .routers.loops import router as loops_router
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
-from ..envs import load_envs_into_environ
-from ..providers.provider_manager import ProviderManager
-from ..local_models.manager import LocalModelManager
-from .migration import (
-    migrate_legacy_workspace_to_default_agent,
-    migrate_legacy_skills_to_skill_pool,
-    ensure_default_agent_exists,
-    ensure_qa_agent_exists,
-)
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -179,6 +185,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         raise RuntimeError(f"{message} Original error: {exc}") from exc
 
     auto_register_from_env()
+    check_proxy_config_sanity()
 
     try:
         from ..utils.telemetry import (
@@ -331,27 +338,27 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         # --- Built-in lifecycle hooks ---
         try:
-            from ..hooks.session.session_hook import (
-                SessionLoadHook,
-                SessionSaveHook,
-            )
             from ..hooks.bootstrap.bootstrap_hook import BootstrapHook
-            from ..hooks.skill_env.skill_env_hook import (
-                SkillEnvHook,
-                SkillEnvCleanupHook,
-            )
             from ..hooks.cron.cron_hook import (
                 CronContextHook,
                 CronMemoryIsolateHook,
                 CronMemoryRestoreHook,
             )
+            from ..hooks.error.error_hook import (
+                CancelCleanupHook,
+                ErrorNormalizeHook,
+            )
             from ..hooks.request_setup.contextvars_hook import (
                 ContextVarsSetupHook,
             )
             from ..hooks.request_setup.media_hook import MediaProcessHook
-            from ..hooks.error.error_hook import (
-                ErrorNormalizeHook,
-                CancelCleanupHook,
+            from ..hooks.session.session_hook import (
+                SessionLoadHook,
+                SessionSaveHook,
+            )
+            from ..hooks.skill_env.skill_env_hook import (
+                SkillEnvCleanupHook,
+                SkillEnvHook,
             )
 
             # pylint: disable-next=protected-access
@@ -372,8 +379,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             try:
                 from ..hooks.observability.langfuse_hook import (
-                    LangfuseTraceHook,
                     LangfuseTraceCleanupHook,
+                    LangfuseTraceHook,
                 )
 
                 # pylint: disable=protected-access
@@ -412,8 +419,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         # --- Built-in modes (CodingMode, MissionMode) ---
         try:
             from ..modes.coding import CodingMode
-            from ..modes.mission import MissionMode
             from ..modes.goal import GoalMode
+            from ..modes.mission import MissionMode
 
             # pylint: disable-next=protected-access
             workspace_registry._bootstrap_kwargs["builtin_mode_clses"] = [
@@ -471,10 +478,12 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     app.state.get_agent_by_id = _get_agent_by_id
 
+    app.state.startup_ready = asyncio.Event()
+    app.state.startup_time = startup_start_time
+
     fast_elapsed = time.time() - startup_start_time
     logger.info(
-        f"Server ready in {fast_elapsed:.3f}s "
-        f"(agents loading in background)",
+        f"Server ready in {fast_elapsed:.3f}s (agents loading in background)",
     )
 
     # ================================================================
@@ -493,9 +502,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             # on first creation — no reload needed afterwards.
             logger.debug("Initializing plugin system...")
 
+            from ..config.utils import get_plugins_dir
             from ..plugins.loader import PluginLoader
             from ..plugins.runtime import RuntimeHelpers
-            from ..config.utils import get_plugins_dir
 
             plugin_dirs = [
                 get_plugins_dir(),
@@ -561,6 +570,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             # ---- Plugin Control Commands ----
             logger.debug("Registering plugin control commands...")
             from qwenpaw.runtime.commands.control import register_command
+
             from ..app.channels.command_registry import CommandRegistry
 
             command_registry = CommandRegistry()
@@ -657,6 +667,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             api_info = read_last_api()
             print_ready_banner(api_info, startup_elapsed)
+
+            app.state.startup_ready.set()
         except Exception:
             logger.error(
                 "Background startup encountered an error",
@@ -736,8 +748,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 logger.error(f"Error stopping MultiAgentManager: {e}")
 
         # These three cleanup tasks are independent; run in parallel.
-        from ..agents.tools.browser_control import stop_all_browsers
         from ..agents.skill_system.hub import aclose_hub_client
+        from ..agents.tools.browser_control import stop_all_browsers
 
         async def _stop_token_usage():
             logger.info("Stopping TokenUsageManager...")
@@ -769,6 +781,19 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             _stop_browsers(),
             _close_hub(),
         )
+
+        # Destroy Windows sandbox artifacts (user accounts, profiles, ACLs,
+        # firewall rules). Runs in a thread because it invokes subprocess
+        # calls (takeown, icacls, net user, powershell) that may block.
+        if sys.platform == "win32":
+            try:
+                from ..sandbox import shutdown_all_sandboxes
+
+                logger.info("Cleaning up Windows sandbox artifacts...")
+                await asyncio.to_thread(shutdown_all_sandboxes)
+                logger.info("Windows sandbox cleanup complete.")
+            except Exception as e:
+                logger.error(f"Error during sandbox cleanup: {e}")
 
         logger.info("Application shutdown complete")
 
@@ -873,6 +898,8 @@ def get_doctor_runtime():
 
 
 app.include_router(api_router, prefix="/api")
+
+app.include_router(healthz_router, prefix="/api")
 
 app.include_router(tool_calls_router, prefix="/api")
 

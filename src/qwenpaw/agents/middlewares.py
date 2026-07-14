@@ -10,23 +10,25 @@ agentscope's ``MiddlewareBase`` hooks.
 
 Currently provided:
 
-* :class:`ToolResultPruningMiddleware` — tiered truncation of tool-call
-  outputs so oversized results don't exhaust the context budget.
+* :class:`ToolResultPruningMiddleware` — truncation of current and historical
+  tool-call outputs so oversized results don't exhaust the context budget.
 """
 
+import asyncio
 import logging
-import uuid
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Set
 
 from agentscope.middleware import MiddlewareBase
 from agentscope.message import Msg
+from agentscope.tool import ToolResponse
 
-from .tools.utils import truncate_text_output, DEFAULT_MAX_BYTES
+from .tools.utils import (
+    DEFAULT_MAX_BYTES,
+    ToolResultPruner,
+)
 from ..constant import (
     AUTO_CONTINUE_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
-    TRUNCATION_NOTICE_MARKER,
 )
 
 if TYPE_CHECKING:
@@ -323,11 +325,12 @@ class MemoryMiddleware(MiddlewareBase):
 
 
 class ToolResultPruningMiddleware(MiddlewareBase):
-    """Truncate oversized tool-call results after each acting step.
+    """Truncate oversized tool-call results around each acting step.
 
-    Implements the ``on_acting`` hook: the inner tool execution runs
-    first, then every ``tool_result`` block in the agent's context is
-    scanned and pruned according to tiered byte thresholds.
+    Implements the ``on_acting`` hook: each ``ToolResponse`` is capped before
+    it is yielded into the agent context, then every historical ``tool_result``
+    block in the agent's context is scanned and pruned according to tiered byte
+    thresholds.
 
     * **Recent** tool results (the last ``recent_n`` tool-bearing messages)
       are capped at ``recent_max_bytes``.
@@ -359,7 +362,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         self._recent_max_bytes = recent_max_bytes
         self._exempt_extensions = exempt_file_extensions or set()
         self._exempt_tools = exempt_tool_names or set()
-        self._tool_results_dir = tool_results_dir
+        self._pruner = ToolResultPruner(tool_results_dir)
         self._agent_id = agent_id
 
     async def on_acting(
@@ -370,6 +373,8 @@ class ToolResultPruningMiddleware(MiddlewareBase):
     ) -> AsyncGenerator[Any, None]:
         events: list[Any] = []
         async for event in next_handler():
+            if isinstance(event, ToolResponse):
+                event = await self.prune_tool_response_async(event)
             events.append(event)
             yield event
 
@@ -378,13 +383,40 @@ class ToolResultPruningMiddleware(MiddlewareBase):
 
         try:
             messages = list(agent.state.context)
-            self._prune_tool_results(messages)
+            await asyncio.to_thread(self._prune_tool_results, messages)
         except Exception:
             logger.exception("ToolResultPruningMiddleware failed")
 
     # ------------------------------------------------------------------
     # Core pruning logic (ported from LightContextManager)
     # ------------------------------------------------------------------
+
+    def prune_tool_response(
+        self,
+        response: ToolResponse,
+    ) -> ToolResponse:
+        """Cap the current ToolResponse before it enters agent context."""
+        if not self._enabled:
+            return response
+
+        # Current responses are pruned per text block, not by aggregate
+        # ToolResponse byte size. Multi-block truncation metadata is kept by
+        # content index so one block cannot influence another block's retry
+        # location or cached file path.
+        self._pruner.prune_output(
+            response.content or [],
+            max_bytes=self._recent_max_bytes,
+            metadata=response.metadata,
+        )
+
+        return response
+
+    async def prune_tool_response_async(
+        self,
+        response: ToolResponse,
+    ) -> ToolResponse:
+        """Prune a response without blocking the asyncio event loop."""
+        return await asyncio.to_thread(self.prune_tool_response, response)
 
     def _prune_tool_results(self, messages: list["Msg"]) -> None:
         if not messages:
@@ -393,9 +425,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         recent_count = 0
         for msg in reversed(messages):
             if not isinstance(msg.content, list) or not any(
-                (isinstance(b, dict) and b.get("type") == "tool_result")
-                or getattr(b, "type", None) == "tool_result"
-                for b in msg.content
+                self._block_type(b) == "tool_result" for b in msg.content
             ):
                 break
             recent_count += 1
@@ -415,12 +445,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
             )
 
             for block in msg.content:
-                btype = (
-                    block.get("type")
-                    if isinstance(block, dict)
-                    else getattr(block, "type", None)
-                )
-                if btype != "tool_result":
+                if self._block_type(block) != "tool_result":
                     continue
 
                 tool_id = (
@@ -441,7 +466,16 @@ class ToolResultPruningMiddleware(MiddlewareBase):
                     if tool_id in exempt_tool_ids
                     else max_bytes
                 )
-                pruned = self._prune_output(output, effective_max)
+                block_metadata = (
+                    block.setdefault("metadata", {})
+                    if isinstance(block, dict)
+                    else block.metadata
+                )
+                pruned, _ = self._pruner.prune_output(
+                    output,
+                    max_bytes=effective_max,
+                    metadata=block_metadata,
+                )
                 if isinstance(block, dict):
                     block["output"] = pruned
                 else:
@@ -453,12 +487,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
             if not isinstance(msg.content, list):
                 continue
             for block in msg.content:
-                btype = (
-                    block.get("type")
-                    if isinstance(block, dict)
-                    else getattr(block, "type", None)
-                )
-                if btype not in ("tool_use", "tool_call"):
+                if self._block_type(block) not in ("tool_use", "tool_call"):
                     continue
 
                 tool_id = (
@@ -498,67 +527,11 @@ class ToolResultPruningMiddleware(MiddlewareBase):
 
         return exempt_ids
 
-    def _prune_output(
-        self,
-        output: str | list[dict],
-        max_bytes: int,
-        encoding: str = "utf-8",
-    ) -> str | list[dict]:
-        if isinstance(output, str):
-            return self._truncate_tool_result(output, max_bytes, encoding)
-        if isinstance(output, list):
-            for block in output:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    block["text"] = self._truncate_tool_result(
-                        block.get("text", ""),
-                        max_bytes,
-                        encoding,
-                    )
-        return output
-
-    def _truncate_tool_result(
-        self,
-        content: str,
-        max_bytes: int,
-        encoding: str = "utf-8",
-    ) -> str:
-        if not content:
-            return content
-
-        if TRUNCATION_NOTICE_MARKER in content:
-            return truncate_text_output(
-                content,
-                max_bytes=max_bytes,
-                encoding=encoding,
-            )
-
-        try:
-            content_bytes = len(content.encode(encoding))
-        except UnicodeEncodeError:
-            return content
-
-        if content_bytes <= max_bytes + 100:
-            return content
-
-        saved_path: str | None = None
-        if self._tool_results_dir:
-            try:
-                tool_result_dir = Path(self._tool_results_dir)
-                tool_result_dir.mkdir(parents=True, exist_ok=True)
-                fp = tool_result_dir / f"{uuid.uuid4().hex}.txt"
-                fp.write_text(content, encoding=encoding)
-                saved_path = str(fp)
-            except OSError as e:
-                logger.warning("Failed to save tool result to file: %s", e)
-
-        return truncate_text_output(
-            content,
-            start_line=1,
-            total_lines=content.count("\n") + 1,
-            max_bytes=max_bytes,
-            file_path=saved_path,
-            encoding=encoding,
-        )
+    @staticmethod
+    def _block_type(block: Any) -> str | None:
+        if isinstance(block, dict):
+            return block.get("type")
+        return getattr(block, "type", None)
 
 
 class LangfuseToolSpanMiddleware(MiddlewareBase):
@@ -575,8 +548,6 @@ class LangfuseToolSpanMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],
         next_handler: Callable[..., AsyncGenerator[Any, None]],
     ) -> AsyncGenerator[Any, None]:
-        from agentscope.tool import ToolResponse
-
         from ..observability.langfuse import get_current_trace, tool_span
 
         if get_current_trace() is None:

@@ -5,7 +5,9 @@ import { QwenpawMascot } from "./QwenpawMascot";
 import { useTranslation } from "react-i18next";
 import { useSiteLanguage } from "@/i18n/SiteLanguageContext";
 import { useSiteConfig } from "@/config-context";
-import { GitHubIcon, BlogIcon, NoteIcon } from "./Icon";
+import { GitHubIcon, BlogIcon, NoteIcon, AgentScopePlatformIcon } from "./Icon";
+
+const AGENTSCOPE_PLATFORM_URL = "https://platform.agentscope.io/";
 
 const AGENTSCOPE_LOGO_SIZE = 22;
 
@@ -110,6 +112,17 @@ export function Nav() {
             <span>{t("nav.github")}</span>
           </a>
           <a
+            href={AGENTSCOPE_PLATFORM_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={navLinkOrangeClass}
+            title={t("nav.platformTitle")}
+            aria-label={t("nav.platformTitle")}
+          >
+            <AgentScopePlatformIcon size={18} />
+            <span>{t("nav.platform")}</span>
+          </a>
+          <a
             href="https://agentscope.io/"
             target="_blank"
             rel="noopener noreferrer"
@@ -183,6 +196,18 @@ export function Nav() {
           title="QwenPaw on GitHub"
         >
           <GitHubIcon /> {t("nav.github")}
+        </a>
+        <a
+          href={AGENTSCOPE_PLATFORM_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={navLinkOrangeClass}
+          onClick={() => setOpen(false)}
+          title={t("nav.platformTitle")}
+          aria-label={t("nav.platformTitle")}
+        >
+          <AgentScopePlatformIcon size={18} />
+          <span>{t("nav.platform")}</span>
         </a>
         <a
           href="https://agentscope.io/"

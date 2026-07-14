@@ -60,7 +60,7 @@
 
 ## ニュース
 
-- [2026-07-09] **v2.0.0 — QwenPaw 2.0 正式リリース** 🎉 | AgentScope 2.0 ベースの全面リライト：Agent OS アーキテクチャ、Loop Engineering、Scroll Context、ReMe4 Memory、組み込み TUI を提供。
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 正式リリース** 🎉 | AgentScope 2.0 ベースの全面リライト：Agent OS アーキテクチャ、Loop Engineering、Scroll Context、ReMe v0.4.0 Long-term Memory、組み込み TUI を提供。
 
   | ハイライト | 内容 |
   |-----------|------|
@@ -68,12 +68,10 @@
   | **Agent OS — Drivers** | プロトコル中立な MCP / A2A / ACP コネクタ層、暗号化資格情報と呼び出しごとのポリシーゲート付き。 |
   | **Loop Engineering** | 高度なエージェントループテンプレート（Coding Mode、Mission Mode、今後さらに追加予定）と組み合わせ可能な承認ゲート。 |
   | **Scroll Context** | 全ターンを永続化；退去ターンはインデックス付きでオンデマンド再生 — 要約なし、情報欠落なし。 |
-  | **ReMe4 Memory** | ターンベースの自動追跡、利用感知型検索、バックエンド固有の埋め込み。 |
+  | **ReMe v0.4.0 Long-term Memory** | ターンベースの自動追跡、利用感知型検索、バックエンド固有の埋め込み。 |
   | **Terminal UI (TUI)** | フルスクリーンターミナルチャット — Console やチャネルと同一のエージェント・記憶・セッション。 |
 
-  Agent OS をベースに、すぐに使える QwenPaw アプリケーション — **QwenPaw Creator**、**QwenPaw Insight** など — を順次リリース予定です。
-
-  [v2.0.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+  Agent OS をベースに、すぐに使える QwenPaw アプリケーション — **QwenPaw Creator**、**QwenPaw Insight** など — を順次リリース予定です。 [v2.0.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — モデルページ大刷新 & シンプルモード** | Provider 集約による新モデルページデザイン、フラットナビのシンプルモード追加。[v1.1.12 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 

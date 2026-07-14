@@ -60,7 +60,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 ## Tin Tức
 
-- [2026-07-09] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, ReMe4 Memory và TUI tích hợp.
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory và TUI tích hợp.
 
   | Nổi bật | Nội dung mới |
   |-----------|------------|
@@ -68,12 +68,10 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
   | **Agent OS — Drivers** | Lớp connector trung lập giao thức MCP / A2A / ACP với credentials mã hóa và policy gate mỗi lần gọi. |
   | **Loop Engineering** | Mẫu vòng lặp agent nâng cao (Coding Mode, Mission Mode, thêm nhiều sắp tới) với cổng phê duyệt kết hợp. |
   | **Scroll Context** | Mọi lượt được lưu trữ; lượt bị đẩy ra có chỉ mục, recall theo yêu cầu — không tóm tắt, không mất. |
-  | **ReMe4 Memory** | Theo dõi tự động theo lượt, tìm kiếm nhận biết mức sử dụng, embedding riêng backend. |
+  | **ReMe v0.4.0 Long-term Memory** | Theo dõi tự động theo lượt, tìm kiếm nhận biết mức sử dụng, embedding riêng backend. |
   | **Terminal UI (TUI)** | Chat terminal toàn màn hình — cùng agent, bộ nhớ và phiên với Console và kênh. |
 
-  Dựa trên Agent OS, chúng tôi sẽ ra mắt các ứng dụng QwenPaw sẵn sàng sử dụng — như **QwenPaw Creator** và **QwenPaw Insight** — hãy theo dõi.
-
-  [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+  Dựa trên Agent OS, chúng tôi sẽ ra mắt các ứng dụng QwenPaw sẵn sàng sử dụng — như **QwenPaw Creator** và **QwenPaw Insight** — hãy theo dõi. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — Trang Mô Hình Đổi Mới & Chế Độ Đơn Giản** | Trang mô hình thiết kế lại với tổng hợp nhà cung cấp; Chế độ Đơn giản mới. [Ghi chú phát hành v1.1.12 →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 

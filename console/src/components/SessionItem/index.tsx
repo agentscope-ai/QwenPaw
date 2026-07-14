@@ -1,7 +1,6 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Dropdown, Input } from "antd";
 import type { InputRef } from "antd";
-import { IconButton } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import {
   SparkMoreLine,
@@ -9,6 +8,7 @@ import {
   SparkEditLine,
   SparkMarkLine,
   SparkMarkFill,
+  SparkAistorageLine,
 } from "@agentscope-ai/icons";
 import { ChannelIcon } from "../../pages/Control/Channels/components";
 import type { ChatStatus } from "../../api/types/chat";
@@ -23,6 +23,7 @@ export interface SessionItemProps {
   chatStatus?: ChatStatus;
   generating?: boolean;
   pinned?: boolean;
+  archived?: boolean;
   time?: string; // Only used by the drawer variant
 
   // -- State --
@@ -39,10 +40,10 @@ export interface SessionItemProps {
   onEdit?: (sessionId: string, currentName: string) => void;
   onDelete?: (sessionId: string) => void;
   onPin?: (sessionId: string) => void;
+  onArchive?: (sessionId: string) => void;
   onEditChange?: (value: string) => void;
   onEditSubmit?: () => void;
   onEditCancel?: () => void;
-  onContextMenu?: (sessionId: string, event: React.MouseEvent) => void;
 }
 
 const SessionItem: React.FC<SessionItemProps> = ({
@@ -53,6 +54,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
   chatStatus,
   generating,
   pinned,
+  archived,
   time,
   active,
   disabled,
@@ -63,10 +65,10 @@ const SessionItem: React.FC<SessionItemProps> = ({
   onEdit,
   onDelete,
   onPin,
+  onArchive,
   onEditChange,
   onEditSubmit,
   onEditCancel,
-  onContextMenu,
 }) => {
   const { t } = useTranslation();
   const inputRef = useRef<InputRef>(null);
@@ -98,38 +100,54 @@ const SessionItem: React.FC<SessionItemProps> = ({
     }
   }, [editValue, name, onEditSubmit, onEditCancel]);
 
-  const handleContextMenu = useCallback(
-    (event: React.MouseEvent) => {
-      if (editing) return;
-      onContextMenu?.(sessionId, event);
-    },
-    [onContextMenu, sessionId, editing],
+  const dropdownItems = useMemo(
+    () => [
+      {
+        key: "pin",
+        icon: pinned ? (
+          <SparkMarkFill size={14} />
+        ) : (
+          <SparkMarkLine size={14} />
+        ),
+        label: pinned
+          ? t("chat.contextMenu.unpin", "Unpin")
+          : t("chat.contextMenu.pin", "Pin"),
+        onClick: () => onPin?.(sessionId),
+      },
+      {
+        key: "rename",
+        icon: <SparkEditLine size={14} />,
+        label: t("chat.contextMenu.rename", "Rename"),
+        onClick: handleStartEdit,
+      },
+      {
+        key: "archive",
+        icon: <SparkAistorageLine size={14} />,
+        label: archived
+          ? t("sessions.archive.unaction", "Unarchive")
+          : t("sessions.archive.action", "Archive"),
+        onClick: () => onArchive?.(sessionId),
+      },
+      { type: "divider" as const },
+      {
+        key: "delete",
+        icon: <SparkDeleteLine size={14} />,
+        label: t("chat.contextMenu.delete", "Delete"),
+        danger: true,
+        onClick: () => onDelete?.(sessionId),
+      },
+    ],
+    [
+      pinned,
+      archived,
+      sessionId,
+      t,
+      onPin,
+      onArchive,
+      onDelete,
+      handleStartEdit,
+    ],
   );
-
-  const dropdownItems = [
-    {
-      key: "rename",
-      icon: <SparkEditLine size={14} />,
-      label: t("chat.contextMenu.rename", "Rename"),
-      onClick: handleStartEdit,
-    },
-    {
-      key: "pin",
-      icon: pinned ? <SparkMarkFill size={14} /> : <SparkMarkLine size={14} />,
-      label: pinned
-        ? t("chat.contextMenu.unpin", "Unpin")
-        : t("chat.contextMenu.pin", "Pin"),
-      onClick: () => onPin?.(sessionId),
-    },
-    { type: "divider" as const },
-    {
-      key: "delete",
-      icon: <SparkDeleteLine size={14} />,
-      label: t("chat.contextMenu.delete", "Delete"),
-      danger: true,
-      onClick: () => onDelete?.(sessionId),
-    },
-  ];
 
   const cls = [
     styles.item,
@@ -143,13 +161,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
     .join(" ");
 
   const itemContent = (
-    <div
-      className={cls}
-      onClick={handleClick}
-      onContextMenu={variant === "drawer" ? handleContextMenu : undefined}
-      role="button"
-      tabIndex={0}
-    >
+    <div className={cls} onClick={handleClick} role="button" tabIndex={0}>
       {/* Drawer variant: timeline indicator */}
       {variant === "drawer" && <div className={styles.iconPlaceholder} />}
 
@@ -248,47 +260,8 @@ const SessionItem: React.FC<SessionItemProps> = ({
         </span>
       )}
 
-      {/* Pin button - drawer variant only */}
-      {!editing && variant === "drawer" && (
-        <IconButton
-          bordered={false}
-          size="small"
-          className={styles.pinButton}
-          data-pinned={pinned}
-          icon={pinned ? <SparkMarkFill /> : <SparkMarkLine />}
-          onClick={(e) => {
-            e.stopPropagation();
-            onPin?.(sessionId);
-          }}
-        />
-      )}
-
-      {/* Action buttons - drawer variant: edit/delete on hover */}
-      {!editing && variant === "drawer" && (
-        <div className={styles.actions}>
-          <IconButton
-            bordered={false}
-            size="small"
-            icon={<SparkEditLine />}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleStartEdit();
-            }}
-          />
-          <IconButton
-            bordered={false}
-            size="small"
-            icon={<SparkDeleteLine />}
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete?.(sessionId);
-            }}
-          />
-        </div>
-      )}
-
-      {/* More button - sidebar variant only */}
-      {!editing && variant === "sidebar" && (
+      {/* More button — unified for both variants */}
+      {!editing && (
         <Dropdown
           menu={{ items: dropdownItems }}
           trigger={["click"]}
@@ -303,16 +276,11 @@ const SessionItem: React.FC<SessionItemProps> = ({
     </div>
   );
 
-  // Sidebar variant: wrap with right-click context menu
-  if (variant === "sidebar") {
-    return (
-      <Dropdown menu={{ items: dropdownItems }} trigger={["contextMenu"]}>
-        {itemContent}
-      </Dropdown>
-    );
-  }
-
-  return itemContent;
+  return (
+    <Dropdown menu={{ items: dropdownItems }} trigger={["contextMenu"]}>
+      {itemContent}
+    </Dropdown>
+  );
 };
 
 export default React.memo(SessionItem);

@@ -60,7 +60,7 @@
 
 ## Новости
 
-- [2026-07-09] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Полный переписанный на основе AgentScope 2.0: архитектура Agent OS, Loop Engineering, Scroll Context, ReMe4 Memory и встроенный TUI.
+- [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Полностью переписанный на основе AgentScope 2.0: архитектура Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory и встроенный TUI.
 
   | Основное | Что нового |
   |----------|-----------|
@@ -68,12 +68,10 @@
   | **Agent OS — Drivers** | Протокол-нейтральный слой коннекторов MCP / A2A / ACP с шифрованием учётных данных и политикой на вызов. |
   | **Loop Engineering** | Продвинутые шаблоны циклов агента (Coding Mode, Mission Mode, далее — больше) с компонуемыми вентилями одобрения. |
   | **Scroll Context** | Каждый ход сохраняется; вытесненные ходы индексируются с recall по запросу — ничего не суммаризуется. |
-  | **ReMe4 Memory** | Авто-трекинг по ходам, поиск с учётом использования, бэкенд-специфичные эмбеддинги. |
+  | **ReMe v0.4.0 Long-term Memory** | Авто-трекинг по ходам, поиск с учётом использования, бэкенд-специфичные эмбеддинги. |
   | **Terminal UI (TUI)** | Полноэкранный терминальный чат — тот же агент, память и сессии, что в Console и каналах. |
 
-  На базе Agent OS мы будем выпускать готовые к использованию приложения QwenPaw — такие как **QwenPaw Creator** и **QwenPaw Insight** — следите за обновлениями.
-
-  [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
+  На базе Agent OS мы будем выпускать готовые к использованию приложения QwenPaw — такие как **QwenPaw Creator** и **QwenPaw Insight** — следите за обновлениями. [v2.0.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
 
 - [2026-06-17] **v1.1.12 — Обновление страницы моделей и Простой режим** | Новый дизайн страницы моделей с агрегацией провайдеров; Простой режим для упрощённой навигации. [v1.1.12 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
 

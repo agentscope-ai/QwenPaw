@@ -30,10 +30,7 @@ try:
 except ImportError:
     GeminiChatFormatter = None
 
-try:
-    from agentscope.formatter import OpenAIResponseFormatter
-except ImportError:
-    OpenAIResponseFormatter = None
+from agentscope.formatter import OpenAIResponseFormatter
 
 from .utils.message_request_normalizer import (
     normalize_messages_for_model_request,
@@ -100,11 +97,12 @@ def _normalize_messages_for_formatter(
     msgs: list,
     base_formatter_class: Type[FormatterBase],
     formatter_instance: FormatterBase | None = None,
-) -> tuple[list, bool, bool]:
+) -> tuple[list, bool, bool, bool]:
     """Return normalized messages and formatter-family flags.
 
     The returned booleans are
-    ``(is_anthropic_formatter, is_gemini_formatter)``.
+    ``(is_anthropic_formatter, is_gemini_formatter,
+    is_response_formatter)``.
     All formatters receive a copied, normalized message list so
     request-time repair does not mutate stored history.
     """
@@ -113,6 +111,10 @@ def _normalize_messages_for_formatter(
     )
     is_gemini_formatter = GeminiChatFormatter is not None and (
         issubclass(base_formatter_class, GeminiChatFormatter)
+    )
+    is_response_formatter = issubclass(
+        base_formatter_class,
+        OpenAIResponseFormatter,
     )
     supports_multimodal = _supports_multimodal_for_current_model()
     if getattr(formatter_instance, "_qwenpaw_force_strip_media", False):
@@ -131,7 +133,12 @@ def _normalize_messages_for_formatter(
         target_family=target_family,
     )
 
-    return normalized_msgs, is_anthropic_formatter, is_gemini_formatter
+    return (
+        normalized_msgs,
+        is_anthropic_formatter,
+        is_gemini_formatter,
+        is_response_formatter,
+    )
 
 
 def _anthropic_media_dedup_key(source: Any) -> str | None:
@@ -585,20 +592,34 @@ def _fix_image_mime_types(messages: list[dict]) -> None:
     (e.g. ``.jpg`` → ``image/jpg``), but ``image/jpg`` is not a
     valid IANA MIME type — the correct form is ``image/jpeg``.
     Some APIs (Bedrock via litellm) reject the non-standard form.
+
+    Handles both Chat Completions format (``image_url`` is a dict
+    with a ``url`` key) and Responses API format (``image_url`` is
+    a plain string URL).
     """
     for msg in messages:
         content = msg.get("content")
         if not isinstance(content, list):
             continue
         for block in content:
-            url = (block.get("image_url") or {}).get("url", "")
+            if not isinstance(block, dict):
+                continue
+            raw = block.get("image_url")
+            if raw is None:
+                continue
+            if isinstance(raw, dict):
+                url = raw.get("url", "")
+            elif isinstance(raw, str):
+                url = raw
+            else:
+                continue
             for wrong, right in _MIME_FIXES.items():
                 if url.startswith(f"data:{wrong};"):
-                    block["image_url"]["url"] = url.replace(
-                        f"data:{wrong};",
-                        f"data:{right};",
-                        1,
-                    )
+                    fixed = url.replace(f"data:{wrong};", f"data:{right};", 1)
+                    if isinstance(raw, dict):
+                        raw["url"] = fixed
+                    else:
+                        block["image_url"] = fixed
 
 
 _MEDIA_BLOCK_TYPES = ("image", "audio", "video")
@@ -886,6 +907,7 @@ def _create_file_block_support_formatter(
                 normalized_msgs,
                 is_anthropic_formatter,
                 _is_gemini_formatter,
+                _is_response_formatter,
             ) = _normalize_messages_for_formatter(
                 msgs,
                 base_formatter_class,
@@ -959,6 +981,7 @@ def _create_file_block_support_formatter(
             if (
                 reasoning_contents
                 and not is_anthropic_formatter
+                and not _is_response_formatter
                 and getattr(
                     self,
                     "relay_reasoning_content",
@@ -1116,14 +1139,17 @@ def _create_file_block_support_formatter(
 def _strip_top_level_message_name(
     messages: list[dict],
 ) -> list[dict]:
-    """Strip top-level `name` from OpenAI chat messages.
+    """Strip top-level `name` from OpenAI chat-style messages.
 
     Some strict OpenAI-compatible backends reject `messages[*].name`
     (especially for assistant/tool roles) and may return 500/400 on
-    follow-up turns. Keep function/tool names unchanged.
+    follow-up turns. Responses API also uses top-level non-message items
+    such as ``{"type": "function_call", "name": ...}``, where ``name`` is
+    required; those must be left unchanged.
     """
     for message in messages:
-        message.pop("name", None)
+        if "role" in message:
+            message.pop("name", None)
     return messages
 
 
@@ -1286,9 +1312,11 @@ def _create_formatter_instance(
     # results — promote them into a follow-up user message instead.
     # Anthropic format keeps images in tool_result natively, so no
     # promotion needed.
-    _promote_types = (OpenAIChatFormatter, GeminiChatFormatter)
-    if OpenAIResponseFormatter is not None:
-        _promote_types = (*_promote_types, OpenAIResponseFormatter)
+    _promote_types = (
+        OpenAIChatFormatter,
+        GeminiChatFormatter,
+        OpenAIResponseFormatter,
+    )
     if isinstance(base_formatter, _promote_types):
         kwargs["promote_tool_result_images"] = True
     return formatter_class(**kwargs)

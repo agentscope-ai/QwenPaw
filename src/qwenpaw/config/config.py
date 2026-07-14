@@ -38,6 +38,12 @@ from ..constant import (
 
 logger = logging.getLogger(__name__)
 
+# A legacy field can be present in the root config and in several agent
+# profiles, all of which may be validated repeatedly during one process
+# lifetime.  The migration reminder is useful once, but repeating it for
+# every request obscures real warnings.
+_legacy_scroll_tool_cap_warned = False
+
 
 # ============================================================================
 # Core config models (moved here to avoid circular imports)
@@ -771,30 +777,27 @@ class ToolResultPruningConfig(BaseModel):
         default=2,
         ge=1,
         le=10,
-        description="Number of recent messages to use recent_max_bytes for",
+        description=(
+            "Number of recent tool-result-bearing messages to keep at the "
+            "recent preview byte limit before scroll compaction."
+        ),
     )
 
     pruning_old_msg_max_bytes: int = Field(
         default=3000,
         ge=100,
-        description=("Byte threshold for old messages in tool result pruning"),
+        description=(
+            "Byte threshold for tool result previews retained in live context "
+            "after scroll compaction."
+        ),
     )
 
     pruning_recent_msg_max_bytes: int = Field(
         default=50000,
         ge=1000,
         description=(
-            "Byte threshold for recent messages in tool result pruning"
-        ),
-    )
-
-    execution_layer_max_bytes: int = Field(
-        default=50000,
-        ge=1000,
-        description=(
-            "Hard byte cap applied at execution time before the tool "
-            "response is inserted into the agent context. Independent of "
-            "the tiered historical pruning thresholds."
+            "Byte threshold for tool result previews before they enter the "
+            "agent context and while they remain recent."
         ),
     )
 
@@ -849,9 +852,11 @@ class ScrollContextConfig(BaseModel):
     tool_output_token_cap: int = Field(
         default=3000,
         ge=100,
+        exclude=True,
         description=(
-            "In-context cap for a single tool result; the full output is "
-            "written through to history and recalled by tool_call_id."
+            "Deprecated scroll-only tool result cap. Tool output sizing is "
+            "handled by tool_result_pruning_config. Excluded when saving so "
+            "legacy configurations migrate on their next write."
         ),
     )
 
@@ -962,6 +967,22 @@ class LightContextConfig(BaseModel):
     scroll_config: ScrollContextConfig = Field(
         default_factory=ScrollContextConfig,
     )
+
+    @model_validator(mode="after")
+    def warn_deprecated_scroll_tool_cap(self) -> "LightContextConfig":
+        """Warn once when the removed scroll-only tool cap is configured."""
+        global _legacy_scroll_tool_cap_warned
+        configured = (
+            "tool_output_token_cap" in self.scroll_config.model_fields_set
+        )
+        if configured and not _legacy_scroll_tool_cap_warned:
+            _legacy_scroll_tool_cap_warned = True
+            logger.warning(
+                "scroll_config.tool_output_token_cap is deprecated and "
+                "ignored; use tool_result_pruning_config."
+                "pruning_recent_msg_max_bytes instead (bytes, not tokens)",
+            )
+        return self
 
 
 class AutoTitleConfig(BaseModel):
@@ -2085,6 +2106,17 @@ class SecurityConfig(BaseModel):
     skill_scanner: SkillScannerConfig = Field(
         default_factory=SkillScannerConfig,
     )
+    sandbox_enabled: bool = Field(
+        default=False,
+        description=(
+            "Global switch for governance sandbox execution. Defaults to "
+            "False (sandbox off). When True, shell tools with no matching "
+            "rule run inside the sandbox (no user prompt). When False, such "
+            "calls run directly without the sandbox (no prompt). Phase 0-2 "
+            "protections (secret-file / dangerous-command blocking) are "
+            "unaffected either way."
+        ),
+    )
     allow_no_auth_hosts: List[str] = Field(
         default_factory=lambda: ["127.0.0.1", "::1"],
         description=(
@@ -2094,6 +2126,34 @@ class SecurityConfig(BaseModel):
             "WARNING: Only add trusted IP addresses to this list."
         ),
     )
+    trusted_proxies: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Reverse proxy IP/CIDR list. X-Forwarded-For / X-Real-IP "
+            "headers are only trusted when the direct TCP peer matches "
+            "an entry in this list. Empty (default) = never trust proxy "
+            "headers. Example: ['127.0.0.1', '172.17.0.0/16']"
+        ),
+    )
+
+    @field_validator("trusted_proxies")
+    @classmethod
+    def _validate_trusted_proxies(cls, v: List[str]) -> List[str]:
+        import ipaddress as _ipaddress
+
+        _DENY = {"0.0.0.0/0", "::/0", "0.0.0.0", "::"}
+        cleaned = []
+        for entry in v:
+            entry = entry.strip()
+            if entry in _DENY:
+                raise ValueError(
+                    f"trusted_proxies must not contain"
+                    f" '{entry}' (equivalent to disabling"
+                    f" the security fix)",
+                )
+            net = _ipaddress.ip_network(entry, strict=False)
+            cleaned.append(str(net))
+        return cleaned
 
 
 class Config(BaseModel):

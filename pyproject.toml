@@ -52,8 +52,10 @@ dependencies = [
     # (v4+ adds the streaming Markdown widget). 8.2.8 fixes parsing of
     # multi-codepoint Kitty "associated text" so input methods (Chinese,
     # Japanese, accents, ...) no longer leak escape sequences into the prompt
-    # (Textualize/textual#6592).
-    "textual>=8.2.8",
+    # (Textualize/textual#6592). Keep the temporary upper bound in sync with
+    # the TUI compatibility shim for Textualize/textual#6643; remove both
+    # after Textual ships and QwenPaw verifies the upstream fix.
+    "textual>=8.2.8,<8.2.9",
     "psutil>=6.0.0",
     "openai>=2.0.0,<=2.33.0",
     # anyio 4.13.0: _deliver_cancellation busy-loop / getpid storm (QwenPaw#2632)

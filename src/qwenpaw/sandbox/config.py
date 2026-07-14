@@ -10,7 +10,9 @@ Backend layout (``create_sandbox`` dispatches to these by ``SandboxMode``):
   - SEATBELT     → mod:`qwenpaw.sandbox.macos_sandbox`      (MacOSSandbox)
   - BUBBLEWRAP   → mod:`qwenpaw.sandbox.bubblewrap_sandbox` (BubblewrapSandbox)
   - LANDLOCK     → mod:`qwenpaw.sandbox.linux_sandbox`      (LinuxSandbox)
-  - APPCONTAINER → mod:`qwenpaw.sandbox.windows_sandbox`    (WindowsSandbox)
+  - APPCONTAINER → Windows sandbox, dispatched on ``allow_read_all``:
+      True  → windows_restricted_sandbox (WindowsRestrictedSandbox)
+      False → mod:`qwenpaw.sandbox.windows_sandbox`            (WindowsSandbox)
   - NONE         → mod:`qwenpaw.sandbox.local_sandbox`      (NoneSandbox)
 
 Shared base class for all backends:
@@ -122,6 +124,14 @@ class SandboxConfig:
     """'inject' = append to current environment,
     'allowlist' = only pass declared variables."""
 
+    shell_executable: Optional[str] = None
+    """Shell to use for command execution inside the sandbox.
+    Supports: powershell.exe, pwsh.exe, cmd.exe, or a full path.
+    When None, the platform backend chooses its default:
+      - Windows AppContainer / Restricted: cmd.exe
+      - Linux / macOS: /bin/sh
+    Set via running.shell_command_executable or $SHELL."""
+
     # --- Platform passthrough (escape hatch) ---
     platform_hints: Dict[str, Any] = field(default_factory=dict)
     """Rarely used. Pass-through for platform-native parameters such as
@@ -155,9 +165,9 @@ class SandboxCapability:
     )
 
 
-def _probe_linux_landlock() -> (
+def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements
     SandboxCapability
-):  # pylint: disable=too-many-return-statements
+):
     """Probe Linux Landlock support.
 
     Detection steps:
@@ -471,7 +481,10 @@ def create_sandbox(config: SandboxConfig) -> Any:
       - SEATBELT      → MacOSSandbox
       - BUBBLEWRAP    → BubblewrapSandbox (Linux preferred)
       - LANDLOCK      → LinuxSandbox (Linux fallback)
-      - APPCONTAINER  → WindowsSandbox (Windows 10+ native)
+      - APPCONTAINER  → Windows sandbox (Windows 10+ native). Dispatches on
+        ``allow_read_all``: True → WindowsRestrictedSandbox (WRITE_RESTRICTED
+        token, reads work automatically), False → WindowsSandbox
+        (AppContainer, explicit read allow-list).
       - NONE          → NoneSandbox
     """
     if config.mode == SandboxMode.SEATBELT:
@@ -491,6 +504,10 @@ def create_sandbox(config: SandboxConfig) -> Any:
 
         return LinuxSandbox(config)
     elif config.mode == SandboxMode.APPCONTAINER:
+        if config.allow_read_all:
+            from .windows_restricted_sandbox import WindowsRestrictedSandbox
+
+            return WindowsRestrictedSandbox(config)
         from .windows_sandbox import WindowsSandbox
 
         return WindowsSandbox(config)

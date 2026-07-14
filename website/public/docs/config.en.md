@@ -404,13 +404,13 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **Light Tool Result Pruning (`light_context_config.tool_result_pruning_config` object):**
 
-| Field                          | Type | Default | Description                                      |
-| ------------------------------ | ---- | ------- | ------------------------------------------------ |
-| `enabled`                      | bool | `true`  | Whether to enable tool result pruning            |
-| `pruning_recent_n`             | int  | `2`     | Number of recent messages using higher threshold |
-| `pruning_old_msg_max_bytes`    | int  | `3000`  | Byte threshold for older tool results            |
-| `pruning_recent_msg_max_bytes` | int  | `50000` | Byte threshold for recent tool results           |
-| `offload_retention_days`       | int  | `5`     | Number of days to retain tool result files       |
+| Field                          | Type | Default | Description                                                                                                 |
+| ------------------------------ | ---- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `enabled`                      | bool | `true`  | Whether to enable tool result pruning                                                                       |
+| `pruning_recent_n`             | int  | `2`     | Number of recent tool-result-bearing messages kept at the recent preview threshold before scroll compaction |
+| `pruning_old_msg_max_bytes`    | int  | `3000`  | Compact preview byte threshold for tool results retained in live context after scroll compaction            |
+| `pruning_recent_msg_max_bytes` | int  | `50000` | Recent/execution preview byte threshold for tool results before and shortly after entering context          |
+| `offload_retention_days`       | int  | `5`     | Number of days to retain tool result files                                                                  |
 
 **ReMeLight Memory Configuration (`reme_light_memory_config` object):**
 
