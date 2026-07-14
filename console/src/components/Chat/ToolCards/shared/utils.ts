@@ -5,20 +5,11 @@
 
 import type { TFunction } from "i18next";
 import type { ToolCallContent } from "./types";
-import { chatApi } from "@/api/modules/chat";
+import { toDisplayUrl } from "@/api/modules/chat";
 
 // ---------------------------------------------------------------------------
 // URL helpers
 // ---------------------------------------------------------------------------
-
-/** Convert a backend file/image URL to a displayable URL */
-export function toDisplayUrl(url: string): string {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  if (url.startsWith("data:")) return url;
-  if (url.startsWith("file://")) url = url.replace("file://", "");
-  return chatApi.filePreviewUrl(url.startsWith("/") ? url : `/${url}`);
-}
 
 // ---------------------------------------------------------------------------
 // File helpers

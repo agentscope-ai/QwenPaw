@@ -2,11 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import type { TFunction } from "i18next";
 import { formatAgentList, formatMemorySearch } from "./utils";
 
-vi.mock("@/api/modules/chat", () => ({
-  chatApi: {
-    filePreviewUrl: vi.fn((p: string) => `http://localhost:8000${p}`),
-  },
-}));
+vi.mock("@/api/modules/chat", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/modules/chat")>();
+  return {
+    ...actual,
+    chatApi: {
+      ...actual.chatApi,
+      filePreviewUrl: vi.fn((p: string) => `http://localhost:8000${p}`),
+    },
+  };
+});
 
 const translate = ((key: string) => {
   const translations: Record<string, string> = {

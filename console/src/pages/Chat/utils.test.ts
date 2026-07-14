@@ -9,11 +9,20 @@ import {
 } from "./utils";
 import type { CopyableResponse } from "./utils";
 
-// toDisplayUrl depends on chatApi.filePreviewUrl, needs to be mocked
-vi.mock("@/api/modules/chat", () => ({
-  chatApi: {
-    filePreviewUrl: vi.fn((p: string) => `http://localhost:8000${p}`),
-  },
+// toDisplayUrl depends on chatApi.filePreviewUrl, which depends on config
+vi.mock("@/api/modules/chat", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/modules/chat")>();
+  return {
+    ...actual,
+    chatApi: {
+      ...actual.chatApi,
+      filePreviewUrl: vi.fn((p: string) => `http://localhost:8000${p}`),
+    },
+  };
+});
+vi.mock("@/api/config", () => ({
+  getApiUrl: (path: string) => `/api${path}`,
+  getApiToken: vi.fn(() => ""),
 }));
 
 // ---------------------------------------------------------------------------
@@ -233,13 +242,13 @@ describe("toDisplayUrl", () => {
 
   it("calls chatApi.filePreviewUrl for relative paths", () => {
     expect(toDisplayUrl("/uploads/img.png")).toBe(
-      "http://localhost:8000/uploads/img.png",
+      "/api/files/preview/uploads/img.png",
     );
   });
 
   it("strips file:// prefix then resolves full URL", () => {
     expect(toDisplayUrl("file:///uploads/img.png")).toBe(
-      "http://localhost:8000/uploads/img.png",
+      "/api/files/preview/uploads/img.png",
     );
   });
 });

@@ -99,6 +99,19 @@ export const chatApi = {
     }),
 };
 
+/**
+ * Convert a backend content URL (path, file:// URL, or full URL) into a
+ * displayable URL. Keeps http/https/data URLs as-is, strips file:// prefix,
+ * and routes relative paths through chatApi.filePreviewUrl.
+ */
+export function toDisplayUrl(url: string | undefined): string {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("data:")) return url;
+  if (url.startsWith("file://")) url = url.replace("file://", "");
+  return chatApi.filePreviewUrl(url.startsWith("/") ? url : `/${url}`);
+}
+
 export const sessionApi = {
   listSessions: (params?: { user_id?: string; channel?: string }) => {
     const searchParams = new URLSearchParams();

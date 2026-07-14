@@ -7,8 +7,8 @@ export type { MediaPreviewProps } from "./MediaPreview";
 export { default as ResultMediaPreviews } from "./ResultMediaPreviews";
 export type { ResultMediaPreviewsProps } from "./ResultMediaPreviews";
 export { extractAllMediaFromResult } from "./utils";
+export { toDisplayUrl } from "@/api/modules/chat";
 export {
-  toDisplayUrl,
   shortFileName,
   countLines,
   getFileLanguage,

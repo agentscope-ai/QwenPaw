@@ -1,7 +1,6 @@
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-import { chatApi } from "../../api/modules/chat";
 export type CopyableContent = {
   type?: string;
   text?: string;
@@ -206,13 +205,7 @@ export function normalizeContentUrls(part: any): any {
   return p;
 }
 
-/** Turn a backend content URL (path or full URL) into a full URL for display. */
-export function toDisplayUrl(url: string | undefined): string {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  if (url.startsWith("file://")) url = url.replace("file://", "");
-  return chatApi.filePreviewUrl(url.startsWith("/") ? url : `/${url}`);
-}
+export { toDisplayUrl } from "@/api/modules/chat";
 
 // ---------------------------------------------------------------------------
 // DOM utilities
