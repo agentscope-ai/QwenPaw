@@ -80,6 +80,7 @@ class ConversationCommandHandlerMixin:
             "system_prompt",
             "dream",
             "memorize",
+            "reme_status",
         },
     )
 
@@ -761,6 +762,53 @@ class CommandHandler(ConversationCommandHandlerMixin):
         return await self._make_system_msg(
             "**Auto-dream Complete**\n\n"
             "- Ran one auto-dream memory optimization pass",
+        )
+
+    async def _process_reme_status(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
+        """Process /reme_status to report embedded ReMe memory usage."""
+        if not self._has_memory_manager():
+            return await self._make_system_msg(
+                "**Memory Manager Disabled**\n\n"
+                "- Cannot inspect ReMe memory usage\n"
+                "- Enable the ReMe memory manager to use this feature",
+            )
+
+        try:
+            response = await self.memory_manager.reme_status()
+        except Exception as e:
+            logger.exception("ReMe status failed: %s", e)
+            return await self._make_system_msg(
+                f"**ReMe Status Failed**\n\n- Error: {e}",
+            )
+
+        if response is None:
+            return await self._make_system_msg(
+                "**ReMe Status Unavailable**\n\n"
+                "- ReMe is not started or this memory backend does not "
+                "support status reporting",
+            )
+
+        answer = str(getattr(response, "answer", "") or "").strip()
+        if not getattr(response, "success", False):
+            return await self._make_system_msg(
+                "**ReMe Status Failed**\n\n"
+                f"- Error: {answer or 'Unknown ReMe error'}",
+            )
+
+        warning = (
+            "⚠️ **Estimation note:** ReMe estimates `EMBEDDING_STORE`, "
+            "`FILE_GRAPH`, `FILE_STORE`, and `KEYWORD_INDEX` independently. "
+            "Objects shared across those components may be counted more than "
+            "once, so the components total is not unique memory usage and "
+            "should not be compared directly with process RSS."
+        )
+        return await self._make_system_msg(
+            f"**ReMe Memory Status**\n\n```text\n{answer}\n```\n\n{warning}",
+            metadata=dict(getattr(response, "metadata", None) or {}),
         )
 
     async def _process_memorize(

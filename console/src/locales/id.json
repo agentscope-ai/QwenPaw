@@ -2118,8 +2118,6 @@
     "embeddingEnableHint": "Embedding diaktifkan ketika field wajib backend terisi: Nama Model dan API Key untuk backend kompatibel OpenAI atau Gemini; Nama Model untuk Ollama.",
     "rebuildMemoryIndexOnStart": "Bangun Ulang Indeks Memori saat Mulai",
     "rebuildMemoryIndexOnStartTooltip": "Hapus dan bangun ulang indeks pencarian memori saat agen dimulai. Aktifkan saat metode pengindeksan berubah, misalnya mekanisme pembaruan indeks dasar berubah atau indeks vektor ditambahkan.",
-    "enableSearchRawLog": "Aktifkan Pencarian Log Mentah (Beta)",
-    "enableSearchRawLogTooltip": "Sertakan log percakapan mentah dalam pencarian memori. Mengaktifkan ini dapat meningkatkan penggunaan memori, jadi gunakan dengan hati-hati.",
     "toolResultCompactRecentGtOld": "Ambang pesan terbaru harus lebih besar dari atau sama dengan ambang pesan lama",
     "lightContextTitle": "Manajemen Konteks",
     "remeLightMemoryTitle": "Memori Jangka Panjang",

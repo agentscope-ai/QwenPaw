@@ -422,7 +422,6 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `resource_dir`                  | string      | `"resource"`     | Subdirectory for external assets                                                                                   |
 | `daily_dir`                     | string      | `"memory"`       | Subdirectory for daily memory                                                                                      |
 | `digest_dir`                    | string      | `"digest"`       | Subdirectory for digest memory                                                                                     |
-| `enable_search_raw_log`         | bool        | `false`          | Whether to enable raw log search                                                                                   |
 | `summarize_when_compact`        | bool        | `true`           | Whether to enable memory summarization during compaction                                                           |
 | `auto_memory_interval`          | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                   |
 | `dream_cron`                    | string      | `"0 23 * * *"`   | Cron expression for dream-based memory optimization (empty to disable)                                             |

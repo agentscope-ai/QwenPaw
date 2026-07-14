@@ -26,6 +26,29 @@ def _config_for_embedding(embedding: EmbeddingModelConfig) -> dict:
     )
 
 
+def test_memory_search_indexes_only_memory_markdown() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    for job_name in ("index_update_loop", "reindex"):
+        job = cfg["jobs"][job_name]
+        assert job["watch_dirs"] == ["daily_dir", "digest_dir"]
+        assert job["watch_suffixes"] == ["md"]
+
+
+def test_status_job_reports_reme_memory_usage() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    assert cfg["jobs"]["status"] == {
+        "backend": "base",
+        "description": (
+            "report memory estimates for stateful data components and "
+            "process RSS"
+        ),
+        "parameters": {"type": "object", "properties": {}},
+        "steps": [{"backend": "status_step"}],
+    }
+
+
 def test_openai_compatible_embedding_requires_api_key() -> None:
     cfg = _config_for_embedding(
         EmbeddingModelConfig(

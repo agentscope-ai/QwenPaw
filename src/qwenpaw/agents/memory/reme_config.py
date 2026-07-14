@@ -28,7 +28,7 @@ def build_reme_app_config(
 ) -> dict[str, Any]:
     """Build ReMe ``Application`` kwargs for embedded QwenPaw usage."""
     reme_config = agent_config.running.reme_light_memory_config
-    cfg = _base_config(reme_config.enable_search_raw_log)
+    cfg = _base_config()
     _apply_embedding_config(
         cfg,
         reme_config.embedding_model_config,
@@ -52,9 +52,13 @@ def build_reme_app_config(
     return cfg
 
 
-def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
+def _base_config() -> dict[str, Any]:
     """Return the ReMe config shape used by QwenPaw."""
-    watch_dirs, watch_suffixes = _index_watch_rules(enable_search_raw_log)
+    # Raw conversation-log lookup belongs to the scroll context strategy's
+    # recall_history(op="search") tool. Keep ReMe search scoped to distilled
+    # memory Markdown so the two systems do not duplicate indexes or duties.
+    watch_dirs = ["daily_dir", "digest_dir"]
+    watch_suffixes = ["md"]
 
     return {
         "service": {"backend": "http"},
@@ -120,6 +124,15 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
                 "description": "return reme package version",
                 "parameters": {"type": "object", "properties": {}},
                 "steps": [{"backend": "version_step"}],
+            },
+            "status": {
+                "backend": "base",
+                "description": (
+                    "report memory estimates for stateful data components "
+                    "and process RSS"
+                ),
+                "parameters": {"type": "object", "properties": {}},
+                "steps": [{"backend": "status_step"}],
             },
             "reindex": {
                 "backend": "base",
@@ -538,15 +551,6 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
         },
         "components": _base_components(),
     }
-
-
-def _index_watch_rules(
-    enable_search_raw_log: bool,
-) -> tuple[list[str], list[str]]:
-    """Return directories/suffixes indexed by ReMe search jobs."""
-    if enable_search_raw_log:
-        return ["daily_dir", "digest_dir", "resource_dir"], ["md", "jsonl"]
-    return ["daily_dir", "digest_dir"], ["md"]
 
 
 def _base_components() -> dict[str, Any]:

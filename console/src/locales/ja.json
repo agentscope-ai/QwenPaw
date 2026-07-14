@@ -1702,8 +1702,6 @@
     "embeddingEnableHint": "選択したバックエンドの必須項目が入力されると埋め込み機能が有効になります。OpenAI互換またはGeminiではモデル名とAPI Key、Ollamaではモデル名が必要です。",
     "rebuildMemoryIndexOnStart": "起動時に記憶インデックスを再構築",
     "rebuildMemoryIndexOnStartTooltip": "エージェント起動時に記憶検索インデックスをクリアして再構築します。基盤となるインデックス更新機構が変わった場合やベクトルインデックスを追加した場合など、インデックス方式が変わったときに有効にしてください。",
-    "enableSearchRawLog": "生ログ検索を有効化（Beta）",
-    "enableSearchRawLogTooltip": "有効にすると、記憶検索に元の会話ログが含まれます。有効化するとメモリ使用量が増える可能性があるため、慎重に有効化してください。",
     "toolResultCompactRecentGtOld": "最新メッセージの閾値は古いメッセージの閾値以上である必要があります",
     "lightContextTitle": "コンテキスト管理",
     "remeLightMemoryTitle": "長期記憶",

@@ -119,15 +119,6 @@ export function ReMeLightMemoryCard() {
         <Switch />
       </Form.Item>
 
-      <Form.Item
-        label={t("agentConfig.enableSearchRawLog")}
-        name={["reme_light_memory_config", "enable_search_raw_log"]}
-        valuePropName="checked"
-        tooltip={t("agentConfig.enableSearchRawLogTooltip")}
-      >
-        <Switch />
-      </Form.Item>
-
       <Collapse
         items={[
           {

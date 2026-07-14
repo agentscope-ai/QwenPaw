@@ -2099,8 +2099,6 @@
     "embeddingEnableHint": "Embedding is enabled when the selected backend has the required fields: Model Name plus API Key for OpenAI-compatible or Gemini backends; Model Name for Ollama.",
     "rebuildMemoryIndexOnStart": "Rebuild Memory Index on Start",
     "rebuildMemoryIndexOnStartTooltip": "Clear and rebuild the memory search index when the agent starts. Enable this when the indexing method has changed, such as when the underlying index update mechanism changes or vector indexing is added.",
-    "enableSearchRawLog": "Enable Raw Log Search (Beta)",
-    "enableSearchRawLogTooltip": "Include raw conversation logs in memory search. Enabling this may increase memory usage, so use it with caution.",
     "toolResultCompactRecentGtOld": "Recent tool result preview bytes must be greater than or equal to compact preview bytes",
     "lightContextTitle": "Context Management",
     "remeLightMemoryTitle": "Long-term Memory",

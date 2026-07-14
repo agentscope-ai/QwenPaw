@@ -57,7 +57,6 @@ export interface ReMeLightMemoryConfig {
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
   rebuild_memory_index_on_start: boolean;
-  enable_search_raw_log: boolean;
 }
 
 export interface AutoTitleConfig {

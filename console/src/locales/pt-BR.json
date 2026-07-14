@@ -1949,8 +1949,6 @@
     "embeddingEnableHint": "Embedding é ativado quando os campos obrigatórios são preenchidos: Nome do Modelo e Chave da API para backends compatíveis com OpenAI ou Gemini; Nome do Modelo para Ollama.",
     "rebuildMemoryIndexOnStart": "Rebuild Memory Index on Start",
     "rebuildMemoryIndexOnStartTooltip": "Limpa e recria o índice de busca da memória quando o agente inicia. Ative quando o método de indexação mudar, por exemplo quando o mecanismo subjacente de atualização do índice mudar ou quando a indexação vetorial for adicionada.",
-    "enableSearchRawLog": "Ativar busca em logs brutos (Beta)",
-    "enableSearchRawLogTooltip": "Inclui logs brutos de conversa na busca da memória. Ativar esta opção pode aumentar o uso de memória, então use com cautela.",
     "toolResultCompactRecentGtOld": "Recent tool result preview bytes must be greater than or equal to compact preview bytes",
     "lightContextTitle": "Context Management",
     "remeLightMemoryTitle": "Long-term Memory",

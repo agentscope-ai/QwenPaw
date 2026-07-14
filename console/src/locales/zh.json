@@ -1958,8 +1958,6 @@
     "embeddingEnableHint": "所选后端的必要字段填写完整后启用向量模型功能：OpenAI 兼容或 Gemini 后端需要模型名称和 API Key；Ollama 需要模型名称。",
     "rebuildMemoryIndexOnStart": "启动时重建记忆索引",
     "rebuildMemoryIndexOnStartTooltip": "智能体启动时清空并重建记忆搜索索引。适合索引方式发生改变时开启，比如底层索引更新机制变更，或者增加了向量索引等场景。",
-    "enableSearchRawLog": "启用原始日志搜索(Beta)",
-    "enableSearchRawLogTooltip": "开启后，记忆搜索会包含原始对话日志。开启后可能增加内存占用，请谨慎开启！",
     "toolResultCompactRecentGtOld": "最近工具结果预览字节数必须大于或等于 compact 预览字节数",
     "lightContextTitle": "上下文管理",
     "remeLightMemoryTitle": "长期记忆",

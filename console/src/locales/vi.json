@@ -912,8 +912,6 @@
     "embeddingEnableHint": "Embedding được bật khi các trường bắt buộc được điền: Tên mô hình và API Key cho backend tương thích OpenAI hoặc Gemini; Tên mô hình cho Ollama.",
     "rebuildMemoryIndexOnStart": "Xây dựng lại chỉ mục bộ nhớ khi khởi động",
     "rebuildMemoryIndexOnStartTooltip": "Xóa và xây dựng lại chỉ mục tìm kiếm bộ nhớ khi agent khởi động. Bật khi phương thức lập chỉ mục thay đổi, ví dụ cơ chế cập nhật chỉ mục nền thay đổi hoặc thêm chỉ mục vector.",
-    "enableSearchRawLog": "Bật tìm kiếm log thô (Beta)",
-    "enableSearchRawLogTooltip": "Sau khi bật, tìm kiếm bộ nhớ sẽ bao gồm log hội thoại gốc. Việc bật tính năng này có thể làm tăng mức sử dụng bộ nhớ, hãy bật một cách thận trọng.",
     "shellCommandTimeout": "Timeout lệnh shell (giây)",
     "shellCommandTimeoutTooltip": "Timeout mặc định cho công cụ execute_shell_command.",
     "shellCommandTimeoutPlaceholder": "Nhập timeout",

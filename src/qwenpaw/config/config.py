@@ -689,11 +689,6 @@ class ReMeLightMemoryConfig(BaseModel):
         default="digest",
         description="Subdirectory for digest memory",
     )
-    enable_search_raw_log: bool = Field(
-        default=False,
-        description="Whether to enable raw log search",
-    )
-
     summarize_when_compact: bool = Field(
         default=True,
         description="Whether to enable memory summarization during compaction",

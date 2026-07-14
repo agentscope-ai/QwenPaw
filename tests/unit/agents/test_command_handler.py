@@ -85,6 +85,51 @@ async def test_dream_command_requires_memory_manager() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reme_status_reports_memory_and_count_warning() -> None:
+    agent = _make_agent()
+    memory_manager = MagicMock()
+    memory_manager.reme_status = AsyncMock(
+        return_value=SimpleNamespace(
+            success=True,
+            answer=(
+                "Memory (estimated component object size)\n"
+                "  file_store:default  12.00 MiB\n"
+                "  Components total  12.00 MiB\n"
+                "  Process RSS       80.00 MiB"
+            ),
+            metadata={"status": {"memory": {"process_rss": "80.00 MiB"}}},
+        ),
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command("/reme_status")
+    text = msg.get_text_content()
+
+    assert handler.is_command("/reme_status")
+    memory_manager.reme_status.assert_awaited_once_with()
+    assert "Process RSS       80.00 MiB" in text
+    assert "may be counted more than once" in text
+    assert "EMBEDDING_STORE" in text
+    assert msg.metadata == {
+        "status": {"memory": {"process_rss": "80.00 MiB"}},
+    }
+
+
+@pytest.mark.asyncio
+async def test_reme_status_requires_memory_manager() -> None:
+    agent = _make_agent()
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+
+    msg = await handler.handle_command("/reme_status")
+
+    assert "Memory Manager Disabled" in msg.get_text_content()
+
+
+@pytest.mark.asyncio
 async def test_memorize_defaults_to_latest_reply_group() -> None:
     agent = _make_agent()
     agent.state.context = [
