@@ -19,6 +19,21 @@ export function stripScrollHeadlines(text: string): string {
     .trim();
 }
 
+/** Mutate completed text blocks without interpreting nested stream deltas. */
+export function stripScrollHeadlineTextBlocks(node: unknown): void {
+  if (!node || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    node.forEach(stripScrollHeadlineTextBlocks);
+    return;
+  }
+
+  const record = node as Record<string, unknown>;
+  if (record.type === "text" && typeof record.text === "string") {
+    record.text = stripScrollHeadlines(record.text);
+  }
+  Object.values(record).forEach(stripScrollHeadlineTextBlocks);
+}
+
 function isPossibleHeadlineStartPrefix(value: string): boolean {
   const commentStart = "<!--";
   if (value.length < commentStart.length) {

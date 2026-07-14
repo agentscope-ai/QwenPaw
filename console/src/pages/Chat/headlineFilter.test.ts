@@ -4,6 +4,7 @@ import {
   createHeadlineFilterState,
   filterHeadlineDelta,
   flushHeadlineFilter,
+  stripScrollHeadlineTextBlocks,
 } from "./headlineFilter";
 
 function filterChunks(chunks: string[]): string[] {
@@ -57,4 +58,27 @@ describe("headline stream filter", () => {
       );
     },
   );
+
+  it("drops an incomplete headline when the stream ends", () => {
+    expect(filterChunks(["visible<!-- ⟦ incomplete headline"]).join("")).toBe(
+      "visible",
+    );
+  });
+
+  it("strips completed text without consuming nested deltas", () => {
+    const payload = {
+      nested: {
+        delta: "<!-- ⟦ streamed headline remains for its own stream ⟧ -->",
+        content: {
+          type: "text",
+          text: "visible\n<!-- ⟦ completed headline is removed ⟧ -->",
+        },
+      },
+    };
+
+    stripScrollHeadlineTextBlocks(payload);
+
+    expect(payload.nested.delta).toContain("streamed headline remains");
+    expect(payload.nested.content.text).toBe("visible");
+  });
 });

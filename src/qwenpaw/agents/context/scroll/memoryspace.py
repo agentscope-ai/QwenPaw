@@ -47,7 +47,9 @@ _SYNTHETIC_USER_TAGS = ("loop_continuation", "auto_continue")
 
 _DATE_RE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
 _SAVED_TOOL_FILE_RE = re.compile(
-    r"call `read_file` with file_path=(.+?)\s+start_line=(\d+)",
+    r"call `read_file` with file_path="
+    r'(?:"(?P<quoted>[^"]*)"|(?P<legacy>.+?))'
+    r"\s+start_line=(?P<start_line>\d+)",
 )
 
 _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
@@ -696,6 +698,9 @@ class MemorySpace:
             )
             if not candidates:
                 break
+            next_before_seq = min(
+                int(candidate["seq"]) for candidate in candidates
+            )
             for row in candidates:
                 if budget.is_exhausted():
                     break
@@ -741,7 +746,7 @@ class MemorySpace:
                             return rows
                     if budget.is_exhausted():
                         break
-            before_seq = min(int(row["seq"]) for row in candidates)
+            before_seq = next_before_seq
             if len(candidates) < _SAVED_TOOL_CANDIDATE_PAGE_SIZE:
                 break
         if budget.is_exhausted() and len(rows) < limit:
@@ -812,8 +817,13 @@ class MemorySpace:
         paths: list[Path] = []
         seen: set[Path] = set()
         for match in _SAVED_TOOL_FILE_RE.finditer(str(content or "")):
+            raw_path = match.group("quoted")
+            if raw_path is None:
+                raw_path = match.group("legacy")
+            if not raw_path:
+                continue
             try:
-                path = Path(match.group(1)).expanduser().resolve()
+                path = Path(raw_path).expanduser().resolve()
                 path.relative_to(root)
             except (OSError, ValueError):
                 continue

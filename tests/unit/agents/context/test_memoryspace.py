@@ -581,12 +581,42 @@ def test_recall_values_with_sql_metacharacters_are_bound(tmp_path: Path):
 # -- saved tool-output search -----------------------------------------------
 
 
-def _saved_tool_notice(path: Path) -> str:
+def _saved_tool_notice(path: Path, *, quoted: bool = False) -> str:
+    rendered_path = f'"{path}"' if quoted else str(path)
     return (
         "[tool output truncated]\n"
         "If more content is needed, call `read_file` with "
-        f"file_path={path} start_line=1 to read more."
+        f"file_path={rendered_path} start_line=1 to read more."
     )
+
+
+def test_saved_tool_paths_accept_quoted_and_legacy_paths_with_spaces(
+    tmp_path: Path,
+):
+    artifact_dir = tmp_path / "tool results with spaces"
+    artifact_dir.mkdir()
+    quoted_file = artifact_dir / "quoted result.txt"
+    quoted_file.write_text("quoted\n", encoding="utf-8")
+    legacy_file = artifact_dir / "legacy result.txt"
+    legacy_file.write_text("legacy\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        paths = space._saved_tool_paths(
+            _saved_tool_notice(quoted_file, quoted=True)
+            + "\n"
+            + _saved_tool_notice(legacy_file),
+        )
+    finally:
+        space.close()
+
+    assert paths == [quoted_file.resolve(), legacy_file.resolve()]
 
 
 def test_saved_tool_search_checks_each_multiblock_artifact(tmp_path: Path):

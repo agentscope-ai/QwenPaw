@@ -62,7 +62,7 @@ import {
   filterHeadlineDelta,
   flushHeadlineFilter,
   type HeadlineStreamFilterState,
-  stripScrollHeadlines,
+  stripScrollHeadlineTextBlocks,
 } from "./headlineFilter";
 
 interface ApprovalMessageData {
@@ -559,22 +559,13 @@ function sanitizeHeadlinePayload(
   streamState: HeadlineStreamFilterState,
 ): void {
   if (!node || typeof node !== "object") return;
-  if (Array.isArray(node)) {
-    node.forEach((item) => sanitizeHeadlinePayload(item, streamState));
-    return;
+  if (!Array.isArray(node)) {
+    const record = node as Record<string, unknown>;
+    if (typeof record.delta === "string") {
+      record.delta = filterHeadlineDelta(record.delta, streamState);
+    }
   }
-
-  const record = node as Record<string, unknown>;
-  if (typeof record.delta === "string") {
-    record.delta = filterHeadlineDelta(record.delta, streamState);
-  }
-  if (record.type === "text" && typeof record.text === "string") {
-    record.text = stripScrollHeadlines(record.text);
-  }
-
-  Object.values(record).forEach((value) =>
-    sanitizeHeadlinePayload(value, streamState),
-  );
+  stripScrollHeadlineTextBlocks(node);
 }
 
 // ---------------------------------------------------------------------------

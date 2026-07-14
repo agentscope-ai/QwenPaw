@@ -77,7 +77,7 @@ def build_truncation_metadata(
         f"\nThe full content is saved to the file and contains {total_lines} lines in total."
         f"\nThis excerpt starts at line {start_line} and covers the next {excerpt_bytes} bytes."
         "\nIf the current content is not enough, call `read_file` with "
-        f"file_path={file_path or ''} start_line={read_from} to read more."
+        f'file_path="{file_path or ""}" start_line={read_from} to read more.'
     )
     info["notice"] = _fit_truncation_notice(notice, info)
     return {TRUNCATION_METADATA_KEY: {str(block_index): info}}
@@ -357,11 +357,17 @@ def _legacy_truncation_metadata(
             return {}
         values[key] = int(match.group(1))
     path_match = re.search(
-        r"file_path=(.*?) start_line=\d+ to read more",
+        r'file_path=(?:"(?P<quoted>[^"]*)"|(?P<legacy>.*?)) '
+        r"start_line=\d+ to read more",
         notice,
     )
+    file_path = None
+    if path_match:
+        file_path = path_match.group("quoted")
+        if file_path is None:
+            file_path = path_match.group("legacy")
     return build_truncation_metadata(
-        file_path=path_match.group(1) if path_match else None,
+        file_path=file_path,
         file_size_bytes=None,
         excerpt_bytes=len(text.split(TRUNCATION_NOTICE_MARKER, 1)[0].encode()),
         total_lines=values["total_lines"],

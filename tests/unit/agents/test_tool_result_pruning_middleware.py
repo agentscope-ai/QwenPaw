@@ -7,9 +7,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import threading
 import types
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, AsyncGenerator
 
 import pytest
@@ -123,10 +123,13 @@ async def test_tool_response_write_failure_fails_open(
         content=[TextBlock(type="text", text=text)],
     )
 
-    def fail_write(*args, **kwargs):
+    def fail_save(*args, **kwargs):
         raise OSError("disk full")
 
-    monkeypatch.setattr(Path, "write_text", fail_write)
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.utils.save_text_output",
+        fail_save,
+    )
 
     result = middleware.prune_tool_response(response)
 
@@ -134,7 +137,7 @@ async def test_tool_response_write_failure_fails_open(
     assert result.content[0].text == text
     assert TRUNCATION_NOTICE_MARKER not in result.content[0].text
     assert TRUNCATION_METADATA_KEY not in result.metadata
-    assert not list(tool_results_dir.iterdir())
+    assert not tool_results_dir.exists()
     assert "returning the original result" in caplog.text
 
 
@@ -153,6 +156,21 @@ def test_notice_has_independent_one_kib_budget():
     assert info["file_path"].startswith("/long-path/")
     assert len(info["notice"].encode("utf-8")) <= 1024
     assert TRUNCATION_NOTICE_MARKER in info["notice"]
+
+
+def test_notice_quotes_saved_file_path():
+    metadata = build_truncation_metadata(
+        file_path="/tmp/tool results/output.txt",
+        file_size_bytes=1000,
+        total_lines=20,
+        start_line=1,
+        max_bytes=512,
+        excerpt_bytes=500,
+        read_from=10,
+    )
+
+    notice = metadata[TRUNCATION_METADATA_KEY]["0"]["notice"]
+    assert 'file_path="/tmp/tool results/output.txt" start_line=10' in notice
 
 
 def test_retruncate_does_not_allow_byte_slack():
@@ -335,6 +353,43 @@ async def test_async_response_pruning_runs_in_worker_thread(
     assert calls == [(pruning.prune_tool_response, (response,))]
     assert TRUNCATION_NOTICE_MARKER in result.content[0].text
     assert len(list(tmp_path.iterdir())) == 1
+
+
+@pytest.mark.asyncio
+async def test_on_acting_offloads_current_and_historical_pruning(
+    monkeypatch,
+):
+    pruning = ToolResultPruningMiddleware()
+    response = ToolResponse(
+        content=[TextBlock(type="text", text="small result")],
+    )
+    event_loop_thread = threading.get_ident()
+    calls: list[tuple[str, int]] = []
+
+    def prune_response(value):
+        calls.append(("response", threading.get_ident()))
+        return value
+
+    def prune_history(messages):
+        calls.append(("history", threading.get_ident()))
+
+    monkeypatch.setattr(pruning, "prune_tool_response", prune_response)
+    monkeypatch.setattr(pruning, "_prune_tool_results", prune_history)
+
+    async def next_handler() -> AsyncGenerator[Any, None]:
+        yield response
+
+    agent = type(
+        "AgentStub",
+        (),
+        {"state": type("StateStub", (), {"context": []})()},
+    )()
+
+    assert await _collect(
+        pruning.on_acting(agent, {}, next_handler),
+    ) == [response]
+    assert [name for name, _ in calls] == ["response", "history"]
+    assert all(thread_id != event_loop_thread for _, thread_id in calls)
 
 
 def test_retruncate_uses_metadata(tmp_path):

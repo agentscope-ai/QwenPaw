@@ -417,7 +417,10 @@ class ScrollContextManager:
             tokens = await self._live_tokens(agent)
             mark("live_tokens")
 
-        compacted_results = self._compact_live_tool_results(agent)
+        compacted_results = await asyncio.to_thread(
+            self._compact_live_tool_results,
+            agent,
+        )
         mark("compact_tool_results")
         if compacted_results:
             logger.info(
@@ -709,16 +712,16 @@ class ScrollContextManager:
         if getattr(middle[-1], "role", None) != "user":
             return middle, tail
 
-        moved: list[Msg] = []
-        rest = list(tail)
-        while rest:
-            msg = rest[0]
+        move_count = 0
+        for msg in tail:
             mid = getattr(msg, "id", None)
             if mid in active_ids or getattr(msg, "role", None) == "user":
                 break
-            moved.append(rest.pop(0))
-        if not moved:
+            move_count += 1
+        if not move_count:
             return middle, tail
+        moved = tail[:move_count]
+        rest = tail[move_count:]
         logger.info(
             "scroll: moved %d reply msg(s) across split boundary to avoid "
             "user-only eviction",

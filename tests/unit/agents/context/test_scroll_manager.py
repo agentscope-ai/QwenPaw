@@ -7,6 +7,7 @@ window), the boundary-Msg double-presence fix, tool-result preview persistence,
 degraded-durability fail-safe (no eviction when a write fails), and retention.
 """
 
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -586,6 +587,7 @@ async def test_fold_not_triggered_between_reserve_and_trigger(
 async def test_compress_retruncates_retained_tool_result_preview(
     store: HistoryStore,
     tmp_path: Path,
+    monkeypatch,
 ):
     text = "\n".join(f"line {idx}: {'x' * 40}" for idx in range(100))
     preview, metadata = truncate_text_output(
@@ -603,6 +605,15 @@ async def test_compress_retruncates_retained_tool_result_preview(
         compact_tool_result_max_bytes=120,
         tool_results_dir=str(tmp_path),
     )
+    event_loop_thread = threading.get_ident()
+    compact_threads: list[int] = []
+    original_compact = mgr._compact_live_tool_results
+
+    def tracked_compact(agent):
+        compact_threads.append(threading.get_ident())
+        return original_compact(agent)
+
+    monkeypatch.setattr(mgr, "_compact_live_tool_results", tracked_compact)
     agent = FakeAgent(ctx, tokens=[600, 50])
     agent._split_return = (ctx, [])
 
@@ -613,6 +624,8 @@ async def test_compress_retruncates_retained_tool_result_preview(
     assert "/tmp/full-tool-result.txt" in compacted
     assert "[scroll folded]" not in compacted
     assert mgr.last_compress["folded"] == 0
+    assert compact_threads
+    assert all(thread_id != event_loop_thread for thread_id in compact_threads)
 
 
 async def test_pressure_fold_stubs_older_results_keeps_newest(

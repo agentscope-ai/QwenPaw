@@ -374,7 +374,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         events: list[Any] = []
         async for event in next_handler():
             if isinstance(event, ToolResponse):
-                event = self.prune_tool_response(event)
+                event = await self.prune_tool_response_async(event)
             events.append(event)
             yield event
 
@@ -383,7 +383,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
 
         try:
             messages = list(agent.state.context)
-            self._prune_tool_results(messages)
+            await asyncio.to_thread(self._prune_tool_results, messages)
         except Exception:
             logger.exception("ToolResultPruningMiddleware failed")
 

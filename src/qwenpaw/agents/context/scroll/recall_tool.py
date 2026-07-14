@@ -20,6 +20,7 @@ re-read path works everywhere.
 # NOTE: no ``from __future__ import annotations`` here — FunctionTool builds
 # the model-facing JSON schema from the wrapped function's runtime
 # annotations, and stringified ones fail pydantic's resolution.
+import asyncio
 import logging
 from typing import Any, Optional
 
@@ -209,7 +210,8 @@ def make_recall_history(
         tool_call_id: Optional[str] = None,
     ) -> ToolChunk:
         try:
-            text, ok = _run(
+            text, ok = await asyncio.to_thread(
+                _run,
                 op,
                 lo,
                 hi,
