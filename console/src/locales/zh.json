@@ -2171,6 +2171,8 @@
     "toolGuardDescription": "配置工具调用的安全扫描。危险操作将在执行前需要你的明确批准。",
     "enabled": "启用工具防护",
     "enabledTooltip": "启用后，工具调用在执行前会被扫描是否包含危险模式",
+    "sandboxEnabled": "启用沙箱执行",
+    "sandboxEnabledTooltip": "启用后，无匹配规则的 shell 命令会在沙箱内静默执行；关闭后，此类命令将不经沙箱直接执行（无需审批）。无论开关如何，密钥文件读取与危险命令（如 rm -rf /、sudo）等仍会被拦截或要求审批。",
     "guardedTools": "受保护的工具",
     "guardedToolsTooltip": "检测到危险模式时需要审批的工具。留空则使用内置默认集合。",
     "guardedToolsPlaceholder": "选择工具或输入自定义工具名",

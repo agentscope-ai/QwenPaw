@@ -1,15 +1,16 @@
 # Quick start
 
-This section describes multiple ways to install QwenPaw:
+This section describes multiple ways to install or start using QwenPaw:
 
-| Installation Method   | Best For                                      | Advantages                                                  | Prerequisites         |
-| --------------------- | --------------------------------------------- | ----------------------------------------------------------- | --------------------- |
-| **pip install**       | Developers familiar with Python               | Flexible environment control, easy for development          | Python 3.11~3.13      |
-| **Script install**    | Users who don't want manual environment setup | Zero configuration, automatic Python environment management | None                  |
-| **Docker**            | Containerized deployment or production        | Environment isolation, easy migration                       | Docker                |
-| **Alibaba Cloud ECS** | Stable cloud operation                        | One-click deploy, stable and reliable                       | Alibaba Cloud account |
-| **ModelScope Studio** | No local environment or quick trial           | One-click deploy, cloud running, no installation            | ModelScope account    |
-| **Desktop app**       | Users unfamiliar with command line            | Double-click to use, graphical interface                    | None                  |
+| Installation Method     | Best For                                      | Advantages                                                                                      | Prerequisites                           |
+| ----------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------- |
+| **pip install**         | Developers familiar with Python               | Flexible environment control, easy for development                                              | Python 3.11~3.13                        |
+| **Script install**      | Users who don't want manual environment setup | Zero configuration, automatic Python environment management                                     | None                                    |
+| **Docker**              | Containerized deployment or production        | Environment isolation, easy migration                                                           | Docker                                  |
+| **AgentScope Platform** | No local environment or quick trial           | Free after registration, no installation required, browser-based, with Beta and stable versions | Register an AgentScope Platform account |
+| **Alibaba Cloud ECS**   | Stable cloud operation                        | One-click deploy, stable and reliable                                                           | Alibaba Cloud account                   |
+| **ModelScope Studio**   | No local environment or quick trial           | One-click deploy, cloud running, no installation                                                | ModelScope account                      |
+| **Desktop app**         | Users unfamiliar with command line            | Double-click to use, graphical interface                                                        | None                                    |
 
 > 📖 Please read [Introduction](./intro) first. After installation and startup, check out [Console](./console).
 
@@ -217,7 +218,17 @@ and API keys are stored in the `qwenpaw-secrets` volume; backup archives are sto
 
 ---
 
-## Option 4: Deploy to Alibaba Cloud ECS
+## Option 4: AgentScope Platform (no installation)
+
+[AgentScope Platform](https://platform.agentscope.io/) is the cloud experience platform for the AgentScope ecosystem, providing one-click QwenPaw deployment and an online runtime environment, with both Beta and stable versions available to try. Register to try it for free, with no local installation or environment setup required. After signing in, deploy QwenPaw with one click and use it directly in your browser.
+
+![QwenPaw one-click deployment and feedback entry points on AgentScope Platform](https://img.alicdn.com/imgextra/i1/O1CN01LEMjf01YXeg8iyOjE_!!6000000003069-2-tps-2840-1436.png)
+
+If you encounter any issues while deploying or using QwenPaw, click **Suggestions & Feedback** in the lower-right corner of the page to submit feedback.
+
+---
+
+## Option 5: Deploy to Alibaba Cloud ECS
 
 To deploy QwenPaw on Alibaba Cloud, use the ECS one-click deployment:
 
@@ -228,7 +239,7 @@ For detailed steps and instructions, see [Alibaba Cloud Developer Community: Dep
 
 ---
 
-## Option 5: ModelScope Studio one-click setup (no installation)
+## Option 6: ModelScope Studio one-click setup (no installation)
 
 If you don't want to install Python locally, you can deploy QwenPaw to the cloud
 through ModelScope Studio:
@@ -240,7 +251,7 @@ through ModelScope Studio:
 
 ---
 
-## Option 6: Desktop application
+## Option 7: Desktop application
 
 If you're not comfortable with command-line tools, you can download and use
 QwenPaw's desktop application without manually configuring Python environments

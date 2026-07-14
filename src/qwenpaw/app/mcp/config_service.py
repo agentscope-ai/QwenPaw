@@ -252,7 +252,7 @@ class MCPConfigService:
             card.policy,
             access,
         )
-        await self._driver_config.save_card(card)
+        await self._driver_config.save_policy(card)
         return mcp_access_policy_from_card(card)
 
     async def create_client(

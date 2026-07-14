@@ -1,9 +1,15 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { motion } from "motion/react";
-import { DottedlinedownArrowIcon, PathIcon } from "@/components/Icon";
+import {
+  AgentScopePlatformIcon,
+  DottedlinedownArrowIcon,
+  PathIcon,
+} from "@/components/Icon";
 import ShinyText from "@/components/ShinyText";
 import { LATEST_RELEASE_VERSION } from "@/pages/releaseNotesData";
+
+const AGENTSCOPE_PLATFORM_URL = "https://platform.agentscope.io/";
 
 const container = {
   hidden: { opacity: 0, y: 14 },
@@ -146,6 +152,15 @@ export function Hero() {
               <DottedlinedownArrowIcon />
               <span>{t("hero.quickStart")}</span>
             </button>
+            <a
+              href={AGENTSCOPE_PLATFORM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-11 w-full max-w-60 items-center justify-center gap-1.5 rounded-lg border border-[#F3F1F0] bg-(--color-secondary) px-4 text-[15px] font-normal text-(--color-text) transition hover:brightness-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--color-primary) sm:h-10 sm:w-auto sm:max-w-none"
+            >
+              <AgentScopePlatformIcon size={18} />
+              <span>{t("hero.quickTry")}</span>
+            </a>
           </div>
 
           <motion.div

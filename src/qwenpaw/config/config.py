@@ -788,16 +788,6 @@ class ToolResultPruningConfig(BaseModel):
         ),
     )
 
-    execution_layer_max_bytes: int = Field(
-        default=50000,
-        ge=1000,
-        description=(
-            "Hard byte cap applied at execution time before the tool "
-            "response is inserted into the agent context. Independent of "
-            "the tiered historical pruning thresholds."
-        ),
-    )
-
     offload_retention_days: int = Field(
         default=5,
         ge=1,
@@ -2084,6 +2074,17 @@ class SecurityConfig(BaseModel):
     file_guard: FileGuardConfig = Field(default_factory=FileGuardConfig)
     skill_scanner: SkillScannerConfig = Field(
         default_factory=SkillScannerConfig,
+    )
+    sandbox_enabled: bool = Field(
+        default=False,
+        description=(
+            "Global switch for governance sandbox execution. Defaults to "
+            "False (sandbox off). When True, shell tools with no matching "
+            "rule run inside the sandbox (no user prompt). When False, such "
+            "calls run directly without the sandbox (no prompt). Phase 0-2 "
+            "protections (secret-file / dangerous-command blocking) are "
+            "unaffected either way."
+        ),
     )
     allow_no_auth_hosts: List[str] = Field(
         default_factory=lambda: ["127.0.0.1", "::1"],

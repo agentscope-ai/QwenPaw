@@ -9,6 +9,8 @@
     "github": "GitHub",
     "githubComingSoon": "Coming Soon",
     "lang": "ENG",
+    "platform": "Platform",
+    "platformTitle": "AgentScope 体验平台",
     "agentscopeTeam": "AgentScope"
   },
   "hero": {
@@ -19,7 +21,8 @@
     "sub1": "为 QwenPaw 量身定制的 Agent OS, TUI, 循环工程, 滚动上下文, 新版 ReMe",
     "releaseNote": "QwenPaw {{version}}版本全新发布",
     "cta": "查看文档",
-    "quickStart": "快速开始"
+    "quickStart": "快速开始",
+    "quickTry": "快速体验"
   },
   "follow": {
     "title": "关注我们",

@@ -188,8 +188,11 @@ class TestDefaultPolicyLoad:
 
     def test_deleted_coding_project_dir_rule_stays_deleted(self, tmp_path):
         """Once the migration marker is persisted, a user who deletes the
-        coding-dir ALLOW rule keeps it deleted across reloads (writes fall
-        through to the ASK fallback instead of being silently re-allowed).
+        coding-dir ALLOW rule keeps it deleted across reloads.
+
+        The removal is proven behaviourally under STRICT (which has no
+        auto-allow fallback): with the ALLOW rule gone, a write to the
+        coding dir falls through to ASK instead of being silently allowed.
         """
         ws = "/home/user/workspace"
         cpd = "/home/user/coding"
@@ -217,11 +220,14 @@ class TestDefaultPolicyLoad:
             for rule in reloaded.user_rules
             if rule.reason == "Coding project dir"
         ]
+        # Under STRICT the deleted ALLOW rule can no longer short-circuit
+        # the decision, so the write falls through to ASK.
+        reloaded.execution_level = "strict"
         assert (
             reloaded.evaluate(
                 _tc("Write", f"{cpd}/script.py"),
             ).action
-            is not GovernanceAction.ALLOW
+            is GovernanceAction.ASK
         )
 
         # The marker round-trips, so it stays deleted on the next cycle too.
@@ -481,11 +487,12 @@ class TestAssertPolicySSHCommands:
         tc = _tc("Bash", "ls -la")
         decision = governor.assert_policy(tc)
         governor.audit(tc, decision)
-        # When sandbox is unavailable, SANDBOX_FALLBACK escalates to ASK
-        # So we just check it's not DENY or the SSH-related ASK
+        # Sandbox available -> SANDBOX_FALLBACK (runs in sandbox); sandbox
+        # unavailable -> ALLOW (runs unsandboxed, no prompt). Either way it
+        # must not be DENY or the SSH-related ASK.
         assert decision.action in (
             GovernanceAction.SANDBOX_FALLBACK,
-            GovernanceAction.ASK,
+            GovernanceAction.ALLOW,
         )
 
 
@@ -574,35 +581,44 @@ class TestGovernancePolicyEvaluate:
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ALLOW
 
-    def test_grep_outside_workspace_ask(self, policy):
-        """Grep outside workspace with no rule hit falls through to ASK.
+    def test_grep_outside_workspace_allow(self, policy):
+        """Grep outside workspace with no rule hit + no finding is ALLOWed.
 
-        Fail-closed: nothing matched (no rule, no finding), so the user
-        must approve regardless of execution_level.
+        Finding-driven approval: the deep scan flagged nothing and no
+        builtin/user rule objected, so SMART (the default) allows the call
+        instead of prompting. Sensitive-path protection still fires via
+        Phase 1 for paths in ``sensitive_paths``.
         """
         tc = _tc("Grep", "/etc/")
         decision = policy.evaluate(tc)
-        assert decision.action == GovernanceAction.ASK
+        assert decision.action == GovernanceAction.ALLOW
 
-    def test_glob_outside_workspace_ask(self, policy):
-        """Glob outside workspace with no rule hit falls through to ASK."""
+    def test_glob_outside_workspace_allow(self, policy):
+        """Glob outside workspace with no rule hit + no finding is ALLOWed."""
         tc = _tc("Glob", "/var/log/")
         decision = policy.evaluate(tc)
-        assert decision.action == GovernanceAction.ASK
+        assert decision.action == GovernanceAction.ALLOW
 
-    def test_outside_workspace_always_asks(self, policy):
-        """No rule hit + no findings ASKs under every execution_level.
+    def test_outside_workspace_fallback_by_level(self, policy):
+        """No rule hit + no findings: STRICT asks, others allow.
 
-        Fail-closed design: an unmatched tool call always requires
-        approval, irrespective of the execution_level threshold.
+        Finding-driven approval: only STRICT requires approval for an
+        unmatched-but-clean call; SMART/AUTO/OFF allow it to avoid
+        flooding the user with low-value prompts.
         """
         import copy
 
         tc = _tc("Grep", "/etc/")
-        for level in ("strict", "smart", "auto", "off"):
+        expected = {
+            "strict": GovernanceAction.ASK,
+            "smart": GovernanceAction.ALLOW,
+            "auto": GovernanceAction.ALLOW,
+            "off": GovernanceAction.ALLOW,
+        }
+        for level, want in expected.items():
             p = copy.deepcopy(policy)
             p.execution_level = level
-            assert p.evaluate(tc).action == GovernanceAction.ASK, level
+            assert p.evaluate(tc).action == want, level
 
     def test_bash_no_match_fallback(self, policy):
         """Bash with no rule match should return SANDBOX_FALLBACK."""
@@ -663,7 +679,9 @@ class TestGovernancePolicyEvaluate:
 
 
 class TestAssertPolicySandboxEscalation:
-    """When sandbox is unavailable, SANDBOX_FALLBACK should escalate to ASK."""
+    """When sandbox is unavailable, a shell SANDBOX_FALLBACK runs unsandboxed
+    (ALLOW) instead of prompting — the command already cleared all danger
+    checks, and the operator has accepted running without the sandbox."""
 
     @pytest.fixture()
     def governor_no_sandbox(self, tmp_path):
@@ -681,13 +699,13 @@ class TestAssertPolicySandboxEscalation:
         AuditLog._instance = None
         shutil.rmtree(gov._policy_dir, ignore_errors=True)
 
-    def test_bash_echo_escalates_to_ask(self, governor_no_sandbox):
+    def test_bash_echo_allows_unsandboxed(self, governor_no_sandbox):
         """Bash(echo hello) — no rule match → SANDBOX_FALLBACK, but sandbox
-        unavailable → escalate to ASK."""
+        unavailable → run unsandboxed (ALLOW)."""
         tc = _tc("Bash", "echo hello")
         decision = governor_no_sandbox.assert_policy(tc)
         governor_no_sandbox.audit(tc, decision)
-        assert decision.action == GovernanceAction.ASK
+        assert decision.action == GovernanceAction.ALLOW
 
 
 # ---------------------------------------------------------------------------

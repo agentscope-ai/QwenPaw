@@ -199,12 +199,12 @@ print(ms.agents())
 
 当前有两个相关机制：
 
-| 机制                          | 默认状态                                     | 作用                                                                                                                                                                         |
-| ----------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ToolResultCapMiddleware`     | scroll 启用时生效                            | 单个工具结果超过 `scroll_config.tool_output_token_cap` 时，把完整输出写入 `history.db`，实时上下文只保留有限预览和 `recall_history(op="recall_tool", tool_call_id=…)` 指针。 |
-| `ToolResultPruningMiddleware` | 由 `tool_result_pruning_config.enabled` 控制 | 旧版按字节分层裁剪工具结果，可选使用 `tool_results/` 文件缓存。                                                                                                              |
+| 机制                          | 默认状态                                                             | 作用                                                                                                                                                                         |
+| ----------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ToolResultCapMiddleware`     | scroll 启用时生效                                                    | 单个工具结果超过 `scroll_config.tool_output_token_cap` 时，把完整输出写入 `history.db`，实时上下文只保留有限预览和 `recall_history(op="recall_tool", tool_call_id=…)` 指针。 |
+| `ToolResultPruningMiddleware` | 所有上下文策略下均注册，由 `tool_result_pruning_config.enabled` 控制 | 旧版按字节分层裁剪工具结果，可选使用 `tool_results/` 文件缓存。                                                                                                              |
 
-scroll cap 是基于 token 的，并通过持久历史回溯；旧版 pruning 是基于字节的，用于兼容原有工具结果 offload 行为。
+scroll cap 是基于 token 的，并通过持久历史回溯；旧版 pruning 是基于字节的，用于兼容原有工具结果 offload 行为。在 scroll 下两者会同时生效。
 
 ### 历史迁移（旧会话回填）
 
