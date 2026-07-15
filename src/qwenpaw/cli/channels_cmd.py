@@ -21,7 +21,6 @@ from ..config.config import (
     QQConfig,
     VoiceChannelConfig,
     WeChatConfig,
-    WebhookConfig,
     load_agent_config,
     save_agent_config,
 )
@@ -51,7 +50,6 @@ _ALL_CHANNEL_NAMES = {
     "voice": "Twilio",
     "yuanbao": "Yuanbao",
     "slack": "Slack",
-    "webhook": "Webhook",
 }
 # Public alias for tests and external use.
 CHANNEL_NAMES = _ALL_CHANNEL_NAMES
@@ -611,55 +609,15 @@ def configure_console(current_config: ConsoleConfig) -> ConsoleConfig:
     return current_config
 
 
-def configure_webhook(current_config: WebhookConfig) -> WebhookConfig:
-    """Configure Webhook channel interactively."""
-    click.echo("\n=== Configure Webhook Channel ===")
-
-    enabled = prompt_confirm(
-        "Enable Webhook channel?",
-        default=current_config.enabled,
-    )
-
-    if not enabled:
-        current_config.enabled = False
-        return current_config
-
-    current_config.enabled = True
-
-    current_config.channel_id = click.prompt(
-        "Channel ID (used in inbound URL path /webhooks/<id>)",
-        default=current_config.channel_id or "default",
-        type=str,
-    )
-
-    current_config.bind_address = click.prompt(
-        "Bind address (inbound HTTP)",
-        default=current_config.bind_address or "127.0.0.1",
-        type=str,
-    )
-
-    current_config.port = click.prompt(
-        "Inbound port",
-        default=current_config.port or 9070,
-        type=int,
-    )
-
-    current_config.outbound_url = click.prompt(
-        "Outbound webhook URL (where replies are POSTed)",
-        default=current_config.outbound_url or "",
-        type=str,
-    )
-
-    current_config.secret = click.prompt(
-        "Shared HMAC-SHA256 secret (leave empty to disable signing)",
-        default=current_config.secret or "",
-        type=str,
-    )
-
-    return current_config
-
-
 # ── reusable channel configuration flow (used by init_cmd too) ─────
+
+# Webhook is no longer a built-in channel — it ships as an opt-in
+# plugin (``plugins/channel/webhook``) installed from the Plugin
+# Marketplace. Any leftover ``channels.webhook`` section in a user's
+# ``agent.json`` is preserved through the ``extra="allow"`` config
+# and rendered in the UI by the plugin's own ``config_fields``
+# descriptor, so existing config keeps working without a
+# built-in-only CLI configurator here.
 
 # Full registry — filtered at runtime by get_channel_configurators().
 _ALL_CHANNEL_CONFIGURATORS = {
@@ -672,7 +630,6 @@ _ALL_CHANNEL_CONFIGURATORS = {
     "qq": ("QQ", configure_qq),
     "console": ("Console", configure_console),
     "voice": ("Twilio", configure_voice),
-    "webhook": ("Webhook", configure_webhook),
 }
 
 

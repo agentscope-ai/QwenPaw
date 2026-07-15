@@ -1896,6 +1896,11 @@ def build_agent_request_from_native(self, native_payload):
 
 ## Webhook（通用 HTTP）
 
+> **注意**：Webhook 通道作为**可选插件**发布，不是内置通道。因为它会开启一个
+> 监听端口以驱动 Agent，所以不会强制暴露给不需要它的部署。在配置之前，请先在
+> QwenPaw Console 的 **插件市场（Plugin Marketplace）** 搜索并安装 `webhook`
+> 插件。该通道只有在安装后才会出现在 Channels 设置中。
+
 Webhook 通道是一个通用的 HTTP 接收与发送通道。它让你无需写 channel 插件，
 就能把 QwenPaw 与任何能 POST JSON 的系统集成——内部服务、智能家居、
 自定义 UI、CI 机器人或你自己的脚本。
@@ -1904,6 +1909,8 @@ Webhook 通道是一个通用的 HTTP 接收与发送通道。它让你无需写
 - **出站**：Agent 回复会被 POST 到 `outbound_url`
 - **签名**：入站和出站共用同一个 `X-QwenPaw-Signature: sha256=<hex>` 头
   （对原始 body 做 HMAC-SHA256，十六进制小写）
+- **限流**：按客户端 IP 做令牌桶限流（默认 5 RPS，突发 10），
+  桶空时返回 HTTP 429 并附带 `Retry-After`
 
 ### 何时使用
 
@@ -1913,6 +1920,24 @@ Webhook 通道是一个通用的 HTTP 接收与发送通道。它让你无需写
 
 需要更紧密的集成（会话、媒体、专门的 UX），请改用自定义 channel 插件。
 Webhook 通道最适合“请求-响应”就能满足的简单场景。
+
+### 安全检查清单
+
+Webhook 监听器可以被任何能访问绑定地址/端口的调用方访问。通道默认
+包含以下保护：
+
+- **配置了 secret 时强制要求签名**。只要 `secret` 已设置，没有带
+  合法 `X-QwenPaw-Signature` 头的请求都会返回 HTTP 401。原先
+  “配置了 secret 也允许无签名”的宽容默认被移除，因为它实际上让
+  任何省略签名的调用方绕过了签名校验。
+- **按客户端 IP 限流**。入站端点对每个客户端 IP 维持一个令牌桶
+  （默认 5 RPS，突发 10）。桶空时返回 HTTP 429 并附带
+  `Retry-After: 1`。
+- **请求体大小上限**。超过 1 MiB 的请求体会被返回 413（基于
+  `Content-Length` 提前判断，避免完整读入）。
+- **默认绑定到 loopback**。`bind_address` 默认 `127.0.0.1`。
+  对外部署时请在前面接反向代理并保持上游绑定回环，不要直接把
+  监听器绑到公网接口。
 
 ### 配置 Webhook 通道
 
@@ -1924,7 +1949,9 @@ Webhook 通道最适合“请求-响应”就能满足的简单场景。
 - **Bind address / port**：入站 HTTP 监听绑定地址（默认 `127.0.0.1:9070`）
 - **Outbound URL**：Agent 回复 POST 到哪里（如 `https://my-service/hook`）
 - **Shared secret**：用于双端签名的 HMAC-SHA256 共享密钥
-  （留空则禁用签名）
+  （留空则禁用签名——不推荐对外网暴露的端点使用）
+- **Rate limit RPS / burst**：每客户端 IP 的令牌桶参数
+  （默认 5 / 10）
 
 **方法 2**：直接编辑 `agent.json`
 
@@ -1937,7 +1964,9 @@ Webhook 通道最适合“请求-响应”就能满足的简单场景。
       "bind_address": "127.0.0.1",
       "port": 9070,
       "outbound_url": "https://my-service/hook",
-      "secret": "shared-hmac-secret"
+      "secret": "shared-hmac-secret",
+      "rate_limit_rps": 5,
+      "rate_limit_burst": 10
     }
   }
 }
@@ -1945,13 +1974,15 @@ Webhook 通道最适合“请求-响应”就能满足的简单场景。
 
 ### Webhook 专属字段
 
-| 字段           | 类型   | 默认值         | 说明                                                                            |
-| -------------- | ------ | -------------- | ------------------------------------------------------------------------------- |
-| `channel_id`   | string | `"default"`    | 入站 URL 段；接收端监听 `/webhooks/<channel_id>`                                 |
-| `bind_address` | string | `"127.0.0.1"` | 入站 HTTP 监听绑定地址（如需接收任意来源，改为 `0.0.0.0`）                       |
-| `port`         | int    | `9070`         | 入站监听端口                                                                    |
-| `outbound_url` | string | `""`           | 默认回复 URL；当入站请求未指定时使用                                              |
-| `secret`       | string | `""`           | HMAC-SHA256 共享密钥；为空时禁用双端签名                                          |
+| 字段              | 类型   | 默认值          | 说明                                                                            |
+| ----------------- | ------ | --------------- | ------------------------------------------------------------------------------- |
+| `channel_id`      | string | `"default"`     | 入站 URL 段；接收端监听 `/webhooks/<channel_id>`                                 |
+| `bind_address`    | string | `"127.0.0.1"`  | 入站 HTTP 监听绑定地址（如需接收任意来源，改为 `0.0.0.0`）                       |
+| `port`            | int    | `9070`          | 入站监听端口                                                                    |
+| `outbound_url`    | string | `""`            | 默认回复 URL；当入站请求未指定时使用                                              |
+| `secret`          | string | `""`            | HMAC-SHA256 共享密钥；为空时禁用双端签名                                          |
+| `rate_limit_rps`  | float  | `5`             | 每客户端 IP 的持续请求速率（请求/秒）                                            |
+| `rate_limit_burst`| int    | `10`            | 每客户端 IP 在限流前的突发上限                                                  |
 
 ### 入站载荷
 
@@ -2009,17 +2040,23 @@ def verify(raw_body: bytes, header_value: str | None) -> bool:
 | ---- | --------------------------------------------------- |
 | `200` | 载荷已接收并派发                                    |
 | `400` | 请求体不是合法 JSON                                  |
-| `401` | `X-QwenPaw-Signature` 校验失败（配置了 `secret` 时） |
+| `401` | `X-QwenPaw-Signature` 校验失败（配置了 `secret` 时无签名请求也会被拒绝） |
 | `404` | URL 段与本通道的 `channel_id` 不匹配                  |
 | `413` | 请求体超过 1 MiB                                      |
+| `429` | 超过每客户端 IP 的限流（响应头包含 `Retry-After`）  |
 
 ### 限制与行为
 
-- 最大请求体：**1 MiB**。超过会被 `413` 拒绝。
+- 最大请求体：**1 MiB**。超过会被 `413` 拒绝（会优先通过 `Content-Length`
+  提前判断，避免完整读入）。
+- 每客户端 IP 限流：默认持续 5 RPS，突发 10（可通过 `rate_limit_rps` /
+  `rate_limit_burst` 调整）。桶空时返回 `429` 并附带 `Retry-After: 1`。
+- 签名强制：配置 `secret` 后，无签名请求会被 `401` 拒绝；`secret` 为空
+  时通道保持宽容（保留向后兼容，但**不建议**对外部署）。
 - 出站请求在 5xx 和网络错误时按指数退避重试（`1s`、`2s`、`4s`）；4xx 不重试。
 - 入站监听在后台任务中运行一个独立的 uvicorn 服务，仅绑定到 `bind_address`
-  （默认 `127.0.0.1`）。如需对外暴露，请使用隧道（如 `cloudflared`、`ngrok`），
-  不要直接开放端口。
+  （默认 `127.0.0.1`）。如需对外暴露，请使用隧道（如 `cloudflared`、
+  `ngrok`）或反向代理，不要直接开放端口。
 
 ---
 

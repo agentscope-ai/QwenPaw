@@ -27,23 +27,35 @@ def verify_signature(
             form ``sha256=<hex>``. May be ``None`` when the sender does
             not include the header.
         secret: Shared secret configured on the channel. May be ``None``
-            when the channel accepts unsigned requests.
+            when the channel accepts unsigned requests (not recommended
+            on a public endpoint).
 
     Returns:
-        ``True`` if the signature is valid, if the channel is configured
-        without a secret (accepts everything), or if no signature was
-        provided (with a logged warning). ``False`` only when both a
-        signature and a secret are present and the signature does not
-        match.
+        ``True`` if the channel is configured without a secret
+        (accepts everything), or when the supplied signature matches
+        the body. ``False`` when a secret is configured but the
+        request arrives unsigned, or when the supplied signature does
+        not match.
+
+        Security note: when ``secret`` is set, an unsigned request is
+        always rejected. The previous permissive default (accept
+        unsigned requests even with a secret) was removed because it
+        effectively disabled signature enforcement on any caller that
+        omitted the header.
     """
     if secret is None:
+        # No secret configured — accept everything. This preserves
+        # backwards compatibility for deployments that rely on
+        # network-level isolation (e.g. binding to 127.0.0.1). New
+        # deployments exposing the listener publicly should always
+        # configure a secret.
         return True
     if signature is None or signature == "":
         logger.warning(
-            "webhook received without signature header; configure "
-            "--secret on the channel to enforce verification",
+            "webhook received without signature header while a "
+            "secret is configured; rejecting",
         )
-        return True
+        return False
     if not signature.startswith(SIGNATURE_PREFIX):
         logger.warning("webhook signature missing sha256= prefix")
         return False

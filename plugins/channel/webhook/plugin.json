@@ -1,0 +1,24 @@
+{
+  "id": "webhook",
+  "name": "Webhook",
+  "version": "1.0.0",
+  "type": "channel",
+  "description": "Generic HTTP webhook channel for QwenPaw. Accepts arbitrary JSON payloads via POST with optional HMAC-SHA256 signature verification, and posts agent replies to a configured outbound URL.",
+  "description_i18n": {
+    "zh-CN": "QwenPaw 的通用 HTTP Webhook 通道：接收任意 JSON 请求（可选 HMAC-SHA256 签名校验），并将 Agent 回复 POST 到配置的出站 URL。",
+    "en-US": "Generic HTTP webhook channel for QwenPaw. Accepts arbitrary JSON payloads via POST with optional HMAC-SHA256 signature verification, and posts agent replies to a configured outbound URL."
+  },
+  "author": "QwenPaw Team",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "httpx>=0.24.0"
+  ],
+  "qwenpaw_version": {
+    "min": "2.0.0",
+    "max": "2.1.0"
+  }
+}

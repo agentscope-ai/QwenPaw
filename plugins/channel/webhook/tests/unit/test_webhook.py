@@ -12,24 +12,26 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from qwenpaw.app.channels.webhook import sender as sender_mod
-from qwenpaw.app.channels.webhook.channel import (
+from plugins.channel.webhook import sender as sender_mod
+from plugins.channel.webhook.channel import (
     DEFAULT_BIND_ADDRESS,
     DEFAULT_PORT,
+    DEFAULT_RATE_LIMIT_BURST,
+    DEFAULT_RATE_LIMIT_RPS,
     GenericWebhookEvent,
     WebhookChannel,
     WebhookChannelConfig,
 )
-from qwenpaw.app.channels.webhook.sender import (
+from plugins.channel.webhook.sender import (
     send_webhook_reply,
     send_webhook_reply_sync,
 )
-from qwenpaw.app.channels.webhook.signature import (
+from plugins.channel.webhook.signature import (
     SIGNATURE_HEADER,
     SIGNATURE_PREFIX,
     verify_signature,
 )
-from qwenpaw.app.channels.webhook.server import (
+from plugins.channel.webhook.server import (
     MAX_BODY_BYTES,
     create_webhook_app,
 )
@@ -54,11 +56,15 @@ class TestVerifySignature:
     def test_returns_true_when_no_secret_configured(self):
         assert verify_signature(b"hello", "sha256=abc", None) is True
 
-    def test_returns_true_when_signature_missing_with_secret(self):
-        assert verify_signature(b"hello", None, "secret") is True
+    def test_returns_true_when_no_secret_and_no_signature(self):
+        assert verify_signature(b"hello", None, None) is True
 
-    def test_returns_true_when_signature_empty_with_secret(self):
-        assert verify_signature(b"hello", "", "secret") is True
+    def test_returns_false_when_signature_missing_with_secret(self):
+        # Security: must reject unsigned requests once a secret is set.
+        assert verify_signature(b"hello", None, "secret") is False
+
+    def test_returns_false_when_signature_empty_with_secret(self):
+        assert verify_signature(b"hello", "", "secret") is False
 
     def test_valid_signature_passes(self):
         body = b'{"hello":"world"}'
@@ -375,6 +381,8 @@ class TestWebhookChannelLifecycle:
         assert ch.config.channel_id == "default"
         assert ch.config.port == DEFAULT_PORT
         assert ch.config.bind_address == DEFAULT_BIND_ADDRESS
+        assert ch.config.rate_limit_rps == DEFAULT_RATE_LIMIT_RPS
+        assert ch.config.rate_limit_burst == DEFAULT_RATE_LIMIT_BURST
         assert ch.enabled is True
 
     def test_construction_with_custom_config(self):
@@ -386,12 +394,16 @@ class TestWebhookChannelLifecycle:
             bind_address="0.0.0.0",
             outbound_url="http://outbound.test/hook",
             secret="topsecret",
+            rate_limit_rps=2.0,
+            rate_limit_burst=3,
         )
         assert ch.config.channel_id == "custom"
         assert ch.config.port == 8080
         assert ch.config.bind_address == "0.0.0.0"
         assert ch.config.outbound_url == "http://outbound.test/hook"
         assert ch.config.secret == "topsecret"
+        assert ch.config.rate_limit_rps == 2.0
+        assert ch.config.rate_limit_burst == 3
 
     def test_disabled_channel_start_is_noop(self):
         ch = WebhookChannel(process=_make_mock_process(), enabled=False)
@@ -407,6 +419,8 @@ class TestWebhookChannelLifecycle:
         assert cfg.bind_address == DEFAULT_BIND_ADDRESS
         assert cfg.outbound_url is None
         assert cfg.secret is None
+        assert cfg.rate_limit_rps == DEFAULT_RATE_LIMIT_RPS
+        assert cfg.rate_limit_burst == DEFAULT_RATE_LIMIT_BURST
 
 
 class TestWebhookChannelSessionId:
@@ -565,6 +579,20 @@ def app_and_channel():
     return channel, app
 
 
+@pytest.fixture
+def app_and_channel_low_rate():
+    """Channel+app with a very tight rate limit for 429 tests."""
+    channel = WebhookChannel(
+        process=_make_mock_process(),
+        channel_id="alpha",
+        secret="topsecret",
+        rate_limit_rps=1.0,
+        rate_limit_burst=2,
+    )
+    app = create_webhook_app(channel)
+    return channel, app
+
+
 class TestWebhookServer:
     """FastAPI endpoint behaviour."""
 
@@ -614,6 +642,132 @@ class TestWebhookServer:
             },
         )
         assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_post_returns_401_when_unsigned_with_secret(self):
+        """Critical security behavior: when a secret is configured,
+        unsigned requests are rejected.
+        """
+        from fastapi.testclient import TestClient
+
+        channel = WebhookChannel(
+            process=_make_mock_process(),
+            channel_id="alpha",
+            secret="topsecret",
+        )
+        app = create_webhook_app(channel)
+        client = TestClient(app)
+        resp = client.post(
+            "/webhooks/alpha",
+            content=b'{"hello": "world"}',
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status_code == 401
+        assert resp.json()["error"] == "signature_mismatch"
+
+    @pytest.mark.asyncio
+    async def test_post_returns_200_when_unsigned_and_no_secret(self):
+        """When no secret is configured, the channel is permissive on
+        signature to preserve backwards compatibility for deployments
+        relying on network-level isolation only.
+        """
+        from fastapi.testclient import TestClient
+
+        channel = WebhookChannel(
+            process=_make_mock_process(),
+            channel_id="alpha",
+            secret=None,
+        )
+        app = create_webhook_app(channel)
+
+        async def _noop(_event):
+            return None
+
+        channel.dispatch_event = _noop
+        client = TestClient(app)
+        resp = client.post(
+            "/webhooks/alpha",
+            content=b'{"hello": "world"}',
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_post_returns_429_when_rate_limited(
+        self,
+        app_and_channel_low_rate,
+        monkeypatch,
+    ):
+        """A burst beyond rate_limit_burst should be rejected with 429."""
+        from fastapi.testclient import TestClient
+
+        channel, app = app_and_channel_low_rate
+
+        async def _noop(_event):
+            return None
+
+        monkeypatch.setattr(channel, "dispatch_event", _noop)
+        client = TestClient(app)
+        body = b'{"hello": "world"}'
+        sig = _make_signature(body, "topsecret")
+
+        # The bucket starts at ``rate_limit_burst`` (2 here) tokens.
+        # Drain it: each request consumes one. The third call should
+        # bounce off the empty bucket with 429.
+        statuses = []
+        for _ in range(5):
+            resp = client.post(
+                "/webhooks/alpha",
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    SIGNATURE_HEADER: sig,
+                },
+            )
+            statuses.append(resp.status_code)
+            if resp.status_code == 429:
+                break
+
+        assert 429 in statuses, f"never hit rate limit: {statuses}"
+
+    @pytest.mark.asyncio
+    async def test_post_returns_429_includes_retry_after_header(
+        self,
+        app_and_channel_low_rate,
+        monkeypatch,
+    ):
+        from fastapi.testclient import TestClient
+
+        channel, app = app_and_channel_low_rate
+
+        async def _noop(_event):
+            return None
+
+        monkeypatch.setattr(channel, "dispatch_event", _noop)
+        client = TestClient(app)
+        body = b'{"hello": "world"}'
+        sig = _make_signature(body, "topsecret")
+
+        # Drain the bucket, then look at the 429 response.
+        for _ in range(3):
+            client.post(
+                "/webhooks/alpha",
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    SIGNATURE_HEADER: sig,
+                },
+            )
+        resp = client.post(
+            "/webhooks/alpha",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                SIGNATURE_HEADER: sig,
+            },
+        )
+        assert resp.status_code == 429
+        assert resp.headers.get("retry-after") is not None
 
     @pytest.mark.asyncio
     async def test_post_returns_404_for_wrong_channel_id(
@@ -677,6 +831,16 @@ class TestWebhookServer:
             },
         )
         assert resp.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_healthz_returns_ok(self, app_and_channel):
+        from fastapi.testclient import TestClient
+
+        _, app = app_and_channel
+        client = TestClient(app)
+        resp = client.get("/healthz")
+        assert resp.status_code == 200
+        assert resp.json()["channel_id"] == "alpha"
 
 
 class TestGenericWebhookEvent:

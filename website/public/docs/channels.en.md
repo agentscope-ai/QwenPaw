@@ -1876,6 +1876,13 @@ in the same plugin to mount routes under `/api`.
 
 ## Webhook (generic HTTP)
 
+> **Note**: The Webhook channel is shipped as an **opt-in plugin**, not a
+> built-in. Because it opens a listening HTTP endpoint that can drive the
+> agent, the surface is not forced onto deployments that do not need it.
+> Before configuring it, search for and install the `webhook` plugin from
+> the **Plugin Marketplace** in the QwenPaw Console. The channel appears
+> in the Channels settings only after installation.
+
 The Webhook channel is a generic HTTP receiver and sender. It lets you
 integrate QwenPaw with any system that can POST JSON — internal services,
 home automation, custom UIs, CI bots, or your own scripts — without writing
@@ -1885,6 +1892,8 @@ a channel plugin.
 - **Outbound**: agent replies are POSTed to `outbound_url` with the agent's text
 - **Signing**: both directions use the same `X-QwenPaw-Signature: sha256=<hex>` header
   (HMAC-SHA256 of the raw body, hex-encoded, lower-case)
+- **Rate limiting**: per-client-IP token bucket (default 5 RPS, burst of 10),
+  returns HTTP 429 with `Retry-After` when the bucket is empty
 
 ### When to use
 
@@ -1898,6 +1907,32 @@ For tighter integrations (sessions, media, channel-specific UX), prefer a
 custom channel plugin. Use the webhook channel for the simple cases where a
 fire-and-forget JSON request/response is enough.
 
+### Security checklist
+
+The webhook listener is reachable by anything that can talk to the bound
+address and port. The channel ships with the following defenses on by
+default:
+
+- **Mandatory signature when a secret is configured.** Any request that
+  arrives without a valid `X-QwenPaw-Signature` header while a `secret`
+  is set is rejected with HTTP 401. The previous permissive default —
+  accept unsigned requests even with a secret — has been removed because
+  it effectively disabled signature enforcement for any caller that
+  omitted the header.
+- **Per-client-IP rate limiting.** The inbound endpoint enforces a
+  token bucket (default 5 RPS, 10-request burst) keyed on the
+  connecting IP. Hitting the empty bucket returns HTTP 429 with a
+  `Retry-After: 1` header.
+- **Maximum body size.** Bodies larger than 1 MiB are rejected with
+  HTTP 413 (the limit is also enforced up-front via
+  `Content-Length`, so oversized requests are not even read off the
+  wire).
+- **Bind to loopback by default.** `bind_address` defaults to
+  `127.0.0.1`. For public deployments, front the listener with a
+  reverse proxy and keep the upstream bound to loopback; do not bind
+  directly to a public interface without network-level protection
+  on top of the application-layer checks above.
+
 ### Configure the Webhook channel
 
 **Method 1**: Configure in the Console
@@ -1909,7 +1944,9 @@ Go to **Control → Channels**, click **Webhook**, enable it, and fill in:
   `127.0.0.1:9070`)
 - **Outbound URL**: where agent replies are POSTed (e.g. `https://my-service/hook`)
 - **Shared secret**: HMAC-SHA256 secret for signing both directions
-  (leave empty to disable signing)
+  (leave empty to disable signing — not recommended on a public endpoint)
+- **Rate limit RPS / burst**: per-client-IP token bucket parameters
+  (defaults 5 / 10)
 
 **Method 2**: Edit `agent.json` directly
 
@@ -1922,7 +1959,9 @@ Go to **Control → Channels**, click **Webhook**, enable it, and fill in:
       "bind_address": "127.0.0.1",
       "port": 9070,
       "outbound_url": "https://my-service/hook",
-      "secret": "shared-hmac-secret"
+      "secret": "shared-hmac-secret",
+      "rate_limit_rps": 5,
+      "rate_limit_burst": 10
     }
   }
 }
@@ -1930,13 +1969,15 @@ Go to **Control → Channels**, click **Webhook**, enable it, and fill in:
 
 ### Webhook-specific fields
 
-| Field          | Type   | Default      | Description                                                                                 |
-| -------------- | ------ | ------------ | ------------------------------------------------------------------------------------------- |
-| `channel_id`   | string | `"default"`  | Inbound URL slug; the receiver listens on `/webhooks/<channel_id>`                          |
-| `bind_address` | string | `"127.0.0.1"` | Interface to bind the inbound HTTP listener (use `0.0.0.0` to accept from any interface)   |
-| `port`         | int    | `9070`       | Inbound listener port                                                                       |
-| `outbound_url` | string | `""`         | Default URL replies are POSTed to when the inbound request did not specify one             |
-| `secret`       | string | `""`         | Shared HMAC-SHA256 secret for signing; empty disables signing in both directions           |
+| Field             | Type   | Default      | Description                                                                                       |
+| ----------------- | ------ | ------------ | ------------------------------------------------------------------------------------------------- |
+| `channel_id`      | string | `"default"`  | Inbound URL slug; the receiver listens on `/webhooks/<channel_id>`                                |
+| `bind_address`    | string | `"127.0.0.1"` | Interface to bind the inbound HTTP listener (use `0.0.0.0` to accept from any interface)           |
+| `port`            | int    | `9070`       | Inbound listener port                                                                             |
+| `outbound_url`    | string | `""`         | Default URL replies are POSTed to when the inbound request did not specify one                     |
+| `secret`          | string | `""`         | Shared HMAC-SHA256 secret for signing; empty disables signing in both directions                   |
+| `rate_limit_rps`  | float  | `5`          | Per-client-IP sustained request rate (requests / second)                                          |
+| `rate_limit_burst`| int    | `10`         | Per-client-IP burst size before the rate limit kicks in                                          |
 
 ### Inbound payload
 
@@ -1995,19 +2036,28 @@ def verify(raw_body: bytes, header_value: str | None) -> bool:
 | ------ | ----------------------------------------------------------------- |
 | `200`  | Payload accepted and dispatched                                   |
 | `400`  | Body was not valid JSON                                           |
-| `401`  | `X-QwenPaw-Signature` did not match (when `secret` is configured) |
+| `401`  | Signature missing or did not match (only when `secret` is configured; unsigned requests are rejected) |
 | `404`  | URL slug does not match this channel's `channel_id`               |
 | `413`  | Body exceeded 1 MiB                                               |
+| `429`  | Per-client-IP rate limit exceeded (response includes `Retry-After`)|
 
 ### Limits and behaviour
 
-- Maximum body size: **1 MiB**. Larger requests are rejected with `413`.
+- Maximum body size: **1 MiB**. Larger requests are rejected with `413`
+  (enforced up-front via `Content-Length` when supplied).
+- Per-client-IP rate limit: default 5 RPS sustained, 10-request burst
+  (configurable via `rate_limit_rps` / `rate_limit_burst`). When the
+  bucket is empty the endpoint returns `429` with `Retry-After: 1`.
+- Signature enforcement: when a `secret` is set, unsigned requests are
+  rejected with `401`. When `secret` is empty the channel is permissive
+  (preserved for backwards compatibility with deployments relying on
+  network-level isolation only — not recommended for public exposure).
 - Outbound requests retry on 5xx and network errors with exponential backoff
   (`1s`, `2s`, `4s`); they do **not** retry on 4xx.
 - The inbound listener runs its own uvicorn server in a background task. It
   binds only to `bind_address` (defaults to `127.0.0.1`); expose it to other
-  networks with a tunnel (e.g. `cloudflared`, `ngrok`) rather than opening the
-  port directly.
+  networks with a tunnel (e.g. `cloudflared`, `ngrok`) or a reverse proxy
+  rather than opening the port directly.
 
 ---
 

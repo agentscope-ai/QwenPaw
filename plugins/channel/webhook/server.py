@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=too-many-return-statements
 """FastAPI server factory for the inbound webhook receiver."""
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import threading
+import time
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -21,9 +24,85 @@ logger = logging.getLogger(__name__)
 MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MB
 
 
+# ---------------------------------------------------------------------------
+# Per-client-IP token bucket rate limiter (simple in-memory implementation)
+# ---------------------------------------------------------------------------
+
+
+class _TokenBucket:
+    """Single-bucket token bucket.
+
+    A bucket starts at capacity ``burst`` and refills at ``rps`` tokens
+    per second. Each request consumes one token. When the bucket is
+    empty, the request is rejected.
+    """
+
+    __slots__ = ("capacity", "rps", "tokens", "last_refill")
+
+    def __init__(self, *, burst: int, rps: float) -> None:
+        self.capacity = max(1, int(burst))
+        self.rps = max(0.1, float(rps))
+        self.tokens: float = float(self.capacity)
+        self.last_refill: float = time.monotonic()
+
+    def allow(self) -> bool:
+        """Return True if a token is available, refilling lazily."""
+        now = time.monotonic()
+        elapsed = now - self.last_refill
+        if elapsed > 0:
+            self.tokens = min(
+                self.capacity,
+                self.tokens + elapsed * self.rps,
+            )
+            self.last_refill = now
+        if self.tokens >= 1.0:
+            self.tokens -= 1.0
+            return True
+        return False
+
+
+class _RateLimiter:
+    """Rate limiter keyed by client IP.
+
+    Buckets are kept in memory for the lifetime of the FastAPI app
+    (cleared on restart). This is intentional for v1: a single-process
+    uvicorn worker exposes a single, well-known listening surface, and
+    the bucket count is bounded by the number of unique source IPs the
+    listener sees. Operators running many workers behind a proxy should
+    also enforce rate limiting at the proxy layer.
+    """
+
+    def __init__(self, *, rps: float, burst: int) -> None:
+        self._rps = rps
+        self._burst = burst
+        self._buckets: Dict[str, _TokenBucket] = {}
+        self._lock = threading.Lock()
+
+    def _bucket_for(self, key: str) -> _TokenBucket:
+        bucket = self._buckets.get(key)
+        if bucket is None:
+            with self._lock:
+                bucket = self._buckets.get(key)
+                if bucket is None:
+                    bucket = _TokenBucket(
+                        burst=self._burst,
+                        rps=self._rps,
+                    )
+                    self._buckets[key] = bucket
+        return bucket
+
+    def allow(self, key: str) -> bool:
+        return self._bucket_for(key).allow()
+
+
 def create_webhook_app(channel: "WebhookChannel") -> FastAPI:
     """Build the FastAPI app exposing POST /webhooks/{channel_id}."""
     app = FastAPI(title="QwenPaw Webhook Channel")
+
+    rate_limiter = _RateLimiter(
+        rps=channel.config.rate_limit_rps,
+        burst=channel.config.rate_limit_burst,
+    )
 
     @app.post("/webhooks/{channel_id}")
     async def receive_webhook(
@@ -35,6 +114,34 @@ def create_webhook_app(channel: "WebhookChannel") -> FastAPI:
                 status_code=404,
                 content={"ok": False, "error": "unknown_channel"},
             )
+
+        # Per-client-IP rate limiting. ``request.client`` is None for
+        # raw ASGI scope tests; fall back to a sentinel key so tests
+        # that omit the client still see a single shared bucket.
+        client_key = getattr(request.client, "host", None) or "unknown-client"
+        if not rate_limiter.allow(client_key):
+            logger.warning(
+                "webhook rejected due to rate limit for client %s",
+                client_key,
+            )
+            return JSONResponse(
+                status_code=429,
+                content={"ok": False, "error": "rate_limited"},
+                headers={"Retry-After": "1"},
+            )
+
+        # Reject early if Content-Length exceeds the limit, so we
+        # never read more than MAX_BODY_BYTES off the wire.
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                if int(content_length) > MAX_BODY_BYTES:
+                    return JSONResponse(
+                        status_code=413,
+                        content={"ok": False, "error": "payload_too_large"},
+                    )
+            except ValueError:
+                pass
 
         body = await request.body()
         if len(body) > MAX_BODY_BYTES:
@@ -72,6 +179,13 @@ def create_webhook_app(channel: "WebhookChannel") -> FastAPI:
         return JSONResponse(
             status_code=200,
             content={"ok": True, "dispatched": True},
+        )
+
+    @app.get("/healthz")
+    async def healthz() -> JSONResponse:
+        return JSONResponse(
+            status_code=200,
+            content={"ok": True, "channel_id": channel.config.channel_id},
         )
 
     return app

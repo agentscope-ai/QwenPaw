@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=too-many-arguments
+# pylint: disable=too-many-arguments,unused-argument
 """Webhook channel — passive HTTP receiver + outbound reply sender."""
 from __future__ import annotations
 
@@ -8,9 +8,10 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from qwenpaw.app.channels.base import BaseChannel, OnReplySent, ProcessHandler
 from qwenpaw.schemas import (
     AgentRequest,
     ContentType,
@@ -20,7 +21,6 @@ from qwenpaw.schemas import (
     TextContent,
 )
 
-from ..base import BaseChannel, OnReplySent, ProcessHandler
 from .sender import send_webhook_reply
 
 if TYPE_CHECKING:
@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_BIND_ADDRESS = "127.0.0.1"
 DEFAULT_PORT = 9070
+# Default per-client rate limit (requests per second + small burst).
+# Configurable per-channel below.
+DEFAULT_RATE_LIMIT_RPS = 5.0
+DEFAULT_RATE_LIMIT_BURST = 10
 
 
 @dataclass
@@ -41,6 +45,8 @@ class WebhookChannelConfig:
     bind_address: str = DEFAULT_BIND_ADDRESS
     outbound_url: Optional[str] = None
     secret: Optional[str] = None
+    rate_limit_rps: float = DEFAULT_RATE_LIMIT_RPS
+    rate_limit_burst: int = DEFAULT_RATE_LIMIT_BURST
 
 
 @dataclass
@@ -65,6 +71,15 @@ class WebhookChannel(BaseChannel):
 
     The channel runs its own uvicorn server in a background task; it
     does not require the QwenPaw main app to be running.
+
+    Security: when a ``secret`` is configured, every inbound request
+    must include a valid ``X-QwenPaw-Signature`` header; unsigned
+    requests are rejected with HTTP 401. A per-client-IP token bucket
+    provides basic rate limiting (default: 5 RPS with a 10-request
+    burst). The listener defaults to ``127.0.0.1`` for that reason;
+    bind to a public interface only when you have network-level
+    protection (reverse proxy, firewall) in addition to these
+    application-layer checks.
     """
 
     channel = "webhook"
@@ -78,6 +93,8 @@ class WebhookChannel(BaseChannel):
         bind_address: str = DEFAULT_BIND_ADDRESS,
         outbound_url: Optional[str] = None,
         secret: Optional[str] = None,
+        rate_limit_rps: float = DEFAULT_RATE_LIMIT_RPS,
+        rate_limit_burst: int = DEFAULT_RATE_LIMIT_BURST,
         bot_prefix: str = "",
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
@@ -111,6 +128,8 @@ class WebhookChannel(BaseChannel):
             bind_address=bind_address,
             outbound_url=outbound_url,
             secret=secret,
+            rate_limit_rps=rate_limit_rps,
+            rate_limit_burst=rate_limit_burst,
         )
         self._server_handle: Optional[Any] = None
 
@@ -167,7 +186,9 @@ class WebhookChannel(BaseChannel):
             "text": text,
             "channel": self.channel,
             "channel_id": self.config.channel_id,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
         }
         if meta:
             payload["meta"] = {
@@ -300,6 +321,15 @@ class WebhookChannel(BaseChannel):
         bind = os.getenv("WEBHOOK_BIND", DEFAULT_BIND_ADDRESS)
         outbound_url = os.getenv("WEBHOOK_OUTBOUND_URL") or None
         secret = os.getenv("WEBHOOK_SECRET") or None
+        rate_limit_rps = float(
+            os.getenv("WEBHOOK_RATE_LIMIT_RPS", str(DEFAULT_RATE_LIMIT_RPS)),
+        )
+        rate_limit_burst = int(
+            os.getenv(
+                "WEBHOOK_RATE_LIMIT_BURST",
+                str(DEFAULT_RATE_LIMIT_BURST),
+            ),
+        )
         return cls(
             process=process,
             enabled=os.getenv("WEBHOOK_CHANNEL_ENABLED", "0") == "1",
@@ -308,6 +338,8 @@ class WebhookChannel(BaseChannel):
             bind_address=bind,
             outbound_url=outbound_url,
             secret=secret,
+            rate_limit_rps=rate_limit_rps,
+            rate_limit_burst=rate_limit_burst,
             on_reply_sent=on_reply_sent,
         )
 
@@ -331,6 +363,16 @@ class WebhookChannel(BaseChannel):
             bind_address=getattr(config, "bind_address", DEFAULT_BIND_ADDRESS),
             outbound_url=getattr(config, "outbound_url", None),
             secret=getattr(config, "secret", None),
+            rate_limit_rps=getattr(
+                config,
+                "rate_limit_rps",
+                DEFAULT_RATE_LIMIT_RPS,
+            ),
+            rate_limit_burst=getattr(
+                config,
+                "rate_limit_burst",
+                DEFAULT_RATE_LIMIT_BURST,
+            ),
             bot_prefix=getattr(config, "bot_prefix", ""),
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
