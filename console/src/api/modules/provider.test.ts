@@ -50,10 +50,10 @@ describe("providerApi", () => {
     await providerApi.getActiveModels({
       scope: "effective",
       agent_id: "agent-1",
-      session_id: "napcat_qq:private:12548040",
+      session_id: "channel:private:user-1",
     });
     expect(request).toHaveBeenCalledWith(
-      "/models/active?scope=effective&agent_id=agent-1&session_id=napcat_qq%3Aprivate%3A12548040",
+      "/models/active?scope=effective&agent_id=agent-1&session_id=channel%3Aprivate%3Auser-1",
     );
   });
 
@@ -79,11 +79,11 @@ describe("providerApi", () => {
     const body = { provider_id: "openai", model: "gpt-4o" };
     await providerApi.setSessionModelOverride(
       "agent/1",
-      "napcat_qq:private:12548040",
+      "channel:private:user-1",
       body,
     );
     expect(request).toHaveBeenCalledWith(
-      "/models/session-overrides/agent%2F1/napcat_qq%3Aprivate%3A12548040",
+      "/models/session-overrides/agent%2F1/channel%3Aprivate%3Auser-1",
       {
         method: "PUT",
         body: JSON.stringify(body),
