@@ -14,6 +14,7 @@ Covers:
 from unittest.mock import patch
 
 import pytest
+from agentscope.message import ToolResultState
 
 from qwenpaw.agents.tools.file_io import (
     _get_encoding_for_file,
@@ -161,6 +162,44 @@ class TestReadFile:
         f.write_text("line1\nline2\nline3\n", encoding="utf-8")
         result = await read_file(str(f), start_line=3, end_line=1)
         assert "start_line" in result.content[0].text
+
+    @pytest.mark.asyncio
+    async def test_oversized_explicit_range_returns_no_partial_content(
+        self,
+        tmp_path,
+    ):
+        f = tmp_path / "large-range.txt"
+        f.write_text("\n".join("x" * 80 for _ in range(20)), encoding="utf-8")
+
+        with patch(
+            "qwenpaw.agents.tools.file_io.get_current_recent_max_bytes",
+            return_value=100,
+        ):
+            result = await read_file(str(f), start_line=1, end_line=20)
+
+        assert result.state == ToolResultState.ERROR
+        assert "Read a smaller line range" in result.content[0].text
+        assert "no partial range was returned" in result.content[0].text
+        assert "xxxxxxxx" not in result.content[0].text
+
+    @pytest.mark.asyncio
+    async def test_oversized_single_line_is_not_silently_cut(
+        self,
+        tmp_path,
+    ):
+        f = tmp_path / "one-long-line.txt"
+        f.write_text("z" * 1000, encoding="utf-8")
+
+        with patch(
+            "qwenpaw.agents.tools.file_io.get_current_recent_max_bytes",
+            return_value=100,
+        ):
+            result = await read_file(str(f))
+
+        assert result.state == ToolResultState.ERROR
+        assert "contains a line larger" in result.content[0].text
+        assert "No partial line was returned" in result.content[0].text
+        assert "zzzzzzzz" not in result.content[0].text
 
 
 # ---------------------------------------------------------------------------

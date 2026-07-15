@@ -783,8 +783,9 @@ class ToolResultPruningConfig(BaseModel):
         default=3000,
         ge=100,
         description=(
-            "Byte threshold for tool result previews retained in live context "
-            "after scroll compaction."
+            "Byte threshold above which older tool result previews are "
+            "replaced by stable artifact/history pointers after Scroll "
+            "compaction. The output is not truncated a second time."
         ),
     )
 
@@ -798,10 +799,14 @@ class ToolResultPruningConfig(BaseModel):
     )
 
     offload_retention_days: int = Field(
-        default=5,
+        default=30,
         ge=1,
-        le=10,
-        description="Number of days to retain tool result files",
+        le=365,
+        description=(
+            "Minimum number of days to retain archived tool result files. "
+            "When Scroll is active, cleanup uses at least the durable history "
+            "retention so history pointers cannot expire first."
+        ),
     )
 
     tool_results_cache: str = Field(

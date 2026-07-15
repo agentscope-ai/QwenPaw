@@ -7,6 +7,7 @@ window), the boundary-Msg double-presence fix, tool-result preview persistence,
 degraded-durability fail-safe (no eviction when a write fails), and retention.
 """
 
+import json
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,7 +22,10 @@ from agentscope.message import (
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
-from qwenpaw.agents.context.scroll.recall_tool import RecallLoopGuard
+from qwenpaw.agents.context.scroll.recall_tool import (
+    RECALL_PAGE_METADATA_KEY,
+    RecallLoopGuard,
+)
 from qwenpaw.agents.context.types import ContextWindowUnfitError, LogEntry
 from qwenpaw.agents.memory.base_memory_manager import BaseMemoryManager
 from qwenpaw.agents.tools.utils import truncate_text_output
@@ -182,14 +186,29 @@ def test_persist_new_records_seq_and_headline_leaf(store: HistoryStore):
 
 def test_tool_result_persisted_under_tool_call_id(store: HistoryStore):
     mgr = make_manager(store)
-    agent = FakeAgent([assistant_with_tool("call-1", "big output")])
+    msg = assistant_with_tool("call-1", "big output")
+    msg.content[2].metadata.update(
+        {
+            "qwenpaw_truncation": {
+                "0": {
+                    "artifact_id": "artifact.txt",
+                    "file_path": "/tmp/artifact.txt",
+                },
+            },
+        },
+    )
+    agent = FakeAgent([msg])
     mgr._persist_new(agent)
     rows = store._conn.execute(
-        "SELECT content FROM conversation_history "
+        "SELECT content, metadata FROM conversation_history "
         "WHERE kind='tool_result' AND tool_call_id='call-1'",
     ).fetchall()
     assert len(rows) == 1
     assert rows[0]["content"] == "big output"
+    assert json.loads(rows[0]["metadata"])["qwenpaw_truncation"]["0"] == {
+        "artifact_id": "artifact.txt",
+        "file_path": "/tmp/artifact.txt",
+    }
 
 
 def test_auto_memory_search_message_not_persisted(store: HistoryStore):
@@ -328,7 +347,14 @@ async def test_compress_evicts_middle_into_index(store: HistoryStore):
     names = [m.name for m in agent.state.context]
     assert names[0] == "memory"  # the index placeholder leads
     assert "did-step" in mgr._index.render()
+    memory_text = agent.state.context[0].get_text_content()
+    assert "[continuity checkpoint]" in memory_text
+    assert "Use recall_history with the listed seq span" in memory_text
     assert mgr.last_compress["evicted"] == 2  # /compact reporting source
+
+    restored = make_manager(store)
+    restored.load_state(mgr.to_dict())
+    assert restored._continuity_checkpoint == mgr._continuity_checkpoint
 
 
 async def test_compress_does_not_index_boundary_msg_still_in_tail(
@@ -585,7 +611,7 @@ async def test_fold_not_triggered_between_reserve_and_trigger(
             assert block.output[0].text.startswith("RESULT-")
 
 
-async def test_compress_retruncates_retained_tool_result_preview(
+async def test_compress_replaces_old_preview_with_stable_artifact_pointer(
     store: HistoryStore,
     tmp_path: Path,
     monkeypatch,
@@ -593,13 +619,29 @@ async def test_compress_retruncates_retained_tool_result_preview(
     text = "\n".join(f"line {idx}: {'x' * 40}" for idx in range(100))
     preview, metadata = truncate_text_output(
         text,
-        start_line=1,
-        total_lines=100,
+        start_line=50,
+        total_lines=149,
         max_bytes=500,
         file_path="/tmp/full-tool-result.txt",
     )
     turn = assistant_with_tool("call-1", preview)
     turn.content[2].metadata.update(metadata)
+    turn.content.extend(
+        [
+            ToolCallBlock(
+                type="tool_call",
+                id="call-2",
+                name="grep",
+                input="{}",
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="call-2",
+                name="grep",
+                output=[TextBlock(type="text", text="newest result")],
+            ),
+        ],
+    )
     ctx = [user("current request"), turn]
     mgr = make_manager(
         store,
@@ -621,9 +663,12 @@ async def test_compress_retruncates_retained_tool_result_preview(
     await mgr.compress(agent)
 
     compacted = turn.content[2].output[0].text
-    assert "covers the next 120 bytes" in compacted
+    assert compacted.startswith("[scroll folded]")
+    assert "read_file" in compacted
     assert "/tmp/full-tool-result.txt" in compacted
-    assert "[scroll folded]" not in compacted
+    assert "start_line=50" in compacted
+    assert "covers the next 120 bytes" not in compacted
+    assert turn.content[-1].output[0].text == "newest result"
     assert mgr.last_compress["folded"] == 0
     assert compact_threads
     assert all(thread_id != event_loop_thread for thread_id in compact_threads)
@@ -653,9 +698,9 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
         block = turn.content[3 * i + 2]
         return block.output[0].text
 
-    # folded → seq-addressed stub pointing at the structured recall tool
-    assert 'recall_history(op="expand"' in out_text(0)
-    assert 'recall_history(op="expand"' in out_text(1)
+    # folded → tool-call-addressed stub pointing at structured recall
+    assert 'recall_history(op="recall_tool"' in out_text(0)
+    assert 'recall_history(op="recall_tool"' in out_text(1)
     assert out_text(2) == "RESULT-2"  # newest result kept verbatim
     # The durable rows still hold the FULL outputs (persisted before fold).
     for i in range(3):
@@ -675,7 +720,7 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
     assert mgr.last_compress["folded"] == 0  # nothing newly folded
 
 
-async def test_large_recall_result_becomes_terminal_stub_and_blocks_retry(
+async def test_consumed_recall_page_folds_to_next_cursor_and_blocks_retry(
     store: HistoryStore,
 ):
     guard = RecallLoopGuard()
@@ -694,6 +739,26 @@ async def test_large_recall_result_becomes_terminal_stub_and_blocks_retry(
                 id="recall-1",
                 name="recall_history",
                 output=[TextBlock(type="text", text="history\n" * 100)],
+                metadata={
+                    RECALL_PAGE_METADATA_KEY: {
+                        "cursor": None,
+                        "next_cursor": "0:660",
+                        "total_rows": 1,
+                        "complete": False,
+                    },
+                },
+            ),
+            ToolCallBlock(
+                type="tool_call",
+                id="newer-1",
+                name="grep",
+                input="{}",
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="newer-1",
+                name="grep",
+                output=[TextBlock(type="text", text="newest result")],
             ),
         ],
     )
@@ -710,8 +775,13 @@ async def test_large_recall_result_becomes_terminal_stub_and_blocks_retry(
 
     output = recall_turn.content[1].output[0].text
     assert output.startswith("[scroll recall folded]")
-    assert "Do NOT recall this tool result" in output
+    assert '"cursor": "0:660"' in output
     assert guard.is_blocked("expand", {"lo": 10, "hi": 20})
+    assert not guard.is_blocked(
+        "expand",
+        {"lo": 10, "hi": 20, "cursor": "0:660"},
+    )
+    assert recall_turn.content[-1].output[0].text == "newest result"
 
 
 async def test_single_message_over_hard_limit_fails_closed(

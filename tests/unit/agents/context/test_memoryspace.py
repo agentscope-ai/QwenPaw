@@ -619,6 +619,35 @@ def test_saved_tool_paths_accept_quoted_and_legacy_paths_with_spaces(
     assert paths == [quoted_file.resolve(), legacy_file.resolve()]
 
 
+def test_saved_tool_paths_prefer_structured_artifact_metadata(tmp_path: Path):
+    artifact = tmp_path / "metadata-only-result.txt"
+    artifact.write_text("structured artifact\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        paths = space._saved_tool_paths(
+            "preview without a legacy path notice",
+            {
+                "qwenpaw_truncation": {
+                    "0": {
+                        "artifact_id": artifact.name,
+                        "file_path": str(artifact),
+                    },
+                },
+            },
+        )
+    finally:
+        space.close()
+
+    assert paths == [artifact.resolve()]
+
+
 def test_saved_tool_search_checks_each_multiblock_artifact(tmp_path: Path):
     decoy_file = tmp_path / "first-block.txt"
     decoy_file.write_text("nothing relevant\n", encoding="utf-8")
@@ -695,8 +724,12 @@ def test_recall_tool_annotates_each_multiblock_artifact(tmp_path: Path):
         row["content"] for row in rows if row["kind"] == "_saved_tool_output"
     ]
     assert artifacts == [
-        f"Full saved tool output is available at file_path={first_file}.",
-        f"Full saved tool output is available at file_path={second_file}.",
+        "Full saved tool output is available at "
+        f"artifact_id='legacy-artifact' file_path={str(first_file)!r} "
+        "start_line=1.",
+        "Full saved tool output is available at "
+        f"artifact_id='legacy-artifact' file_path={str(second_file)!r} "
+        "start_line=1.",
     ]
 
 

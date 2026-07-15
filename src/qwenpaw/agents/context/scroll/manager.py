@@ -33,9 +33,6 @@ from ....constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
-from ...tools.utils import (
-    ToolResultPruner,
-)
 from ....utils.model_response import consume_model_response
 from . import _as_internals as as_internals
 from .eviction_index import EvictionIndex, Leaf, Line
@@ -162,8 +159,11 @@ class ScrollContextManager:
         self._summarize_unheadlined = summarize_unheadlined
         self._summarize_timeout_s = summarize_timeout_s
         self._compact_tool_result_max_bytes = compact_tool_result_max_bytes
-        self._tool_result_pruner = ToolResultPruner(tool_results_dir)
+        # Kept for constructor compatibility; raw outputs are archived once by
+        # ToolResultPruningMiddleware, never again during Scroll compaction.
+        del tool_results_dir
         self._recall_loop_guard = recall_loop_guard
+        self._continuity_checkpoint = ""
         # Dialog archive: when an offloader is wired (``offload_dialog``, on by
         # default), evicted turns are also written to ``dialog/{date}.jsonl``
         # for external consumers. ``history.db`` remains the source of truth.
@@ -207,12 +207,86 @@ class ScrollContextManager:
         self._overflow_warned = False
 
     @staticmethod
-    def _recall_terminal_stub() -> str:
+    def _block_metadata(block: Any) -> dict[str, Any]:
+        metadata = (
+            block.get("metadata", {})
+            if isinstance(block, dict)
+            else getattr(block, "metadata", {})
+        )
+        return metadata if isinstance(metadata, dict) else {}
+
+    @classmethod
+    def _artifact_refs(cls, block: Any) -> list[dict[str, Any]]:
+        by_block = cls._block_metadata(block).get("qwenpaw_truncation", {})
+        if not isinstance(by_block, dict):
+            return []
+        return [
+            info
+            for info in by_block.values()
+            if isinstance(info, dict) and info.get("file_path")
+        ]
+
+    def _tool_result_pointer_stub(self, block: Any) -> str:
+        refs = self._artifact_refs(block)
+        if refs:
+            pointers = []
+            for info in refs:
+                artifact_id = info.get("artifact_id") or "legacy-artifact"
+                start_line = info.get("start_line") or 1
+                pointers.append(
+                    f"artifact_id={artifact_id!r} "
+                    f'file_path={info["file_path"]!r} '
+                    f"start_line={start_line}",
+                )
+            return (
+                f"{_FOLD_MARK} old tool result content cleared; read the "
+                "original artifact directly with read_file: "
+                + "; ".join(pointers)
+            )
+        tcid = (
+            block.get("id")
+            if isinstance(block, dict)
+            else getattr(block, "id", None)
+        )
+        if tcid:
+            where = (
+                'recall_history(op="recall_tool", ' f"tool_call_id={tcid!r})"
+            )
+        else:
+            where = 'recall_history(op="search", query=...)'
         return (
-            f"{_RECALL_FOLD_MARK} The previous recall result was too large "
-            "and has left the live context. Do NOT recall this tool result or "
-            "retry the same parameters. Narrow the seq range, use a more "
-            "specific keyword search, or continue from the archived summary."
+            f"{_FOLD_MARK} old tool result content cleared; recover with "
+            f"{where}"
+        )
+
+    @classmethod
+    def _recall_page_stub(
+        cls,
+        block: Any,
+        call_input: dict[str, Any] | None,
+    ) -> str:
+        page = cls._block_metadata(block).get("qwenpaw_recall_page", {})
+        next_cursor = (
+            page.get("next_cursor") if isinstance(page, dict) else None
+        )
+        if next_cursor and call_input:
+            continuation = dict(call_input)
+            continuation["cursor"] = next_cursor
+            arguments = json.dumps(
+                continuation,
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            return (
+                f"{_RECALL_FOLD_MARK} consumed recall page cleared. Continue "
+                "from the next page by calling recall_history with arguments "
+                f"{arguments}. "
+                "Do not repeat the previous cursor."
+            )
+        return (
+            f"{_RECALL_FOLD_MARK} consumed recall page cleared. The exact "
+            "page must not be repeated; use a narrower seq range or a more "
+            "specific keyword search if more evidence is needed."
         )
 
     @staticmethod
@@ -589,7 +663,12 @@ class ScrollContextManager:
             return
 
         # 3) Pairing-safe split; keep the recent tail, evict the middle.
-        reserve = cfg.reserve_ratio * agent.model.context_size
+        requested_reserve = cfg.reserve_ratio * agent.model.context_size
+        # Keep a useful recent raw tail without letting a million-token model
+        # reserve an excessive 100k-token suffix. Mirrors the bounded recent
+        # tail discipline used by mature compactors.
+        minimum_recent = min(10_000, agent.model.context_size * 0.1)
+        reserve = min(40_000, max(requested_reserve, minimum_recent))
         to_compress, to_reserve = await as_internals.split_for_compression(
             agent,
             reserve,
@@ -743,12 +822,12 @@ class ScrollContextManager:
 
     # pylint: disable-next=too-many-branches
     def _compact_live_tool_results(self, agent: Any) -> int:
-        """Shrink retained live tool-result previews after compaction."""
+        """Microcompact old results to pointers, keeping the newest live."""
         max_bytes = self._compact_tool_result_max_bytes
         if not max_bytes or max_bytes <= 0:
             return 0
 
-        compacted = 0
+        results: list[Any] = []
         recall_inputs = self._tool_call_inputs(agent)
         for msg in getattr(agent.state, "context", []) or []:
             if getattr(msg, "id", None) in self._synthetic_ids:
@@ -764,56 +843,41 @@ class ScrollContextManager:
                 )
                 if btype != "tool_result" or self._is_folded_stub(block):
                     continue
-                output = (
-                    block.get("output")
-                    if isinstance(block, dict)
-                    else getattr(block, "output", None)
+                results.append(block)
+
+        compacted = 0
+        for block in results[:-1]:
+            existing_output = (
+                block.get("output")
+                if isinstance(block, dict)
+                else getattr(block, "output", None)
+            )
+            if len(str(existing_output).encode("utf-8")) <= max_bytes:
+                continue
+            name = (
+                block.get("name")
+                if isinstance(block, dict)
+                else getattr(block, "name", None)
+            )
+            tool_call_id = (
+                block.get("id")
+                if isinstance(block, dict)
+                else getattr(block, "id", None)
+            )
+            if name == "recall_history":
+                text = self._recall_page_stub(
+                    block,
+                    recall_inputs.get(str(tool_call_id)),
                 )
-                name = (
-                    block.get("name")
-                    if isinstance(block, dict)
-                    else getattr(block, "name", None)
-                )
-                if name == "recall_history":
-                    rendered = str(output)
-                    if len(rendered.encode("utf-8")) <= max_bytes:
-                        continue
-                    tool_call_id = (
-                        block.get("id")
-                        if isinstance(block, dict)
-                        else getattr(block, "id", None)
-                    )
-                    terminal = [
-                        TextBlock(
-                            type="text",
-                            text=self._recall_terminal_stub(),
-                        ),
-                    ]
-                    if isinstance(block, dict):
-                        block["output"] = terminal
-                    else:
-                        block.output = terminal
-                    self._block_recall_target(tool_call_id, recall_inputs)
-                    compacted += 1
-                    continue
-                metadata = (
-                    block.setdefault("metadata", {})
-                    if isinstance(block, dict)
-                    else block.metadata
-                )
-                pruned, changed = self._tool_result_pruner.prune_output(
-                    output,
-                    max_bytes=max_bytes,
-                    metadata=metadata,
-                    fresh_size_slack_bytes=100,
-                )
-                if not changed:
-                    continue
-                if isinstance(block, dict):
-                    block["output"] = pruned
-                else:
-                    block.output = pruned
-                compacted += 1
+                self._block_recall_target(tool_call_id, recall_inputs)
+            else:
+                text = self._tool_result_pointer_stub(block)
+            output = [TextBlock(type="text", text=text)]
+            if isinstance(block, dict):
+                block["output"] = output
+            else:
+                block.output = output
+            compacted += 1
         return compacted
 
     # -- write-through -------------------------------------------------------
@@ -1061,31 +1125,21 @@ class ScrollContextManager:
             tcid = getattr(block, "id", None)
             if getattr(block, "name", None) == "recall_history":
                 block.output = [
-                    TextBlock(type="text", text=self._recall_terminal_stub()),
+                    TextBlock(
+                        type="text",
+                        text=self._recall_page_stub(
+                            block,
+                            recall_inputs.get(str(tcid)),
+                        ),
+                    ),
                 ]
                 self._block_recall_target(tcid, recall_inputs)
                 folded += 1
                 continue
-            seq = self._seq_by_tcid.get(tcid) if tcid else None
-            # Point at the structured recall_history tool (in-process, no
-            # sandbox — works even where the Python REPL can't run); the
-            # REPL's ms.* helpers accept the same values.
-            if seq is not None:
-                where = f'recall_history(op="expand", lo={seq}, hi={seq})'
-            elif tcid:
-                where = (
-                    f'recall_history(op="recall_tool", '
-                    f"tool_call_id={tcid!r})"
-                )
-            else:
-                where = 'recall_history(op="search", query=...)'
             block.output = [
                 TextBlock(
                     type="text",
-                    text=(
-                        f"{_FOLD_MARK} result archived in scroll history — "
-                        f"re-read it with {where}"
-                    ),
+                    text=self._tool_result_pointer_stub(block),
                 ),
             ]
             folded += 1
@@ -1119,7 +1173,14 @@ class ScrollContextManager:
         tail: list[Msg],
     ) -> None:
         """state.context = the single index placeholder + tail."""
-        placeholder = UserMsg(name="memory", content=self._index.render())
+        memory = self._index.render()
+        if self._continuity_checkpoint:
+            memory += (
+                "\n\n<system-info>\n"
+                f"{self._continuity_checkpoint}\n"
+                "</system-info>"
+            )
+        placeholder = UserMsg(name="memory", content=memory)
         self._synthetic_ids.add(placeholder.id)
         agent.state.context = [placeholder] + tail
 
@@ -1157,6 +1218,43 @@ class ScrollContextManager:
             seq_lo=lo,
             seq_hi=hi,
             fallback_lines=fallback_lines,
+        )
+        self._update_continuity_checkpoint(
+            middle,
+            span_lo=lo,
+            span_hi=hi,
+        )
+
+    def _update_continuity_checkpoint(
+        self,
+        middle: list[Msg],
+        *,
+        span_lo: int,
+        span_hi: int,
+    ) -> None:
+        """Maintain a compact worklog with exact seq recovery addresses."""
+        sections = self._segment_span(
+            middle,
+            span_lo=span_lo,
+            span_hi=span_hi,
+        )
+        additions = [
+            f"- seq {section.seq_lo}–{section.seq_hi}: {section.fallback}"
+            for section in sections
+        ] or [f"- seq {span_lo}–{span_hi}: archived conversation span"]
+        previous = self._continuity_checkpoint.splitlines()
+        entries = [line for line in previous if line.startswith("- seq ")]
+        entries.extend(additions)
+        entries = entries[-12:]
+        while len("\n".join(entries)) > 2400 and len(entries) > 1:
+            entries.pop(0)
+        self._continuity_checkpoint = (
+            "[continuity checkpoint]\n"
+            "Current task and latest constraints remain verbatim in the live "
+            "turn below. Recently archived work:\n"
+            + "\n".join(entries)
+            + "\nUse recall_history with the listed seq span for exact "
+            "evidence."
         )
 
     async def _summarize_span(
@@ -1304,6 +1402,7 @@ class ScrollContextManager:
             "leaf_by_id": {
                 k: [lf.seq, lf.headline] for k, lf in self._leaf_by_id.items()
             },
+            "continuity_checkpoint": self._continuity_checkpoint,
             "index": self._index.to_dict(),
         }
 
@@ -1326,6 +1425,10 @@ class ScrollContextManager:
             k: Leaf(seq=seq, headline=headline)
             for k, (seq, headline) in data.get("leaf_by_id", {}).items()
         }
+        checkpoint = data.get("continuity_checkpoint", "")
+        self._continuity_checkpoint = (
+            checkpoint if isinstance(checkpoint, str) else ""
+        )
         if "index" in data:
             self._index = EvictionIndex.from_dict(data["index"])
 

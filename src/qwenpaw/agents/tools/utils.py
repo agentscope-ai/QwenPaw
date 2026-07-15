@@ -3,6 +3,7 @@
 # pylint: disable=line-too-long
 """Shared utilities for file and shell tools."""
 
+import hashlib
 import logging
 import re
 import uuid
@@ -60,6 +61,8 @@ def build_truncation_metadata(
     excerpt_bytes: int,
     read_from: int,
     block_index: int = 0,
+    artifact_id: str | None = None,
+    artifact_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Build metadata and the matching user-facing truncation notice."""
     info = {
@@ -72,6 +75,10 @@ def build_truncation_metadata(
         "excerpt_bytes": excerpt_bytes,
         "read_from": read_from,
     }
+    if artifact_id:
+        info["artifact_id"] = artifact_id
+    if artifact_sha256:
+        info["artifact_sha256"] = artifact_sha256
     notice = (
         TRUNCATION_NOTICE_MARKER + "\nThe output above was truncated."
         f"\nThe full content is saved to the file and contains {total_lines} lines in total."
@@ -258,6 +265,8 @@ class ToolResultPruner:
             max_bytes=max_bytes,
             file_path=saved_path,
             file_size_bytes=len(text_bytes),
+            artifact_id=Path(saved_path).name,
+            artifact_sha256=hashlib.sha256(text_bytes).hexdigest(),
             encoding=encoding,
             block_index=block_index,
         )
@@ -277,6 +286,8 @@ def _truncate_fresh(
     file_size_bytes: int | None,
     encoding: str,
     block_index: int,
+    artifact_id: str | None = None,
+    artifact_sha256: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Truncate fresh text (no prior truncation marker) by bytes with line integrity.
 
@@ -333,6 +344,8 @@ def _truncate_fresh(
         excerpt_bytes=len(result.encode(encoding)),
         read_from=read_from,
         block_index=block_index,
+        artifact_id=artifact_id,
+        artifact_sha256=artifact_sha256,
     )
     info = metadata[TRUNCATION_METADATA_KEY][str(block_index)]
     return result + info["notice"], metadata
@@ -445,6 +458,8 @@ def _retruncate(
         excerpt_bytes=len(result.encode(encoding)),
         read_from=next_line,
         block_index=block_index,
+        artifact_id=info.get("artifact_id"),
+        artifact_sha256=info.get("artifact_sha256"),
     )
     updated_info = updated[TRUNCATION_METADATA_KEY][str(block_index)]
     return result + updated_info["notice"], updated
@@ -461,6 +476,8 @@ def truncate_text_output(
     metadata: dict[str, Any] | None = None,
     encoding: str = "utf-8",
     block_index: int = 0,
+    artifact_id: str | None = None,
+    artifact_sha256: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Truncate file output by bytes with line integrity.
 
@@ -510,6 +527,8 @@ def truncate_text_output(
                 file_size_bytes=file_size_bytes,
                 encoding=encoding,
                 block_index=block_index,
+                artifact_id=artifact_id,
+                artifact_sha256=artifact_sha256,
             )
     except Exception:
         logger.warning(
