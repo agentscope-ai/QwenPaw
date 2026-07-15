@@ -41,6 +41,13 @@ from ..credentials.types import CredentialRecord
 from ..manager import DriverManager
 from ..storage import load_card
 
+# Schema version of the legacy-MCP -> DriverCard migration, persisted on
+# ``MCPConfig.migration_version`` (agent.json) as a one-shot watermark that
+# is independent of whether a DriverCard file happens to exist:
+#   v1: legacy agent.json ``mcp.clients`` -> DriverCard storage
+#   v2: single ``${VAR}`` literal -> ``env:`` credential ref (#6029 heal)
+CURRENT_MCP_MIGRATION_VERSION = 2
+
 
 @dataclass
 class LegacyMCPMigratedClient:
@@ -88,23 +95,57 @@ async def migrate_legacy_mcp_if_needed(
     ws: Any,
     driver_manager: DriverManager,
 ) -> LegacyMCPMigrationReport:
-    """Migrate legacy agent.json mcp.clients into Driver storage."""
+    """Run the one-shot, versioned migration of legacy MCP config.
+
+    The "already migrated?" judgement lives on the persisted
+    ``MCPConfig.migration_version`` watermark, not on whether a DriverCard
+    file exists.  Once a workspace reaches ``CURRENT_MCP_MIGRATION_VERSION``
+    the migration is skipped entirely, so deleting a migrated client no
+    longer makes the next start re-derive it from ``mcp.clients`` (#6130).
+    """
     report = LegacyMCPMigrationReport()
-    legacy_mcp = getattr(getattr(ws, "_config", None), "mcp", None)
-    clients = getattr(legacy_mcp, "clients", None)
-    if not clients:
+    mcp = getattr(getattr(ws, "_config", None), "mcp", None)
+    if mcp is None:
         return report
 
-    for client_key, config in dict(clients).items():
-        await _migrate_one_client(
-            str(client_key),
-            config,
-            driver_manager,
-            report,
-        )
+    current = int(getattr(mcp, "migration_version", 0) or 0)
+    if current >= CURRENT_MCP_MIGRATION_VERSION:
+        return report
+
+    if current < 1:
+        # v0 -> v1: move legacy mcp.clients into DriverCard storage.  The
+        # per-client "card exists" guard in _migrate_one_client is now only
+        # an in-run idempotency / crash-rerun guard, not the judgement.
+        clients = dict(getattr(mcp, "clients", None) or {})
+        for client_key, config in clients.items():
+            await _migrate_one_client(
+                str(client_key),
+                config,
+                driver_manager,
+                report,
+            )
+
+    if current < 2:
+        # v1 -> v2: fold the #6029 env: ref self-heal in as a one-shot step
+        # instead of re-scanning every card on every start.  Safe because
+        # bad literals are historical: post-fix migration never makes new.
+        await upgrade_legacy_mcp_credentials(driver_manager)
 
     await asyncio.to_thread(_write_report, driver_manager.cards_dir, report)
+
+    # Persist the watermark only after all steps succeed; on partial failure
+    # the version stays put and the next start re-runs (idempotent).
+    mcp.migration_version = CURRENT_MCP_MIGRATION_VERSION
+    await asyncio.to_thread(_persist_mcp_migration_version, ws)
     return report
+
+
+def _persist_mcp_migration_version(ws: Any) -> None:
+    """Persist the bumped MCPConfig.migration_version back to agent.json."""
+    from ...config.config import save_agent_config
+
+    # pylint: disable=protected-access
+    save_agent_config(ws.agent_id, ws._config)
 
 
 async def _migrate_one_client(
