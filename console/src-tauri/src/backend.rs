@@ -135,7 +135,7 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
                     file_name: Some("qwenpaw-desktop".into()),
                 }),
             ])
-            .level(log::LevelFilter::Info)
+            .level(desktop_log_level())
             .build(),
     )?;
 
@@ -146,6 +146,19 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
 /// Terminates the current sidecar process, if one is running.
 pub(crate) fn stop(app: &tauri::AppHandle) {
     app.state::<BackendState>().stop();
+}
+
+fn desktop_log_level() -> log::LevelFilter {
+    if std::env::var("QWENPAW_DESKTOP_DEBUG").is_ok_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    }) {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    }
 }
 
 /// Starts the sidecar and records startup failures for the frontend retry UI.

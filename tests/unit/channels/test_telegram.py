@@ -47,6 +47,17 @@ from qwenpaw.schemas import (
 # =============================================================================
 
 
+def test_telegram_base_urls_derive_api_and_file_prefixes():
+    """Custom root URL should derive Bot API and file API prefixes."""
+    from qwenpaw.app.channels.telegram.channel import _telegram_base_urls
+
+    assert _telegram_base_urls("") == ("", "")
+    assert _telegram_base_urls(" https://tg-api.example.com/ ") == (
+        "https://tg-api.example.com/bot",
+        "https://tg-api.example.com/file/bot",
+    )
+
+
 @pytest.fixture
 def mock_process_handler() -> AsyncMock:
     """Mock process handler that yields simple events."""
@@ -400,6 +411,7 @@ class TestTelegramChannelFromConfig:
 
         assert channel.enabled is True
         assert channel._bot_token == "config_token"
+        assert channel._base_url == ""
         assert channel._http_proxy == "http://config.proxy:8080"
         assert channel._http_proxy_auth == "config_user:config_pass"
         assert channel.bot_prefix == "[ConfigBot]"
@@ -433,6 +445,23 @@ class TestTelegramChannelFromConfig:
 
         assert channel._bot_token == "obj_token"
         assert channel.bot_prefix == "[Obj]"
+
+    def test_from_config_uses_base_url(
+        self,
+        mock_process_handler,
+    ):
+        """from_config should pass custom Telegram API root URL."""
+        from qwenpaw.app.channels.telegram.channel import TelegramChannel
+
+        channel = TelegramChannel.from_config(
+            process=mock_process_handler,
+            config={
+                "bot_token": "config_token",
+                "base_url": " https://tg-api.example.com/ ",
+            },
+        )
+
+        assert channel._base_url == "https://tg-api.example.com"
 
     def test_from_config_defaults(
         self,
@@ -1291,6 +1320,30 @@ class TestTelegramResolveFileUrl:
         )
         assert result == expected
 
+    async def test_resolve_api_url_with_custom_base_url(self):
+        """Should construct custom Telegram file API URL."""
+        from qwenpaw.app.channels.telegram.channel import (
+            _resolve_telegram_file_url,
+        )
+
+        mock_bot = MagicMock()
+        mock_file = MagicMock()
+        mock_file.file_path = "photos/file_123.jpg"
+        mock_bot.get_file = AsyncMock(return_value=mock_file)
+
+        result = await _resolve_telegram_file_url(
+            bot=mock_bot,
+            file_id="file123",
+            bot_token="my_bot_token",
+            base_url="https://tg-api.example.com/",
+        )
+
+        expected = (
+            "https://tg-api.example.com/file/"
+            "botmy_bot_token/photos/file_123.jpg"
+        )
+        assert result == expected
+
     async def test_resolve_error_returns_empty(self):
         """Should return empty string on TelegramError."""
         from qwenpaw.app.channels.telegram.channel import (
@@ -1713,6 +1766,34 @@ class TestTelegramProxyUrl:
                 not hasattr(mock_builder, "proxy")
                 or not mock_builder.proxy.called
             )
+            assert not mock_builder.base_url.called
+            assert not mock_builder.base_file_url.called
+
+    def test_custom_base_url_configures_builder(self, telegram_channel):
+        """Should configure PTB Bot API and file API prefixes."""
+        telegram_channel._base_url = "https://tg-api.example.com"
+        telegram_channel._bot_token = "test_token"
+
+        with patch("telegram.ext.Application.builder") as mock_builder_class:
+            mock_builder = MagicMock()
+            mock_builder_class.return_value = mock_builder
+            mock_builder.token.return_value = mock_builder
+            mock_builder.base_url.return_value = mock_builder
+            mock_builder.base_file_url.return_value = mock_builder
+            mock_builder.get_updates_read_timeout.return_value = mock_builder
+            mock_builder.get_updates_connect_timeout.return_value = (
+                mock_builder
+            )
+            mock_builder.build.return_value = MagicMock()
+
+            telegram_channel._build_application()
+
+            mock_builder.base_url.assert_called_once_with(
+                "https://tg-api.example.com/bot",
+            )
+            mock_builder.base_file_url.assert_called_once_with(
+                "https://tg-api.example.com/file/bot",
+            )
 
     def test_proxy_without_auth(self, telegram_channel):
         """Should use proxy without auth when no auth provided."""
@@ -1758,3 +1839,137 @@ class TestTelegramProxyUrl:
 
             expected_proxy = "http://user:pass@proxy.example.com:8080"
             mock_builder.proxy.assert_called_once_with(expected_proxy)
+
+
+# =============================================================================
+# Polling reconnect / 409 conflict handling
+# =============================================================================
+
+
+class TestTelegramPollingReconnect:
+    """Cover conflict/network classification and reconnect backoff timing."""
+
+    def test_conflict_classification(self, telegram_channel):
+        """Conflict errors are detected by class name or message text."""
+        from qwenpaw.app.channels.telegram.channel import TelegramChannel
+
+        class Conflict(Exception):
+            pass
+
+        assert TelegramChannel._looks_like_polling_conflict(Conflict("x"))
+        assert TelegramChannel._looks_like_polling_conflict(
+            Exception(
+                "Conflict: terminated by other getUpdates request; "
+                "make sure that only one bot instance is running",
+            ),
+        )
+        assert not TelegramChannel._looks_like_polling_conflict(
+            Exception("some unrelated error"),
+        )
+
+    def test_network_classification(self, telegram_channel):
+        """Transport errors (OSError etc.) are treated as network errors."""
+        from qwenpaw.app.channels.telegram.channel import TelegramChannel
+
+        assert TelegramChannel._looks_like_network_error(OSError("boom"))
+        assert not TelegramChannel._looks_like_network_error(
+            Exception("logic error"),
+        )
+
+    def test_conflict_backoff_is_monotonic_and_capped(self, telegram_channel):
+        """Conflict delay escalates and never exceeds the safety cap."""
+        from qwenpaw.app.channels.telegram.channel import (
+            _POLLING_CONFLICT_RETRY_MAX_S,
+        )
+
+        delays = []
+        for expected_attempt in range(1, 8):
+            attempt, delay = telegram_channel._plan_polling_reconnect(
+                "conflict",
+            )
+            assert attempt == expected_attempt
+            assert delay <= _POLLING_CONFLICT_RETRY_MAX_S
+            delays.append(delay)
+
+        # Non-decreasing and eventually pinned to the cap.
+        assert delays == sorted(delays)
+        assert delays[0] < delays[-1]
+        assert delays[-1] == _POLLING_CONFLICT_RETRY_MAX_S
+
+    def test_conflict_cap_exceeds_read_timeout(self):
+        """Regression lock: worst-case wait must clear a lingering poll."""
+        from qwenpaw.app.channels.telegram.channel import (
+            _GET_UPDATES_READ_TIMEOUT_S,
+            _POLLING_CONFLICT_RETRY_MAX_S,
+        )
+
+        assert _POLLING_CONFLICT_RETRY_MAX_S >= _GET_UPDATES_READ_TIMEOUT_S + 1
+
+    def test_conflict_and_network_counters_are_mutually_reset(
+        self,
+        telegram_channel,
+    ):
+        """Switching reason resets the other counter (fresh backoff)."""
+        c_attempt1, _ = telegram_channel._plan_polling_reconnect("conflict")
+        assert c_attempt1 == 1
+        telegram_channel._plan_polling_reconnect("conflict")
+
+        n_attempt1, _ = telegram_channel._plan_polling_reconnect("network")
+        assert n_attempt1 == 1
+        assert telegram_channel._polling_conflict_count == 0
+
+        # Back to conflict: counter restarts from 1.
+        c_again, _ = telegram_channel._plan_polling_reconnect("conflict")
+        assert c_again == 1
+        assert telegram_channel._polling_network_error_count == 0
+
+    @pytest.mark.asyncio
+    async def test_request_reconnect_stops_updater_and_sets_event(
+        self,
+        telegram_channel,
+    ):
+        """Reconnect request stops the updater and wakes the watchdog."""
+        telegram_channel._pending_reconnect_reason = None
+        telegram_channel._reconnect_event.clear()
+
+        app = MagicMock()
+        app.updater = MagicMock()
+        app.updater.running = True
+        app.updater.stop = AsyncMock()
+
+        await telegram_channel._request_polling_reconnect(
+            app,
+            reason="conflict",
+            error=Exception("Conflict"),
+        )
+
+        app.updater.stop.assert_awaited_once()
+        assert telegram_channel._reconnect_event.is_set()
+        assert telegram_channel._pending_reconnect_reason == "conflict"
+
+    @pytest.mark.asyncio
+    async def test_teardown_swallows_errors_and_settles(
+        self,
+        telegram_channel,
+    ):
+        """Teardown shuts down the app and applies the settle delay."""
+        from qwenpaw.app.channels.telegram.channel import TelegramChannel
+
+        app = MagicMock()
+        app.updater = MagicMock()
+        app.updater.running = True
+        app.updater.stop = AsyncMock()
+        app.running = True
+        app.stop = AsyncMock()
+        app.shutdown = AsyncMock()
+
+        with patch(
+            "qwenpaw.app.channels.telegram.channel.asyncio.sleep",
+            new=AsyncMock(),
+        ) as mock_sleep:
+            await TelegramChannel._teardown_application(app)
+
+        app.updater.stop.assert_awaited_once()
+        app.stop.assert_awaited_once()
+        app.shutdown.assert_awaited_once()
+        mock_sleep.assert_awaited_once()

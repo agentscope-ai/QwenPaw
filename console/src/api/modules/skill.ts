@@ -467,6 +467,19 @@ export const skillApi = {
       },
     ),
 
+  updatePoolSkillAutoUpdate: (
+    skillName: string,
+    payload: { enabled: boolean; targets: string[] | null },
+  ) =>
+    request<{
+      updated: boolean;
+      enabled: boolean;
+      targets: string[] | null;
+    }>(`/skills/pool/${encodeURIComponent(skillName)}/auto-update`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
   getSkillConfig: (skillName: string) =>
     request<{ config: Record<string, unknown> }>(
       `/skills/${encodeURIComponent(skillName)}/config`,

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """on_acting middleware delegating tool execution to ToolCoordinator."""
+
 from __future__ import annotations
 
 import logging
@@ -10,7 +11,7 @@ from agentscope.middleware import MiddlewareBase
 if TYPE_CHECKING:
     from agentscope.agent import Agent
 
-    from ._coordinator import ToolCoordinator
+    from ._coordinator import BackgroundResultProcessor, ToolCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,13 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
     ``_execute_tool_call`` side effects work automatically.
     """
 
-    def __init__(self, coordinator: "ToolCoordinator") -> None:
+    def __init__(
+        self,
+        coordinator: "ToolCoordinator",
+        background_result_processor: "BackgroundResultProcessor | None" = None,
+    ) -> None:
         self._coordinator = coordinator
+        self._background_result_processor = background_result_processor
 
     async def on_acting(
         self,
@@ -45,5 +51,6 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
             session_id=session_id,
             agent_id=agent_id,
             root_session_id=root_session_id,
+            background_result_processor=self._background_result_processor,
         ):
             yield item

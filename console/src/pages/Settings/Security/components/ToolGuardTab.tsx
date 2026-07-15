@@ -12,6 +12,8 @@ interface ToolGuardTabProps {
   config: ToolGuardConfig | null;
   enabled: boolean;
   setEnabled: (val: boolean) => void;
+  sandboxEnabled: boolean;
+  setSandboxEnabled: (val: boolean) => void;
   toolOptions: { label: string; value: string }[];
   mergedRules: MergedRule[];
   toggleRule: (ruleId: string, currentlyDisabled: boolean) => void;
@@ -29,6 +31,8 @@ export function ToolGuardTab({
   config,
   enabled,
   setEnabled,
+  sandboxEnabled,
+  setSandboxEnabled,
   toolOptions,
   mergedRules,
   toggleRule,
@@ -67,6 +71,15 @@ export function ToolGuardTab({
               tooltip={t("security.enabledTooltip")}
             >
               <Switch onChange={(val) => setEnabled(val)} />
+            </Form.Item>
+            <Form.Item
+              label={t("security.sandboxEnabled")}
+              tooltip={t("security.sandboxEnabledTooltip")}
+            >
+              <Switch
+                checked={sandboxEnabled}
+                onChange={(val) => setSandboxEnabled(val)}
+              />
             </Form.Item>
             <div className={styles.toolGuardRow}>
               <Form.Item

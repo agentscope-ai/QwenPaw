@@ -302,6 +302,8 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     createdAt: chat.created_at ?? null,
     updatedAt: chat.updated_at ?? null,
     pinned: chat.pinned ?? false,
+    archived: chat.archived ?? false,
+    archivedAt: chat.archived_at ?? null,
   }) as ExtendedSession;
 
 /** Returns true when id is a local session id (timestamp-random, not a backend UUID). */
@@ -945,7 +947,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     this.sessionListRequest = (async () => {
       try {
-        const chats = await api.listChats();
+        const chats = await api.listChats({ archived: false });
         return this.applyChatsToSessionList(chats);
       } finally {
         this.sessionListRequest = null;
@@ -1280,3 +1282,22 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 }
 
 export default new SessionApi();
+
+// ---------------------------------------------------------------------------
+// Test-only exports (used by ./tests/testLargeSession.test.tsx — PR-F3 / #5479)
+// These helpers are pure data transforms with no side effects; exposing them
+// avoids reaching into internals via private reflection. Keep the surface tiny.
+// ---------------------------------------------------------------------------
+export const __test__ = {
+  convertMessages,
+  buildUserCard,
+  buildResponseCard,
+  toOutputMessage,
+  normalizeOutputMessageContent,
+  contentToRequestParts,
+  extractTextFromContent,
+  parseTimestamp,
+  isLocalTimestamp,
+  isGenerating,
+  resolveRealId,
+};

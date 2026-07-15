@@ -93,10 +93,17 @@ class PlanUpdate:
 
 @dataclass(frozen=True)
 class Usage:
-    """Token-usage metadata for the status bar."""
+    """Token-usage metadata for the status bar.
+
+    ``used``/``size`` are the current tokens-in-context and the model context
+    window. ``threshold`` is the auto-compaction ratio (0-1) when known, so the
+    bar can mark where context starts getting evicted; ``None`` when compaction
+    is disabled or the agent did not report it.
+    """
 
     used: int
     size: int
+    threshold: float | None = None
 
 
 @dataclass(frozen=True)
@@ -131,6 +138,15 @@ class PermissionRequest:
     options: list[PermissionOption] = field(default_factory=list)
     tool_kind: str | None = None
     params: str | None = None
+    expires_at: float | None = None
+
+
+@dataclass(frozen=True)
+class PermissionExpired:
+    """A previously shown permission prompt is no longer actionable."""
+
+    request_id: str
+    message: str
 
 
 @dataclass(frozen=True)
@@ -202,6 +218,7 @@ TuiEvent = (
     | Usage
     | TokenUsage
     | PermissionRequest
+    | PermissionExpired
     | AvailableCommands
     | PushMessage
     | UserTurn

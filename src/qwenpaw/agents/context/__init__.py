@@ -67,8 +67,9 @@ class ScrollComponents:
     """The pieces the builder wires when the scroll strategy is active."""
 
     context_manager: Any  # ScrollContextManager (delegated agent hooks)
-    cap_middleware: Any  # ToolResultCapMiddleware (on_acting)
     repl_tool: Any  # raw recall_history_python fn w/ a ``_tool_descriptor``
+    recall_tool: Any  # raw structured recall_history fn (in-process, no
+    # sandbox) — the front door for expand/search/recall_tool lookups
 
 
 def _warn_first_run(db_path: Path) -> None:
@@ -146,6 +147,7 @@ def build_scroll_components(
             workspace_dir,
         )
         return None
+    _ = model  # Kept for builder API compatibility.
     logger.info(
         "scroll: wiring components (workspace_dir=%s, session_id=%s)",
         workspace_dir,
@@ -161,12 +163,13 @@ def build_scroll_components(
         # Imported lazily so the native path never pays for the scroll
         # machinery — and so a missing scroll dependency degrades to native
         # here rather than breaking import of this module.
-        from .scroll.cap_middleware import ToolResultCapMiddleware
         from .scroll.history import HistoryStore
         from .scroll.manager import ScrollContextManager
+        from .scroll.recall_tool import make_recall_history
         from .scroll.repl import make_recall_history_python
 
         sc = lcc.scroll_config
+        trc = lcc.tool_result_pruning_config
         db_path = Path(workspace_dir) / sc.db_filename
         # First-run notice: scroll is the default as of this release, so agents
         # that never set ``strategy`` are switched to it silently. The first
@@ -182,33 +185,32 @@ def build_scroll_components(
         history = HistoryStore(db_path)
         scratch_root = str(Path(workspace_dir) / ".scroll")
 
-        # Shared {tool_call_id -> seq} of results the cap middleware already
-        # wrote in full. The manager consults it so it never re-persists the
-        # truncated stub the model sees in-context (which would duplicate the
-        # row + bloat FTS); it adopts the cap's seq so the result still falls
-        # inside the eviction span.
-        capped_results: dict[str, int] = {}
-
         manager = ScrollContextManager(
             history=history,
             session_id=session_id,
             agent_id=agent_id,
-            pinned=sc.pinned,
-            capped_results=capped_results,
             # Legacy dialog archive is opt-in; only hand the manager an
             # offloader when configured, so by default scroll writes nothing
             # to dialog/.
             offloader=(
                 offloader if getattr(sc, "offload_dialog", False) else None
             ),
-        )
-        cap = ToolResultCapMiddleware(
-            history=history,
-            model=model,
-            session_id=session_id,
-            agent_id=agent_id,
-            token_cap=sc.tool_output_token_cap,
-            capped_results=capped_results,
+            summarize_unheadlined=getattr(
+                sc,
+                "summarize_unheadlined_evictions",
+                True,
+            ),
+            summarize_timeout_s=getattr(
+                sc,
+                "summarize_eviction_timeout_seconds",
+                20,
+            ),
+            compact_tool_result_max_bytes=(
+                trc.pruning_old_msg_max_bytes if trc.enabled else None
+            ),
+            tool_results_dir=str(
+                Path(workspace_dir) / trc.tool_results_cache,
+            ),
         )
         tool = make_recall_history_python(
             history_db_path=str(history.path),
@@ -218,10 +220,19 @@ def build_scroll_components(
             timeout_s=sc.repl_timeout_s,
             allow_unsandboxed=scroll_unsandboxed_allowed(sc),
         )
+        # Structured front door for the common recall ops (expand / search /
+        # recall_tool): in-process bound queries, no sandbox, no approval —
+        # so fold stubs and the eviction index stay readable even where the
+        # sandboxed REPL can't run (e.g. Windows without WSL2).
+        recall = make_recall_history(
+            history_db_path=str(history.path),
+            session_id=session_id,
+            agent_id=agent_id,
+        )
         return ScrollComponents(
             context_manager=manager,
-            cap_middleware=cap,
             repl_tool=tool,
+            recall_tool=recall,
         )
     except Exception:  # noqa: BLE001 - any scroll failure degrades to native
         logger.warning(

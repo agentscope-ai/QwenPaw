@@ -30,7 +30,14 @@ from ....runtime.tool_registry import ToolDescriptor
 # sandboxed process imports it by bare module name.
 _PKG_DIR = str(Path(__file__).parent)
 
-_DOC = """Recall your recorded conversation history (raw turns) via Python.
+_DOC = """Recall conversation history via Python — the ADVANCED recall tool.
+
+For the common reads — re-expand a seq span, search by keywords, re-read one
+tool call — prefer the simpler `recall_history` tool (op="expand"/"search"/
+"recall_tool"): it needs no code and no sandbox. Reach for THIS Python REPL
+when you need more than those three: listing/reading whole sessions, custom
+SQL counting/ranking, scratch tables, or programmatically cross-referencing
+many turns in one cell.
 
 Read back the verbatim turns of your conversations from a durable log: this
 session's turns that scrolled out of context (seq spans come from the
@@ -64,15 +71,19 @@ The persistent record reaches you through `ms`. Prefer these intent helpers
     Row: {seq, kind, role, name, content, headline}.
   • ms.recall_tool(tool_call_id) — a tool call and its result (this agent;
     pass all_agents=True to widen). Row: {seq, kind, role, name, tool_input,
-    tool_state, content}.
+    tool_state, content}. For truncated large outputs, an extra row reports
+    the saved full-output file.
   • ms.search(query, all_agents=False, kind=None, k=10) — FTS5. By default
     searches your whole history across past sessions; all_agents=True spans
     every agent here. Pin a specific one with session_id="cron:<job>" /
     agent_id="<other>" (these take precedence). kind filters by row kind
     ("model_turn" / "tool_result"). Row: {seq, session_id, kind, role, name,
-    headline, content (full turn)}. Query with keywords, not full sentences
-    (all terms must appear); use OR-sets for alternatives and a generous k to
-    cast a wide net: ms.search("tank OR aquarium OR goldfish", k=20).
+    headline, content}. DB hits carry the full turn; saved tool-output hits
+    carry file_path and nearby matching lines. Query with keywords, not full
+    sentences (all terms must appear); use OR-sets for alternatives and a
+    generous k to cast a wide net:
+    ms.search("tank OR aquarium OR goldfish", k=20). Your current in-progress
+    turn is never a hit — it is already in front of you.
   • ms.sessions() — your past conversations (incl. scheduled cron/heartbeat
     runs); ms.session(session_id, all_agents=False) reads one in full, scoped
     to you by default. ms.agents() lists agents.
@@ -221,9 +232,11 @@ def make_recall_history_python(
         # would leave it looking perpetually in-flight to tool coordination,
         # persisted tool_state, and the model. Reflect the actual exit.
         state = ToolResultState.SUCCESS if code == 0 else ToolResultState.ERROR
+        text, metadata = truncate_text_output(text)
         return ToolChunk(
-            content=[TextBlock(type="text", text=truncate_text_output(text))],
+            content=[TextBlock(type="text", text=text)],
             state=state,
+            metadata=metadata,
         )
 
     recall_history_python.__doc__ = _DOC
@@ -283,11 +296,41 @@ async def _run_subprocess(
 
 
 def _format_observation(stdout: str, stderr: str, code: int) -> str:
+    """Render the cell's outcome so a failure can NEVER read as an answer.
+
+    A non-zero exit leads with an explicit banner: without it a traceback
+    (or silence) after a history query is too easy to misread as "the
+    history holds nothing", and the model may then answer from stale
+    context instead of retrying or saying recall failed. The banner is
+    derived from what actually happened — a cell that printed real hits and
+    THEN crashed must not be told "the history was not read", or the model
+    discards valid data sitting right below the claim. Same care for the
+    exit-0-but-silent case: printing nothing is not evidence of absence.
+    """
     parts: list[str] = []
+    if code != 0 and stdout.strip():
+        parts.append(
+            f"RECALL INCOMPLETE (exit {code}) — the cell crashed AFTER "
+            "printing the stdout below. That output is real, already-"
+            "retrieved history: use it. Fix the code and re-run only for "
+            "whatever is still missing.",
+        )
+    elif code != 0:
+        parts.append(
+            f"RECALL FAILED (exit {code}) — the history was NOT read. "
+            "This is an execution error, not an empty history: fix the "
+            "query and retry, or say explicitly that you could not "
+            "retrieve the context. Do not answer as if the history held "
+            "nothing.",
+        )
     if stdout.strip():
         parts.append(f"stdout:\n{stdout.rstrip()}")
     if stderr.strip():
         parts.append(f"stderr:\n{stderr.rstrip()}")
-    if code != 0:
-        parts.append(f"exit_code: {code}")
-    return "\n".join(parts) if parts else "(no output)"
+    if not parts:
+        return (
+            "(no output — the cell printed nothing. This is not evidence "
+            "the history is empty: print() your results, or retry with "
+            "different keywords.)"
+        )
+    return "\n".join(parts)

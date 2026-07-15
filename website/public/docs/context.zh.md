@@ -10,11 +10,11 @@ QwenPaw 当前默认的上下文策略是 **scroll**：旧轮次不会被总结�
 
 QwenPaw 把记忆组织为三套互补的系统——工作记忆（Working）、情景记忆（Episodic）和语义记忆（Semantic）——大致对应人类记忆，每套由不同子系统负责：
 
-| 记忆系统     | 是什么                                                                               | 文档                    |
-| ------------ | ------------------------------------------------------------------------------------ | ----------------------- |
-| **工作记忆** | 实时的提示词窗口。较早的轮次被驱逐成一份紧凑、可展开的索引——从不总结。               | [上下文管理](./context) |
-| **情景记忆** | 跨会话、逐字的持久记录，通过 `recall_history_python` 按需取回。                      | [上下文管理](./context) |
-| **语义记忆** | 提炼后的事实、偏好与知识；ReMe 把每日记忆沉淀进 `digest/`，用 `memory_search` 检索。 | [长期记忆](./memory)    |
+| 记忆系统     | 是什么                                                                                     | 文档                    |
+| ------------ | ------------------------------------------------------------------------------------------ | ----------------------- |
+| **工作记忆** | 实时的提示词窗口。较早的轮次被驱逐成一份紧凑、可展开的索引——从不总结。                     | [上下文管理](./context) |
+| **情景记忆** | 跨会话、逐字的持久记录，通过 `recall_history`（或 `recall_history_python` REPL）按需取回。 | [上下文管理](./context) |
+| **语义记忆** | 提炼后的事实、偏好与知识；ReMe 把每日记忆沉淀进 `digest/`，用 `memory_search` 检索。       | [长期记忆](./memory)    |
 
 其中 **工作记忆** 与 **情景记忆** 由 **scroll** 上下文管理器（`ScrollContextManager`）实现；**语义记忆** 由 **ReMe** 实现。三者刻意保持正交：scroll 逐字保留原始历史、从不总结，而 ReMe 提炼可复用知识、从不触碰实时窗口或逐字历史库。
 
@@ -27,18 +27,21 @@ flowchart LR
     A[新轮次进入上下文] --> B[写穿到 history.db]
     B --> C{实时上下文超过触发比例?}
     C -->|否| D[保持当前窗口]
-    C -->|是| E[保留固定头部 + 最近尾部]
-    E --> F[驱逐中间历史]
+    C -->|是| E[保护当前活动轮次 + 最近尾部]
+    E --> F[驱逐已完成的中间历史]
     F --> G[把 seq 区间加入驱逐索引]
     G --> H[用一条索引消息重建实时上下文]
-    H --> I[之后用 recall_history_python 回溯]
+    H --> I{仍超出保留预算?}
+    I -->|是| J[压实索引，再把活动轮次的工具结果折叠为 recall 指针]
+    I -->|否| K[之后用 recall_history 回溯]
 ```
 
 核心特性：
 
 - **先持久化**：`ScrollContextManager` 在任何驱逐前，都会先把实时上下文写入 `{working_dir}/history.db`。
+- **保护当前活动轮次**：最新的用户请求及其进行中的工具链绝不会在任务中途被驱逐——即使压缩恰好在一个长工具任务中间触发，模型也不会丢失（进而答非所问）当前请求。
 - **不依赖摘要**：被驱逐的内容由 `EvictionIndex` 表示，而不是由 LLM 生成一段压缩摘要。
-- **可回溯原文**：索引中的每一行都带 `seq` 区间。Agent 可以调用 `recall_history_python`，再用 `ms.expand(lo, hi)` 读取完整原始记录。
+- **可回溯原文**：索引中的每一行都带 `seq` 区间。Agent 可以调用 `recall_history(op="expand", lo, hi)` 读取完整原始记录（或在 `recall_history_python` REPL 中用 `ms.expand(lo, hi)`）。
 - **跨会话历史**：历史行包含 `session_id` 和 `agent_id`，默认可检索当前 Agent 的所有历史会话；显式放宽时也能查询同一工作区内其他 Agent 的历史。
 - **安全降级**：如果 scroll 无法构建，或 recall 工具无法安全运行，QwenPaw 会退回 native 上下文管理，避免把历史驱逐到无法读取的位置。
 
@@ -84,19 +87,32 @@ scroll 的核心设计是：**不靠模型生成摘要来压缩上下文**。取
 发生驱逐后，实时上下文会被重建为：
 
 ```text
-固定头部
-  通常是第一条用户任务，由 scroll_config.pinned 控制。
-
 驱逐索引（名为 "memory" 的占位消息）
   scroll 注入的一条合成消息（不是真实对话轮次），代表所有被驱逐的轮次，
   装着整份驱逐索引：以 [context compressed] 开头，后面是分层的 headline
-  与 seq 区间，以及如何用 recall 取回原文的说明。详见下一节「驱逐索引」。
+  与 seq 区间，以及如何用 recall 取回原文的说明。详见下文「驱逐索引」。
 
-最近尾部
-  由 AgentScope 的配对安全切分逻辑选出的最新轮次。
+最近尾部——始终包含当前活动轮次
+  由 AgentScope 的配对安全切分逻辑选出的最新轮次，外加「活动轮次」：
+  最后一条真实用户请求及其之后的全部消息。即使按 token 切分本应把它
+  驱逐，也会完整保留在实时窗口里。
 ```
 
 切分使用 AgentScope 的 token 统计和配对安全压缩 helper，因此会尽量保持实时窗口边界上的 tool_call / tool_result 对齐。
+
+### 活动轮次保护与泄压管线
+
+一个长工具任务（`/heartbeat` 定时任务、多轮搜索）本身就可能超出保留预算，此时按 token 切分会把**当前请求**连同旧历史一起驱逐——模型只能看到一条旧消息和一份索引，然后答非所问。为此 scroll 按三级递进泄压，每一级只在上一级不够用时才启动：
+
+1. **驱逐**——活动轮次之前的已完成轮次折叠进驱逐索引（常规路径）。
+2. **压实**——窗口仍超出保留预算时，索引自身逐层上卷、向单行收缩。
+3. **折叠**——仍然超出（典型情况：整个上下文就是一个活动轮次）时，把活动轮次中已完成的工具结果**原地**替换为一行 recall 指针：
+
+   ```text
+   [scroll folded] full result stored in history — re-read it with recall_history(op="expand", lo=184, hi=184)
+   ```
+
+   请求原文、工具调用、推理文本和最新一条工具结果全部原样保留——这一轮本身仍是一份可读的任务进度记录；每条被折叠的输出都和其他历史一样在折叠前已持久化，一次 `recall_history` 调用就能取回。stub 特意指向结构化工具：它在进程内运行、不依赖沙箱，所以即使在 Python REPL 无法运行的平台上也能读回。
 
 ### 驱逐索引
 
@@ -112,7 +128,7 @@ scroll 的核心设计是：**不靠模型生成摘要来压缩上下文**。取
 <system-info>
 [context compressed] The turns below were evicted ...
 
-Re-expand a span inside recall_history_python: ms.expand(lo, hi)
+Re-expand a span with the recall_history tool: recall_history(op="expand", lo, hi)
 
 ===== Tier 1 (older msgs) =====
   [seq 10-80]
@@ -124,7 +140,7 @@ Re-expand a span inside recall_history_python: ms.expand(lo, hi)
 </system-info>
 ```
 
-索引里每个 `⟦ … ⟧` 叶子，就是上一节那条由模型写下的 headline。模型不应该只凭 headline 回答：headline 只是指针；真正证据应来自 `ms.expand`、`ms.search` 或其他 recall helper 返回的完整内容。
+索引里每个 `⟦ … ⟧` 叶子，就是上一节那条由模型写下的 headline。模型不应该只凭 headline 回答：headline 只是指针；真正证据应来自 `recall_history`（`expand` / `search`）或其他 recall helper 返回的完整内容。
 
 ## 情景记忆（Episodic Memory）
 
@@ -132,9 +148,19 @@ Re-expand a span inside recall_history_python: ms.expand(lo, hi)
 
 ### Recall API
 
-Recall API 是情景记忆的接口：把工作记忆驱逐后留下的、持久且逐字的历史读回来。scroll 启用时，QwenPaw 会注入一个支持沙箱运行的工具：`recall_history_python`。Python cell 中已经定义好 `ms`，它是一个 `MemorySpace` 对象。
+Recall API 是情景记忆的接口：把工作记忆驱逐后留下的、持久且逐字的历史读回来。scroll 启用时，QwenPaw 会注入两个工具：
 
-常用 helper：
+- **`recall_history`**——常规读取的结构化入口。每次调用都是参数绑定的只读查询，在进程内执行，因此在任何平台上都不需要沙箱、不需要审批：
+
+  ```text
+  recall_history(op="expand", lo=81, hi=96)          # 展开索引中的区间
+  recall_history(op="search", query="deployment decision", k=20)
+  recall_history(op="recall_tool", tool_call_id="tool-call-id")
+  ```
+
+- **`recall_history_python`**——沙箱化的 Python REPL，覆盖这三种读取之外的需求（列出会话、自写 SQL 聚合、scratch 表）。cell 中已经定义好 `ms`，它是一个 `MemorySpace` 对象。
+
+REPL 中常用的 `ms` helper：
 
 ```python
 # 展开索引中的区间。
@@ -158,7 +184,11 @@ print(ms.agents())
 
 持久历史对 recall 是只读的：`history.db` 会以只读方式挂载为 SQLite schema `hist`。模型只能写自己的 scratch `main` 数据库。
 
-安全说明：`recall_history_python` 会运行模型生成的 Python。正常情况下，它需要治理层注入 sandbox 配置；如果没有 sandbox，它会默认拒绝执行。只有同时满足以下条件时才允许非沙箱运行：
+失败的 cell 不会被误读：观察结果会以 `RECALL FAILED — the history was NOT read` 横幅开头；正常退出但什么都没打印的 cell 也会明确说明「无输出不代表历史为空」——执行错误永远不会被误认成「不存在这段历史」。
+
+搜索（`recall_history(op="search")` 与 `ms.search` 皆然）也不会把 Agent 自己的回声搜回来：recall 工具自身的源码/输出行不会出现在结果里，当前**活动轮次**（最新的用户请求和正在写的回复）同样被排除——否则多轮 recall 时，top-k 会命中上一轮引用过的内容而不是真正的历史。本会话更早的已驱逐轮次仍然可搜；`ms.expand` / `ms.recall_tool` 不做过滤（逐字回放正是它们的用途）。
+
+安全说明：`recall_history_python` 会运行模型生成的 Python。正常情况下，它需要治理层注入 sandbox 配置；如果没有 sandbox，它会默认拒绝执行。（`recall_history` 不受影响：它从不执行模型生成的代码，所以在没有沙箱的平台——例如未装 WSL2 的 Windows——上也能正常运行。）只有同时满足以下条件时才允许 REPL 非沙箱运行：
 
 - 环境变量 `QWENPAW_ALLOW_UNSANDBOXED_RECALL` 为 truthy
 - `running.light_context_config.scroll_config.allow_unsandboxed = true`
@@ -167,14 +197,17 @@ print(ms.agents())
 
 ### 工具结果
 
-当前有两个相关机制：
+工具结果统一由一个机制处理：
 
-| 机制                          | 默认状态                                     | 作用                                                                                                                                                     |
-| ----------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ToolResultCapMiddleware`     | scroll 启用时生效                            | 单个工具结果超过 `scroll_config.tool_output_token_cap` 时，把完整输出写入 `history.db`，实时上下文只保留有限预览和 `ms.recall_tool(tool_call_id)` 指针。 |
-| `ToolResultPruningMiddleware` | 由 `tool_result_pruning_config.enabled` 控制 | 旧版按字节分层裁剪工具结果，可选使用 `tool_results/` 文件缓存。                                                                                          |
+| 机制                          | 默认状态                                                             | 作用                                                                                                                                                                                            |
+| ----------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ToolResultPruningMiddleware` | 所有上下文策略下均注册，由 `tool_result_pruning_config.enabled` 控制 | 按字节裁剪当前和历史工具结果，把超大原始输出保存到 `tool_results/`，并记录按文本块隔离的恢复 metadata 与 `read_file` 续读提示；当 coordinator offload 启用时，后台完成路径也使用同一个 pruner。 |
 
-scroll cap 是基于 token 的，并通过持久历史回溯；旧版 pruning 是基于字节的，用于兼容原有工具结果 offload 行为。
+scroll 不再有独立的 token 工具结果 cap。recent 与 execution preview 共用 `pruning_recent_msg_max_bytes`；scroll compact 后，仍保留在 live context 的 preview 会缩小到 `pruning_old_msg_max_bytes`，完整 artifact 仍可回溯。
+
+启用统一 pruning 时，QwenPaw 会让 AgentScope 内置的 token 工具结果上限不再触发，避免已经按 bytes 裁剪的 preview 被二次截断并丢失按文本块隔离的恢复 metadata。关闭统一 pruning 时，AgentScope 的默认上限仍作为安全兜底保留。
+
+`scroll_config.tool_output_token_cap` 仅为保证旧配置文件仍能加载而保留。该字段会被忽略；如果显式配置，将输出迁移 warning。请改用 `tool_result_pruning_config.pruning_recent_msg_max_bytes`，注意单位已从模型估算 token 改为 bytes。关闭 `tool_result_pruning_config.enabled` 也会同时关闭 scroll 的执行期单条工具结果上限。
 
 ### 历史迁移（旧会话回填）
 
@@ -205,8 +238,6 @@ scroll cap 是基于 token 的，并通过持久历史回溯；旧版 pruning �
       },
       "scroll_config": {
         "db_filename": "history.db",
-        "tool_output_token_cap": 3000,
-        "pinned": 1,
         "repl_timeout_s": 300,
         "history_retention_days": 30,
         "allow_unsandboxed": false,
@@ -227,17 +258,16 @@ scroll cap 是基于 token 的，并通过持久历史回溯；旧版 pruning �
 
 重要字段：
 
-| 字段                                             | 默认值         | 含义                                                                      |
-| ------------------------------------------------ | -------------- | ------------------------------------------------------------------------- |
-| `strategy`                                       | `"scroll"`     | `"scroll"` 使用持久历史 + 驱逐索引；`"native"` 使用 AgentScope 原生压缩。 |
-| `context_compact_config.compact_threshold_ratio` | `0.8`          | 模型输入达到上下文窗口该比例时触发。                                      |
-| `context_compact_config.reserve_threshold_ratio` | `0.1`          | 驱逐后保留最近尾部的预算。                                                |
-| `scroll_config.db_filename`                      | `"history.db"` | 相对工作区的 SQLite 文件名。                                              |
-| `scroll_config.tool_output_token_cap`            | `3000`         | 单个工具结果在实时上下文中的预览 token 上限。                             |
-| `scroll_config.pinned`                           | `1`            | 永不驱逐的开头消息数量。                                                  |
-| `scroll_config.repl_timeout_s`                   | `300`          | `recall_history_python` 单次调用超时时间。                                |
-| `scroll_config.history_retention_days`           | `30`           | 自动清理早于该天数的历史行；设为 `0` 表示永久保留。                       |
-| `scroll_config.offload_dialog`                   | `false`        | 是否额外写旧版 `dialog/*.jsonl` 归档；`history.db` 仍是真相来源。         |
+| 字段                                             | 默认值         | 含义                                                                              |
+| ------------------------------------------------ | -------------- | --------------------------------------------------------------------------------- |
+| `strategy`                                       | `"scroll"`     | `"scroll"` 使用持久历史 + 驱逐索引；`"native"` 使用 AgentScope 原生压缩。         |
+| `context_compact_config.compact_threshold_ratio` | `0.8`          | 模型输入达到上下文窗口该比例时触发。                                              |
+| `context_compact_config.reserve_threshold_ratio` | `0.1`          | 驱逐后保留最近尾部的预算。                                                        |
+| `scroll_config.db_filename`                      | `"history.db"` | 相对工作区的 SQLite 文件名。                                                      |
+| `scroll_config.tool_output_token_cap`            | `3000`         | 已废弃且会被忽略；显式配置会输出 warning。请改用 `pruning_recent_msg_max_bytes`。 |
+| `scroll_config.repl_timeout_s`                   | `300`          | `recall_history_python` 单次调用超时时间。                                        |
+| `scroll_config.history_retention_days`           | `30`           | 自动清理早于该天数的历史行；设为 `0` 表示永久保留。                               |
+| `scroll_config.offload_dialog`                   | `false`        | 是否额外写旧版 `dialog/*.jsonl` 归档；`history.db` 仍是真相来源。                 |
 
 ## 手动压缩
 
@@ -269,6 +299,6 @@ Context compressed.
 }
 ```
 
-native 模式不会接入 `ScrollContextManager`、`ToolResultCapMiddleware` 或 `recall_history_python`。它会使用 AgentScope 的上下文压缩，并继续映射 `compact_threshold_ratio` 和 `reserve_threshold_ratio`。
+native 模式不会接入 `ScrollContextManager` 或 `recall_history_python`。它会使用 AgentScope 的上下文压缩，并继续映射 `compact_threshold_ratio` 和 `reserve_threshold_ratio`。
 
 > **提示：** 通常通过控制台（工作区 → 运行配置）管理上下文配置，无需手动编辑 `agent.json`。

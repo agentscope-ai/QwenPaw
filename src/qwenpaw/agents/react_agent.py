@@ -12,10 +12,16 @@ as constructor parameters and does not build them internally.
 from __future__ import annotations
 
 import logging
+import uuid
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from agentscope.agent import Agent, ReActConfig
+from agentscope.event import (
+    TextBlockDeltaEvent,
+    TextBlockEndEvent,
+    TextBlockStartEvent,
+)
 from agentscope.message import Msg, TextBlock
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
@@ -23,11 +29,12 @@ from agentscope.tool import Toolkit
 from .skill_system import get_workspace_skills_dir
 from ..modes.coding import CodingModeMixin
 from ..constant import (
-    AUTO_CONTINUE_MESSAGE_TAG,
+    LOOP_CONTINUATION_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
     QWENPAW_MESSAGE_TAG_KEY,
     WORKING_DIR,
 )
+from ..loop.gates import StopAction, StopHandlerResult
 from ..providers.model_capability_cache import get_capability_cache
 
 if TYPE_CHECKING:
@@ -87,6 +94,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self._register_skills(toolkit, effective_skills=effective_skills or [])
 
         self._governor = governor
+        self._gate_pending_stop = None
+        self._gate_pending_continue = None
 
         self.memory_manager = memory_manager
 
@@ -143,6 +152,25 @@ class QwenPawAgent(CodingModeMixin, Agent):
         compression. Otherwise fall back to AgentScope's native path, gated on
         ``context_compact_config.enabled``.
         """
+        # ── Always sanitize tool messages before any model call ──
+        # Orphan tool_result messages (whose tool_call was evicted by a
+        # prior compression) can survive in context across session
+        # boundaries. compress() itself only cleans during an active split;
+        # if the context is already corrupted but under the trigger
+        # threshold, the corrupt messages still reach the model → 400.
+        # This unconditional guard runs on every compress_context() call
+        # (which fires before every reasoning step), catching orphans that
+        # leaked through any path: loaded sessions, pre-patch corruption,
+        # or unaccounted edge cases.
+        try:
+            from .utils.tool_message_utils import _sanitize_tool_messages
+
+            sanitized = _sanitize_tool_messages(self.state.context)
+            if sanitized is not self.state.context:
+                self.state.context = sanitized
+        except Exception:
+            pass
+
         if self._context_manager is not None:
             await self._context_manager.compress(self, context_config)
             return
@@ -198,6 +226,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 raise KeyError(
                     f"Could not load AgentState from snapshot: {exc}",
                 ) from exc
+            # ── Sanitize loaded context: orphan tool_result messages can
+            # persist in session JSON from an evicted tool_call and leak
+            # across session boundaries when the session is reloaded.
+            self._sanitize_loaded_context()
             # Rehydrate the scroll manager's bookkeeping so the restored window
             # is recognized as already durable (no re-append on resume).
             cm = getattr(self, "_context_manager", None)
@@ -219,6 +251,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
             self.state = AgentState()
             self.state.context.extend(msgs)
             self.state.summary = summary
+            # Same sanitize as 2.0 path above.
+            self._sanitize_loaded_context()
             logger.info(
                 "Migrated 1.x session: %d messages + summary(%d chars)",
                 len(msgs),
@@ -230,6 +264,26 @@ class QwenPawAgent(CodingModeMixin, Agent):
             raise KeyError(
                 "state_dict has neither 'state' nor 'memory' key",
             )
+
+    def _sanitize_loaded_context(self) -> None:
+        """Strip orphan tool_result messages from the loaded context.
+
+        Orphan tool_result messages (whose tool_call has been evicted)
+        can persist in session JSON and leak across session boundaries
+        when loaded by ``load_state_dict``.  Without sanitization here
+        they reach the model and cause ``400 - Messages with role 'tool'
+        must be a response to a preceding message with 'tool_calls'``.
+        """
+        try:
+            from .utils.tool_message_utils import _sanitize_tool_messages
+
+            self.state.context = _sanitize_tool_messages(
+                self.state.context,
+            )
+        except Exception:
+            # Best-effort: a corrupt context will be caught again by
+            # compress_context() on the next reasoning cycle.
+            pass
 
     async def close(self) -> None:
         """Shut down governor, release the history store, and clean up expired
@@ -322,50 +376,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
     _MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
     _MEDIA_MIME_PREFIXES = ("image/", "audio/", "video/")
 
-    _AUTO_CONTINUE_MAX_EXTRA = 2
-    _AUTO_CONTINUE_TAIL_CHARS = 600
-
-    _AUTO_CONTINUE_HINT_EN = (
-        "<system-hint>"
-        "Your previous assistant turn had text only (no tool calls). "
-        "Use the trailing excerpt in <previous-assistant-tail> (if present) "
-        "plus the conversation to decide in this **reasoning** step: if the "
-        "user's task still needs tools, emit tool_use now; if it is fully "
-        "done, reply with a short text only (no tools). "
-        "Do not stop with plans or code fences alone when tools are still "
-        "needed."
-        "</system-hint>"
-    )
-    _AUTO_CONTINUE_HINT_ZH = (
-        "<system-hint>"
-        "上轮助手仅文字、未调工具。请结合上下文与 <previous-assistant-tail> "
-        "（若有）在本轮推理中判断：仍需执行则立刻 tool；已完结则简短收尾。"
-        "需要操作时勿只输出计划或代码块。"
-        "</system-hint>"
-    )
-
-    def _auto_continue_system_hint(self) -> str:
-        """Pick hint by agent language (zh vs others)."""
-        raw_lang = getattr(self._agent_config, "language", None)
-        lang = (raw_lang or "").strip().lower()
-        if lang == "zh":
-            return self._AUTO_CONTINUE_HINT_ZH
-        return self._AUTO_CONTINUE_HINT_EN
-
-    @staticmethod
-    def _auto_continue_tail_context(msg: Msg, max_chars: int) -> str:
-        """Assistant text suffix for hint (fixed cut, not sentence NLP)."""
-        raw = msg.get_text_content() if msg is not None else ""
-        text = (raw or "").strip()
-        if not text:
-            return ""
-        if len(text) <= max_chars:
-            return text
-        return text[-max_chars:].lstrip()
-
-    # _auto_continue_if_text_only — replaced by inline logic in _reasoning()
-    # which leverages the 2.0 outer react loop instead of a manual while-loop.
-
     def _get_model_key(self) -> str | None:
         """Return the capability-cache key for the active model."""
         model = getattr(self, "model", None)
@@ -405,6 +415,35 @@ class QwenPawAgent(CodingModeMixin, Agent):
         """Forward 2.0 ``_reasoning`` events with proactive media
         stripping, passive bad-request retry, and auto-continue on
         text-only responses."""
+
+        # ── Pre-check: pending gate actions from previous iter ──
+        from ..loop.gates.runner import check_pending_gates
+
+        pending_stop = check_pending_gates(self)
+        if pending_stop is not None:
+            stop_text = pending_stop.reason or "Stopped by loop gate."
+            block_id = uuid.uuid4().hex
+            yield TextBlockStartEvent(
+                reply_id=self.state.reply_id,
+                block_id=block_id,
+            )
+            yield TextBlockDeltaEvent(
+                reply_id=self.state.reply_id,
+                block_id=block_id,
+                delta=stop_text,
+            )
+            yield TextBlockEndEvent(
+                reply_id=self.state.reply_id,
+                block_id=block_id,
+            )
+            yield Msg(
+                name=self.name,
+                role="assistant",
+                content=[
+                    TextBlock(type="text", text=stop_text),
+                ],
+            )
+            return
 
         # ── Proactive media stripping ──
         from .model_factory import _supports_multimodal_for_current_model
@@ -469,66 +508,47 @@ class QwenPawAgent(CodingModeMixin, Agent):
             if should_strip and self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(False)
 
+        # ── Stop Hook: run every iteration ──
+        stop_result = await self._run_stop_handlers(final_msg)
+
         if final_msg is None:
+            from ..loop.gates.runner import apply_stop_result
+
+            apply_stop_result(
+                self,
+                stop_result,
+                is_tool_call=True,
+            )
             return
 
-        # ── Auto-continue: text-only → inject hint, let outer loop retry ──
-        if self._should_auto_continue(final_msg, tool_choice):
-            hint_body = self._auto_continue_system_hint()
-            tail = self._auto_continue_tail_context(
-                final_msg,
-                self._AUTO_CONTINUE_TAIL_CHARS,
-            )
-            if tail:
-                hint_body += (
-                    "\n\n<previous-assistant-tail>\n"
-                    f"{tail}\n"
-                    "</previous-assistant-tail>"
-                )
+        # Model produced text (wants to stop).
+        if stop_result.action == StopAction.INTERRUPT_AND_CONTINUE:
             logger.info(
-                "Auto-continue: text-only response; injecting hint "
-                "(tool_choice=%r)",
-                tool_choice,
+                "Stop handler BLOCKED exit: %s",
+                stop_result.reason,
+            )
+            continuation = (
+                stop_result.continuation_message
+                or "Continue working on the task."
             )
             self.state.context.append(
                 Msg(
                     name="user",
                     role="user",
-                    content=[TextBlock(type="text", text=hint_body)],
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=continuation,
+                        ),
+                    ],
                     metadata={
-                        QWENPAW_MESSAGE_TAG_KEY: AUTO_CONTINUE_MESSAGE_TAG,
+                        QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
                     },
                 ),
             )
-            return  # outer loop continues → _check_next_action → reasoning
+            return  # outer loop continues
 
         yield final_msg
-
-    def _should_auto_continue(
-        self,
-        msg: Msg,
-        tool_choice: Literal["auto", "none", "required"] | None,
-    ) -> bool:
-        """Check if auto-continue should be triggered."""
-        running = getattr(self, "_agent_config", None)
-        running = getattr(running, "running", None)
-        if running is None or not getattr(
-            running,
-            "auto_continue_on_text_only",
-            False,
-        ):
-            return False
-
-        if msg is None or msg.has_content_blocks("tool_call"):
-            return False
-
-        if tool_choice == "none":
-            return False
-
-        if self.state.cur_iter >= self.react_config.max_iters - 1:
-            return False
-
-        return True
 
     @staticmethod
     def _is_content_safety_error(exc: Exception) -> bool:
@@ -683,6 +703,43 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     tool_name,
                     float(t),
                 )
+
+    # ------------------------------------------------------------------
+    # Stop Hook: loop continuation support
+    # ------------------------------------------------------------------
+
+    def _get_stop_handlers(self) -> list:
+        """Retrieve stop handlers for this agent."""
+        from ..app.agent_context import (
+            get_current_agent_id,
+        )
+        from ..plugins.registry import PluginRegistry
+
+        agent_id = get_current_agent_id()
+        handlers = PluginRegistry.get_stop_handlers(
+            agent_id=agent_id,
+        )
+        logger.debug(
+            "stop_handlers: agent=%s count=%d",
+            agent_id,
+            len(handlers),
+        )
+        return handlers
+
+    async def _run_stop_handlers(
+        self,
+        final_msg: Optional[Msg],
+    ) -> StopHandlerResult:
+        """Run registered stop handlers every iteration."""
+        from ..loop.gates.runner import run_stop_handlers
+
+        handlers = self._get_stop_handlers()
+        return await run_stop_handlers(
+            handlers,
+            agent=self,
+            final_msg=final_msg,
+            iteration=self.state.cur_iter,
+        )
 
     # pylint: disable=too-many-nested-blocks
     def _strip_media_blocks_from_memory(self) -> int:

@@ -46,6 +46,7 @@ class AgentBuilder:
         memory_tools: Iterable[Any] | None = None,
         governor: Any = None,
         ctx: Any = None,
+        workspace_dir: str | None = None,
     ) -> Any:
         """Build a populated ``Toolkit`` for one agent invocation.
 
@@ -53,6 +54,7 @@ class AgentBuilder:
         :class:`QwenPawLocalWorkspace` via ``list_tools()``.
         ``extra_tools`` and ``memory_tools`` are appended after the
         workspace tools.
+
         """
         from agentscope.tool import Toolkit
 
@@ -84,7 +86,39 @@ class AgentBuilder:
                     ),
                 )
 
-        return Toolkit(tools=tools)
+        skill_dirs = self._resolve_skill_loader_dirs(
+            effective_skills,
+            workspace_dir,
+        )
+
+        return Toolkit(tools=tools, skills_or_loaders=skill_dirs)
+
+    @staticmethod
+    def _resolve_skill_loader_dirs(
+        effective_skills: Iterable[str] | None,
+        workspace_dir: str | None,
+    ) -> list[str]:
+        """Map effective skill names to their SKILL.md-bearing directories."""
+        names = list(effective_skills or ())
+        if not names:
+            return []
+
+        from ..agents.skill_system import get_workspace_skills_dir
+        from ..constant import WORKING_DIR
+
+        base = get_workspace_skills_dir(Path(workspace_dir or WORKING_DIR))
+        dirs: list[str] = []
+        for name in names:
+            skill_dir = base / name
+            if (skill_dir / "SKILL.md").exists():
+                dirs.append(str(skill_dir))
+            else:
+                _logger.debug(
+                    "skill '%s' has no SKILL.md at %s; not injected",
+                    name,
+                    skill_dir,
+                )
+        return dirs
 
     # ----------------------------------------------------------------- build
 
@@ -150,7 +184,13 @@ class AgentBuilder:
                 active_modes = plugins.active_mode_names(ctx)
 
         # Governor (governance policy layer).
-        governor = self._init_governor(workspace_dir)
+        _cm = getattr(agent_config, "coding_mode", None)
+        _project_dir = (
+            _cm.project_dir
+            if _cm and getattr(_cm, "project_dir", None)
+            else None
+        )
+        governor = self._init_governor(workspace_dir, _project_dir)
 
         # Inject governor into local_workspace so list_tools() can
         # wrap tools with PolicyGuardedTool.
@@ -193,32 +233,30 @@ class AgentBuilder:
             model,
             offloader=offloader,
         )
-        # Eviction and recall must live or die together. Scroll's only recall
-        # path is the sandboxed recall_history_python tool, which fails closed
-        # without a sandbox_config — that config is injected solely by the
-        # governor (PolicyGuardedTool). If the governor never came up and the
-        # operator
-        # hasn't opted into unsandboxed recall, wiring scroll would evict
-        # history into an index nothing can read back. Degrade to native so the
-        # full history stays in-context instead.
+        # Eviction and recall must live or die together. The structured
+        # recall_history tool reads history in-process (no sandbox needed),
+        # but it is still guard-wrapped — with no governor the guard layer
+        # itself is degraded. Keep the conservative gate: if the governor
+        # never came up and the operator hasn't opted into unsandboxed
+        # recall, degrade to native so the full history stays in-context.
         if scroll is not None and not self._scroll_recall_runnable(
             agent_config,
             governor,
         ):
             _logger.warning(
-                "scroll: recall tool cannot run (governor unavailable and "
+                "scroll: recall tools cannot run (governor unavailable and "
                 "allow_unsandboxed is off) — falling back to native context "
                 "management so evicted history stays accessible",
             )
             scroll = None
         if scroll is not None:
-            extra_tools.append(
-                self._wrap_tool(
-                    scroll.repl_tool,
-                    agent_id,
-                    request_context,
-                    governor,
-                ),
+            self._append_scroll_recall_tools(
+                extra_tools,
+                scroll,
+                agent_config,
+                agent_id,
+                request_context,
+                governor,
             )
 
         toolkit = await self.build_toolkit(
@@ -230,23 +268,28 @@ class AgentBuilder:
             extra_tools=extra_tools,
             governor=governor,
             ctx=ctx,
+            workspace_dir=workspace_dir,
         )
 
         # System prompt.
         sys_prompt = self.build_prompt(ctx, agent_config)
 
         middlewares = self._build_middlewares(ctx, agent_config)
-        if scroll is not None:
-            middlewares.append(scroll.cap_middleware)
 
         running_config = agent_config.running
+
+        from ..loop.react_gates import (
+            resolve_max_iterations,
+        )
+
+        effective_max = resolve_max_iterations(running_config)
 
         agent = QwenPawAgent(
             name=agent_config.name or "QwenPaw",
             model=model,
             system_prompt=sys_prompt,
             toolkit=toolkit,
-            react_config=ReActConfig(max_iters=running_config.max_iters),
+            react_config=ReActConfig(max_iters=effective_max),
             middlewares=middlewares,
             agent_config=agent_config,
             workspace_dir=workspace_dir,
@@ -260,6 +303,14 @@ class AgentBuilder:
             effective_skills=effective_skills,
             governor=governor,
         )
+
+        # Register default ReAct gates (StopHandler).
+        if workspace is not None:
+            from ..loop.react_gates import (
+                register_react_gates,
+            )
+
+            register_react_gates(workspace, running_config)
 
         # Load session state if SessionLoadHook populated it.
         if ctx.session_state:
@@ -339,10 +390,11 @@ class AgentBuilder:
                 innermost.formatter = formatter
         return model, formatter
 
-    # ------------------------------------------------------- helpers
-
     @staticmethod
-    def _init_governor(workspace_dir: Any) -> Any:
+    def _init_governor(
+        workspace_dir: Any,
+        coding_project_dir: Any = None,
+    ) -> Any:
         """Initialize ResourceGovernor if governance is available.
 
         Returns the started governor, or ``None`` when governance cannot
@@ -353,7 +405,12 @@ class AgentBuilder:
         try:
             from ..governance import ResourceGovernor
 
-            governor = ResourceGovernor(str(workspace_dir))
+            governor = ResourceGovernor(
+                str(workspace_dir),
+                coding_project_dir=(
+                    str(coding_project_dir) if coding_project_dir else None
+                ),
+            )
             governor.start()
             _logger.info("Governance started: dir=%s", workspace_dir)
             return governor
@@ -407,6 +464,11 @@ class AgentBuilder:
             if user_name:
                 rc["user_name"] = user_name
             rc["channel_meta"] = _channel_meta
+        rc["_channel_instance"] = getattr(
+            request,
+            "channel_instance",
+            None,
+        )
         _payload_ctx = (
             getattr(request, "request_context", None) if request else None
         )
@@ -480,6 +542,12 @@ class AgentBuilder:
             or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
         )
         request = getattr(ctx, "request", None)
+        _active = getattr(agent_config, "active_model", None)
+        _model_name = (
+            _active.model
+            if _active and getattr(_active, "model", None)
+            else None
+        )
         return build_env_context(
             session_id=getattr(ctx, "session_id", ""),
             user_id=(getattr(request, "user_id", None) if request else None),
@@ -488,6 +556,7 @@ class AgentBuilder:
             working_dir=ws,
             default_shell=_default_shell,
             project_dir=_project_dir,
+            active_model_name=_model_name,
         )
 
     @staticmethod
@@ -552,9 +621,23 @@ class AgentBuilder:
         try:
             lcc = agent_config.running.light_context_config
             ccc = lcc.context_compact_config
+            trc = lcc.tool_result_pruning_config
+            # ToolResultPruningMiddleware already bounds fresh results by
+            # bytes and persists the full artifact before replacing them.
+            # AgentScope otherwise applies its own 50k-token split afterwards,
+            # creates a replacement ToolResultBlock, and drops QwenPaw's
+            # block-scoped truncation metadata.  Make that second cap
+            # non-binding while unified pruning is enabled; when pruning is
+            # disabled, retain AgentScope's default safety net.
+            tool_result_limit = (
+                2**63 - 1
+                if trc.enabled
+                else ContextConfig.model_fields["tool_result_limit"].default
+            )
             return ContextConfig(
                 trigger_ratio=ccc.compact_threshold_ratio,
                 reserve_ratio=ccc.reserve_threshold_ratio,
+                tool_result_limit=tool_result_limit,
             )
         except Exception:
             return ContextConfig()
@@ -602,19 +685,23 @@ class AgentBuilder:
 
     @staticmethod
     def _scroll_recall_runnable(agent_config: Any, governor: Any) -> bool:
-        """Whether scroll's recall tool can actually execute in this build.
+        """Whether scroll's recall tools can actually execute in this build.
 
-        Scroll's recall is the sandboxed ``recall_history_python`` tool, which
-        fails closed unless a ``sandbox_config`` is supplied. That config is
+        Two recall paths exist: the structured ``recall_history`` tool
+        (in-process bound queries — needs no sandbox, only a working guard
+        layer) and the sandboxed ``recall_history_python`` REPL, which fails
+        closed unless a ``sandbox_config`` is supplied. That config is
         injected only by the governor (via ``PolicyGuardedTool``); the
-        ``GuardedFunctionTool`` fallback used when the governor is absent never
-        supplies one. So recall is runnable iff the governor is present, or the
-        deployment has opted into unsandboxed recall — which requires BOTH the
-        ``QWENPAW_ALLOW_UNSANDBOXED_RECALL`` env var and
-        ``scroll_config.allow_unsandboxed`` (see ``scroll_unsandboxed_allowed``
-        — agent.json alone can never bypass the sandbox). When neither holds,
-        wiring scroll would evict history that nothing can read back, so the
-        caller degrades to native context management.
+        ``GuardedFunctionTool`` fallback used when the governor is absent
+        never supplies one. A missing governor means the guard layer itself is
+        degraded, so we stay conservative: recall is runnable iff the governor
+        is present, or the deployment has opted into unsandboxed recall —
+        which requires BOTH the ``QWENPAW_ALLOW_UNSANDBOXED_RECALL`` env var
+        and ``scroll_config.allow_unsandboxed`` (see
+        ``scroll_unsandboxed_allowed`` — agent.json alone can never bypass the
+        sandbox). When neither holds, wiring scroll would evict history that
+        nothing can read back, so the caller degrades to native context
+        management.
         """
         if governor is not None:
             return True
@@ -625,6 +712,104 @@ class AgentBuilder:
             return scroll_unsandboxed_allowed(sc)
         except Exception:
             return False
+
+    @staticmethod
+    def _scroll_repl_runnable(agent_config: Any, governor: Any) -> bool:
+        """Whether the sandboxed ``recall_history_python`` REPL should be
+        offered to the model in this build.
+
+        The REPL runs model-authored Python and so needs a sandbox. It is
+        worth registering only when one is actually usable — meaning the
+        governor's platform probe found a sandbox AND the global sandbox
+        switch is enabled — or when the operator explicitly opted into
+        unsandboxed recall (both the
+        ``QWENPAW_ALLOW_UNSANDBOXED_RECALL`` env var and
+        ``scroll_config.allow_unsandboxed``, via
+        ``scroll_unsandboxed_allowed``).
+
+        When neither holds (e.g. Windows without WSL2), every call would fail
+        closed, and the guard layer misreads that ``DENIED`` as a sandbox
+        violation and escalates to a recurring approval prompt. So we omit the
+        REPL and let the model recall through the structured ``recall_history``
+        tool, which needs no sandbox. This is narrower than
+        :meth:`_scroll_recall_runnable`, which gates whether scroll is wired at
+        all; here scroll is already wired and structured recall is present.
+
+        Note: this is a build-time decision. Registration is evaluated once
+        when the agent is built; toggling ``security.sandbox_enabled`` at
+        runtime does NOT add or remove the REPL from an already-running
+        agent. The switch is still honoured on the execution path
+        (``_prepare_off_mode_sandbox`` / ``_sandbox_usable``) -- an already
+        registered REPL will simply skip sandbox provisioning once the switch
+        is off. Rebuild the agent to change which tools are offered.
+        """
+        if governor is not None:
+            sandbox_usable = getattr(governor, "sandbox_usable", None)
+            if sandbox_usable is None:
+                # Compatibility for lightweight/custom governor objects that
+                # predate the effective-usability property.
+                sandbox_usable = getattr(
+                    governor,
+                    "sandbox_available",
+                    False,
+                )
+            if sandbox_usable:
+                return True
+        try:
+            from ..agents.context import scroll_unsandboxed_allowed
+
+            sc = agent_config.running.light_context_config.scroll_config
+            return scroll_unsandboxed_allowed(sc)
+        except Exception:
+            return False
+
+    def _append_scroll_recall_tools(
+        self,
+        extra_tools: list,
+        scroll: Any,
+        agent_config: Any,
+        agent_id: str,
+        request_context: dict[str, Any],
+        governor: Any,
+    ) -> None:
+        """Register scroll's recall tools onto ``extra_tools``.
+
+        The structured ``recall_history`` tool is ALWAYS registered: its
+        expand/search/recall_tool ops are bound read-only queries (internal
+        governance type) — no sandbox, no approval, working on every platform.
+
+        The sandboxed ``recall_history_python`` REPL is registered ONLY when
+        it can actually run in a sandbox (or unsandboxed recall is explicitly
+        opted in). Where no sandbox exists — e.g. Windows without WSL2, or an
+        OFF-mode path that skips sandbox compilation — every call would fail
+        closed, and the guard layer misreads that ``DENIED`` as a sandbox
+        violation and turns it into a recurring approval prompt. Omitting it
+        removes that dead-end: the model recalls through the structured tool.
+        """
+        extra_tools.append(
+            self._wrap_tool(
+                scroll.recall_tool,
+                agent_id,
+                request_context,
+                governor,
+            ),
+        )
+        if self._scroll_repl_runnable(agent_config, governor):
+            extra_tools.append(
+                self._wrap_tool(
+                    scroll.repl_tool,
+                    agent_id,
+                    request_context,
+                    governor,
+                ),
+            )
+        else:
+            _logger.info(
+                "scroll: sandbox unavailable or disabled for "
+                "recall_history_python — registering only the structured "
+                "recall_history tool (no approval prompt, works without a "
+                "sandbox)",
+            )
 
     @staticmethod
     def _wrap_tool(
@@ -676,6 +861,48 @@ class AgentBuilder:
         )
 
     @staticmethod
+    def _build_tool_result_pruning_middleware(
+        ctx: Any,
+        agent_config: Any,
+    ) -> Any:
+        """Build the tool-result pruning middleware."""
+        import os
+
+        from ..agents.middlewares import ToolResultPruningMiddleware
+
+        lcc = agent_config.running.light_context_config
+        trc = lcc.tool_result_pruning_config
+        workspace = getattr(ctx, "workspace", None)
+        workspace_dir = (
+            str(getattr(workspace, "workspace_dir", ""))
+            if workspace is not None
+            else ""
+        )
+        tool_results_dir = (
+            os.path.join(workspace_dir, trc.tool_results_cache)
+            if workspace_dir
+            else ""
+        )
+
+        return ToolResultPruningMiddleware(
+            enabled=trc.enabled,
+            recent_n=trc.pruning_recent_n,
+            old_max_bytes=(
+                trc.pruning_recent_msg_max_bytes
+                if getattr(lcc, "strategy", "native") == "scroll"
+                else trc.pruning_old_msg_max_bytes
+            ),
+            recent_max_bytes=trc.pruning_recent_msg_max_bytes,
+            exempt_file_extensions={
+                e.lower() for e in trc.exempt_file_extensions
+            },
+            exempt_tool_names={n.lower() for n in trc.exempt_tool_names},
+            tool_results_dir=tool_results_dir,
+            agent_id=getattr(agent_config, "id", "default"),
+        )
+
+    # pylint: disable=too-many-statements,too-many-branches
+    @staticmethod
     def _build_middlewares(
         ctx: Any,
         agent_config: Any,
@@ -683,12 +910,27 @@ class AgentBuilder:
         """Build middleware list.
 
         Order (onion model, outermost first):
-        1. ToolCoordinatorMiddleware — tool call lifecycle management
-        2. ToolResultPruningMiddleware — tiered tool result pruning
+        1. ToolResultPruningMiddleware — tiered tool result pruning
+        2. ToolCoordinatorMiddleware — tool call lifecycle management
         3. Plugin-registered middlewares (sorted by priority)
         """
         mws: list[Any] = []
 
+        pruning_middleware = None
+        try:
+            pruning_middleware = (
+                AgentBuilder._build_tool_result_pruning_middleware(
+                    ctx,
+                    agent_config,
+                )
+            )
+        except Exception:
+            _logger.debug(
+                "ToolResultPruningMiddleware not created",
+                exc_info=True,
+            )
+
+        tool_coordinator = None
         app_services = getattr(ctx, "app_services", None)
         if app_services is not None:
             tool_coordinator = getattr(
@@ -699,8 +941,17 @@ class AgentBuilder:
             if tool_coordinator is not None:
                 from ..tool_calls import ToolCoordinatorMiddleware
 
+                if pruning_middleware is not None:
+                    mws.append(pruning_middleware)
                 mws.append(
-                    ToolCoordinatorMiddleware(coordinator=tool_coordinator),
+                    ToolCoordinatorMiddleware(
+                        coordinator=tool_coordinator,
+                        background_result_processor=(
+                            pruning_middleware.prune_tool_response_async
+                            if pruning_middleware is not None
+                            else None
+                        ),
+                    ),
                 )
 
         memory_manager = AgentBuilder._get_memory_manager(ctx)
@@ -716,48 +967,8 @@ class AgentBuilder:
             except Exception:
                 _logger.debug("Memory middlewares not created", exc_info=True)
 
-        # Tiered tool-result pruning (ported from LightContextManager)
-        try:
-            import os
-
-            from ..agents.middlewares import ToolResultPruningMiddleware
-
-            lcc = agent_config.running.light_context_config
-            trc = lcc.tool_result_pruning_config
-
-            workspace = getattr(ctx, "workspace", None)
-            workspace_dir = (
-                str(getattr(workspace, "workspace_dir", ""))
-                if workspace is not None
-                else ""
-            )
-            tool_results_dir = (
-                os.path.join(workspace_dir, trc.tool_results_cache)
-                if workspace_dir
-                else ""
-            )
-
-            mws.append(
-                ToolResultPruningMiddleware(
-                    enabled=trc.enabled,
-                    recent_n=trc.pruning_recent_n,
-                    old_max_bytes=trc.pruning_old_msg_max_bytes,
-                    recent_max_bytes=trc.pruning_recent_msg_max_bytes,
-                    exempt_file_extensions={
-                        e.lower() for e in trc.exempt_file_extensions
-                    },
-                    exempt_tool_names={
-                        n.lower() for n in trc.exempt_tool_names
-                    },
-                    tool_results_dir=tool_results_dir,
-                    agent_id=getattr(agent_config, "id", "default"),
-                ),
-            )
-        except Exception:
-            _logger.debug(
-                "ToolResultPruningMiddleware not created",
-                exc_info=True,
-            )
+        if tool_coordinator is None and pruning_middleware is not None:
+            mws.append(pruning_middleware)
 
         # Langfuse tool observability
         try:

@@ -6,15 +6,14 @@ existing agent configs continue to work, but the implementation delegates to
 ReMe's application/job framework.
 """
 
-import json
+import base64
+import hashlib
 import logging
-import uuid
-from contextlib import suppress
+import re
 from typing import Any, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
-from agentscope.message import ToolCallBlock, ToolCallState
-from agentscope.message import ToolResultBlock, ToolResultState
+from agentscope.message import ToolResultState
 from agentscope.tool import ToolChunk
 
 from .base_memory_manager import BaseMemoryManager, memory_registry
@@ -23,11 +22,6 @@ from .reme_config import get_reme_app_config
 from ..model_factory import create_model_and_formatter
 from ...app.inbox_store import append_event as append_inbox_event
 from ...config import load_config
-from ...constant import (
-    AUTO_MEMORY_SEARCH_MESSAGE_TAG,
-    AUTO_MEMORY_SEARCH_TEXT,
-    QWENPAW_MESSAGE_TAG_KEY,
-)
 from ...config.config import load_agent_config, AgentProfileConfig
 
 if TYPE_CHECKING:
@@ -36,12 +30,63 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MAX_QUERY_CHARS = 50
 NO_MEMORY_RESULTS = "(no memory results)"
 INBOX_RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "auto_resource"}
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 INBOX_EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
 MAX_INBOX_BODY_CHARS = 4000
+_REME_SESSION_ID_PREFIX = "qpsid_"
+_REME_SESSION_ID_B64_PREFIX = f"{_REME_SESSION_ID_PREFIX}b64_"
+_REME_SESSION_ID_HASH_PREFIX = f"{_REME_SESSION_ID_PREFIX}sha256_"
+_MAX_REME_SESSION_ID_CHARS = 240
+_WINDOWS_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_WINDOWS_RESERVED_FILENAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def _to_reme_session_id(session_id: str) -> str:
+    """Return a stable Windows-safe session ID for ReMe file storage.
+
+    ReMe 0.4 uses ``session_id`` as a filename component. QwenPaw channel
+    IDs deliberately contain separators such as ``telegram:123``, which are
+    valid logical identifiers but invalid Windows filenames. Keep ordinary
+    IDs unchanged for compatibility and encode only unsafe IDs. IDs beginning
+    with our encoding namespace are encoded as well, making the mapping
+    unambiguous for existing user-provided IDs.
+    """
+    filename_stem = session_id.split(".", 1)[0].upper()
+    is_safe = (
+        bool(session_id)
+        and session_id == session_id.strip()
+        and session_id not in {".", ".."}
+        and not session_id.endswith(".")
+        and not _WINDOWS_INVALID_FILENAME_CHARS.search(session_id)
+        and filename_stem not in _WINDOWS_RESERVED_FILENAMES
+        and not session_id.startswith(_REME_SESSION_ID_PREFIX)
+        and len(session_id) <= _MAX_REME_SESSION_ID_CHARS
+    )
+    if is_safe:
+        return session_id
+
+    encoded = (
+        base64.urlsafe_b64encode(session_id.encode("utf-8"))
+        .decode(
+            "ascii",
+        )
+        .rstrip("=")
+    )
+    encoded_session_id = f"{_REME_SESSION_ID_B64_PREFIX}{encoded}"
+    if len(encoded_session_id) <= _MAX_REME_SESSION_ID_CHARS:
+        return encoded_session_id
+
+    digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+    return f"{_REME_SESSION_ID_HASH_PREFIX}{digest}"
 
 
 def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
@@ -122,11 +167,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             self.agent_id,
         )
 
-        worker = self._worker_task
-        if worker is not None and not worker.done():
-            worker.cancel()
-            with suppress(BaseException):
-                await worker
+        worker_stopped = await self._shutdown_summarize_worker()
 
         if self._reme is not None:
             try:
@@ -136,7 +177,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 return False
 
         self._reme = None
-        return True
+        return worker_stopped
 
     def get_memory_prompt(self) -> str:
         """Return memory guidance for system prompt injection."""
@@ -146,6 +187,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             agent_config.language,
             daily_dir=cfg.daily_dir,
         )
+
+    def get_memory_config(self) -> Any:
+        """Return ReMe Light memory configuration."""
+        agent_config = load_agent_config(self.agent_id)
+        return agent_config.running.reme_light_memory_config
 
     def list_memory_tools(self):
         """Return memory tool functions to register with the agent toolkit."""
@@ -381,11 +427,21 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not messages:
             return ""
 
+        session_id = str(kwargs.get("session_id") or "")
+        if not session_id:
+            logger.warning(
+                "ReMe summarize skipped; session_id is empty: "
+                "agent_id=%s messages=%s",
+                self.agent_id,
+                len(messages),
+            )
+            return ""
+
         response = await self._run_reme_job(
             "auto_memory",
             needs_llm=True,
             messages=[msg.model_dump(mode="json") for msg in messages],
-            session_id=str(kwargs.get("session_id") or ""),
+            session_id=_to_reme_session_id(session_id),
             memory_hint=str(kwargs.get("memory_hint") or ""),
         )
         if response is None:
@@ -399,6 +455,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         **kwargs: Any,
     ) -> dict | None:
         """Auto-search memory and expose it as a completed tool interaction."""
+        del agent_name
         del kwargs
         agent_config = load_agent_config(self.agent_id)
         memory_cfg = agent_config.running.reme_light_memory_config
@@ -412,10 +469,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         search_cfg = memory_cfg.auto_memory_search_config
 
+        max_results = max(1, search_cfg.max_results)
         response = await self._run_reme_job(
             "search",
             query=query,
-            limit=max(1, search_cfg.max_results),
+            limit=max_results,
             min_score=0,
         )
         if response is None or not response.success:
@@ -425,46 +483,15 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not text:
             return None
 
-        tool_call_id = uuid.uuid4().hex
-        tool_input = {
-            "query": query,
-            "max_results": search_cfg.max_results,
-        }
-        assistant_msg = Msg(
-            name=agent_name or self.agent_id,
-            role="assistant",
-            metadata={
-                QWENPAW_MESSAGE_TAG_KEY: AUTO_MEMORY_SEARCH_MESSAGE_TAG,
-            },
-            content=[
-                TextBlock(text=AUTO_MEMORY_SEARCH_TEXT),
-                ToolCallBlock(
-                    id=tool_call_id,
-                    name="memory_search",
-                    input=json.dumps(tool_input, ensure_ascii=False),
-                    state=ToolCallState.FINISHED,
-                ),
-            ],
-        )
-        tool_result_msg = Msg(
-            name=agent_name or self.agent_id,
-            role="assistant",
-            metadata={
-                QWENPAW_MESSAGE_TAG_KEY: AUTO_MEMORY_SEARCH_MESSAGE_TAG,
-            },
-            content=[
-                ToolResultBlock(
-                    id=tool_call_id,
-                    name="memory_search",
-                    output=[TextBlock(text=text)],
-                    state=ToolResultState.SUCCESS,
-                ),
-            ],
+        assistant_msg = self._build_auto_memory_search_msg(
+            query=query,
+            max_results=max_results,
+            text=text,
         )
         return {
             "query": query,
             "text": text,
-            "msg": msgs + [assistant_msg, tool_result_msg],
+            "msg": msgs + [assistant_msg],
         }
 
     async def auto_memory(
@@ -473,6 +500,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         **kwargs: Any,
     ) -> None:
         """Auto-extract memory for a prepared reply batch."""
+        if not all_messages:
+            return
+        all_messages = self._messages_without_auto_memory_search(all_messages)
         if not all_messages:
             return
         session_id = str(kwargs.get("session_id") or "")
@@ -501,19 +531,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if response is not None and not response.success:
             raise RuntimeError(str(response.answer))
 
-    @staticmethod
-    def _build_query(messages: list[Msg]) -> str:
-        parts = []
-        total = 0
-        for msg in reversed(messages):
-            if msg.role not in {"user", "assistant"}:
-                continue
-            text = (msg.get_text_content() or "").strip()
-            if not text:
-                continue
-            remaining = MAX_QUERY_CHARS - total - (1 if parts else 0)
-            if remaining <= 0:
-                break
-            parts.insert(0, text[-remaining:])
-            total += min(len(text), remaining) + (1 if len(parts) > 1 else 0)
-        return " ".join(parts).strip()
+    async def reme_status(self) -> "Response | None":
+        """Return embedded ReMe component memory estimates and process RSS."""
+        return await self._run_reme_job("status")

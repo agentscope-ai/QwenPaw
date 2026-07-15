@@ -59,22 +59,39 @@ def _is_execution_level_off() -> bool:
         return False
 
 
-def _resolve_agent_approval_level(
+def _resolve_effective_approval_level(
     request_context: dict[str, str] | None,
 ) -> Optional[Any]:
-    """Resolve the per-agent approval_level from agent.json.
+    """Resolve the effective approval_level for this tool call.
 
-    This is what the Web UI 'Tool Execution Security' card saves to.
-    Returns the ToolExecutionLevel enum, or None if unresolvable.
+    Priority:
+      1. ``request_context["approval_level"]`` — session-level override
+         injected by the frontend (localStorage per chat, carried in each
+         request). Zero I/O: already in memory.
+      2. ``agent.json`` → ``AgentProfileConfig.approval_level`` — the
+         agent-level default set via the Web UI 'Tool Execution Security' card.
+      3. ``None`` — unresolvable (caller falls back to AUTO).
+
+    Returns the :class:`ToolExecutionLevel` enum, or ``None``.
     """
     if not request_context:
         return None
+
+    from ..security.tool_guard.execution_level import ToolExecutionLevel
+
+    # Session-level override (injected by frontend per request)
+    session_raw = request_context.get("approval_level")
+    if session_raw:
+        level = ToolExecutionLevel.from_config(session_raw)
+        if level is not None:
+            return level
+
+    # Agent-level default from agent.json
     agent_id = request_context.get("agent_id", "")
     if not agent_id:
         return None
     try:
         from ..config.config import load_agent_config
-        from ..security.tool_guard.execution_level import ToolExecutionLevel
 
         profile = load_agent_config(agent_id)
         raw = getattr(profile, "approval_level", None)
@@ -162,6 +179,63 @@ def _build_tc_spec(self: Any) -> ToolCallSpec:
     )
 
 
+def _prepare_off_mode_sandbox(tool: Any, governor: Any) -> None:
+    """Compile+attach a ``sandbox_config`` for fail-closed tools in OFF mode.
+
+    ``approval_level=OFF`` short-circuits the policy pipeline to ALLOW-all,
+    which normally also skips the ``SANDBOX_FALLBACK`` branch that compiles a
+    ``sandbox_config`` (see :func:`_policy_tool_check_permissions`). Sandbox
+    provisioning and user approval are independent concerns: skipping "ask the
+    user" must not skip "run it in a sandbox".
+
+    Only tools flagged ``requires_sandbox`` in the registry are handled — i.e.
+    the REPL, which returns ``DENIED`` without a config. Fail-open shell tools
+    like ``Bash`` are deliberately left untouched: in OFF mode they run
+    unsandboxed by design, and forcing a sandbox on them would silently narrow
+    their filesystem access.
+
+    A no-op (leaving ``sandbox_config=None``) when the sandbox is not usable
+    -- either the platform has no sandbox, or the operator turned the global
+    ``security.sandbox_enabled`` switch off. In both cases such a REPL is
+    never registered in the first place, or it tolerates unsandboxed
+    execution via ``allow_unsandboxed``.
+
+    Uses ``governor.sandbox_usable`` (platform support AND the global switch)
+    rather than the platform-only ``sandbox_available`` probe, so that an
+    explicit ``sandbox_enabled=false`` is honoured on the OFF-mode path just
+    like it is on the normal policy path (see
+    :meth:`ResourceGovernor._sandbox_usable`).
+    """
+    # These attributes live on a reusable FunctionTool wrapper, but describe
+    # one invocation only.  Clear any previous decision before consulting the
+    # current switch so a hot toggle (or a failed recompile) cannot reuse a
+    # stale sandbox config from an earlier call.
+    for attr in ("_qp_sandbox_mode", "_qp_sandbox_config"):
+        if hasattr(tool, attr):
+            delattr(tool, attr)
+
+    if governor is None:
+        return
+    policy_name = DEFAULT_REGISTRY.python_to_policy_name(
+        getattr(tool, "name", "Unknown"),
+    )
+    if not DEFAULT_REGISTRY.requires_sandbox(policy_name):
+        return
+    if not getattr(governor, "sandbox_usable", False):
+        return
+    try:
+        tc_spec = tool._build_tc_spec()
+        tool._qp_sandbox_config = governor.compile_sandbox_config(tc_spec)
+        tool._qp_sandbox_mode = True
+    except Exception:
+        # Leave sandbox_config unset; the tool's own fail-closed guard still
+        # protects us — better a clean denial than an unsandboxed run.
+        logger.exception(
+            "OFF-mode sandbox_config compilation failed for '%s'.",
+            getattr(tool, "name", "Unknown"),
+        )
+
+
 # pylint: disable=too-many-return-statements
 async def _policy_tool_check_permissions(
     self: Any,
@@ -183,23 +257,29 @@ async def _policy_tool_check_permissions(
     del context
 
     governor = getattr(self, "_qp_governor", None)
+    self._qp_raw_params = input_data or {}
 
-    # ── Agent-level approval_level check ──
-    # Web UI saves approval_level to agent.json; governance
-    # policy.yaml has its own execution_level.  We must honour
-    # the agent-level setting so the UI toggle works.
+    # ── Effective approval_level check (session > agent) ──
     request_ctx = getattr(self, "_qp_request_context", None) or {}
-    agent_level = _resolve_agent_approval_level(request_ctx)
-    if agent_level is not None and agent_level.is_disabled():
+    effective_level = _resolve_effective_approval_level(request_ctx)
+    if effective_level is not None and effective_level.is_disabled():
+        # OFF means "never ask the user" — it does NOT mean "skip the
+        # sandbox". Sandbox isolation is an execution mechanism, not an
+        # approval gate. Fail-closed tools (the REPL) return DENIED without
+        # a sandbox_config, which the guard layer then misreads as a sandbox
+        # violation and escalates to a recurring approval prompt OFF can
+        # never resolve. So we still compile+attach the sandbox here; only
+        # the "ask the user" step is skipped.
+        _prepare_off_mode_sandbox(self, governor)
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message="governance: approval_level=off, all tools allowed.",
         )
 
-    # Sync agent-level approval_level to the governor's policy
+    # Sync effective approval_level to the governor's policy
     # so the three-phase evaluation uses the correct threshold.
-    if governor is not None and agent_level is not None:
-        governor.policy.execution_level = agent_level.value
+    if governor is not None and effective_level is not None:
+        governor.policy.execution_level = effective_level.value
 
     if governor is None:
         # Check if execution_level is "off" (dev mode) — allow pass-through
@@ -224,8 +304,6 @@ async def _policy_tool_check_permissions(
                 "Please check server logs for initialization errors."
             ),
         )
-
-    self._qp_raw_params = input_data or {}
 
     tc_spec = self._build_tc_spec()
 
@@ -358,7 +436,7 @@ async def _policy_tool_call(
     governance_source = getattr(
         getattr(self, "_qp_policy_decision", None),
         "source",
-        "builtin-rules",
+        "No rule hit",
     )
 
     # Record the ASK escalation (sandbox violation → ask user)
@@ -424,7 +502,7 @@ async def _ask_user_approval(
     violation_msg: str | None = None,
     governance_reason: str | None = None,
     policy_findings: list[Any] | None = None,
-    source: str = "builtin-rules",
+    source: str = "No rule hit",
 ) -> Any:
     """Request user approval, blocking until a reply is received."""
     from agentscope.permission import PermissionBehavior, PermissionDecision
@@ -433,6 +511,7 @@ async def _ask_user_approval(
     from ..constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
     from ..security.tool_guard.approval import (
         ApprovalDecision,
+        ApprovalScope,
         format_findings_summary,
     )
     from ..security.tool_guard.models import (
@@ -453,6 +532,16 @@ async def _ask_user_approval(
     channel = str(ctx.get("channel") or "")
     root_session_id = str(ctx.get("root_session_id") or session_id)
     root_agent_id = str(ctx.get("root_agent_id") or agent_id or "unknown")
+
+    from .generalize import generalize_target_for_approval
+
+    generalized_target = await generalize_target_for_approval(
+        tool_name,
+        target,
+        source,
+        agent_id=agent_id,
+    )
+    display_target = generalized_target or target
 
     # Construct a ToolGuardResult for ApprovalService.
     # If deep-scan findings were attached by policy.evaluate(),
@@ -509,10 +598,8 @@ async def _ask_user_approval(
                         else "Policy Approval Required"
                     ),
                     description=(
-                        f"Tool '{tool_name}' with target '{target}' "
-                        f"requires user approval per governance policy."
-                        + (
-                            f"\n\nGovernance reason: {governance_reason}"
+                        (
+                            f"Governance reason: {governance_reason}"
                             if governance_reason
                             else ""
                         )
@@ -576,8 +663,12 @@ async def _ask_user_approval(
             "display": {
                 "tool_name": tool_name,
                 "tool_source": source,
+                "exact_target": target,
+                "similar_target": display_target,
+                "is_generalized": display_target != target,
             },
             "channel_meta": ctx.get("channel_meta"),
+            "_channel_instance": ctx.get("_channel_instance"),
         },
     )
 
@@ -605,19 +696,31 @@ async def _ask_user_approval(
 
     # Record user approve/deny result to audit log
     approved = decision == ApprovalDecision.APPROVED
+    # The scope the user chose (set by resolve_request on the same pending
+    # object). None = no choice offered → EXACT.
+    scope = getattr(pending, "scope", None)
+    scope_label = scope.value if scope else "exact"
     approval_decision = GovernanceDecision(
         action=GovernanceAction.ALLOW if approved else GovernanceAction.DENY,
-        reason="User Approve" if approved else "User Deny",
+        reason=(f"User Approve ({scope_label})" if approved else "User Deny"),
     )
     governor.audit(tc_spec, approval_decision)
 
     summary = format_findings_summary(guard_result)
     if decision == ApprovalDecision.APPROVED:
         # ── Record approved rule (skip for builtin ask) ──
-        governor.add_approved_rule(tc_spec)
+        # SIMILAR → the generalized pattern; EXACT (default) → the literal
+        # target the user actually approved. Widening is opt-in.
+        rule_target = (
+            generalized_target if scope == ApprovalScope.SIMILAR else target
+        )
+        await governor.add_approved_rule(
+            tc_spec,
+            generalized_target=rule_target,
+        )
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
-            message=f"Approved by user.\n{summary}",
+            message=f"Approved by user ({scope_label}).\n{summary}",
         )
 
     denial_msg = (

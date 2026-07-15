@@ -34,7 +34,6 @@ const HeartbeatPage = lazyImportWithRetry("../../pages/Control/Heartbeat");
 const AgentConfigPage = lazyImportWithRetry("../../pages/Agent/Config");
 const SkillsPage = lazyImportWithRetry("../../pages/Agent/Skills");
 const SkillPoolPage = lazyImportWithRetry("../../pages/Settings/SkillPool");
-const MarketPage = lazyImportWithRetry("../../pages/Settings/Market");
 const ToolsPage = lazyImportWithRetry("../../pages/Agent/Tools");
 const WorkspacePage = lazyImportWithRetry("../../pages/Agent/Workspace");
 const MCPPage = lazyImportWithRetry("../../pages/Agent/MCP");
@@ -90,7 +89,6 @@ export const BUILTIN_ROUTES: Route[] = [
   { id: "core.heartbeat", path: "/heartbeat", component: HeartbeatPage },
   { id: "core.skills", path: "/skills", component: SkillsPage },
   { id: "core.skill-pool", path: "/skill-pool", component: SkillPoolPage },
-  { id: "core.market", path: "/market", component: MarketPage },
   { id: "core.tools", path: "/tools", component: ToolsPage },
   { id: "core.mcp", path: "/mcp", component: MCPPage },
   { id: "core.acp", path: "/acp", component: ACPPage },

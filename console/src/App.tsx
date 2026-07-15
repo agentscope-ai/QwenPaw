@@ -37,6 +37,7 @@ import { languageApi } from "./api/modules/language";
 import { useUploadLimitStore } from "./stores/uploadLimitStore";
 import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
 import CloseWindowPrompt from "./tauri/CloseWindowPrompt";
+import { isTauri } from "@tauri-apps/api/core";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
@@ -167,6 +168,16 @@ function AppInner() {
       i18n.off("languageChanged", handleLanguageChanged);
     };
   }, [i18n]);
+
+  // Disable the default browser context menu in the Tauri desktop build so
+  // users cannot open DevTools via right-click. DevTools is still available
+  // through the hidden 8-click logo gesture handled in Header.tsx.
+  useEffect(() => {
+    if (!isTauri()) return;
+    const preventContextMenu = (e: MouseEvent) => e.preventDefault();
+    window.addEventListener("contextmenu", preventContextMenu);
+    return () => window.removeEventListener("contextmenu", preventContextMenu);
+  }, []);
 
   // Wait for plugins to load before rendering routes that might be patched
   if (pluginsLoading) {

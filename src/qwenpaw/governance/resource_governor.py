@@ -57,8 +57,15 @@ class ResourceGovernor:
         self,
         workspace_dir: str,
         governance_dir: Optional[str] = None,
+        coding_project_dir: Optional[str] = None,
     ):
         self.workspace_dir = Path(workspace_dir)
+        # Coding project dir (Coding Mode). Falls back to the workspace
+        # when unset so the CODING_PROJECT_DIR policy placeholder always
+        # resolves to a concrete path.
+        self.coding_project_dir = Path(
+            coding_project_dir or workspace_dir,
+        )
         # Policy is stored outside the workspace to prevent agent tampering.
         # Use ``<basename>_<hash>`` so two workspaces with the same basename
         # but different absolute paths (e.g. ``/Users/a/project`` vs
@@ -95,13 +102,63 @@ class ResourceGovernor:
         """Probe result from start() (SandboxCapability)."""
         return self._sandbox_capability
 
+    @staticmethod
+    def _sandbox_globally_enabled() -> bool:
+        """Read the global ``security.sandbox_enabled`` switch (config.json).
+
+        Uses the mtime-cached :func:`load_config`, so this is cheap on the
+        hot path and automatically reflects Console updates (``save_config``
+        invalidates the cache). Defaults to False (sandbox off). On a config
+        read error it returns True (fail-safe): a glitch then routes the
+        command through the sandbox instead of running it unsandboxed.
+        """
+        try:
+            from ..config import load_config
+
+            return bool(load_config().security.sandbox_enabled)
+        except Exception:
+            logger.debug(
+                "ResourceGovernor: failed to read sandbox_enabled; "
+                "assuming enabled (fail-safe).",
+                exc_info=True,
+            )
+            return True
+
+    def _sandbox_usable(self) -> bool:
+        """Effective sandbox availability: platform support AND global switch.
+
+        When the operator turns the switch off, the sandbox is treated as
+        if the platform did not support it — ``SANDBOX_FALLBACK`` then
+        escalates to ASK rather than running the command unsandboxed.
+        """
+        return self._sandbox_available and self._sandbox_globally_enabled()
+
+    @property
+    def sandbox_usable(self) -> bool:
+        """Whether sandbox execution is supported and globally enabled."""
+        return self._sandbox_usable()
+
     def start(self) -> None:
         """Load policy and probe sandbox capabilities."""
         self._policy_dir.mkdir(parents=True, exist_ok=True)
         self._policy = load_governance_policy(
             str(self._policy_dir),
             str(self.workspace_dir),
+            str(self.coding_project_dir),
         )
+
+        # Persist the loaded policy back to disk.
+        try:
+            save_governance_policy(
+                self._policy,
+                str(self._policy_dir),
+                str(self.workspace_dir),
+                str(self.coding_project_dir),
+            )
+        except Exception:
+            logger.exception(
+                "ResourceGovernor.start: failed to persist policy.yaml",
+            )
 
         self._sandbox_capability = probe_sandbox_support()
         self._sandbox_available = self._sandbox_capability.supported
@@ -120,6 +177,7 @@ class ResourceGovernor:
                     self._policy,
                     str(self._policy_dir),
                     str(self.workspace_dir),
+                    str(self.coding_project_dir),
                 )
             except Exception:
                 logger.exception(
@@ -161,23 +219,32 @@ class ResourceGovernor:
         """
         decision = self.policy.evaluate(tc_spec)
 
-        # Early probe degradation: if sandbox is unavailable, escalate
-        # SANDBOX_FALLBACK to ASK
+        # Sandbox not usable (platform unsupported OR the global
+        # security.sandbox_enabled switch is off): a SANDBOX_FALLBACK cannot
+        # run inside a sandbox. Reaching this point means the command already
+        # cleared Phase 1 deep scan (CRITICAL → DENY), Phase 1.5 shell-danger
+        # keywords, and every builtin/user DENY/ASK rule — i.e. nothing
+        # flagged it. Rather than nag the user, run it unsandboxed (ALLOW).
+        # Only the sandbox isolation layer is dropped; Phase 0-2 protections
+        # stay fully in force. STRICT never reaches here (it returns ASK in
+        # evaluate() before producing SANDBOX_FALLBACK).
         if (
             decision.action is GovernanceAction.SANDBOX_FALLBACK
-            and not self._sandbox_available
+            and not self._sandbox_usable()
         ):
+            reason = (
+                "sandbox disabled by config"
+                if self._sandbox_available
+                else f"sandbox unavailable ({self._sandbox_capability.reason})"
+            )
             logger.info(
-                "ResourceGovernor: sandbox unavailable, escalating "
-                "SANDBOX_FALLBACK to ASK for tool '%s'",
+                "ResourceGovernor: %s, running '%s' unsandboxed (ALLOW)",
+                reason,
                 tc_spec.tool_name,
             )
             decision = GovernanceDecision(
-                action=GovernanceAction.ASK,
-                reason=(
-                    f"sandbox unavailable "
-                    f"({self._sandbox_capability.reason}), ask user"
-                ),
+                action=GovernanceAction.ALLOW,
+                reason=f"{reason}, running unsandboxed",
             )
 
         # compile sandbox config
@@ -197,11 +264,12 @@ class ResourceGovernor:
             else "-"
         )
         logger.info(
-            "governance decision: tool=%s target=%r action=%s sandbox=%s "
-            "reason=%s",
+            "governance decision: tool=%s target=%r action=%s source=%s "
+            "sandbox=%s reason=%s",
             tc_spec.tool_name,
             target_repr,
             decision.action.value,
+            decision.source,
             sandbox_mode,
             decision.reason,
         )
@@ -288,6 +356,14 @@ class ResourceGovernor:
         # Workspace is always readwrite
         mounts.insert(0, MountSpec(path=ws, writable=True))
 
+        # Coding project dir is readwrite by default (Coding Mode). When
+        # it is distinct from the workspace, mount it explicitly so Bash
+        # can write there; the policy ALLOW rule alone is not enough for
+        # sandboxed shell tools.
+        cpd = str(self.coding_project_dir)
+        if cpd and cpd != ws and not any(m.path == cpd for m in mounts):
+            mounts.append(MountSpec(path=cpd, writable=True))
+
         return SandboxConfig(
             mode=detect_platform_mode(),
             workspace_dir=ws,
@@ -352,13 +428,21 @@ class ResourceGovernor:
                 self._policy,
                 str(self._policy_dir),
                 str(self.workspace_dir),
+                str(self.coding_project_dir),
             )
 
-    def add_approved_rule(self, tc_spec: ToolCallSpec) -> bool:
+    async def add_approved_rule(
+        self,
+        tc_spec: ToolCallSpec,
+        *,
+        generalized_target: str,
+    ) -> bool:
         """Add an ALLOW rule for a user-approved tool call.
 
-        Handles rule generalization and empty-pattern guard internally
-        so callers (tool_adapter) don't need to know policy details.
+        Args:
+            generalized_target: the generalized target/pattern (e.g.
+                ``"git *"``), already computed upstream by
+                ``generalize_target_for_approval``.
 
         Returns True if a rule was actually added, False if skipped
         (e.g. builtin ask, empty target pattern).
@@ -367,16 +451,7 @@ class ResourceGovernor:
             return False
 
         try:
-            from .policy import generalize_rule_match
-
-            generalized = generalize_rule_match(
-                tc_spec.tool_name,
-                tc_spec.target,
-            )
-            _, rule_pattern = generalized.split("(", 1)
-            rule_pattern = rule_pattern.rstrip(")")
-
-            if not rule_pattern:
+            if not generalized_target:
                 logger.debug(
                     "ResourceGovernor: empty pattern, skipping rule "
                     "for tool=%s target=%s",
@@ -385,8 +460,9 @@ class ResourceGovernor:
                 )
                 return False
 
+            match = f"{tc_spec.tool_name}({generalized_target})"
             rule = GovernanceRule(
-                match=generalized,
+                match=match,
                 action=GovernanceAction.ALLOW,
                 reason="user approved",
                 grantee=tc_spec.agent_id or "*",
@@ -418,7 +494,7 @@ class ResourceGovernor:
         if not self._policy:
             return False
         source = self._policy.evaluate_source(tc_spec)
-        return source == "builtin"
+        return source == "builtin_rules"
 
     # ------------------------------------------------------------------
     # Property access

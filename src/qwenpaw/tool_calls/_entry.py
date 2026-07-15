@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Single-owner state for one in-flight tool call."""
+
 from __future__ import annotations
 
 import asyncio

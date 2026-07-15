@@ -7,6 +7,7 @@ interface ModelManageModalProps {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  onProviderUpdated?: (provider: ProviderInfo) => void;
 }
 
 export function ModelManageModal({
@@ -14,6 +15,7 @@ export function ModelManageModal({
   open,
   onClose,
   onSaved,
+  onProviderUpdated,
 }: ModelManageModalProps) {
   // Route to the appropriate specialized modal based on provider type
   if (provider.id === "qwenpaw-local") {
@@ -33,6 +35,7 @@ export function ModelManageModal({
       open={open}
       onClose={onClose}
       onSaved={onSaved}
+      onProviderUpdated={onProviderUpdated}
     />
   );
 }

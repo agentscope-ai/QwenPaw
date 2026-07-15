@@ -1,0 +1,137 @@
+name: PR preview tests
+
+# Fork-local preview of the Tests matrix from agentscope-ai/QwenPaw's
+# `.github/workflows/tests.yml`, WITHOUT its `approval-gate` (the upstream
+# `maintainer-approved` environment that gates every Tests run behind a manual
+# maintainer approval). Purpose: catch cross-OS regressions on this branch
+# *before* asking upstream to re-approve, so we don't loop on "approve ->
+# red -> fix -> re-approve".
+#
+# Triggers on any push to a `backend-*` branch (this PR's source branch family)
+# and on manual dispatch. Runs the same 3 matrices upstream runs - unit,
+# contract, integrated - but mirrors upstream's PR-gate marker
+# (`integration and p0`) for the integrated tier. Coverage/artifact upload is
+# omitted (that's a downstream coverage-report concern, not a pass/fail gate).
+# The npm console build from upstream tests.yml is omitted too: tests under
+# tests/unit / tests/contract / tests/integration do not import the built
+# frontend static assets (verified); `console` is an API route name there, not
+# console/dist.
+
+on:
+  push:
+    branches:
+      - 'backend-regression'
+      - 'backend-*'
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    name: Unit Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Faithful copy of upstream tests.yml's unit-tests matrix.
+        python-version: ["3.11", "3.13"]
+        os: [ubuntu-latest]
+        include:
+          - os: macos-latest
+            python-version: "3.11"
+          - os: windows-latest
+            python-version: "3.11"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,test,full]"
+
+      - name: Run unit tests
+        shell: bash
+        run: pytest tests/unit -v
+
+  contract-tests:
+    name: Contract Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Faithful copy of upstream tests.yml's contract-tests matrix.
+        python-version: ["3.11", "3.13"]
+        os: [ubuntu-latest]
+        include:
+          - os: macos-latest
+            python-version: "3.11"
+          - os: windows-latest
+            python-version: "3.11"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,test,full]"
+
+      - name: Run contract tests
+        shell: bash
+        run: pytest tests/contract -v
+
+  integrated-tests:
+    name: Integrated Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Faithful copy of upstream tests.yml's integrated-tests matrix.
+        python-version: ["3.11", "3.13"]
+        os: [ubuntu-latest]
+        include:
+          - os: macos-latest
+            python-version: "3.11"
+          - os: windows-latest
+            python-version: "3.11"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,test,full]"
+
+      # Upstream gates the integrated tier with `-m "integration and p0"` for
+      # pull_request events (fast feedback). Fork pushes are not PR events, but
+      # the intent here is the same pre-merge signal, so we hard-code p0.
+      # Windows runner gets the same lifted HTTP timeout upstream applies.
+      - name: Run integrated tests
+        shell: bash
+        env:
+          QWENPAW_INTEGRATION_HTTP_TIMEOUT: ${{ matrix.os == 'windows-latest' && '120' || '' }}
+        run: |
+          pytest tests/integration -v \
+            -n auto --dist=loadscope --timeout=300 \
+            -m "integration and p0"

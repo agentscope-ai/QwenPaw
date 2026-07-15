@@ -20,6 +20,7 @@ Rule format (one YAML file per threat category)::
       description: "Piping downloaded content directly to a shell"
       remediation: "Download to a file first and inspect before execution"
 """
+
 from __future__ import annotations
 
 import logging
@@ -59,7 +60,8 @@ _RE_RM_COMMAND = re.compile(
 )
 _RE_RM_TOKEN = re.compile(r"^(?:rm|del|Remove-Item)$", re.IGNORECASE)
 
-# Escape pattern replacements
+# Escape pattern replacements applied to a command part both to detect an
+# embedded ``rm`` token and to normalise the part before shlex tokenisation.
 _RM_ESCAPE_PATTERNS = [
     (re.compile(r"\$\([^)]*rm[^)]*\)"), "rm"),
     (re.compile(r"`[^`]*rm[^`]*`"), "rm"),
@@ -69,7 +71,17 @@ _RM_ESCAPE_PATTERNS = [
     ),  # Unix and Windows paths
     (re.compile(r"\\+rm\b"), "rm"),
     (re.compile(r"\b(?:command|env)\s+rm\b"), "rm"),
-    (re.compile(r"\$\{[^}]+\}"), ""),  # Remove ${VAR} syntax for detection
+]
+
+# Detection-only patterns: used solely to recognise an ``rm`` token that is
+# wrapped in shell ``${VAR}``-style indirection.  These substitutions must
+# NOT be applied to the rm-part used for target extraction, otherwise real
+# arguments such as ``${HOME}`` would be blanked out and the target would
+# silently disappear — the exact bypass reported in #5090 (``rm -rf ${HOME}``
+# was not flagged because the ``${HOME}`` target was stripped before shlex
+# parsing).
+_RM_DETECTION_ONLY_PATTERNS = [
+    (re.compile(r"\$\{[^}]*rm[^}]*\}"), "rm"),  # e.g. ${RM} → rm
 ]
 
 
@@ -221,13 +233,23 @@ def _extract_rm_targets(
         if not part:
             continue
 
-        # Normalize escape patterns using pre-compiled patterns
-        normalized_part = part
+        # Detection pass: apply extraction patterns + detection-only
+        # patterns to decide whether this part executes an ``rm`` command.
+        detection_part = part
         for pattern, replacement in _RM_ESCAPE_PATTERNS:
-            normalized_part = pattern.sub(replacement, normalized_part)
+            detection_part = pattern.sub(replacement, detection_part)
+        for pattern, replacement in _RM_DETECTION_ONLY_PATTERNS:
+            detection_part = pattern.sub(replacement, detection_part)
 
-        # Check if this part executes rm
-        if _RE_RM_COMMAND.search(normalized_part):
+        if _RE_RM_COMMAND.search(detection_part):
+            # Extraction pass: apply ONLY the extraction patterns so that
+            # real arguments (notably ``${HOME}``) are preserved for shlex
+            # and subsequent path-expansion.  Applying the detection-only
+            # ``${VAR}`` blanking here was the root cause of the #5090
+            # ``rm -rf ${HOME}`` bypass.
+            normalized_part = part
+            for pattern, replacement in _RM_ESCAPE_PATTERNS:
+                normalized_part = pattern.sub(replacement, normalized_part)
             rm_part = normalized_part
             break
 

@@ -9,6 +9,7 @@ from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
+from qwenpaw.agents.context.scroll.serialize import strip_headline
 from qwenpaw.schemas import (
     Message,
     TextContent,
@@ -67,6 +68,7 @@ def build_env_context(
     add_hint: bool = True,
     default_shell: Optional[str] = None,
     project_dir: Optional[str] = None,
+    active_model_name: Optional[str] = None,
 ) -> str:
     """
     Build environment context with current request context prepended.
@@ -86,11 +88,27 @@ def build_env_context(
             directory" line is replaced with an explicit
             "Project directory" + "Agent workspace (internal)" pair
             so the LLM stops treating the workspace as home.
+        active_model_name: Current active model name for runtime
+            identity (e.g. "qwen-max", "gpt-4o").
 
     Returns:
         Formatted environment context string
     """
     parts = []
+
+    # Runtime identity
+    powered = f", powered by {active_model_name}" if active_model_name else ""
+    parts.append(
+        f"- About: You are a personal AI assistant{powered}. "
+        f"You operate in QwenPaw, an open-source agent "
+        f"framework built by AgentScope team from Qwen lab.",
+    )
+    parts.append(
+        "- GitHub: https://github.com/agentscope-ai/QwenPaw",
+    )
+    parts.append(
+        "- Docs: https://qwenpaw.agentscope.io/",
+    )
     user_tz = load_config().user_timezone or "UTC"
     try:
         now = datetime.now(ZoneInfo(user_tz))
@@ -391,6 +409,17 @@ def strip_injected_skill_block(text: str, role: str) -> str:
     return _INJECTED_SKILL_BLOCK_RE.sub("", text)
 
 
+def clean_display_text(text: str, role: str) -> str:
+    """Hide model-facing artifacts from the transcript: the ``⟦ … ⟧``
+    headline fence and the injected ``<skill>`` block. The SSE stream already
+    strips the headline; the HTTP history path didn't, so it reappeared on
+    reload — do both here so every display path matches. Headline first: the
+    ``<skill>`` regex is ``$``-anchored, so a trailing headline would leave it
+    un-anchored.
+    """
+    return strip_injected_skill_block(strip_headline(text) or "", role)
+
+
 # pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
 def agentscope_msg_to_message(
     messages: Union[Msg, List[Msg]],
@@ -448,7 +477,7 @@ def agentscope_msg_to_message(
             text_content = TextContent(
                 delta=False,
                 index=None,
-                text=strip_injected_skill_block(msg.content, role),
+                text=clean_display_text(msg.content, role),
             )
             message.add_content(new_content=text_content)
             results.append(message)
@@ -497,7 +526,7 @@ def agentscope_msg_to_message(
                 text_content = TextContent(
                     delta=False,
                     index=None,
-                    text=strip_injected_skill_block(
+                    text=clean_display_text(
                         block.get("text", ""),
                         role,
                     ),
@@ -578,6 +607,12 @@ def agentscope_msg_to_message(
                     name=block.get("name"),
                     output=output,
                 ).model_dump(exclude_none=True)
+
+                tool_state = block.get("state")
+                if hasattr(tool_state, "value"):
+                    tool_state = tool_state.value
+                if tool_state is not None:
+                    output_data["state"] = tool_state
 
                 data_content = DataContent(
                     delta=False,

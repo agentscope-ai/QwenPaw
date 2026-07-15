@@ -22,7 +22,8 @@ export interface PushMessage {
     | "discord"
     | "email"
     | "memory"
-    | "heartbeat";
+    | "heartbeat"
+    | "skill";
   channelName: string;
   title: string;
   content: string;

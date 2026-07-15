@@ -23,8 +23,14 @@ type FilterType = "all" | "builtin" | "custom";
 function ChannelsPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const { channels, orderedKeys, isBuiltin, loading, fetchChannels } =
-    useChannels();
+  const {
+    channels,
+    orderedKeys,
+    channelSchemas,
+    isBuiltin,
+    loading,
+    fetchChannels,
+  } = useChannels();
   const [filter, setFilter] = useState<FilterType>("all");
   const [saving, setSaving] = useState(false);
   const [activeKey, setActiveKey] = useState<ChannelKey | null>(null);
@@ -203,6 +209,7 @@ function ChannelsPage() {
                       key={key}
                       channelKey={key}
                       config={config}
+                      iconUrl={channelSchemas[key]?.icon}
                       onClick={() => handleCardClick(key)}
                     />
                   ))}
@@ -241,6 +248,7 @@ function ChannelsPage() {
                     <ChannelAvailableItem
                       key={key}
                       channelKey={key}
+                      iconUrl={channelSchemas[key]?.icon}
                       onClick={() => handleCardClick(key)}
                     />
                   ))}
@@ -258,6 +266,7 @@ function ChannelsPage() {
         saving={saving}
         initialValues={activeKey ? channels[activeKey] : undefined}
         isBuiltin={activeKey ? isBuiltin(activeKey) : true}
+        channelSchema={activeKey ? channelSchemas[activeKey] : undefined}
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
       />
