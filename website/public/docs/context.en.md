@@ -103,11 +103,10 @@ The split uses AgentScope's token accounting and pairing-safe compression helper
 
 ### Active-Turn Protection and the Pressure Pipeline
 
-A long tool-running turn (a `/heartbeat` cron run, a multi-search task) can exceed the reserve budget by itself, and the token-based split would then evict the **current request** along with old history — leaving the model staring at an old message plus an index, and answering the wrong thing. Scroll therefore relieves pressure in three escalating stages, each engaging only if the previous one wasn't enough:
+A long tool-running turn (a `/heartbeat` cron run, a multi-search task) can exceed the reserve budget by itself, and the token-based split would then evict the **current request** along with old history — leaving the model staring at an old message plus an index, and answering the wrong thing. Scroll therefore relieves pressure in two escalating stages, each engaging only if the previous one wasn't enough:
 
 1. **Evict** — finished turns before the active turn fold into the eviction index (the normal case).
-2. **Compact** — if the window still overflows the reserve, the index itself rolls up tier by tier toward a single line.
-3. **Fold** — still overflowing (typically: the active turn _is_ the whole context), the active turn's completed tool results are replaced **in place** with one-line recall stubs:
+2. **Fold** — still overflowing (typically: the active turn _is_ the whole context), the active turn's completed tool results are replaced **in place** with one-line recall stubs:
 
    ```text
    [scroll folded] full result stored in history — re-read it with recall_history(op="expand", lo=184, hi=184)
@@ -121,6 +120,7 @@ The eviction index is the heart of working memory: an in-context map of evicted 
 
 - **Tier 0** holds the most recently evicted blocks with the most detail.
 - Older tiers collapse older blocks into endpoint spans.
+- A tier rolls up only when it reaches its 10-block cap; context pressure never forces an early roll-up.
 - Every line still carries a `seq` or `seq lo-hi` span, so collapsed history remains expandable from `history.db`.
 
 Example shape:

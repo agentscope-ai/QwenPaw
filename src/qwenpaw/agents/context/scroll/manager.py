@@ -184,7 +184,6 @@ class ScrollContextManager:
         # checkpointed.
         self.last_compress: dict[str, int] = {
             "evicted": 0,
-            "compacted": 0,
             "folded": 0,
         }
         # Warn once per overflow episode, not once per reasoning step.
@@ -355,31 +354,26 @@ class ScrollContextManager:
         agent: Any,
         context_config: Any = None,
     ) -> None:
-        """Evict the middle into the index; roll the index up under pressure.
+        """Evict the middle into the index; fold tool results under pressure.
 
         A single pressure pipeline — step 5 engages while the context still
-        overflows the reserve, step 6 only while it still overflows the
-        TRIGGER, so "nothing evictable" (a single-request session whose
-        active turn IS the whole context) is just step 4 running empty, not
-        a special case:
+        overflows the TRIGGER, so "nothing evictable" (a single-request
+        session whose active turn IS the whole context) is just step 4 running
+        empty, not a special case:
 
         1. persist     — every live turn is now durable.
         2. trigger     — under the token threshold? nothing to do.
         3. split       — evictable middle | recent tail (+ active turn).
         4. add_eviction— fold the middle (if any) into the index as a new
                          Tier 0 block, rebuild context = [index] + tail.
-        5. compact     — while the rebuilt context still overflows the
-                         reserve, shrink the index one step and rebuild.
-                         Always progresses.
-        6. fold        — still under real pressure even with everything
-                         evicted and the index compacted: replace profitable
+        5. fold        — still under real pressure after finished turns are
+                         evicted: replace profitable
                          old tool results with recovery pointers until the
                          pressure target is met. The newest stays verbatim.
         """
         cfg = context_config or agent.context_config
         self.last_compress = {
             "evicted": 0,
-            "compacted": 0,
             "folded": 0,
         }
         hard_limit = int(agent.model.context_size)
@@ -530,18 +524,7 @@ class ScrollContextManager:
             tokens = await self._live_tokens(agent)
             mark("live_tokens")
 
-        # 5) Pressure-triggered compaction: shrink the index one step at a
-        #    time until we fit (or it collapses to a single line). Always
-        #    terminates. Runs even when nothing was evicted this round — an
-        #    empty middle must not leave an already-built index uncompacted.
-        while tokens > reserve and self._index.compact():
-            self._rebuild_context(agent, tail)
-            mark("compact_index")
-            self.last_compress["compacted"] += 1
-            tokens = await self._live_tokens(agent)
-            mark("live_tokens")
-
-        # 6) Pressure-driven microcompaction. Do not clear live tool results
+        # 5) Pressure-driven microcompaction. Do not clear live tool results
         #    merely because Scroll ran: eviction may already have relieved the
         #    pressure. If it did not, replace recoverable results one at a time
         #    (older completed turns before the active turn, then largest byte

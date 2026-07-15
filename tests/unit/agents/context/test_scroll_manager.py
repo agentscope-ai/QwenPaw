@@ -889,12 +889,10 @@ async def test_manual_compact_trigger_does_not_warn_below_reserve(
     )
 
 
-async def test_empty_middle_still_compacts_index_under_pressure(
+async def test_pressure_does_not_compact_index_before_tier_cap(
     store: HistoryStore,
 ):
-    """Regression for the phase-1 early return: with nothing evictable but
-    an index already built, sustained pressure must still roll the index up
-    (and re-render the placeholder) instead of doing nothing."""
+    """Context pressure must not roll up index blocks before the tier cap."""
     from qwenpaw.agents.context.scroll.eviction_index import Leaf
 
     mgr = make_manager(store)
@@ -908,15 +906,15 @@ async def test_empty_middle_still_compacts_index_under_pressure(
     mgr._persist_new(FakeAgent(ctx))
     agent = FakeAgent(ctx, tokens=600)  # > reserve: sustained pressure
     agent._split_return = (ctx, [])  # nothing evictable
+    before = mgr._index.describe()
     await mgr.compress(agent)
-    # The index was force-compacted to a single block and re-rendered.
-    names = [m.name for m in agent.state.context]
-    assert names[0] == "memory"
+    # All three blocks remain detailed; only the tier cap may roll them up.
+    assert mgr._index.describe() == before
     assert (
         len([ln for ln in mgr._index.describe().splitlines() if "[seq" in ln])
-        == 1
+        == 3
     )
-    # The active turn is still live, after the placeholder.
+    # The active turn is still live.
     assert agent.state.context[-1].id == ctx[-1].id
 
 
