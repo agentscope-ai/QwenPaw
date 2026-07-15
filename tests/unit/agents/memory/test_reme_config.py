@@ -35,6 +35,13 @@ def test_memory_search_indexes_only_memory_markdown() -> None:
         assert job["watch_suffixes"] == ["md"]
 
 
+def test_reme_file_processing_is_limited_to_10_mb() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    for job_name in ("index_update_loop", "resource_watch_loop", "reindex"):
+        assert cfg["jobs"][job_name]["max_file_bytes"] == 10 * 1024 * 1024
+
+
 def test_status_job_reports_reme_memory_usage() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
 
