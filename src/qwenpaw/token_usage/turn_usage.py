@@ -18,45 +18,6 @@ def fmt_tokens(n: int) -> str:
     return f"{n / 1000:.1f}K" if n >= 1000 else str(n)
 
 
-def _ctx_from_prompt(
-    prompt_tokens: int,
-    max_input_length: int,
-) -> dict[str, Any]:
-    return {
-        "estimated_tokens": prompt_tokens,
-        "max_input_length": max_input_length,
-        "context_usage_ratio": (prompt_tokens / max_input_length * 100),
-    }
-
-
-def compute_turn_usage(
-    session_id: str,
-    agent_id: str,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """Pop provider usage; ctx from ``prompt_tokens`` when available."""
-    turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
-    if turn is None:
-        return None, None
-    try:
-        from ..config.config import (
-            load_agent_config,
-            get_model_max_input_length,
-        )
-
-        max_input_length = int(
-            get_model_max_input_length(load_agent_config(agent_id)) or 0,
-        )
-    except Exception:
-        logger.debug("max_input_length lookup failed", exc_info=True)
-        max_input_length = 0
-    if max_input_length <= 0:
-        return turn, None
-    prompt_tokens = int(turn.get("prompt_tokens", 0) or 0)
-    if prompt_tokens <= 0:
-        return turn, None
-    return turn, _ctx_from_prompt(prompt_tokens, max_input_length)
-
-
 def reconcile_turn_completion_from_stats(
     turn: dict[str, Any],
     stats: dict[str, Any],
@@ -75,9 +36,26 @@ def reconcile_turn_completion_from_stats(
     return turn
 
 
+def _turn_from_stats(stats: dict[str, Any]) -> dict[str, Any] | None:
+    """Build estimated turn usage from a context-stats snapshot."""
+    est = int(stats.get("estimated_tokens", 0) or 0)
+    if est <= 0:
+        return None
+    latest_out = int(stats.get("latest_assistant_tokens", 0) or 0)
+    return {
+        "provider_id": "",
+        "model_name": "",
+        "prompt_tokens": max(est - latest_out, 0),
+        "completion_tokens": latest_out,
+        "total_tokens": est,
+        "estimated": True,
+    }
+
+
 async def snapshot_context_usage_for_state(
     state: Any,
     agent_id: str,
+    preferred_max_input_length: int = 0,
 ) -> dict[str, Any] | None:
     """Character-based token estimate from ``AgentState``."""
     try:
@@ -90,8 +68,12 @@ async def snapshot_context_usage_for_state(
             EstimatedTokenCounter,
         )
 
-        agent_config = load_agent_config(agent_id)
-        max_input_length = int(get_model_max_input_length(agent_config) or 0)
+        max_input_length = int(preferred_max_input_length or 0)
+        if max_input_length <= 0:
+            agent_config = load_agent_config(agent_id)
+            max_input_length = int(
+                get_model_max_input_length(agent_config) or 0,
+            )
         if max_input_length <= 0:
             return None
 
@@ -121,34 +103,6 @@ async def snapshot_context_usage_for_state(
         return None
 
 
-async def fallback_turn_usage_from_state(
-    agent_state: Any,
-    agent_id: str,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """Build turn/ctx from state when provider reported no usage."""
-    stats = await snapshot_context_usage_for_state(agent_state, agent_id)
-    if not stats:
-        return None, None
-    est = int(stats.get("estimated_tokens", 0) or 0)
-    if est <= 0:
-        return None, None
-    latest_out = int(stats.get("latest_assistant_tokens", 0) or 0)
-    turn = {
-        "provider_id": "",
-        "model_name": "",
-        "prompt_tokens": max(est - latest_out, 0),
-        "completion_tokens": latest_out,
-        "total_tokens": est,
-        "estimated": True,
-    }
-    ctx = {
-        "estimated_tokens": est,
-        "max_input_length": stats["max_input_length"],
-        "context_usage_ratio": stats["context_usage_ratio"],
-    }
-    return turn, ctx
-
-
 async def resolve_turn_usage(
     *,
     session_id: str,
@@ -157,16 +111,10 @@ async def resolve_turn_usage(
     user_id: str,
     channel: str,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, Any | None]:
-    """Resolve turn/ctx; return state for persist reuse when available."""
-    turn, ctx = compute_turn_usage(session_id, agent_id)
+    """Resolve turn/ctx from provider usage + full agent-state estimate."""
+    turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
     if session is None:
-        return turn, ctx, None
-
-    need_state = turn is None or (
-        turn is not None and int(turn.get("completion_tokens", 0) or 0) <= 1
-    )
-    if not need_state:
-        return turn, ctx, None
+        return turn, None, None
 
     agent_state = await _load_agent_state(
         session=session,
@@ -175,14 +123,25 @@ async def resolve_turn_usage(
         channel=channel,
     )
     if agent_state is None:
-        return turn, ctx, None
+        return turn, None, None
 
+    context_size = int((turn or {}).get("context_size", 0) or 0)
+    stats = await snapshot_context_usage_for_state(
+        agent_state,
+        agent_id,
+        preferred_max_input_length=context_size,
+    )
+    if not stats:
+        return turn, None, agent_state
+
+    ctx = {
+        "estimated_tokens": stats["estimated_tokens"],
+        "max_input_length": stats["max_input_length"],
+        "context_usage_ratio": stats["context_usage_ratio"],
+    }
     if turn is None:
-        turn, ctx = await fallback_turn_usage_from_state(agent_state, agent_id)
-        return turn, ctx, agent_state
-
-    stats = await snapshot_context_usage_for_state(agent_state, agent_id)
-    if stats:
+        turn = _turn_from_stats(stats)
+    else:
         turn = reconcile_turn_completion_from_stats(turn, stats)
     return turn, ctx, agent_state
 
@@ -288,7 +247,7 @@ async def persist_turn_usage(
                 create_if_not_exist=False,
             )
     except Exception:
-        logger.debug(
+        logger.warning(
             "update_session_state for turn usage skipped",
             exc_info=True,
         )

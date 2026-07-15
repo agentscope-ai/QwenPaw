@@ -12,7 +12,6 @@ from .manager import (
 from .model_wrapper import TokenRecordingModelWrapper
 from .turn_usage import (
     TURN_USAGE_META_KEY,
-    compute_turn_usage,
     fmt_tokens,
     persist_turn_usage,
 )
@@ -27,6 +26,5 @@ __all__ = [
     "_UsageEvent",
     "fmt_tokens",
     "TURN_USAGE_META_KEY",
-    "compute_turn_usage",
     "persist_turn_usage",
 ]

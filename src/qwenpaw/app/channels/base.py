@@ -945,6 +945,7 @@ class BaseChannel(ABC):
 
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
+                self._clear_session_turn_usage(session_id)
                 await self._on_consume_error(
                     request,
                     to_handle,
@@ -956,12 +957,12 @@ class BaseChannel(ABC):
                     to_handle,
                     send_meta,
                 )
-            for sse in await self._commit_turn_usage(
-                request,
-                session_id,
-                emit_sse=True,
-            ):
-                yield sse
+                for sse in await self._commit_turn_usage(
+                    request,
+                    session_id,
+                    emit_sse=True,
+                ):
+                    yield sse
 
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
@@ -1429,6 +1430,7 @@ class BaseChannel(ABC):
                     await self.on_event_response(request, event)
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
+                self._clear_session_turn_usage(session_id)
                 await self._on_consume_error(
                     request,
                     to_handle,
@@ -1440,11 +1442,11 @@ class BaseChannel(ABC):
                     to_handle,
                     send_meta,
                 )
-            await self._commit_turn_usage(
-                request,
-                session_id,
-                emit_sse=False,
-            )
+                await self._commit_turn_usage(
+                    request,
+                    session_id,
+                    emit_sse=False,
+                )
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
                 self._on_reply_sent(self.channel, *args)
@@ -1705,7 +1707,7 @@ class BaseChannel(ABC):
                         agent_state=agent_state,
                     )
                 except Exception:
-                    logger.debug(
+                    logger.warning(
                         "turn usage persist skipped",
                         exc_info=True,
                     )
@@ -1721,7 +1723,7 @@ class BaseChannel(ABC):
                 f"data: {json.dumps(payload, ensure_ascii=False)}\n\n",
             ]
         except Exception:
-            logger.debug("turn usage commit skipped", exc_info=True)
+            logger.warning("turn usage commit skipped", exc_info=True)
             return []
 
     def _on_turn_usage_ready(

@@ -435,14 +435,16 @@ class ConsoleChannel(BaseChannel):
                     last_response = event
 
             err_msg = self._get_response_error_message(last_response)
-            for sse in await self._commit_turn_usage(
-                request,
-                session_id,
-                emit_sse=True,
-            ):
-                yield sse
             if err_msg:
+                self._clear_session_turn_usage(session_id)
                 self._print_error(err_msg)
+            else:
+                for sse in await self._commit_turn_usage(
+                    request,
+                    session_id,
+                    emit_sse=True,
+                ):
+                    yield sse
 
             logger.info(
                 "console stream done: event_count=%s has_response=%s",
