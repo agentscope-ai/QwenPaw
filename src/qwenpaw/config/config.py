@@ -2096,6 +2096,27 @@ def _default_notification_rules() -> List[NotificationRuleConfig]:
     return [NotificationRuleConfig(severities=["error", "warning"])]
 
 
+_SUPPORTED_NOTIFICATION_LANGS = {"en", "zh", "ja", "ru", "pt"}
+
+
+def _detect_notification_language() -> str:
+    """Detect the system locale and map to a supported lang code.
+
+    Falls back to ``"en"`` when detection fails.
+    """
+    try:
+        import locale
+
+        raw, _ = locale.getlocale()
+        if raw:
+            lang = raw.split("_")[0].lower()
+            if lang in _SUPPORTED_NOTIFICATION_LANGS:
+                return lang
+    except Exception:
+        pass
+    return "en"
+
+
 class NotificationSourceToggles(BaseModel):
     """Per-source-type toggles for system notifications."""
 
@@ -2160,8 +2181,9 @@ class NotificationConfig(BaseModel):
         description="Per-source-type on/off toggles.",
     )
     language: str = Field(
-        default="zh",
-        description="Language for notification text (synced with console UI).",
+        default_factory=_detect_notification_language,
+        description="Language for notification text "
+        "(auto-detected from system locale, synced with console UI).",
     )
     agent_ids: Optional[List[str]] = Field(
         default=None,

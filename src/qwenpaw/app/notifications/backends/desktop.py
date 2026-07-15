@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-import io
 import logging
-import sys
 import time
 
 from .base import NotificationBackend
@@ -48,22 +46,21 @@ class DesktopNotifierBackend(NotificationBackend):
         return self._notifier is not None
 
     async def _check_authorisation(self) -> bool:
-        """Check notification authorisation, suppressing noisy ctypes errors.
+        """Check notification authorisation.
 
-        desktop-notifier 6.x triggers a spurious ``InvalidStateError`` in
-        an Objective-C callback when macOS denies authorisation.  The error
-        is harmless but prints to stderr.
+        desktop-notifier 6.x may raise ``InvalidStateError`` in an
+        Objective-C callback when macOS denies authorisation.  We
+        catch all exceptions and treat them as "not authorised".
         """
-        old_stderr = sys.stderr
         try:
-            sys.stderr = io.StringIO()
-            notifier = self._notifier
-            result = await notifier.has_authorisation()
-            return result  # type: ignore[union-attr]
+            return await self._notifier.has_authorisation()
         except Exception:
+            logger.debug(
+                "Authorisation check failed (expected on "
+                "macOS when permission is denied)",
+                exc_info=True,
+            )
             return False
-        finally:
-            sys.stderr = old_stderr
 
     async def send(
         self,

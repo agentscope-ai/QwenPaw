@@ -126,7 +126,7 @@ whisper = [
     "openai-whisper>=20231117",
 ]
 full = [
-    "qwenpaw[local,whisper]",
+    "qwenpaw[local,whisper,notifications]",
 ]
 notifications = [
     "desktop-notifier>=6.0",

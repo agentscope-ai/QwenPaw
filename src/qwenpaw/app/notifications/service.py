@@ -15,6 +15,7 @@ from .backends.base import NotificationBackend
 from .backends.desktop import DesktopNotifierBackend
 from .backends.linux_fallback import LinuxFallbackBackend
 from .backends.macos_fallback import MacOSFallbackBackend
+from .backends.windows_fallback import WindowsFallbackBackend
 from .matcher import event_matches_rules
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,10 @@ class NotificationService:
         if linux_fb.is_available():
             self._backends.append(linux_fb)
 
+        win_fb = WindowsFallbackBackend()
+        if win_fb.is_available():
+            self._backends.append(win_fb)
+
     @property
     def available(self) -> bool:
         """Whether at least one backend can deliver notifications."""
@@ -242,10 +247,11 @@ class NotificationService:
         agent_id: str,
         findings_summary: str = "",
     ) -> None:
-        """Send a system notification for a pending security approval.
+        """Send a system notification for a pending approval.
 
-        Approvals always send individually (no batching with inbox events)
-        but still respect a short rate-limit to avoid duplicates.
+        Approvals are sent individually without rate-limiting or
+        batching — each approval triggers its own notification
+        immediately so the user never misses a security prompt.
         """
         if not config.enabled:
             return

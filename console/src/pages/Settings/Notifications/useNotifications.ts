@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   notificationsApi,
@@ -18,6 +18,9 @@ export function useNotifications() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const configRef = useRef(config);
+  configRef.current = config;
+
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -35,6 +38,24 @@ export function useNotifications() {
     void fetchConfig();
   }, [fetchConfig]);
 
+  const updateConfig = useCallback(
+    async (patch: Partial<NotificationConfig>) => {
+      const current = configRef.current;
+      if (!current) return;
+      const updated = { ...current, ...patch };
+      setSaving(true);
+      try {
+        const result = await notificationsApi.updateConfig(updated);
+        setConfig(result);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setSaving(false);
+      }
+    },
+    [],
+  );
+
   // Auto-sync console language to notification config
   useEffect(() => {
     if (!config || loading || saving) return;
@@ -47,23 +68,6 @@ export function useNotifications() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config?.language, i18n.language, loading]);
-
-  const updateConfig = useCallback(
-    async (patch: Partial<NotificationConfig>) => {
-      if (!config) return;
-      const updated = { ...config, ...patch };
-      setSaving(true);
-      try {
-        const result = await notificationsApi.updateConfig(updated);
-        setConfig(result);
-      } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setSaving(false);
-      }
-    },
-    [config],
-  );
 
   const toggleEnabled = useCallback(
     (enabled: boolean) => updateConfig({ enabled }),
@@ -82,12 +86,13 @@ export function useNotifications() {
 
   const toggleSource = useCallback(
     (key: keyof NotificationSourceToggles, value: boolean) => {
-      if (!config) return;
+      const current = configRef.current;
+      if (!current) return;
       void updateConfig({
-        sources: { ...config.sources, [key]: value },
+        sources: { ...current.sources, [key]: value },
       });
     },
-    [config, updateConfig],
+    [updateConfig],
   );
 
   const updateAgentIds = useCallback(

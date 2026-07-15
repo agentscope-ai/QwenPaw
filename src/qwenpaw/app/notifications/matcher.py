@@ -12,12 +12,16 @@ def event_matches_rules(
     event: dict[str, Any],
     config: NotificationConfig,
 ) -> bool:
-    """Return True if *event* should trigger a system notification.
+    """Return True if *event* should trigger a notification.
 
     Matching logic:
-    1. If the event's source_type is toggled ON in config.sources AND
-       the event's agent matches config.agent_ids filter -> notify.
-    2. Otherwise, check advanced rules (OR any rule matches -> notify).
+    1. Master switch off -> never notify.
+    2. Agent filter -> skip if agent not in allowlist.
+    3. Source toggle ON -> notify.
+    4. Source toggle OFF (explicitly managed type) -> block,
+       advanced rules are NOT checked for this event.
+    5. Unknown source type (no toggle) -> check advanced
+       rules as fallback.
     """
     if not config.enabled:
         return False
@@ -25,16 +29,16 @@ def event_matches_rules(
     source_type = event.get("source_type", "")
     agent_id = event.get("agent_id", "default")
 
-    # Check agent filter (applies to both source toggles and rules)
     if config.agent_ids is not None:
         if agent_id not in config.agent_ids:
             return False
 
-    # Primary: simple source-type toggles
-    if _source_toggled_on(source_type, event, config):
+    toggled = _source_toggled_on(source_type, event, config)
+    if toggled is True:
         return True
+    if toggled is False and _has_source_toggle(source_type):
+        return False
 
-    # Fallback: advanced rules
     for rule in config.rules:
         if not rule.enabled:
             continue
@@ -44,17 +48,29 @@ def event_matches_rules(
     return False
 
 
+_MANAGED_SOURCE_TYPES = frozenset(
+    {"cron", "approval", "heartbeat", "memory", "skill_autoupdate"},
+)
+
+
+def _has_source_toggle(source_type: str) -> bool:
+    """Return True if *source_type* has a toggle in config."""
+    return source_type in _MANAGED_SOURCE_TYPES
+
+
 def _source_toggled_on(
     source_type: str,
     event: dict[str, Any],
     config: NotificationConfig,
 ) -> bool:
-    """Check if the source_type is enabled in the simple toggles."""
+    """Check if the source_type is enabled in the toggles."""
     sources = config.sources
     if source_type == "cron":
         payload = event.get("payload") or {}
         task_type = payload.get("task_type", "agent")
-        return sources.cron_text if task_type == "text" else sources.cron_agent
+        if task_type == "text":
+            return sources.cron_text
+        return sources.cron_agent
     mapping = {
         "approval": sources.approval,
         "heartbeat": sources.heartbeat,

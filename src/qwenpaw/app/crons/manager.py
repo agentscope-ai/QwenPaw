@@ -610,6 +610,57 @@ class CronManager(ManagerBase):
             return job.system_notify
         return bool(job.save_result_to_inbox)
 
+    async def _handle_success_result(
+        self,
+        job: CronJobSpec,
+        trigger: str,
+        execution_result: dict,
+    ) -> None:
+        """Write inbox event and/or send system notification."""
+        should_inbox = bool(job.save_result_to_inbox)
+        should_notify = self._resolve_system_notify(job)
+        if not should_inbox and not should_notify:
+            return
+        if job.task_type == "text":
+            body = (job.text or "").strip()
+        else:
+            body = "Agent cron task finished successfully."
+        event_payload = {
+            "job_id": job.id,
+            "job_name": job.name,
+            "task_type": job.task_type,
+            "trigger": trigger,
+            "run_id": execution_result.get("run_id"),
+            "save_result_to_inbox": (job.save_result_to_inbox),
+            "system_notify": should_notify,
+        }
+        inbox_written = False
+        if should_inbox:
+            try:
+                await append_inbox_event(
+                    agent_id=self._agent_id,
+                    source_type="cron",
+                    source_id=job.id,
+                    event_type="cron_result",
+                    status="success",
+                    severity="info",
+                    title=f"Cron result: {job.name}",
+                    body=body,
+                    payload=event_payload,
+                )
+                inbox_written = True
+            except Exception:  # pylint: disable=broad-except
+                logger.exception(
+                    "failed to append cron result inbox event",
+                )
+        if should_notify and not inbox_written:
+            await self._try_direct_notify(
+                job,
+                body,
+                trigger,
+                execution_result,
+            )
+
     async def _try_direct_notify(
         self,
         job: CronJobSpec,
@@ -795,6 +846,9 @@ class CronManager(ManagerBase):
                                     "delivery_error": execution_result.get(
                                         "delivery_error",
                                     ),
+                                    "system_notify": (
+                                        self._resolve_system_notify(job)
+                                    ),
                                 },
                             )
                         except Exception:  # pylint: disable=broad-except
@@ -802,44 +856,8 @@ class CronManager(ManagerBase):
                                 "failed to append cron fallback event",
                             )
                     else:
-                        should_inbox = bool(job.save_result_to_inbox)
-                        should_notify = self._resolve_system_notify(job)
-                        if job.task_type == "text":
-                            body = (job.text or "").strip()
-                        else:
-                            body = "Agent cron task finished successfully."
-                        event_payload = {
-                            "job_id": job.id,
-                            "job_name": job.name,
-                            "task_type": job.task_type,
-                            "trigger": trigger,
-                            "run_id": execution_result.get("run_id"),
-                            "save_result_to_inbox": (job.save_result_to_inbox),
-                            "system_notify": should_notify,
-                        }
-                        inbox_written = False
-                        if should_inbox:
-                            try:
-                                await append_inbox_event(
-                                    agent_id=self._agent_id,
-                                    source_type="cron",
-                                    source_id=job.id,
-                                    event_type="cron_result",
-                                    status="success",
-                                    severity="info",
-                                    title=f"Cron result: {job.name}",
-                                    body=body,
-                                    payload=event_payload,
-                                )
-                                inbox_written = True
-                            except Exception:  # pylint: disable=broad-except
-                                logger.exception(
-                                    "failed to append cron result inbox event",
-                                )
-                        if should_notify and not inbox_written:
-                            await self._try_direct_notify(
-                                job,
-                                body,
-                                trigger,
-                                execution_result,
-                            )
+                        await self._handle_success_result(
+                            job,
+                            trigger,
+                            execution_result,
+                        )
