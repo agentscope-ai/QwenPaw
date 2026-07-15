@@ -142,8 +142,7 @@ def test_gemini_embedding_uses_api_key_without_base_url() -> None:
         "api_key": "gemini-key",
     }
     assert (
-        "pass_dimensions"
-        not in cfg["components"]["as_embedding"]["default"]
+        "pass_dimensions" not in cfg["components"]["as_embedding"]["default"]
     )
 
 

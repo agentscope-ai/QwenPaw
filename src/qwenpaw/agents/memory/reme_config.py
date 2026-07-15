@@ -658,9 +658,9 @@ def _apply_embedding_config(
         },
     )
     if embedding_config.backend == "openai":
-        components["as_embedding"]["default"]["pass_dimensions"] = (
-            embedding_config.use_dimensions
-        )
+        components["as_embedding"]["default"][
+            "pass_dimensions"
+        ] = embedding_config.use_dimensions
     components["embedding_store"]["default"].update(
         {
             "enable_cache": embedding_config.enable_cache,
