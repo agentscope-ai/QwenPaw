@@ -409,7 +409,12 @@ function DoomLoopSection() {
                       type="dashed"
                       onClick={() =>
                         add({
-                          after: (stages.length + 1) * 3,
+                          after:
+                            stages.length === 0
+                              ? 3
+                              : stages.length === 1
+                                ? 4
+                                : stages.length + 3,
                           action: "modify_prompt",
                           prompt: "",
                         })

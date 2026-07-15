@@ -1054,7 +1054,7 @@ class DoomLoopConfig(BaseModel):
         description="Enable doom loop detection",
     )
     window_size: int = Field(
-        default=2,
+        default=3,
         ge=2,
         description=("Sliding window size for " "repetition detection"),
     )
@@ -1069,7 +1069,7 @@ class DoomLoopConfig(BaseModel):
     stages: List[DoomLoopStageConfig] = Field(
         default_factory=lambda: [
             DoomLoopStageConfig(
-                after=2,
+                after=3,
                 action="modify_prompt",
                 prompt=(
                     "[WARNING] Repetitive pattern "
