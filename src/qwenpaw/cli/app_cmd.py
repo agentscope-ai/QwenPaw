@@ -17,6 +17,58 @@ from ..utils.logging import SuppressPathAccessLogFilter, setup_logger
 logger = logging.getLogger(__name__)
 
 
+def _is_windows_admin() -> bool:
+    """Return True if the current Windows process has admin privileges."""
+    if sys.platform != "win32":
+        return True  # non-Windows: not relevant
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _auto_disable_sandbox_on_windows() -> None:
+    """Auto-disable sandbox on Windows when not running as admin.
+
+    The restricted-token sandbox requires administrator privileges to set
+    up filesystem ACLs and launch sandboxed processes. If the user has
+    ``security.sandbox_enabled=true`` but the current process is not
+    elevated, silently flip the switch to ``False`` so the server starts
+    cleanly instead of failing mid-way through sandbox initialisation.
+
+    Called once during ``qwenpaw app`` startup (before ``uvicorn.run``).
+    On non-Windows platforms or when already elevated this is a no-op.
+    """
+    if sys.platform != "win32":
+        return
+
+    if _is_windows_admin():
+        return  # admin: sandbox can work normally
+
+    # Not admin: auto-disable sandbox.
+    try:
+        from ..config import load_config, save_config
+
+        config = load_config()
+        if config.security.sandbox_enabled:
+            config.security.sandbox_enabled = False
+            save_config(config)
+            logger.warning(
+                "Windows sandbox auto-disabled: administrator privileges "
+                "are required for the sandbox, but QwenPaw is not running "
+                "as administrator. The sandbox has been turned off so the "
+                "server can start normally. To use the sandbox, close "
+                "QwenPaw and relaunch it with 'Run as administrator'.",
+            )
+    except Exception:  # noqa: BLE001
+        logger.debug(
+            "Windows sandbox auto-disable failed; continuing as-is.",
+            exc_info=True,
+        )
+
+
 def _format_bind_address(host: str, port: int) -> str:
     """Return a readable bind address for startup logs."""
     normalized_host = host.strip()
@@ -98,36 +150,13 @@ def app_cmd(
     hide_access_paths: tuple[str, ...],
 ) -> None:
     """Run QwenPaw FastAPI app."""
-    if sys.platform == "win32":
-        import ctypes
-
-        if not ctypes.windll.shell32.IsUserAnAdmin():
-            argv0 = os.path.abspath(sys.argv[0])
-            args_str = " ".join(
-                f'"{a}"' if " " in a else a for a in sys.argv[1:]
-            )
-            if argv0.lower().endswith((".py", ".pyw")):
-                program = sys.executable
-                params = f'"{argv0}" {args_str}'
-            else:
-                program = argv0
-                params = args_str
-            ret = ctypes.windll.shell32.ShellExecuteW(
-                None,
-                "runas",
-                program,
-                params,
-                None,
-                1,
-            )
-            if ret <= 32:
-                click.echo(
-                    "Failed to elevate privileges via UAC. "
-                    "Please run as administrator.",
-                    err=True,
-                )
-                sys.exit(1)
-            sys.exit(0)
+    # NOTE: the server intentionally runs UNPRIVILEGED. The Windows
+    # restricted-token sandbox no longer requires the whole server to be
+    # elevated (which PR #5931 forced via ShellExecuteW("runas"), breaking
+    # headless / VBS launchers with a surprise UAC prompt and a detached,
+    # un-closable window). If sandbox is enabled but the process is not
+    # admin, _auto_disable_sandbox_on_windows() below will flip the switch
+    # off before the server starts.
 
     # Handle deprecated --workers parameter
     if workers is not None:
@@ -170,6 +199,10 @@ def app_cmd(
         )
 
     _warn_if_auth_off_non_loopback_bind(host, port)
+
+    # On Windows, auto-disable sandbox when not running as admin so the
+    # server starts without a half-broken sandbox layer.
+    _auto_disable_sandbox_on_windows()
 
     uvicorn.run(
         "qwenpaw.app._app:app",

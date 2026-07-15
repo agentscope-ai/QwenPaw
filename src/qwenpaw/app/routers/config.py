@@ -829,6 +829,20 @@ async def get_sandbox_setting() -> SandboxSettingBody:
 async def put_sandbox_setting(
     body: SandboxSettingBody = Body(...),
 ) -> SandboxSettingBody:
+    # Guard: enabling sandbox on Windows requires admin privileges.
+    # Refuse early with a clear, actionable message rather than letting
+    # the user flip the switch and hit cryptic ACL failures later.
+    if body.enabled and _is_windows_non_admin():
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Sandbox requires administrator privileges on Windows.\n\n"
+                "To enable the sandbox, please close QwenPaw, right-click "
+                "its shortcut, and select 'Run as administrator'. Then "
+                "come back to Settings and re-enable the sandbox."
+            ),
+        )
+
     config = load_config()
     config.security.sandbox_enabled = body.enabled
     save_config(config)
@@ -836,6 +850,26 @@ async def put_sandbox_setting(
     # mtime-cached load_config() on each policy evaluation, and save_config
     # invalidates that cache, so the change takes effect on the next call.
     return body
+
+
+def _is_windows_non_admin() -> bool:
+    """Return True on Windows when the current process lacks admin rights.
+
+    Used by ``put_sandbox_setting`` to reject sandbox-enable requests with
+    a 403 + instructions.  Always returns False on non-Windows so the
+    guard is a no-op elsewhere.
+    """
+    import sys
+
+    if sys.platform != "win32":
+        return False
+
+    try:
+        import ctypes
+
+        return not bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:  # noqa: BLE001
+        return True  # can't tell → treat as non-admin
 
 
 # ── Security / File Guard ────────────────────────────────────────────
