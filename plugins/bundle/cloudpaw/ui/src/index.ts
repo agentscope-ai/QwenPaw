@@ -2370,9 +2370,9 @@ function buildPlugin() {
   function extractLastJsonObject(text: string): any | null {
     if (!text) return null;
     for (
-      let i = text.lastIndexOf('{');
+      let i = text.lastIndexOf("{");
       i >= 0;
-      i = text.lastIndexOf('{', i - 1)
+      i = text.lastIndexOf("{", i - 1)
     ) {
       try {
         return JSON.parse(text.substring(i));
