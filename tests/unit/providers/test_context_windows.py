@@ -52,6 +52,9 @@ from qwenpaw.providers.provider import ModelInfo, Provider
         ("gemini-1.5-pro", 2_097_152),
         ("gemini-2.5-flash", 1_048_576),
         ("kimi-k2-thinking", 262_144),
+        ("glm-5.2", 1_000_000),
+        ("GLM-5.2[1m]", 1_000_000),
+        ("zhipu/glm-5.2", 1_000_000),
     ],
 )
 def test_known_windows(model_id: str, expected: int):
