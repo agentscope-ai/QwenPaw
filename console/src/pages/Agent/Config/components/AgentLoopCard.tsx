@@ -413,8 +413,8 @@ function DoomLoopSection() {
                             stages.length === 0
                               ? 3
                               : stages.length === 1
-                                ? 4
-                                : stages.length + 3,
+                              ? 4
+                              : stages.length + 3,
                           action: "modify_prompt",
                           prompt: "",
                         })
