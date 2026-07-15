@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""macOS backend using terminal-notifier (supports click-to-open URL)."""
+"""macOS backend using terminal-notifier."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 class TerminalNotifierBackend(NotificationBackend):
     """macOS backend using terminal-notifier CLI.
 
-    Supports click-to-open-URL via the -open flag.
     Install with: brew install terminal-notifier
     """
 
@@ -51,8 +50,9 @@ class TerminalNotifierBackend(NotificationBackend):
         ]
         if sound:
             cmd.extend(["-sound", "default"])
-        if url:
-            cmd.extend(["-open", url])
+        # -open is intentionally omitted: on macOS 13+ terminal-notifier's
+        # click-to-open feature is unreliable, so notifications are kept as
+        # simple reminders without a click action.
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,

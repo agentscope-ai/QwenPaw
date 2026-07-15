@@ -284,14 +284,11 @@ class NotificationService:
         body: str,
         *,
         sound: bool,
-        url: str | None = None,
     ) -> bool:
         """Try backends in order until one succeeds."""
-        if url is None:
-            url = self._get_console_url()
         for backend in self._backends:
             try:
-                ok = await backend.send(title, body, sound=sound, url=url)
+                ok = await backend.send(title, body, sound=sound)
                 if ok:
                     return True
             except Exception as exc:
@@ -301,18 +298,6 @@ class NotificationService:
                     exc,
                 )
         return False
-
-    @staticmethod
-    def _get_console_url() -> str:
-        """Build the console URL from environment/config."""
-        import os
-
-        cors = os.environ.get("QWENPAW_CORS_ORIGINS", "")
-        if cors:
-            return cors.split(",")[0].strip()
-        host = os.environ.get("QWENPAW_HOST", "127.0.0.1")
-        port = os.environ.get("QWENPAW_PORT", "8099")
-        return f"http://{host}:{port}"
 
     @staticmethod
     def _format_title(event: dict[str, Any], lang: str) -> str:

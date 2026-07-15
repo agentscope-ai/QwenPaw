@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import logging
-import webbrowser
 
 from .base import NotificationBackend
 
@@ -58,21 +57,11 @@ class DesktopNotifierBackend(NotificationBackend):
             if not self._authorized:
                 return False
 
-            on_clicked = None
-            if url:
-                target_url = url
-
-                def _open_url() -> None:
-                    webbrowser.open(target_url)
-
-                on_clicked = _open_url
-
             sound_obj = _Sound(name="default") if (sound and _Sound) else None
             await self._notifier.send(
                 title=title,
                 message=body,
                 sound=sound_obj,
-                on_clicked=on_clicked,
             )
             return True
         except Exception as exc:
