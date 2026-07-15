@@ -39,15 +39,21 @@ const GenericToolCard: React.FC<GenericToolCardProps> = ({
       isStreaming={isStreaming}
       disableAutoMedia
     >
-      {hasOutput && (
-        <DefaultBlock
-          title="Output"
-          content={resultText}
-          renderContent={() => (
-            <InlineMediaText text={resultText} media={mediaList} />
-          )}
-        />
-      )}
+      {(isOpen) =>
+        hasOutput && (
+          <DefaultBlock
+            title="Output"
+            content={resultText}
+            renderContent={
+              isOpen && mediaList.length > 0
+                ? () => (
+                    <InlineMediaText text={resultText} media={mediaList} />
+                  )
+                : undefined
+            }
+          />
+        )
+      }
     </ToolCardShell>
   );
 };

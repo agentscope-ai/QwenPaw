@@ -5,7 +5,7 @@
  * blocks: icon + label on a single line, expandable body underneath.
  */
 
-import React from "react";
+import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ToolCallContent } from "./types";
 import DefaultBlock from "./DefaultBlock";
@@ -26,8 +26,12 @@ export interface ToolCardShellProps {
   inlineResult?: string | null;
   /** Optional badge elements (line counts, diff counts). */
   badges?: React.ReactNode;
-  /** Expandable body content. */
-  children?: React.ReactNode;
+  /**
+   * Expandable body content. May be a render function receiving the current
+   * open state so children can defer expensive work (e.g. media requests)
+   * until the card is expanded.
+   */
+  children?: React.ReactNode | ((isOpen: boolean) => React.ReactNode);
   /** Disable automatic media preview extraction from result. */
   disableAutoMedia?: boolean;
 }
@@ -43,6 +47,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
   disableAutoMedia = false,
 }) => {
   const { t } = useTranslation();
+  const [isOpen, setIsOpen] = useState(false);
   const isLoading = content.status === "calling" && isStreaming;
   const isError = content.status === "error";
 
@@ -51,6 +56,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
       className={`${styles.toolCallCompact} ${
         isLoading ? styles.toolCallCompactLoading : ""
       } ${isError ? styles.toolCallCompactError : ""}`}
+      onToggle={(e) => setIsOpen((e.currentTarget as HTMLDetailsElement).open)}
     >
       <summary className={styles.toolCallCompactSummary}>
         {isLoading ? (
@@ -88,8 +94,10 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
         </>
       ) : (
         <>
-          {children}
-          {!disableAutoMedia && <ResultMediaPreviews content={content} />}
+          {typeof children === "function" ? children(isOpen) : children}
+          {!disableAutoMedia && isOpen && (
+            <ResultMediaPreviews content={content} />
+          )}
         </>
       )}
     </details>
