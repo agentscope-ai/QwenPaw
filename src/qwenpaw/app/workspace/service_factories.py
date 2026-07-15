@@ -25,7 +25,6 @@ async def create_driver_service(ws: "Workspace", _service):
     # pylint: disable=protected-access
     from ...drivers.adapters.mcp_legacy_config import (
         migrate_legacy_mcp_if_needed,
-        upgrade_legacy_mcp_credentials,
     )
     from ...drivers.credentials.store import AsyncCredentialStore
     from ...drivers.handlers import MCPDriverHandler
@@ -50,7 +49,6 @@ async def create_driver_service(ws: "Workspace", _service):
     # endpoint validator and tests.  This PR intentionally keeps the concrete
     # runtime surface to MCP while leaving DriverManager protocol-neutral.
     await migrate_legacy_mcp_if_needed(ws, driver_manager)
-    await upgrade_legacy_mcp_credentials(driver_manager)
     await driver_manager.start()
     ws._service_manager.services["driver_manager"] = driver_manager
     logger.debug(
