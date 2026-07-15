@@ -2369,31 +2369,13 @@ function buildPlugin() {
    */
   function extractLastJsonObject(text: string): any | null {
     if (!text) return null;
-    // Find the last complete JSON object by tracking brace depth
-    let depth = 0;
-    let start = -1;
-    const results: string[] = [];
-
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i];
-      if (char === "{") {
-        if (depth === 0) start = i;
-        depth++;
-      } else if (char === "}") {
-        depth--;
-        if (depth === 0 && start !== -1) {
-          results.push(text.substring(start, i + 1));
-          start = -1;
-        }
-      }
-    }
-
-    if (results.length === 0) return null;
-
-    // Try parsing from the last complete object backwards
-    for (let i = results.length - 1; i >= 0; i--) {
+    for (
+      let i = text.lastIndexOf('{');
+      i >= 0;
+      i = text.lastIndexOf('{', i - 1)
+    ) {
       try {
-        return JSON.parse(results[i]);
+        return JSON.parse(text.substring(i));
       } catch {
         continue;
       }

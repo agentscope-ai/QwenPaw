@@ -299,12 +299,13 @@ def setup_acp_auto_approve() -> None:
         # title containing "shutdown") is logged for audit but never denied,
         # so cloud provisioning commands are never falsely blocked.
         if adapter.is_hard_blocked(tool_call):
-            logger.info(
-                "[CloudPaw] iac-code hard-block pattern matched but "
-                "passing through (trusted runner=%s, tool=%s)",
+            logger.warning(
+                "[CloudPaw] Auto-denied hard-blocked ACP tool call "
+                "(runner=%s, tool=%s)",
                 runner,
                 suspended.tool_name,
             )
+            return adapter.cancelled_response()
 
         selected = _pick_allow_option(suspended.options)
         if selected is None:
