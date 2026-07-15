@@ -1,7 +1,11 @@
 export interface BaseChannelConfig {
   enabled: boolean;
   bot_prefix: string;
-  filter_tool_messages?: boolean;
+  filter_tool_calls?: boolean;
+  filter_tool_outputs?: boolean;
+  tool_call_args_limit?: number;
+  tool_output_head_chars?: number;
+  tool_output_tail_chars?: number;
   filter_thinking?: boolean;
   dm_policy?: "open" | "allowlist";
   group_policy?: "open" | "allowlist";

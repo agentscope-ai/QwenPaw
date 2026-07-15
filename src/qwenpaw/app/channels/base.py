@@ -143,7 +143,9 @@ class BaseChannel(ABC):
         self._process = process
         self._on_reply_sent = on_reply_sent
         self._show_tool_details = show_tool_details
-        self._filter_tool_messages = filter_tool_messages
+        if filter_tool_messages:
+            filter_tool_calls = True
+            filter_tool_outputs = True
         self._filter_tool_calls = filter_tool_calls
         self._filter_tool_outputs = filter_tool_outputs
         self._tool_call_args_limit = tool_call_args_limit
@@ -172,7 +174,6 @@ class BaseChannel(ABC):
         )
         self._render_style = RenderStyle(
             show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
             filter_tool_calls=filter_tool_calls,
             filter_tool_outputs=filter_tool_outputs,
             filter_thinking=filter_thinking,
@@ -207,7 +208,6 @@ class BaseChannel(ABC):
         """Apply common channel rendering knobs after construction."""
         updates = {
             "show_tool_details": show_tool_details,
-            "filter_tool_messages": filter_tool_messages,
             "filter_tool_calls": filter_tool_calls,
             "filter_tool_outputs": filter_tool_outputs,
             "filter_thinking": filter_thinking,
@@ -215,6 +215,9 @@ class BaseChannel(ABC):
             "tool_output_head_chars": tool_output_head_chars,
             "tool_output_tail_chars": tool_output_tail_chars,
         }
+        if filter_tool_messages:
+            updates["filter_tool_calls"] = True
+            updates["filter_tool_outputs"] = True
         for name, value in updates.items():
             if value is None:
                 continue
@@ -1533,7 +1536,7 @@ class BaseChannel(ABC):
         status = getattr(event, "status", None)
         if status != RunStatus.InProgress:
             return False
-        if self._filter_tool_messages or self._filter_tool_outputs:
+        if self._filter_tool_outputs:
             return False
         data = getattr(event, "data", None) or {}
         if not isinstance(data, dict) or "output" not in data:
@@ -1899,19 +1902,14 @@ class BaseChannel(ABC):
         Subclasses must implement from_config(process, config, on_reply_sent).
 
         show_tool_details is global config (not in channel config), so we
-        preserve from self. filter_tool_messages and filter_thinking are
-        per-channel config, so we read from new config.
+        preserve from self. Render filters are per-channel config, so we read
+        them from new config.
         """
         channel = self.__class__.from_config(
             process=self._process,
             config=config,
             on_reply_sent=self._on_reply_sent,
             show_tool_details=getattr(self, "_show_tool_details", True),
-            filter_tool_messages=getattr(
-                config,
-                "filter_tool_messages",
-                False,
-            ),
             filter_thinking=getattr(
                 config,
                 "filter_thinking",
@@ -1920,11 +1918,6 @@ class BaseChannel(ABC):
         )
         channel.apply_render_config(
             show_tool_details=getattr(self, "_show_tool_details", True),
-            filter_tool_messages=getattr(
-                config,
-                "filter_tool_messages",
-                False,
-            ),
             filter_tool_calls=getattr(config, "filter_tool_calls", False),
             filter_tool_outputs=getattr(config, "filter_tool_outputs", False),
             filter_thinking=getattr(config, "filter_thinking", False),

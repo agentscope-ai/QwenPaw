@@ -93,7 +93,11 @@ const TWILIO_CONSOLE_URL = "https://console.twilio.com";
 const BASE_FIELDS = [
   "enabled",
   "bot_prefix",
-  "filter_tool_messages",
+  "filter_tool_calls",
+  "filter_tool_outputs",
+  "tool_call_args_limit",
+  "tool_output_head_chars",
+  "tool_output_tail_chars",
   "filter_thinking",
   "isBuiltin",
 ];
@@ -1626,12 +1630,41 @@ export function ChannelDrawer({
           {activeKey !== "console" && (
             <>
               <Form.Item
-                name="filter_tool_messages"
-                label={t("channels.filterToolMessages")}
+                name="filter_tool_calls"
+                label={t("channels.filterToolCalls")}
                 valuePropName="checked"
-                tooltip={t("channels.filterToolMessagesTooltip")}
+                tooltip={t("channels.filterToolCallsTooltip")}
               >
                 <Switch />
+              </Form.Item>
+              <Form.Item
+                name="filter_tool_outputs"
+                label={t("channels.filterToolOutputs")}
+                valuePropName="checked"
+                tooltip={t("channels.filterToolOutputsTooltip")}
+              >
+                <Switch />
+              </Form.Item>
+              <Form.Item
+                name="tool_call_args_limit"
+                label={t("channels.toolCallArgsLimit")}
+                tooltip={t("channels.toolCallArgsLimitTooltip")}
+              >
+                <InputNumber min={0} style={{ width: "100%" }} />
+              </Form.Item>
+              <Form.Item
+                name="tool_output_head_chars"
+                label={t("channels.toolOutputHeadChars")}
+                tooltip={t("channels.toolOutputHeadCharsTooltip")}
+              >
+                <InputNumber min={0} style={{ width: "100%" }} />
+              </Form.Item>
+              <Form.Item
+                name="tool_output_tail_chars"
+                label={t("channels.toolOutputTailChars")}
+                tooltip={t("channels.toolOutputTailCharsTooltip")}
+              >
+                <InputNumber min={0} style={{ width: "100%" }} />
               </Form.Item>
               <Form.Item
                 name="filter_thinking"

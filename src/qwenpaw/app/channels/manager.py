@@ -164,7 +164,6 @@ class ChannelManager:
                     return ch_cfg.get(name, default)
                 return getattr(ch_cfg, name, default)
 
-            filter_tool_messages = cfg_value("filter_tool_messages", False)
             filter_tool_calls = cfg_value("filter_tool_calls", False)
             filter_tool_outputs = cfg_value("filter_tool_outputs", False)
             filter_thinking = cfg_value("filter_thinking", False)
@@ -177,14 +176,6 @@ class ChannelManager:
                 "process": process,
                 "config": ch_cfg,
                 "on_reply_sent": on_last_dispatch,
-                "show_tool_details": show_tool_details,
-                "filter_tool_messages": filter_tool_messages,
-                "filter_tool_calls": filter_tool_calls,
-                "filter_tool_outputs": filter_tool_outputs,
-                "filter_thinking": filter_thinking,
-                "tool_call_args_limit": tool_call_args_limit,
-                "tool_output_head_chars": tool_output_head_chars,
-                "tool_output_tail_chars": tool_output_tail_chars,
                 "no_text_debounce": no_text_debounce,
                 "workspace_dir": workspace_dir,
             }
@@ -209,7 +200,6 @@ class ChannelManager:
                 channel = ch_cls.from_config(**filtered_kwargs)
                 channel.apply_render_config(
                     show_tool_details=show_tool_details,
-                    filter_tool_messages=filter_tool_messages,
                     filter_tool_calls=filter_tool_calls,
                     filter_tool_outputs=filter_tool_outputs,
                     filter_thinking=filter_thinking,

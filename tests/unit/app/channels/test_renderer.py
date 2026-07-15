@@ -55,7 +55,8 @@ class TestRenderStyle:
         assert s.supports_markdown
         assert s.supports_code_fence
         assert s.use_emoji
-        assert not s.filter_tool_messages
+        assert not s.filter_tool_calls
+        assert not s.filter_tool_outputs
         assert not s.filter_thinking
         assert s.internal_tools == frozenset()
 
@@ -201,8 +202,8 @@ class TestMessageToParts:
         parts = r.message_to_parts(msg)
         assert len(parts) == 1
 
-    def test_function_call_filter_tool_messages(self):
-        r = MessageRenderer(RenderStyle(filter_tool_messages=True))
+    def test_function_call_filter_tool_calls(self):
+        r = MessageRenderer(RenderStyle(filter_tool_calls=True))
         msg = _mk_message([], MessageType.FUNCTION_CALL)
         assert r.message_to_parts(msg) == []
 
@@ -262,7 +263,26 @@ class TestMessageToParts:
         assert "abcd\n...\nhij" in text
         assert "abcdefghij" not in text
 
-    def test_tool_output_block_text_truncation(self):
+    def test_tool_output_block_text_default_keeps_full_text(self):
+        r = MessageRenderer()
+        msg = _mk_message(
+            [
+                DataContent(
+                    data={
+                        "name": "Bash",
+                        "output": '[{"type":"text","text":"abcdefghij"}]',
+                    },
+                ),
+            ],
+            MessageType.FUNCTION_CALL_OUTPUT,
+        )
+
+        text = "\n".join(
+            getattr(p, "text", "") for p in r.message_to_parts(msg)
+        )
+        assert "abcdefghij" in text
+
+    def test_tool_output_block_text_truncation_when_configured(self):
         r = MessageRenderer(
             RenderStyle(tool_output_head_chars=4, tool_output_tail_chars=3),
         )

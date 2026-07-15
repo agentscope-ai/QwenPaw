@@ -42,7 +42,6 @@ class RenderStyle:
     supports_markdown: bool = True
     supports_code_fence: bool = True
     use_emoji: bool = True
-    filter_tool_messages: bool = False
     filter_tool_calls: bool = False
     filter_tool_outputs: bool = False
     filter_thinking: bool = False
@@ -179,6 +178,18 @@ class MessageRenderer:
                     )
             return media_parts
 
+        def _truncate_structured_text(text: Any) -> str:
+            if (
+                s.tool_output_head_chars == 500
+                and s.tool_output_tail_chars == 0
+            ):
+                return str(text or "")
+            return _truncate_preview(
+                text,
+                head_chars=s.tool_output_head_chars,
+                tail_chars=s.tool_output_tail_chars,
+            )
+
         def _blocks_to_parts(blocks: list) -> List[_OutgoingPart]:
             result: List[_OutgoingPart] = []
             for b in blocks:
@@ -203,11 +214,7 @@ class MessageRenderer:
                 if btype == "text" and b.get("text"):
                     result.append(
                         TextContent(
-                            text=_truncate_preview(
-                                b["text"],
-                                head_chars=s.tool_output_head_chars,
-                                tail_chars=s.tool_output_tail_chars,
-                            ),
+                            text=_truncate_structured_text(b["text"]),
                         ),
                     )
                     continue
@@ -246,11 +253,7 @@ class MessageRenderer:
                     if not s.filter_thinking:
                         result.append(
                             TextContent(
-                                text=_truncate_preview(
-                                    b["thinking"],
-                                    head_chars=s.tool_output_head_chars,
-                                    tail_chars=s.tool_output_tail_chars,
-                                ),
+                                text=_truncate_structured_text(b["thinking"]),
                             ),
                         )
             return result
@@ -348,7 +351,7 @@ class MessageRenderer:
             MessageType.PLUGIN_CALL,
             MessageType.MCP_TOOL_CALL,
         ):
-            if s.filter_tool_messages or s.filter_tool_calls:
+            if s.filter_tool_calls:
                 return []
             parts = _parts_for_tool_call(content)
             if not parts:
@@ -360,7 +363,7 @@ class MessageRenderer:
             MessageType.PLUGIN_CALL_OUTPUT,
             MessageType.MCP_TOOL_CALL_OUTPUT,
         ):
-            if s.filter_tool_messages or s.filter_tool_outputs:
+            if s.filter_tool_outputs:
                 return _media_parts_for_tool_output(content)
             parts = _parts_for_tool_output(content)
             if not parts:

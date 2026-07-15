@@ -90,11 +90,21 @@ function ChannelsPage() {
       const accessControlGroup =
         channelConfig.access_control_group ||
         channelConfig.group_policy === "allowlist";
+      const legacyHideToolMessages =
+        channelConfig.filter_tool_messages === true;
       form.setFieldsValue({
         ...channelConfig,
         access_control_dm: accessControlDm,
         access_control_group: accessControlGroup,
-        filter_tool_messages: !channelConfig.filter_tool_messages,
+        filter_tool_calls: !(
+          channelConfig.filter_tool_calls ?? legacyHideToolMessages
+        ),
+        filter_tool_outputs: !(
+          channelConfig.filter_tool_outputs ?? legacyHideToolMessages
+        ),
+        tool_call_args_limit: channelConfig.tool_call_args_limit ?? 200,
+        tool_output_head_chars: channelConfig.tool_output_head_chars ?? 500,
+        tool_output_tail_chars: channelConfig.tool_output_tail_chars ?? 0,
         filter_thinking: !channelConfig.filter_thinking,
       });
     },
@@ -114,9 +124,11 @@ function ChannelsPage() {
     const updatedChannel: Record<string, unknown> = {
       ...savedConfig,
       ...values,
-      filter_tool_messages: !values.filter_tool_messages,
+      filter_tool_calls: !values.filter_tool_calls,
+      filter_tool_outputs: !values.filter_tool_outputs,
       filter_thinking: !values.filter_thinking,
     };
+    delete updatedChannel.filter_tool_messages;
 
     setSaving(true);
     try {

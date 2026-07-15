@@ -199,7 +199,6 @@ class BaseChannelConfig(BaseModel):
 
     enabled: bool = False
     bot_prefix: str = ""
-    filter_tool_messages: bool = False
     filter_tool_calls: bool = False
     filter_tool_outputs: bool = False
     tool_call_args_limit: int = Field(default=200, ge=0)
@@ -2275,6 +2274,26 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
     return migrated
 
 
+def _migrate_tool_filter_fields(channels: dict) -> bool:
+    """Migrate legacy filter_tool_messages to split tool filters.
+
+    The old field hid both calls and outputs. Keep config output compact by
+    only writing the new fields when the legacy flag was active.
+    """
+    migrated = False
+    for ch_cfg in channels.values():
+        if not isinstance(ch_cfg, dict):
+            continue
+        if "filter_tool_messages" not in ch_cfg:
+            continue
+        filter_tool_messages = bool(ch_cfg.pop("filter_tool_messages"))
+        if filter_tool_messages:
+            ch_cfg.setdefault("filter_tool_calls", True)
+            ch_cfg.setdefault("filter_tool_outputs", True)
+        migrated = True
+    return migrated
+
+
 def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     agent_id: str,
 ) -> AgentProfileConfig:
@@ -2370,11 +2389,12 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
 
         # One-shot migration: convert legacy access control fields.
         if isinstance(channels, dict):
+            _tool_filter_migrated = _migrate_tool_filter_fields(channels)
             _acl_migrated = _migrate_access_control_fields(
                 channels,
                 workspace_dir,
             )
-            if _acl_migrated:
+            if _tool_filter_migrated or _acl_migrated:
                 try:
                     with open(
                         agent_config_path,
