@@ -10,6 +10,7 @@ failure-vs-empty observation shapes (same discipline as the REPL's), and the
 no-sandbox registration contract.
 """
 
+import asyncio
 import threading
 from pathlib import Path
 
@@ -169,6 +170,86 @@ async def test_recall_output_has_small_default_budget(tmp_path: Path):
     guard.begin_turn("user-2")
     next_turn = await bounded_tool(op="expand", lo=1, hi=1)
     assert "[recall output truncated]" in _text(next_turn)
+
+
+async def test_duplicate_concurrent_recall_executes_query_once(
+    history_db: Path,
+    monkeypatch,
+):
+    guard = RecallLoopGuard()
+    guard.begin_turn("user-1")
+    guarded_tool = make_recall_history(
+        history_db_path=str(history_db),
+        session_id="s1",
+        agent_id="ag1",
+        loop_guard=guard,
+    )
+    started = threading.Event()
+    release = threading.Event()
+    query_calls = 0
+    original_expand = MemorySpace.expand
+
+    def slow_expand(self, lo, hi):
+        nonlocal query_calls
+        query_calls += 1
+        started.set()
+        assert release.wait(timeout=2)
+        return original_expand(self, lo, hi)
+
+    monkeypatch.setattr(MemorySpace, "expand", slow_expand)
+
+    first_task = asyncio.create_task(
+        guarded_tool(op="expand", lo=1, hi=3),
+    )
+    assert await asyncio.to_thread(started.wait, 1)
+    try:
+        duplicate = await guarded_tool(op="expand", lo=1, hi=3)
+        assert "RECALL LOOP BLOCKED" in _text(duplicate)
+        assert "already running" in _text(duplicate)
+        assert query_calls == 1
+    finally:
+        release.set()
+    first = await first_task
+    assert "RECALL LOOP BLOCKED" not in _text(first)
+
+    # The first result was small, so its claim is released rather than
+    # permanently blocked for the turn.
+    allowed_after_finish = await guarded_tool(op="expand", lo=1, hi=3)
+    assert "RECALL LOOP BLOCKED" not in _text(allowed_after_finish)
+    assert query_calls == 2
+
+
+def test_old_turn_completion_cannot_poison_new_turn_claim():
+    guard = RecallLoopGuard()
+    payload = {"lo": 1, "hi": 30}
+    guard.begin_turn("user-1")
+    old_generation, notice = guard.claim("expand", payload)
+    assert old_generation is not None
+    assert notice is None
+
+    guard.begin_turn("user-2")
+    new_generation, notice = guard.claim("expand", payload)
+    assert new_generation is not None
+    assert notice is None
+
+    guard.finish(
+        "expand",
+        payload,
+        old_generation,
+        block=True,
+    )
+    assert not guard.is_blocked("expand", payload)
+
+    # The new claim is still present; a concurrent duplicate remains blocked.
+    duplicate_generation, duplicate_notice = guard.claim("expand", payload)
+    assert duplicate_generation is None
+    assert "already running" in (duplicate_notice or "")
+    guard.finish(
+        "expand",
+        payload,
+        new_generation,
+        block=False,
+    )
 
 
 async def test_recall_queries_run_outside_event_loop(tool, monkeypatch):
