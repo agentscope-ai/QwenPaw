@@ -30,6 +30,10 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 TARGET="${1:-all}"
 CHECK_CHANGED=0
 
+# `set -u` is on, so default ALL_CHANGED to empty for the
+# explicit-target mode (it's only populated in --changed mode).
+ALL_CHANGED=""
+
 if [ "$TARGET" == "--changed" ] || [ "$TARGET" == "-c" ]; then
     CHECK_CHANGED=1
     TARGET="changed"
@@ -94,6 +98,11 @@ if ! python3 -c "import copaw" 2>/dev/null; then
     pip install -e ".[dev]" -q
 fi
 
+# Use `python -m pytest` so the project root is on sys.path -- plugin
+# channels live under `plugins/` and import via `plugins.channel.<name>`
+# (namespace package), which requires the project root to be importable.
+PYTEST_CMD=(python3 -m pytest)
+
 # Run tests
 echo ""
 echo -e "${BLUE}Running tests...${NC}"
@@ -104,7 +113,7 @@ if [ "$CHANNELS" == "all" ]; then
     # Run ALL contract tests (PRIMARY gate)
     echo -e "${YELLOW}Running ALL channel CONTRACT tests (PRIMARY)...${NC}"
 
-    if ! pytest tests/contract/channels -v --tb=short; then
+    if ! "${PYTEST_CMD[@]}" tests/contract/channels -v --tb=short; then
         EXIT_CODE=1
     fi
 
@@ -112,7 +121,7 @@ if [ "$CHANNELS" == "all" ]; then
     echo ""
     echo -e "${YELLOW}Running optional UNIT tests (supplemental)...${NC}"
 
-    if ! pytest tests/unit/channels -v --tb=short 2>/dev/null; then
+    if ! "${PYTEST_CMD[@]}" tests/unit/channels -v --tb=short 2>/dev/null; then
         echo -e "${YELLOW}⚠️  Some unit tests failed (optional, does not block PR)${NC}"
     fi
 else
@@ -123,13 +132,24 @@ else
         echo -e "${BLUE}Testing channel: $ch${NC}"
         echo -e "${BLUE}----------------------------------------${NC}"
 
-        # PRIMARY: Check if contract test file exists
+        # PRIMARY: Check if contract test file exists.
+        # Plugin channels (under plugins/channel/<name>/) live alongside
+        # their own contract test; built-in channels keep the legacy
+        # tests/contract/channels/ path. Fall back to the plugin path
+        # when the built-in one is missing so opt-in channels are
+        # exercised by the same gate.
         CONTRACT_TEST_FILE="tests/contract/channels/test_${ch}_contract.py"
+        if [ ! -f "$CONTRACT_TEST_FILE" ]; then
+            PLUGIN_CONTRACT_TEST_FILE="plugins/channel/${ch}/tests/contract/test_${ch}_contract.py"
+            if [ -f "$PLUGIN_CONTRACT_TEST_FILE" ]; then
+                CONTRACT_TEST_FILE="$PLUGIN_CONTRACT_TEST_FILE"
+            fi
+        fi
 
         if [ -f "$CONTRACT_TEST_FILE" ]; then
             echo -e "${GREEN}✅ Contract test found: $CONTRACT_TEST_FILE${NC}"
 
-            if ! pytest "$CONTRACT_TEST_FILE" -v --tb=short; then
+            if ! "${PYTEST_CMD[@]}" "$CONTRACT_TEST_FILE" -v --tb=short; then
                 echo -e "${RED}❌ Contract tests FAILED for $ch${NC}"
                 EXIT_CODE=1
             else
@@ -142,12 +162,19 @@ else
             EXIT_CODE=1
         fi
 
-        # OPTIONAL: Check if unit test file exists
+        # OPTIONAL: Check if unit test file exists.
+        # Same built-in / plugin fallback as the contract test above.
         UNIT_TEST_FILE="tests/unit/channels/test_${ch}.py"
+        if [ ! -f "$UNIT_TEST_FILE" ]; then
+            PLUGIN_UNIT_TEST_FILE="plugins/channel/${ch}/tests/unit/test_${ch}.py"
+            if [ -f "$PLUGIN_UNIT_TEST_FILE" ]; then
+                UNIT_TEST_FILE="$PLUGIN_UNIT_TEST_FILE"
+            fi
+        fi
         if [ -f "$UNIT_TEST_FILE" ]; then
             echo ""
             echo -e "${BLUE}Running optional unit tests for $ch...${NC}"
-            if ! pytest "$UNIT_TEST_FILE" -v --tb=short 2>/dev/null; then
+            if ! "${PYTEST_CMD[@]}" "$UNIT_TEST_FILE" -v --tb=short 2>/dev/null; then
                 echo -e "${YELLOW}⚠️  Unit tests failed (optional)${NC}"
             else
                 echo -e "${GREEN}✅ Unit tests passed${NC}"
@@ -159,7 +186,7 @@ else
     if echo "$ALL_CHANGED" | grep -qE "channels/base\.py"; then
         echo ""
         echo -e "${BLUE}Running BaseChannel contract tests...${NC}"
-        if ! pytest tests/contract/channels/ -v --tb=short; then
+        if ! "${PYTEST_CMD[@]}" tests/contract/channels/ -v --tb=short; then
             EXIT_CODE=1
         fi
     fi
