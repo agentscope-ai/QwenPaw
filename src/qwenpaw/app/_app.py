@@ -928,7 +928,8 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
     def _serve_console_index():
         if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
             return FileResponse(
-                _CONSOLE_INDEX, headers=_INDEX_NO_CACHE_HEADERS
+                _CONSOLE_INDEX,
+                headers=_INDEX_NO_CACHE_HEADERS,
             )
 
         raise HTTPException(status_code=404, detail="Not Found")
