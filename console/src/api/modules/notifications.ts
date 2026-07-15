@@ -32,6 +32,34 @@ export interface NotificationTestResponse {
   message: string;
 }
 
+export interface SourceKeyEntry {
+  key: keyof NotificationSourceToggles | "_label";
+  labelKey: string;
+  hintKey?: string;
+  indent?: boolean;
+  isLabel?: boolean;
+}
+
+export const NOTIFICATION_SOURCE_KEYS: SourceKeyEntry[] = [
+  { key: "approval", labelKey: "notifications.sourceApproval" },
+  { key: "_label", labelKey: "notifications.sourceCron", isLabel: true },
+  {
+    key: "cron_text",
+    labelKey: "notifications.sourceCronText",
+    hintKey: "notifications.sourceCronTextHint",
+    indent: true,
+  },
+  {
+    key: "cron_agent",
+    labelKey: "notifications.sourceCronAgent",
+    hintKey: "notifications.sourceCronAgentHint",
+    indent: true,
+  },
+  { key: "heartbeat", labelKey: "notifications.sourceHeartbeat" },
+  { key: "memory", labelKey: "notifications.sourceMemory" },
+  { key: "skill_autoupdate", labelKey: "notifications.sourceSkillUpdate" },
+];
+
 export const notificationsApi = {
   getConfig: () => request<NotificationConfig>("/config/notifications"),
 

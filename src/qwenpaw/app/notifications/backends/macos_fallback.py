@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""macOS fallback using osascript (AppleScript display notification)."""
+"""macOS fallback using osascript ``display notification``.
+
+Install ``desktop-notifier`` (``pip install 'qwenpaw[notifications]'``)
+or ``terminal-notifier`` (``brew install terminal-notifier``) for
+click-to-open-URL support.
+"""
 
 from __future__ import annotations
 
@@ -11,12 +16,25 @@ from .base import NotificationBackend
 
 logger = logging.getLogger(__name__)
 
+_WARNED_FALLBACK = False
+
 
 class MacOSFallbackBackend(NotificationBackend):
-    """Fallback for macOS using osascript display notification."""
+    """Fallback for macOS using osascript ``display notification``."""
 
     def is_available(self) -> bool:
         return sys.platform == "darwin"
+
+    @staticmethod
+    def _escape(text: str) -> str:
+        """Escape for AppleScript double-quoted strings."""
+        return (
+            text.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+        )
 
     async def send(
         self,
@@ -26,11 +44,18 @@ class MacOSFallbackBackend(NotificationBackend):
         sound: bool = True,
         url: str | None = None,
     ) -> bool:
-        escaped_title = title.replace("\\", "\\\\").replace('"', '\\"')
-        escaped_body = body.replace("\\", "\\\\").replace('"', '\\"')
+        global _WARNED_FALLBACK
+        if not _WARNED_FALLBACK:
+            _WARNED_FALLBACK = True
+            logger.warning(
+                "Using osascript fallback for notifications. "
+                "For better experience install desktop-notifier: "
+                "pip install 'qwenpaw[notifications]'",
+            )
+
         script = (
-            f'display notification "{escaped_body}" '
-            f'with title "{escaped_title}"'
+            f'display notification "{self._escape(body)}" '
+            f'with title "{self._escape(title)}"'
         )
         if sound:
             script += ' sound name "default"'

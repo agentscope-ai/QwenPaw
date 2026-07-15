@@ -30,6 +30,7 @@ from ...config.config import (
     MatrixConfig,
     MattermostConfig,
     MQTTConfig,
+    NotificationConfig,
     QQConfig,
     SIPChannelConfig,
     SkillScannerConfig,
@@ -1103,20 +1104,10 @@ async def get_notifications():
     summary="Update notification config",
     description="Update system-level desktop notification settings",
 )
-async def put_notifications(body: dict = Body(...)):
+async def put_notifications(body: NotificationConfig):
     """Update the notification configuration."""
-    from ...config.config import NotificationConfig
-
-    try:
-        new_config = NotificationConfig(**body)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=str(exc),
-        ) from exc
-
     config = load_config()
-    config.notifications = new_config
+    config.notifications = body
     save_config(config)
     return config.notifications.model_dump(mode="json")
 

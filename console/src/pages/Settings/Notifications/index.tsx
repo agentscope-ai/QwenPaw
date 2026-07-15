@@ -5,27 +5,11 @@ import { PageHeader } from "@/components/PageHeader";
 import { useNotifications } from "./useNotifications";
 import { useAgentStore } from "../../../stores/agentStore";
 import { getAgentDisplayName } from "../../../utils/agentDisplayName";
-import type { NotificationSourceToggles } from "../../../api/modules/notifications";
+import {
+  NOTIFICATION_SOURCE_KEYS,
+  type NotificationSourceToggles,
+} from "../../../api/modules/notifications";
 import styles from "./index.module.less";
-
-const SOURCE_KEYS: {
-  key: keyof NotificationSourceToggles | "_label";
-  labelKey: string;
-  indent?: boolean;
-  isLabel?: boolean;
-}[] = [
-  { key: "approval", labelKey: "notifications.sourceApproval" },
-  { key: "_label", labelKey: "notifications.sourceCron", isLabel: true },
-  { key: "cron_text", labelKey: "notifications.sourceCronText", indent: true },
-  {
-    key: "cron_agent",
-    labelKey: "notifications.sourceCronAgent",
-    indent: true,
-  },
-  { key: "heartbeat", labelKey: "notifications.sourceHeartbeat" },
-  { key: "memory", labelKey: "notifications.sourceMemory" },
-  { key: "skill_autoupdate", labelKey: "notifications.sourceSkillUpdate" },
-];
 
 export default function NotificationsPage() {
   const { t } = useTranslation();
@@ -164,7 +148,7 @@ export default function NotificationsPage() {
       <Card className={styles.settingsCard}>
         <h3>{t("notifications.sourcesTitle")}</h3>
         <p className={styles.settingHint}>{t("notifications.sourcesHint")}</p>
-        {SOURCE_KEYS.map(({ key, labelKey, indent, isLabel }) =>
+        {NOTIFICATION_SOURCE_KEYS.map(({ key, labelKey, indent, isLabel }) =>
           isLabel ? (
             <div key={key} className={styles.settingRow}>
               <div className={styles.settingLabel}>

@@ -115,16 +115,22 @@ class ApprovalService:
                 exc_info=True,
             )
 
-    async def _try_system_notify(self, pending: PendingApproval) -> None:
+    async def _try_system_notify(
+        self,
+        pending: PendingApproval,
+        notifications_config: Any = None,
+    ) -> None:
         """Fire-and-forget: send a desktop notification for an approval."""
         try:
             from ..notifications.service import get_notification_service
-            from qwenpaw.config.utils import load_config
 
-            config = load_config()
+            if notifications_config is None:
+                from qwenpaw.config.utils import load_config
+
+                notifications_config = load_config().notifications
             svc = get_notification_service()
             await svc.notify_approval(
-                config.notifications,
+                notifications_config,
                 tool_name=pending.tool_name,
                 severity=pending.severity,
                 agent_id=pending.agent_id,

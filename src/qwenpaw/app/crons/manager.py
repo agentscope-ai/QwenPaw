@@ -616,15 +616,18 @@ class CronManager(ManagerBase):
         body: str,
         trigger: str,
         execution_result: dict,
+        notifications_config: Any = None,
     ) -> None:
         """Send a system notification without storing in inbox."""
         try:
             from qwenpaw.app.notifications.service import (
                 get_notification_service,
             )
-            from qwenpaw.config.utils import load_config
 
-            config = load_config()
+            if notifications_config is None:
+                from qwenpaw.config.utils import load_config
+
+                notifications_config = load_config().notifications
             svc = get_notification_service()
             event = {
                 "agent_id": self._agent_id or "default",
@@ -644,7 +647,7 @@ class CronManager(ManagerBase):
                     "system_notify": True,
                 },
             }
-            await svc.notify_event(event, config.notifications)
+            await svc.notify_event(event, notifications_config)
         except Exception as exc:
             logger.debug("Direct cron notification error: %s", exc)
 
@@ -814,6 +817,7 @@ class CronManager(ManagerBase):
                             "save_result_to_inbox": (job.save_result_to_inbox),
                             "system_notify": should_notify,
                         }
+                        inbox_written = False
                         if should_inbox:
                             try:
                                 await append_inbox_event(
@@ -827,11 +831,12 @@ class CronManager(ManagerBase):
                                     body=body,
                                     payload=event_payload,
                                 )
+                                inbox_written = True
                             except Exception:  # pylint: disable=broad-except
                                 logger.exception(
                                     "failed to append cron result inbox event",
                                 )
-                        elif should_notify:
+                        if should_notify and not inbox_written:
                             await self._try_direct_notify(
                                 job,
                                 body,

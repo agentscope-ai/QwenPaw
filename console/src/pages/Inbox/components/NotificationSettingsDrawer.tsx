@@ -12,39 +12,16 @@ import { useTranslation } from "react-i18next";
 import { useNotifications } from "../../Settings/Notifications/useNotifications";
 import { useAgentStore } from "../../../stores/agentStore";
 import { getAgentDisplayName } from "../../../utils/agentDisplayName";
-import type { NotificationSourceToggles } from "../../../api/modules/notifications";
+import {
+  NOTIFICATION_SOURCE_KEYS,
+  type NotificationSourceToggles,
+} from "../../../api/modules/notifications";
 import styles from "./NotificationSettingsDrawer.module.less";
 
 interface Props {
   open: boolean;
   onClose: () => void;
 }
-
-const SOURCE_KEYS: {
-  key: keyof NotificationSourceToggles | "_label";
-  labelKey: string;
-  hintKey?: string;
-  indent?: boolean;
-  isLabel?: boolean;
-}[] = [
-  { key: "approval", labelKey: "notifications.sourceApproval" },
-  { key: "_label", labelKey: "notifications.sourceCron", isLabel: true },
-  {
-    key: "cron_text",
-    labelKey: "notifications.sourceCronText",
-    hintKey: "notifications.sourceCronTextHint",
-    indent: true,
-  },
-  {
-    key: "cron_agent",
-    labelKey: "notifications.sourceCronAgent",
-    hintKey: "notifications.sourceCronAgentHint",
-    indent: true,
-  },
-  { key: "heartbeat", labelKey: "notifications.sourceHeartbeat" },
-  { key: "memory", labelKey: "notifications.sourceMemory" },
-  { key: "skill_autoupdate", labelKey: "notifications.sourceSkillUpdate" },
-];
 
 export function NotificationSettingsDrawer({ open, onClose }: Props) {
   const { t } = useTranslation();
@@ -121,42 +98,45 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
           <div className={styles.sectionTitle}>
             {t("notifications.sourcesTitle")}
           </div>
-          {SOURCE_KEYS.map(({ key, labelKey, hintKey, indent, isLabel }) =>
-            isLabel ? (
-              <div key={key} className={styles.row}>
-                <span className={styles.labelMuted}>{t(labelKey)}</span>
-              </div>
-            ) : (
-              <div
-                key={key}
-                className={styles.row}
-                style={indent ? { paddingLeft: 16 } : undefined}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <span className={styles.label}>{t(labelKey)}</span>
-                  {hintKey && (
-                    <Tooltip title={t(hintKey)}>
-                      <span className={styles.tooltipTrigger}>
-                        <InfoCircleOutlined />
-                      </span>
-                    </Tooltip>
-                  )}
+          {NOTIFICATION_SOURCE_KEYS.map(
+            ({ key, labelKey, hintKey, indent, isLabel }) =>
+              isLabel ? (
+                <div key={key} className={styles.row}>
+                  <span className={styles.labelMuted}>{t(labelKey)}</span>
                 </div>
-                <Switch
-                  size="small"
-                  checked={
-                    config.sources[key as keyof NotificationSourceToggles]
-                  }
-                  onChange={(checked) =>
-                    toggleSource(
-                      key as keyof NotificationSourceToggles,
-                      checked,
-                    )
-                  }
-                  disabled={!config.enabled}
-                />
-              </div>
-            ),
+              ) : (
+                <div
+                  key={key}
+                  className={styles.row}
+                  style={indent ? { paddingLeft: 16 } : undefined}
+                >
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    <span className={styles.label}>{t(labelKey)}</span>
+                    {hintKey && (
+                      <Tooltip title={t(hintKey)}>
+                        <span className={styles.tooltipTrigger}>
+                          <InfoCircleOutlined />
+                        </span>
+                      </Tooltip>
+                    )}
+                  </div>
+                  <Switch
+                    size="small"
+                    checked={
+                      config.sources[key as keyof NotificationSourceToggles]
+                    }
+                    onChange={(checked) =>
+                      toggleSource(
+                        key as keyof NotificationSourceToggles,
+                        checked,
+                      )
+                    }
+                    disabled={!config.enabled}
+                  />
+                </div>
+              ),
           )}
         </div>
 

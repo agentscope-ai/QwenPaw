@@ -100,13 +100,12 @@ _I18N: dict[str, dict[str, str]] = {
 
 def _t(lang: str, key: str, **kwargs: Any) -> str:
     """Get translated string by language key."""
-    base = lang.split("-")[0] if "-" not in ("zh", "pt") else lang
-    if lang not in _I18N:
+    if lang in _I18N:
+        base = lang
+    else:
         base = lang.split("-")[0]
         if base not in _I18N:
             base = "en"
-    else:
-        base = lang
     text = _I18N[base].get(key, _I18N["en"].get(key, key))
     if kwargs:
         text = text.format(**kwargs)
@@ -203,7 +202,10 @@ class NotificationService:
         """Schedule a delayed flush to send accumulated notifications."""
         if self._flush_task and not self._flush_task.done():
             return
-        self._flush_task = asyncio.ensure_future(self._delayed_flush(delay))
+        self._flush_task = asyncio.create_task(
+            self._delayed_flush(delay),
+            name="notification-flush",
+        )
 
     def _cancel_flush(self) -> None:
         if self._flush_task and not self._flush_task.done():
