@@ -201,11 +201,7 @@ class ScrollContextManager:
             "evicted": 0,
             "compacted": 0,
             "folded": 0,
-        }
-        self.last_compress_result: dict[str, Any] = {
-            "status": "FIT",
-            "tokens": None,
-            "hard_limit": None,
+            "summarized": 0,
         }
         # Warn once per overflow episode, not once per reasoning step.
         self._overflow_warned = False
@@ -515,13 +511,13 @@ class ScrollContextManager:
                          stay verbatim).
         """
         cfg = context_config or agent.context_config
-        self.last_compress = {"evicted": 0, "compacted": 0, "folded": 0}
-        hard_limit = int(agent.model.context_size)
-        self.last_compress_result = {
-            "status": "FIT",
-            "tokens": None,
-            "hard_limit": hard_limit,
+        self.last_compress = {
+            "evicted": 0,
+            "compacted": 0,
+            "folded": 0,
+            "summarized": 0,
         }
+        hard_limit = int(agent.model.context_size)
         if self._recall_loop_guard is not None:
             active = self._active_turn_tail(agent)
             turn_id = getattr(active[0], "id", None) if active else None
@@ -560,10 +556,7 @@ class ScrollContextManager:
             mark("prepare_input")
             tokens = await agent.model.count_tokens(**kwargs)
             mark("count_tokens")
-            self.last_compress_result["tokens"] = tokens
-            self.last_compress_result["status"] = "DEGRADED_FIT"
             if tokens > hard_limit:
-                self.last_compress_result["status"] = "UNFIT"
                 log_timings("persist_failed_unfit")
                 raise ContextWindowUnfitError(
                     tokens=tokens,
@@ -583,19 +576,15 @@ class ScrollContextManager:
         mark("count_tokens")
         if tokens < trigger:
             self._overflow_warned = False
-            self.last_compress_result["tokens"] = tokens
             log_timings("below_trigger")
             return
         if len(agent.state.context) <= 1:
-            self.last_compress_result["tokens"] = tokens
             if tokens > hard_limit:
-                self.last_compress_result["status"] = "UNFIT"
                 log_timings("single_message_unfit")
                 raise ContextWindowUnfitError(
                     tokens=tokens,
                     hard_limit=hard_limit,
                 )
-            self.last_compress_result["status"] = "DEGRADED_FIT"
             log_timings("single_message")
             return
 
@@ -719,8 +708,6 @@ class ScrollContextManager:
         # target. During normal automatic compaction ``trigger`` is larger
         # than ``reserve``, preserving the existing warning unchanged.
         overflow_threshold = max(trigger, reserve)
-        emergency_used = False
-        self.last_compress_result["tokens"] = tokens
         if tokens > hard_limit:
             emergency_tokens = await self._emergency_summarize_active_turn(
                 agent,
@@ -728,18 +715,14 @@ class ScrollContextManager:
             )
             mark("emergency_summary")
             if emergency_tokens is not None:
-                emergency_used = True
                 tokens = emergency_tokens
-                self.last_compress_result["tokens"] = tokens
             if tokens > hard_limit:
-                self.last_compress_result["status"] = "UNFIT"
                 log_timings("unfit")
                 raise ContextWindowUnfitError(
                     tokens=tokens,
                     hard_limit=hard_limit,
                 )
         if tokens > overflow_threshold:
-            self.last_compress_result["status"] = "DEGRADED_FIT"
             if not self._overflow_warned:
                 self._overflow_warned = True
                 logger.warning(
@@ -749,9 +732,6 @@ class ScrollContextManager:
                     overflow_threshold,
                 )
         else:
-            self.last_compress_result["status"] = (
-                "DEGRADED_FIT" if emergency_used else "FIT"
-            )
             self._overflow_warned = False
         log_timings("done")
 

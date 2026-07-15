@@ -725,7 +725,7 @@ async def test_single_message_over_hard_limit_fails_closed(
 
     assert exc.value.tokens == 1200
     assert exc.value.hard_limit == 1000
-    assert mgr.last_compress_result["status"] == "UNFIT"
+    assert mgr.last_compress["summarized"] == 0
 
 
 async def test_emergency_summary_uses_text_only_tool_ledger_and_fits(
@@ -772,11 +772,6 @@ async def test_emergency_summary_uses_text_only_tool_ledger_and_fits(
 
     await mgr.compress(agent)
 
-    assert mgr.last_compress_result == {
-        "status": "DEGRADED_FIT",
-        "tokens": 300,
-        "hard_limit": 1000,
-    }
     assert mgr.last_compress["summarized"] == 1
     assert len(agent.state.context) == 3
     assert "Emergency active-turn checkpoint" in active_reply.content[0].text
