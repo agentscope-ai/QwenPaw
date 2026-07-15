@@ -30,19 +30,12 @@ from typing import Any, Optional
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
+from ...tools.utils import ToolResultPruner
 from ....runtime.tool_registry import ToolDescriptor
 
 logger = logging.getLogger(__name__)
 
 _OPS = ("expand", "search", "recall_tool")
-_DEFAULT_RECALL_MAX_BYTES = 16 * 1024
-_MAX_RECALL_MAX_BYTES = 50 * 1024
-_RECALL_TRUNCATION_NOTICE = (
-    "\n\n[recall output truncated]\n"
-    "The recall result exceeded its bounded live-context budget. Do NOT "
-    "recall this tool result. Narrow the seq range, use a more specific "
-    "keyword search, or continue from the archived summary."
-)
 _RECALL_BLOCKED_NOTICE = (
     "RECALL LOOP BLOCKED — this exact recall target was already returned "
     "and then truncated or folded out of the current live turn. Do not "
@@ -191,8 +184,6 @@ Args:
         (e.g. "cron:<job>").
     agent_id (str): search only — pin one agent's history.
     tool_call_id (str): recall_tool only — the tool call to re-read.
-    max_bytes (int): Maximum response size in bytes. Defaults to a bounded
-        16 KiB so one recall cannot immediately force another compaction.
 """
 
 # Keys rendered per row, in display order, when present and non-empty.
@@ -226,6 +217,8 @@ def make_recall_history(
     session_id: str | None,
     agent_id: str | None = None,
     loop_guard: RecallLoopGuard | None = None,
+    tool_result_max_bytes: int | None = None,
+    tool_results_dir: str | None = None,
 ):
     """Build a ``recall_history`` tool bound to one session's history.
 
@@ -234,6 +227,8 @@ def make_recall_history(
     :class:`MemorySpace` per call keeps the read-only ATTACH + authorizer
     setup identical to the REPL's and leaks no connection across calls.
     """
+
+    result_pruner = ToolResultPruner(tool_results_dir)
 
     def _open_ms() -> Any:
         # Imported lazily (not at module top) for symmetry with the sandboxed
@@ -326,7 +321,6 @@ def make_recall_history(
         session_id: Optional[str] = None,
         agent_id: Optional[str] = None,
         tool_call_id: Optional[str] = None,
-        max_bytes: int = _DEFAULT_RECALL_MAX_BYTES,
     ) -> ToolChunk:
         payload = {
             "lo": lo,
@@ -375,32 +369,16 @@ def make_recall_history(
                     "the context.",
                     False,
                 )
-            bounded_max_bytes = max(
-                1024,
-                min(int(max_bytes), _MAX_RECALL_MAX_BYTES),
-            )
-            encoded = text.encode("utf-8")
             metadata: dict[str, Any] = {}
-            if len(encoded) > bounded_max_bytes:
-                notice = _RECALL_TRUNCATION_NOTICE.encode("utf-8")
-                excerpt_budget = max(0, bounded_max_bytes - len(notice))
-                excerpt = encoded[:excerpt_budget].decode(
-                    "utf-8",
-                    errors="ignore",
+            content = [TextBlock(type="text", text=text)]
+            if tool_result_max_bytes is not None:
+                content, block_target = result_pruner.prune_output(
+                    content,
+                    max_bytes=tool_result_max_bytes,
+                    metadata=metadata,
                 )
-                if "\n" in excerpt:
-                    excerpt = excerpt.rsplit("\n", 1)[0]
-                text = excerpt + _RECALL_TRUNCATION_NOTICE
-                metadata = {
-                    "qwenpaw_recall": {
-                        "truncated": True,
-                        "original_bytes": len(encoded),
-                        "max_bytes": bounded_max_bytes,
-                    },
-                }
-                block_target = True
             return ToolChunk(
-                content=[TextBlock(type="text", text=text)],
+                content=content,
                 state=(
                     ToolResultState.SUCCESS if ok else ToolResultState.ERROR
                 ),

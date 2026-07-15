@@ -24,6 +24,8 @@ from qwenpaw.agents.context.scroll.recall_tool import (
     make_recall_history,
 )
 from qwenpaw.agents.context.types import LogEntry
+from qwenpaw.agents.tools.utils import TRUNCATION_METADATA_KEY
+from qwenpaw.constant import TRUNCATION_NOTICE_MARKER
 
 
 @pytest.fixture
@@ -137,7 +139,7 @@ async def test_folded_recall_target_is_blocked_until_turn_changes(
     assert "RECALL LOOP BLOCKED" not in _text(allowed_again)
 
 
-async def test_recall_output_has_small_default_budget(tmp_path: Path):
+async def test_recall_output_uses_shared_pruning_budget(tmp_path: Path):
     history = HistoryStore(tmp_path / "large-history.db")
     history.append(
         session_id="old",
@@ -157,19 +159,23 @@ async def test_recall_output_has_small_default_budget(tmp_path: Path):
         session_id="current",
         agent_id="ag1",
         loop_guard=guard,
+        tool_result_max_bytes=1024,
+        tool_results_dir=str(tmp_path / "tool-results"),
     )
 
     chunk = await bounded_tool(op="expand", lo=1, hi=1)
-    assert len(_text(chunk).encode("utf-8")) < 18 * 1024
-    assert "[recall output truncated]" in _text(chunk)
-    assert "Do NOT recall this tool result" in _text(chunk)
+    assert len(_text(chunk).encode("utf-8")) < 2 * 1024
+    assert TRUNCATION_NOTICE_MARKER in _text(chunk)
+    assert TRUNCATION_METADATA_KEY in chunk.metadata
+    truncation = chunk.metadata[TRUNCATION_METADATA_KEY]["0"]
+    assert Path(truncation["file_path"]).is_file()
 
     repeated = await bounded_tool(op="expand", lo=1, hi=1)
     assert "RECALL LOOP BLOCKED" in _text(repeated)
 
     guard.begin_turn("user-2")
     next_turn = await bounded_tool(op="expand", lo=1, hi=1)
-    assert "[recall output truncated]" in _text(next_turn)
+    assert TRUNCATION_NOTICE_MARKER in _text(next_turn)
 
 
 async def test_duplicate_concurrent_recall_executes_query_once(
