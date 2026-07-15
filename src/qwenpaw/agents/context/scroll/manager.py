@@ -158,10 +158,10 @@ class ScrollContextManager:
         # of ``(no milestone)``. Off unless the wiring passes the config value.
         self._summarize_unheadlined = summarize_unheadlined
         self._summarize_timeout_s = summarize_timeout_s
-        self._compact_tool_result_max_bytes = compact_tool_result_max_bytes
-        # Kept for constructor compatibility; raw outputs are archived once by
-        # ToolResultPruningMiddleware, never again during Scroll compaction.
-        del tool_results_dir
+        # Kept for constructor compatibility with older integrations. Scroll
+        # no longer folds live tool results at a fixed byte threshold; it
+        # reclaims them only while the rebuilt context remains under pressure.
+        del compact_tool_result_max_bytes, tool_results_dir
         self._recall_loop_guard = recall_loop_guard
         self._continuity_checkpoint = ""
         # Dialog archive: when an offloader is wired (``offload_dialog``, on by
@@ -578,11 +578,10 @@ class ScrollContextManager:
         5. compact     — while the rebuilt context still overflows the
                          reserve, shrink the index one step and rebuild.
                          Always progresses.
-        6. fold        — still past the compression TRIGGER even with
-                         everything evicted and the index compacted: stub
-                         the active turn's completed tool results in place
-                         (last resort; the request and the newest result
-                         stay verbatim).
+        6. fold        — still under real pressure even with everything
+                         evicted and the index compacted: replace profitable
+                         old tool results with recovery pointers until the
+                         pressure target is met. The newest stays verbatim.
         """
         cfg = context_config or agent.context_config
         self.last_compress = {
@@ -750,35 +749,28 @@ class ScrollContextManager:
             tokens = await self._live_tokens(agent)
             mark("live_tokens")
 
-        compacted_results = await asyncio.to_thread(
-            self._compact_live_tool_results,
-            agent,
-        )
-        mark("compact_tool_results")
-        if compacted_results:
-            logger.info(
-                "scroll: compacted %d live tool result preview(s)",
-                compacted_results,
+        # 6) Pressure-driven microcompaction. Do not clear live tool results
+        #    merely because Scroll ran: eviction may already have relieved the
+        #    pressure. If it did not, replace recoverable results one at a time
+        #    (older completed turns before the active turn, then largest byte
+        #    saving first) and stop as soon as the pressure target is met. The
+        #    newest result always stays verbatim. For manual /compact the
+        #    configured reserve, rather than its synthetic near-zero trigger,
+        #    is the meaningful target.
+        pressure_threshold = max(trigger, reserve)
+        if tokens > pressure_threshold:
+            folded, tokens = await self._fold_tool_results_under_pressure(
+                agent,
+                tokens=tokens,
+                target=pressure_threshold,
             )
-            tokens = await self._live_tokens(agent)
-            mark("live_tokens")
-
-        # 6) Last resort — even with the middle evicted and the index
-        #    compacted, the window is STILL past the compression trigger, so
-        #    the pressure is the active turn itself (e.g. a single-request
-        #    cron run with a long tool chain). Stub its completed tool
-        #    results in place. Gated on the TRIGGER, not the reserve: the
-        #    reserve is a soft target, and an active turn slightly over it
-        #    still has most of the window as headroom — folding there would
-        #    snatch results the model fetched seconds ago in perfectly
-        #    ordinary long chats.
-        if tokens > trigger:
-            folded = self._fold_active_turn_results(agent)
-            mark("fold_active_turn")
+            mark("fold_tool_results")
             if folded:
                 self.last_compress["folded"] = folded
-                tokens = await self._live_tokens(agent)
-                mark("live_tokens")
+                logger.info(
+                    "scroll: pressure-folded %d live tool result(s)",
+                    folded,
+                )
         # Once per overflow episode, not once per reasoning step — the stuck
         # state repeats every step until the turn ends. Manual /compact
         # deliberately supplies a near-zero trigger to bypass the automatic
@@ -786,7 +778,7 @@ class ScrollContextManager:
         # warn only if compaction also failed to reach the configured reserve
         # target. During normal automatic compaction ``trigger`` is larger
         # than ``reserve``, preserving the existing warning unchanged.
-        overflow_threshold = max(trigger, reserve)
+        overflow_threshold = pressure_threshold
         if tokens > hard_limit:
             emergency_tokens = await self._emergency_summarize_active_turn(
                 agent,
@@ -806,7 +798,7 @@ class ScrollContextManager:
                 self._overflow_warned = True
                 logger.warning(
                     "scroll: context still over the compression trigger "
-                    "(%d > %d) after compaction and active-turn fold",
+                    "(%d > %d) after compaction and tool-result folding",
                     tokens,
                     overflow_threshold,
                 )
@@ -821,13 +813,20 @@ class ScrollContextManager:
         )
 
     # pylint: disable-next=too-many-branches
-    def _compact_live_tool_results(self, agent: Any) -> int:
-        """Microcompact old results to pointers, keeping the newest live."""
-        max_bytes = self._compact_tool_result_max_bytes
-        if not max_bytes or max_bytes <= 0:
-            return 0
+    def _tool_result_fold_candidates(
+        self,
+        agent: Any,
+    ) -> tuple[list[tuple[bool, int, int, Any, str]], dict[str, Any]]:
+        """Return profitable fold candidates ordered by recovery priority.
 
-        results: list[Any] = []
+        Results outside the active turn are less relevant and fold first.
+        Within that group, prefer the largest byte saving, then the older
+        result. The newest result in the entire live context is never a
+        candidate. A fixed size threshold is deliberately absent: a result is
+        eligible only when its pointer is actually smaller than its output.
+        """
+        results: list[tuple[Any, Any]] = []
+        active_messages = {id(msg) for msg in self._active_turn_tail(agent)}
         recall_inputs = self._tool_call_inputs(agent)
         for msg in getattr(agent.state, "context", []) or []:
             if getattr(msg, "id", None) in self._synthetic_ids:
@@ -841,19 +840,18 @@ class ScrollContextManager:
                     if isinstance(block, dict)
                     else getattr(block, "type", None)
                 )
-                if btype != "tool_result" or self._is_folded_stub(block):
-                    continue
-                results.append(block)
+                if btype == "tool_result":
+                    results.append((msg, block))
 
-        compacted = 0
-        for block in results[:-1]:
+        candidates: list[tuple[bool, int, int, Any, str]] = []
+        for ordinal, (msg, block) in enumerate(results[:-1]):
+            if self._is_folded_stub(block):
+                continue
             existing_output = (
                 block.get("output")
                 if isinstance(block, dict)
                 else getattr(block, "output", None)
             )
-            if len(str(existing_output).encode("utf-8")) <= max_bytes:
-                continue
             name = (
                 block.get("name")
                 if isinstance(block, dict)
@@ -869,16 +867,48 @@ class ScrollContextManager:
                     block,
                     recall_inputs.get(str(tool_call_id)),
                 )
-                self._block_recall_target(tool_call_id, recall_inputs)
             else:
                 text = self._tool_result_pointer_stub(block)
+            replacement = [TextBlock(type="text", text=text)]
+            savings = len(str(existing_output).encode("utf-8")) - len(
+                str(replacement).encode("utf-8"),
+            )
+            if savings <= 0:
+                continue
+            candidates.append(
+                (id(msg) in active_messages, -savings, ordinal, block, text),
+            )
+
+        candidates.sort(key=lambda item: item[:3])
+        return candidates, recall_inputs
+
+    async def _fold_tool_results_under_pressure(
+        self,
+        agent: Any,
+        *,
+        tokens: int,
+        target: float,
+    ) -> tuple[int, int]:
+        """Fold profitable live results until ``tokens`` reaches ``target``."""
+        candidates, recall_inputs = self._tool_result_fold_candidates(agent)
+        folded = 0
+        for _, _, _, block, text in candidates:
             output = [TextBlock(type="text", text=text)]
             if isinstance(block, dict):
                 block["output"] = output
+                name = block.get("name")
+                tool_call_id = block.get("id")
             else:
                 block.output = output
-            compacted += 1
-        return compacted
+                name = getattr(block, "name", None)
+                tool_call_id = getattr(block, "id", None)
+            if name == "recall_history":
+                self._block_recall_target(tool_call_id, recall_inputs)
+            folded += 1
+            tokens = await self._live_tokens(agent)
+            if tokens <= target:
+                break
+        return folded, tokens
 
     # -- write-through -------------------------------------------------------
 
@@ -1089,67 +1119,6 @@ class ScrollContextManager:
             len(moved),
         )
         return [*middle, *moved], rest
-
-    def _fold_active_turn_results(self, agent: Any) -> int:
-        """Stub the active turn's completed tool results in place; returns
-        how many were folded.
-
-        Last-resort pressure valve: eviction and index compaction have run
-        and the window is still past the compression TRIGGER, so the bulk
-        is the active turn itself. The request text, tool calls, and
-        reasoning stay
-        verbatim — only tool_result outputs (all durable since step 1, and
-        typically the token mass) are replaced with a one-line recall
-        pointer. The newest result is kept live: it is the one the next
-        reasoning step most likely consumes.
-
-        Blocks are mutated in place, so the Msg object and its id are
-        untouched — the runtime keeps extending the same message, and the
-        write-through stays consistent (result rows are keyed by
-        tool_call_id and never re-persisted; the model_turn row tracks only
-        non-result blocks). compress() runs only between reasoning steps,
-        when every tool call already has its result, so pairing is never
-        broken.
-        """
-        results = [
-            block
-            for msg in self._active_turn_tail(agent)
-            for block in getattr(msg, "content", None) or []
-            if getattr(block, "type", None) == "tool_result"
-        ]
-        recall_inputs = self._tool_call_inputs(agent)
-        folded = 0
-        for block in results[:-1]:  # keep the newest result verbatim
-            if self._is_folded_stub(block):
-                continue
-            tcid = getattr(block, "id", None)
-            if getattr(block, "name", None) == "recall_history":
-                block.output = [
-                    TextBlock(
-                        type="text",
-                        text=self._recall_page_stub(
-                            block,
-                            recall_inputs.get(str(tcid)),
-                        ),
-                    ),
-                ]
-                self._block_recall_target(tcid, recall_inputs)
-                folded += 1
-                continue
-            block.output = [
-                TextBlock(
-                    type="text",
-                    text=self._tool_result_pointer_stub(block),
-                ),
-            ]
-            folded += 1
-        if folded:
-            logger.info(
-                "scroll: folded %d completed tool result(s) of the active "
-                "turn to recall stubs",
-                folded,
-            )
-        return folded
 
     @staticmethod
     def _is_folded_stub(block: Any) -> bool:

@@ -45,16 +45,10 @@ logger = logging.getLogger(__name__)
 
 
 def _effective_artifact_retention_days(light_context_config: Any) -> int:
-    """Keep Scroll artifacts at least as long as their history pointers."""
-    retention_days = (
+    """Return the independently configured tool-result artifact lifetime."""
+    return (
         light_context_config.tool_result_pruning_config.offload_retention_days
     )
-    if light_context_config.strategy != "scroll":
-        return retention_days
-    history_days = light_context_config.scroll_config.history_retention_days
-    if history_days == 0:
-        return 0
-    return max(retention_days, history_days)
 
 
 class QwenPawAgent(CodingModeMixin, Agent):

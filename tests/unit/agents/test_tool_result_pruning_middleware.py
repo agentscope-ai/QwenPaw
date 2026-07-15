@@ -60,7 +60,7 @@ async def _collect(iterator: AsyncGenerator[Any, None]) -> list[Any]:
 
 
 @pytest.mark.asyncio
-async def test_scroll_artifacts_outlive_history_pointers():
+async def test_scroll_artifact_retention_uses_tool_result_setting():
     class OffloaderStub:
         def __init__(self) -> None:
             self.retention_days: list[int] = []
@@ -86,12 +86,12 @@ async def test_scroll_artifacts_outlive_history_pointers():
     )
 
     await QwenPawAgent.close(agent)
-    assert offloader.retention_days == [45]
+    assert offloader.retention_days == [7]
 
     lcc.scroll_config.history_retention_days = 0
     offloader.retention_days.clear()
     await QwenPawAgent.close(agent)
-    assert not offloader.retention_days
+    assert offloader.retention_days == [7]
 
 
 @pytest.mark.asyncio

@@ -775,7 +775,8 @@ class ToolResultPruningConfig(BaseModel):
         le=10,
         description=(
             "Number of recent tool-result-bearing messages to keep at the "
-            "recent preview byte limit before scroll compaction."
+            "recent preview byte limit. Scroll keeps all live previews at "
+            "this limit until pressure-driven pointer folding is required."
         ),
     )
 
@@ -783,9 +784,10 @@ class ToolResultPruningConfig(BaseModel):
         default=3000,
         ge=100,
         description=(
-            "Byte threshold above which older tool result previews are "
-            "replaced by stable artifact/history pointers after Scroll "
-            "compaction. The output is not truncated a second time."
+            "Older tool-result preview byte limit for non-Scroll context "
+            "strategies. Scroll does not use a fixed old-result size "
+            "threshold; it folds recoverable results only while the rebuilt "
+            "context remains under pressure."
         ),
     )
 
@@ -803,9 +805,10 @@ class ToolResultPruningConfig(BaseModel):
         ge=1,
         le=365,
         description=(
-            "Minimum number of days to retain archived tool result files. "
-            "When Scroll is active, cleanup uses at least the durable history "
-            "retention so history pointers cannot expire first."
+            "Number of days to retain complete archived tool result files. "
+            "This lifetime is independent of Scroll history retention; after "
+            "expiry, history may still contain the bounded preview but not "
+            "the complete artifact."
         ),
     )
 

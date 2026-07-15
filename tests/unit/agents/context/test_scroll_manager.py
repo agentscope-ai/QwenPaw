@@ -8,7 +8,6 @@ degraded-durability fail-safe (no eviction when a write fails), and retention.
 """
 
 import json
-import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -554,7 +553,7 @@ async def test_compress_noop_when_active_turn_fits_reserve(
     assert mgr._index.is_empty
 
 
-def _multi_tool_turn(n: int = 3) -> Msg:
+def _multi_tool_turn(n: int = 3, *, padding: int = 0) -> Msg:
     """An accumulated assistant Msg with ``n`` completed call/result pairs."""
     blocks = []
     for i in range(n):
@@ -572,7 +571,12 @@ def _multi_tool_turn(n: int = 3) -> Msg:
                 type="tool_result",
                 id=f"c{i}",
                 name="grep",
-                output=[TextBlock(type="text", text=f"RESULT-{i}")],
+                output=[
+                    TextBlock(
+                        type="text",
+                        text=f"RESULT-{i}" + "x" * padding,
+                    ),
+                ],
             ),
         )
     return Msg(name="a", role="assistant", content=blocks)
@@ -593,7 +597,9 @@ async def test_fold_not_triggered_between_reserve_and_trigger(
 
     old_u = user("older question")
     old_a = assistant("older reply", headline="OLD")
-    turn = _multi_tool_turn()
+    # Deliberately exceed the former fixed 3 KB threshold. Once eviction has
+    # relieved the pressure, size alone must not fold these live results.
+    turn = _multi_tool_turn(padding=5000)
     ctx = [old_u, old_a, user("/heartbeat"), turn]
     mgr = make_manager(store)
     # 900 at the trigger check; 300 after eviction — over the reserve (100)
@@ -613,8 +619,6 @@ async def test_fold_not_triggered_between_reserve_and_trigger(
 
 async def test_compress_replaces_old_preview_with_stable_artifact_pointer(
     store: HistoryStore,
-    tmp_path: Path,
-    monkeypatch,
 ):
     text = "\n".join(f"line {idx}: {'x' * 40}" for idx in range(100))
     preview, metadata = truncate_text_output(
@@ -643,20 +647,7 @@ async def test_compress_replaces_old_preview_with_stable_artifact_pointer(
         ],
     )
     ctx = [user("current request"), turn]
-    mgr = make_manager(
-        store,
-        compact_tool_result_max_bytes=120,
-        tool_results_dir=str(tmp_path),
-    )
-    event_loop_thread = threading.get_ident()
-    compact_threads: list[int] = []
-    original_compact = mgr._compact_live_tool_results
-
-    def tracked_compact(agent):
-        compact_threads.append(threading.get_ident())
-        return original_compact(agent)
-
-    monkeypatch.setattr(mgr, "_compact_live_tool_results", tracked_compact)
+    mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=[600, 50])
     agent._split_return = (ctx, [])
 
@@ -669,9 +660,7 @@ async def test_compress_replaces_old_preview_with_stable_artifact_pointer(
     assert "start_line=50" in compacted
     assert "covers the next 120 bytes" not in compacted
     assert turn.content[-1].output[0].text == "newest result"
-    assert mgr.last_compress["folded"] == 0
-    assert compact_threads
-    assert all(thread_id != event_loop_thread for thread_id in compact_threads)
+    assert mgr.last_compress["folded"] == 1
 
 
 async def test_pressure_fold_stubs_older_results_keeps_newest(
@@ -683,7 +672,7 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
     result stay verbatim; the durable rows keep the full outputs; the Msg
     object (and id) is untouched so the runtime keeps extending the same
     message."""
-    turn = _multi_tool_turn()
+    turn = _multi_tool_turn(padding=500)
     ctx = [user("/heartbeat"), turn]
     mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=600)  # > trigger (100): sustained pressure
@@ -701,14 +690,14 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
     # folded → tool-call-addressed stub pointing at structured recall
     assert 'recall_history(op="recall_tool"' in out_text(0)
     assert 'recall_history(op="recall_tool"' in out_text(1)
-    assert out_text(2) == "RESULT-2"  # newest result kept verbatim
+    assert out_text(2) == "RESULT-2" + "x" * 500  # newest stays verbatim
     # The durable rows still hold the FULL outputs (persisted before fold).
     for i in range(3):
         row = store._conn.execute(
             "SELECT content FROM conversation_history "
             f"WHERE kind='tool_result' AND tool_call_id='c{i}'",
         ).fetchone()
-        assert row["content"] == f"RESULT-{i}"
+        assert row["content"] == f"RESULT-{i}" + "x" * 500
 
     # /compact reads this to report honestly (fold changes no msg count).
     assert mgr.last_compress["folded"] == 2
@@ -716,8 +705,60 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
     # Idempotent: a second round neither double-folds nor rewrites rows.
     await mgr.compress(agent)
     assert out_text(0).count("[scroll folded]") == 1
-    assert out_text(2) == "RESULT-2"
+    assert out_text(2) == "RESULT-2" + "x" * 500
     assert mgr.last_compress["folded"] == 0  # nothing newly folded
+
+
+async def test_pressure_fold_does_not_replace_small_results_with_larger_stubs(
+    store: HistoryStore,
+):
+    """There is no fixed lower size threshold, but folding must reclaim
+    bytes. Small outputs stay live when their recovery pointers would grow the
+    context, even during sustained pressure."""
+    turn = _multi_tool_turn()
+    ctx = [user("current request"), turn]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=600)
+    agent._split_return = (ctx, [])
+
+    await mgr.compress(agent)
+
+    for index in range(3):
+        assert turn.content[3 * index + 2].output[0].text == f"RESULT-{index}"
+    assert mgr.last_compress["folded"] == 0
+    assert agent.model.calls == 1
+
+
+async def test_pressure_fold_stops_after_largest_result_relieves_pressure(
+    store: HistoryStore,
+):
+    """Pressure folding is incremental and reclaim-driven, not a fixed-size
+    sweep: fold the largest profitable old result, recount, and stop once the
+    trigger is met."""
+
+    class _RealisticConfig:
+        trigger_ratio = 0.8
+        reserve_ratio = 0.1
+
+    turn = _multi_tool_turn(n=4, padding=500)
+    # Make the second completed result the best reclaim candidate. The fourth
+    # result is newest and must remain verbatim regardless of size.
+    turn.content[5].output[0].text = "LARGEST-" + "x" * 5000
+    turn.content[11].output[0].text = "NEWEST-" + "x" * 8000
+    ctx = [user("current request"), turn]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=[900, 750])
+    agent.context_config = _RealisticConfig()
+    agent._split_return = (ctx, [])
+
+    await mgr.compress(agent)
+
+    assert turn.content[2].output[0].text.startswith("RESULT-0")
+    assert turn.content[5].output[0].text.startswith("[scroll folded]")
+    assert turn.content[8].output[0].text.startswith("RESULT-2")
+    assert turn.content[11].output[0].text.startswith("NEWEST-")
+    assert mgr.last_compress["folded"] == 1
+    assert agent.model.calls == 2
 
 
 async def test_consumed_recall_page_folds_to_next_cursor_and_blocks_retry(
@@ -763,11 +804,7 @@ async def test_consumed_recall_page_folds_to_next_cursor_and_blocks_retry(
         ],
     )
     ctx = [user("find the old decision"), recall_turn]
-    mgr = make_manager(
-        store,
-        compact_tool_result_max_bytes=100,
-        recall_loop_guard=guard,
-    )
+    mgr = make_manager(store, recall_loop_guard=guard)
     agent = FakeAgent(ctx, tokens=[600, 90])
     agent._split_return = (ctx, [])
 

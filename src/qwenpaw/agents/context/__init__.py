@@ -206,9 +206,6 @@ def build_scroll_components(
                 "summarize_eviction_timeout_seconds",
                 20,
             ),
-            compact_tool_result_max_bytes=(
-                trc.pruning_old_msg_max_bytes if trc.enabled else None
-            ),
             tool_results_dir=str(
                 Path(workspace_dir) / trc.tool_results_cache,
             ),
