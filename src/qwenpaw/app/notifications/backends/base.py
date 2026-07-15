@@ -16,6 +16,7 @@ class NotificationBackend(ABC):
         body: str,
         *,
         sound: bool = True,
+        group: str = "QwenPaw",
     ) -> bool:
         """Send a desktop notification. Return True on success."""
 

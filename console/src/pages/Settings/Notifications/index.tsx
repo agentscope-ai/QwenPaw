@@ -1,5 +1,9 @@
-import { Button, Card, Switch, Select, InputNumber, Tag } from "antd";
-import { BellOutlined, SoundOutlined } from "@ant-design/icons";
+import { Button, Card, Switch, Select, InputNumber, Tag, Tooltip } from "antd";
+import {
+  BellOutlined,
+  SoundOutlined,
+  InfoCircleOutlined,
+} from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
 import { useNotifications } from "./useNotifications";
@@ -74,6 +78,19 @@ export default function NotificationsPage() {
             <div>
               <div className={styles.settingTitle}>
                 {t("notifications.enableLabel")}
+                <Tooltip
+                  title={t("notifications.osPermissionHint")}
+                  overlayStyle={{ maxWidth: 360 }}
+                >
+                  <InfoCircleOutlined
+                    style={{
+                      marginLeft: 6,
+                      color: "var(--ant-color-text-quaternary)",
+                      cursor: "help",
+                      fontSize: 13,
+                    }}
+                  />
+                </Tooltip>
               </div>
               <div className={styles.settingHint}>
                 {t("notifications.enableHint")}

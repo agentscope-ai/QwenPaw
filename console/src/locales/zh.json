@@ -2908,6 +2908,7 @@
     "description": "配置收件箱事件的系统级桌面通知。通知通过操作系统原生通知中心推送。",
     "enableLabel": "开启系统通知",
     "enableHint": "开启后，匹配的收件箱事件将触发系统桌面通知。",
+    "osPermissionHint": "macOS 用户请确保在「系统设置 → 通知」中允许 Python（或你启动 QwenPaw 的终端应用）发送通知，以保证系统通知的正常弹出。",
     "soundLabel": "通知声音",
     "soundLabelShort": "开启通知声音",
     "soundHint": "通知送达时播放声音。",

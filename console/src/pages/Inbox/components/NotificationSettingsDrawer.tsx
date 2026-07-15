@@ -69,9 +69,19 @@ export function NotificationSettingsDrawer({ open, onClose }: Props) {
         {/* Part 1: Basic switches - no title */}
         <div className={styles.section}>
           <div className={styles.row}>
-            <span className={styles.labelBold}>
-              {t("notifications.enableLabel")}
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span className={styles.labelBold}>
+                {t("notifications.enableLabel")}
+              </span>
+              <Tooltip
+                title={t("notifications.osPermissionHint")}
+                overlayStyle={{ maxWidth: 320 }}
+              >
+                <span className={styles.tooltipTrigger}>
+                  <InfoCircleOutlined />
+                </span>
+              </Tooltip>
+            </div>
             <Switch
               size="small"
               checked={config.enabled}

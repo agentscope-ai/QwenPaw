@@ -2818,6 +2818,7 @@
     "description": "Configure notificacoes de area de trabalho para eventos da caixa de entrada. As notificacoes sao entregues pelo centro de notificacoes nativo do SO.",
     "enableLabel": "Ativar Notificacoes do Sistema",
     "enableHint": "Quando ativado, eventos correspondentes acionarao notificacoes de area de trabalho.",
+    "osPermissionHint": "macOS: certifique-se de que as notificacoes estao permitidas para o Python (ou o app de terminal usado para executar o QwenPaw) em Ajustes do Sistema → Notificacoes.",
     "soundLabel": "Som de Notificacao",
     "soundHint": "Reproduzir um som quando as notificacoes forem entregues.",
     "intervalLabel": "Intervalo Minimo",

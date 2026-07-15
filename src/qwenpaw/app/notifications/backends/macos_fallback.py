@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """macOS fallback using osascript ``display notification``.
 
-This backend is used when both ``desktop-notifier`` and
-``terminal-notifier`` are unavailable or have failed.
+This backend is used when ``desktop-notifier`` is unavailable or
+has failed (e.g. notification authorisation denied).
 """
 
 from __future__ import annotations
@@ -41,14 +41,15 @@ class MacOSFallbackBackend(NotificationBackend):
         body: str,
         *,
         sound: bool = True,
+        group: str = "QwenPaw",
     ) -> bool:
         global _WARNED_FALLBACK
         if not _WARNED_FALLBACK:
             _WARNED_FALLBACK = True
             logger.warning(
                 "Using osascript fallback for notifications. "
-                "For a better experience, install terminal-notifier: "
-                "brew install terminal-notifier",
+                "For a better experience, install desktop-notifier: "
+                "pip install desktop-notifier",
             )
 
         script = (

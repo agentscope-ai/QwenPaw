@@ -2889,6 +2889,7 @@
     "description": "Configure system-level desktop notifications for inbox events. Notifications are delivered via your operating system's native notification center.",
     "enableLabel": "Enable System Notifications",
     "enableHint": "When enabled, matching inbox events will trigger native desktop notifications.",
+    "osPermissionHint": "macOS users: make sure notifications are allowed for Python (or the terminal app you use to run QwenPaw) in System Settings → Notifications, otherwise system notifications may not appear.",
     "soundLabel": "Notification Sound",
     "soundLabelShort": "Enable notification sound",
     "soundHint": "Play a sound when notifications are delivered.",

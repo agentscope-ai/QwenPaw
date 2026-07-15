@@ -15,7 +15,6 @@ from .backends.base import NotificationBackend
 from .backends.desktop import DesktopNotifierBackend
 from .backends.linux_fallback import LinuxFallbackBackend
 from .backends.macos_fallback import MacOSFallbackBackend
-from .backends.macos_terminal_notifier import TerminalNotifierBackend
 from .matcher import event_matches_rules
 
 logger = logging.getLogger(__name__)
@@ -137,10 +136,6 @@ class NotificationService:
         if desktop.is_available():
             self._backends.append(desktop)
 
-        tn = TerminalNotifierBackend()
-        if tn.is_available():
-            self._backends.append(tn)
-
         macos_fb = MacOSFallbackBackend()
         if macos_fb.is_available():
             self._backends.append(macos_fb)
@@ -195,9 +190,15 @@ class NotificationService:
             title = self._format_title(event, lang)
             body = self._format_body(event)
 
+        if source_type == "cron" and task_type:
+            group = f"QwenPaw-cron-{task_type}"
+        elif source_type:
+            group = f"QwenPaw-{source_type}"
+        else:
+            group = "QwenPaw"
         self._last_sent_at = now
         self._cancel_flush()
-        await self._send(title, body, sound=config.sound)
+        await self._send(title, body, sound=config.sound, group=group)
 
     def _schedule_flush(self, delay: float) -> None:
         """Schedule a delayed flush to send accumulated notifications."""
@@ -225,7 +226,12 @@ class NotificationService:
             )
             self._pending_count = 0
             self._last_sent_at = time.time()
-            await self._send(title, body, sound=self._flush_sound)
+            await self._send(
+                title,
+                body,
+                sound=self._flush_sound,
+                group="QwenPaw-batch",
+            )
 
     async def notify_approval(
         self,
@@ -266,7 +272,12 @@ class NotificationService:
         if len(body) > 200:
             body = body[:197] + "..."
 
-        await self._send(title, body, sound=config.sound)
+        await self._send(
+            title,
+            body,
+            sound=config.sound,
+            group="QwenPaw-approval",
+        )
 
     async def send_test(self, config: NotificationConfig) -> bool:
         """Send a test notification, bypassing rules and rate-limit."""
@@ -277,6 +288,7 @@ class NotificationService:
             title=_t(lang, "test_title"),
             body=_t(lang, "test_body"),
             sound=config.sound,
+            group="QwenPaw-test",
         )
 
     async def _send(
@@ -285,11 +297,12 @@ class NotificationService:
         body: str,
         *,
         sound: bool,
+        group: str = "QwenPaw",
     ) -> bool:
         """Try backends in order until one succeeds."""
         for backend in self._backends:
             try:
-                ok = await backend.send(title, body, sound=sound)
+                ok = await backend.send(title, body, sound=sound, group=group)
                 if ok:
                     return True
             except Exception as exc:

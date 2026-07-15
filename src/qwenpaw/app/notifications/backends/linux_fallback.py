@@ -31,6 +31,7 @@ class LinuxFallbackBackend(NotificationBackend):
         body: str,
         *,
         sound: bool = True,
+        group: str = "QwenPaw",
     ) -> bool:
         try:
             cmd = ["notify-send", "--app-name=QwenPaw", title, body]
