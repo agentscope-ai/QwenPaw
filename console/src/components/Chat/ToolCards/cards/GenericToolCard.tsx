@@ -46,9 +46,7 @@ const GenericToolCard: React.FC<GenericToolCardProps> = ({
             content={resultText}
             renderContent={
               isOpen && mediaList.length > 0
-                ? () => (
-                    <InlineMediaText text={resultText} media={mediaList} />
-                  )
+                ? () => <InlineMediaText text={resultText} media={mediaList} />
                 : undefined
             }
           />

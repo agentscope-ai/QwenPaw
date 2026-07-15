@@ -29,9 +29,7 @@ const imageContent = () =>
 
 describe("ToolCardShell lazy media preview", () => {
   it("does not render media preview while collapsed", () => {
-    render(
-      <ToolCardShell icon={null} title="tool" content={imageContent()} />,
-    );
+    render(<ToolCardShell icon={null} title="tool" content={imageContent()} />);
     expect(screen.queryByTestId("media-preview")).toBeNull();
   });
 
@@ -50,7 +48,9 @@ describe("ToolCardShell lazy media preview", () => {
   it("passes open state to a render-function child", () => {
     const { container } = render(
       <ToolCardShell icon={null} title="tool" content={makeContent("text")}>
-        {(isOpen) => <div data-testid="child">{isOpen ? "open" : "closed"}</div>}
+        {(isOpen) => (
+          <div data-testid="child">{isOpen ? "open" : "closed"}</div>
+        )}
       </ToolCardShell>,
     );
     expect(screen.getByTestId("child")).toHaveTextContent("closed");
