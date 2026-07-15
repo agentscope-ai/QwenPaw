@@ -992,6 +992,60 @@ class TestStreamWithTracker:
                             ):
                                 pass
 
+    async def test_stream_with_tracker_preserves_runtime_error(
+        self,
+        base_channel,
+    ):
+        """Runtime error responses should not be hidden as Internal error."""
+        from qwenpaw.schemas import AgentResponse, RunStatus
+
+        runtime_error = AgentResponse(
+            object="response",
+            status=RunStatus.Failed,
+            error={"message": "Model not available - E001"},
+        )
+
+        async def mock_process(request):
+            yield runtime_error
+            raise ValueError("provider call failed")
+
+        base_channel._process = mock_process
+
+        with patch.object(
+            base_channel,
+            "_on_consume_error",
+            new_callable=AsyncMock,
+        ) as on_consume_error:
+            with patch.object(
+                base_channel,
+                "_payload_to_request",
+                return_value=MagicMock(
+                    session_id="test:session",
+                    user_id="user123",
+                    channel="test",
+                    channel_meta={},
+                ),
+            ):
+                with patch.object(
+                    base_channel,
+                    "get_to_handle_from_request",
+                    return_value="user123",
+                ):
+                    with patch.object(
+                        base_channel,
+                        "_before_consume_process",
+                    ):
+                        with pytest.raises(ValueError):
+                            async for _ in base_channel._stream_with_tracker(
+                                {},
+                            ):
+                                pass
+
+        on_consume_error.assert_awaited_once()
+        assert on_consume_error.await_args.args[2] == (
+            "Error: Model not available - E001"
+        )
+
     async def test_stream_with_tracker_falls_back_on_surrogate_json_error(
         self,
         base_channel,

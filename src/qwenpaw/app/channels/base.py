@@ -974,10 +974,11 @@ class BaseChannel(ABC):
                 f"session={getattr(request, 'session_id', 'N/A')[:30]}, "
                 f"agent={to_handle}",
             )
+            err_msg = self._get_response_error_message(last_response)
             await self._on_consume_error(
                 request,
                 to_handle,
-                "Internal error",
+                f"Error: {err_msg}" if err_msg else "Internal error",
             )
             raise
 
@@ -1435,10 +1436,15 @@ class BaseChannel(ABC):
                 self._on_reply_sent(self.channel, *args)
         except Exception:
             logger.exception("channel consume_one failed")
+            err_msg = self._get_response_error_message(last_response)
             await self._on_consume_error(
                 request,
                 to_handle,
-                "An error occurred while processing your request.",
+                (
+                    f"Error: {err_msg}"
+                    if err_msg
+                    else "An error occurred while processing your request."
+                ),
             )
 
     def _get_response_error_message(self, last_response: Any) -> Optional[str]:
