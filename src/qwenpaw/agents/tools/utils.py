@@ -5,6 +5,8 @@
 
 import logging
 import re
+import uuid
+from pathlib import Path
 from typing import Any
 
 import aiofiles
@@ -75,10 +77,193 @@ def build_truncation_metadata(
         f"\nThe full content is saved to the file and contains {total_lines} lines in total."
         f"\nThis excerpt starts at line {start_line} and covers the next {excerpt_bytes} bytes."
         "\nIf the current content is not enough, call `read_file` with "
-        f"file_path={file_path or ''} start_line={read_from} to read more."
+        f'file_path="{file_path or ""}" start_line={read_from} to read more.'
     )
     info["notice"] = _fit_truncation_notice(notice, info)
     return {TRUNCATION_METADATA_KEY: {str(block_index): info}}
+
+
+def safe_filename_part(value: str | None) -> str:
+    """Return a short filesystem-safe filename component."""
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", value or "")[:64].strip("._-")
+    return safe or "tool-result"
+
+
+def save_text_output(
+    text: str,
+    output_dir: Path | str | None,
+    *,
+    name_hint: str | None = None,
+    encoding: str = "utf-8",
+) -> str | None:
+    """Save full text output under ``output_dir`` and return its path.
+
+    Raises ``OSError`` if the directory cannot be created or the file cannot
+    be written, so callers can log context-specific failure details.
+    """
+    if output_dir is None:
+        return None
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    safe_id = safe_filename_part(name_hint)
+    path = output_path / f"{safe_id}-{uuid.uuid4().hex}.txt"
+    path.write_text(text, encoding=encoding)
+    return str(path)
+
+
+class ToolResultPruner:
+    """Shared block-aware pruning for fresh and retained tool results."""
+
+    def __init__(self, output_dir: Path | str | None) -> None:
+        self._output_dir = output_dir or None
+
+    @staticmethod
+    def _block_type(block: Any) -> str | None:
+        if isinstance(block, dict):
+            return block.get("type")
+        return getattr(block, "type", None)
+
+    @staticmethod
+    def _block_text(block: Any) -> str:
+        if isinstance(block, dict):
+            return block.get("text", "")
+        return getattr(block, "text", "") or ""
+
+    @staticmethod
+    def _set_block_text(block: Any, text: str) -> None:
+        if isinstance(block, dict):
+            block["text"] = text
+        else:
+            block.text = text
+
+    @staticmethod
+    def _merge_metadata(
+        metadata: dict[str, Any],
+        patch: dict[str, Any],
+    ) -> None:
+        patch_by_block = patch.get(TRUNCATION_METADATA_KEY)
+        if not isinstance(patch_by_block, dict):
+            return
+        current = metadata.setdefault(TRUNCATION_METADATA_KEY, {})
+        if isinstance(current, dict):
+            current.update(patch_by_block)
+
+    @staticmethod
+    def _encode_text(text: str, encoding: str) -> bytes | None:
+        try:
+            return text.encode(encoding)
+        except UnicodeEncodeError:
+            return None
+
+    def _save_fresh_text(self, text: str, encoding: str) -> str | None:
+        try:
+            saved_path = save_text_output(
+                text,
+                self._output_dir,
+                encoding=encoding,
+            )
+        except OSError as exc:
+            logger.warning(
+                "Failed to save tool result to file; returning the original "
+                "result: %s",
+                exc,
+            )
+            return None
+        if saved_path is None:
+            logger.warning(
+                "Tool result exceeds the pruning limit but no artifact "
+                "directory is configured; returning the original result",
+            )
+        return saved_path
+
+    def prune_output(
+        self,
+        output: Any,
+        *,
+        max_bytes: int,
+        metadata: dict[str, Any],
+        encoding: str = "utf-8",
+        fresh_size_slack_bytes: int = 0,
+    ) -> tuple[Any, bool]:
+        """Prune string or text-block output and merge metadata in place."""
+        if isinstance(output, str):
+            pruned, patch = self.prune_text(
+                output,
+                max_bytes=max_bytes,
+                metadata=metadata,
+                encoding=encoding,
+                fresh_size_slack_bytes=fresh_size_slack_bytes,
+            )
+            self._merge_metadata(metadata, patch)
+            return pruned, pruned != output
+        if not isinstance(output, list):
+            return output, False
+
+        changed = False
+        for index, block in enumerate(output):
+            if self._block_type(block) != "text":
+                continue
+            text = self._block_text(block)
+            pruned, patch = self.prune_text(
+                text,
+                max_bytes=max_bytes,
+                metadata=metadata,
+                encoding=encoding,
+                block_index=index,
+                fresh_size_slack_bytes=fresh_size_slack_bytes,
+            )
+            self._merge_metadata(metadata, patch)
+            if pruned != text:
+                self._set_block_text(block, pruned)
+                changed = True
+        return output, changed
+
+    def prune_text(
+        self,
+        text: str,
+        *,
+        max_bytes: int,
+        metadata: dict[str, Any] | None = None,
+        encoding: str = "utf-8",
+        block_index: int = 0,
+        fresh_size_slack_bytes: int = 0,
+    ) -> tuple[str, dict[str, Any]]:
+        """Prune one text block, preserving fresh content unless saved."""
+        if not text:
+            return text, {}
+        if TRUNCATION_NOTICE_MARKER in text:
+            return truncate_text_output(
+                text,
+                max_bytes=max_bytes,
+                metadata=metadata,
+                encoding=encoding,
+                block_index=block_index,
+            )
+
+        text_bytes = self._encode_text(text, encoding)
+        if text_bytes is None or (
+            len(text_bytes) <= max_bytes + fresh_size_slack_bytes
+        ):
+            return text, {}
+
+        saved_path = self._save_fresh_text(text, encoding)
+        if saved_path is None:
+            return text, {}
+
+        candidate, patch = truncate_text_output(
+            text,
+            start_line=1,
+            total_lines=text.count("\n") + 1,
+            max_bytes=max_bytes,
+            file_path=saved_path,
+            file_size_bytes=len(text_bytes),
+            encoding=encoding,
+            block_index=block_index,
+        )
+        if TRUNCATION_NOTICE_MARKER not in candidate:
+            return text, {}
+        return candidate, patch
 
 
 # pylint: disable=too-many-return-statements
@@ -172,11 +357,17 @@ def _legacy_truncation_metadata(
             return {}
         values[key] = int(match.group(1))
     path_match = re.search(
-        r"file_path=(.*?) start_line=\d+ to read more",
+        r'file_path=(?:"(?P<quoted>[^"]*)"|(?P<legacy>.*?)) '
+        r"start_line=\d+ to read more",
         notice,
     )
+    file_path = None
+    if path_match:
+        file_path = path_match.group("quoted")
+        if file_path is None:
+            file_path = path_match.group("legacy")
     return build_truncation_metadata(
-        file_path=path_match.group(1) if path_match else None,
+        file_path=file_path,
         file_size_bytes=None,
         excerpt_bytes=len(text.split(TRUNCATION_NOTICE_MARKER, 1)[0].encode()),
         total_lines=values["total_lines"],

@@ -357,13 +357,13 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **Light 工具结果修剪配置（`light_context_config.tool_result_pruning_config` 对象）：**
 
-| 字段                           | 类型 | 默认值  | 说明                       |
-| ------------------------------ | ---- | ------- | -------------------------- |
-| `enabled`                      | bool | `true`  | 是否启用工具结果修剪       |
-| `pruning_recent_n`             | int  | `2`     | 最近 N 条消息使用较高阈值  |
-| `pruning_old_msg_max_bytes`    | int  | `3000`  | 旧消息的工具结果字节阈值   |
-| `pruning_recent_msg_max_bytes` | int  | `50000` | 最近消息的工具结果字节阈值 |
-| `offload_retention_days`       | int  | `5`     | 工具结果文件保留天数       |
+| 字段                           | 类型 | 默认值  | 说明                                                                |
+| ------------------------------ | ---- | ------- | ------------------------------------------------------------------- |
+| `enabled`                      | bool | `true`  | 是否启用工具结果修剪                                                |
+| `pruning_recent_n`             | int  | `2`     | scroll compact 前，最近 N 条包含工具结果的消息使用最近预览阈值      |
+| `pruning_old_msg_max_bytes`    | int  | `3000`  | scroll compact 后仍保留在 live context 中的工具结果轻量预览字节阈值 |
+| `pruning_recent_msg_max_bytes` | int  | `50000` | 工具结果进入 context 前及仍属于 recent 时使用的预览字节阈值         |
+| `offload_retention_days`       | int  | `5`     | 工具结果文件保留天数                                                |
 
 **ReMeLight 记忆配置（`reme_light_memory_config` 对象）：**
 
@@ -375,7 +375,6 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `resource_dir`                  | string      | `"resource"`     | 外部资源子目录                                                       |
 | `daily_dir`                     | string      | `"memory"`       | 每日记忆子目录                                                       |
 | `digest_dir`                    | string      | `"digest"`       | digest 记忆子目录                                                    |
-| `enable_search_raw_log`         | bool        | `false`          | 是否启用原始日志搜索                                                 |
 | `summarize_when_compact`        | bool        | `true`           | 是否在上下文压缩时启用记忆总结                                       |
 | `auto_memory_interval`          | int \| null | `5`              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆 |
 | `dream_cron`                    | string      | `"0 23 * * *"`   | 梦境记忆优化任务的 Cron 表达式（空字符串禁用）                       |

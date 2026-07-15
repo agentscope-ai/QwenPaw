@@ -71,16 +71,19 @@ The persistent record reaches you through `ms`. Prefer these intent helpers
     Row: {seq, kind, role, name, content, headline}.
   • ms.recall_tool(tool_call_id) — a tool call and its result (this agent;
     pass all_agents=True to widen). Row: {seq, kind, role, name, tool_input,
-    tool_state, content}.
+    tool_state, content}. For truncated large outputs, an extra row reports
+    the saved full-output file.
   • ms.search(query, all_agents=False, kind=None, k=10) — FTS5. By default
     searches your whole history across past sessions; all_agents=True spans
     every agent here. Pin a specific one with session_id="cron:<job>" /
     agent_id="<other>" (these take precedence). kind filters by row kind
     ("model_turn" / "tool_result"). Row: {seq, session_id, kind, role, name,
-    headline, content (full turn)}. Query with keywords, not full sentences
-    (all terms must appear); use OR-sets for alternatives and a generous k to
-    cast a wide net: ms.search("tank OR aquarium OR goldfish", k=20). Your
-    current in-progress turn is never a hit — it is already in front of you.
+    headline, content}. DB hits carry the full turn; saved tool-output hits
+    carry file_path and nearby matching lines. Query with keywords, not full
+    sentences (all terms must appear); use OR-sets for alternatives and a
+    generous k to cast a wide net:
+    ms.search("tank OR aquarium OR goldfish", k=20). Your current in-progress
+    turn is never a hit — it is already in front of you.
   • ms.sessions() — your past conversations (incl. scheduled cron/heartbeat
     runs); ms.session(session_id, all_agents=False) reads one in full, scoped
     to you by default. ms.agents() lists agents.

@@ -21,7 +21,7 @@ dependencies = [
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    "reme-ai==0.4.0.9",
+    "reme-ai==0.4.1.0",
     "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
     "python-socks>=2.5.3",
@@ -52,8 +52,10 @@ dependencies = [
     # (v4+ adds the streaming Markdown widget). 8.2.8 fixes parsing of
     # multi-codepoint Kitty "associated text" so input methods (Chinese,
     # Japanese, accents, ...) no longer leak escape sequences into the prompt
-    # (Textualize/textual#6592).
-    "textual>=8.2.8",
+    # (Textualize/textual#6592). Keep the temporary upper bound in sync with
+    # the TUI compatibility shim for Textualize/textual#6643; remove both
+    # after Textual ships and QwenPaw verifies the upstream fix.
+    "textual>=8.2.8,<8.2.9",
     "psutil>=6.0.0",
     "openai>=2.0.0,<=2.33.0",
     # anyio 4.13.0: _deliver_cancellation busy-loop / getpid storm (QwenPaw#2632)

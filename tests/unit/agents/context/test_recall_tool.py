@@ -10,12 +10,14 @@ failure-vs-empty observation shapes (same discipline as the REPL's), and the
 no-sandbox registration contract.
 """
 
+import threading
 from pathlib import Path
 
 import pytest
 from agentscope.message import ToolResultState
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.agents.context.scroll.memoryspace import MemorySpace
 from qwenpaw.agents.context.scroll.recall_tool import make_recall_history
 from qwenpaw.agents.context.types import LogEntry
 
@@ -104,6 +106,24 @@ async def test_recall_tool_by_call_id(tool):
     chunk = await tool(op="recall_tool", tool_call_id="call_abc")
     assert chunk.state == ToolResultState.SUCCESS
     assert "RESULT-FULL" in _text(chunk)
+
+
+async def test_recall_queries_run_outside_event_loop(tool, monkeypatch):
+    event_loop_thread = threading.get_ident()
+    query_threads: list[int] = []
+    original_expand = MemorySpace.expand
+
+    def tracked_expand(self, lo, hi):
+        query_threads.append(threading.get_ident())
+        return original_expand(self, lo, hi)
+
+    monkeypatch.setattr(MemorySpace, "expand", tracked_expand)
+
+    chunk = await tool(op="expand", lo=1, hi=3)
+
+    assert chunk.state == ToolResultState.SUCCESS
+    assert query_threads
+    assert all(thread_id != event_loop_thread for thread_id in query_threads)
 
 
 async def test_empty_span_reads_as_genuine_absence(tool):

@@ -22,6 +22,7 @@ jobs:
     name: Real behavior proof
     permissions:
       contents: read
+      issues: write
       pull-requests: read
     runs-on: ubuntu-latest
     steps:

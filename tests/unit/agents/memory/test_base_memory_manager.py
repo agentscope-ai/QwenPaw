@@ -189,6 +189,53 @@ class TestBaseMemoryManagerAddSummarizeTask:
             except (asyncio.CancelledError, Exception):
                 pass
 
+    async def test_shutdown_exits_when_nested_call_swallows_cancellation(
+        self,
+        manager,
+    ):
+        """A swallowed cancellation must not send the worker back to get()."""
+        started = asyncio.Event()
+
+        async def swallow_cancellation(*_args, **_kwargs):
+            started.set()
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                return "completed after cancellation"
+
+        manager.summarize = swallow_cancellation
+        manager.add_summarize_task([MagicMock()])
+        await started.wait()
+
+        stopped = await manager._shutdown_summarize_worker(timeout=0.5)
+
+        assert stopped is True
+        assert manager._worker_task is None
+
+    async def test_shutdown_timeout_is_bounded(self, manager):
+        """Repeated cancellation suppression cannot hang close."""
+        keep_running = asyncio.Event()
+        started = asyncio.Event()
+
+        async def ignore_cancellation():
+            started.set()
+            while not keep_running.is_set():
+                try:
+                    await asyncio.sleep(3600)
+                except asyncio.CancelledError:
+                    continue
+
+        worker = asyncio.create_task(ignore_cancellation())
+        manager._worker_task = worker
+        await started.wait()
+
+        stopped = await manager._shutdown_summarize_worker(timeout=0.01)
+
+        assert stopped is False
+        keep_running.set()
+        worker.cancel()
+        await asyncio.wait({worker}, timeout=0.5)
+
 
 class TestAutoMemorySearchSanitization:
     """P1: auto_memory input should exclude auto-search blocks only."""

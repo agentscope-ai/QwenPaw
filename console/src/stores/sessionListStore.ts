@@ -23,6 +23,8 @@ export interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   status?: string;
   generating?: boolean;
   pinned?: boolean;
+  archivedAt?: string | null;
+  archived?: boolean;
 }
 
 interface SessionListStore {

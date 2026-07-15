@@ -5,13 +5,22 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable
 from typing import Optional
 
-from .models import ChatSpec, ChatUpdate, SessionSource
+from .models import (
+    BatchArchiveResult,
+    BatchFailure,
+    ChatSpec,
+    ChatUpdate,
+    SessionSource,
+)
 from .repo import BaseChatRepository
 from ..channels.schema import DEFAULT_CHANNEL
 
 logger = logging.getLogger(__name__)
+
+MAX_BATCH_SIZE = 500
 
 
 class ChatManager:
@@ -45,12 +54,16 @@ class ChatManager:
         self,
         user_id: Optional[str] = None,
         channel: Optional[str] = None,
+        archived: Optional[bool] = None,
     ) -> list[ChatSpec]:
         """List chat specs with optional filters.
 
         Args:
             user_id: Optional user ID filter
             channel: Optional channel filter
+            archived: Optional archived status filter.
+                False (default in API) = active only,
+                True = archived only, None = all.
 
         Returns:
             List of chat specifications
@@ -58,11 +71,13 @@ class ChatManager:
         async with self._lock:
             logger.debug(
                 f"list_chats: repo path={self._repo.path}, "
-                f"filters: user_id={user_id}, channel={channel}",
+                f"filters: user_id={user_id}, channel={channel}, "
+                f"archived={archived}",
             )
             return await self._repo.filter_chats(
                 user_id=user_id,
                 channel=channel,
+                archived=archived,
             )
 
     async def get_chat(self, chat_id: str) -> Optional[ChatSpec]:
@@ -229,6 +244,151 @@ class ChatManager:
                 logger.debug(f"Deleted chats: {chat_ids}")
 
             return deleted
+
+    # ----- Archive Operations -----
+
+    async def archive_chat(
+        self,
+        chat_id: str,
+        *,
+        check_status: Optional[str] = None,
+    ) -> Optional[ChatSpec]:
+        """Archive a single chat. Idempotent: already-archived chats are
+        returned unchanged (archived_at is NOT refreshed).
+
+        Args:
+            chat_id: Chat UUID
+            check_status: If provided and equals "running", raises ValueError
+
+        Returns:
+            Updated ChatSpec, or None if not found
+
+        Raises:
+            ValueError: If the chat is currently running (in_progress)
+        """
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            if check_status == "running":
+                raise ValueError("in_progress")
+            if existing.archived:
+                return existing
+            merged = existing.model_copy(
+                update={"archived_at": datetime.now(timezone.utc)},
+            )
+            await self._repo.upsert_chat(merged)
+            logger.debug(f"Archived chat: {chat_id}")
+            return merged
+
+    async def unarchive_chat(self, chat_id: str) -> Optional[ChatSpec]:
+        """Unarchive a single chat. Idempotent: active chats unchanged.
+
+        Args:
+            chat_id: Chat UUID
+
+        Returns:
+            Updated ChatSpec, or None if not found
+        """
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            if not existing.archived:
+                return existing
+            merged = existing.model_copy(update={"archived_at": None})
+            await self._repo.upsert_chat(merged)
+            logger.debug(f"Unarchived chat: {chat_id}")
+            return merged
+
+    async def batch_archive(
+        self,
+        chat_ids: list[str],
+        *,
+        get_status: Optional[Callable[[str], Awaitable[Optional[str]]]] = None,
+    ) -> BatchArchiveResult:
+        """Archive multiple chats. Partial failures do not roll back.
+
+        Args:
+            chat_ids: List of chat IDs (max MAX_BATCH_SIZE)
+            get_status: Optional async callable that returns chat status.
+                If provided, running chats are skipped.
+
+        Returns:
+            BatchArchiveResult with succeeded and failed lists
+        """
+        result = BatchArchiveResult()
+        async with self._lock:
+            for chat_id in chat_ids:
+                existing = await self._repo.get_chat(chat_id)
+                if existing is None:
+                    result.failed.append(
+                        BatchFailure(
+                            chat_id=chat_id,
+                            reason="not_found",
+                            message=f"Chat not found: {chat_id}",
+                        ),
+                    )
+                    continue
+                if get_status is not None:
+                    status = await get_status(chat_id)
+                    if status == "running":
+                        result.failed.append(
+                            BatchFailure(
+                                chat_id=chat_id,
+                                reason="in_progress",
+                                message="Chat is running",
+                            ),
+                        )
+                        continue
+                if not existing.archived:
+                    merged = existing.model_copy(
+                        update={"archived_at": datetime.now(timezone.utc)},
+                    )
+                    await self._repo.upsert_chat(merged)
+                result.succeeded.append(chat_id)
+        logger.debug(
+            f"batch_archive: {len(result.succeeded)} succeeded, "
+            f"{len(result.failed)} failed",
+        )
+        return result
+
+    async def batch_unarchive(
+        self,
+        chat_ids: list[str],
+    ) -> BatchArchiveResult:
+        """Unarchive multiple chats. Partial failures do not roll back.
+
+        Args:
+            chat_ids: List of chat IDs (max MAX_BATCH_SIZE)
+
+        Returns:
+            BatchArchiveResult with succeeded and failed lists
+        """
+        result = BatchArchiveResult()
+        async with self._lock:
+            for chat_id in chat_ids:
+                existing = await self._repo.get_chat(chat_id)
+                if existing is None:
+                    result.failed.append(
+                        BatchFailure(
+                            chat_id=chat_id,
+                            reason="not_found",
+                            message=f"Chat not found: {chat_id}",
+                        ),
+                    )
+                    continue
+                if existing.archived:
+                    merged = existing.model_copy(update={"archived_at": None})
+                    await self._repo.upsert_chat(merged)
+                result.succeeded.append(chat_id)
+        logger.debug(
+            f"batch_unarchive: {len(result.succeeded)} succeeded, "
+            f"{len(result.failed)} failed",
+        )
+        return result
+
+    # ----- Misc Operations -----
 
     async def count_chats(
         self,

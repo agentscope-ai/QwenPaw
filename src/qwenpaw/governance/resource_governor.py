@@ -133,6 +133,11 @@ class ResourceGovernor:
         """
         return self._sandbox_available and self._sandbox_globally_enabled()
 
+    @property
+    def sandbox_usable(self) -> bool:
+        """Whether sandbox execution is supported and globally enabled."""
+        return self._sandbox_usable()
+
     def start(self) -> None:
         """Load policy and probe sandbox capabilities."""
         self._policy_dir.mkdir(parents=True, exist_ok=True)
@@ -141,6 +146,19 @@ class ResourceGovernor:
             str(self.workspace_dir),
             str(self.coding_project_dir),
         )
+
+        # Persist the loaded policy back to disk.
+        try:
+            save_governance_policy(
+                self._policy,
+                str(self._policy_dir),
+                str(self.workspace_dir),
+                str(self.coding_project_dir),
+            )
+        except Exception:
+            logger.exception(
+                "ResourceGovernor.start: failed to persist policy.yaml",
+            )
 
         self._sandbox_capability = probe_sandbox_support()
         self._sandbox_available = self._sandbox_capability.supported

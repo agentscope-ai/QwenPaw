@@ -95,7 +95,7 @@ export function ReMeLightMemoryCard() {
       >
         <InputNumber
           style={{ width: "100%" }}
-          min={1}
+          min={0}
           step={1}
           placeholder={t("agentConfig.autoMemoryIntervalPlaceholder")}
         />
@@ -115,15 +115,6 @@ export function ReMeLightMemoryCard() {
         name={["reme_light_memory_config", "rebuild_memory_index_on_start"]}
         valuePropName="checked"
         tooltip={t("agentConfig.rebuildMemoryIndexOnStartTooltip")}
-      >
-        <Switch />
-      </Form.Item>
-
-      <Form.Item
-        label={t("agentConfig.enableSearchRawLog")}
-        name={["reme_light_memory_config", "enable_search_raw_log"]}
-        valuePropName="checked"
-        tooltip={t("agentConfig.enableSearchRawLogTooltip")}
       >
         <Switch />
       </Form.Item>

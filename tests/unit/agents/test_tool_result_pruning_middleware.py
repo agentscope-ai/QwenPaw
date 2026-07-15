@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
+import threading
 import types
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator
@@ -24,6 +26,7 @@ from qwenpaw.agents.middlewares import (  # noqa: E402
 from qwenpaw.agents.tools.utils import (  # noqa: E402
     build_truncation_metadata,
     MAX_TRUNCATION_NOTICE_BYTES,
+    ToolResultPruner,
     truncate_text_output,
     TRUNCATION_METADATA_KEY,
 )
@@ -103,6 +106,41 @@ async def test_tool_response_is_pruned_before_yield(tmp_path):
     assert saved[0].read_text(encoding="utf-8") == text
 
 
+@pytest.mark.asyncio
+async def test_tool_response_write_failure_fails_open(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    tool_results_dir = tmp_path / "tool_results"
+    middleware = ToolResultPruningMiddleware(
+        recent_max_bytes=512,
+        tool_results_dir=str(tool_results_dir),
+    )
+    text = "\n".join("x" * 80 for _ in range(30))
+    response = ToolResponse(
+        id="call-1",
+        content=[TextBlock(type="text", text=text)],
+    )
+
+    def fail_save(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.utils.save_text_output",
+        fail_save,
+    )
+
+    result = middleware.prune_tool_response(response)
+
+    assert result is response
+    assert result.content[0].text == text
+    assert TRUNCATION_NOTICE_MARKER not in result.content[0].text
+    assert TRUNCATION_METADATA_KEY not in result.metadata
+    assert not tool_results_dir.exists()
+    assert "returning the original result" in caplog.text
+
+
 def test_notice_has_independent_one_kib_budget():
     metadata = build_truncation_metadata(
         file_path="/" + "long-path/" * 300,
@@ -118,6 +156,21 @@ def test_notice_has_independent_one_kib_budget():
     assert info["file_path"].startswith("/long-path/")
     assert len(info["notice"].encode("utf-8")) <= 1024
     assert TRUNCATION_NOTICE_MARKER in info["notice"]
+
+
+def test_notice_quotes_saved_file_path():
+    metadata = build_truncation_metadata(
+        file_path="/tmp/tool results/output.txt",
+        file_size_bytes=1000,
+        total_lines=20,
+        start_line=1,
+        max_bytes=512,
+        excerpt_bytes=500,
+        read_from=10,
+    )
+
+    notice = metadata[TRUNCATION_METADATA_KEY]["0"]["notice"]
+    assert 'file_path="/tmp/tool results/output.txt" start_line=10' in notice
 
 
 def test_retruncate_does_not_allow_byte_slack():
@@ -241,67 +294,29 @@ async def test_outer_pruning_caps_coordinator_final_tool_chunk_response(
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="offload globally disabled pending fix")
-async def test_background_completion_is_pruned_before_hint(tmp_path):
+async def test_configured_background_result_processor_prunes_response(
+    tmp_path,
+):
     pruning = ToolResultPruningMiddleware(
         recent_max_bytes=512,
         tool_results_dir=str(tmp_path),
     )
-    coordinator = ToolCoordinator(default_timeout_secs=0.001)
     coordinator_middleware = ToolCoordinatorMiddleware(
-        coordinator,
+        ToolCoordinator(),
         background_result_processor=pruning.prune_tool_response_async,
     )
-    background_completed = asyncio.Event()
-
-    async def on_completion(_entry: Any) -> None:
-        background_completed.set()
-
-    coordinator.on_completion(on_completion)
-    tool_call = _ToolCall(id="call-bg", name="slow_tool")
     text = "\n".join("x" * 80 for _ in range(30))
-
-    async def next_handler(
-        tool_call: _ToolCall,
-    ) -> AsyncGenerator[Any, None]:
-        await asyncio.sleep(0.02)
-        yield ToolChunk(
-            is_last=True,
-            state=ToolResultState.SUCCESS,
-            content=[TextBlock(type="text", text=text)],
-        )
-
-    agent = type(
-        "AgentStub",
-        (),
-        {
-            "_request_context": {
-                "session_id": "session-bg",
-                "agent_id": "agent-1",
-                "root_session_id": "root-1",
-            },
-            "state": type("StateStub", (), {"context": []})(),
-        },
-    )()
-
-    await _collect(
-        coordinator_middleware.on_acting(
-            agent,
-            {"tool_call": tool_call},
-            next_handler,
-        ),
+    response = ToolResponse(
+        id="call-bg",
+        content=[TextBlock(type="text", text=text)],
     )
-    await asyncio.wait_for(background_completed.wait(), timeout=5.0)
-    hints = await coordinator.pop_pending_hints("session-bg")
-    assert hints
 
-    result_block = next(
-        block
-        for block in hints[0].content
-        if getattr(block, "type", None) == "tool_result"
-    )
-    result_text = result_block.output[0].text
-    info = result_block.metadata[TRUNCATION_METADATA_KEY]["0"]
+    processor = coordinator_middleware._background_result_processor
+    assert processor is not None
+    result = await processor(response)
+
+    result_text = result.content[0].text
+    info = result.metadata[TRUNCATION_METADATA_KEY]["0"]
     assert TRUNCATION_NOTICE_MARKER in result_text
     assert info["excerpt_bytes"] <= 512
     assert result_text.endswith(info["notice"])
@@ -340,17 +355,54 @@ async def test_async_response_pruning_runs_in_worker_thread(
     assert len(list(tmp_path.iterdir())) == 1
 
 
+@pytest.mark.asyncio
+async def test_on_acting_offloads_current_and_historical_pruning(
+    monkeypatch,
+):
+    pruning = ToolResultPruningMiddleware()
+    response = ToolResponse(
+        content=[TextBlock(type="text", text="small result")],
+    )
+    event_loop_thread = threading.get_ident()
+    calls: list[tuple[str, int]] = []
+
+    def prune_response(value):
+        calls.append(("response", threading.get_ident()))
+        return value
+
+    def prune_history(messages):
+        calls.append(("history", threading.get_ident()))
+
+    monkeypatch.setattr(pruning, "prune_tool_response", prune_response)
+    monkeypatch.setattr(pruning, "_prune_tool_results", prune_history)
+
+    async def next_handler() -> AsyncGenerator[Any, None]:
+        yield response
+
+    agent = type(
+        "AgentStub",
+        (),
+        {"state": type("StateStub", (), {"context": []})()},
+    )()
+
+    assert await _collect(
+        pruning.on_acting(agent, {}, next_handler),
+    ) == [response]
+    assert [name for name, _ in calls] == ["response", "history"]
+    assert all(thread_id != event_loop_thread for _, thread_id in calls)
+
+
 def test_retruncate_uses_metadata(tmp_path):
-    middleware = ToolResultPruningMiddleware(tool_results_dir=str(tmp_path))
+    pruner = ToolResultPruner(tmp_path)
     text = "\n".join(f"line-{i}: " + "x" * 60 for i in range(100))
 
-    first, metadata = middleware._truncate_tool_result(text, 2000)
+    first, metadata = pruner.prune_text(text, max_bytes=2000)
     info = metadata[TRUNCATION_METADATA_KEY]["0"]
     corrupted = first.replace("starts at line 1", "starts at line 999")
-    second, updated = middleware._truncate_tool_result(
+    second, updated = pruner.prune_text(
         corrupted,
-        500,
-        metadata,
+        max_bytes=500,
+        metadata=metadata,
     )
 
     new_info = updated[TRUNCATION_METADATA_KEY]["0"]
@@ -479,3 +531,148 @@ def test_builder_adds_pruning_for_scroll_strategy(tmp_path):
         isinstance(middleware, ToolCoordinatorMiddleware)
         for middleware in middlewares
     )
+
+
+def test_context_config_disables_agentscope_duplicate_tool_result_cap():
+    agent_config = types.SimpleNamespace(
+        running=types.SimpleNamespace(
+            light_context_config=LightContextConfig(
+                strategy="scroll",
+                tool_result_pruning_config=ToolResultPruningConfig(
+                    enabled=True,
+                    pruning_recent_msg_max_bytes=200_000,
+                ),
+            ),
+        ),
+    )
+
+    context_config = AgentBuilder._build_context_config(agent_config)
+
+    assert context_config.tool_result_limit == 2**63 - 1
+
+
+@pytest.mark.asyncio
+async def test_agentscope_does_not_resplit_pruned_tool_result():
+    from agentscope.agent import Agent
+
+    agent_config = types.SimpleNamespace(
+        running=types.SimpleNamespace(
+            light_context_config=LightContextConfig(
+                strategy="scroll",
+                tool_result_pruning_config=ToolResultPruningConfig(
+                    enabled=True,
+                ),
+            ),
+        ),
+    )
+    context_config = AgentBuilder._build_context_config(agent_config)
+
+    class _TokenModel:
+        async def count_tokens(self, *args, **kwargs):
+            return 60_000
+
+    shim = types.SimpleNamespace(
+        name="agent",
+        model=_TokenModel(),
+        context_config=context_config,
+    )
+    result = ToolResultBlock(
+        id="call-large",
+        name="execute_shell_command",
+        output=[TextBlock(text="already byte-bounded")],
+        metadata={TRUNCATION_METADATA_KEY: {"0": {"file_path": "saved"}}},
+    )
+
+    reserved, offloaded = await Agent._split_tool_result_for_compression(
+        shim,
+        result,
+    )
+
+    assert reserved is result
+    assert offloaded is None
+    assert reserved.metadata == result.metadata
+
+
+def test_context_config_keeps_agentscope_cap_when_pruning_is_disabled():
+    from agentscope.agent import ContextConfig
+
+    agent_config = types.SimpleNamespace(
+        running=types.SimpleNamespace(
+            light_context_config=LightContextConfig(
+                strategy="scroll",
+                tool_result_pruning_config=ToolResultPruningConfig(
+                    enabled=False,
+                ),
+            ),
+        ),
+    )
+
+    context_config = AgentBuilder._build_context_config(agent_config)
+
+    assert (
+        context_config.tool_result_limit
+        == ContextConfig.model_fields["tool_result_limit"].default
+    )
+
+
+def test_explicit_legacy_scroll_tool_cap_warns_once_and_is_not_saved(
+    caplog,
+    monkeypatch,
+):
+    import qwenpaw.config.config as config_module
+
+    monkeypatch.setattr(config_module, "_legacy_scroll_tool_cap_warned", False)
+    with caplog.at_level(logging.WARNING, logger="qwenpaw.config.config"):
+        config = LightContextConfig(
+            strategy="scroll",
+            scroll_config={"tool_output_token_cap": 1200},
+        )
+        LightContextConfig(
+            strategy="scroll",
+            scroll_config={"tool_output_token_cap": 1200},
+        )
+
+    assert "tool_output_token_cap is deprecated and ignored" in caplog.text
+    assert "pruning_recent_msg_max_bytes" in caplog.text
+    assert "bytes, not tokens" in caplog.text
+    assert caplog.text.count("tool_output_token_cap is deprecated") == 1
+    assert "tool_output_token_cap" not in config.model_dump()["scroll_config"]
+
+
+def test_default_legacy_scroll_tool_cap_does_not_warn(caplog):
+    with caplog.at_level(logging.WARNING, logger="qwenpaw.config.config"):
+        LightContextConfig(strategy="scroll")
+
+    assert "tool_output_token_cap is deprecated and ignored" not in caplog.text
+
+
+def test_scroll_pruning_disabled_leaves_current_result_unbounded(tmp_path):
+    agent_config = types.SimpleNamespace(
+        id="agent-1",
+        running=types.SimpleNamespace(
+            light_context_config=LightContextConfig(
+                strategy="scroll",
+                tool_result_pruning_config=ToolResultPruningConfig(
+                    enabled=False,
+                ),
+            ),
+        ),
+    )
+    ctx = types.SimpleNamespace(
+        app_services=types.SimpleNamespace(tool_coordinator=ToolCoordinator()),
+        workspace=types.SimpleNamespace(workspace_dir=str(tmp_path)),
+    )
+    middlewares = AgentBuilder._build_middlewares(ctx, agent_config)
+    pruning = next(
+        middleware
+        for middleware in middlewares
+        if isinstance(middleware, ToolResultPruningMiddleware)
+    )
+    text = "line\n" * 20_000
+    response = ToolResponse(content=[TextBlock(text=text)])
+
+    result = pruning.prune_tool_response(response)
+
+    assert result.content[0].text == text
+    assert TRUNCATION_NOTICE_MARKER not in result.content[0].text
+    assert not list((tmp_path / "tool_results").glob("*"))

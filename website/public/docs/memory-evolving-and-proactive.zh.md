@@ -110,6 +110,12 @@ QwenPaw 配置了名为 `resource_watch_loop` 的 ReMe 后台 job。它监听 `r
 md, txt, json, jsonl, csv, yaml, html
 ```
 
+文件可以直接放在 `resource_dir` 根目录，此时使用 QwenPaw 配置的时区确定当天；也可放在
+`resource_dir/YYYY-MM-DD/` 下，此时使用路径中的日期。日期目录之后可以继续嵌套子目录。新增或修改资源时，
+ReMe 按 UTF-8 文本读取内容，由 memory agent 生成或更新 daily note；删除资源时也会删除对应的来源链接 note。
+
+PDF、Word、Excel、图片等二进制文件不会被自动解析。`yml` 后缀也不在默认白名单中；需要先转换为受支持的文本格式。
+
 每个 change item 可以包含 `path` 或 `file_path`，以及类似 `added`、`modified`、`deleted` 的 `change` 值。ReMe step 会将变化的资源文件解读成 daily note。只有当 job 报告确实发生修改时，QwenPaw 才会推送 `Auto-resource result` inbox event。
 
 ---
@@ -237,10 +243,9 @@ text starts with "[Agent proactive_helper requesting]"
 
 嵌入式 ReMe app 会启动 `index_update_loop` 后台 job。搜索索引监听：
 
-| 配置                            | 索引目录                                  | 后缀          |
-| ------------------------------- | ----------------------------------------- | ------------- |
-| `enable_search_raw_log = false` | `daily_dir`、`digest_dir`                 | `md`          |
-| `enable_search_raw_log = true`  | `daily_dir`、`digest_dir`、`resource_dir` | `md`、`jsonl` |
+| 索引目录                  | 后缀 |
+| ------------------------- | ---- |
+| `daily_dir`、`digest_dir` | `md` |
 
 QwenPaw 的 `memory_search` tool 会运行 ReMe 的 `search` job，参数是 `query`、`limit`、`min_score`。该 job 配置为 hybrid workspace search，包含向量召回、BM25 keyword 召回、RRF 融合和 wikilink expansion。QwenPaw 嵌入式 ReMe 配置里的存储后端是 local。
 

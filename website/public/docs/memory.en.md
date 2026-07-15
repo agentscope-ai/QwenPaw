@@ -100,7 +100,20 @@ source-linked daily notes via `auto_resource`.
 
 - **Location**: `{working_dir}/resource/`
 - **Supported default suffixes**: `md`, `txt`, `json`, `jsonl`, `csv`, `yaml`, `html`
+- **Date assignment**: Files directly under `resource/` are assigned to the current date. Files under
+  `resource/YYYY-MM-DD/` use that date and may be nested in additional subdirectories.
+- **Output**: Creates or updates `memory/YYYY-MM-DD/<note>.md` and retains a `source_resource` link in its frontmatter
 - **Inbox behavior**: Resource processing results are pushed to the inbox only when memory changed
+
+```text
+resource/report.txt                    # Assigned to the current date
+resource/2026-07-14/report.txt         # Assigned to 2026-07-14
+resource/2026-07-14/project/data.json  # Subdirectories are allowed below the date
+```
+
+> Auto Resource currently reads resources as UTF-8 text. Binary files such as PDF, Word, Excel, and images are not in
+> the watched-suffix list and are not parsed automatically; convert them to one of the supported text formats first.
+> The `yml` suffix is also not in the default allowlist; use `yaml`.
 
 > For a complete walkthrough of Auto-Memory, Auto-Dream, Auto-Memory-Search, and Proactive, see [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive). The sections below cover technical implementation details and configuration only.
 
@@ -240,7 +253,6 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 | `resource_dir`                  | Directory watched by `auto_resource`                                           | `"resource"`     |
 | `daily_dir`                     | Directory for daily memory notes                                               | `"memory"`       |
 | `digest_dir`                    | Directory for dream/digest memory                                              | `"digest"`       |
-| `enable_search_raw_log`         | Whether search also indexes raw session/resource JSONL-style data              | `false`          |
 | `summarize_when_compact`        | Whether pending turns are flushed to Auto-Memory before context compression    | `true`           |
 | `auto_memory_interval`          | Auto-Memory every N user turns. `None` or `<= 0` disables periodic Auto-Memory | `5`              |
 | `dream_cron`                    | Cron expression for the Auto-Dream job (empty string disables it)              | `"0 23 * * *"`   |
@@ -273,10 +285,16 @@ Embedding configuration for vector semantic search, located in `running.reme_lig
 | `enable_cache`     | Whether to enable Embedding cache                                                              | `true`   |
 | `use_dimensions`   | Whether to pass dimensions parameter in API                                                    | `false`  |
 | `max_cache_size`   | Maximum Embedding cache entries                                                                | `10000`  |
-| `max_input_length` | Maximum input length per Embedding request                                                     | `8192`   |
+| `max_input_length` | Approximate character budget per Embedding request                                             | `8192`   |
 | `max_batch_size`   | Maximum batch size for Embedding requests                                                      | `10`     |
 
 > `use_dimensions` is for cases where some vLLM models don't support the dimensions parameter. Set to `false` to skip it.
+
+Starting with ReMe 0.4.1.0, embedding input truncation uses a more conservative budget for token-dense CJK and other
+full-width characters and reserves an additional safety margin. This prevents long Chinese memory entries from
+exceeding the model context window and returning HTTP 400 with combinations such as Ollama and bge-m3.
+`max_input_length` remains an approximate character budget rather than a strict token limit calculated by the model's
+tokenizer. Reduce it further when using a model with a smaller context window.
 
 Vector retrieval is enabled only when the selected backend has the minimum runnable configuration. These conditions are aligned with AgentScope credential requirements:
 
@@ -295,8 +313,8 @@ The embedded ReMe configuration uses a local file store with:
 | File store       | Local ReMe file store under `mem_metadata/`                                                      |
 | Keyword index    | BM25 keyword index enabled by default                                                            |
 | Vector index     | Enabled only when `embedding_model_config` meets the enable condition for the selected `backend` |
-| Watched dirs     | `daily_dir` and `digest_dir`; `resource_dir` is also indexed when `enable_search_raw_log=true`   |
-| Watched suffixes | `md` by default; `jsonl` is included when raw-log search is enabled                              |
+| Watched dirs     | `daily_dir` and `digest_dir`                                                                     |
+| Watched suffixes | `md`                                                                                             |
 
 ---
 

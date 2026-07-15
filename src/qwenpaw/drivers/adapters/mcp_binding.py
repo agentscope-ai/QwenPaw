@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from typing import Any
 
+from .env_ref import env_alias, parse_env_template
 from ..credentials.types import CredentialRecord
 
 _SAFE_KEY_PATTERN = re.compile(r"[^a-z0-9_]+")
@@ -119,6 +121,50 @@ def source_binding_from_split(
             "field": str(secret_key),
         }
     return binding
+
+
+@dataclass
+class EnvRefPlan:
+    """Split of secret values into single ${VAR} bindings vs. the rest."""
+
+    env_bindings: dict[str, dict[str, str]] = field(default_factory=dict)
+    env_aliases: dict[str, str] = field(default_factory=dict)
+    plain_secrets: dict[str, str] = field(default_factory=dict)
+    multi_ref_keys: list[str] = field(default_factory=list)
+
+
+def plan_env_ref_bindings(secrets: dict[str, str]) -> EnvRefPlan:
+    """Route each secret value: single ${VAR} -> env: binding, else plain.
+
+    A value holding exactly one ${VAR} reference becomes a credential
+    binding against an ``env:``-backed alias, resolved from os.environ at
+    runtime so the real value is never persisted.  Plain values and values
+    with multiple references are returned untouched for the caller's
+    existing static-secret path; multi-reference keys are recorded so the
+    migration can warn about them.
+    """
+    plan = EnvRefPlan()
+    for raw_key, raw_value in dict(secrets or {}).items():
+        key = str(raw_key)
+        value = str(raw_value)
+        template = parse_env_template(value)
+        if template is not None and template.is_single:
+            var = template.var_names[0]
+            alias = env_alias(var)
+            plan.env_aliases[alias] = var
+            spec: dict[str, str] = {
+                "source": "credential",
+                "credential": alias,
+                "field": "value",
+            }
+            if template.format != "{value}":
+                spec["format"] = template.format
+            plan.env_bindings[key] = spec
+            continue
+        plan.plain_secrets[key] = value
+        if template is not None:
+            plan.multi_ref_keys.append(key)
+    return plan
 
 
 def binding_to_response(

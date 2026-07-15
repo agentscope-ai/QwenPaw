@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
 import logging
 import urllib.error
@@ -24,10 +25,19 @@ _FETCH_TIMEOUT = 30
 def _fetch_json(url: str) -> Any:
     req = urllib.request.Request(
         url,
-        headers={"Accept": "application/json"},
+        headers={
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
+        },
     )
     with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+        data = resp.read()
+        if (
+            resp.headers.get("Content-Encoding") == "gzip"
+            or data[:2] == b"\x1f\x8b"
+        ):
+            data = gzip.decompress(data)
+        return json.loads(data)
 
 
 def _plugin_id_from_file_entry(entry: dict[str, Any]) -> str:

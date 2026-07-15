@@ -10,7 +10,6 @@ import base64
 import hashlib
 import logging
 import re
-from contextlib import suppress
 from typing import Any, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
@@ -168,11 +167,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             self.agent_id,
         )
 
-        worker = self._worker_task
-        if worker is not None and not worker.done():
-            worker.cancel()
-            with suppress(BaseException):
-                await worker
+        worker_stopped = await self._shutdown_summarize_worker()
 
         if self._reme is not None:
             try:
@@ -182,7 +177,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 return False
 
         self._reme = None
-        return True
+        return worker_stopped
 
     def get_memory_prompt(self) -> str:
         """Return memory guidance for system prompt injection."""
@@ -535,3 +530,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
         if response is not None and not response.success:
             raise RuntimeError(str(response.answer))
+
+    async def reme_status(self) -> "Response | None":
+        """Return embedded ReMe component memory estimates and process RSS."""
+        return await self._run_reme_job("status")

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button, Card, Tag, Typography, Space, Tooltip } from "antd";
 import { Shield, Check, X, Clock, Copy, Info, AlertCircle } from "lucide-react";
-import type { ToolExecutionLevel } from "../../utils/approval";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../stores/agentStore";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
@@ -29,7 +28,6 @@ export interface ApprovalCardProps {
   isGeneralized?: boolean;
   exactTarget?: string;
   similarTarget?: string;
-  executionLevel?: ToolExecutionLevel;
   onApprove: (requestId: string, scope?: "exact" | "similar") => Promise<void>;
   onDeny: (requestId: string) => Promise<void>;
   onCancel?: () => void;
@@ -54,14 +52,13 @@ export function ApprovalCard({
   isGeneralized,
   exactTarget,
   similarTarget,
-  executionLevel,
   onApprove,
   onDeny,
   onCancel: _onCancel,
   onAcknowledge,
 }: ApprovalCardProps) {
   const { t } = useTranslation();
-  const isStrictMode = executionLevel === "STRICT";
+  const isAlwaysAllowDisabled = toolSource === "STRICT mode";
   const agents = useAgentStore((state) => state.agents);
   const agentsById = useMemo(
     () => new Map(agents.map((agent) => [agent.id, agent])),
@@ -274,11 +271,11 @@ export function ApprovalCard({
                   {t("approval.approvePattern", "Always Allow")}:
                 </Text>
                 <code className={styles.scopeCode}>{similarTarget}</code>
-                {isStrictMode && (
+                {isAlwaysAllowDisabled && (
                   <Tooltip
                     title={t(
-                      "approval.strictModeHint",
-                      "Always allow is unavailable in strict mode",
+                      "approval.alwaysAllowDisabledHint",
+                      "Always allow is unavailable for this approval source",
                     )}
                   >
                     <AlertCircle
@@ -379,10 +376,10 @@ export function ApprovalCard({
                 </Button>
                 <Tooltip
                   title={
-                    isStrictMode
+                    isAlwaysAllowDisabled
                       ? t(
-                          "approval.strictModeHint",
-                          "Always allow is unavailable in strict mode",
+                          "approval.alwaysAllowDisabledHint",
+                          "Always allow is unavailable for this approval source",
                         )
                       : undefined
                   }
@@ -392,7 +389,7 @@ export function ApprovalCard({
                     icon={<Check size={14} />}
                     onClick={() => handleApprove("similar")}
                     loading={loading === "approve-pattern"}
-                    disabled={isStrictMode || loading !== null}
+                    disabled={isAlwaysAllowDisabled || loading !== null}
                     className={styles.approveAlwaysButton}
                   >
                     {t("approval.approvePattern", "Always Allow")}

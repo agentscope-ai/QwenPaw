@@ -8,6 +8,7 @@ import logging
 import sqlite3
 import sys
 import threading
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -176,11 +177,11 @@ class HistoryStore:
                 "CREATE INDEX IF NOT EXISTS ch_kind "
                 "ON conversation_history(kind)",
             )
-            # Idempotency net: a second append of the same logical event (a
-            # resume re-persisting its restored window, or the cap middleware
-            # racing the manager) collides here and is dropped by ON CONFLICT
-            # rather than duplicating a row. NULL dedup_key never conflicts, so
-            # un-keyed rows are simply never deduped.
+            # Idempotency net: a second append of the same logical event, such
+            # as a resume re-persisting its restored window, collides here and
+            # is dropped by ON CONFLICT rather than duplicating a row. NULL
+            # dedup_key never conflicts, so un-keyed rows are simply never
+            # deduped.
             self._conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_dedup "
                 "ON conversation_history(session_id, dedup_key)",
@@ -232,6 +233,31 @@ class HistoryStore:
 
     # --- write path ----------------------------------------------------
 
+    @staticmethod
+    def _insert_row(
+        session_id: str,
+        agent_id: str | None,
+        entry: LogEntry,
+        dedup_key: str | None,
+    ) -> tuple:
+        """Build the SQLite row shared by single and batched appends."""
+        return (
+            session_id,
+            agent_id,
+            entry.kind,
+            entry.role,
+            entry.name,
+            entry.content,
+            entry.tool_call_id,
+            _to_json(entry.tool_input),
+            entry.tool_state,
+            entry.headline,
+            _to_json(entry.blocks),
+            _to_json(entry.metadata or None),
+            entry.created_at or datetime.now(timezone.utc).isoformat(),
+            dedup_key,
+        )
+
     def append(
         self,
         *,
@@ -249,22 +275,7 @@ class HistoryStore:
         restored window can re-link bookkeeping without duplicating rows. A
         ``None`` key is never deduped.
         """
-        row = (
-            session_id,
-            agent_id,
-            entry.kind,
-            entry.role,
-            entry.name,
-            entry.content,
-            entry.tool_call_id,
-            _to_json(entry.tool_input),
-            entry.tool_state,
-            entry.headline,
-            _to_json(entry.blocks),
-            _to_json(entry.metadata or None),
-            entry.created_at or datetime.now(timezone.utc).isoformat(),
-            dedup_key,
-        )
+        row = self._insert_row(session_id, agent_id, entry, dedup_key)
         placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
         with self._lock, self._conn:
             cur = self._conn.execute(
@@ -291,6 +302,51 @@ class HistoryStore:
                     (seq, entry.content or ""),
                 )
             return seq
+
+    def append_many(
+        self,
+        *,
+        session_id: str,
+        entries: Sequence[tuple[LogEntry, str | None]],
+        agent_id: str | None = None,
+    ) -> int:
+        """Append a group of events in one transaction.
+
+        Returns the number of newly inserted rows. Duplicate keys remain
+        no-ops and only newly inserted rows are added to FTS, matching
+        :meth:`append`. This is intended for backfills where committing every
+        individual row would turn SQLite fsync latency into startup latency.
+        """
+        if not entries:
+            return 0
+
+        placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
+        sql = (
+            f"INSERT INTO conversation_history "
+            f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders}) "
+            f"ON CONFLICT(session_id, dedup_key) DO NOTHING"
+        )
+        inserted = 0
+        with self._lock, self._conn:
+            for entry, dedup_key in entries:
+                row = self._insert_row(
+                    session_id,
+                    agent_id,
+                    entry,
+                    dedup_key,
+                )
+                cur = self._conn.execute(sql, row)
+                if cur.rowcount == 0:
+                    continue
+                inserted += 1
+                seq = int(cur.lastrowid or 0)
+                if self._fts and entry.name not in _RECALL_TOOL_NAMES:
+                    self._conn.execute(
+                        "INSERT INTO conversation_history_fts(rowid, content) "
+                        "VALUES (?, ?)",
+                        (seq, entry.content or ""),
+                    )
+        return inserted
 
     def update_entry(
         self,

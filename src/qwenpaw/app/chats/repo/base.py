@@ -123,12 +123,15 @@ class BaseChatRepository(ABC):
         self,
         user_id: Optional[str] = None,
         channel: Optional[str] = None,
+        archived: Optional[bool] = None,
     ) -> list[ChatSpec]:
-        """Filter chats by user_id and/or channel.
+        """Filter chats by user_id, channel and/or archived status.
 
         Args:
             user_id: Optional user ID filter
             channel: Optional channel filter
+            archived: Optional filter by archived status.
+                True = only archived, False = only active, None = all.
 
         Returns:
             Filtered list of chat specs
@@ -141,5 +144,8 @@ class BaseChatRepository(ABC):
 
         if channel is not None:
             results = [c for c in results if c.channel == channel]
+
+        if archived is not None:
+            results = [c for c in results if c.archived == archived]
 
         return results

@@ -16,8 +16,6 @@ Currently provided:
 
 import asyncio
 import logging
-import uuid
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Set
 
 from agentscope.middleware import MiddlewareBase
@@ -25,14 +23,12 @@ from agentscope.message import Msg
 from agentscope.tool import ToolResponse
 
 from .tools.utils import (
-    truncate_text_output,
     DEFAULT_MAX_BYTES,
-    TRUNCATION_METADATA_KEY,
+    ToolResultPruner,
 )
 from ..constant import (
-    AUTO_CONTINUE_MESSAGE_TAG,
+    EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
-    TRUNCATION_NOTICE_MARKER,
 )
 
 if TYPE_CHECKING:
@@ -80,13 +76,14 @@ class MemoryMiddleware(MiddlewareBase):
         if self._is_automation_request(agent):
             return await next_handler(**input_kwargs)
 
-        turn_marker = self._latest_user_turn_marker(agent.state.context)
+        query_msg = self._latest_external_user_query(agent.state.context)
+        turn_marker = query_msg.id if query_msg is not None else ""
         turn_state = self._auto_memory_turn_state(agent)
         if turn_marker and turn_marker != turn_state.get("searched_turn"):
             turn_state["searched_turn"] = turn_marker
             try:
                 result = await self._memory_manager.auto_memory_search(
-                    list(agent.state.context),
+                    query_msg,
                     agent_name=agent.name,
                     session_id=agent.state.session_id,
                     user_turn_id=turn_marker,
@@ -281,22 +278,34 @@ class MemoryMiddleware(MiddlewareBase):
         return str(metadata.get(QWENPAW_MESSAGE_TAG_KEY) or "")
 
     @classmethod
-    def _is_memory_user_turn(cls, msg: "Msg") -> bool:
-        return msg.role == "user" and cls._message_tag(msg) not in {
-            AUTO_CONTINUE_MESSAGE_TAG,
-        }
+    def _is_external_user_query(cls, msg: "Msg") -> bool:
+        return (
+            msg.role == "user"
+            and cls._message_tag(msg) == EXTERNAL_USER_QUERY_MESSAGE_TAG
+        )
 
-    @staticmethod
-    def _latest_user_turn_marker(messages: list["Msg"]) -> str:
+    @classmethod
+    def _latest_external_user_query(
+        cls,
+        messages: list["Msg"],
+    ) -> "Msg | None":
+        for msg in reversed(messages):
+            if cls._is_external_user_query(msg):
+                return msg
+        return None
+
+    @classmethod
+    def _latest_user_turn_marker(cls, messages: list["Msg"]) -> str:
         for idx in range(len(messages) - 1, -1, -1):
             msg = messages[idx]
-            if not MemoryMiddleware._is_memory_user_turn(msg):
+            if not cls._is_external_user_query(msg):
                 continue
             return msg.id
         return ""
 
-    @staticmethod
+    @classmethod
     def _messages_for_user_turns(
+        cls,
         messages: list["Msg"],
         *,
         turn_markers: list[str],
@@ -308,10 +317,7 @@ class MemoryMiddleware(MiddlewareBase):
         first_idx: int | None = None
         last_idx: int | None = None
         for idx, msg in enumerate(messages):
-            if (
-                MemoryMiddleware._is_memory_user_turn(msg)
-                and msg.id in targets
-            ):
+            if cls._is_external_user_query(msg) and msg.id in targets:
                 if first_idx is None:
                     first_idx = idx
                 last_idx = idx
@@ -321,11 +327,15 @@ class MemoryMiddleware(MiddlewareBase):
 
         end_idx = len(messages)
         for idx in range(last_idx + 1, len(messages)):
-            if MemoryMiddleware._is_memory_user_turn(messages[idx]):
+            if cls._is_external_user_query(messages[idx]):
                 end_idx = idx
                 break
 
-        return messages[first_idx:end_idx]
+        return [
+            msg
+            for msg in messages[first_idx:end_idx]
+            if msg.role != "user" or cls._is_external_user_query(msg)
+        ]
 
 
 class ToolResultPruningMiddleware(MiddlewareBase):
@@ -366,7 +376,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         self._recent_max_bytes = recent_max_bytes
         self._exempt_extensions = exempt_file_extensions or set()
         self._exempt_tools = exempt_tool_names or set()
-        self._tool_results_dir = tool_results_dir
+        self._pruner = ToolResultPruner(tool_results_dir)
         self._agent_id = agent_id
 
     async def on_acting(
@@ -378,7 +388,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         events: list[Any] = []
         async for event in next_handler():
             if isinstance(event, ToolResponse):
-                event = self.prune_tool_response(event)
+                event = await self.prune_tool_response_async(event)
             events.append(event)
             yield event
 
@@ -387,7 +397,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
 
         try:
             messages = list(agent.state.context)
-            self._prune_tool_results(messages)
+            await asyncio.to_thread(self._prune_tool_results, messages)
         except Exception:
             logger.exception("ToolResultPruningMiddleware failed")
 
@@ -407,10 +417,10 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         # ToolResponse byte size. Multi-block truncation metadata is kept by
         # content index so one block cannot influence another block's retry
         # location or cached file path.
-        self._prune_text_blocks(
+        self._pruner.prune_output(
             response.content or [],
-            self._recent_max_bytes,
-            response.metadata,
+            max_bytes=self._recent_max_bytes,
+            metadata=response.metadata,
         )
 
         return response
@@ -475,17 +485,15 @@ class ToolResultPruningMiddleware(MiddlewareBase):
                     if isinstance(block, dict)
                     else block.metadata
                 )
-                pruned, metadata = self._prune_output(
+                pruned, _ = self._pruner.prune_output(
                     output,
-                    effective_max,
-                    block_metadata,
+                    max_bytes=effective_max,
+                    metadata=block_metadata,
                 )
                 if isinstance(block, dict):
                     block["output"] = pruned
-                    block["metadata"].update(metadata)
                 else:
                     block.output = pruned
-                    block.metadata.update(metadata)
 
     def _detect_exempt_tool_ids(self, messages: list["Msg"]) -> Set[str]:
         exempt_ids: Set[str] = set()
@@ -538,118 +546,6 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         if isinstance(block, dict):
             return block.get("type")
         return getattr(block, "type", None)
-
-    @staticmethod
-    def _block_text(block: Any) -> str:
-        if isinstance(block, dict):
-            return block.get("text", "")
-        return getattr(block, "text", "")
-
-    @staticmethod
-    def _set_block_text(block: Any, text: str) -> None:
-        if isinstance(block, dict):
-            block["text"] = text
-        else:
-            block.text = text
-
-    def _prune_text_blocks(
-        self,
-        blocks: list[Any],
-        max_bytes: int,
-        metadata: dict[str, Any],
-        encoding: str = "utf-8",
-    ) -> None:
-        """Prune text blocks while keeping metadata scoped to each block."""
-        text_indices = [
-            idx
-            for idx, block in enumerate(blocks)
-            if self._block_type(block) == "text"
-        ]
-        if not text_indices:
-            return
-
-        for idx in text_indices:
-            text = self._block_text(blocks[idx])
-            pruned, patch = self._truncate_tool_result(
-                text,
-                max_bytes,
-                metadata,
-                encoding,
-                block_index=idx,
-            )
-            self._set_block_text(blocks[idx], pruned)
-            patch_by_block = patch.get(TRUNCATION_METADATA_KEY)
-            if isinstance(patch_by_block, dict):
-                current = metadata.setdefault(TRUNCATION_METADATA_KEY, {})
-                if isinstance(current, dict):
-                    current.update(patch_by_block)
-
-    def _prune_output(
-        self,
-        output: str | list[Any],
-        max_bytes: int,
-        metadata: dict[str, Any],
-        encoding: str = "utf-8",
-    ) -> tuple[str | list[Any], dict[str, Any]]:
-        if isinstance(output, str):
-            return self._truncate_tool_result(
-                output,
-                max_bytes,
-                metadata,
-                encoding,
-            )
-        if isinstance(output, list):
-            self._prune_text_blocks(output, max_bytes, metadata, encoding)
-        return output, metadata
-
-    def _truncate_tool_result(
-        self,
-        content: str,
-        max_bytes: int,
-        metadata: dict[str, Any] | None = None,
-        encoding: str = "utf-8",
-        block_index: int = 0,
-    ) -> tuple[str, dict[str, Any]]:
-        if not content:
-            return content, {}
-
-        if TRUNCATION_NOTICE_MARKER in content:
-            return truncate_text_output(
-                content,
-                max_bytes=max_bytes,
-                metadata=metadata,
-                encoding=encoding,
-                block_index=block_index,
-            )
-
-        try:
-            content_bytes = len(content.encode(encoding))
-        except UnicodeEncodeError:
-            return content, {}
-
-        if content_bytes <= max_bytes:
-            return content, {}
-
-        saved_path: str | None = None
-        if self._tool_results_dir:
-            try:
-                tool_result_dir = Path(self._tool_results_dir)
-                tool_result_dir.mkdir(parents=True, exist_ok=True)
-                fp = tool_result_dir / f"{uuid.uuid4().hex}.txt"
-                fp.write_text(content, encoding=encoding)
-                saved_path = str(fp)
-            except OSError as e:
-                logger.warning("Failed to save tool result to file: %s", e)
-
-        return truncate_text_output(
-            content,
-            start_line=1,
-            total_lines=content.count("\n") + 1,
-            max_bytes=max_bytes,
-            file_path=saved_path,
-            encoding=encoding,
-            block_index=block_index,
-        )
 
 
 class LangfuseToolSpanMiddleware(MiddlewareBase):

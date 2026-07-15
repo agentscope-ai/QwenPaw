@@ -15,7 +15,7 @@ from pathlib import Path
 # Add scripts/github to path so we can import the policy module.
 sys.path.insert(
     0,
-    str(Path(__file__).resolve().parents[2] / "scripts" / "github"),
+    str(Path(__file__).resolve().parents[3] / "scripts" / "github"),
 )
 
 from real_behavior_proof_policy import (  # noqa: E402

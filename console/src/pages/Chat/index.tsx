@@ -57,6 +57,13 @@ import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
 import { withGenericFallback } from "../../components/Chat/ToolCards/adapters/v1Adapter";
 import { applyApprovalLevelToRequestBody } from "./approvalPayload";
+import {
+  createHeadlineFilterState,
+  filterHeadlineDelta,
+  flushHeadlineFilter,
+  type HeadlineStreamFilterState,
+  stripScrollHeadlineTextBlocks,
+} from "./headlineFilter";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -64,6 +71,7 @@ interface ApprovalMessageData {
   rootSessionId?: string;
   agentId: string;
   toolName: string;
+  toolSource?: string;
   severity: string;
   findingsCount: number;
   findingsSummary: string;
@@ -545,6 +553,20 @@ function isSkillAvailableInConsole(skill: SkillSpec): boolean {
   if (!skill.enabled) return false;
   const channels = skill.channels?.length ? skill.channels : ["all"];
   return channels.includes("all") || channels.includes(DEFAULT_CHANNEL);
+}
+
+function sanitizeHeadlinePayload(
+  node: unknown,
+  streamState: HeadlineStreamFilterState,
+): void {
+  if (!node || typeof node !== "object") return;
+  if (!Array.isArray(node)) {
+    const record = node as Record<string, unknown>;
+    if (typeof record.delta === "string") {
+      record.delta = filterHeadlineDelta(record.delta, streamState);
+    }
+  }
+  stripScrollHeadlineTextBlocks(node);
 }
 
 // ---------------------------------------------------------------------------
@@ -1141,6 +1163,9 @@ export default function ChatPage() {
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
+  const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
+    createHeadlineFilterState(),
+  );
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
   const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
   const queueSessionIdRef = useRef(queueSessionId);
@@ -1466,6 +1491,7 @@ export default function ChatPage() {
         rootSessionId: approval.root_session_id,
         agentId: approval.agent_id,
         toolName: approval.tool_name,
+        toolSource: approval.tool_source,
         severity: approval.severity,
         findingsCount: approval.findings_count,
         findingsSummary: approval.findings_summary,
@@ -2294,6 +2320,8 @@ export default function ChatPage() {
         }
       }
 
+      headlineStreamFilterRef.current = createHeadlineFilterState();
+
       const response = await fetch(getApiUrl("/console/chat"), {
         method: "POST",
         headers,
@@ -2845,9 +2873,18 @@ export default function ChatPage() {
         fetch: customFetch,
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
+          sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
           if (payloadCompletesResponse(payload)) {
+            const trailing = flushHeadlineFilter(
+              headlineStreamFilterRef.current,
+            );
+            headlineStreamFilterRef.current = createHeadlineFilterState();
             const output = payload.output;
+            // A completed response normally carries canonical full output,
+            // which already contains any ordinary trailing prefix. Use the
+            // flushed delta only when that canonical output is absent, so it
+            // is neither lost nor duplicated.
             if (!output || (Array.isArray(output) && output.length === 0)) {
               const errorMsg =
                 (payload.error as any)?.message || t("chat.emptyOutputError");
@@ -2855,7 +2892,7 @@ export default function ChatPage() {
                 {
                   type: "message",
                   role: "assistant",
-                  content: [{ type: "text", text: errorMsg }],
+                  content: [{ type: "text", text: trailing || errorMsg }],
                 },
               ];
             }
@@ -2902,6 +2939,7 @@ export default function ChatPage() {
           };
 
           const reconnectIdentity = sessionApi.getSessionIdentity();
+          headlineStreamFilterRef.current = createHeadlineFilterState();
           const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
             headers,
@@ -2963,6 +3001,7 @@ export default function ChatPage() {
           ...pluginActions,
         ],
         replace: true,
+        right: false,
       },
       requestActions: {
         list: [
@@ -3108,6 +3147,7 @@ export default function ChatPage() {
               requestId={request.requestId}
               agentId={request.agentId}
               toolName={request.toolName}
+              toolSource={request.toolSource}
               severity={request.severity}
               findingsCount={request.findingsCount}
               findingsSummary={request.findingsSummary}
@@ -3119,9 +3159,6 @@ export default function ChatPage() {
               isGeneralized={request.isGeneralized}
               exactTarget={request.exactTarget}
               similarTarget={request.similarTarget}
-              executionLevel={
-                sessionApprovalLevelRef.current ?? runningConfigApprovalLevel
-              }
               onApprove={(reqId, scope) => handleApprove(reqId, scope)}
               onDeny={handleDeny}
               onCancel={() => {

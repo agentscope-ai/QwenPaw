@@ -6,10 +6,18 @@ const mockMessage = { success: vi.fn(), error: vi.fn() };
 
 vi.mock("../../../api", () => ({
   default: {
-    listSessions: vi.fn(),
     updateSession: vi.fn(),
     deleteSession: vi.fn(),
     batchDeleteSessions: vi.fn(),
+  },
+}));
+vi.mock("../../../api/modules/chat", () => ({
+  chatApi: {
+    listChats: vi.fn(),
+    archiveChat: vi.fn(),
+    unarchiveChat: vi.fn(),
+    batchArchiveChats: vi.fn(),
+    batchUnarchiveChats: vi.fn(),
   },
 }));
 vi.mock("../../../stores/agentStore", () => ({
@@ -23,6 +31,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 import api from "../../../api";
+import { chatApi } from "../../../api/modules/chat";
 
 type Session = { id: string; name: string; [key: string]: unknown };
 
@@ -34,7 +43,7 @@ describe("useSessions", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (api.listSessions as ReturnType<typeof vi.fn>).mockResolvedValue(
+    (chatApi.listChats as ReturnType<typeof vi.fn>).mockResolvedValue(
       mockSessions,
     );
   });
@@ -58,7 +67,7 @@ describe("useSessions", () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(api.listSessions).toHaveBeenCalledTimes(1);
+    expect(chatApi.listChats).toHaveBeenCalledTimes(1);
     expect(result.current.sessions).toEqual(mockSessions);
   });
 
