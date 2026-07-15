@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator
 
 import pytest
-from agentscope.message import TextBlock, ToolResultBlock
+from agentscope.message import TextBlock, ToolResultBlock, ToolResultState
 from agentscope.tool import ToolResponse
 
 from qwenpaw.tool_calls import ToolCoordinator, ToolCoordinatorMiddleware
@@ -232,3 +232,72 @@ async def test_caller_cancellation_does_not_cancel_background_task():
 
     bg_can_finish.set()
     await asyncio.wait_for(bg_task, timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_middleware_blocks_duplicate_tool_calls_in_same_turn():
+    from agentscope.message import Msg
+
+    coordinator = ToolCoordinator()
+    middleware = ToolCoordinatorMiddleware(coordinator)
+
+    # Setup a mock agent state with an assistant message containing a tool call
+    class MockState:
+        def __init__(self):
+            self.context = [
+                Msg(
+                    role="user",
+                    name="user",
+                    content=[TextBlock(type="text", text="hello")],
+                ),
+                Msg(
+                    role="assistant",
+                    name="assistant",
+                    content=[
+                        {
+                            "type": "tool_call",
+                            "id": "call-duplicate",
+                            "name": "web_search",
+                            "input": '{"query": "test"}',
+                        },
+                    ],
+                ),
+            ]
+
+    agent = type(
+        "AgentStub",
+        (),
+        {
+            "_request_context": {
+                "session_id": "session-1",
+                "agent_id": "agent-1",
+                "root_session_id": "root-1",
+            },
+            "state": MockState(),
+        },
+    )()
+
+    # Duplicate call because query "test" was already called in this turn
+    duplicate_call = _ToolCall(
+        id="call-duplicate-2",
+        name="web_search",
+        input={"query": "test"},
+    )
+
+    async def next_handler(tool_call):
+        yield _text_response(tool_call.id, "real result")
+
+    events = await _collect(
+        middleware.on_acting(
+            agent,
+            {"tool_call": duplicate_call},
+            next_handler,
+        ),
+    )
+
+    # Yields ToolResponse carrying error warning, does NOT execute next_handler
+    assert len(events) == 1
+    final = events[0]
+    assert isinstance(final, ToolResponse)
+    assert final.state == ToolResultState.ERROR
+    assert "Duplicate tool call" in final.content[0].text
