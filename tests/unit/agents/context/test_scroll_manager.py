@@ -190,7 +190,6 @@ def test_tool_result_persisted_under_tool_call_id(store: HistoryStore):
         {
             "qwenpaw_truncation": {
                 "0": {
-                    "artifact_id": "artifact.txt",
                     "file_path": "/tmp/artifact.txt",
                 },
             },
@@ -205,7 +204,6 @@ def test_tool_result_persisted_under_tool_call_id(store: HistoryStore):
     assert len(rows) == 1
     assert rows[0]["content"] == "big output"
     assert json.loads(rows[0]["metadata"])["qwenpaw_truncation"]["0"] == {
-        "artifact_id": "artifact.txt",
         "file_path": "/tmp/artifact.txt",
     }
 
@@ -617,7 +615,7 @@ async def test_fold_not_triggered_between_reserve_and_trigger(
             assert block.output[0].text.startswith("RESULT-")
 
 
-async def test_compress_replaces_old_preview_with_stable_artifact_pointer(
+async def test_compress_replaces_old_preview_with_tool_call_pointer(
     store: HistoryStore,
 ):
     text = "\n".join(f"line {idx}: {'x' * 40}" for idx in range(100))
@@ -655,9 +653,10 @@ async def test_compress_replaces_old_preview_with_stable_artifact_pointer(
 
     compacted = turn.content[2].output[0].text
     assert compacted.startswith("[scroll folded]")
-    assert "read_file" in compacted
-    assert "/tmp/full-tool-result.txt" in compacted
-    assert "start_line=50" in compacted
+    assert 'recall_history(op="recall_tool"' in compacted
+    assert "call-1" in compacted
+    assert "read_file" not in compacted
+    assert "/tmp/full-tool-result.txt" not in compacted
     assert "covers the next 120 bytes" not in compacted
     assert turn.content[-1].output[0].text == "newest result"
     assert mgr.last_compress["folded"] == 1
@@ -832,64 +831,6 @@ async def test_single_message_over_hard_limit_fails_closed(
 
     assert exc.value.tokens == 1200
     assert exc.value.hard_limit == 1000
-    assert mgr.last_compress["summarized"] == 0
-
-
-async def test_emergency_summary_uses_text_only_tool_ledger_and_fits(
-    store: HistoryStore,
-):
-    class EmergencyModel(FakeModel):
-        def __init__(self) -> None:
-            super().__init__([1200, 100, 300], context_size=1000)
-            self.summary_messages = None
-
-        async def generate_structured_output(
-            self,
-            *,
-            messages,
-            structured_model,
-        ):
-            self.summary_messages = messages
-            return SimpleNamespace(
-                content={
-                    "task_overview": "update the skill",
-                    "current_state": "target file and comparison rule found",
-                    "important_discoveries": "KEEP and FIX must be paired",
-                    "next_steps": "edit and validate SKILL.md",
-                    "context_to_preserve": "keep four pattern categories",
-                },
-            )
-
-    active_reply = assistant_with_tool("call-read", "very large file output")
-    ctx = [user("add comparison analysis to SKILL.md"), active_reply]
-    mgr = make_manager(store)
-    agent = FakeAgent(ctx)
-    agent.model = EmergencyModel()
-    agent.context_config = SimpleNamespace(
-        trigger_ratio=0.1,
-        reserve_ratio=0.5,
-        summary_schema={"type": "object"},
-        summary_template=(
-            "Task: {task_overview}\nState: {current_state}\n"
-            "Discoveries: {important_discoveries}\nNext: {next_steps}\n"
-            "Preserve: {context_to_preserve}"
-        ),
-    )
-    agent._split_return = (ctx, [])
-
-    await mgr.compress(agent)
-
-    assert mgr.last_compress["summarized"] == 1
-    assert len(agent.state.context) == 3
-    assert "Emergency active-turn checkpoint" in active_reply.content[0].text
-    assert "edit and validate SKILL.md" in active_reply.content[0].text
-    assert agent.model.summary_messages is not None
-    summary_block_types = {
-        block.type
-        for msg in agent.model.summary_messages
-        for block in msg.content
-    }
-    assert summary_block_types == {"text"}
 
 
 async def test_steady_state_counts_once_and_warns_once(

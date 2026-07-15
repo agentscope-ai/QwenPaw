@@ -66,21 +66,6 @@ _INDEX_PROMPT = (
 _SUMMARY_INPUT_CHARS = 6000  # cap on the text sent to the model
 _SUMMARY_LINE_CHARS = 200  # mirrors serialize._HEADLINE_MAX
 _SUMMARY_MAX_LINES = 6  # ceiling on sections per span
-_EMERGENCY_TRANSCRIPT_CHARS = 12_000
-_EMERGENCY_BLOCK_CHARS = 1_000
-_EMERGENCY_PROMPT = (
-    "Create a continuation checkpoint for an agent whose active turn no "
-    "longer fits its context window. The transcript is a TEXT-ONLY ledger; "
-    "tool calls and results have already been persisted separately. Preserve "
-    "the original task, completed work, important evidence/decisions, exact "
-    "file paths and identifiers, blockers, and concrete next steps. Never "
-    "invent a successful action. Keep the checkpoint concise and actionable."
-)
-_MINIMAL_HISTORY_POINTER = (
-    "<system-info>Older conversation history is archived in history.db. "
-    "Use recall_history with a targeted keyword search when evidence is "
-    "needed; do not broadly expand the whole archive.</system-info>"
-)
 
 # One reply line: ``2: headline`` / ``[2] headline`` / ``2. headline``.
 _HEADLINE_LINE_RE = re.compile(r"^\[?\s*(\d+)\s*\]?\s*[:.：、)]?\s*(.+)$")
@@ -201,7 +186,6 @@ class ScrollContextManager:
             "evicted": 0,
             "compacted": 0,
             "folded": 0,
-            "summarized": 0,
         }
         # Warn once per overflow episode, not once per reasoning step.
         self._overflow_warned = False
@@ -215,34 +199,7 @@ class ScrollContextManager:
         )
         return metadata if isinstance(metadata, dict) else {}
 
-    @classmethod
-    def _artifact_refs(cls, block: Any) -> list[dict[str, Any]]:
-        by_block = cls._block_metadata(block).get("qwenpaw_truncation", {})
-        if not isinstance(by_block, dict):
-            return []
-        return [
-            info
-            for info in by_block.values()
-            if isinstance(info, dict) and info.get("file_path")
-        ]
-
     def _tool_result_pointer_stub(self, block: Any) -> str:
-        refs = self._artifact_refs(block)
-        if refs:
-            pointers = []
-            for info in refs:
-                artifact_id = info.get("artifact_id") or "legacy-artifact"
-                start_line = info.get("start_line") or 1
-                pointers.append(
-                    f"artifact_id={artifact_id!r} "
-                    f'file_path={info["file_path"]!r} '
-                    f"start_line={start_line}",
-                )
-            return (
-                f"{_FOLD_MARK} old tool result content cleared; read the "
-                "original artifact directly with read_file: "
-                + "; ".join(pointers)
-            )
         tcid = (
             block.get("id")
             if isinstance(block, dict)
@@ -321,170 +278,6 @@ class ScrollContextManager:
         op = str(payload.get("op") or "")
         if op:
             self._recall_loop_guard.block(op, payload)
-
-    @staticmethod
-    def _block_text(block: Any) -> str:
-        """Bounded text representation for emergency summarization."""
-        btype = getattr(block, "type", None)
-        if btype == "text":
-            value = getattr(block, "text", "") or ""
-        elif btype == "thinking":
-            value = getattr(block, "thinking", "") or ""
-        elif btype == "tool_call":
-            value = (
-                f"Tool call id={getattr(block, 'id', '')} "
-                f"name={getattr(block, 'name', '')} "
-                f"input={getattr(block, 'input', '')}"
-            )
-        elif btype == "tool_result":
-            value = (
-                f"Tool result id={getattr(block, 'id', '')} "
-                f"name={getattr(block, 'name', '')}; full output archived. "
-                f"Live preview={getattr(block, 'output', '')}"
-            )
-        else:
-            value = str(block)
-        value = str(value).strip()
-        if len(value) > _EMERGENCY_BLOCK_CHARS:
-            value = value[:_EMERGENCY_BLOCK_CHARS] + "…"
-        return value
-
-    def _active_turn_transcript(self, active: list[Msg]) -> str:
-        lines: list[str] = []
-        for msg in active:
-            role = getattr(msg, "role", None) or getattr(msg, "name", "")
-            for block in getattr(msg, "content", None) or []:
-                value = self._block_text(block)
-                if value:
-                    lines.append(f"{role}: {value}")
-        transcript = "\n".join(lines)
-        if len(transcript) <= _EMERGENCY_TRANSCRIPT_CHARS:
-            return transcript
-        # Preserve both the original request at the head and the most recent
-        # progress/next-step evidence at the tail.
-        head = _EMERGENCY_TRANSCRIPT_CHARS * 2 // 3
-        tail = _EMERGENCY_TRANSCRIPT_CHARS - head
-        return (
-            transcript[:head]
-            + "\n[… middle of active turn archived …]\n"
-            + transcript[-tail:]
-        )
-
-    # pylint: disable-next=too-many-return-statements
-    async def _emergency_summarize_active_turn(
-        self,
-        agent: Any,
-        *,
-        hard_limit: int,
-    ) -> int | None:
-        """Replace an oversized active tool trace with a text checkpoint.
-
-        This deliberately does not invoke AgentScope's full native compressor:
-        raw tool blocks are serialized to plain text first, so its own
-        summarization request cannot contain mismatched tool call/result
-        structures. The original blocks are already durable in history.db.
-        """
-        active = self._active_turn_tail(agent)
-        if len(active) < 2:
-            return None
-        assistant_msgs = [
-            msg
-            for msg in active[1:]
-            if getattr(msg, "role", None) == "assistant"
-        ]
-        if not assistant_msgs:
-            return None
-        transcript = self._active_turn_transcript(active)
-        if not transcript:
-            return None
-        cfg = getattr(agent, "context_config", None)
-        summary_schema = getattr(cfg, "summary_schema", None)
-        summary_template = getattr(cfg, "summary_template", None)
-        model = getattr(agent, "model", None)
-        generate = getattr(model, "generate_structured_output", None)
-        if (
-            not summary_schema
-            or not summary_template
-            or not callable(generate)
-        ):
-            return None
-        messages = [
-            Msg(
-                name="system",
-                role="system",
-                content=[TextBlock(type="text", text=_EMERGENCY_PROMPT)],
-            ),
-            Msg(
-                name="user",
-                role="user",
-                content=[TextBlock(type="text", text=transcript)],
-            ),
-        ]
-        schema_tool = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "generate_structured_output",
-                    "description": "Generate the emergency checkpoint.",
-                    "parameters": summary_schema,
-                },
-            },
-        ]
-        summary_input_tokens = await model.count_tokens(messages, schema_tool)
-        if summary_input_tokens >= hard_limit:
-            logger.warning(
-                "scroll: emergency summary input itself is unfit (%d >= %d)",
-                summary_input_tokens,
-                hard_limit,
-            )
-            return None
-        try:
-            response = await asyncio.wait_for(
-                generate(messages=messages, structured_model=summary_schema),
-                timeout=self._summarize_timeout_s,
-            )
-            content = (
-                response.get("content")
-                if isinstance(response, dict)
-                else getattr(response, "content", None)
-            )
-            if not isinstance(content, dict):
-                return None
-            checkpoint = summary_template.format(**content)
-        except Exception:  # noqa: BLE001 - hard-fit fallback is best effort
-            logger.warning(
-                "scroll: emergency active-turn summarization failed",
-                exc_info=True,
-            )
-            return None
-
-        # Keep the original user request verbatim and preserve the current
-        # assistant Msg identity so AgentScope can continue extending it.
-        current_reply = assistant_msgs[-1]
-        current_reply.content = [
-            TextBlock(
-                type="text",
-                text=(
-                    "<system-info>Emergency active-turn checkpoint; full "
-                    "tool evidence remains in scroll history.</system-info>\n"
-                    + checkpoint
-                ),
-            ),
-        ]
-        placeholder = UserMsg(name="memory", content=_MINIMAL_HISTORY_POINTER)
-        self._synthetic_ids.add(placeholder.id)
-        agent.state.context = [placeholder, active[0], current_reply]
-        sanitized = _remove_unpaired_tool_messages(agent.state.context)
-        agent.state.context = sanitized
-        tokens = await self._live_tokens(agent)
-        logger.warning(
-            "scroll: emergency active-turn checkpoint reduced context to %d "
-            "tokens (hard limit %d)",
-            tokens,
-            hard_limit,
-        )
-        self.last_compress["summarized"] = 1
-        return tokens
 
     # -- delegated hooks -----------------------------------------------------
 
@@ -588,7 +381,6 @@ class ScrollContextManager:
             "evicted": 0,
             "compacted": 0,
             "folded": 0,
-            "summarized": 0,
         }
         hard_limit = int(agent.model.context_size)
         if self._recall_loop_guard is not None:
@@ -780,19 +572,11 @@ class ScrollContextManager:
         # than ``reserve``, preserving the existing warning unchanged.
         overflow_threshold = pressure_threshold
         if tokens > hard_limit:
-            emergency_tokens = await self._emergency_summarize_active_turn(
-                agent,
+            log_timings("unfit")
+            raise ContextWindowUnfitError(
+                tokens=tokens,
                 hard_limit=hard_limit,
             )
-            mark("emergency_summary")
-            if emergency_tokens is not None:
-                tokens = emergency_tokens
-            if tokens > hard_limit:
-                log_timings("unfit")
-                raise ContextWindowUnfitError(
-                    tokens=tokens,
-                    hard_limit=hard_limit,
-                )
         if tokens > overflow_threshold:
             if not self._overflow_warned:
                 self._overflow_warned = True

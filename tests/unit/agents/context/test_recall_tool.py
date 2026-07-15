@@ -165,7 +165,7 @@ def test_recall_guard_ignores_parameters_unused_by_operation():
     )
 
 
-async def test_large_recall_is_cursor_paginated_without_derived_artifact(
+async def test_large_recall_is_cursor_paginated(
     tmp_path: Path,
 ):
     history = HistoryStore(tmp_path / "large-history.db")
@@ -187,8 +187,7 @@ async def test_large_recall_is_cursor_paginated_without_derived_artifact(
         session_id="current",
         agent_id="ag1",
         loop_guard=guard,
-        tool_result_max_bytes=1024,
-        tool_results_dir=str(tmp_path / "tool-results"),
+        page_max_bytes=1024,
     )
 
     chunk = await bounded_tool(op="expand", lo=1, hi=1)
@@ -196,7 +195,6 @@ async def test_large_recall_is_cursor_paginated_without_derived_artifact(
     assert "[recall page incomplete]" in _text(chunk)
     page = chunk.metadata[RECALL_PAGE_METADATA_KEY]
     assert page["next_cursor"]
-    assert not (tmp_path / "tool-results").exists()
 
     repeated = await bounded_tool(op="expand", lo=1, hi=1)
     assert "RECALL LOOP BLOCKED" in _text(repeated)
@@ -242,8 +240,6 @@ async def test_large_historical_tool_result_exposes_artifact_on_first_page(
             metadata={
                 "qwenpaw_truncation": {
                     "0": {
-                        "artifact_id": artifact.name,
-                        "artifact_sha256": "abc123",
                         "file_path": str(artifact),
                         "start_line": 37,
                     },
@@ -256,8 +252,7 @@ async def test_large_historical_tool_result_exposes_artifact_on_first_page(
         history_db_path=str(tmp_path / "artifact-history.db"),
         session_id="current",
         agent_id="ag1",
-        tool_result_max_bytes=1024,
-        tool_results_dir=str(tmp_path / "derived-results"),
+        page_max_bytes=1024,
     )
 
     chunk = await bounded_tool(
@@ -266,9 +261,7 @@ async def test_large_historical_tool_result_exposes_artifact_on_first_page(
     )
 
     assert str(artifact) in _text(chunk)
-    assert artifact.name in _text(chunk)
     assert "start_line=37" in _text(chunk)
-    assert not (tmp_path / "derived-results").exists()
 
 
 async def test_cursor_is_bound_to_original_search_arguments(tmp_path: Path):
@@ -289,7 +282,7 @@ async def test_cursor_is_bound_to_original_search_arguments(tmp_path: Path):
         history_db_path=str(db_path),
         session_id="current",
         agent_id="ag1",
-        tool_result_max_bytes=1024,
+        page_max_bytes=1024,
     )
 
     first = await bounded_tool(op="search", query="alpha", k=10)
@@ -341,7 +334,7 @@ async def test_cursor_detects_result_snapshot_drift(tmp_path: Path):
         history_db_path=str(db_path),
         session_id="current",
         agent_id="ag1",
-        tool_result_max_bytes=1024,
+        page_max_bytes=1024,
     )
 
     first = await bounded_tool(op="search", query="snapshotneedle", k=10)

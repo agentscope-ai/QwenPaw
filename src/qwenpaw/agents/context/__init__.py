@@ -206,9 +206,6 @@ def build_scroll_components(
                 "summarize_eviction_timeout_seconds",
                 20,
             ),
-            tool_results_dir=str(
-                Path(workspace_dir) / trc.tool_results_cache,
-            ),
             recall_loop_guard=recall_loop_guard,
         )
         tool = make_recall_history_python(
@@ -228,12 +225,7 @@ def build_scroll_components(
             session_id=session_id,
             agent_id=agent_id,
             loop_guard=recall_loop_guard,
-            tool_result_max_bytes=(
-                trc.pruning_recent_msg_max_bytes if trc.enabled else None
-            ),
-            tool_results_dir=str(
-                Path(workspace_dir) / trc.tool_results_cache,
-            ),
+            page_max_bytes=trc.pruning_recent_msg_max_bytes,
         )
         return ScrollComponents(
             context_manager=manager,

@@ -248,29 +248,8 @@ def _render_rows(rows: list[dict]) -> str:
             if row.get(k) not in (None, "")
         )
         head = f"— seq={row.get('seq')}" + (f" {meta}" if meta else "")
-        raw_metadata = row.get("metadata")
-        if isinstance(raw_metadata, str):
-            try:
-                raw_metadata = json.loads(raw_metadata)
-            except (TypeError, ValueError):
-                raw_metadata = None
-        artifact_lines: list[str] = []
-        if isinstance(raw_metadata, dict):
-            by_block = raw_metadata.get("qwenpaw_truncation", {})
-            if isinstance(by_block, dict):
-                for info in by_block.values():
-                    if not isinstance(info, dict) or not info.get("file_path"):
-                        continue
-                    artifact_id = info.get("artifact_id") or "legacy-artifact"
-                    start_line = info.get("start_line") or 1
-                    artifact_lines.append(
-                        "saved_artifact: "
-                        f"artifact_id={artifact_id!r} "
-                        f"file_path={info['file_path']!r} "
-                        f"start_line={start_line}",
-                    )
         body = str(row.get("content") or "").rstrip()
-        row_parts = [head, *artifact_lines]
+        row_parts = [head]
         if body:
             row_parts.append(body)
         parts.append("\n".join(row_parts))
@@ -452,8 +431,7 @@ def make_recall_history(
     session_id: str | None,
     agent_id: str | None = None,
     loop_guard: RecallLoopGuard | None = None,
-    tool_result_max_bytes: int | None = None,
-    tool_results_dir: str | None = None,
+    page_max_bytes: int = DEFAULT_MAX_BYTES,
 ):
     """Build a ``recall_history`` tool bound to one session's history.
 
@@ -462,11 +440,6 @@ def make_recall_history(
     :class:`MemorySpace` per call keeps the read-only ATTACH + authorizer
     setup identical to the REPL's and leaks no connection across calls.
     """
-
-    # Kept in the builder signature for configuration compatibility. Recall
-    # pages are derived data and must not create second-generation artifacts.
-    del tool_results_dir
-    page_max_bytes = tool_result_max_bytes or DEFAULT_MAX_BYTES
 
     def _open_ms() -> Any:
         # Imported lazily (not at module top) for symmetry with the sandboxed

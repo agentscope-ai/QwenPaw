@@ -201,23 +201,6 @@ async def read_file(  # pylint: disable=too-many-return-statements
 
         # Apply smart truncation (consistent with shell output format)
         max_bytes = get_current_recent_max_bytes() or DEFAULT_MAX_BYTES
-        selected_bytes = len(selected_content.encode("utf-8"))
-        if end_line is not None and selected_bytes > max_bytes:
-            return ToolChunk(
-                is_last=True,
-                state=ToolResultState.ERROR,
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=(
-                            f"Error: requested lines {s}-{e} require "
-                            f"{selected_bytes} bytes, exceeding the "
-                            f"{max_bytes}-byte output limit. Read a smaller "
-                            "line range; no partial range was returned."
-                        ),
-                    ),
-                ],
-            )
         text, metadata = truncate_text_output(
             selected_content,
             start_line=s,
@@ -226,22 +209,6 @@ async def read_file(  # pylint: disable=too-many-return-statements
             file_size_bytes=len(content.encode("utf-8")),
             max_bytes=max_bytes,
         )
-        if selected_bytes > max_bytes and not metadata:
-            return ToolChunk(
-                is_last=True,
-                state=ToolResultState.ERROR,
-                content=[
-                    TextBlock(
-                        type="text",
-                        text=(
-                            "Error: the requested content contains a line "
-                            f"larger than the {max_bytes}-byte output limit. "
-                            "No partial line was returned; use a byte-aware "
-                            "tool or narrow the source before reading it."
-                        ),
-                    ),
-                ],
-            )
 
         # Add continuation hint if partial read without truncation.
         # Use TRUNCATION_NOTICE_MARKER format so ToolResultPruningMiddleware can

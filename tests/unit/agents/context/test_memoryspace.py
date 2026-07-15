@@ -636,7 +636,6 @@ def test_saved_tool_paths_prefer_structured_artifact_metadata(tmp_path: Path):
             {
                 "qwenpaw_truncation": {
                     "0": {
-                        "artifact_id": artifact.name,
                         "file_path": str(artifact),
                     },
                 },
@@ -725,12 +724,52 @@ def test_recall_tool_annotates_each_multiblock_artifact(tmp_path: Path):
     ]
     assert artifacts == [
         "Full saved tool output is available at "
-        f"artifact_id='legacy-artifact' file_path={str(first_file)!r} "
-        "start_line=1.",
+        f"file_path={str(first_file)!r} start_line=1.",
         "Full saved tool output is available at "
-        f"artifact_id='legacy-artifact' file_path={str(second_file)!r} "
-        "start_line=1.",
+        f"file_path={str(second_file)!r} start_line=1.",
     ]
+
+
+def test_recall_tool_returns_preview_when_artifact_expired(tmp_path: Path):
+    artifact = tmp_path / "expired-result.txt"
+    artifact.write_text("complete output\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="expired-result",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content="bounded preview",
+            tool_call_id="expired-call",
+            metadata={
+                "qwenpaw_truncation": {
+                    "0": {
+                        "file_path": str(artifact),
+                        "start_line": 1,
+                    },
+                },
+            },
+        ),
+    )
+    history.close()
+    artifact.unlink()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        rows = space.recall_tool("expired-call")
+    finally:
+        space.close()
+
+    assert rows[0]["kind"] == "_saved_tool_output_unavailable"
+    assert "ARTIFACT_UNAVAILABLE" in rows[0]["content"]
+    assert rows[1]["kind"] == "tool_result"
+    assert rows[1]["content"] == "bounded preview"
 
 
 def test_saved_tool_search_pages_past_first_200_candidates(tmp_path: Path):

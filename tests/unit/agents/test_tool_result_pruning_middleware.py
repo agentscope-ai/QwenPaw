@@ -10,7 +10,6 @@ import sys
 import threading
 import types
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, AsyncGenerator
 
 import pytest
@@ -436,8 +435,6 @@ def test_retruncate_uses_metadata(tmp_path):
 
     first, metadata = pruner.prune_text(text, max_bytes=2000)
     info = metadata[TRUNCATION_METADATA_KEY]["0"]
-    assert info["artifact_id"] == Path(info["file_path"]).name
-    assert len(info["artifact_sha256"]) == 64
     corrupted = first.replace("starts at line 1", "starts at line 999")
     second, updated = pruner.prune_text(
         corrupted,
@@ -449,8 +446,6 @@ def test_retruncate_uses_metadata(tmp_path):
     assert new_info["start_line"] == 1
     assert new_info["max_bytes"] == 500
     assert new_info["file_path"] == info["file_path"]
-    assert new_info["artifact_id"] == info["artifact_id"]
-    assert new_info["artifact_sha256"] == info["artifact_sha256"]
     assert second.endswith(new_info["notice"])
 
 

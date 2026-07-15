@@ -770,11 +770,33 @@ class MemorySpace:
         out: list[dict] = []
         budget = self._new_saved_tool_scan_budget()
         for row in rows:
-            for path, info in self._saved_tool_refs(
+            raw_refs = self._raw_saved_tool_refs(
                 row.get("content"),
                 row.get("metadata"),
-            ):
-                artifact_id = info.get("artifact_id") or "legacy-artifact"
+            )
+            saved_refs = self._saved_tool_refs(
+                row.get("content"),
+                row.get("metadata"),
+            )
+            if raw_refs and not saved_refs:
+                out.append(
+                    {
+                        "seq": row.get("seq"),
+                        "kind": "_saved_tool_output_unavailable",
+                        "role": None,
+                        "name": row.get("name"),
+                        "tool_input": None,
+                        "tool_state": row.get("tool_state"),
+                        "content": (
+                            "ARTIFACT_UNAVAILABLE — the complete saved tool "
+                            "output has expired, was deleted, or cannot be "
+                            "accessed safely. The bounded preview retained "
+                            "in Scroll history is returned below and may "
+                            "not contain the full original result."
+                        ),
+                    },
+                )
+            for path, info in saved_refs:
                 start_line = info.get("start_line") or 1
                 extra = {
                     "seq": row.get("seq"),
@@ -785,7 +807,6 @@ class MemorySpace:
                     "tool_state": row.get("tool_state"),
                     "content": (
                         "Full saved tool output is available at "
-                        f"artifact_id={artifact_id!r} "
                         f"file_path={str(path)!r} start_line={start_line}."
                     ),
                 }
