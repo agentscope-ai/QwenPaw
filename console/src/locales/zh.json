@@ -1970,6 +1970,8 @@
     "embeddingConfigCollapseLabel": "向量模型配置",
     "summarizeWhenCompact": "压缩时记忆",
     "summarizeWhenCompactTooltip": "在上下文压缩时自动生成并保存记忆",
+    "inboxPushEnabled": "记忆结果收件箱通知",
+    "inboxPushEnabledTooltip": "将自动记忆、自动梦境和自动资源任务结果推送到收件箱。关闭后仅停止通知，不影响记忆任务运行。",
     "autoMemoryInterval": "自动记忆间隔",
     "autoMemoryIntervalTooltip": "每隔 N 次用户查询触发一次自动记忆。0 表示禁用定期自动记忆，1 表示每次查询后自动记忆，推荐设置 2-5；设置 1 需要注意高 token 消耗。",
     "autoMemoryIntervalPlaceholder": "输入 0 禁用定期自动记忆",
