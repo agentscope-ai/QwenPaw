@@ -264,7 +264,12 @@
     "sessionCount": "共 {{count}} 场开发者日会",
     "backToList": "返回博客列表",
     "notFound": "文章未找到",
-    "empty": "暂无博客文章"
+    "empty": "暂无博客文章",
+    "views": "{{count}} 次阅读",
+    "viewsLabel": "阅读量",
+    "likes": "{{count}}",
+    "like": "点赞",
+    "unlike": "取消点赞"
   },
   "docs": {
     "intro": "项目介绍",

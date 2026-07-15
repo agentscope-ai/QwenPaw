@@ -264,7 +264,12 @@
     "sessionCount": "{{count}} developer day sessions",
     "backToList": "Back to blog",
     "notFound": "Post not found",
-    "empty": "No blog posts yet"
+    "empty": "No blog posts yet",
+    "views": "{{count}} views",
+    "viewsLabel": "Views",
+    "likes": "{{count}}",
+    "like": "Like",
+    "unlike": "Unlike"
   },
   "docs": {
     "intro": "Introduction",
