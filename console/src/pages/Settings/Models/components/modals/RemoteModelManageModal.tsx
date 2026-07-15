@@ -1014,20 +1014,18 @@ export function RemoteModelManageModal({
                           flexShrink: 0,
                         }}
                       />
-                      {m.probe_source !== "documentation" && (
-                        <Tooltip
-                          title={t("models.probeMultimodal", "测试多模态")}
-                        >
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<ExperimentOutlined />}
-                            onClick={() => handleProbeMultimodal(m.id)}
-                            loading={probingModelId === m.id}
-                            style={darkBtnStyle}
-                          />
-                        </Tooltip>
-                      )}
+                      <Tooltip
+                        title={t("models.probeMultimodal", "测试多模态")}
+                      >
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<ExperimentOutlined />}
+                          onClick={() => handleProbeMultimodal(m.id)}
+                          loading={probingModelId === m.id}
+                          style={darkBtnStyle}
+                        />
+                      </Tooltip>
                       <Tooltip title={t("models.testConnection")}>
                         <Button
                           type="text"

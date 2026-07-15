@@ -501,7 +501,7 @@ OPENCODE_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="mimo-v2.5-free",
         name="Mimo V2.5",
-        supports_image=False,
+        supports_image=True,
         supports_video=False,
         probe_source="documentation",
         is_free=True,
@@ -2221,6 +2221,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     "thinking_enabled",
                     "thinking_budget",
                     "reasoning_effort",
+                    "supports_multimodal",
+                    "supports_image",
+                    "supports_video",
                 )
                 for m in provider.models:
                     stored_model_config[m.id] = {
@@ -2256,6 +2259,14 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                                 model.reasoning_effort = cfg[
                                     "reasoning_effort"
                                 ]
+                            if cfg.get("supports_multimodal") is not None:
+                                model.supports_multimodal = cfg[
+                                    "supports_multimodal"
+                                ]
+                            if cfg.get("supports_image") is not None:
+                                model.supports_image = cfg["supports_image"]
+                            if cfg.get("supports_video") is not None:
+                                model.supports_video = cfg["supports_video"]
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)
