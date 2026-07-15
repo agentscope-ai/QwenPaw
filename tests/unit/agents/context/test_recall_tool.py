@@ -139,6 +139,29 @@ async def test_folded_recall_target_is_blocked_until_turn_changes(
     assert "RECALL LOOP BLOCKED" not in _text(allowed_again)
 
 
+def test_recall_guard_ignores_parameters_unused_by_operation():
+    guard = RecallLoopGuard()
+    guard.begin_turn("user-1")
+
+    guard.block("expand", {"lo": 1, "hi": 3})
+    assert guard.is_blocked(
+        "expand",
+        {"lo": 1, "hi": 3, "k": 99, "query": "ignored"},
+    )
+
+    guard.block("search", {"query": "flight", "k": 10})
+    assert guard.is_blocked(
+        "search",
+        {"query": "flight", "k": 10, "lo": 1, "hi": 999},
+    )
+
+    guard.block("recall_tool", {"tool_call_id": "call-1"})
+    assert guard.is_blocked(
+        "recall_tool",
+        {"tool_call_id": "call-1", "k": 77, "all_agents": True},
+    )
+
+
 async def test_recall_output_uses_shared_pruning_budget(tmp_path: Path):
     history = HistoryStore(tmp_path / "large-history.db")
     history.append(
@@ -218,10 +241,14 @@ async def test_duplicate_concurrent_recall_executes_query_once(
     first = await first_task
     assert "RECALL LOOP BLOCKED" not in _text(first)
 
-    # The first result was small, so its claim is released rather than
-    # permanently blocked for the turn.
-    allowed_after_finish = await guarded_tool(op="expand", lo=1, hi=3)
-    assert "RECALL LOOP BLOCKED" not in _text(allowed_after_finish)
+    # A completed target is terminal for this turn, even when its result was
+    # small. A narrower target remains available.
+    repeated = await guarded_tool(op="expand", lo=1, hi=3)
+    assert "RECALL LOOP BLOCKED" in _text(repeated)
+    assert query_calls == 1
+
+    narrower = await guarded_tool(op="expand", lo=1, hi=2)
+    assert "RECALL LOOP BLOCKED" not in _text(narrower)
     assert query_calls == 2
 
 

@@ -350,9 +350,7 @@ export default function ModelSelector() {
       window.dispatchEvent(
         new CustomEvent("model-switched", {
           detail: {
-            agentId: selectedAgent,
-            effectiveMaxInputLength:
-              updated?.effective_max_input_length ?? null,
+            maxInputLength: updated?.effective_max_input_length ?? null,
           },
         }),
       );
@@ -393,9 +391,7 @@ export default function ModelSelector() {
         window.dispatchEvent(
           new CustomEvent("model-switched", {
             detail: {
-              agentId: selectedAgent,
-              effectiveMaxInputLength:
-                updated?.effective_max_input_length ?? null,
+              maxInputLength: updated?.effective_max_input_length ?? null,
             },
           }),
         );

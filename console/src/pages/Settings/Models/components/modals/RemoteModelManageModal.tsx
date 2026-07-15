@@ -86,6 +86,7 @@ function ModelConfigEditor({
   const [maxInputLength, setMaxInputLength] = useState<number | null>(
     model.max_input_length ?? 131072,
   );
+  const [maxInputLengthDirty, setMaxInputLengthDirty] = useState(false);
   const [relayReasoning, setRelayReasoning] = useState<boolean>(
     model.relay_reasoning ?? true,
   );
@@ -114,6 +115,7 @@ function ModelConfigEditor({
     setText(initialText);
     setMaxTokens(model.max_tokens ?? 8192);
     setMaxInputLength(model.max_input_length ?? 131072);
+    setMaxInputLengthDirty(false);
     setRelayReasoning(model.relay_reasoning ?? true);
     setThinkingEnabled(model.thinking_enabled ?? null);
     setThinkingBudget(model.thinking_budget ?? null);
@@ -144,6 +146,7 @@ function ModelConfigEditor({
 
   const handleMaxInputLengthChange = useCallback((val: number | null) => {
     setMaxInputLength(val);
+    setMaxInputLengthDirty(true);
     setDirty(true);
   }, []);
 
@@ -168,7 +171,9 @@ function ModelConfigEditor({
     try {
       const updated = await api.configureModel(providerId, model.id, {
         max_tokens: effectiveMaxTokens,
-        max_input_length: effectiveMaxInputLength,
+        ...(maxInputLengthDirty
+          ? { max_input_length: effectiveMaxInputLength }
+          : {}),
         generate_kwargs: parsed,
         relay_reasoning: relayReasoning,
         thinking_enabled: thinkingEnabled,
@@ -177,6 +182,7 @@ function ModelConfigEditor({
       });
       message.success(t("models.modelConfigSaved", { name: model.name }));
       setDirty(false);
+      setMaxInputLengthDirty(false);
       onProviderUpdated?.(updated);
       await onSaved();
       onClose();

@@ -37,10 +37,10 @@ logger = logging.getLogger(__name__)
 
 _OPS = ("expand", "search", "recall_tool")
 _RECALL_BLOCKED_NOTICE = (
-    "RECALL LOOP BLOCKED — this exact recall target was already returned "
-    "and then truncated or folded out of the current live turn. Do not "
-    "retry it with the same parameters. Narrow the seq range, use a more "
-    "specific keyword search, or continue from the archived summary."
+    "RECALL LOOP BLOCKED — this exact recall target already completed, was "
+    "truncated, or was folded out of the current live turn. Do not retry it "
+    "with the same parameters. Narrow the seq range, use a more specific "
+    "keyword search, or continue from the archived summary."
 )
 _RECALL_IN_FLIGHT_NOTICE = (
     "RECALL LOOP BLOCKED — this exact recall target is already running in "
@@ -65,24 +65,40 @@ class RecallLoopGuard:
 
     @staticmethod
     def key(op: str, payload: dict[str, Any]) -> str:
-        normalized = dict(payload)
-        normalized.setdefault("k", 10)
-        normalized.setdefault("all_agents", False)
-        relevant = {
-            key: normalized.get(key)
-            for key in (
-                "lo",
-                "hi",
-                "query",
-                "k",
-                "kind",
-                "all_agents",
-                "session_id",
-                "agent_id",
-                "tool_call_id",
-            )
-            if normalized.get(key) is not None
-        }
+        """Return the canonical target for one recall operation.
+
+        Parameters ignored by an operation must not affect the key, otherwise
+        a model can bypass the loop guard by changing an irrelevant argument
+        such as ``k`` on an ``expand`` call.
+        """
+        if op == "expand":
+            relevant = {
+                key: payload.get(key)
+                for key in ("lo", "hi")
+                if payload.get(key) is not None
+            }
+        elif op == "search":
+            normalized = dict(payload)
+            normalized.setdefault("k", 10)
+            normalized.setdefault("all_agents", False)
+            relevant = {
+                key: normalized.get(key)
+                for key in (
+                    "query",
+                    "k",
+                    "kind",
+                    "all_agents",
+                    "session_id",
+                    "agent_id",
+                )
+                if normalized.get(key) is not None
+            }
+        elif op == "recall_tool":
+            relevant = {
+                "tool_call_id": payload.get("tool_call_id"),
+            }
+        else:
+            relevant = dict(payload)
         return f"{op}:" + json.dumps(
             relevant,
             ensure_ascii=False,
@@ -372,11 +388,16 @@ def make_recall_history(
             metadata: dict[str, Any] = {}
             content = [TextBlock(type="text", text=text)]
             if tool_result_max_bytes is not None:
-                content, block_target = result_pruner.prune_output(
+                content, was_pruned = result_pruner.prune_output(
                     content,
                     max_bytes=tool_result_max_bytes,
                     metadata=metadata,
                 )
+                block_target = was_pruned
+            if ok:
+                # A successful target is terminal for this user turn. The
+                # model may still issue a narrower span or different search.
+                block_target = True
             return ToolChunk(
                 content=content,
                 state=(

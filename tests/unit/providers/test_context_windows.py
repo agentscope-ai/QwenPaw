@@ -190,6 +190,18 @@ def test_model_config_update_marks_128k_as_explicit():
     assert p.get_context_size(model.id) == DEFAULT_CONTEXT_WINDOW
 
 
+def test_unrelated_model_config_update_keeps_catalog_window():
+    p = _MutableCatalogProvider()
+    model = ModelInfo(id="claude-sonnet-4-5", name="x")
+    p.models = [model]
+    p.extra_models = []
+
+    assert p.update_model_config(model.id, {"max_tokens": 4096})
+    assert model.max_input_length_configured is False
+    p._info = model
+    assert p.get_context_size(model.id) == 200_000
+
+
 def test_context_size_default_when_unknown_everywhere():
     p = _CatalogProvider()
     p._info = None

@@ -87,32 +87,16 @@ function AgentConfigPage() {
   }, [refreshEffectiveContextWindow]);
 
   useEffect(() => {
-    const handleModelSwitch = (event: Event) => {
-      const detail = (event as CustomEvent).detail as
-        | {
-            agentId?: string;
-            effectiveMaxInputLength?: number | null;
-          }
-        | undefined;
-      if (detail?.agentId && detail.agentId !== selectedAgent) return;
-      if (detail?.effectiveMaxInputLength != null) {
-        setMaxInputLength(detail.effectiveMaxInputLength);
-        return;
-      }
-      refreshEffectiveContextWindow();
-    };
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
         refreshEffectiveContextWindow();
       }
     };
-    window.addEventListener("model-switched", handleModelSwitch);
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
-      window.removeEventListener("model-switched", handleModelSwitch);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [refreshEffectiveContextWindow, selectedAgent]);
+  }, [refreshEffectiveContextWindow]);
 
   const dynamicTabs = useMemo(() => {
     const baseTabs = [

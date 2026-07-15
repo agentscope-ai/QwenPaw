@@ -194,8 +194,7 @@ describe("ModelSelector", () => {
     await waitFor(() => expect(switched).toHaveBeenCalledOnce());
     const event = switched.mock.calls[0][0] as CustomEvent;
     expect(event.detail).toEqual({
-      agentId: "default",
-      effectiveMaxInputLength: 65536,
+      maxInputLength: 65536,
     });
     window.removeEventListener("model-switched", switched);
   });
