@@ -33,7 +33,6 @@ class TerminalNotifierBackend(NotificationBackend):
         body: str,
         *,
         sound: bool = True,
-        url: str | None = None,
     ) -> bool:
         if self._bin is None:
             return False

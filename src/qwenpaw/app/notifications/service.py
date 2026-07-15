@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any
 
@@ -317,9 +318,6 @@ class NotificationService:
     def _format_body(event: dict[str, Any]) -> str:
         title = event.get("title", "")
         body = event.get("body", "")
-        import re
-
-        # Strip generic prefixes that just repeat the source type
         title = re.sub(
             r"^(?:Cron result|Cron result not delivered):\s*",
             "",

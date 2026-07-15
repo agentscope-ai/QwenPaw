@@ -16,7 +16,6 @@ class NotificationBackend(ABC):
         body: str,
         *,
         sound: bool = True,
-        url: str | None = None,
     ) -> bool:
         """Send a desktop notification. Return True on success."""
 

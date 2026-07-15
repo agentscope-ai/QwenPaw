@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from .base import NotificationBackend
 
@@ -22,6 +23,8 @@ try:
 except ImportError:
     pass
 
+_AUTH_RECHECK_INTERVAL = 120  # seconds
+
 
 class DesktopNotifierBackend(NotificationBackend):
     """Cross-platform backend powered by desktop-notifier."""
@@ -29,6 +32,7 @@ class DesktopNotifierBackend(NotificationBackend):
     def __init__(self) -> None:
         self._notifier = None
         self._authorized: bool | None = None
+        self._auth_checked_at: float = 0.0
         if _HAS_DESKTOP_NOTIFIER and _DesktopNotifier is not None:
             try:
                 self._notifier = _DesktopNotifier(app_name="QwenPaw")
@@ -47,13 +51,17 @@ class DesktopNotifierBackend(NotificationBackend):
         body: str,
         *,
         sound: bool = True,
-        url: str | None = None,
     ) -> bool:
         if self._notifier is None:
             return False
         try:
-            if self._authorized is None:
+            now = time.monotonic()
+            if self._authorized is None or (
+                not self._authorized
+                and now - self._auth_checked_at >= _AUTH_RECHECK_INTERVAL
+            ):
                 self._authorized = await self._notifier.has_authorisation()
+                self._auth_checked_at = now
             if not self._authorized:
                 return False
 

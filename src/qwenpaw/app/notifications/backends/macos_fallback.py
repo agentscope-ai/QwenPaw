@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 """macOS fallback using osascript ``display notification``.
 
-This backend is used when ``desktop-notifier`` is unavailable.
-Clicking the notification may open Script Editor instead of QwenPaw.
-Reinstall QwenPaw (``pip install qwenpaw``) to get full notification
-support with click-to-open.
+This backend is used when both ``desktop-notifier`` and
+``terminal-notifier`` are unavailable or have failed.
 """
 
 from __future__ import annotations
@@ -43,15 +41,14 @@ class MacOSFallbackBackend(NotificationBackend):
         body: str,
         *,
         sound: bool = True,
-        url: str | None = None,
     ) -> bool:
         global _WARNED_FALLBACK
         if not _WARNED_FALLBACK:
             _WARNED_FALLBACK = True
             logger.warning(
                 "Using osascript fallback for notifications. "
-                "For better experience (click-to-open), reinstall "
-                "QwenPaw: pip install qwenpaw",
+                "For a better experience, install terminal-notifier: "
+                "brew install terminal-notifier",
             )
 
         script = (
