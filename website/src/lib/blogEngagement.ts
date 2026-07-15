@@ -7,6 +7,8 @@ import {
 const VIEWED_PREFIX = "qwenpaw:blog:viewed:";
 const LIKED_PREFIX = "qwenpaw:blog:liked:";
 
+const pendingLikeToggles = new Set<string>();
+
 export type BlogStats = {
   views: number;
   likes: number;
@@ -136,21 +138,30 @@ export async function toggleBlogLike(slug: string): Promise<BlogStats | null> {
   const sb = getSupabase();
   if (!sb) return null;
 
-  const currentlyLiked = hasLikedLocally(slug);
-  const rpc = currentlyLiked ? "decrement_blog_like" : "increment_blog_like";
-
-  // Optimistic local flag so rapid clicks stay consistent
-  markLikedLocally(slug, !currentlyLiked);
-
-  const { data, error } = await sb.rpc(rpc, { p_slug: slug });
-
-  if (error) {
-    markLikedLocally(slug, currentlyLiked);
-    console.warn("[blogStats] like toggle failed", error.message);
+  if (pendingLikeToggles.has(slug)) {
     return fetchBlogStats(slug);
   }
+  pendingLikeToggles.add(slug);
 
-  return rowToStats(data as BlogStatsRow, slug);
+  try {
+    const currentlyLiked = hasLikedLocally(slug);
+    const rpc = currentlyLiked ? "decrement_blog_like" : "increment_blog_like";
+
+    // Optimistic local flag so rapid clicks stay consistent
+    markLikedLocally(slug, !currentlyLiked);
+
+    const { data, error } = await sb.rpc(rpc, { p_slug: slug });
+
+    if (error) {
+      markLikedLocally(slug, currentlyLiked);
+      console.warn("[blogStats] like toggle failed", error.message);
+      return fetchBlogStats(slug);
+    }
+
+    return rowToStats(data as BlogStatsRow, slug);
+  } finally {
+    pendingLikeToggles.delete(slug);
+  }
 }
 
 export { isBlogStatsConfigured };
