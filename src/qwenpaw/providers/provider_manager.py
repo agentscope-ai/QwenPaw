@@ -2195,6 +2195,35 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     "Failed to remove legacy providers.json after migration.",
                 )
 
+    @staticmethod
+    def _restore_builtin_model_config(
+        model: ModelInfo,
+        config: dict,
+    ) -> None:
+        """Restore persisted overrides onto a built-in model definition."""
+        if config["generate_kwargs"]:
+            model.generate_kwargs = config["generate_kwargs"]
+        if config["max_tokens"] is not None:
+            model.max_tokens = config["max_tokens"]
+        if config["max_input_length"] is not None:
+            model.max_input_length = config["max_input_length"]
+        configured_length = config.get("max_input_length")
+        model.max_input_length_configured = bool(
+            config.get("max_input_length_configured", False)
+            or (
+                configured_length is not None
+                and configured_length != DEFAULT_CONTEXT_WINDOW
+            ),
+        )
+        if config.get("relay_reasoning") is not None:
+            model.relay_reasoning = config["relay_reasoning"]
+        if config.get("thinking_enabled") is not None:
+            model.thinking_enabled = config["thinking_enabled"]
+        if config.get("thinking_budget") is not None:
+            model.thinking_budget = config["thinking_budget"]
+        if config.get("reasoning_effort") is not None:
+            model.reasoning_effort = config["reasoning_effort"]
+
     def _init_from_storage(self):
         """Initialize all providers and active model from disk storage."""
         # Load built-in providers
@@ -2252,35 +2281,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     for model in builtin.models:
                         cfg = stored_model_config.get(model.id)
                         if cfg:
-                            if cfg["generate_kwargs"]:
-                                model.generate_kwargs = cfg["generate_kwargs"]
-                            if cfg["max_tokens"] is not None:
-                                model.max_tokens = cfg["max_tokens"]
-                            if cfg["max_input_length"] is not None:
-                                model.max_input_length = cfg[
-                                    "max_input_length"
-                                ]
-                            configured_length = cfg.get("max_input_length")
-                            model.max_input_length_configured = bool(
-                                cfg.get("max_input_length_configured", False)
-                                or (
-                                    configured_length is not None
-                                    and configured_length
-                                    != DEFAULT_CONTEXT_WINDOW
-                                ),
-                            )
-                            if cfg.get("relay_reasoning") is not None:
-                                model.relay_reasoning = cfg["relay_reasoning"]
-                            if cfg.get("thinking_enabled") is not None:
-                                model.thinking_enabled = cfg[
-                                    "thinking_enabled"
-                                ]
-                            if cfg.get("thinking_budget") is not None:
-                                model.thinking_budget = cfg["thinking_budget"]
-                            if cfg.get("reasoning_effort") is not None:
-                                model.reasoning_effort = cfg[
-                                    "reasoning_effort"
-                                ]
+                            self._restore_builtin_model_config(model, cfg)
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)
