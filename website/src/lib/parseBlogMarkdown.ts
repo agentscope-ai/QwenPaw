@@ -1,5 +1,20 @@
 import yaml from "js-yaml";
 
+export interface BlogRelatedItem {
+  label: string;
+  name: string;
+  href?: string;
+  description?: string;
+}
+
+export interface BlogRelatedMeta {
+  heading: string;
+  description?: string;
+  linkText?: string;
+  linkUrl?: string;
+  items?: BlogRelatedItem[];
+}
+
 export interface BlogFrontmatter {
   title: string;
   date: string;
@@ -7,6 +22,7 @@ export interface BlogFrontmatter {
   tags: string[];
   cover?: string;
   excerpt?: string;
+  related?: BlogRelatedMeta;
 }
 
 export interface ParsedBlogPost {
@@ -62,6 +78,41 @@ function formatFrontmatterValue(value: unknown): string {
   return String(value);
 }
 
+function normalizeRelated(raw: unknown): BlogRelatedMeta | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const data = raw as Record<string, unknown>;
+  const heading = data.heading != null ? String(data.heading).trim() : "";
+  if (!heading) return undefined;
+
+  const itemsRaw = data.items;
+  const items: BlogRelatedItem[] = [];
+  if (Array.isArray(itemsRaw)) {
+    for (const entry of itemsRaw) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const item = entry as Record<string, unknown>;
+      const label = item.label != null ? String(item.label).trim() : "";
+      const name = item.name != null ? String(item.name).trim() : "";
+      if (!label || !name) continue;
+      items.push({
+        label,
+        name,
+        href: item.href != null ? String(item.href) : undefined,
+        description:
+          item.description != null ? String(item.description) : undefined,
+      });
+    }
+  }
+
+  return {
+    heading,
+    description:
+      data.description != null ? String(data.description) : undefined,
+    linkText: data.linkText != null ? String(data.linkText) : undefined,
+    linkUrl: data.linkUrl != null ? String(data.linkUrl) : undefined,
+    ...(items.length > 0 ? { items } : {}),
+  };
+}
+
 function normalizeFrontmatter(data: Record<string, unknown>): BlogFrontmatter {
   return {
     title: String(data.title ?? "Untitled"),
@@ -70,6 +121,7 @@ function normalizeFrontmatter(data: Record<string, unknown>): BlogFrontmatter {
     tags: normalizeTags(data.tags),
     cover: data.cover != null ? String(data.cover) : undefined,
     excerpt: data.excerpt != null ? String(data.excerpt) : undefined,
+    related: normalizeRelated(data.related),
   };
 }
 

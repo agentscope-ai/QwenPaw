@@ -166,7 +166,7 @@ class OpenRouterProvider(Provider):
                 # depend on hand-maintained catalog entries. Absent or
                 # invalid → field default, which resolves via the catalog
                 # as before.
-                window_kwargs: dict[str, int] = {}
+                window_kwargs: dict[str, int | bool] = {}
                 try:
                     context_length = int(
                         getattr(row, "context_length", 0) or 0,
@@ -175,6 +175,7 @@ class OpenRouterProvider(Provider):
                     context_length = 0
                 if context_length >= 1000:  # ModelInfo's field lower bound
                     window_kwargs["max_input_length"] = context_length
+                    window_kwargs["max_input_length_configured"] = True
 
                 if include_extended:
                     # Get architecture and pricing from the API response

@@ -1,15 +1,19 @@
 ---
 title: "QwenPaw Developer Day Collection"
-date: 2026-07-09
+date: 2026-07-14
 author: QwenPaw Team
-tags: [QwenPaw, developer-day]
+tags: [DeveloperDay, MeetingNotes, SessionRecordings]
 cover: /blog/qwenpaw-developer-day-collection-cover.png
 excerpt: "Replay archive from QwenPaw developer day sessions — in-depth technical talks and practical insights for every QwenPaw developer and enthusiast."
 ---
 
-Last updated July 9, 2026
+Last updated July 14, 2026
 
 ---
+
+**07-14 QwenPaw Developer Day: QwenPaw 2.0 WorkSpace & Sandbox Deep Dive**
+
+Meeting link: https://shanji.dingtalk.com/app/transcribes/76327569643336343833393033335f323034353035363233375f30
 
 **07-09 QwenPaw Developer Day: AgentScope 2.0 Latest Updates — Agent Team/Agent Service, Multi-Tenant RAG, Long-Term Memory, Real-Time Voice, Tool Middleware & WebUI**
 

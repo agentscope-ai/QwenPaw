@@ -418,21 +418,6 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout (for scripts)
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install packaging helper dependencies
-        run: python -m pip install packaging
-
-      - name: Get version
-        id: version
-        uses: ./.github/actions/get-version
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
@@ -442,29 +427,6 @@ jobs:
           mv QwenPaw-Desktop-macOS-*/QwenPaw-*.zip . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe . 2>/dev/null || true
           mv QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip . 2>/dev/null || true
-          # Updater metadata from internal artifacts
-          mv tauri-updater-meta-windows/QwenPaw-Tauri-*-Windows-setup.exe.sig . 2>/dev/null || true
-          mv tauri-updater-meta-windows/tauri-windows-*-updater.json . 2>/dev/null || true
-          mv tauri-updater-meta-macos/QwenPaw-Tauri-*-macOS.app.tar.gz . 2>/dev/null || true
-          mv tauri-updater-meta-macos/QwenPaw-Tauri-*-macOS.app.tar.gz.sig . 2>/dev/null || true
-          mv tauri-updater-meta-macos/tauri-darwin-*-updater.json . 2>/dev/null || true
-
-      - name: Generate Tauri updater manifest
-        env:
-          # Pass release.body via env so quotes/newlines/$ in markdown are safe.
-          RELEASE_BODY: ${{ github.event.release.body }}
-        run: |
-          metadata_args=()
-          for f in tauri-windows-*-updater.json tauri-darwin-*-updater.json; do
-            [ -f "$f" ] && metadata_args+=(--metadata "$f")
-          done
-          NOTES="${RELEASE_BODY:-QwenPaw Desktop ${{ steps.version.outputs.version }}}"
-          python scripts/pack-tauri/generate_update_manifest.py manifest \
-            --version "${{ steps.version.outputs.version }}" \
-            --base-url "https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}" \
-            "${metadata_args[@]}" \
-            --notes "$NOTES" \
-            --output qwenpaw-tauri-latest.json
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
@@ -709,9 +671,8 @@ jobs:
           done
 
       - name: Generate and upload OSS updater manifest
-        # Mirror the GitHub-pointing manifest with one whose URLs point at
-        # OSS, so mainland users can hit a CN-fast endpoint first and fall
-        # back to GitHub if OSS is unreachable.
+        # The Tauri auto-updater uses OSS only; GitHub Releases only carry
+        # first-install artifacts.
         if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
         env:
           # Pass release.body via env so quotes/newlines/$ in markdown are safe.

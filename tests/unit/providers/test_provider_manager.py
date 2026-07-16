@@ -17,11 +17,12 @@ from qwenpaw.providers.capping_formatter import (
     _CappingGeminiFormatter,
     _CappingOpenAIFormatter,
 )
+from qwenpaw.providers.context_windows import DEFAULT_CONTEXT_WINDOW
 from qwenpaw.providers.openai_provider import (
     GitHubModelsProvider,
     OpenAIProvider,
 )
-from qwenpaw.providers.provider import ModelInfo
+from qwenpaw.providers.provider import ModelInfo, ProviderInfo
 from qwenpaw.providers.provider_manager import ProviderManager
 
 LEGACY_PROVIDER = {
@@ -169,6 +170,38 @@ async def test_add_custom_provider_and_reload_from_storage(
     assert isinstance(loaded_builtin_conflict, OpenAIProvider)
     assert loaded_duplicate is not None
     assert isinstance(loaded_duplicate, OpenAIProvider)
+
+
+async def test_custom_provider_preserves_explicit_default_context_window(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    request_model = ModelInfo(
+        id="claude-sonnet-4-5",
+        name="Claude Sonnet 4.5",
+        max_input_length=DEFAULT_CONTEXT_WINDOW,
+    )
+    assert "max_input_length" in request_model.model_fields_set
+    assert request_model.max_input_length_configured is False
+
+    await manager.add_custom_provider(
+        ProviderInfo(
+            id="custom-context-window",
+            name="Custom Context Window",
+            chat_model="OpenAIChatModel",
+            extra_models=[request_model],
+        ),
+    )
+
+    reloaded = ProviderManager().get_provider("custom-context-window")
+    assert reloaded is not None
+    model = reloaded.get_model_info("claude-sonnet-4-5")
+    assert model is not None
+    assert model.max_input_length_configured is True
+    assert (
+        reloaded.get_context_size("claude-sonnet-4-5")
+        == DEFAULT_CONTEXT_WINDOW
+    )
 
 
 async def test_activate_provider_persists_active_model(
@@ -393,6 +426,69 @@ def test_update_provider_for_builtin_persists_to_builtin_path(
     assert isinstance(persisted_azure, OpenAIProvider)
     assert persisted_azure.base_url == "https://azure-updated.example/v1"
     assert persisted_azure.api_key == "sk-azure-updated"
+
+
+@pytest.mark.parametrize(
+    ("saved_length", "expected_configured"),
+    [
+        (64_000, True),
+        (DEFAULT_CONTEXT_WINDOW, False),
+    ],
+)
+def test_legacy_builtin_context_window_infers_non_default_as_configured(
+    isolated_secret_dir,
+    saved_length: int,
+    expected_configured: bool,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    data = provider.model_dump()
+    for model in data["models"]:
+        model.pop("max_input_length_configured", None)
+        if model["id"] == "gpt-4o":
+            model["max_input_length"] = saved_length
+
+    builtin_path = isolated_secret_dir / "providers" / "builtin"
+    (builtin_path / "openai.json").write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    reloaded = ProviderManager().get_provider("openai")
+    assert reloaded is not None
+    model = reloaded.get_model_info("gpt-4o")
+    assert model is not None
+    assert model.max_input_length == saved_length
+    assert model.max_input_length_configured is expected_configured
+
+
+def test_builtin_capability_probe_results_survive_storage_reload(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    data = provider.model_dump()
+    for model in data["models"]:
+        if model["id"] == "gpt-4o":
+            model["supports_multimodal"] = False
+            model["supports_image"] = False
+            model["supports_video"] = False
+
+    builtin_path = isolated_secret_dir / "providers" / "builtin"
+    (builtin_path / "openai.json").write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    reloaded = ProviderManager().get_provider("openai")
+    assert reloaded is not None
+    model = reloaded.get_model_info("gpt-4o")
+    assert model is not None
+    assert model.supports_multimodal is False
+    assert model.supports_image is False
+    assert model.supports_video is False
 
 
 def test_update_provider_for_unknown_returns_false(

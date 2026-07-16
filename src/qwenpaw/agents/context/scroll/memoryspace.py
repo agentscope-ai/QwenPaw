@@ -12,6 +12,7 @@ across sessions, but any write to ``hist.*`` is rejected by SQLite itself.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import time
@@ -285,7 +286,7 @@ class MemorySpace:
         primary way to re-read the evicted turns the index points you at.
         """
         return self._select(
-            "SELECT seq, kind, role, name, content, headline "
+            "SELECT seq, kind, role, name, content, headline, metadata "
             "FROM hist.conversation_history "
             "WHERE seq BETWEEN ? AND ? ORDER BY seq",
             (int(lo), int(hi)),
@@ -310,7 +311,8 @@ class MemorySpace:
             where.append("agent_id = ?")
             params.append(self._agent_id)
         rows = self._select(
-            "SELECT seq, kind, role, name, tool_input, tool_state, content "
+            "SELECT seq, kind, role, name, tool_input, tool_state, content, "
+            "metadata "
             "FROM hist.conversation_history "
             "WHERE " + " AND ".join(where) + " ORDER BY seq",
             tuple(params),
@@ -549,10 +551,12 @@ class MemorySpace:
             params.append(kind)
         sql = (
             "SELECT ch.seq, ch.session_id, ch.kind, ch.role, "
-            "ch.name, ch.headline, ch.content "
+            "ch.name, ch.headline, ch.content, ch.metadata "
             f"FROM hist.{fts} JOIN hist.conversation_history ch "
             f"ON ch.seq = {fts}.rowid "
-            "WHERE " + " AND ".join(where) + f" ORDER BY bm25({fts}) LIMIT ?"
+            "WHERE "
+            + " AND ".join(where)
+            + f" ORDER BY bm25({fts}), ch.seq LIMIT ?"
         )
         params.append(int(k))
         try:
@@ -612,7 +616,8 @@ class MemorySpace:
             where.append("kind = ?")
             params.append(kind)
         sql = (
-            "SELECT seq, session_id, kind, role, name, headline, content "
+            "SELECT seq, session_id, kind, role, name, headline, content, "
+            "metadata "
             "FROM hist.conversation_history "
             "WHERE " + " AND ".join(where) + " ORDER BY seq DESC LIMIT ?"
         )
@@ -649,7 +654,8 @@ class MemorySpace:
         """Tool-result rows whose truncated preview points at a saved file."""
         where = [
             "kind = 'tool_result'",
-            "content LIKE '%call `read_file` with file_path=%'",
+            "(content LIKE '%call `read_file` with file_path=%' OR "
+            "metadata LIKE '%\"file_path\"%')",
             f"(name IS NULL OR name NOT IN ({_RECALL_EXCL_PLACEHOLDERS}))",
         ]
         params: list = [*_RECALL_TOOL_NAMES]
@@ -665,7 +671,7 @@ class MemorySpace:
             params.append(int(before_seq))
         sql = (
             "SELECT seq, session_id, kind, role, name, headline, "
-            "tool_call_id, content FROM hist.conversation_history "
+            "tool_call_id, content, metadata FROM hist.conversation_history "
             "WHERE " + " AND ".join(where) + " ORDER BY seq DESC LIMIT ?"
         )
         params.append(int(limit))
@@ -704,7 +710,10 @@ class MemorySpace:
             for row in candidates:
                 if budget.is_exhausted():
                     break
-                for path in self._saved_tool_paths(row.get("content")):
+                for path in self._saved_tool_paths(
+                    row.get("content"),
+                    row.get("metadata"),
+                ):
                     if budget.is_exhausted():
                         break
                     matches = self._file_line_matches(
@@ -763,8 +772,34 @@ class MemorySpace:
         out: list[dict] = []
         budget = self._new_saved_tool_scan_budget()
         for row in rows:
-            out.append(row)
-            for path in self._saved_tool_paths(row.get("content")):
+            raw_refs = self._raw_saved_tool_refs(
+                row.get("content"),
+                row.get("metadata"),
+            )
+            saved_refs = self._saved_tool_refs(
+                row.get("content"),
+                row.get("metadata"),
+            )
+            if raw_refs and not saved_refs:
+                out.append(
+                    {
+                        "seq": row.get("seq"),
+                        "kind": "_saved_tool_output_unavailable",
+                        "role": None,
+                        "name": row.get("name"),
+                        "tool_input": None,
+                        "tool_state": row.get("tool_state"),
+                        "content": (
+                            "ARTIFACT_UNAVAILABLE — the complete saved tool "
+                            "output has expired, was deleted, or cannot be "
+                            "accessed safely. The bounded preview retained "
+                            "in Scroll history is returned below and may "
+                            "not contain the full original result."
+                        ),
+                    },
+                )
+            for path, info in saved_refs:
+                start_line = info.get("start_line") or 1
                 extra = {
                     "seq": row.get("seq"),
                     "kind": "_saved_tool_output",
@@ -774,7 +809,7 @@ class MemorySpace:
                     "tool_state": row.get("tool_state"),
                     "content": (
                         "Full saved tool output is available at "
-                        f"file_path={path}."
+                        f"file_path={str(path)!r} start_line={start_line}."
                     ),
                 }
                 if needles and not budget.is_exhausted():
@@ -796,8 +831,14 @@ class MemorySpace:
                         )
                 out.append(extra)
                 if budget.is_exhausted():
+                    # Preserve the durable bounded preview even when scanning
+                    # the full artifact runs out of time or bytes. The
+                    # pointer and partial-scan notice are supplemental rows;
+                    # neither may replace the history row itself.
+                    out.append(row)
                     out.append(self._artifact_scan_notice())
                     return out
+            out.append(row)
         return out
 
     def _new_saved_tool_scan_budget(self) -> _ScanBudget:
@@ -806,32 +847,77 @@ class MemorySpace:
             deadline=time.monotonic() + self._saved_tool_scan_max_seconds,
         )
 
-    def _saved_tool_paths(self, content: object) -> list[Path]:
-        """Extract and validate all saved tool-result paths from notices."""
+    def _saved_tool_paths(
+        self,
+        content: object,
+        metadata: object = None,
+    ) -> list[Path]:
+        """Extract saved artifact paths from metadata, then legacy notices."""
+        return [path for path, _ in self._saved_tool_refs(content, metadata)]
+
+    def _saved_tool_refs(
+        self,
+        content: object,
+        metadata: object = None,
+    ) -> list[tuple[Path, dict]]:
+        """Return validated paths with structured continuation details."""
         if self._history_root is None:
             return []
         try:
             root = self._history_root.resolve()
         except OSError:
             return []
-        paths: list[Path] = []
+        refs: list[tuple[Path, dict]] = []
         seen: set[Path] = set()
-        for match in _SAVED_TOOL_FILE_RE.finditer(str(content or "")):
-            raw_path = match.group("quoted")
-            if raw_path is None:
-                raw_path = match.group("legacy")
-            if not raw_path:
-                continue
-            try:
-                path = Path(raw_path).expanduser().resolve()
-                path.relative_to(root)
-            except (OSError, ValueError):
-                continue
-            if path in seen or not path.is_file():
+        for raw_path, info in self._raw_saved_tool_refs(content, metadata):
+            path = self._resolve_saved_tool_path(raw_path, root)
+            if path is None or path in seen or not path.is_file():
                 continue
             seen.add(path)
-            paths.append(path)
-        return paths
+            refs.append((path, info))
+        return refs
+
+    @staticmethod
+    def _raw_saved_tool_refs(
+        content: object,
+        metadata: object,
+    ) -> list[tuple[str, dict]]:
+        """Extract untrusted path/details pairs from metadata and notices."""
+        raw_refs: list[tuple[str, dict]] = []
+        parsed = metadata
+        if isinstance(parsed, str):
+            try:
+                parsed = json.loads(parsed)
+            except (TypeError, ValueError):
+                parsed = None
+        if isinstance(parsed, dict):
+            by_block = parsed.get("qwenpaw_truncation")
+            if isinstance(by_block, dict):
+                for info in by_block.values():
+                    if isinstance(info, dict) and info.get("file_path"):
+                        raw_refs.append((str(info["file_path"]), dict(info)))
+        for match in _SAVED_TOOL_FILE_RE.finditer(str(content or "")):
+            raw_path = match.group("quoted") or match.group("legacy")
+            if raw_path:
+                raw_refs.append(
+                    (
+                        raw_path,
+                        {"start_line": int(match.group("start_line"))},
+                    ),
+                )
+        return raw_refs
+
+    @staticmethod
+    def _resolve_saved_tool_path(raw_path: str, root: Path) -> Path | None:
+        """Resolve one artifact path and reject traversal outside history."""
+        if not raw_path:
+            return None
+        try:
+            path = Path(raw_path).expanduser().resolve()
+            path.relative_to(root)
+        except (OSError, ValueError):
+            return None
+        return path
 
     @staticmethod
     def _query_needles(query: str) -> list[str]:

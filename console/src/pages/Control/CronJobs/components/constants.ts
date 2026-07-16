@@ -32,6 +32,7 @@ export const DEFAULT_FORM_VALUES = {
       session_id: "",
     },
     mode: "final" as const,
+    silent: false,
   },
   runtime: {
     share_session: true,

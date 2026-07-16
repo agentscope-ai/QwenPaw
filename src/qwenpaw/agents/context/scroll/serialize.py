@@ -202,6 +202,11 @@ def msg_to_entries(msg: Msg) -> list[LogEntry]:
             ),
         )
     for b in results:
+        block_metadata = (
+            b.get("metadata")
+            if isinstance(b, dict)
+            else getattr(b, "metadata", None)
+        )
         entries.append(
             LogEntry(
                 kind="tool_result",
@@ -211,6 +216,11 @@ def msg_to_entries(msg: Msg) -> list[LogEntry]:
                 tool_call_id=getattr(b, "id", None),
                 tool_state=_state_value(getattr(b, "state", None)),
                 blocks=[_dump(b)],
+                metadata=(
+                    dict(block_metadata)
+                    if isinstance(block_metadata, dict)
+                    else {}
+                ),
                 created_at=created_at,
             ),
         )

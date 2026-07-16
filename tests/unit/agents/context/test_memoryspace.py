@@ -125,6 +125,39 @@ def test_search_default_is_this_agent_cross_session(ms: MemorySpace):
     assert "tanks of another agent" not in contents
 
 
+def test_search_uses_seq_as_stable_bm25_tie_breaker(tmp_path: Path):
+    h = HistoryStore(tmp_path / "history.db")
+    expected_seqs = []
+    for index in range(3):
+        expected_seqs.append(
+            h.append(
+                session_id="archive",
+                agent_id="ag1",
+                dedup_key=f"equal-{index}",
+                entry=LogEntry(
+                    kind="model_turn",
+                    role="assistant",
+                    content="identical ranking text",
+                ),
+            ),
+        )
+    h.close()
+    space = MemorySpace(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        first = space.search("identical ranking", k=3)
+        second = space.search("identical ranking", k=3)
+    finally:
+        space.close()
+
+    assert [row["seq"] for row in first] == expected_seqs
+    assert [row["seq"] for row in second] == expected_seqs
+
+
 def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
     """The recall tool's own source/output must not surface as search hits, or
     a query matches the agent's earlier queries (self-pollution)."""
@@ -619,6 +652,34 @@ def test_saved_tool_paths_accept_quoted_and_legacy_paths_with_spaces(
     assert paths == [quoted_file.resolve(), legacy_file.resolve()]
 
 
+def test_saved_tool_paths_prefer_structured_artifact_metadata(tmp_path: Path):
+    artifact = tmp_path / "metadata-only-result.txt"
+    artifact.write_text("structured artifact\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        paths = space._saved_tool_paths(
+            "preview without a legacy path notice",
+            {
+                "qwenpaw_truncation": {
+                    "0": {
+                        "file_path": str(artifact),
+                    },
+                },
+            },
+        )
+    finally:
+        space.close()
+
+    assert paths == [artifact.resolve()]
+
+
 def test_saved_tool_search_checks_each_multiblock_artifact(tmp_path: Path):
     decoy_file = tmp_path / "first-block.txt"
     decoy_file.write_text("nothing relevant\n", encoding="utf-8")
@@ -695,9 +756,53 @@ def test_recall_tool_annotates_each_multiblock_artifact(tmp_path: Path):
         row["content"] for row in rows if row["kind"] == "_saved_tool_output"
     ]
     assert artifacts == [
-        f"Full saved tool output is available at file_path={first_file}.",
-        f"Full saved tool output is available at file_path={second_file}.",
+        "Full saved tool output is available at "
+        f"file_path={str(first_file)!r} start_line=1.",
+        "Full saved tool output is available at "
+        f"file_path={str(second_file)!r} start_line=1.",
     ]
+
+
+def test_recall_tool_returns_preview_when_artifact_expired(tmp_path: Path):
+    artifact = tmp_path / "expired-result.txt"
+    artifact.write_text("complete output\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="expired-result",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content="bounded preview",
+            tool_call_id="expired-call",
+            metadata={
+                "qwenpaw_truncation": {
+                    "0": {
+                        "file_path": str(artifact),
+                        "start_line": 1,
+                    },
+                },
+            },
+        ),
+    )
+    history.close()
+    artifact.unlink()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        rows = space.recall_tool("expired-call")
+    finally:
+        space.close()
+
+    assert rows[0]["kind"] == "_saved_tool_output_unavailable"
+    assert "ARTIFACT_UNAVAILABLE" in rows[0]["content"]
+    assert rows[1]["kind"] == "tool_result"
+    assert rows[1]["content"] == "bounded preview"
 
 
 def test_saved_tool_search_pages_past_first_200_candidates(tmp_path: Path):
@@ -772,21 +877,12 @@ def test_saved_tool_file_search_streams_without_read_text(
     ]
 
 
-def test_saved_tool_search_reports_exhausted_scan_budget(tmp_path: Path):
+def test_attach_saved_tool_preserves_preview_when_scan_budget_exhausts(
+    tmp_path: Path,
+):
     artifact = tmp_path / "large.txt"
     artifact.write_text("x" * 100 + " needle\n", encoding="utf-8")
     history = HistoryStore(tmp_path / "history.db")
-    history.append(
-        session_id="archive",
-        agent_id="ag1",
-        dedup_key="large-result",
-        entry=LogEntry(
-            kind="tool_result",
-            role="assistant",
-            content=_saved_tool_notice(artifact),
-            tool_call_id="large-call",
-        ),
-    )
     history.close()
     space = MemorySpace(
         history_db_path=tmp_path / "history.db",
@@ -796,10 +892,27 @@ def test_saved_tool_search_reports_exhausted_scan_budget(tmp_path: Path):
     )
 
     try:
-        rows = space.search("needle", k=3)
+        rows = space._attach_saved_tool_file_matches(
+            [
+                {
+                    "seq": 1,
+                    "kind": "tool_result",
+                    "role": "assistant",
+                    "name": "read_file",
+                    "content": (
+                        "bounded preview retained in history\n"
+                        + _saved_tool_notice(artifact)
+                    ),
+                },
+            ],
+            "needle",
+        )
     finally:
         space.close()
 
     notices = [row for row in rows if row["kind"] == "_notice"]
     assert len(notices) == 1
     assert "Results are partial" in notices[0]["content"]
+    previews = [row for row in rows if row["kind"] == "tool_result"]
+    assert len(previews) == 1
+    assert "bounded preview retained in history" in previews[0]["content"]

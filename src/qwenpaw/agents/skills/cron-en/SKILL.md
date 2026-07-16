@@ -2,7 +2,7 @@
 name: cron
 description: Use this skill only for scheduled or recurring tasks. Manage jobs with qwenpaw cron list/create/get/state/update/pause/resume/delete/run, and always pass --agent-id explicitly.
 metadata:
-  builtin_skill_version: "1.6"
+  builtin_skill_version: "1.7"
   qwenpaw:
     emoji: "⏰"
 ---
@@ -31,6 +31,7 @@ Use this skill only when you need to **automatically execute something at a futu
 3. **Before creating, confirm execution time/schedule, target channel, target-user, and target-session**
 4. **All cron commands must explicitly include `--agent-id`**
 5. **Do not rely on the default agent, or the task may end up in the default workspace**
+6. **For an agent task that should run without channel output, add `--silent`; execution, session history, trace, and optional Inbox recording still continue**
 
 ---
 
@@ -162,6 +163,9 @@ qwenpaw cron create \
   --timeout 600
 ```
 
+For a background agent task, add `--silent` to the command above. Do not use it
+for `text` tasks.
+
 ```bash
 # Scheduled one-time: remind at 9 AM tomorrow (no repeat)
 qwenpaw cron create \
@@ -261,6 +265,7 @@ to find the correct `job_id`.
 - To troubleshoot issues, use `qwenpaw cron state <job_id> --agent-id <agent_id>`
 - When showing commands to the user, provide complete, copy-pasteable versions
 - If the user mentions "save to inbox" (or not), explicitly include `--save-result-to-inbox` or `--no-save-result-to-inbox`
+- If the user asks for background or silent execution with no channel reply, use `--silent` on an `agent` task
 - Before creating, you can run `qwenpaw chats list --agent-id <agent_id>` to get valid `target-user` and `target-session`
 
 ---

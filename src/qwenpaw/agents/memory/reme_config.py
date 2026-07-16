@@ -19,6 +19,8 @@ _OPENAI_COMPAT_EMBEDDING_BACKENDS = {
     "dashscope_multimodal",
 }
 
+_MAX_FILE_BYTES = 10 * 1024 * 1024
+
 
 def build_reme_app_config(
     *,
@@ -65,6 +67,7 @@ def _base_config() -> dict[str, Any]:
         "jobs": {
             "index_update_loop": {
                 "backend": "background",
+                "max_file_bytes": _MAX_FILE_BYTES,
                 "watch_dirs": watch_dirs,
                 "watch_suffixes": watch_suffixes,
                 "steps": [
@@ -84,6 +87,7 @@ def _base_config() -> dict[str, Any]:
             },
             "resource_watch_loop": {
                 "backend": "background",
+                "max_file_bytes": _MAX_FILE_BYTES,
                 "watch_dirs": ["resource_dir"],
                 "watch_suffixes": [
                     "md",
@@ -136,6 +140,7 @@ def _base_config() -> dict[str, Any]:
             },
             "reindex": {
                 "backend": "base",
+                "max_file_bytes": _MAX_FILE_BYTES,
                 "description": (
                     "wipe the file store and rebuild it from the existing "
                     "files"
@@ -652,6 +657,10 @@ def _apply_embedding_config(
             "credential": _embedding_credential(embedding_config),
         },
     )
+    if embedding_config.backend == "openai":
+        components["as_embedding"]["default"][
+            "pass_dimensions"
+        ] = embedding_config.use_dimensions
     components["embedding_store"]["default"].update(
         {
             "enable_cache": embedding_config.enable_cache,

@@ -6,13 +6,14 @@ Regression for #5717: malformed tool_call must not death-loop.
 The QwenPaw defence against a malformed ``tool_call.input`` JSON string is
 ``_coerce_tool_inputs_to_json`` in ``qwenpaw.agents.utils.tool_message_utils``,
 which runs on every model request. A malformed block is either recovered
-via ``raw_decode`` or **dropped entirely** so the orphaned tool_result is
-cleaned up — the model is never re-fed the same broken block, which is what
-caused the death-loop in #5717.
+via ``raw_decode`` or retained as a finished call with safe empty arguments
+and a synthetic error result. The model sees actionable feedback instead of
+being re-fed the same broken input, which is what caused the death-loop in
+#5717.
 
-These tests pin that contract: malformed input is coerced/dropped in a
-single pass (no retry loop), the function returns a finite list, and the
-executor's ``_parse_tool_input`` returns ``{}`` rather than recursing.
+These tests pin that contract: malformed input is repaired or failed in a
+single pass (no retry loop), the function returns a finite paired list, and
+the executor's ``_parse_tool_input`` returns ``{}`` rather than recursing.
 """
 
 # pylint: disable=protected-access,unused-import,use-implicit-booleaness-not-comparison,unused-argument  # noqa: E501
@@ -22,7 +23,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from agentscope.message import ToolCallBlock
+from agentscope.message import ToolCallBlock, ToolResultState
 
 from qwenpaw.agents.utils.tool_message_utils import (
     _coerce_tool_inputs_to_json,
@@ -39,9 +40,8 @@ def _msg_with_blocks(blocks: list) -> SimpleNamespace:
 # ---------------------------------------------------------------------------
 
 
-def test_malformed_truncated_json_is_dropped_in_single_pass() -> None:
-    """Regression for #5717: a truncated JSON tool_call input is dropped
-    exactly once — the coercion does not retry or loop."""
+def test_malformed_truncated_json_is_failed_in_single_pass() -> None:
+    """A truncated tool call is safely failed without retrying or looping."""
     blocks = [
         ToolCallBlock(
             id="call-1",
@@ -54,13 +54,19 @@ def test_malformed_truncated_json_is_dropped_in_single_pass() -> None:
     # Single call — must terminate, not loop.
     result = _coerce_tool_inputs_to_json([msg])
 
-    # The malformed block must have been dropped (no tool_call blocks remain).
-    remaining = [
+    remaining_calls = [
         b
         for b in result[0].content
         if _block_attr(b, "type") in ("tool_call", "tool_use")
     ]
-    assert remaining == [], "malformed tool_call block should be dropped"
+    assert [_block_attr(b, "id") for b in remaining_calls] == ["call-1"]
+    assert json.loads(_block_attr(remaining_calls[0], "input")) == {}
+
+    error_results = [
+        b for b in result[0].content if _block_attr(b, "type") == "tool_result"
+    ]
+    assert [_block_attr(b, "id") for b in error_results] == ["call-1"]
+    assert _block_attr(error_results[0], "state") == ToolResultState.ERROR
 
 
 def test_recoverable_trailing_garbage_is_repaired_in_single_pass() -> None:
@@ -111,9 +117,7 @@ def test_dict_input_is_serialised_to_json() -> None:
 
 
 def test_malformed_block_does_not_corrupt_adjacent_blocks() -> None:
-    """Regression for #5717: a malformed block must not corrupt neighbouring
-    valid tool_call blocks — the death-loop only happened because the whole
-    message became invalid."""
+    """A failed malformed block must not corrupt neighbouring valid calls."""
     blocks = [
         ToolCallBlock(id="good-1", name="ls", input='{"path": "."}'),
         ToolCallBlock(id="bad-1", name="shell", input="{bad json"),
@@ -128,20 +132,26 @@ def test_malformed_block_does_not_corrupt_adjacent_blocks() -> None:
         if _block_attr(b, "type") in ("tool_call", "tool_use")
     ]
     ids = [_block_attr(b, "id") for b in remaining]
-    assert ids == ["good-1", "good-2"]
-    assert "bad-1" not in ids
+    assert ids == ["good-1", "bad-1", "good-2"]
+    failed = next(b for b in remaining if _block_attr(b, "id") == "bad-1")
+    assert json.loads(_block_attr(failed, "input")) == {}
+
+    error_results = [
+        b for b in result[0].content if _block_attr(b, "type") == "tool_result"
+    ]
+    assert [_block_attr(b, "id") for b in error_results] == ["bad-1"]
+    assert _block_attr(error_results[0], "state") == ToolResultState.ERROR
 
 
 def test_coercion_is_idempotent() -> None:
-    """Regression for #5717: running coercion twice must not reintroduce
-    malformed blocks or loop — the second pass is a no-op."""
+    """Running coercion twice must not duplicate failed-call feedback."""
     blocks = [
         ToolCallBlock(id="call-5", name="shell", input="{bad json"),
     ]
     msg = _msg_with_blocks(blocks)
     once = _coerce_tool_inputs_to_json([msg])
     twice = _coerce_tool_inputs_to_json(once)
-    # Still finite, still no tool_call blocks.
+    # Still finite, with the same failed call and synthetic result.
     assert twice is once or len(twice) == 1
 
 

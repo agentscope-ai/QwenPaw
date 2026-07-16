@@ -31,9 +31,10 @@ flowchart LR
     E --> F[驱逐已完成的中间历史]
     F --> G[把 seq 区间加入驱逐索引]
     G --> H[用一条索引消息重建实时上下文]
-    H --> I{仍超出保留预算?}
-    I -->|是| J[压实索引，再把活动轮次的工具结果折叠为 recall 指针]
-    I -->|否| K[之后用 recall_history 回溯]
+    H --> I{仍超出压力目标?}
+    I -->|是| J[把已完成的实时工具结果折叠为精确 recall 指针]
+    I -->|否| K[保留重建后的实时上下文]
+    J --> K
 ```
 
 核心特性：
@@ -44,6 +45,8 @@ flowchart LR
 - **可回溯原文**：索引中的每一行都带 `seq` 区间。Agent 可以调用 `recall_history(op="expand", lo, hi)` 读取完整原始记录（或在 `recall_history_python` REPL 中用 `ms.expand(lo, hi)`）。
 - **跨会话历史**：历史行包含 `session_id` 和 `agent_id`，默认可检索当前 Agent 的所有历史会话；显式放宽时也能查询同一工作区内其他 Agent 的历史。
 - **安全降级**：如果 scroll 无法构建，或 recall 工具无法安全运行，QwenPaw 会退回 native 上下文管理，避免把历史驱逐到无法读取的位置。
+
+索引层级只会在达到 10 个 block 的容量时向上归并；压力不会提前压实索引。重建实时上下文后，只有当上下文仍高于 `max(trigger, reserve)` 时，Scroll 才会折叠已完成的工具结果。
 
 ## 存储布局
 
@@ -102,17 +105,16 @@ scroll 的核心设计是：**不靠模型生成摘要来压缩上下文**。取
 
 ### 活动轮次保护与泄压管线
 
-一个长工具任务（`/heartbeat` 定时任务、多轮搜索）本身就可能超出保留预算，此时按 token 切分会把**当前请求**连同旧历史一起驱逐——模型只能看到一条旧消息和一份索引，然后答非所问。为此 scroll 按三级递进泄压，每一级只在上一级不够用时才启动：
+一个长工具任务（`/heartbeat` 定时任务、多轮搜索）本身就可能超出保留预算，此时按 token 切分会把**当前请求**连同旧历史一起驱逐——模型只能看到一条旧消息和一份索引，然后答非所问。为此 scroll 按两个阶段递进泄压，每一级只在上一级不够用时才启动：
 
 1. **驱逐**——活动轮次之前的已完成轮次折叠进驱逐索引（常规路径）。
-2. **压实**——窗口仍超出保留预算时，索引自身逐层上卷、向单行收缩。
-3. **折叠**——仍然超出（典型情况：整个上下文就是一个活动轮次）时，把活动轮次中已完成的工具结果**原地**替换为一行 recall 指针：
+2. **折叠**——驱逐后仍然超出（典型情况：整个上下文就是一个活动轮次）时，把活动轮次中已完成的工具结果**原地**替换为一行 recall 指针：
 
    ```text
-   [scroll folded] full result stored in history — re-read it with recall_history(op="expand", lo=184, hi=184)
+   [scroll folded] old tool result content cleared; recover with recall_history(op="recall_tool", tool_call_id='call_abc')
    ```
 
-   请求原文、工具调用、推理文本和最新一条工具结果全部原样保留——这一轮本身仍是一份可读的任务进度记录；每条被折叠的输出都和其他历史一样在折叠前已持久化，一次 `recall_history` 调用就能取回。stub 特意指向结构化工具：它在进程内运行、不依赖沙箱，所以即使在 Python REPL 无法运行的平台上也能读回。
+   请求原文、工具调用、推理文本和最新一条工具结果全部原样保留——这一轮本身仍是一份可读的任务进度记录；每条被折叠的输出都和其他历史一样在折叠前已持久化，可以通过准确的 tool call ID 取回。`recall_tool` 使用有界分页；返回 `next_cursor` 时按该 cursor 继续。如果结果提供了完整输出的 `file_path`，再用 `read_file` 分段读取该 artifact。stub 特意指向结构化工具：它在进程内运行、不依赖沙箱，所以即使在 Python REPL 无法运行的平台上也能读回。
 
 ### 驱逐索引
 
@@ -203,7 +205,7 @@ print(ms.agents())
 | ----------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ToolResultPruningMiddleware` | 所有上下文策略下均注册，由 `tool_result_pruning_config.enabled` 控制 | 按字节裁剪当前和历史工具结果，把超大原始输出保存到 `tool_results/`，并记录按文本块隔离的恢复 metadata 与 `read_file` 续读提示；当 coordinator offload 启用时，后台完成路径也使用同一个 pruner。 |
 
-scroll 不再有独立的 token 工具结果 cap。recent 与 execution preview 共用 `pruning_recent_msg_max_bytes`；scroll compact 后，仍保留在 live context 的 preview 会缩小到 `pruning_old_msg_max_bytes`，完整 artifact 仍可回溯。
+scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使用 `pruning_recent_msg_max_bytes`。只有重建后的上下文仍高于压力目标时，Scroll 才会把选中的已完成结果替换为精确的 `recall_history` 指针。`pruning_recent_n` 和 `pruning_old_msg_max_bytes` 只适用于 Native 策略。
 
 启用统一 pruning 时，QwenPaw 会让 AgentScope 内置的 token 工具结果上限不再触发，避免已经按 bytes 裁剪的 preview 被二次截断并丢失按文本块隔离的恢复 metadata。关闭统一 pruning 时，AgentScope 的默认上限仍作为安全兜底保留。
 
@@ -245,16 +247,16 @@ scroll 不再有独立的 token 工具结果 cap。recent 与 execution preview 
       },
       "tool_result_pruning_config": {
         "enabled": true,
-        "pruning_recent_n": 2,
-        "pruning_old_msg_max_bytes": 3000,
         "pruning_recent_msg_max_bytes": 50000,
-        "offload_retention_days": 5,
+        "offload_retention_days": 30,
         "tool_results_cache": "tool_results"
       }
     }
   }
 }
 ```
+
+对于 Native 策略，`pruning_recent_n` 和 `pruning_old_msg_max_bytes` 分别控制 recent 与 older preview 层级；Scroll 会忽略这两个分层设置。
 
 重要字段：
 

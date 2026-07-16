@@ -39,12 +39,11 @@ def to_semver(version: str) -> str:
     if parsed.pre:
         prerelease, prerelease_n = parsed.pre
         labels.append(f"{prerelease_map[prerelease]}.{prerelease_n}")
-    if parsed.post is not None:
-        labels.append(f"post.{parsed.post}")
     if parsed.dev is not None:
         labels.append(f"dev.{parsed.dev}")
     suffix = f"-{'.'.join(labels)}" if labels else ""
-    return f"{major}.{minor}.{patch}{suffix}"
+    post_metadata = f"+post.{parsed.post}" if parsed.post is not None else ""
+    return f"{major}.{minor}.{patch}{suffix}{post_metadata}"
 
 
 # stage
