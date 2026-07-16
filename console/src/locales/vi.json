@@ -865,6 +865,8 @@
     "autoContinueOnTextOnlyTooltip": "Khi mô hình kết thúc bước suy luận chỉ bằng văn bản, tự động chèn gợi ý và chạy thêm một lần.",
     "autoGenerateSessionTitle": "Tự tạo tiêu đề phiên",
     "autoGenerateSessionTitleTooltip": "Sau tin nhắn đầu tiên, gọi LLM ngắn để tạo tiêu đề súc tích.",
+    "inboxPushEnabled": "Thông báo hộp thư kết quả bộ nhớ",
+    "inboxPushEnabledTooltip": "Gửi kết quả tự động ghi nhớ, giấc mơ và tài nguyên vào hộp thư. Việc tắt thông báo không dừng các tác vụ bộ nhớ.",
     "autoMemoryInterval": "Khoảng tự động ghi nhớ",
     "autoMemoryIntervalTooltip": "Kích hoạt tự động ghi nhớ sau mỗi N truy vấn của người dùng. 0 tắt tự động ghi nhớ định kỳ. 1 nghĩa là tự động ghi nhớ sau mỗi truy vấn. Khuyến nghị đặt 2-5; đặt 1 cần chú ý mức tiêu thụ token cao.",
     "autoMemoryIntervalPlaceholder": "Nhập 0 để tắt tự động ghi nhớ định kỳ",

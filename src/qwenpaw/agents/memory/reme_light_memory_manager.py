@@ -279,6 +279,15 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     ) -> bool:
         if name not in INBOX_RESULT_JOB_NAMES:
             return False
+        memory_config = self.get_memory_config()
+        if not memory_config.inbox_push_enabled:
+            logger.info(
+                "ReMe job result inbox push disabled: "
+                "agent_id=%s job_name=%s",
+                self.agent_id,
+                name,
+            )
+            return False
         response_metadata = getattr(response, "metadata", None)
         if isinstance(response_metadata, dict) and response_metadata.get(
             INBOX_EMITTED_METADATA_KEY,

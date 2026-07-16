@@ -22,6 +22,8 @@ use remote::{check_and_download, check_installable_update};
 use signature::verify_cached_update;
 use version::version_lte;
 
+pub(crate) use version::is_remote_update_newer;
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DesktopUpdate {

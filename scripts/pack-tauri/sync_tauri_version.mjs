@@ -40,12 +40,11 @@ function toSemver(version) {
   const labels = [];
   if (prerelease)
     labels.push(`${prereleaseMap[prerelease]}.${prereleaseNumber}`);
-  if (post) labels.push(`post.${post}`);
   if (dev) labels.push(`dev.${dev}`);
 
-  return `${major}.${minor}.${patch}${
-    labels.length ? `-${labels.join(".")}` : ""
-  }`;
+  const prereleaseSuffix = labels.length ? `-${labels.join(".")}` : "";
+  const postMetadata = post ? `+post.${post}` : "";
+  return `${major}.${minor}.${patch}${prereleaseSuffix}${postMetadata}`;
 }
 
 function readBaseUpdaterConfig() {
