@@ -142,7 +142,7 @@ class ResourceGovernor:
                             "Windows sandbox inactive for this session: "
                             "sandbox_enabled is true but the process lacks "
                             "administrator privileges. To use the sandbox, "
-                            "restart QwenPaw as administrator."
+                            "restart QwenPaw as administrator.",
                         )
                         _sandbox_admin_warned_at = now
                     return False
