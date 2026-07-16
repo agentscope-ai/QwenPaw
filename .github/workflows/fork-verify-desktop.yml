@@ -1,6 +1,7 @@
 # One-click desktop release verification for fork repositories.
-# Builds each desktop flavour and runs the end-to-end UI verification
-# (Playwright + headless browser) against the freshly built product.
+# Builds the Tauri desktop packages (macOS + Windows) and runs the
+# end-to-end UI verification (Playwright + headless browser) against
+# the freshly built product.
 #
 # Unlike desktop-release.yml this workflow does NOT upload artifacts to
 # a GitHub Release or OSS — it only verifies that the build + LLM chain
@@ -20,7 +21,6 @@ on:
         default: 'all'
         options:
           - 'all'
-          - 'legacy-only'
           - 'tauri-only'
           - 'macos-only'
           - 'windows-only'
@@ -28,134 +28,11 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  legacy-macos:
-    if: >-
-      inputs.platforms == 'all' ||
-      inputs.platforms == 'legacy-only' ||
-      inputs.platforms == 'macos-only'
-    runs-on: macos-14
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Get version
-        id: version
-        uses: ./.github/actions/get-version
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: console/package-lock.json
-
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          auto-update-conda: true
-          python-version: "3.10"
-          activate-environment: "qwenpaw-build"
-          condarc-file: .github/condarc
-          conda-remove-defaults: false
-
-      - name: Build macOS .app
-        env:
-          NODE_OPTIONS: "--max-old-space-size=8192"
-        run: |
-          chmod +x scripts/pack/build_macos.sh
-          conda run -n qwenpaw-build bash -c 'CREATE_ZIP=1 ./scripts/pack/build_macos.sh'
-
-      - name: Set up runner Python for verification
-        id: runner-python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Verify desktop (Legacy macOS)
-        uses: ./.github/actions/verify-legacy-macos
-        with:
-          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-          version: ${{ steps.version.outputs.version }}
-          runner-python: ${{ steps.runner-python.outputs.python-path }}
-          allow-flaky-llm: "true"
-
-      - name: Stop desktop server
-        if: always()
-        run: |
-          if [ -f "$RUNNER_TEMP/qwenpaw-desktop.pid" ]; then
-            kill "$(cat "$RUNNER_TEMP/qwenpaw-desktop.pid")" 2>/dev/null || true
-          fi
-          lsof -ti:8088 | xargs kill 2>/dev/null || true
-
-  legacy-windows:
-    if: >-
-      inputs.platforms == 'all' ||
-      inputs.platforms == 'legacy-only' ||
-      inputs.platforms == 'windows-only'
-    runs-on: windows-latest
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Get version
-        id: version
-        uses: ./.github/actions/get-version
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: console/package-lock.json
-
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          auto-update-conda: true
-          python-version: "3.10"
-          activate-environment: "qwenpaw-build"
-          condarc-file: .github/condarc
-          conda-remove-defaults: false
-
-      - name: Install NSIS
-        uses: negrutiu/nsis-install@v2
-
-      - name: Build Windows installer
-        shell: pwsh
-        run: conda run -n qwenpaw-build pwsh -File ./scripts/pack/build_win.ps1
-
-      - name: Set up runner Python for verification
-        id: runner-python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Verify desktop (Legacy Windows)
-        uses: ./.github/actions/verify-legacy-windows
-        with:
-          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
-          version: ${{ steps.version.outputs.version }}
-          runner-python: ${{ steps.runner-python.outputs.python-path }}
-          allow-flaky-llm: "true"
-
-      - name: Stop desktop server
-        if: always()
-        shell: pwsh
-        run: |
-          $pidFile = Join-Path $env:RUNNER_TEMP "qwenpaw-desktop.pid"
-          if (Test-Path $pidFile) {
-            $pidValue = (Get-Content $pidFile | Select-Object -First 1).Trim()
-            if ($pidValue) { taskkill /F /PID $pidValue 2>$null | Out-Null }
-          }
-          exit 0
-
   tauri-macos:
     if: >-
       inputs.platforms == 'all' ||

@@ -151,6 +151,7 @@ def _run_command(args: list[str], timeout: int = 5) -> str | None:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            errors="replace",
             timeout=timeout,
             check=False,
         )

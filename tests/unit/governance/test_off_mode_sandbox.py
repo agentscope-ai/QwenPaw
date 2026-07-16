@@ -111,6 +111,24 @@ class TestOffModeSandbox:
         assert not hasattr(tool, "_qp_sandbox_config")
         assert not gov.compiled
 
+    def test_sandbox_switch_off_clears_previous_config(self):
+        """A hot switch-off must not reuse per-call state from an earlier
+        sandboxed invocation on the same reusable tool wrapper.
+        """
+        tool = _FakeTool("recall_history_python")
+        gov = _FakeGovernor(sandbox_available=True, sandbox_enabled=True)
+
+        tool_adapter._prepare_off_mode_sandbox(tool, gov)
+        assert tool._qp_sandbox_mode is True
+        assert hasattr(tool, "_qp_sandbox_config")
+
+        gov._sandbox_enabled = False
+        tool_adapter._prepare_off_mode_sandbox(tool, gov)
+
+        assert not hasattr(tool, "_qp_sandbox_mode")
+        assert not hasattr(tool, "_qp_sandbox_config")
+        assert len(gov.compiled) == 1
+
     def test_no_governor_is_noop(self):
         tool = _FakeTool("recall_history_python")
         tool_adapter._prepare_off_mode_sandbox(tool, None)

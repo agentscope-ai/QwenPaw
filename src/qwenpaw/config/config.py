@@ -695,6 +695,14 @@ class ReMeLightMemoryConfig(BaseModel):
         description="Whether to enable memory summarization during compaction",
     )
 
+    inbox_push_enabled: bool = Field(
+        default=True,
+        description=(
+            "Whether to push ReMe auto-memory, auto-dream, and "
+            "auto-resource job results to the inbox"
+        ),
+    )
+
     auto_memory_interval: int | None = Field(
         default=5,
         description="Auto memory every N user queries. 1 means auto "
@@ -1705,6 +1713,12 @@ class MCPConfig(BaseModel):
             ),
         },
     )
+    # One-shot migration watermark, persisted in agent.json.  Decoupled from
+    # DriverCard existence so that deleting a migrated client no longer lets
+    # startup migration resurrect it (#6130).  0 = not migrated; steps are
+    # defined by CURRENT_MCP_MIGRATION_VERSION in
+    # drivers.adapters.mcp_legacy_config.
+    migration_version: int = 0
 
 
 class BuiltinToolConfig(BaseModel):

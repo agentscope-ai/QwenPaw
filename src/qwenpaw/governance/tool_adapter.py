@@ -206,12 +206,22 @@ def _prepare_off_mode_sandbox(tool: Any, governor: Any) -> None:
     like it is on the normal policy path (see
     :meth:`ResourceGovernor._sandbox_usable`).
     """
-    if governor is None or not getattr(governor, "sandbox_usable", False):
+    # These attributes live on a reusable FunctionTool wrapper, but describe
+    # one invocation only.  Clear any previous decision before consulting the
+    # current switch so a hot toggle (or a failed recompile) cannot reuse a
+    # stale sandbox config from an earlier call.
+    for attr in ("_qp_sandbox_mode", "_qp_sandbox_config"):
+        if hasattr(tool, attr):
+            delattr(tool, attr)
+
+    if governor is None:
         return
     policy_name = DEFAULT_REGISTRY.python_to_policy_name(
         getattr(tool, "name", "Unknown"),
     )
     if not DEFAULT_REGISTRY.requires_sandbox(policy_name):
+        return
+    if not getattr(governor, "sandbox_usable", False):
         return
     try:
         tc_spec = tool._build_tc_spec()

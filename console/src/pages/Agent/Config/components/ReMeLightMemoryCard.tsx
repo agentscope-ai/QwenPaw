@@ -89,25 +89,36 @@ export function ReMeLightMemoryCard() {
       </Form.Item>
 
       <Form.Item
+        label={t("agentConfig.inboxPushEnabled")}
+        name={["reme_light_memory_config", "inbox_push_enabled"]}
+        valuePropName="checked"
+        tooltip={t("agentConfig.inboxPushEnabledTooltip")}
+      >
+        <Switch />
+      </Form.Item>
+
+      <Form.Item
         label={t("agentConfig.autoMemoryInterval")}
         name={["reme_light_memory_config", "auto_memory_interval"]}
+        rules={[
+          {
+            required: true,
+            message: t("agentConfig.autoMemoryIntervalRequired"),
+          },
+          {
+            type: "number",
+            min: 0,
+            message: t("agentConfig.autoMemoryIntervalMin"),
+          },
+        ]}
         tooltip={t("agentConfig.autoMemoryIntervalTooltip")}
       >
         <InputNumber
           style={{ width: "100%" }}
-          min={1}
+          min={0}
           step={1}
           placeholder={t("agentConfig.autoMemoryIntervalPlaceholder")}
         />
-      </Form.Item>
-
-      <Form.Item
-        label={t("agentConfig.dreamCron")}
-        name={["reme_light_memory_config", "dream_cron"]}
-        tooltip={t("agentConfig.dreamCronTooltip")}
-        normalize={(value) => value ?? ""}
-      >
-        <Input placeholder={t("agentConfig.dreamCronPlaceholder")} />
       </Form.Item>
 
       <Form.Item

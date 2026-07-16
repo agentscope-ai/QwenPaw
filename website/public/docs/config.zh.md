@@ -376,6 +376,7 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `daily_dir`                     | string      | `"memory"`       | 每日记忆子目录                                                       |
 | `digest_dir`                    | string      | `"digest"`       | digest 记忆子目录                                                    |
 | `summarize_when_compact`        | bool        | `true`           | 是否在上下文压缩时启用记忆总结                                       |
+| `inbox_push_enabled`            | bool        | `true`           | 是否将自动记忆、自动梦境和自动资源任务结果推送到收件箱               |
 | `auto_memory_interval`          | int \| null | `5`              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆 |
 | `dream_cron`                    | string      | `"0 23 * * *"`   | 梦境记忆优化任务的 Cron 表达式（空字符串禁用）                       |
 | `auto_memory_search_config`     | object      | _（见下方）_     | 自动记忆搜索配置                                                     |

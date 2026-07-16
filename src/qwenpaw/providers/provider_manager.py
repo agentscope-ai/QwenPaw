@@ -502,7 +502,7 @@ OPENCODE_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="mimo-v2.5-free",
         name="Mimo V2.5",
-        supports_image=False,
+        supports_image=True,
         supports_video=False,
         probe_source="documentation",
         is_free=True,
@@ -2266,6 +2266,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     "thinking_enabled",
                     "thinking_budget",
                     "reasoning_effort",
+                    "supports_multimodal",
+                    "supports_image",
+                    "supports_video",
                 )
                 for m in provider.models:
                     stored_model_config[m.id] = {

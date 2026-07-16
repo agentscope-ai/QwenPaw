@@ -28,7 +28,16 @@ export function stripScrollHeadlineTextBlocks(node: unknown): void {
   }
 
   const record = node as Record<string, unknown>;
-  if (record.type === "text" && typeof record.text === "string") {
+  // Only mutate finalized text blocks. Streaming deltas (delta === true)
+  // must stay verbatim: trimming each chunk would drop the spaces and line
+  // feeds that sit at chunk boundaries, gluing thinking/text together while
+  // streaming (issue #6129). Their headline markers are handled by
+  // filterHeadlineDelta and re-stripped from the canonical completed block.
+  if (
+    record.type === "text" &&
+    typeof record.text === "string" &&
+    record.delta !== true
+  ) {
     record.text = stripScrollHeadlines(record.text);
   }
   Object.values(record).forEach(stripScrollHeadlineTextBlocks);

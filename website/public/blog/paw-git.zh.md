@@ -2,9 +2,14 @@
 title: "PawGit：为 QwenPaw Agent 会话状态提供可恢复性"
 date: 2026-07-07
 author: QwenPaw Team
-tags: [pawgit, plugin, context-rot, agent-session]
+tags: [插件, 会话版本控制, 状态快照, 会话回滚]
 cover: https://img.alicdn.com/imgextra/i2/O1CN01cdSRbU26gXIFiTRjL_!!6000000007691-2-tps-1254-1254.png
 excerpt: "长会话里 Agent 会被脏上下文拖住。PawGit 为 QwenPaw Agent 会话状态提供 checkpoint、timeline 与 rewind，让你在不必新开窗口重喂 prompt 的前提下，回到之前还干净的状态。"
+related:
+  heading: "相关插件：PawGit"
+  description: "QwenPaw 会话与记忆版本控制插件，支持状态快照、DAG 时间线、会话回滚与状态重置。"
+  linkText: "查看并安装 PawGit →"
+  linkUrl: "https://platform.agentscope.io/plugins/pawgit"
 ---
 
 # PawGit：为 QwenPaw Agent 会话状态提供可恢复性

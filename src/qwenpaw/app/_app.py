@@ -864,11 +864,24 @@ _CONSOLE_INDEX = (
 )
 logger.info(f"STATIC_DIR: {_CONSOLE_STATIC_DIR}")
 
+# The SPA entry (index.html) must never be cached: it references content-hashed
+# JS/CSS bundles, so a stale cached index.html would keep pointing the WebView
+# at old asset hashes after a rebuild (see desktop dev cache issue). The hashed
+# assets under /assets remain safely cacheable because their name changes with
+# their content.
+_INDEX_NO_CACHE_HEADERS = {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    # Pragma/Expires cover legacy proxies and older WebView caches that do not
+    # honor Cache-Control on their own.
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
 
 @app.get("/")
 def read_root():
     if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
-        return FileResponse(_CONSOLE_INDEX)
+        return FileResponse(_CONSOLE_INDEX, headers=_INDEX_NO_CACHE_HEADERS)
     return {
         "message": (
             f"{PROJECT_NAME} web console is not available. "
@@ -928,7 +941,10 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
 
     def _serve_console_index():
         if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
-            return FileResponse(_CONSOLE_INDEX)
+            return FileResponse(
+                _CONSOLE_INDEX,
+                headers=_INDEX_NO_CACHE_HEADERS,
+            )
 
         raise HTTPException(status_code=404, detail="Not Found")
 
