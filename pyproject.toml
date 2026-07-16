@@ -78,6 +78,10 @@ Repository = "https://github.com/agentscope-ai/QwenPaw"
 Documentation = "https://qwenpaw.agentscope.io/docs/"
 Issues = "https://github.com/agentscope-ai/QwenPaw/issues"
 
+[tool.black]
+line-length = 79
+target-version = ["py311"]
+
 [tool.setuptools.dynamic]
 version = {attr = "qwenpaw.__version__.__version__"}
 
