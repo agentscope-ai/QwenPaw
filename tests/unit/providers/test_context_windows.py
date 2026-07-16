@@ -52,6 +52,9 @@ from qwenpaw.providers.provider import ModelInfo, Provider
         ("gemini-1.5-pro", 2_097_152),
         ("gemini-2.5-flash", 1_048_576),
         ("kimi-k2-thinking", 262_144),
+        ("glm-5.2", 1_000_000),
+        ("GLM-5.2[1m]", 1_000_000),
+        ("zhipu/glm-5.2", 1_000_000),
     ],
 )
 def test_known_windows(model_id: str, expected: int):
@@ -75,6 +78,17 @@ def test_resolve_default_valued_config_falls_to_catalog():
             configured=DEFAULT_CONTEXT_WINDOW,
         )
         == 200_000
+    )
+
+
+def test_resolve_explicit_default_valued_config_wins():
+    assert (
+        resolve_context_window(
+            "claude-sonnet-4-5",
+            configured=DEFAULT_CONTEXT_WINDOW,
+            configured_is_explicit=True,
+        )
+        == DEFAULT_CONTEXT_WINDOW
     )
 
 
@@ -130,6 +144,13 @@ class _CatalogProvider:
     _context_catalog_enabled = Provider._context_catalog_enabled
 
 
+class _MutableCatalogProvider(_CatalogProvider):
+    models: list[ModelInfo]
+    extra_models: list[ModelInfo]
+
+    update_model_config = Provider.update_model_config
+
+
 def test_context_size_prefers_explicit_user_config():
     p = _CatalogProvider()
     p._info = ModelInfo(
@@ -144,6 +165,44 @@ def test_context_size_falls_back_to_catalog_when_default():
     p = _CatalogProvider()
     p._info = ModelInfo(id="claude-sonnet-4-5", name="x")  # default 128k
     assert p.get_context_size("claude-sonnet-4-5") == 200_000
+
+
+def test_context_size_honors_explicit_128k_user_config():
+    p = _CatalogProvider()
+    p._info = ModelInfo(
+        id="claude-sonnet-4-5",
+        name="x",
+        max_input_length=DEFAULT_CONTEXT_WINDOW,
+        max_input_length_configured=True,
+    )
+    assert p.get_context_size("claude-sonnet-4-5") == DEFAULT_CONTEXT_WINDOW
+
+
+def test_model_config_update_marks_128k_as_explicit():
+    p = _MutableCatalogProvider()
+    model = ModelInfo(id="claude-sonnet-4-5", name="x")
+    p.models = [model]
+    p.extra_models = []
+
+    assert p.update_model_config(
+        model.id,
+        {"max_input_length": DEFAULT_CONTEXT_WINDOW},
+    )
+    assert model.max_input_length_configured is True
+    p._info = model
+    assert p.get_context_size(model.id) == DEFAULT_CONTEXT_WINDOW
+
+
+def test_unrelated_model_config_update_keeps_catalog_window():
+    p = _MutableCatalogProvider()
+    model = ModelInfo(id="claude-sonnet-4-5", name="x")
+    p.models = [model]
+    p.extra_models = []
+
+    assert p.update_model_config(model.id, {"max_tokens": 4096})
+    assert model.max_input_length_configured is False
+    p._info = model
+    assert p.get_context_size(model.id) == 200_000
 
 
 def test_context_size_default_when_unknown_everywhere():

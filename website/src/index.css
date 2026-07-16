@@ -275,6 +275,62 @@ button {
   line-height: 1.7;
 }
 
+.blog-related-card {
+  margin: 0 0 1.5rem;
+  padding: 1rem 1.125rem;
+  border: 1px solid #dcc1b2;
+  border-radius: 0.75rem;
+  background: #fffaf6;
+}
+
+.blog-related-card__heading {
+  margin: 0 0 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text, #1a1a1a);
+}
+
+.blog-related-card__desc {
+  margin: 0.35rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--color-text-tertiary, #6b5e56);
+}
+
+.blog-related-card__list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.15rem;
+  list-style: disc;
+}
+
+.blog-related-card__list li {
+  margin: 0.4rem 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--color-text-tertiary, #6b5e56);
+}
+
+.blog-related-card__item-label,
+.blog-related-card__item-name {
+  font-weight: 600;
+  color: var(--color-text, #1a1a1a);
+}
+
+.blog-related-card__link {
+  font-weight: 500;
+  color: var(--color-primary, #e36c2d);
+  text-decoration: none;
+}
+
+.blog-related-card__link:hover {
+  text-decoration: underline;
+}
+
+.blog-related-card__cta {
+  margin: 0.75rem 0 0;
+  font-size: 0.875rem;
+}
+
 .blog-content hr {
   margin: 1rem 0 1.25rem;
   border: 0;

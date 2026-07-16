@@ -8,6 +8,10 @@ import {
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { SliderWithValue } from "./SliderWithValue";
+import {
+  calculateReserveThreshold,
+  usesTieredToolResultSettings,
+} from "./toolResultSettings";
 import styles from "../index.module.less";
 
 interface LightContextCardProps {
@@ -27,12 +31,18 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
     "context_compact_config",
     "reserve_threshold_ratio",
   ]);
+  const contextStrategy =
+    Form.useWatch(["light_context_config", "strategy"]) ?? "scroll";
+  const showTieredToolResultSettings =
+    usesTieredToolResultSettings(contextStrategy);
 
   const compactThreshold = Math.floor(
     (maxInputLength ?? 0) * (compactThresholdRatio ?? 0.8),
   );
-  const reserveThreshold = Math.floor(
-    (maxInputLength ?? 0) * (reserveThresholdRatio ?? 0.1),
+  const reserveThreshold = calculateReserveThreshold(
+    maxInputLength ?? 0,
+    reserveThresholdRatio ?? 0.1,
+    contextStrategy,
   );
 
   return (
@@ -191,56 +201,60 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                   <Switch />
                 </Form.Item>
 
-                <Form.Item
-                  label={t("agentConfig.toolResultCompactRecentN")}
-                  name={[
-                    "light_context_config",
-                    "tool_result_pruning_config",
-                    "pruning_recent_n",
-                  ]}
-                  rules={[
-                    {
-                      required: true,
-                      message: t(
-                        "agentConfig.toolResultCompactRecentNRequired",
-                      ),
-                    },
-                  ]}
-                  tooltip={t("agentConfig.toolResultCompactRecentNTooltip")}
-                >
-                  <SliderWithValue
-                    min={1}
-                    max={10}
-                    step={1}
-                    marks={{ 1: "1", 5: "5", 10: "10" }}
-                  />
-                </Form.Item>
+                {showTieredToolResultSettings && (
+                  <>
+                    <Form.Item
+                      label={t("agentConfig.toolResultCompactRecentN")}
+                      name={[
+                        "light_context_config",
+                        "tool_result_pruning_config",
+                        "pruning_recent_n",
+                      ]}
+                      rules={[
+                        {
+                          required: true,
+                          message: t(
+                            "agentConfig.toolResultCompactRecentNRequired",
+                          ),
+                        },
+                      ]}
+                      tooltip={t("agentConfig.toolResultCompactRecentNTooltip")}
+                    >
+                      <SliderWithValue
+                        min={1}
+                        max={10}
+                        step={1}
+                        marks={{ 1: "1", 5: "5", 10: "10" }}
+                      />
+                    </Form.Item>
 
-                <Form.Item
-                  label={t("agentConfig.toolResultCompactOldThreshold")}
-                  name={[
-                    "light_context_config",
-                    "tool_result_pruning_config",
-                    "pruning_old_msg_max_bytes",
-                  ]}
-                  rules={[
-                    {
-                      required: true,
-                      message: t(
-                        "agentConfig.toolResultCompactOldThresholdRequired",
-                      ),
-                    },
-                  ]}
-                  tooltip={t(
-                    "agentConfig.toolResultCompactOldThresholdTooltip",
-                  )}
-                >
-                  <Input
-                    placeholder={t(
-                      "agentConfig.toolResultCompactOldThresholdPlaceholder",
-                    )}
-                  />
-                </Form.Item>
+                    <Form.Item
+                      label={t("agentConfig.toolResultCompactOldThreshold")}
+                      name={[
+                        "light_context_config",
+                        "tool_result_pruning_config",
+                        "pruning_old_msg_max_bytes",
+                      ]}
+                      rules={[
+                        {
+                          required: true,
+                          message: t(
+                            "agentConfig.toolResultCompactOldThresholdRequired",
+                          ),
+                        },
+                      ]}
+                      tooltip={t(
+                        "agentConfig.toolResultCompactOldThresholdTooltip",
+                      )}
+                    >
+                      <Input
+                        placeholder={t(
+                          "agentConfig.toolResultCompactOldThresholdPlaceholder",
+                        )}
+                      />
+                    </Form.Item>
+                  </>
+                )}
 
                 <Form.Item
                   label={t("agentConfig.toolResultCompactRecentThreshold")}
@@ -289,47 +303,53 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                 >
                   <SliderWithValue
                     min={1}
-                    max={10}
+                    max={365}
                     step={1}
-                    marks={{ 1: "1", 5: "5", 10: "10" }}
+                    marks={{ 1: "1", 30: "30", 365: "365" }}
                   />
                 </Form.Item>
 
-                <Form.Item
-                  label={t("agentConfig.exemptFileExtensions")}
-                  name={[
-                    "light_context_config",
-                    "tool_result_pruning_config",
-                    "exempt_file_extensions",
-                  ]}
-                  tooltip={t("agentConfig.exemptFileExtensionsTooltip")}
-                >
-                  <Select
-                    mode="tags"
-                    placeholder={t(
-                      "agentConfig.exemptFileExtensionsPlaceholder",
-                    )}
-                    tokenSeparators={[",", " "]}
-                    style={{ width: "100%" }}
-                  />
-                </Form.Item>
+                {showTieredToolResultSettings && (
+                  <>
+                    <Form.Item
+                      label={t("agentConfig.exemptFileExtensions")}
+                      name={[
+                        "light_context_config",
+                        "tool_result_pruning_config",
+                        "exempt_file_extensions",
+                      ]}
+                      tooltip={t("agentConfig.exemptFileExtensionsTooltip")}
+                    >
+                      <Select
+                        mode="tags"
+                        placeholder={t(
+                          "agentConfig.exemptFileExtensionsPlaceholder",
+                        )}
+                        tokenSeparators={[",", " "]}
+                        style={{ width: "100%" }}
+                      />
+                    </Form.Item>
 
-                <Form.Item
-                  label={t("agentConfig.exemptToolNames")}
-                  name={[
-                    "light_context_config",
-                    "tool_result_pruning_config",
-                    "exempt_tool_names",
-                  ]}
-                  tooltip={t("agentConfig.exemptToolNamesTooltip")}
-                >
-                  <Select
-                    mode="tags"
-                    placeholder={t("agentConfig.exemptToolNamesPlaceholder")}
-                    tokenSeparators={[",", " "]}
-                    style={{ width: "100%" }}
-                  />
-                </Form.Item>
+                    <Form.Item
+                      label={t("agentConfig.exemptToolNames")}
+                      name={[
+                        "light_context_config",
+                        "tool_result_pruning_config",
+                        "exempt_tool_names",
+                      ]}
+                      tooltip={t("agentConfig.exemptToolNamesTooltip")}
+                    >
+                      <Select
+                        mode="tags"
+                        placeholder={t(
+                          "agentConfig.exemptToolNamesPlaceholder",
+                        )}
+                        tokenSeparators={[",", " "]}
+                        style={{ width: "100%" }}
+                      />
+                    </Form.Item>
+                  </>
+                )}
               </>
             ),
           },

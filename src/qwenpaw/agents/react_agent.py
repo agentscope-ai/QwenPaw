@@ -44,6 +44,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _effective_artifact_retention_days(light_context_config: Any) -> int:
+    """Return the independently configured tool-result artifact lifetime."""
+    return (
+        light_context_config.tool_result_pruning_config.offload_retention_days
+    )
+
+
 class QwenPawAgent(CodingModeMixin, Agent):
     """QwenPaw Agent with integrated tools, skills, and memory management.
 
@@ -325,10 +332,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
         ):
             try:
                 lcc = self._agent_config.running.light_context_config
-                trc = lcc.tool_result_pruning_config
-                offloader.cleanup_expired(
-                    retention_days=trc.offload_retention_days,
-                )
+                retention_days = _effective_artifact_retention_days(lcc)
+                if retention_days > 0:
+                    offloader.cleanup_expired(
+                        retention_days=retention_days,
+                    )
             except Exception:
                 logger.debug("offloader cleanup failed", exc_info=True)
 

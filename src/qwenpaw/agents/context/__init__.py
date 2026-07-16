@@ -159,13 +159,14 @@ def build_scroll_components(
     # component can't be constructed, we log and return ``None`` so the agent
     # silently falls back to native context management instead of failing to
     # build. Native keeps full history in-context, so degrading is always safe.
+    history = None
     try:
         # Imported lazily so the native path never pays for the scroll
         # machinery — and so a missing scroll dependency degrades to native
         # here rather than breaking import of this module.
         from .scroll.history import HistoryStore
         from .scroll.manager import ScrollContextManager
-        from .scroll.recall_tool import make_recall_history
+        from .scroll.recall_tool import RecallLoopGuard, make_recall_history
         from .scroll.repl import make_recall_history_python
 
         sc = lcc.scroll_config
@@ -183,6 +184,7 @@ def build_scroll_components(
             # Existing store: nudge toward a retention window if it grew large.
             _warn_db_size(db_path)
         history = HistoryStore(db_path)
+        recall_loop_guard = RecallLoopGuard()
         scratch_root = str(Path(workspace_dir) / ".scroll")
 
         manager = ScrollContextManager(
@@ -205,12 +207,7 @@ def build_scroll_components(
                 "summarize_eviction_timeout_seconds",
                 20,
             ),
-            compact_tool_result_max_bytes=(
-                trc.pruning_old_msg_max_bytes if trc.enabled else None
-            ),
-            tool_results_dir=str(
-                Path(workspace_dir) / trc.tool_results_cache,
-            ),
+            recall_loop_guard=recall_loop_guard,
         )
         tool = make_recall_history_python(
             history_db_path=str(history.path),
@@ -228,6 +225,8 @@ def build_scroll_components(
             history_db_path=str(history.path),
             session_id=session_id,
             agent_id=agent_id,
+            loop_guard=recall_loop_guard,
+            page_max_bytes=trc.pruning_recent_msg_max_bytes,
         )
         return ScrollComponents(
             context_manager=manager,
@@ -235,6 +234,14 @@ def build_scroll_components(
             recall_tool=recall,
         )
     except Exception:  # noqa: BLE001 - any scroll failure degrades to native
+        if history is not None:
+            try:
+                history.close()
+            except Exception:  # noqa: BLE001 - preserve fallback behavior
+                logger.debug(
+                    "scroll: failed to close history after wiring failure",
+                    exc_info=True,
+                )
         logger.warning(
             "scroll: failed to wire components — falling back to native "
             "context management",

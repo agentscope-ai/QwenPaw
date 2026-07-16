@@ -2,7 +2,7 @@
 name: cron
 description: 仅在需要未来定时执行或周期执行任务时，使用本 skill。使用 qwenpaw cron list/create/get/state/update/pause/resume/delete/run 管理任务，并始终显式传入 --agent-id。
 metadata:
-  builtin_skill_version: "1.6"
+  builtin_skill_version: "1.7"
   qwenpaw:
     emoji: "⏰"
 ---
@@ -31,6 +31,7 @@ metadata:
 3. **创建前必须确认执行时间/周期、目标 channel、target-user、target-session**
 4. **所有 cron 命令都必须显式传 `--agent-id`**
 5. **不要依赖默认 agent，否则任务可能落到 default workspace**
+6. **如果 agent 任务只需后台执行、不向渠道输出，添加 `--silent`；执行、会话历史、追踪和可选收件箱记录仍会继续**
 
 ---
 
@@ -162,6 +163,8 @@ qwenpaw cron create \
   --timeout 600
 ```
 
+如果是后台 agent 任务，可在上面的命令中添加 `--silent`。`text` 任务不能使用该参数。
+
 ```bash
 # 日程一次性：明天 9 点提醒（不重复）
 qwenpaw cron create \
@@ -261,6 +264,7 @@ qwenpaw cron list --agent-id <agent_id>
 - 排查问题时，用 `qwenpaw cron state <job_id> --agent-id <agent_id>`
 - 给用户展示命令时，提供完整、可直接复制的版本
 - 用户提到“结果进收件箱/不进收件箱”时，显式加 `--save-result-to-inbox` 或 `--no-save-result-to-inbox`，否则不要添加该项。
+- 用户要求后台或静默执行且不向渠道回复时，对 `agent` 任务添加 `--silent`。
 
 ---
 

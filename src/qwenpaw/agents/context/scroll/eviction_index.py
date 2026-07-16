@@ -14,8 +14,8 @@ as a single new block one tier up. The carry cascades upward like a digit
 rolling past 9 — recent history sits low and detailed, old history rides up
 reduced to its endpoints.
 
-``compact`` is the pressure valve: when the rebuilt context still overflows,
-it forces an *early* carry so the index keeps shrinking until it fits.
+Index roll-up is driven only by the per-tier block cap. Context pressure does
+not force an early carry, so recent index detail is stable until a tier fills.
 
 Nothing is lost — every line carries a ``seq`` span and the full turns stay in
 ``conversation_history``; a collapsed line is a zoomed-out view the model
@@ -187,7 +187,7 @@ class EvictionIndex:
         Keep the rest of tier ``k`` as-is, collapse the oldest ``count``
         blocks to one line each, stack them into a single new block on tier
         ``k + 1``, then cascade. Shared by the cap-triggered ``_carry`` and the
-        pressure-triggered ``compact``.
+        cap-triggered carry.
         """
         older, kept = self._tiers[k][:count], self._tiers[k][count:]
         self._tiers[k] = kept
@@ -195,32 +195,6 @@ class EvictionIndex:
             self._tiers.append([])
         self._tiers[k + 1].append(_collapse(older))
         self._carry(k + 1)
-
-    def compact(self) -> bool:
-        """Force one extra roll-up step under context pressure.
-
-        Fires the same carry *early*: the lowest tier still holding >=2 blocks
-        keeps its newest block and folds the rest up. When every tier holds
-        <=1 block, the whole index is folded into one block at the top tier —
-        so it can always shrink toward a single line. Returns True while it
-        shrank, False once a single block remains.
-        """
-        for k, tier in enumerate(self._tiers):
-            if len(tier) >= 2:
-                self._carry_run(k, len(tier) - 1)
-                return True
-        # Every tier holds <=1 block: fold the whole index into one top block.
-        # Sort by span so _collapse sees blocks oldest-first.
-        all_blocks = sorted(
-            (b for tier in self._tiers for b in tier),
-            key=lambda b: b.seq_lo,
-        )
-        if len(all_blocks) >= 2:
-            top = len(self._tiers) - 1
-            self._tiers = [[] for _ in self._tiers]
-            self._tiers[top] = [_collapse(all_blocks)]
-            return True
-        return False
 
     # -- serialization (checkpoint) ------------------------------------------
 
