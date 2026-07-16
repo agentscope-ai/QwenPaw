@@ -22,7 +22,7 @@ from qwenpaw.providers.openai_provider import (
     GitHubModelsProvider,
     OpenAIProvider,
 )
-from qwenpaw.providers.provider import ModelInfo
+from qwenpaw.providers.provider import ModelInfo, ProviderInfo
 from qwenpaw.providers.provider_manager import ProviderManager
 
 LEGACY_PROVIDER = {
@@ -170,6 +170,38 @@ async def test_add_custom_provider_and_reload_from_storage(
     assert isinstance(loaded_builtin_conflict, OpenAIProvider)
     assert loaded_duplicate is not None
     assert isinstance(loaded_duplicate, OpenAIProvider)
+
+
+async def test_custom_provider_preserves_explicit_default_context_window(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    request_model = ModelInfo(
+        id="claude-sonnet-4-5",
+        name="Claude Sonnet 4.5",
+        max_input_length=DEFAULT_CONTEXT_WINDOW,
+    )
+    assert "max_input_length" in request_model.model_fields_set
+    assert request_model.max_input_length_configured is False
+
+    await manager.add_custom_provider(
+        ProviderInfo(
+            id="custom-context-window",
+            name="Custom Context Window",
+            chat_model="OpenAIChatModel",
+            extra_models=[request_model],
+        ),
+    )
+
+    reloaded = ProviderManager().get_provider("custom-context-window")
+    assert reloaded is not None
+    model = reloaded.get_model_info("claude-sonnet-4-5")
+    assert model is not None
+    assert model.max_input_length_configured is True
+    assert (
+        reloaded.get_context_size("claude-sonnet-4-5")
+        == DEFAULT_CONTEXT_WINDOW
+    )
 
 
 async def test_activate_provider_persists_active_model(

@@ -1583,6 +1583,20 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # Add a new custom provider with the given data. This will update the
         # providers.json file and make the new provider available in the UI.
         provider_payload = provider_data.model_dump()
+        # ``max_input_length`` equal to the historical 128K default is only
+        # distinguishable from an omitted value while the request model still
+        # carries Pydantic's field-presence information. Preserve that intent
+        # before model_dump/storage erase it. This is deliberately scoped to
+        # the user-facing custom-provider ingestion path: legacy provider JSON
+        # serialized every default field, so applying the same inference while
+        # loading from disk would incorrectly mark all old 128K defaults as
+        # explicit overrides.
+        for field in ("models", "extra_models"):
+            source_models = getattr(provider_data, field, ())
+            payload_models = provider_payload.get(field, ())
+            for source, payload in zip(source_models, payload_models):
+                if "max_input_length" in source.model_fields_set:
+                    payload["max_input_length_configured"] = True
         provider_payload["id"] = self._resolve_custom_provider_id(
             provider_data.id,
         )
