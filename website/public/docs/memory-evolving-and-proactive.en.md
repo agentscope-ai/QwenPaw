@@ -127,7 +127,8 @@ Each change item may contain `path` or `file_path` and a `change` value such as 
 Auto Dream is exposed in QwenPaw through:
 
 - `/dream [hint]`, handled by `CommandHandler._process_dream()`;
-- the scheduler configured by `dream_cron`, default `0 23 * * *`;
+- the scheduler configured by `dream_cron` when `dream_cron_enabled` is true,
+  default `0 23 * * *`;
 - `ReMeLightMemoryManager.dream(date="", hint="")`.
 
 QwenPaw runs the ReMe job named `auto_dream` with `needs_llm=True`, so the embedded ReMe app refreshes its LLM component from the active QwenPaw model before the job runs.

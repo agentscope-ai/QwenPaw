@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import uuid
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
@@ -35,6 +36,12 @@ MATTERMOST_POST_CHUNK_SIZE = 4000  # chars per post (hard limit ~16383)
 
 _DEFAULT_MEDIA_DIR = WORKING_DIR / "media" / "mattermost"
 _TYPING_TIMEOUT_S = 180
+
+# Hard cap on concurrently-tracked event handlers (flood protection).
+_EVENT_TASK_HARD_CAP = 500
+# Upper bounds for the lazy-context tracking maps (prevent unbounded growth).
+_SEEN_SESSIONS_MAX = 10000
+_PARTICIPATED_THREADS_MAX = 10000
 
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"}
 _AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
@@ -157,8 +164,10 @@ class MattermostChannel(BaseChannel):
         self._bot_username: str = ""
         self._task: Optional[asyncio.Task] = None
         self._typing_tasks: dict[str, asyncio.Task] = {}
-        self._participated_threads: set[str] = set()
-        self._seen_sessions: set[str] = set()
+        self._participated_threads: "OrderedDict[str, None]" = OrderedDict()
+        self._seen_sessions: "OrderedDict[str, None]" = OrderedDict()
+        # Fire-and-forget event handlers, tracked so stop() can cancel them.
+        self._event_tasks: set[asyncio.Task] = set()
 
         # Reuse a single HTTP client (BaseChannel._http field)
         # Only Authorization header — Content-Type is set per-request by httpx
@@ -181,6 +190,36 @@ class MattermostChannel(BaseChannel):
     # ------------------------------------------------------------------
     # Construction helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _bounded_add(
+        store: "OrderedDict[str, None]",
+        key: str,
+        max_items: int,
+    ) -> None:
+        """Add *key* to an OrderedDict-backed set, evicting oldest over cap."""
+        store[key] = None
+        store.move_to_end(key)
+        while len(store) > max_items:
+            store.popitem(last=False)
+
+    def _spawn_event_task(self, coro) -> None:
+        """Schedule a tracked background event handler with a hard cap.
+
+        Under a message flood the cap prevents unbounded task accumulation;
+        excess events are dropped with a warning. Tracked tasks are cancelled
+        on stop().
+        """
+        if len(self._event_tasks) >= _EVENT_TASK_HARD_CAP:
+            logger.warning(
+                "mattermost: event task cap (%d) reached — dropping event",
+                _EVENT_TASK_HARD_CAP,
+            )
+            coro.close()
+            return
+        task = asyncio.create_task(coro)
+        self._event_tasks.add(task)
+        task.add_done_callback(self._event_tasks.discard)
 
     @classmethod
     def from_config(
@@ -312,6 +351,8 @@ class MattermostChannel(BaseChannel):
             return
         for cid in list(self._typing_tasks):
             self._stop_typing(cid)
+        # Stop the websocket loop first so it can no longer spawn new
+        # event handlers, then drain the in-flight ones.
         if self._task:
             self._task.cancel()
             try:
@@ -319,6 +360,11 @@ class MattermostChannel(BaseChannel):
             except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
                 pass
             self._task = None
+        for task in list(self._event_tasks):
+            task.cancel()
+        if self._event_tasks:
+            await asyncio.gather(*self._event_tasks, return_exceptions=True)
+        self._event_tasks.clear()
         try:
             await self._http.aclose()
         except Exception:
@@ -396,7 +442,9 @@ class MattermostChannel(BaseChannel):
                     async for raw in ws:
                         data = json.loads(raw)
                         if data.get("event") == "posted":
-                            asyncio.create_task(self._on_posted_event(data))
+                            self._spawn_event_task(
+                                self._on_posted_event(data),
+                            )
 
             except asyncio.CancelledError:
                 logger.debug("mattermost: websocket loop cancelled")
@@ -447,7 +495,11 @@ class MattermostChannel(BaseChannel):
         """Fetch history context if needed."""
         if is_dm:
             if session_id not in self._seen_sessions:
-                self._seen_sessions.add(session_id)
+                self._bounded_add(
+                    self._seen_sessions,
+                    session_id,
+                    _SEEN_SESSIONS_MAX,
+                )
                 logger.info(
                     "mattermost: first DM contact on %s — "
                     "fetching channel history",
@@ -462,7 +514,11 @@ class MattermostChannel(BaseChannel):
             )
         else:
             if session_id not in self._seen_sessions:
-                self._seen_sessions.add(session_id)
+                self._bounded_add(
+                    self._seen_sessions,
+                    session_id,
+                    _SEEN_SESSIONS_MAX,
+                )
                 logger.info(
                     "mattermost: new thread on %s — "
                     "fetching channel history as background",
@@ -607,7 +663,11 @@ class MattermostChannel(BaseChannel):
 
         # 10. Record thread participation
         if target_root_id:
-            self._participated_threads.add(target_root_id)
+            self._bounded_add(
+                self._participated_threads,
+                target_root_id,
+                _PARTICIPATED_THREADS_MAX,
+            )
 
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
