@@ -1,13 +1,14 @@
 name: Full Tests Nightly
 
 # Nightly sweep of the entire test suite (unit + contract + integration +
-# E2E Playwright) with combined four-tier coverage.
+# E2E Playwright + frontend vitest) with combined four-tier backend
+# coverage plus separately reported frontend coverage.
 #
 # tests.yml runs the PR (p0) and pre-merge (p0+p1) integration tiers
 # gated by event name; this workflow exercises the full integration suite
 # (all markers including p2), the full E2E Playwright suite against a
-# live backend, and re-runs unit / contract on every supported
-# platform/python combo to catch nightly drift.
+# live backend, the console vitest suite with coverage, and re-runs unit /
+# contract on every supported platform/python combo to catch nightly drift.
 #
 # Independent of tests.yml so it can run unattended without going through
 # the manual maintainer-approval gate that protects PR/push CI.
@@ -320,9 +321,58 @@ jobs:
       test_marker: 'integration'
     secrets: inherit
 
+  frontend-tests:
+    name: Frontend Tests (Vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: console/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run vitest with coverage (ratchet enforced)
+        run: npm run test:coverage
+
+      - name: Stage frontend coverage xml for report
+        if: always()
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          # Rename vitest's cobertura output to the coverage.<tier>.xml
+          # convention so coverage-report picks it up via the shared
+          # coverage-data-* download + get_pct() pipeline.
+          if [ -f console/coverage/cobertura-coverage.xml ]; then
+            cp console/coverage/cobertura-coverage.xml coverage.frontend.xml
+          fi
+
+      - name: Upload frontend coverage data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-frontend
+          path: coverage.frontend.xml
+          retention-days: 1
+
+      - name: Upload frontend coverage report (html)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-frontend
+          path: console/coverage/
+          retention-days: 14
+
   coverage-report:
     name: Coverage Report
-    needs: [unit-tests, contract-tests, integrated-tests, e2e-tests]
+    needs: [unit-tests, contract-tests, integrated-tests, e2e-tests, frontend-tests]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -443,11 +493,13 @@ jobs:
           CONTRACT=$(get_pct coverage.contract.xml)
           INTEGRATION=$(get_pct coverage.integration.xml)
           E2E=$(get_pct coverage.e2e.xml)
+          FRONTEND=$(get_pct coverage.frontend.xml)
           COMBINED=$(get_pct coverage.combined.xml)
           echo "UNIT=${UNIT:-n/a}"
           echo "CONTRACT=${CONTRACT:-n/a}"
           echo "INTEGRATION=${INTEGRATION:-n/a}"
           echo "E2E=${E2E:-n/a}"
+          echo "FRONTEND=${FRONTEND:-n/a}"
           echo "COMBINED=${COMBINED:-n/a}"
 
           {
@@ -459,13 +511,15 @@ jobs:
             echo "| Contract    | ${CONTRACT:-n/a}% |"
             echo "| Integration | ${INTEGRATION:-n/a}% |"
             echo "| E2E         | ${E2E:-n/a}% |"
+            echo "| Frontend (vitest) | ${FRONTEND:-n/a}% |"
             echo "| **Combined** | **${COMBINED:-n/a}%** |"
             echo ""
-            echo "> Combined = \`coverage combine\` of unit + contract + integration + E2E."
+            echo "> Combined = \`coverage combine\` of the backend Python tiers (unit + contract + integration + E2E)."
+            echo "> Frontend (vitest) is JS/TS coverage of the console app, reported separately (not merged into Combined)."
             echo "> Integration ran the full \`-m integration\` sweep (p0 + p1 + p2)."
             echo "> E2E ran the full Playwright suite against a live backend."
-            echo "> HTML reports under workflow artifact \`coverage-reports\` (\`htmlcov-combined\` / \`htmlcov-integration\` / \`htmlcov-e2e\`)."
-            echo "> Coverage is collected only on the ubuntu/py3.13 matrix entry; other matrix entries verify cross-platform compatibility without the tracer overhead."
+            echo "> HTML reports under workflow artifact \`coverage-reports\` (\`htmlcov-combined\` / \`htmlcov-integration\` / \`htmlcov-e2e\`); frontend HTML under \`coverage-report-frontend\`."
+            echo "> Backend coverage is collected only on the ubuntu/py3.13 matrix entry; other matrix entries verify cross-platform compatibility without the tracer overhead."
           } > coverage_summary.md
 
           cat coverage_summary.md >> "$GITHUB_STEP_SUMMARY"
@@ -480,6 +534,7 @@ jobs:
             coverage.contract.xml
             coverage.integration.xml
             coverage.e2e.xml
+            coverage.frontend.xml
             coverage.combined.xml
             htmlcov-combined/
             htmlcov-integration/
@@ -488,7 +543,7 @@ jobs:
 
   test-summary:
     name: Test Summary
-    needs: [unit-tests, contract-tests, integrated-tests, e2e-tests, coverage-report]
+    needs: [unit-tests, contract-tests, integrated-tests, e2e-tests, frontend-tests, coverage-report]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -499,11 +554,13 @@ jobs:
           echo "Contract tests: ${{ needs.contract-tests.result }}"
           echo "Integrated tests: ${{ needs.integrated-tests.result }}"
           echo "E2E tests: ${{ needs.e2e-tests.result }}"
+          echo "Frontend tests: ${{ needs.frontend-tests.result }}"
 
           if [ "${{ needs.unit-tests.result }}" = "failure" ] || \
              [ "${{ needs.contract-tests.result }}" = "failure" ] || \
              [ "${{ needs.integrated-tests.result }}" = "failure" ] || \
-             [ "${{ needs.e2e-tests.result }}" = "failure" ]; then
+             [ "${{ needs.e2e-tests.result }}" = "failure" ] || \
+             [ "${{ needs.frontend-tests.result }}" = "failure" ]; then
             echo "❌ Some tests failed"
             exit 1
           else
