@@ -81,4 +81,33 @@ describe("headline stream filter", () => {
     expect(payload.nested.delta).toContain("streamed headline remains");
     expect(payload.nested.content.text).toBe("visible");
   });
+
+  it("preserves boundary whitespace in streaming text deltas (issue #6129)", () => {
+    // A streaming reasoning/text delta chunk carries `delta: true`. Trimming
+    // each chunk would drop the spaces and line feeds that sit at chunk
+    // boundaries, so thinking blocks look glued together while streaming.
+    const payload = {
+      object: "content",
+      type: "text",
+      delta: true,
+      text: " think ",
+    };
+
+    stripScrollHeadlineTextBlocks(payload);
+
+    expect(payload.text).toBe(" think ");
+  });
+
+  it("preserves newline-only streaming deltas (issue #6129)", () => {
+    const payload = {
+      object: "content",
+      type: "text",
+      delta: true,
+      text: "\n\n",
+    };
+
+    stripScrollHeadlineTextBlocks(payload);
+
+    expect(payload.text).toBe("\n\n");
+  });
 });
