@@ -557,6 +557,18 @@ class BaseChannel(ABC):
             f"session={session_id[:30]}",
         )
 
+        # Refresh updated_at so the session list surfaces this chat as the
+        # latest activity (issue #6131). get_or_create_chat returns an
+        # existing chat unchanged, so without this the timestamp stays stale.
+        try:
+            await self._workspace.chat_manager.touch_chat(chat.id)
+        except Exception:  # pylint: disable=broad-except
+            logger.debug(
+                "failed to touch chat updated_at: chat_id=%s",
+                chat.id,
+                exc_info=True,
+            )
+
         queue, is_new = await self._workspace.task_tracker.attach_or_start(
             chat.id,
             payload,

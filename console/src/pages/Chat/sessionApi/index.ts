@@ -481,16 +481,33 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private static readonly CONVERTED_CACHE_MAX = 10;
   private static readonly CONVERTED_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-  /** LRU cache: backendId → { session, timestamp } */
+  /** LRU cache: backendId → { session, timestamp, updatedAt } */
   private convertedSessionCache = new Map<
     string,
-    { session: ExtendedSession; timestamp: number }
+    { session: ExtendedSession; timestamp: number; updatedAt: string | null }
   >();
 
-  private getCachedConvertedSession(backendId: string): ExtendedSession | null {
+  private getCachedConvertedSession(
+    backendId: string,
+    currentUpdatedAt?: string | null,
+  ): ExtendedSession | null {
     const entry = this.convertedSessionCache.get(backendId);
     if (!entry) return null;
     if (Date.now() - entry.timestamp > SessionApi.CONVERTED_CACHE_TTL) {
+      this.convertedSessionCache.delete(backendId);
+      return null;
+    }
+    // Staleness check against the chat's backend updated_at: when a new
+    // message arrives from an external channel (e.g. DingTalk), the polled
+    // session list carries a newer updated_at than what we cached. The cached
+    // messages are therefore stale and must be dropped so callers re-fetch.
+    // Without this, switching away and back served stale cached messages and
+    // only a full page refresh (which recreates this singleton) showed the
+    // new message (issue #6131 follow-up).
+    if (
+      currentUpdatedAt &&
+      (!entry.updatedAt || currentUpdatedAt > entry.updatedAt)
+    ) {
       this.convertedSessionCache.delete(backendId);
       return null;
     }
@@ -503,6 +520,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private setCachedConvertedSession(
     backendId: string,
     session: ExtendedSession,
+    updatedAt: string | null,
   ): void {
     if (this.convertedSessionCache.size >= SessionApi.CONVERTED_CACHE_MAX) {
       // Evict oldest (first entry in Map iteration order)
@@ -512,6 +530,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.convertedSessionCache.set(backendId, {
       session,
       timestamp: Date.now(),
+      updatedAt,
     });
   }
 
@@ -996,7 +1015,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // Check LRU cache for non-generating sessions
     const isIdle = !listEntry?.generating;
     if (isIdle) {
-      const cached = this.getCachedConvertedSession(backendId);
+      const cached = this.getCachedConvertedSession(
+        backendId,
+        listEntry?.updatedAt,
+      );
       if (cached) {
         // Update mutable fields that may differ
         cached.id = displayId;
@@ -1027,7 +1049,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     // Cache non-generating sessions
     if (!generating) {
-      this.setCachedConvertedSession(backendId, session);
+      this.setCachedConvertedSession(
+        backendId,
+        session,
+        listEntry?.updatedAt ?? null,
+      );
     }
 
     return session;
