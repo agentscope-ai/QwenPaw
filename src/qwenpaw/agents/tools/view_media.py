@@ -20,18 +20,29 @@ from .file_io import _path_to_file_url, _resolve_file_path
 logger = logging.getLogger(__name__)
 
 
-def _media_data_block(url: str, modality: str) -> DataBlock:
-    """Build a DataBlock from a URL, inferring ``media_type`` from the path.
+def _media_data_block(
+    url: str,
+    modality: str,
+    **extra,
+) -> DataBlock:
+    """Build a DataBlock from a URL, inferring ``media_type``.
 
     Mirrors the behaviour of the deleted ``_compat.message.ImageBlock`` /
     ``VideoBlock`` shim: when ``mimetypes.guess_type`` can't decide we
     fall back to a wildcard like ``image/*`` so the formatter still
     routes the block as the right modality.
+
+    Extra keyword arguments (e.g. ``detail="high"``) are passed
+    through to the DataBlock as provider-specific parameters
+    (requires agentscope >=2.0.5 with DataBlock extra="allow").
     """
     media_type, _ = mimetypes.guess_type(url)
     if not media_type:
         media_type = f"{modality}/*"
-    return DataBlock(source=URLSource(url=url, media_type=media_type))
+    return DataBlock(
+        source=URLSource(url=url, media_type=media_type),
+        **extra,
+    )
 
 
 _IMAGE_EXTENSIONS = {
@@ -321,6 +332,22 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
     )
 
 
+def _get_image_detail() -> Optional[str]:
+    """Read the image_detail setting from current agent config.
+
+    Returns None if not configured or on any error.
+    """
+    try:
+        from ...app.agent_context import get_current_agent_id
+        from ...config.config import load_agent_config
+
+        agent_id = get_current_agent_id()
+        agent_config = load_agent_config(agent_id)
+        return agent_config.image_detail
+    except Exception:
+        return None
+
+
 @tool_descriptor(requires_sandbox=("file_read",), async_execution=True)
 async def view_image(image_path: str) -> ToolChunk:
     """Load an image file into the LLM context so the model can see it.
@@ -351,6 +378,12 @@ async def view_image(image_path: str) -> ToolChunk:
         if probe_result is not True:
             fallback_hint = _get_multimodal_fallback_hint("image", image_path)
 
+    # Read agent-level image detail preference
+    detail = _get_image_detail()
+    extra: dict = {}
+    if detail is not None:
+        extra["detail"] = detail
+
     if _is_url(image_path):
         err = _validate_url_extension(
             image_path,
@@ -368,7 +401,7 @@ async def view_image(image_path: str) -> ToolChunk:
             is_last=True,
             state=ToolResultState.SUCCESS,
             content=[
-                _media_data_block(image_path, "image"),
+                _media_data_block(image_path, "image", **extra),
                 TextBlock(type="text", text=text_msg),
             ],
         )
@@ -390,7 +423,7 @@ async def view_image(image_path: str) -> ToolChunk:
         is_last=True,
         state=ToolResultState.SUCCESS,
         content=[
-            _media_data_block(file_url, "image"),
+            _media_data_block(file_url, "image", **extra),
             TextBlock(type="text", text=text_msg),
         ],
     )

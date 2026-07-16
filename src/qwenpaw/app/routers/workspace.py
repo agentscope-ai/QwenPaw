@@ -1138,6 +1138,70 @@ async def upload_workspace(
         ) from exc
 
 
+@router.get(
+    "/image-detail",
+    summary="Get image detail level",
+    description=(
+        "Get image detail parameter for view_image tool. "
+        "null means disabled (no detail sent to API)."
+    ),
+)
+async def get_image_detail(request: Request) -> dict:
+    """Get image detail setting for current agent."""
+    workspace = await get_agent_for_request(request)
+    agent_config = load_agent_config(workspace.agent_id)
+    return {
+        "image_detail": agent_config.image_detail,
+        "agent_id": workspace.agent_id,
+    }
+
+
+@router.put(
+    "/image-detail",
+    summary="Update image detail level",
+    description=(
+        "Update image detail parameter for view_image tool. "
+        "Set to null to disable, or 'auto'/'low'/'high'."
+    ),
+)
+async def put_image_detail(
+    request: Request,
+    body: dict = Body(
+        ...,
+        description=(
+            "Image detail config, e.g. "
+            '{"image_detail": "high"} or '
+            '{"image_detail": null}'
+        ),
+    ),
+) -> dict:
+    """Update image detail setting for current agent."""
+    raw = body.get("image_detail")
+    if raw is None:
+        image_detail = None
+    else:
+        image_detail = str(raw).strip().lower()
+        valid = {"auto", "low", "high"}
+        if image_detail not in valid:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid image_detail '{image_detail}'. "
+                    f"Must be one of: {', '.join(sorted(valid))}"
+                    " or null to disable."
+                ),
+            )
+
+    workspace = await get_agent_for_request(request)
+    agent_config = load_agent_config(workspace.agent_id)
+    agent_config.image_detail = image_detail
+    save_agent_config(workspace.agent_id, agent_config)
+    return {
+        "image_detail": image_detail,
+        "agent_id": workspace.agent_id,
+    }
+
+
 @router.get("/commands/available")
 async def get_available_commands(request: Request):
     """Return all slash commands registered for the workspace.

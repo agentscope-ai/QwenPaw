@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Spin } from "antd";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Segmented, Spin } from "antd";
 import {
   Card,
   Switch,
@@ -12,6 +12,7 @@ import {
   Select,
 } from "@agentscope-ai/design";
 import api from "../../../api";
+import { agentApi } from "../../../api/modules/agent";
 import {
   EyeInvisibleOutlined,
   ThunderboltOutlined,
@@ -202,6 +203,70 @@ function ToolConfigModal({
   );
 }
 
+type DetailValue = "default" | "auto" | "low" | "high";
+
+const DETAIL_OPTIONS = [
+  { label: "Default", value: "default" },
+  { label: "Auto", value: "auto" },
+  { label: "Low", value: "low" },
+  { label: "High", value: "high" },
+];
+
+function ImageDetailModal({
+  visible,
+  onClose,
+}: {
+  visible: boolean;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [detail, setDetail] = useState<DetailValue>("default");
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    agentApi
+      .getImageDetail()
+      .then((res) => {
+        setDetail(
+          res.image_detail ? (res.image_detail as DetailValue) : "default",
+        );
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, [visible]);
+
+  const handleChange = useCallback((value: string | number) => {
+    const level = value as DetailValue;
+    setDetail(level);
+    agentApi.updateImageDetail(level === "default" ? null : level);
+  }, []);
+
+  return (
+    <Modal
+      title={t("tool.imageDetailLabel")}
+      open={visible}
+      onCancel={onClose}
+      footer={null}
+      width={380}
+    >
+      {!loaded ? (
+        <Spin />
+      ) : (
+        <div className={styles.imageDetailModal}>
+          <p className={styles.imageDetailHint}>{t("tool.imageDetailHint")}</p>
+          <Segmented
+            block
+            options={DETAIL_OPTIONS}
+            value={detail}
+            onChange={handleChange}
+          />
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 export default function ToolsPage() {
   const { t } = useTranslation();
   const {
@@ -217,6 +282,7 @@ export default function ToolsPage() {
   } = useTools();
   const [configModalVisible, setConfigModalVisible] = useState(false);
   const [currentTool, setCurrentTool] = useState<ToolInfo | null>(null);
+  const [imageDetailVisible, setImageDetailVisible] = useState(false);
 
   const handleConfigure = (tool: ToolInfo) => {
     setCurrentTool(tool);
@@ -348,6 +414,15 @@ export default function ToolsPage() {
                               : t("tools.asyncExecutionDisabled")}
                           </Button>
                         )}
+                        {tool.name === "view_image" && (
+                          <Button
+                            className={styles.toggleButton}
+                            onClick={() => setImageDetailVisible(true)}
+                            icon={<SettingOutlined />}
+                          >
+                            {t("tool.imageDetailLabel")}
+                          </Button>
+                        )}
                         {/* Add configure button */}
                         {tool.requires_config && (
                           <Button
@@ -431,6 +506,11 @@ export default function ToolsPage() {
           onSave={handleSaveConfig}
         />
       )}
+
+      <ImageDetailModal
+        visible={imageDetailVisible}
+        onClose={() => setImageDetailVisible(false)}
+      />
     </div>
   );
 }

@@ -20,6 +20,7 @@ from qwenpaw.agents.tools.view_media import (
     _IMAGE_EXTENSIONS,
     _VIDEO_EXTENSIONS,
     _check_multimodal_support,
+    _get_image_detail,
     _get_multimodal_fallback_hint,
     _is_url,
     _validate_media_path,
@@ -301,6 +302,118 @@ class TestViewImage:
             if getattr(b, "type", None) == "text"
         ]
         assert any("multimodal" in t.lower() for t in text_parts)
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.view_media._media_data_block")
+    @patch("qwenpaw.agents.tools.view_media._get_image_detail")
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_detail_passed_to_datablock_url(
+        self,
+        mock_support,
+        mock_detail,
+        mock_block,
+    ):
+        from agentscope.message import DataBlock, URLSource
+
+        mock_support.return_value = True
+        mock_detail.return_value = "high"
+        mock_block.return_value = DataBlock(
+            source=URLSource(
+                url="https://example.com/photo.jpg",
+                media_type="image/jpeg",
+            ),
+        )
+        await view_image("https://example.com/photo.jpg")
+        mock_block.assert_called_once_with(
+            "https://example.com/photo.jpg",
+            "image",
+            detail="high",
+        )
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.view_media._media_data_block")
+    @patch("qwenpaw.agents.tools.view_media._get_image_detail")
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_detail_passed_to_datablock_local(
+        self,
+        mock_support,
+        mock_detail,
+        mock_block,
+        tmp_path,
+    ):
+        from agentscope.message import DataBlock, URLSource
+
+        mock_support.return_value = True
+        mock_detail.return_value = "low"
+        mock_block.return_value = DataBlock(
+            source=URLSource(
+                url="http://placeholder/img.png",
+                media_type="image/png",
+            ),
+        )
+        img = tmp_path / "photo.png"
+        img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
+        await view_image(str(img))
+        call_kwargs = mock_block.call_args
+        assert call_kwargs.kwargs.get("detail") == "low"
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.view_media._media_data_block")
+    @patch("qwenpaw.agents.tools.view_media._get_image_detail")
+    @patch("qwenpaw.agents.tools.view_media._check_multimodal_support")
+    async def test_no_detail_when_disabled(
+        self,
+        mock_support,
+        mock_detail,
+        mock_block,
+    ):
+        from agentscope.message import DataBlock, URLSource
+
+        mock_support.return_value = True
+        mock_detail.return_value = None
+        mock_block.return_value = DataBlock(
+            source=URLSource(
+                url="https://example.com/photo.jpg",
+                media_type="image/jpeg",
+            ),
+        )
+        await view_image("https://example.com/photo.jpg")
+        call_kwargs = mock_block.call_args
+        assert "detail" not in (call_kwargs.kwargs or {})
+
+
+# ---------------------------------------------------------------------------
+# _get_image_detail
+# ---------------------------------------------------------------------------
+
+
+class TestGetImageDetail:
+    """Tests for _get_image_detail."""
+
+    @patch("qwenpaw.config.config.load_agent_config")
+    @patch("qwenpaw.app.agent_context.get_current_agent_id")
+    def test_returns_configured_value(self, mock_id, mock_cfg):
+        mock_id.return_value = "test-agent"
+        cfg = MagicMock()
+        cfg.image_detail = "high"
+        mock_cfg.return_value = cfg
+        assert _get_image_detail() == "high"
+
+    @patch("qwenpaw.config.config.load_agent_config")
+    @patch("qwenpaw.app.agent_context.get_current_agent_id")
+    def test_returns_none_when_not_set(self, mock_id, mock_cfg):
+        mock_id.return_value = "test-agent"
+        cfg = MagicMock()
+        cfg.image_detail = None
+        mock_cfg.return_value = cfg
+        assert _get_image_detail() is None
+
+    @patch(
+        "qwenpaw.app.agent_context.get_current_agent_id",
+        side_effect=RuntimeError("no context"),
+    )
+    def test_returns_none_on_exception(self, mock_id):
+        assert _get_image_detail() is None
 
 
 # ---------------------------------------------------------------------------
