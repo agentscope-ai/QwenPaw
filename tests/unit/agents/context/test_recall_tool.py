@@ -10,6 +10,7 @@ failure-vs-empty observation shapes (same discipline as the REPL's), and the
 no-sandbox registration contract.
 """
 
+import asyncio
 import threading
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.memoryspace import MemorySpace
 from qwenpaw.agents.context.scroll.recall_tool import (
     RECALL_PAGE_METADATA_KEY,
+    RecallLoopGuard,
     _render_page,
     make_recall_history,
 )
@@ -112,6 +114,74 @@ async def test_recall_tool_by_call_id(tool):
     assert "RESULT-FULL" in _text(chunk)
 
 
+async def test_duplicate_recall_is_blocked_only_within_current_turn(
+    history_db: Path,
+):
+    guard = RecallLoopGuard()
+    guard.begin_turn("user-1")
+    guarded_tool = make_recall_history(
+        history_db_path=str(history_db),
+        session_id="s1",
+        agent_id="ag1",
+        loop_guard=guard,
+    )
+
+    first = await guarded_tool(op="expand", lo=1, hi=3)
+    duplicate = await guarded_tool(op="expand", lo=1, hi=3)
+    narrower = await guarded_tool(op="expand", lo=1, hi=2)
+
+    assert first.state == ToolResultState.SUCCESS
+    assert duplicate.state == ToolResultState.ERROR
+    assert "RECALL LOOP BLOCKED" in _text(duplicate)
+    assert narrower.state == ToolResultState.SUCCESS
+
+    guard.begin_turn("user-2")
+    next_turn = await guarded_tool(op="expand", lo=1, hi=3)
+    assert next_turn.state == ToolResultState.SUCCESS
+
+
+async def test_concurrent_duplicate_recall_executes_query_once(
+    history_db: Path,
+    monkeypatch,
+):
+    guard = RecallLoopGuard()
+    guard.begin_turn("user-1")
+    guarded_tool = make_recall_history(
+        history_db_path=str(history_db),
+        session_id="s1",
+        agent_id="ag1",
+        loop_guard=guard,
+    )
+    started = threading.Event()
+    release = threading.Event()
+    calls = 0
+    original_expand = MemorySpace.expand
+
+    def blocking_expand(self, lo, hi):
+        nonlocal calls
+        calls += 1
+        started.set()
+        assert release.wait(timeout=5)
+        return original_expand(self, lo, hi)
+
+    monkeypatch.setattr(MemorySpace, "expand", blocking_expand)
+
+    first_task = asyncio.create_task(
+        guarded_tool(op="expand", lo=1, hi=3),
+    )
+    assert await asyncio.to_thread(started.wait, 5)
+    duplicate = await guarded_tool(op="expand", lo=1, hi=3)
+    release.set()
+    first = await first_task
+    completed_duplicate = await guarded_tool(op="expand", lo=1, hi=3)
+
+    assert first.state == ToolResultState.SUCCESS
+    assert duplicate.state == ToolResultState.ERROR
+    assert "already running" in _text(duplicate)
+    assert completed_duplicate.state == ToolResultState.ERROR
+    assert calls == 1
+
+
 async def test_large_recall_is_cursor_paginated(
     tmp_path: Path,
 ):
@@ -127,10 +197,13 @@ async def test_large_recall_is_cursor_paginated(
         ),
     )
     history.close()
+    guard = RecallLoopGuard()
+    guard.begin_turn("user-1")
     bounded_tool = make_recall_history(
         history_db_path=str(tmp_path / "large-history.db"),
         session_id="current",
         agent_id="ag1",
+        loop_guard=guard,
         page_max_bytes=1024,
     )
 
@@ -139,6 +212,10 @@ async def test_large_recall_is_cursor_paginated(
     assert "[recall page incomplete]" in _text(chunk)
     page = chunk.metadata[RECALL_PAGE_METADATA_KEY]
     assert page["next_cursor"]
+
+    duplicate = await bounded_tool(op="expand", lo=1, hi=1)
+    assert duplicate.state == ToolResultState.ERROR
+    assert "RECALL LOOP BLOCKED" in _text(duplicate)
 
     pages = 1
     while page["next_cursor"]:
@@ -313,10 +390,13 @@ async def test_cursor_detects_result_snapshot_drift(tmp_path: Path):
         ),
     )
     history.close()
+    guard = RecallLoopGuard()
+    guard.begin_turn("user-1")
     bounded_tool = make_recall_history(
         history_db_path=str(db_path),
         session_id="current",
         agent_id="ag1",
+        loop_guard=guard,
         page_max_bytes=1024,
     )
 
@@ -352,6 +432,25 @@ async def test_cursor_detects_result_snapshot_drift(tmp_path: Path):
     )
     assert restarted.state == ToolResultState.SUCCESS
     assert restarted.metadata[RECALL_PAGE_METADATA_KEY]["total_rows"] == 2
+
+
+def test_old_completion_cannot_block_same_request_in_new_turn():
+    guard = RecallLoopGuard()
+    payload = {"lo": 1, "hi": 3}
+    guard.begin_turn("user-1")
+    old_generation, notice = guard.claim("expand", payload)
+    assert old_generation is not None
+    assert notice is None
+
+    guard.begin_turn("user-2")
+    new_generation, notice = guard.claim("expand", payload)
+    assert new_generation is not None
+    assert notice is None
+
+    guard.finish("expand", payload, old_generation, block=True)
+    assert guard.is_blocked("expand", payload) is False
+    guard.finish("expand", payload, new_generation, block=True)
+    assert guard.is_blocked("expand", payload) is True
 
 
 async def test_recall_queries_run_outside_event_loop(tool, monkeypatch):

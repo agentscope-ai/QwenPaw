@@ -21,7 +21,10 @@ from agentscope.message import (
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
-from qwenpaw.agents.context.scroll.recall_tool import RECALL_PAGE_METADATA_KEY
+from qwenpaw.agents.context.scroll.recall_tool import (
+    RECALL_PAGE_METADATA_KEY,
+    RecallLoopGuard,
+)
 from qwenpaw.agents.context.types import ContextWindowUnfitError, LogEntry
 from qwenpaw.agents.memory.base_memory_manager import BaseMemoryManager
 from qwenpaw.agents.tools.utils import truncate_text_output
@@ -1227,6 +1230,30 @@ def test_on_save_after_close_is_quiet_noop(store: HistoryStore):
     assert store.degraded is False
     assert store.write_failures == 0
     assert mgr._persisted_ids == set()
+
+
+def test_on_save_resets_recall_guard_for_next_real_user_turn(
+    store: HistoryStore,
+):
+    guard = RecallLoopGuard()
+    first_user = user("first request")
+    agent = FakeAgent([first_user])
+    mgr = make_manager(store, recall_loop_guard=guard)
+
+    mgr.on_save(agent, None)
+    payload = {"lo": 1, "hi": 3}
+    generation, notice = guard.claim("expand", payload)
+    assert generation is not None
+    assert notice is None
+    guard.finish("expand", payload, generation, block=True)
+    assert guard.is_blocked("expand", payload) is True
+
+    second_user = user("second request")
+    agent.state.context.append(second_user)
+    mgr.on_save(agent, None)
+
+    assert guard.turn_id == second_user.id
+    assert guard.is_blocked("expand", payload) is False
 
 
 # -- optional dialog offload (offload_dialog opt-in) ------------------------
