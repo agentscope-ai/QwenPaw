@@ -482,6 +482,8 @@
     "defaultPinned": "Trợ lý mặc định luôn được ghim",
     "longPressToPin": "Nhấn giữ để ghim · Nhấn phím P",
     "longPressToUnpin": "Nhấn giữ để bỏ ghim · Nhấn phím P",
+    "pinAgent": "Ghim trợ lý",
+    "unpinAgent": "Bỏ ghim trợ lý",
     "pinSuccess": "Đã ghim trợ lý",
     "unpinSuccess": "Đã bỏ ghim trợ lý",
     "pinFailed": "Không thể cập nhật trạng thái ghim",

@@ -365,6 +365,8 @@
     "defaultPinned": "Agen default selalu disematkan",
     "longPressToPin": "Tekan lama untuk menyematkan · Tekan P",
     "longPressToUnpin": "Tekan lama untuk melepas · Tekan P",
+    "pinAgent": "Sematkan agen",
+    "unpinAgent": "Lepas sematan agen",
     "pinSuccess": "Agen disematkan",
     "unpinSuccess": "Sematan agen dilepas",
     "pinFailed": "Gagal memperbarui status sematan",

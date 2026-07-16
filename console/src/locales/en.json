@@ -527,6 +527,8 @@
     "defaultPinned": "The default agent is always pinned",
     "longPressToPin": "Press and hold to pin · Press P on keyboard",
     "longPressToUnpin": "Press and hold to unpin · Press P on keyboard",
+    "pinAgent": "Pin agent",
+    "unpinAgent": "Unpin agent",
     "pinSuccess": "Agent pinned",
     "unpinSuccess": "Agent unpinned",
     "pinFailed": "Failed to update pinned state",

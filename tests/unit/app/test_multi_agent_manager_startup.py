@@ -149,6 +149,41 @@ async def test_core_agents_overlap_before_custom_agents(
 
 
 @pytest.mark.asyncio
+async def test_startup_preserves_loaded_agent_status_during_core_phase(
+    monkeypatch,
+) -> None:
+    """A lazily loaded agent remains running while core agents start."""
+    manager = MultiAgentManager()
+    config = _config("default", "custom")
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: config,
+    )
+    manager.agents["custom"] = SimpleNamespace()
+    core_started = asyncio.Event()
+    release_core = asyncio.Event()
+
+    async def get_agent(agent_id: str):
+        if agent_id == "default":
+            core_started.set()
+            await release_core.wait()
+        return manager.agents.get(agent_id, SimpleNamespace())
+
+    manager.get_agent = AsyncMock(side_effect=get_agent)
+    task = asyncio.create_task(manager.start_all_configured_agents())
+
+    await asyncio.wait_for(core_started.wait(), timeout=1)
+    assert manager.get_agent_startup_status("custom") == (
+        AgentStartupStatus.RUNNING
+    )
+    assert not manager.is_agent_startup_in_progress("custom")
+
+    release_core.set()
+    result = await asyncio.wait_for(task, timeout=1)
+    assert result == {"default": True, "custom": True}
+
+
+@pytest.mark.asyncio
 async def test_custom_agent_startup_respects_concurrency(
     monkeypatch,
 ) -> None:
@@ -191,6 +226,26 @@ async def test_custom_agent_startup_respects_concurrency(
     assert peak_custom == 2
     startup_display.start_custom_agents.assert_called_once_with(6)
     assert startup_display.advance.call_count == 6
+
+
+@pytest.mark.asyncio
+async def test_startup_display_skips_empty_custom_phase(monkeypatch) -> None:
+    manager = MultiAgentManager()
+    config = _config("default", BUILTIN_QA_AGENT_ID)
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: config,
+    )
+    manager.get_agent = AsyncMock(return_value=SimpleNamespace())
+    startup_display = MagicMock()
+
+    result = await manager.start_all_configured_agents(
+        startup_display=startup_display,
+    )
+
+    assert all(result.values())
+    startup_display.start_custom_agents.assert_not_called()
+    startup_display.advance.assert_not_called()
 
 
 class _WorkspaceStub:

@@ -163,21 +163,20 @@ export function AgentTable({
           record.startup_status === "pending" ||
           record.startup_status === "starting";
         const toggleDisabled = record.id === "default" || startupInProgress;
+        const pinActionLabel =
+          record.id === "default"
+            ? t("agent.defaultPinned")
+            : record.pinned
+            ? t("agent.unpinAgent")
+            : t("agent.pinAgent");
 
         return (
           <Space>
-            <Tooltip
-              title={
-                record.id === "default"
-                  ? t("agent.defaultPinned")
-                  : record.pinned
-                  ? t("agent.longPressToUnpin")
-                  : t("agent.longPressToPin")
-              }
-            >
+            <Tooltip title={pinActionLabel}>
               <Button
                 type="text"
                 size="middle"
+                aria-label={pinActionLabel}
                 icon={
                   record.id === "default" || record.pinned ? (
                     <Pin size={14} />

@@ -614,11 +614,15 @@ class MultiAgentManager:
         async with self._lock:
             for agent_id, ref in config.agents.profiles.items():
                 enabled = getattr(ref, "enabled", True)
-                self._agent_startup_statuses[agent_id] = (
-                    AgentStartupStatus.PENDING
-                    if enabled
-                    else AgentStartupStatus.DISABLED
-                )
+                if not enabled:
+                    status = AgentStartupStatus.DISABLED
+                elif agent_id in self.agents:
+                    status = AgentStartupStatus.RUNNING
+                elif agent_id in self._pending_starts:
+                    status = AgentStartupStatus.STARTING
+                else:
+                    status = AgentStartupStatus.PENDING
+                self._agent_startup_statuses[agent_id] = status
 
         if not agent_ids:
             logger.warning("No enabled agents configured in config")
@@ -672,7 +676,7 @@ class MultiAgentManager:
                 )
 
         semaphore = asyncio.Semaphore(CUSTOM_AGENT_STARTUP_CONCURRENCY)
-        if startup_display is not None:
+        if startup_display is not None and custom_agent_ids:
             startup_display.start_custom_agents(len(custom_agent_ids))
 
         async def start_custom_agent(

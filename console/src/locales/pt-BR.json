@@ -407,6 +407,8 @@
     "defaultPinned": "O agente padrão está sempre fixado",
     "longPressToPin": "Pressione e segure para fixar · Tecla P",
     "longPressToUnpin": "Pressione e segure para desafixar · Tecla P",
+    "pinAgent": "Fixar agente",
+    "unpinAgent": "Desafixar agente",
     "pinSuccess": "Agente fixado",
     "unpinSuccess": "Agente desafixado",
     "pinFailed": "Falha ao atualizar o estado de fixação",
