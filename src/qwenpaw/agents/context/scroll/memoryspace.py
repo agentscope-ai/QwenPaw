@@ -554,7 +554,9 @@ class MemorySpace:
             "ch.name, ch.headline, ch.content, ch.metadata "
             f"FROM hist.{fts} JOIN hist.conversation_history ch "
             f"ON ch.seq = {fts}.rowid "
-            "WHERE " + " AND ".join(where) + f" ORDER BY bm25({fts}) LIMIT ?"
+            "WHERE "
+            + " AND ".join(where)
+            + f" ORDER BY bm25({fts}), ch.seq LIMIT ?"
         )
         params.append(int(k))
         try:

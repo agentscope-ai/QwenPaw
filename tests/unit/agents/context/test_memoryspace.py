@@ -125,6 +125,39 @@ def test_search_default_is_this_agent_cross_session(ms: MemorySpace):
     assert "tanks of another agent" not in contents
 
 
+def test_search_uses_seq_as_stable_bm25_tie_breaker(tmp_path: Path):
+    h = HistoryStore(tmp_path / "history.db")
+    expected_seqs = []
+    for index in range(3):
+        expected_seqs.append(
+            h.append(
+                session_id="archive",
+                agent_id="ag1",
+                dedup_key=f"equal-{index}",
+                entry=LogEntry(
+                    kind="model_turn",
+                    role="assistant",
+                    content="identical ranking text",
+                ),
+            ),
+        )
+    h.close()
+    space = MemorySpace(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        first = space.search("identical ranking", k=3)
+        second = space.search("identical ranking", k=3)
+    finally:
+        space.close()
+
+    assert [row["seq"] for row in first] == expected_seqs
+    assert [row["seq"] for row in second] == expected_seqs
+
+
 def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
     """The recall tool's own source/output must not surface as search hits, or
     a query matches the agent's earlier queries (self-pollution)."""
