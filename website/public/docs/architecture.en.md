@@ -20,7 +20,7 @@ Think of QwenPaw as a small operating system for agents. The "kernel" is [AgentS
   </defs>
   <!-- Title -->
   <text x="450" y="30" text-anchor="middle" font-size="16" font-weight="700" fill="currentColor">Agent OS Foundation</text>
-  <text x="450" y="49" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">Runtime on top · Workspace ‖ Drivers below · built on the AgentScope foundation</text>
+  <text x="450" y="49" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">Runtime on top · Workspace ‖ Drivers below · built on the AgentScope infrastructure</text>
   <!-- Surfaces strip -->
   <rect x="20" y="60" width="860" height="40" rx="9" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.18"/>
   <text x="34" y="84" font-size="10" letter-spacing="1.2" font-weight="700" fill="currentColor" fill-opacity="0.7">SURFACES</text>
@@ -86,7 +86,7 @@ Think of QwenPaw as a small operating system for agents. The "kernel" is [AgentS
   <rect x="44" y="514" width="12" height="12" rx="3" fill="#f0921f"/>
   <text x="62" y="524" font-size="11" font-weight="700" fill="#f0921f">SANDBOX · execution base</text>
   <text x="250" y="524" font-size="9.5" fill="currentColor" fill-opacity="0.6">a fresh sandbox per tool call, destroyed after</text>
-  <text x="365" y="548" text-anchor="middle" font-size="10.5" fill="currentColor">Native OS isolation — macOS seatbelt · Linux bubblewrap/landlock · Windows AppContainer · or none</text>
+  <text x="365" y="548" text-anchor="middle" font-size="10.5" fill="currentColor">Native OS isolation — macOS seatbelt · Linux bubblewrap/landlock · Windows AppContainer/Write Restricted Token · or none</text>
   <!-- Drivers column -->
   <rect x="722" y="248" width="158" height="336" rx="10" fill="#eb5545" fill-opacity="0.05" stroke="#eb5545" stroke-opacity="0.45"/>
   <rect x="734" y="266" width="12" height="12" rx="3" fill="#eb5545"/>
@@ -192,7 +192,7 @@ The on-disk layout is transparent: configuration is plain JSON, memory is Markdo
 
 The runtime turns one incoming request into a stream of UI events. It runs as a fixed **lifecycle with hook points between stages**, so features can attach behavior without changing the core loop. A request is routed to the addressed agent's workspace, where the agent is **assembled for that request**, run, and streamed back.
 
-<svg viewBox="0 0 820 254" width="100%" role="img" aria-label="The request lifecycle: hook stages interleaved with fixed steps for command dispatch, agent assembly, and execution, with error and cleanup handlers always running." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 820 254" width="100%" role="img" aria-label="The request lifecycle: hook stages interleaved with fixed steps for command dispatch, agent assembly, and execution; cleanup always runs." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
     <marker id="qpFlowArrow" markerWidth="9" markerHeight="9" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L6,3 L0,6 Z" fill="#ff9d4d"/>

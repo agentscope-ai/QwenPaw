@@ -19,8 +19,8 @@ QwenPaw 完全跑在你自己的环境里，是一个常驻服务。一次安装
     </marker>
   </defs>
   <!-- Title -->
-  <text x="450" y="30" text-anchor="middle" font-size="16" font-weight="700" fill="currentColor">QwenPaw Agent OS · 一图看懂</text>
-  <text x="450" y="49" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">上层 Runtime ／ 下层 Workspace ‖ Drivers · 构建于 AgentScope 基座之上</text>
+  <text x="450" y="30" text-anchor="middle" font-size="16" font-weight="700" fill="currentColor">Agent OS Foundation</text>
+  <text x="450" y="49" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">上层 Runtime ／ 下层 Workspace ‖ Drivers · 构建于 AgentScope 基建之上</text>
   <!-- Surfaces strip -->
   <rect x="20" y="60" width="860" height="40" rx="9" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.18"/>
   <text x="34" y="84" font-size="10" letter-spacing="1.2" font-weight="700" fill="currentColor" fill-opacity="0.7">入口</text>
@@ -86,7 +86,7 @@ QwenPaw 完全跑在你自己的环境里，是一个常驻服务。一次安装
   <rect x="44" y="514" width="12" height="12" rx="3" fill="#f0921f"/>
   <text x="62" y="524" font-size="11" font-weight="700" fill="#f0921f">沙箱 · 执行底座</text>
   <text x="250" y="524" font-size="9.5" fill="currentColor" fill-opacity="0.6">每次工具调用新建，用完销毁</text>
-  <text x="365" y="548" text-anchor="middle" font-size="10.5" fill="currentColor">原生 OS 隔离 —— macOS seatbelt · Linux bubblewrap/landlock · Windows AppContainer · 或不用</text>
+  <text x="365" y="548" text-anchor="middle" font-size="10.5" fill="currentColor">原生 OS 隔离 —— macOS seatbelt · Linux bubblewrap/landlock · Windows AppContainer/Write Restricted Token · 或不用</text>
   <!-- Drivers column -->
   <rect x="722" y="248" width="158" height="336" rx="10" fill="#eb5545" fill-opacity="0.05" stroke="#eb5545" stroke-opacity="0.45"/>
   <rect x="734" y="266" width="12" height="12" rx="3" fill="#eb5545"/>
@@ -100,7 +100,7 @@ QwenPaw 完全跑在你自己的环境里，是一个常驻服务。一次安装
   <line x1="450" y1="584" x2="450" y2="596" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.4" marker-end="url(#qpMapArrow)"/>
   <!-- Foundation -->
   <rect x="20" y="596" width="860" height="48" rx="10" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/>
-  <text x="450" y="618" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">基座 · AgentScope 2.0</text>
+  <text x="450" y="618" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">基建 · AgentScope 2.0</text>
   <text x="450" y="634" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">智能体循环 · 会话 · 事件流 · 工具层 —— 作为库在进程内使用</text>
   <!-- Legend -->
   <text x="20" y="669" font-size="10" font-weight="700" fill="currentColor" fill-opacity="0.7">图例</text>
@@ -192,7 +192,7 @@ QwenPaw 构建在 **AgentScope 2.0** 之上，把它当作一个库来用。Agen
 
 运行时把每个进来的请求变成一串 UI 事件。它是一条带阶段、阶段之间留有钩子点的固定流程，各项功能因此能挂上自己的行为，而不用动核心循环。请求被分到目标智能体的工作区，在那里为这次请求组装好智能体、运行，再把输出流式发回。
 
-<svg viewBox="0 0 820 254" width="100%" role="img" aria-label="请求生命周期：钩子阶段与固定步骤交错，用于命令分发、智能体组装和执行，而出错与清理处理器始终运行。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 820 254" width="100%" role="img" aria-label="请求生命周期：钩子阶段与固定步骤交错，用于命令分发、智能体组装和执行；清理始终运行。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
     <marker id="qpFlowArrow" markerWidth="9" markerHeight="9" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L6,3 L0,6 Z" fill="#ff9d4d"/>
