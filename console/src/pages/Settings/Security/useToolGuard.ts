@@ -24,6 +24,24 @@ export function useToolGuard() {
   const [sandboxEnabled, setSandboxEnabled] = useState(false);
   const [sandboxEffective, setSandboxEffective] = useState(true);
   const [sandboxReason, setSandboxReason] = useState<string | null>(null);
+
+  // Wrapped setter: when the sandbox toggle changes, immediately re-fetch
+  // the effective status from the backend so the degradation warning
+  // (enabled but not effective due to non-admin) appears right away,
+  // rather than only after a full page reload.
+  const handleSandboxToggle = useCallback(async (val: boolean) => {
+    setSandboxEnabled(val);
+    try {
+      // Pass the proposed value so the backend computes effective/reason
+      // for the toggle target, not the current (unsaved) config value.
+      const sandbox = await api.getSandbox(val);
+      setSandboxEffective(sandbox.effective);
+      setSandboxReason(sandbox.reason);
+    } catch {
+      // Best-effort: if the fetch fails, keep the previous effective/reason.
+      // The save handler will surface any real errors.
+    }
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -165,7 +183,7 @@ export function useToolGuard() {
     enabled,
     setEnabled,
     sandboxEnabled,
-    setSandboxEnabled,
+    setSandboxEnabled: handleSandboxToggle,
     sandboxEffective,
     sandboxReason,
     mergedRules,

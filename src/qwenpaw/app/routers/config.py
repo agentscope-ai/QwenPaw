@@ -851,12 +851,23 @@ def _sandbox_effective_status(
     response_model=SandboxStatusResponse,
     summary="Get global sandbox switch",
 )
-async def get_sandbox_setting() -> SandboxStatusResponse:
+async def get_sandbox_setting(
+    enabled: Optional[bool] = Query(
+        default=None,
+        description=(
+            "If provided, compute effective/reason for this proposed value "
+            "without persisting it. Useful for the frontend to preview the "
+            "runtime status before saving."
+        ),
+    ),
+) -> SandboxStatusResponse:
     config = load_config()
-    enabled = config.security.sandbox_enabled
-    effective, reason = _sandbox_effective_status(enabled)
+    current_enabled = config.security.sandbox_enabled
+    # Use the proposed value if provided, otherwise the current config value.
+    target_enabled = enabled if enabled is not None else current_enabled
+    effective, reason = _sandbox_effective_status(target_enabled)
     return SandboxStatusResponse(
-        enabled=enabled,
+        enabled=target_enabled,
         effective=effective,
         reason=reason,
     )

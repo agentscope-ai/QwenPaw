@@ -116,7 +116,10 @@ export const securityApi = {
 
   // ── Sandbox switch ───────────────────────────
 
-  getSandbox: () => request<SandboxStatusResponse>("/config/security/sandbox"),
+  getSandbox: (enabled?: boolean) =>
+    request<SandboxStatusResponse>(
+      `/config/security/sandbox${enabled !== undefined ? `?enabled=${enabled}` : ""}`,
+    ),
 
   updateSandbox: (body: SandboxSetting) =>
     request<SandboxStatusResponse>("/config/security/sandbox", {
