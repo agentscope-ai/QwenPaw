@@ -86,51 +86,12 @@ def restore_process_lock() -> Iterator[None]:
 
     lock_path = WORKING_DIR / _RESTORE_LOCK_FILE
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    handle = _open_restore_lock(lock_path)
-    try:
+    with open(lock_path, "a+b") as handle:
         _acquire_file_lock(handle, lock_path)
         try:
             yield
         finally:
             _release_file_lock(handle)
-    finally:
-        handle.close()
-
-
-def _open_restore_lock(lock_path: Path) -> BinaryIO:
-    """Open the restore lock file, recovering from stale permission errors.
-
-    On Windows, a previous UAC-elevated session (PR #5931) may have created
-    this lock file with admin-only ACLs.  Since the lock file is ephemeral,
-    we can safely delete and recreate it.
-    """
-    try:
-        return open(lock_path, "a+b")
-    except PermissionError:
-        try:
-            lock_path.unlink()
-            logger.warning(
-                "Removed stale restore lock with incompatible permissions: %s",
-                lock_path,
-            )
-            return open(lock_path, "a+b")
-        except (PermissionError, OSError):
-            import tempfile
-            import hashlib
-
-            fallback = Path(tempfile.gettempdir()) / (
-                "qwenpaw_restore_"
-                + hashlib.md5(str(lock_path).encode()).hexdigest()
-                + ".lock"
-            )
-            logger.warning(
-                "Cannot access restore lock %s (PermissionError); "
-                "falling back to %s. Delete .lock files under "
-                "~/.qwenpaw manually if this persists.",
-                lock_path,
-                fallback,
-            )
-            return open(fallback, "a+b")
 
 
 def _acquire_file_lock(handle: BinaryIO, lock_path: Path) -> None:

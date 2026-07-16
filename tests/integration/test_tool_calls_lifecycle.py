@@ -424,7 +424,7 @@ def test_session_level_approval_off_short_circuits_governance(
 # E class — happy path (shell sleep observation window) (6 tests)
 # ================================================================== #
 
-_SHELL_SLEEP_SECS = 8
+_SHELL_SLEEP_SECS = 6
 
 
 def _portable_sleep_cmd(seconds: int) -> str:
@@ -432,11 +432,12 @@ def _portable_sleep_cmd(seconds: int) -> str:
 
     The app subprocess runs on the same host as the test process, so
     ``sys.platform`` reflects the shell that ``execute_shell_command``
-    will use.  On Windows we use ``sleep`` which works in Git Bash
-    (the default shell on Windows CI).  On POSIX we also use ``sleep``.
+    will use.  On Windows ``cmd.exe`` has no ``sleep`` builtin, so we use
+    ``ping`` (``-n K`` sends K packets ~1s apart; K = seconds + 1 to get
+    roughly ``seconds`` of wall time).  On POSIX we use ``sleep``.
     """
     if sys.platform.startswith("win"):
-        return f"sleep {seconds}"
+        return f"ping -n {seconds + 1} 127.0.0.1"
     return f"sleep {seconds}"
 
 

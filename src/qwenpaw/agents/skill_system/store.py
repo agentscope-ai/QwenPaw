@@ -323,17 +323,9 @@ def _lock_path_for(json_path: Path) -> Path:
 
 @contextmanager
 def _file_write_lock(lock_path: Path) -> Iterator[None]:
-    """Serialize manifest mutations across processes.
-
-    Handles a Windows-specific edge case: if a previous elevated (admin)
-    session created the lock file with restrictive ACLs, a non-elevated
-    process may get PermissionError on open.  In that case we attempt to
-    remove the stale file and retry; if removal also fails we fall back to
-    a temporary lock in the system temp directory.
-    """
+    """Serialize manifest mutations across processes."""
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_file = _open_lock_file(lock_path)
-    try:
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
         if fcntl is not None:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
         elif msvcrt is not None:  # pragma: no cover
@@ -347,47 +339,6 @@ def _file_write_lock(lock_path: Path) -> Iterator[None]:
             elif msvcrt is not None:  # pragma: no cover
                 lock_file.seek(0)
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-    finally:
-        lock_file.close()
-
-
-def _open_lock_file(lock_path: Path) -> io.TextIOWrapper:
-    """Open the lock file, recovering from stale permission errors.
-
-    On Windows, a previous UAC-elevated session may have created lock files
-    with admin-only ACLs.  When the app later runs un-elevated, those files
-    become inaccessible.  Since lock files are ephemeral (only meaningful
-    while the fd is held), we can safely delete and recreate them.
-    """
-    try:
-        return lock_path.open("a+", encoding="utf-8")
-    except PermissionError:
-        # Attempt recovery: delete the stale lock and retry.
-        try:
-            lock_path.unlink()
-            logger.warning(
-                "Removed stale lock file with incompatible permissions: %s",
-                lock_path,
-            )
-            return lock_path.open("a+", encoding="utf-8")
-        except (PermissionError, OSError):
-            # Cannot delete either (e.g. still held by another process or
-            # antivirus).  Fall back to a temp-dir-based lock so the app
-            # can start rather than crash.
-            fallback = Path(tempfile.gettempdir()) / (
-                "qwenpaw_lock_"
-                + hashlib.md5(str(lock_path).encode()).hexdigest()
-                + ".lock"
-            )
-            logger.warning(
-                "Cannot access lock file %s (PermissionError); "
-                "falling back to %s. Previous elevated session may have "
-                "left admin-owned lock files — please delete .lock files "
-                "under ~/.qwenpaw manually if this persists.",
-                lock_path,
-                fallback,
-            )
-            return fallback.open("a+", encoding="utf-8")
 
 
 def _read_json_unlocked(path: Path, default: dict[str, Any]) -> dict[str, Any]:
