@@ -3,7 +3,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
 } from "react";
@@ -113,15 +112,8 @@ export function useAgentLongPress(onLongPress: (agent: AgentSummary) => void) {
         event.stopPropagation();
         suppressClickRef.current = null;
       },
-      onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
-        if (event.key.toLowerCase() !== "p" || agent.id === "default") return;
-        event.preventDefault();
-        event.stopPropagation();
-        showFeedback(agent.id);
-        onLongPress(agent);
-      },
     }),
-    [clearPress, onLongPress, showFeedback, trigger],
+    [clearPress, trigger],
   );
 
   return { getLongPressProps, pressingId, feedbackId };

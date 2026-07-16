@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import AgentSelector from "./index";
@@ -176,24 +176,5 @@ describe("AgentSelector", () => {
       expect(mocks.toggleAgentEnabled).toHaveBeenCalledWith("agent-1", false);
     });
     expect(mocks.setSelectedAgent).toHaveBeenCalledWith("default");
-  });
-
-  it("pins an agent with the keyboard shortcut", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<AgentSelector />);
-    await user.click(screen.getByRole("combobox"));
-
-    fireEvent.keyDown(screen.getByTitle("agent.longPressToPin"), {
-      key: "p",
-    });
-
-    await waitFor(() => {
-      expect(mocks.setAgentPinned).toHaveBeenCalledWith("agent-1", true);
-    });
-    expect(mocks.setAgents).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "agent-1", pinned: true }),
-      ]),
-    );
   });
 });
