@@ -181,6 +181,9 @@ async def test_delete_agent_removes_id_from_order(monkeypatch):
     )
 
     class DummyManager:
+        def is_agent_startup_in_progress(self, _agent_id: str) -> bool:
+            return False
+
         async def stop_agent(self, agent_id: str) -> None:
             assert agent_id == "beta"
 

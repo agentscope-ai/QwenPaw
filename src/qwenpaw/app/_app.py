@@ -529,8 +529,19 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             )
             logger.debug("Phase 1: channel plugins loaded")
 
-            # Start all configured agents (truly parallel now)
-            await workspace_registry.start_all_configured_agents()
+            def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
+                """Publish readiness after the core agent phase."""
+                from ..config.utils import read_last_api
+                from ..utils.startup_display import print_ready_banner
+
+                core_elapsed = time.time() - startup_start_time
+                api_info = read_last_api()
+                print_ready_banner(api_info, core_elapsed)
+                app.state.startup_ready.set()
+
+            await workspace_registry.start_all_configured_agents(
+                on_core_ready=_mark_core_agents_ready,
+            )
 
             provider_manager.start_local_model_resume(local_model_manager)
 
@@ -661,14 +672,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 f"{startup_elapsed:.3f} seconds",
             )
 
-            # Print server URL again so it's visible after background logs
-            from ..config.utils import read_last_api
-            from ..utils.startup_display import print_ready_banner
-
-            api_info = read_last_api()
-            print_ready_banner(api_info, startup_elapsed)
-
-            app.state.startup_ready.set()
         except Exception:
             logger.error(
                 "Background startup encountered an error",

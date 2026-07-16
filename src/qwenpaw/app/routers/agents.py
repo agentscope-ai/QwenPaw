@@ -30,6 +30,7 @@ from ...config.config import (
 from ...config.utils import load_config, save_config
 from ...agents.utils import copy_workspace_md_files, normalize_agent_language
 from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
+from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
 
@@ -46,6 +47,7 @@ class AgentSummary(BaseModel):
     description: str
     workspace_dir: str
     enabled: bool
+    startup_status: AgentStartupStatus
     active_model: ModelSlotConfig | None = None
 
 
@@ -160,14 +162,27 @@ def _read_profile_description(workspace_dir: str) -> str:
     summary="List all agents",
     description="Get list of all configured agents",
 )
-async def list_agents() -> AgentListResponse:
+async def list_agents(request: Request | None = None) -> AgentListResponse:
     """List all configured agents."""
     config = load_config()
+    manager = (
+        _get_multi_agent_manager(request) if request is not None else None
+    )
     ordered_agent_ids = _normalized_agent_order(config)
 
     agents = []
     for agent_id in ordered_agent_ids:
         agent_ref = config.agents.profiles[agent_id]
+        enabled = getattr(agent_ref, "enabled", True)
+        startup_status = (
+            manager.get_agent_startup_status(agent_id, enabled=enabled)
+            if manager is not None
+            else (
+                AgentStartupStatus.PENDING
+                if enabled
+                else AgentStartupStatus.DISABLED
+            )
+        )
         try:
             agent_config = load_agent_config(agent_id)
             description = agent_config.description or ""
@@ -187,7 +202,8 @@ async def list_agents() -> AgentListResponse:
                     name=agent_config.name,
                     description=description,
                     workspace_dir=agent_ref.workspace_dir,
-                    enabled=getattr(agent_ref, "enabled", True),
+                    enabled=enabled,
+                    startup_status=startup_status,
                     active_model=active_model,
                 ),
             )
@@ -198,7 +214,8 @@ async def list_agents() -> AgentListResponse:
                     name=agent_id.title(),
                     description="",
                     workspace_dir=agent_ref.workspace_dir,
-                    enabled=getattr(agent_ref, "enabled", True),
+                    enabled=enabled,
+                    startup_status=startup_status,
                 ),
             )
 
@@ -423,6 +440,11 @@ async def delete_agent(
         )
 
     manager = _get_multi_agent_manager(request)
+    if manager.is_agent_startup_in_progress(agentId):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Agent '{agentId}' cannot be deleted while starting",
+        )
     await manager.stop_agent(agentId)
 
     del config.agents.profiles[agentId]
@@ -459,6 +481,15 @@ async def toggle_agent_enabled(
 
     agent_ref = config.agents.profiles[agentId]
     manager = _get_multi_agent_manager(request)
+
+    if not enabled and manager.is_agent_startup_in_progress(agentId):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Agent '{agentId}' is still starting and cannot be "
+                f"disabled yet"
+            ),
+        )
 
     if not enabled and getattr(agent_ref, "enabled", True):
         await manager.stop_agent(agentId)

@@ -15,6 +15,7 @@
 
 // ─── Collapsed (icon only) ────────────────────────────────────────────────────
 .agentSelectorCollapsed {
+  position: relative;
   width: 40px;
   height: 40px;
   display: flex;
@@ -32,6 +33,13 @@
     background: rgba(43, 18, 0, 0.08);
     border-color: rgba(240, 126, 38, 0.3);
   }
+}
+
+.collapsedStatusIndicator {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: inline-flex;
 }
 
 // ─── Label ────────────────────────────────────────────────────────────────────
@@ -229,6 +237,15 @@
   }
 }
 
+.dropdownContent {
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+}
+
+.enabledAgentList {
+  min-height: 0;
+}
+
 // ─── Agent Option ─────────────────────────────────────────────────────────────
 .agentOption {
   padding: 10px 14px;
@@ -237,10 +254,108 @@
   gap: 6px;
 }
 
+.agentOptionDisabled {
+  opacity: 0.72;
+}
+
 .agentOptionHeader {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.agentToggleButton {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: rgba(26, 26, 46, 0.48);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease;
+
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    color: #f07e26;
+    background: rgba(240, 126, 38, 0.08);
+    border-color: rgba(240, 126, 38, 0.18);
+    outline: none;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+  }
+}
+
+.toggleSpinner {
+  animation: toggleSpin 0.9s linear infinite;
+}
+
+@keyframes toggleSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.disabledAgentSection {
+  border-top: 1px solid rgba(26, 23, 22, 0.08);
+  padding: 4px 6px 6px;
+}
+
+.disabledAgentHeader {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  color: rgba(26, 26, 46, 0.58);
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    color: rgba(26, 26, 46, 0.82);
+    background: rgba(43, 18, 0, 0.04);
+    outline: none;
+  }
+
+  svg {
+    transition: transform 0.18s ease;
+  }
+}
+
+.disabledChevronExpanded {
+  transform: rotate(180deg);
+}
+
+.disabledAgentList {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 2px;
+}
+
+.disabledAgentRow {
+  border-radius: 8px;
+
+  &:hover,
+  &:focus-within {
+    background: rgba(43, 18, 0, 0.04);
+  }
 }
 
 .agentOptionIcon {
@@ -468,5 +583,47 @@
   .agentOptionId {
     color: rgba(245, 160, 90, 0.5);
     border-top-color: rgba(245, 160, 90, 0.12);
+  }
+
+  .agentToggleButton {
+    color: rgba(255, 255, 255, 0.48);
+
+    &:hover:not(:disabled),
+    &:focus-visible:not(:disabled) {
+      color: #f5a05a;
+      background: rgba(240, 126, 38, 0.14);
+      border-color: rgba(245, 160, 90, 0.22);
+    }
+  }
+
+  .disabledAgentSection {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .disabledAgentHeader {
+    color: rgba(255, 255, 255, 0.5);
+
+    &:hover,
+    &:focus-visible {
+      color: rgba(255, 255, 255, 0.82);
+      background: rgba(255, 255, 255, 0.05);
+    }
+  }
+
+  .disabledAgentRow {
+    &:hover,
+    &:focus-within {
+      background: rgba(255, 255, 255, 0.05);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggleSpinner {
+    animation-duration: 1.8s;
+  }
+
+  .disabledAgentHeader svg {
+    transition: none;
   }
 }

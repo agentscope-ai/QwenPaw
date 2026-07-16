@@ -5,6 +5,14 @@ from typing import Optional, Tuple
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    TaskID,
+    TaskProgressColumn,
+    TextColumn,
+)
 from rich.tree import Tree
 
 
@@ -19,6 +27,71 @@ def _safe_print(console: Console, *args, **kwargs) -> None:
         console.print(*args, **kwargs)
     except OSError:
         print(*args, **kwargs)
+
+
+class CustomAgentStartupProgress:
+    """Render bounded custom-agent startup progress on interactive TTYs."""
+
+    def __init__(
+        self,
+        total: int,
+        console: Console | None = None,
+    ) -> None:
+        self._total = total
+        self._console = console or Console()
+        self._progress: Progress | None = None
+        self._task_id: TaskID | None = None
+
+    def __enter__(self) -> "CustomAgentStartupProgress":
+        if self._total <= 0 or not self._console.is_terminal:
+            return self
+
+        try:
+            self._progress = Progress(
+                TextColumn("{task.description}", markup=False),
+                BarColumn(),
+                MofNCompleteColumn(),
+                TaskProgressColumn(),
+                console=self._console,
+                transient=False,
+            )
+            self._progress.start()
+            self._task_id = self._progress.add_task(
+                "Starting custom agents",
+                total=self._total,
+            )
+        except OSError:
+            self._progress = None
+            self._task_id = None
+        return self
+
+    def advance(self, agent_id: str) -> None:
+        """Advance after one custom agent reaches a terminal state."""
+        if self._progress is None or self._task_id is None:
+            return
+        try:
+            self._progress.update(
+                self._task_id,
+                advance=1,
+                description=f"Starting custom agents: {agent_id}",
+            )
+        except OSError:
+            self._stop()
+
+    def __exit__(self, *_args) -> None:
+        self._stop()
+
+    def _stop(self) -> None:
+        """Stop rendering without allowing console errors to abort startup."""
+        if self._progress is None:
+            return
+        try:
+            self._progress.stop()
+        except OSError:
+            pass
+        finally:
+            self._progress = None
+            self._task_id = None
 
 
 def print_ready_banner(

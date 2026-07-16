@@ -469,7 +469,21 @@
     "defaultDisplayName": "Agent mặc định",
     "currentWorkspace": "Agent hiện tại",
     "switchSuccess": "Đã chuyển agent thành công",
-    "switchFailed": "Chuyển agent thất bại"
+    "switchFailed": "Chuyển agent thất bại",
+    "enableSuccess": "Đã bật agent",
+    "disableSuccess": "Đã tắt agent",
+    "toggleFailed": "Thay đổi trạng thái agent thất bại",
+    "enableAgent": "Bật {{name}}",
+    "disableAgent": "Tắt {{name}}",
+    "disabledAgents": "Đã tắt ({{count}})",
+    "status": {
+      "disabled": "Đã tắt",
+      "pending": "Đang chờ khởi động",
+      "starting": "Đang khởi động",
+      "running": "Đang chạy",
+      "failed": "Khởi động thất bại",
+      "waitUntilStarted": "Có thể thao tác sau khi khởi động xong"
+    }
   },
   "environments": {
     "parent": "Cài đặt",

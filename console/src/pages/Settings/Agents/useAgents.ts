@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "@/api/modules/agents";
 import type { AgentSummary } from "@/api/types/agents";
 import { useAgentStore } from "@/stores/agentStore";
+import { useAgentStatusPolling } from "@/hooks/useAgentStatusPolling";
 
 interface UseAgentsReturn {
   agents: AgentSummary[];
@@ -22,57 +23,102 @@ export function useAgents(): UseAgentsReturn {
   const [error, setError] = useState<Error | null>(null);
   const { setAgents: updateStoreAgents } = useAgentStore();
   const { message } = useAppMessage();
+  const messageRef = useRef(message);
+  const translationRef = useRef(t);
+  messageRef.current = message;
+  translationRef.current = t;
 
-  const setAgentsState = (nextAgents: AgentSummary[]) => {
-    setAgents(nextAgents);
-    updateStoreAgents(nextAgents);
-  };
+  const setAgentsState = useCallback(
+    (nextAgents: AgentSummary[]) => {
+      setAgents(nextAgents);
+      updateStoreAgents(nextAgents);
+    },
+    [updateStoreAgents],
+  );
 
-  const loadAgents = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await agentsApi.listAgents();
-      setAgentsState(data.agents);
-    } catch (err) {
-      console.error("Failed to load agents:", err);
-      const errorMsg =
-        err instanceof Error ? err : new Error(t("agent.loadFailed"));
-      setError(errorMsg);
-      message.error(t("agent.loadFailed"));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const fetchAgents = useCallback(
+    async (showLoading: boolean, reportError: boolean) => {
+      if (showLoading) {
+        setLoading(true);
+      }
+      setError(null);
+      try {
+        const data = await agentsApi.listAgents();
+        setAgentsState(data.agents);
+      } catch (err) {
+        console.error("Failed to load agents:", err);
+        const errorMsg =
+          err instanceof Error
+            ? err
+            : new Error(translationRef.current("agent.loadFailed"));
+        setError(errorMsg);
+        if (reportError) {
+          messageRef.current.error(translationRef.current("agent.loadFailed"));
+        }
+      } finally {
+        if (showLoading) {
+          setLoading(false);
+        }
+      }
+    },
+    [setAgentsState],
+  );
+
+  const loadAgents = useCallback(() => fetchAgents(true, true), [fetchAgents]);
 
   const deleteAgent = async (agentId: string) => {
     try {
       await agentsApi.deleteAgent(agentId);
       message.success(t("agent.deleteSuccess"));
-      await loadAgents();
-    } catch (err: any) {
-      message.error(err.message || t("agent.deleteFailed"));
+      await fetchAgents(false, false);
+    } catch (err: unknown) {
+      message.error(
+        err instanceof Error ? err.message : t("agent.deleteFailed"),
+      );
       throw err;
     }
   };
 
   const toggleAgent = async (agentId: string, enabled: boolean) => {
+    if (enabled) {
+      setAgentsState(
+        agents.map((agent) =>
+          agent.id === agentId
+            ? {
+                ...agent,
+                enabled: true,
+                startup_status: "starting",
+              }
+            : agent,
+        ),
+      );
+    }
+
     try {
       await agentsApi.toggleAgentEnabled(agentId, enabled);
       const successMsg = enabled
         ? t("agent.enableSuccess")
         : t("agent.disableSuccess");
       message.success(successMsg);
-      await loadAgents();
-    } catch (err: any) {
-      message.error(err.message || t("agent.toggleFailed"));
+      await fetchAgents(false, false);
+    } catch (err: unknown) {
+      await fetchAgents(false, false);
+      message.error(
+        err instanceof Error ? err.message : t("agent.toggleFailed"),
+      );
       throw err;
     }
   };
 
   useEffect(() => {
-    loadAgents();
-  }, []);
+    void loadAgents();
+  }, [loadAgents]);
+
+  const refreshStatuses = useCallback(
+    () => fetchAgents(false, false),
+    [fetchAgents],
+  );
+  useAgentStatusPolling(agents, refreshStatuses);
 
   return {
     agents,

@@ -398,6 +398,17 @@
     "disableSuccess": "Agente Desativado successfully",
     "enableSuccess": "Agente Ativado successfully",
     "toggleFailed": "Falha ao toggle Agente state",
+    "enableAgent": "Ativar {{name}}",
+    "disableAgent": "Desativar {{name}}",
+    "disabledAgents": "Desativados ({{count}})",
+    "status": {
+      "disabled": "Desativado",
+      "pending": "Aguardando inicialização",
+      "starting": "Inicializando",
+      "running": "Em execução",
+      "failed": "Falha na inicialização",
+      "waitUntilStarted": "Disponível após concluir a inicialização"
+    },
     "defaultNotDisablable": "Default agent cannot be disabled",
     "currentAgentDeleted": "Current agent has been deleted, automatically switched to default agent",
     "currentAgentDisabled": "Current agent has been disabled, automatically switched to default agent",
