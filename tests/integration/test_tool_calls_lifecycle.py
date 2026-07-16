@@ -432,12 +432,11 @@ def _portable_sleep_cmd(seconds: int) -> str:
 
     The app subprocess runs on the same host as the test process, so
     ``sys.platform`` reflects the shell that ``execute_shell_command``
-    will use.  On Windows we use ``timeout /t N /nobreak`` which actually
-    blocks for N seconds (unlike ``ping`` on localhost which completes
-    almost instantly).  On POSIX we use ``sleep``.
+    will use.  On Windows we use ``sleep`` which works in Git Bash
+    (the default shell on Windows CI).  On POSIX we also use ``sleep``.
     """
     if sys.platform.startswith("win"):
-        return f"timeout /t {seconds} /nobreak >nul"
+        return f"sleep {seconds}"
     return f"sleep {seconds}"
 
 
