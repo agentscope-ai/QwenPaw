@@ -52,6 +52,7 @@ export interface EmbeddingModelConfig {
 
 export interface ReMeLightMemoryConfig {
   summarize_when_compact: boolean;
+  inbox_push_enabled: boolean;
   auto_memory_interval: number;
   dream_cron: string;
   auto_memory_search_config: AutoMemorySearchConfig;

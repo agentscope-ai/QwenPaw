@@ -35,6 +35,13 @@ def test_memory_search_indexes_only_memory_markdown() -> None:
         assert job["watch_suffixes"] == ["md"]
 
 
+def test_reme_file_processing_is_limited_to_10_mb() -> None:
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    for job_name in ("index_update_loop", "resource_watch_loop", "reindex"):
+        assert cfg["jobs"][job_name]["max_file_bytes"] == 10 * 1024 * 1024
+
+
 def test_status_job_reports_reme_memory_usage() -> None:
     cfg = _config_for_embedding(EmbeddingModelConfig())
 
@@ -82,6 +89,24 @@ def test_openai_compatible_embedding_keeps_base_url_credential() -> None:
         "api_key": "local-key",
         "base_url": "http://localhost:1234/v1",
     }
+    assert as_embedding["pass_dimensions"] is False
+
+
+def test_openai_compatible_embedding_can_pass_dimensions() -> None:
+    cfg = _config_for_embedding(
+        EmbeddingModelConfig(
+            backend="openai",
+            api_key="local-key",
+            base_url="http://localhost:1234/v1",
+            model_name="local-embedding",
+            dimensions=768,
+            use_dimensions=True,
+        ),
+    )
+
+    as_embedding = cfg["components"]["as_embedding"]["default"]
+    assert as_embedding["dimensions"] == 768
+    assert as_embedding["pass_dimensions"] is True
 
 
 def test_openai_compatible_embedding_omits_blank_base_url() -> None:
@@ -116,6 +141,9 @@ def test_gemini_embedding_uses_api_key_without_base_url() -> None:
     assert cfg["components"]["as_embedding"]["default"]["credential"] == {
         "api_key": "gemini-key",
     }
+    assert (
+        "pass_dimensions" not in cfg["components"]["as_embedding"]["default"]
+    )
 
 
 def test_gemini_embedding_without_api_key_is_disabled() -> None:

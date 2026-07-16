@@ -1961,6 +1961,8 @@
     "embeddingConfigCollapseLabel": "Embedding Modelo Configuracao",
     "summarizeWhenCompact": "Memory Ligado Compact",
     "summarizeWhenCompactTooltip": "Automatically generate and save memory during context compaction",
+    "inboxPushEnabled": "Notificações de resultados da memória",
+    "inboxPushEnabledTooltip": "Envia resultados de memória, sonho e recursos automáticos para a caixa de entrada. Desativar não interrompe as tarefas de memória.",
     "autoMemoryInterval": "Intervalo de Memória Automática",
     "autoMemoryIntervalTooltip": "Acione a memória automática a cada N consultas do usuário. 0 desativa a memória automática periódica. 1 significa memória automática após cada consulta. Recomendado: 2-5; usar 1 exige atenção ao alto consumo de tokens.",
     "autoMemoryIntervalPlaceholder": "Digite 0 para desativar a memória automática periódica",

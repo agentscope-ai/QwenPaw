@@ -2130,6 +2130,8 @@
     "embeddingConfigCollapseLabel": "Konfigurasi Model Embedding",
     "summarizeWhenCompact": "Memori saat Kompaksi",
     "summarizeWhenCompactTooltip": "Secara otomatis menghasilkan dan menyimpan memori selama kompaksi konteks",
+    "inboxPushEnabled": "Notifikasi Kotak Masuk Hasil Memori",
+    "inboxPushEnabledTooltip": "Kirim hasil memori otomatis, mimpi otomatis, dan sumber daya otomatis ke kotak masuk. Menonaktifkannya tidak menghentikan tugas memori.",
     "autoMemoryInterval": "Interval Memori Otomatis",
     "autoMemoryIntervalTooltip": "Picu memori otomatis setiap N kueri pengguna. 0 menonaktifkan memori otomatis berkala. 1 berarti memori otomatis setelah setiap kueri. Disarankan: 2-5; pengaturan 1 perlu memperhatikan konsumsi token yang tinggi.",
     "autoMemoryIntervalPlaceholder": "Masukkan 0 untuk menonaktifkan memori otomatis berkala",

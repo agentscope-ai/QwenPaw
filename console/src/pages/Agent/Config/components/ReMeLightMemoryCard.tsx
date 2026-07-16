@@ -89,6 +89,15 @@ export function ReMeLightMemoryCard() {
       </Form.Item>
 
       <Form.Item
+        label={t("agentConfig.inboxPushEnabled")}
+        name={["reme_light_memory_config", "inbox_push_enabled"]}
+        valuePropName="checked"
+        tooltip={t("agentConfig.inboxPushEnabledTooltip")}
+      >
+        <Switch />
+      </Form.Item>
+
+      <Form.Item
         label={t("agentConfig.autoMemoryInterval")}
         name={["reme_light_memory_config", "auto_memory_interval"]}
         rules={[

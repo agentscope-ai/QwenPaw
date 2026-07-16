@@ -2111,6 +2111,8 @@
     "embeddingConfigCollapseLabel": "Embedding Model Config",
     "summarizeWhenCompact": "Memory on Compact",
     "summarizeWhenCompactTooltip": "Automatically generate and save memory during context compaction",
+    "inboxPushEnabled": "Memory Result Inbox Notifications",
+    "inboxPushEnabledTooltip": "Push auto-memory, auto-dream, and auto-resource results to the inbox. Disable this to reduce inbox messages without stopping the memory jobs.",
     "autoMemoryInterval": "Auto Memory Interval",
     "autoMemoryIntervalTooltip": "Trigger auto memory every N user queries. 0 disables periodic auto memory. 1 means auto memory after every query. Recommended: 2-5; setting 1 requires attention to high token usage.",
     "autoMemoryIntervalPlaceholder": "Enter 0 to disable periodic auto memory",
