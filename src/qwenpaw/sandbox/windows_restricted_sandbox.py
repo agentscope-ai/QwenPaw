@@ -3131,6 +3131,15 @@ def shutdown_cleanup() -> None:
 
     Safe to call multiple times (idempotent after first call).
     """
+    # Skip cleanup when not running as admin: the sandbox was never
+    # activated this session (non-admin = sandbox disabled at runtime),
+    # and non-admin processes cannot modify admin-created ACLs anyway.
+    # Attempting cleanup would just block process exit with futile retries.
+    from ..utils.platform import is_windows_admin
+
+    if not is_windows_admin():
+        return
+
     sb_dir = _sandboxes_dir(_sandbox_state_dir)
     if not sb_dir.exists() or not list(sb_dir.glob("*.json")):
         return
