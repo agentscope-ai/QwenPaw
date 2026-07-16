@@ -139,6 +139,10 @@ class ResourceGovernor:
                     import time as _time
 
                     now = _time.monotonic()
+                    # Throttle: this method is called on every tool-execution
+                    # check.  Without a debounce interval the same warning
+                    # would be emitted hundreds of times per session.
+                    # 30 s keeps the user informed without flooding the log.
                     if now - _sandbox_admin_warned_at > 30:
                         logger.warning(
                             "Windows sandbox inactive for this session: "
