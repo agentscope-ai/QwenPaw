@@ -1,4 +1,11 @@
-import { Form, Switch, Button, Card, Select, Alert } from "@agentscope-ai/design";
+import {
+  Form,
+  Switch,
+  Button,
+  Card,
+  Select,
+  Alert,
+} from "@agentscope-ai/design";
 import { PlusCircleOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { MergedRule } from "../useToolGuard";
@@ -85,14 +92,16 @@ export function ToolGuardTab({
                 onChange={(val) => setSandboxEnabled(val)}
               />
             </Form.Item>
-            {sandboxEnabled && !sandboxEffective && sandboxReason === "not_admin" && (
-              <Alert
-                type="warning"
-                showIcon
-                style={{ marginBottom: 16 }}
-                message={t("security.sandboxDegradedWarning")}
-              />
-            )}
+            {sandboxEnabled &&
+              !sandboxEffective &&
+              sandboxReason === "not_admin" && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                  message={t("security.sandboxDegradedWarning")}
+                />
+              )}
             <div className={styles.toolGuardRow}>
               <Form.Item
                 label={t("security.guardedTools")}

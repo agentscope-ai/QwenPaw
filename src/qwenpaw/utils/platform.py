@@ -26,12 +26,13 @@ def is_windows_admin() -> bool:
 
 
 def auto_disable_sandbox_on_windows() -> None:
-    """Log a warning on Windows when sandbox is enabled but process lacks admin.
+    """Log a warning when sandbox is enabled but process lacks admin.
 
-    The restricted-token sandbox requires administrator privileges to set up
-    filesystem ACLs and launch sandboxed processes.  If the user has
-    ``security.sandbox_enabled=true`` but the current process is not elevated,
-    log a warning so the user knows why the sandbox won't activate this session.
+    The restricted-token sandbox requires administrator privileges to
+    set up filesystem ACLs and launch sandboxed processes.  If the user
+    has ``security.sandbox_enabled=true`` but the current process is not
+    elevated, log a warning so the user knows why the sandbox won't
+    activate this session.
 
     The config file is NOT modified — this is a runtime-only downgrade so the
     user's intent is preserved for future admin launches.
@@ -95,7 +96,7 @@ def repair_windows_data_dir_permissions() -> None:
     # Quick probe: can we create a temp file in the data directory?
     probe_path = os.path.join(data_dir, ".qwenpaw_permission_probe")
     try:
-        with open(probe_path, "w") as f:
+        with open(probe_path, "w", encoding="utf-8") as f:
             f.write("probe")
         os.unlink(probe_path)
         return  # writable: nothing to fix
@@ -118,10 +119,12 @@ def repair_windows_data_dir_permissions() -> None:
             capture_output=True,
             text=True,
             timeout=30,
+            check=False,
         )
         if result.returncode == 0:
             logger.info(
-                "Successfully repaired permissions on %s", data_dir,
+                "Successfully repaired permissions on %s",
+                data_dir,
             )
         else:
             logger.warning(

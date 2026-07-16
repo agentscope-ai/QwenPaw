@@ -856,7 +856,9 @@ async def get_sandbox_setting() -> SandboxStatusResponse:
     enabled = config.security.sandbox_enabled
     effective, reason = _sandbox_effective_status(enabled)
     return SandboxStatusResponse(
-        enabled=enabled, effective=effective, reason=reason,
+        enabled=enabled,
+        effective=effective,
+        reason=reason,
     )
 
 
@@ -880,7 +882,8 @@ async def put_sandbox_setting(
                 "Sandbox requires administrator privileges on Windows.\n\n"
                 "To enable the sandbox, restart QwenPaw with administrator "
                 "privileges:\n"
-                "  - Desktop: right-click the shortcut \u2192 Run as administrator\n"
+                "  - Desktop: right-click the shortcut "
+                "\u2192 Run as administrator\n"
                 "  - CLI: open an elevated terminal, then run `qwenpaw app`\n"
                 "Then come back to Settings and re-enable the sandbox."
             ),
@@ -891,7 +894,9 @@ async def put_sandbox_setting(
     save_config(config)
     effective, reason = _sandbox_effective_status(body.enabled)
     return SandboxStatusResponse(
-        enabled=body.enabled, effective=effective, reason=reason,
+        enabled=body.enabled,
+        effective=effective,
+        reason=reason,
     )
 
 

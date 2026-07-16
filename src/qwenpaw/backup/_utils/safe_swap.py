@@ -119,9 +119,9 @@ def _open_restore_lock(lock_path: Path) -> BinaryIO:
             import hashlib
 
             fallback = Path(tempfile.gettempdir()) / (
-                "qwenpaw_restore_" + hashlib.md5(
-                    str(lock_path).encode()
-                ).hexdigest() + ".lock"
+                "qwenpaw_restore_"
+                + hashlib.md5(str(lock_path).encode()).hexdigest()
+                + ".lock"
             )
             logger.warning(
                 "Cannot access restore lock %s (PermissionError); "
