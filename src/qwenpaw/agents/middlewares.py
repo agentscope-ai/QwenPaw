@@ -15,12 +15,16 @@ Currently provided:
 """
 
 import asyncio
+import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Set
 
 from agentscope.middleware import MiddlewareBase
-from agentscope.message import Msg
+from agentscope.message import Msg, TextBlock, ToolResultState
 from agentscope.tool import ToolResponse
+from json_repair import repair_json
+import jsonschema
 
 from .tools.utils import (
     DEFAULT_MAX_BYTES,
@@ -37,6 +41,192 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
 _AUTOMATION_MEMORY_SKIP_SOURCES = frozenset({"cron", "heartbeat"})
+
+_EXECUTABLE_ARGUMENT_KEYS = frozenset(
+    {"command", "script", "code", "content", "patch", "sql"},
+)
+_SHELL_ARGUMENT_KEYS = frozenset({"command", "shell_command"})
+_HEREDOC_START_RE = re.compile(
+    r"<<-?\s*(?P<quote>['\"]?)(?P<tag>[A-Za-z_][A-Za-z0-9_]*)(?P=quote)",
+)
+
+
+def _contains_executable_argument(value: Any) -> bool:
+    """Return whether repaired arguments contain executable/large payloads."""
+    if isinstance(value, dict):
+        return any(
+            str(key).lower() in _EXECUTABLE_ARGUMENT_KEYS
+            or _contains_executable_argument(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(_contains_executable_argument(item) for item in value)
+    return False
+
+
+def _incomplete_heredoc(  # pylint: disable=too-many-return-statements
+    value: Any,
+    inspect_string: bool = False,
+) -> str | None:
+    """Return a missing heredoc terminator found in nested arguments."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            missing = _incomplete_heredoc(
+                item,
+                str(key).lower() in _SHELL_ARGUMENT_KEYS,
+            )
+            if missing:
+                return missing
+        return None
+    if isinstance(value, list):
+        for item in value:
+            missing = _incomplete_heredoc(item, inspect_string)
+            if missing:
+                return missing
+        return None
+    if not inspect_string or not isinstance(value, str):
+        return None
+    for match in _HEREDOC_START_RE.finditer(value):
+        tag = match.group("tag")
+        remaining_lines = value[match.end() :].splitlines()
+        if not any(line.strip() == tag for line in remaining_lines):
+            return tag
+    return None
+
+
+def _repair_tool_call_input(
+    raw: str,
+    schema: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, str]:
+    """Parse and safely repair tool input, returning an error when unsafe."""
+    decode_error: json.JSONDecodeError | None = None
+    try:
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            return None, "tool arguments must decode to a JSON object"
+    except json.JSONDecodeError as exc:
+        decode_error = exc
+
+        try:
+            parsed = repair_json(
+                raw,
+                return_objects=True,
+                stream_stable=True,
+                schema=schema,
+            )
+        except Exception:  # pylint: disable=broad-exception-caught
+            parsed = None
+        if not isinstance(parsed, dict):
+            return None, (
+                f"{decode_error.msg} at character {decode_error.pos}; "
+                "automatic repair did not produce a JSON object"
+            )
+
+    # json_repair deliberately closes unterminated strings.  For commands,
+    # source code and file bodies that can turn a truncated stream into a
+    # different, executable payload.  Keep repair for ordinary syntax errors,
+    # but reject this one ambiguity instead of executing partial content.
+    if (
+        decode_error is not None
+        and "unterminated string" in decode_error.msg.lower()
+        and _contains_executable_argument(parsed)
+    ):
+        return None, (
+            f"{decode_error.msg} at character {decode_error.pos}; "
+            "an executable or file-content argument may be truncated"
+        )
+
+    missing_tag = _incomplete_heredoc(parsed)
+    if missing_tag:
+        return None, (
+            "repaired command contains an unterminated heredoc "
+            f"({missing_tag})"
+        )
+    return parsed, ""
+
+
+class ToolCallInputRepairMiddleware(MiddlewareBase):
+    """Repair model tool JSON before execution and persist canonical input."""
+
+    async def on_acting(
+        self,
+        agent: "Agent",
+        input_kwargs: dict[str, Any],
+        next_handler: Callable[..., AsyncGenerator[Any, None]],
+    ) -> AsyncGenerator[Any, None]:
+        tool_call = input_kwargs.get("tool_call")
+        raw = getattr(tool_call, "input", None)
+        if not isinstance(raw, str):
+            async for event in next_handler(**input_kwargs):
+                yield event
+            return
+
+        schema = None
+        toolkit = getattr(agent, "toolkit", None)
+        if toolkit is not None:
+            activated_groups = getattr(
+                getattr(getattr(agent, "state", None), "tool_context", None),
+                "activated_groups",
+                None,
+            )
+            tool = await toolkit.check_tool_available(
+                getattr(tool_call, "name", ""),
+                activated_groups,
+            )
+            schema = tool.input_schema
+
+        parsed, error = _repair_tool_call_input(raw, schema)
+        if parsed is not None and schema:
+            try:
+                jsonschema.validate(parsed, schema)
+            except jsonschema.ValidationError as exc:
+                parsed = None
+                error = (
+                    "repaired arguments failed schema validation: "
+                    f"{exc.message}"
+                )
+        if parsed is None:
+            tool_name = str(getattr(tool_call, "name", "unknown"))
+            # Keep the rejected call/result pair valid for history formatters.
+            tool_call.input = "{}"
+            logger.warning(
+                "Rejected unsafe repaired tool input: tool=%r id=%r "
+                "input_length=%d reason=%s",
+                tool_name,
+                getattr(tool_call, "id", None),
+                len(raw),
+                error,
+            )
+            yield ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Tool call `{tool_name}` was not executed: "
+                            f"{error}. Retry with complete JSON arguments; "
+                            "split large payloads into smaller calls."
+                        ),
+                    ),
+                ],
+                state=ToolResultState.ERROR,
+                metadata={"tool_input_validation": "rejected"},
+            )
+            return
+
+        canonical = json.dumps(parsed, ensure_ascii=False)
+        if canonical != raw:
+            logger.info(
+                "Repaired tool-call JSON before execution: tool=%r id=%r "
+                "input_length=%d repaired_length=%d",
+                getattr(tool_call, "name", None),
+                getattr(tool_call, "id", None),
+                len(raw),
+                len(canonical),
+            )
+            tool_call.input = canonical
+
+        async for event in next_handler(**input_kwargs):
+            yield event
 
 
 class MemoryMiddleware(MiddlewareBase):

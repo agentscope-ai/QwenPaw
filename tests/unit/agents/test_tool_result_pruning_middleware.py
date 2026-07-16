@@ -21,6 +21,7 @@ html2text_stub.HTML2Text = type("HTML2Text", (), {})
 sys.modules.setdefault("html2text", html2text_stub)
 
 from qwenpaw.agents.middlewares import (  # noqa: E402
+    ToolCallInputRepairMiddleware,
     ToolResultPruningMiddleware,
 )
 from qwenpaw.agents.tools.utils import (  # noqa: E402
@@ -488,6 +489,7 @@ def test_builder_places_pruning_outside_tool_coordinator(tmp_path):
 
     middlewares = AgentBuilder._build_middlewares(ctx, agent_config)
 
+    assert isinstance(middlewares[0], ToolCallInputRepairMiddleware)
     pruning_index = next(
         idx
         for idx, middleware in enumerate(middlewares)
