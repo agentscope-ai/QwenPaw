@@ -750,13 +750,16 @@ def get_dream_cron(agent_id: Optional[str] = None) -> str:
                   root config.agents.defaults (legacy behavior).
 
     Returns:
-        str: Cron expression for dream-based memory optimization job, or empty
-             string if disabled.
+        str: Cron expression for dream-based memory optimization job, or an
+             empty string if disabled.
     """
     if agent_id is not None:
         try:
             agent_config = load_agent_config(agent_id)
-            return agent_config.running.reme_light_memory_config.dream_cron
+            memory_config = agent_config.running.reme_light_memory_config
+            if not getattr(memory_config, "dream_cron_enabled", True):
+                return ""
+            return memory_config.dream_cron
         except Exception:
             return ""
     # Legacy: return empty string if no agent_id provided

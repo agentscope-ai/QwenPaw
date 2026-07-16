@@ -712,10 +712,17 @@ class ReMeLightMemoryConfig(BaseModel):
         "background task burden.",
     )
 
+    dream_cron_enabled: bool = Field(
+        default=True,
+        description=(
+            "Whether to enable the dream-based memory optimization job"
+        ),
+    )
+
     dream_cron: str = Field(
         default="0 23 * * *",
         description="Cron expression for dream-based memory optimization job "
-        "(empty to disable)",
+        "(empty string is ignored; use dream_cron_enabled to disable)",
     )
 
     auto_memory_search_config: AutoMemorySearchConfig = Field(

@@ -64,6 +64,8 @@ export function ReMeLightMemoryCard() {
     "embedding_model_config",
     "model_name",
   ]);
+  const dreamCronEnabled =
+    Form.useWatch(["reme_light_memory_config", "dream_cron_enabled"]) ?? true;
   const normalizedBackend = String(backend);
   const showApiKey = normalizedBackend !== "ollama";
   const showBaseUrl = normalizedBackend !== "gemini";
@@ -118,6 +120,26 @@ export function ReMeLightMemoryCard() {
           min={0}
           step={1}
           placeholder={t("agentConfig.autoMemoryIntervalPlaceholder")}
+        />
+      </Form.Item>
+
+      <Form.Item
+        label={t("agentConfig.dreamCronEnabled")}
+        name={["reme_light_memory_config", "dream_cron_enabled"]}
+        valuePropName="checked"
+        tooltip={t("agentConfig.dreamCronEnabledTooltip")}
+      >
+        <Switch />
+      </Form.Item>
+
+      <Form.Item
+        label={t("agentConfig.dreamCron")}
+        name={["reme_light_memory_config", "dream_cron"]}
+        tooltip={t("agentConfig.dreamCronTooltip")}
+      >
+        <Input
+          disabled={!dreamCronEnabled}
+          placeholder={t("agentConfig.dreamCronPlaceholder")}
         />
       </Form.Item>
 
