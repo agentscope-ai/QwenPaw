@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import AgentSelector from "./index";
@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   setAgents: vi.fn(),
   listAgents: vi.fn(),
   toggleAgentEnabled: vi.fn(),
+  setAgentPinned: vi.fn(),
   navigate: vi.fn(),
   storeState: {
     selectedAgent: "default",
@@ -20,6 +21,7 @@ vi.mock("@/api/modules/agents", () => ({
   agentsApi: {
     listAgents: mocks.listAgents,
     toggleAgentEnabled: mocks.toggleAgentEnabled,
+    setAgentPinned: mocks.setAgentPinned,
   },
 }));
 
@@ -48,6 +50,7 @@ const agents = [
     description: "",
     workspace_dir: "",
     startup_status: "running",
+    pinned: true,
   },
   {
     id: "agent-1",
@@ -56,6 +59,7 @@ const agents = [
     description: "desc",
     workspace_dir: "",
     startup_status: "running",
+    pinned: false,
   },
   {
     id: "agent-2",
@@ -64,6 +68,7 @@ const agents = [
     description: "",
     workspace_dir: "",
     startup_status: "disabled",
+    pinned: false,
   },
 ];
 
@@ -76,6 +81,11 @@ describe("AgentSelector", () => {
       success: true,
       agent_id: "agent-2",
       enabled: true,
+    });
+    mocks.setAgentPinned.mockResolvedValue({
+      success: true,
+      agent_id: "agent-1",
+      pinned: true,
     });
   });
 
@@ -107,6 +117,29 @@ describe("AgentSelector", () => {
 
     expect(disabledHeader).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Agent Two")).toBeInTheDocument();
+  });
+
+  it("keeps a pinned disabled agent visible and lets it be enabled", async () => {
+    const pinnedDisabledAgent = {
+      id: "agent-3",
+      name: "Pinned Disabled",
+      enabled: false,
+      pinned: true,
+      description: "",
+      workspace_dir: "",
+      startup_status: "disabled",
+    };
+    const nextAgents = [...agents, pinnedDisabledAgent];
+    mocks.storeState.agents = nextAgents;
+    mocks.listAgents.mockResolvedValue({ agents: nextAgents });
+    const user = userEvent.setup();
+    renderWithProviders(<AgentSelector />);
+
+    await user.click(screen.getByRole("combobox"));
+    expect(screen.getByText("Pinned Disabled")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "agent.enableAgent" }));
+
+    expect(mocks.toggleAgentEnabled).toHaveBeenCalledWith("agent-3", true);
   });
 
   it("optimistically marks an enabled agent as starting", async () => {
@@ -143,5 +176,24 @@ describe("AgentSelector", () => {
       expect(mocks.toggleAgentEnabled).toHaveBeenCalledWith("agent-1", false);
     });
     expect(mocks.setSelectedAgent).toHaveBeenCalledWith("default");
+  });
+
+  it("pins an agent with the keyboard shortcut", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AgentSelector />);
+    await user.click(screen.getByRole("combobox"));
+
+    fireEvent.keyDown(screen.getByTitle("agent.longPressToPin"), {
+      key: "p",
+    });
+
+    await waitFor(() => {
+      expect(mocks.setAgentPinned).toHaveBeenCalledWith("agent-1", true);
+    });
+    expect(mocks.setAgents).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "agent-1", pinned: true }),
+      ]),
+    );
   });
 });

@@ -232,7 +232,19 @@
     }
 
     .rc-virtual-list {
-      padding: 6px 0;
+      padding: 4px 0;
+    }
+
+    .ant-select-item-group,
+    .qwenpaw-select-item-group {
+      min-height: 24px;
+      padding: 5px 14px 2px !important;
+      color: rgba(26, 26, 46, 0.42) !important;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.06em;
+      line-height: 1.4;
+      text-transform: uppercase;
     }
   }
 }
@@ -248,20 +260,63 @@
 
 // ─── Agent Option ─────────────────────────────────────────────────────────────
 .agentOption {
-  padding: 10px 14px;
+  position: relative;
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  border-radius: 8px;
+  outline: none;
+  transform-origin: center;
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  &:focus-visible {
+    background: rgba(240, 126, 38, 0.06);
+    box-shadow: inset 0 0 0 1px rgba(240, 126, 38, 0.32);
+  }
 }
 
 .agentOptionDisabled {
-  opacity: 0.72;
+  opacity: 0.68;
+}
+
+.agentOptionPressing {
+  z-index: 1;
+  background: rgba(240, 126, 38, 0.055);
+  box-shadow: 0 7px 18px rgba(72, 42, 20, 0.12);
+  transform: translateY(-2px) scale(1.012);
+
+  &::after {
+    position: absolute;
+    inset: 3px;
+    border: 1px solid transparent;
+    border-top-color: rgba(240, 126, 38, 0.9);
+    border-radius: 9px;
+    content: "";
+    pointer-events: none;
+    animation: pinProgress 0.5s linear forwards;
+  }
+}
+
+.agentOptionPinFeedback {
+  animation: pinWiggle 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);
 }
 
 .agentOptionHeader {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+}
+
+.agentStatusColumn {
+  width: 12px;
+  flex: 0 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .agentToggleButton {
@@ -360,8 +415,8 @@
 
 .agentOptionIcon {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -390,7 +445,7 @@
 .agentOptionName {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
@@ -403,6 +458,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+}
+
+.pinnedIndicator {
+  flex: 0 0 auto;
+  color: #f07e26;
+  filter: drop-shadow(0 1px 2px rgba(240, 126, 38, 0.18));
 }
 
 .activeIndicator {
@@ -436,8 +497,55 @@
   font-family: "SF Mono", "Consolas", "Monaco", monospace;
   color: rgba(240, 126, 38, 0.45);
   letter-spacing: 0.3px;
-  padding-top: 4px;
+  margin-left: 52px;
+  padding-top: 3px;
   border-top: 1px solid rgba(240, 126, 38, 0.08);
+}
+
+@keyframes pinProgress {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pinWiggle {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+  20% {
+    transform: rotate(-1.3deg) scale(1.012);
+  }
+  40% {
+    transform: rotate(1.1deg) scale(1.012);
+  }
+  60% {
+    transform: rotate(-0.8deg) scale(1.006);
+  }
+  80% {
+    transform: rotate(0.5deg) scale(1.003);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agentOption,
+  .pinnedIndicator {
+    transition: none;
+  }
+
+  .agentOptionPressing,
+  .agentOptionPinFeedback {
+    animation: none;
+    transform: none;
+  }
+
+  .agentOptionPressing::after {
+    animation: none;
+    border-color: rgba(240, 126, 38, 0.55);
+  }
 }
 
 // ─── Dark mode overrides ───────────────────────────────────────────────────────
@@ -476,6 +584,15 @@
 
   .dropdownHeaderTitle {
     color: rgba(255, 255, 255, 0.4);
+  }
+
+  .agentSelectorDropdown {
+    :global {
+      .ant-select-item-group,
+      .qwenpaw-select-item-group {
+        color: rgba(255, 255, 255, 0.4) !important;
+      }
+    }
   }
 
   .agentSelector {
@@ -574,6 +691,11 @@
 
   .agentOptionName {
     color: rgba(255, 255, 255, 0.88);
+  }
+
+  .agentOption:focus-visible,
+  .agentOptionPressing {
+    background: rgba(240, 126, 38, 0.12);
   }
 
   .agentOptionDescription {

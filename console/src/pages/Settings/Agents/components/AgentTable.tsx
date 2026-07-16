@@ -14,7 +14,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
-import { EyeOff, Eye } from "lucide-react";
+import { EyeOff, Eye, Pin, PinOff } from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
@@ -30,6 +30,7 @@ interface AgentTableProps {
   onEdit: (agent: AgentSummary) => void;
   onDelete: (agentId: string) => void;
   onToggle: (agentId: string, currentEnabled: boolean) => void;
+  onPin: (agentId: string, currentPinned: boolean) => void;
   onReorder: (activeId: string, overId: string) => void;
 }
 
@@ -40,6 +41,7 @@ export function AgentTable({
   onEdit,
   onDelete,
   onToggle,
+  onPin,
   onReorder,
 }: AgentTableProps) {
   const { t } = useTranslation();
@@ -75,10 +77,12 @@ export function AgentTable({
       key: "sort",
       width: 56,
       align: "center",
-      render: () => (
+      render: (_value: unknown, record: AgentSummary) => (
         <Tooltip title={t("agent.dragHandleTooltip")}>
           <span>
-            <DragHandle disabled={reordering || loading} />
+            <DragHandle
+              disabled={reordering || loading || record.id === "default"}
+            />
           </span>
         </Tooltip>
       ),
@@ -90,6 +94,10 @@ export function AgentTable({
       width: 300,
       render: (_text: string, record: AgentSummary) => (
         <Space>
+          <AgentStatusIndicator
+            status={record.startup_status}
+            enabled={record.enabled}
+          />
           <RobotOutlined
             style={{
               fontSize: 16,
@@ -99,10 +107,9 @@ export function AgentTable({
           <span style={{ opacity: record.enabled ? 1 : 0.5 }}>
             {getAgentDisplayName(record, t)}
           </span>
-          <AgentStatusIndicator
-            status={record.startup_status}
-            enabled={record.enabled}
-          />
+          {(record.id === "default" || record.pinned) && (
+            <Pin size={13} aria-label={t("agent.pinned")} />
+          )}
         </Space>
       ),
     },
@@ -159,6 +166,30 @@ export function AgentTable({
 
         return (
           <Space>
+            <Tooltip
+              title={
+                record.id === "default"
+                  ? t("agent.defaultPinned")
+                  : record.pinned
+                  ? t("agent.longPressToUnpin")
+                  : t("agent.longPressToPin")
+              }
+            >
+              <Button
+                type="text"
+                size="middle"
+                icon={
+                  record.id === "default" || record.pinned ? (
+                    <Pin size={14} />
+                  ) : (
+                    <PinOff size={14} />
+                  )
+                }
+                onClick={() => onPin(record.id, Boolean(record.pinned))}
+                disabled={record.id === "default"}
+                style={record.id === "default" ? disabledStyle : iconStyle}
+              />
+            </Tooltip>
             <Button
               type="text"
               size="middle"

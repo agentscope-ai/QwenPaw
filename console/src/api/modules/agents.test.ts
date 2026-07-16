@@ -86,4 +86,15 @@ describe("agentsApi", () => {
     });
     expect(result).toEqual(resp);
   });
+
+  it("setAgentPinned sends PATCH with pinned flag", async () => {
+    const resp = { success: true, agent_id: "a1", pinned: true };
+    vi.mocked(request).mockResolvedValue(resp);
+    const result = await agentsApi.setAgentPinned("a1", true);
+    expect(request).toHaveBeenCalledWith("/agents/a1/pin", {
+      method: "PATCH",
+      body: JSON.stringify({ pinned: true }),
+    });
+    expect(result).toEqual(resp);
+  });
 });

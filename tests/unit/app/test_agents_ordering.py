@@ -11,12 +11,14 @@ from qwenpaw.config.config import (
     AgentProfileRef,
     Config,
 )
+from qwenpaw.config.utils import load_config, save_config
 from qwenpaw.app.routers import agents as agents_router
 
 
 def _build_config(
     profile_ids: list[str],
     agent_order: list[str] | None = None,
+    pinned_ids: set[str] | None = None,
 ) -> Config:
     """Build a minimal config with agent profiles in the given order."""
     config = Config()
@@ -24,6 +26,7 @@ def _build_config(
         agent_id: AgentProfileRef(
             id=agent_id,
             workspace_dir=f"/tmp/{agent_id}",
+            pinned=agent_id in (pinned_ids or set()),
         )
         for agent_id in profile_ids
     }
@@ -38,6 +41,19 @@ def _agent_config(agent_id: str) -> AgentProfileConfig:
         description=f"{agent_id} description",
         workspace_dir=f"/tmp/{agent_id}",
     )
+
+
+def test_agent_profile_flags_survive_config_round_trip(tmp_path):
+    """Adding pinned state must preserve an explicit disabled state."""
+    config = _build_config(["default", "disabled"], pinned_ids={"disabled"})
+    config.agents.profiles["disabled"].enabled = False
+    config_path = tmp_path / "config.json"
+
+    save_config(config, config_path)
+    loaded = load_config(config_path)
+
+    assert loaded.agents.profiles["disabled"].enabled is False
+    assert loaded.agents.profiles["disabled"].pinned is True
 
 
 @pytest.mark.asyncio
@@ -86,6 +102,74 @@ async def test_list_agents_appends_missing_ids(monkeypatch):
         "beta",
         "alpha",
     ]
+
+
+@pytest.mark.asyncio
+async def test_list_agents_groups_default_and_pinned_without_reordering_peers(
+    monkeypatch,
+):
+    """Pinned agents should lead while preserving stored peer order."""
+    config = _build_config(
+        ["beta", "default", "alpha", "gamma"],
+        agent_order=["gamma", "alpha", "default", "beta"],
+        pinned_ids={"gamma", "beta"},
+    )
+
+    monkeypatch.setattr(agents_router, "load_config", lambda: config)
+    monkeypatch.setattr(
+        agents_router,
+        "load_agent_config",
+        _agent_config,
+    )
+
+    response = await agents_router.list_agents()
+
+    assert [agent.id for agent in response.agents] == [
+        "default",
+        "gamma",
+        "beta",
+        "alpha",
+    ]
+    assert [agent.pinned for agent in response.agents] == [
+        True,
+        True,
+        True,
+        False,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pin_agent_persists_without_changing_enabled(monkeypatch):
+    """Pinning must not alter an agent's enabled state."""
+    config = _build_config(["default", "disabled"])
+    config.agents.profiles["disabled"].enabled = False
+    saved_configs: list[Config] = []
+
+    monkeypatch.setattr(agents_router, "load_config", lambda: config)
+    monkeypatch.setattr(
+        agents_router,
+        "save_config",
+        saved_configs.append,
+    )
+
+    response = await agents_router.set_agent_pinned("disabled", True)
+
+    assert response["pinned"] is True
+    assert config.agents.profiles["disabled"].pinned is True
+    assert config.agents.profiles["disabled"].enabled is False
+    assert saved_configs == [config]
+
+
+@pytest.mark.asyncio
+async def test_default_agent_cannot_be_unpinned(monkeypatch):
+    """The default agent is always pinned regardless of stored defaults."""
+    config = _build_config(["default"])
+    monkeypatch.setattr(agents_router, "load_config", lambda: config)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await agents_router.set_agent_pinned("default", False)
+
+    assert exc_info.value.status_code == 400
 
 
 @pytest.mark.asyncio

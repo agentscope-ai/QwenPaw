@@ -15,6 +15,7 @@ export interface AgentSummary {
   description: string;
   workspace_dir: string;
   enabled: boolean;
+  pinned?: boolean;
   startup_status?: AgentStartupStatus;
   active_model?: ModelSlotConfig | null;
 }
@@ -58,4 +59,6 @@ export interface CreateAgentRequest {
 export interface AgentProfileRef {
   id: string;
   workspace_dir: string;
+  enabled?: boolean;
+  pinned?: boolean;
 }

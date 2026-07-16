@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   LoaderCircle,
+  Pin,
   Power,
   PowerOff,
 } from "lucide-react";
@@ -20,6 +21,7 @@ import { useNavigate } from "react-router-dom";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { useAgentStatusPolling } from "../../hooks/useAgentStatusPolling";
 import { AgentStatusIndicator } from "../AgentStatusIndicator";
+import { useAgentLongPress } from "./useAgentLongPress";
 import styles from "./index.module.less";
 
 interface AgentSelectorProps {
@@ -42,6 +44,7 @@ export default function AgentSelector({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [disabledExpanded, setDisabledExpanded] = useState(false);
   const [togglingAgentId, setTogglingAgentId] = useState<string | null>(null);
+  const [pinningAgentId, setPinningAgentId] = useState<string | null>(null);
 
   const loadAgents = useCallback(
     async (showLoading = true, reportError = true) => {
@@ -79,12 +82,28 @@ export default function AgentSelector({
     () => agents.filter((agent) => agent.enabled),
     [agents],
   );
-  const disabledAgents = useMemo(
-    () => agents.filter((agent) => !agent.enabled),
+  const pinnedAgents = useMemo(
+    () => agents.filter((agent) => agent.id === "default" || agent.pinned),
+    [agents],
+  );
+  const regularEnabledAgents = useMemo(
+    () =>
+      agents.filter(
+        (agent) => agent.enabled && agent.id !== "default" && !agent.pinned,
+      ),
+    [agents],
+  );
+  const regularDisabledAgents = useMemo(
+    () =>
+      agents.filter(
+        (agent) => !agent.enabled && agent.id !== "default" && !agent.pinned,
+      ),
     [agents],
   );
 
   const handleChange = (value: string) => {
+    const targetAgent = agents.find((agent) => agent.id === value);
+    if (!targetAgent?.enabled) return;
     setSelectedAgent(value);
     message.success(t("agent.switchSuccess"));
   };
@@ -148,6 +167,39 @@ export default function AgentSelector({
       setTogglingAgentId(null);
     }
   };
+
+  const handlePinAgent = useCallback(
+    async (agent: AgentSummary) => {
+      if (agent.id === "default" || pinningAgentId !== null) return;
+      const nextPinned = !agent.pinned;
+      setPinningAgentId(agent.id);
+      setAgents(
+        agents.map((item) =>
+          item.id === agent.id ? { ...item, pinned: nextPinned } : item,
+        ),
+      );
+
+      try {
+        await agentsApi.setAgentPinned(agent.id, nextPinned);
+        message.success(
+          nextPinned ? t("agent.pinSuccess") : t("agent.unpinSuccess"),
+        );
+      } catch (error: unknown) {
+        message.error(
+          error instanceof Error ? error.message : t("agent.pinFailed"),
+        );
+      } finally {
+        await loadAgents(false, false);
+        setPinningAgentId(null);
+      }
+    },
+    [agents, loadAgents, message, pinningAgentId, setAgents, t],
+  );
+  const { getLongPressProps, pressingId, feedbackId } = useAgentLongPress(
+    (agent) => {
+      void handlePinAgent(agent);
+    },
+  );
 
   const currentAgentInfo = agents.find((agent) => agent.id === selectedAgent);
 
@@ -223,11 +275,30 @@ export default function AgentSelector({
 
   const renderAgentDetails = (agent: AgentSummary, disabled: boolean) => (
     <div
-      className={`${styles.agentOption} ${
-        disabled ? styles.agentOptionDisabled : ""
-      }`}
+      className={[
+        styles.agentOption,
+        disabled ? styles.agentOptionDisabled : "",
+        pressingId === agent.id ? styles.agentOptionPressing : "",
+        feedbackId === agent.id ? styles.agentOptionPinFeedback : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      title={
+        agent.id === "default"
+          ? t("agent.defaultPinned")
+          : agent.pinned
+          ? t("agent.longPressToUnpin")
+          : t("agent.longPressToPin")
+      }
+      {...getLongPressProps(agent)}
     >
       <div className={styles.agentOptionHeader}>
+        <div className={styles.agentStatusColumn}>
+          <AgentStatusIndicator
+            status={agent.startup_status}
+            enabled={agent.enabled}
+          />
+        </div>
         <div className={styles.agentOptionIcon}>
           <Bot size={16} strokeWidth={2} />
         </div>
@@ -236,10 +307,14 @@ export default function AgentSelector({
             <span className={styles.agentOptionNameText}>
               {getAgentDisplayName(agent, t)}
             </span>
-            <AgentStatusIndicator
-              status={agent.startup_status}
-              enabled={agent.enabled}
-            />
+            {(agent.id === "default" || agent.pinned) && (
+              <Pin
+                size={12}
+                strokeWidth={2.2}
+                className={styles.pinnedIndicator}
+                aria-label={t("agent.pinned")}
+              />
+            )}
             {agent.id === selectedAgent && (
               <CheckCircle
                 size={14}
@@ -256,7 +331,7 @@ export default function AgentSelector({
         </div>
         {agent.id !== "default" && renderToggleButton(agent, !agent.enabled)}
       </div>
-      <div className={styles.agentOptionId}>ID: {agent.id}</div>
+      <div className={styles.agentOptionId}>{`ID: ${agent.id}`}</div>
     </div>
   );
 
@@ -304,7 +379,7 @@ export default function AgentSelector({
               </button>
             </div>
             <div className={styles.enabledAgentList}>{menu}</div>
-            {disabledAgents.length > 0 && (
+            {regularDisabledAgents.length > 0 && (
               <div className={styles.disabledAgentSection}>
                 <button
                   type="button"
@@ -319,7 +394,7 @@ export default function AgentSelector({
                 >
                   <span>
                     {t("agent.disabledAgents", {
-                      count: disabledAgents.length,
+                      count: regularDisabledAgents.length,
                     })}
                   </span>
                   <ChevronDown
@@ -334,7 +409,7 @@ export default function AgentSelector({
                     id="disabled-agent-list"
                     className={styles.disabledAgentList}
                   >
-                    {disabledAgents.map((agent) => (
+                    {regularDisabledAgents.map((agent) => (
                       <div key={agent.id} className={styles.disabledAgentRow}>
                         {renderAgentDetails(agent, true)}
                       </div>
@@ -346,24 +421,49 @@ export default function AgentSelector({
           </div>
         )}
       >
-        {enabledAgents.map((agent) => (
-          <Select.Option
-            key={agent.id}
-            value={agent.id}
-            label={
-              <div className={styles.selectedAgentLabel}>
-                <Bot size={14} strokeWidth={2} />
-                <span>{getAgentDisplayName(agent, t)}</span>
-                <AgentStatusIndicator
-                  status={agent.startup_status}
-                  enabled={agent.enabled}
-                />
-              </div>
-            }
-          >
-            {renderAgentDetails(agent, false)}
-          </Select.Option>
-        ))}
+        <Select.OptGroup label={t("agent.pinnedAgents")}>
+          {pinnedAgents.map((agent) => (
+            <Select.Option
+              key={agent.id}
+              value={agent.id}
+              disabled={!agent.enabled}
+              label={
+                <div className={styles.selectedAgentLabel}>
+                  <AgentStatusIndicator
+                    status={agent.startup_status}
+                    enabled={agent.enabled}
+                  />
+                  <Bot size={14} strokeWidth={2} />
+                  <span>{getAgentDisplayName(agent, t)}</span>
+                </div>
+              }
+            >
+              {renderAgentDetails(agent, !agent.enabled)}
+            </Select.Option>
+          ))}
+        </Select.OptGroup>
+        {regularEnabledAgents.length > 0 && (
+          <Select.OptGroup label={t("agent.otherAgents")}>
+            {regularEnabledAgents.map((agent) => (
+              <Select.Option
+                key={agent.id}
+                value={agent.id}
+                label={
+                  <div className={styles.selectedAgentLabel}>
+                    <AgentStatusIndicator
+                      status={agent.startup_status}
+                      enabled={agent.enabled}
+                    />
+                    <Bot size={14} strokeWidth={2} />
+                    <span>{getAgentDisplayName(agent, t)}</span>
+                  </div>
+                }
+              >
+                {renderAgentDetails(agent, false)}
+              </Select.Option>
+            ))}
+          </Select.OptGroup>
+        )}
       </Select>
     </div>
   );

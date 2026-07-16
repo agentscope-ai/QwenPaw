@@ -480,3 +480,28 @@ cd console && npm run test -- \
 - [x] 补齐后端并发、顺序、失败与 API 测试。
 - [x] 补齐前端状态展示与轮询测试。
 - [x] 使用 `conda` 环境执行定向测试、类型检查和 pre-commit。
+
+## 十、Selector 固定与布局补充设计
+
+为降低状态灯和操作按钮集中在卡片右侧造成的拥挤，Agent 卡片采用“状态、图标、内容、启停”的固定列布局。状态灯移动到最左侧；固定状态作为名称旁的轻量标记，不增加常驻 Pin 按钮。
+
+固定交互与排序规则如下：
+
+1. 鼠标、触控笔和触屏统一使用 Pointer Events，长按 500ms 固定或取消固定。
+2. 长按期间卡片抬升并显示进度反馈，完成后短促抖动；`prefers-reduced-motion` 下关闭位移动画。
+3. 键盘聚焦卡片后可按 `P` 固定或取消固定。
+4. default 始终固定并位于第一项，不能取消固定。
+5. pinned Agent 组成顶部固定区；即使 Agent 被禁用，也保留在固定区并显示灰色状态灯。
+6. 未固定且禁用的 Agent 继续放在底部折叠区。
+7. pinned 状态独立存储于 `AgentProfileRef.pinned`，不得修改 `enabled`；同组内保持现有 `agent_order` 相对顺序。
+8. 设置页保留显式 Pin/Unpin 操作作为可发现、可管理的备用入口。
+
+实施 Checklist：
+
+- [x] 增加向后兼容的 `pinned=false` 配置字段和 pin API。
+- [x] default 强制首位，pinned 与普通 Agent 分组稳定排序。
+- [x] 长按、移动取消、点击抑制和键盘 `P` 操作。
+- [x] 状态灯左移、卡片间距收紧、固定反馈动画和 reduced-motion。
+- [x] pinned + disabled 保留在顶部固定区且可重新启用。
+- [x] 设置页同步固定状态和显式管理入口。
+- [x] 增加配置无损往返、排序、API、手势和 UI 回归测试。

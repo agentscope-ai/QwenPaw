@@ -47,6 +47,7 @@ class AgentSummary(BaseModel):
     description: str
     workspace_dir: str
     enabled: bool
+    pinned: bool
     startup_status: AgentStartupStatus
     active_model: ModelSlotConfig | None = None
 
@@ -128,6 +129,24 @@ def _normalized_agent_order(config) -> list[str]:
     return ordered_ids
 
 
+def _display_agent_order(config) -> list[str]:
+    """Return stored order grouped by default, pinned, then regular."""
+    ordered_ids = _normalized_agent_order(config)
+    pinned_ids = [
+        agent_id
+        for agent_id in ordered_ids
+        if agent_id != "default"
+        and getattr(config.agents.profiles[agent_id], "pinned", False)
+    ]
+    regular_ids = [
+        agent_id
+        for agent_id in ordered_ids
+        if agent_id != "default" and agent_id not in pinned_ids
+    ]
+    default_ids = ["default"] if "default" in ordered_ids else []
+    return [*default_ids, *pinned_ids, *regular_ids]
+
+
 def _read_profile_description(workspace_dir: str) -> str:
     """Read description from PROFILE.md if exists."""
     try:
@@ -168,12 +187,17 @@ async def list_agents(request: Request = None) -> AgentListResponse:
     manager = (
         _get_multi_agent_manager(request) if request is not None else None
     )
-    ordered_agent_ids = _normalized_agent_order(config)
+    ordered_agent_ids = _display_agent_order(config)
 
     agents = []
     for agent_id in ordered_agent_ids:
         agent_ref = config.agents.profiles[agent_id]
         enabled = getattr(agent_ref, "enabled", True)
+        pinned = agent_id == "default" or getattr(
+            agent_ref,
+            "pinned",
+            False,
+        )
         startup_status = (
             manager.get_agent_startup_status(agent_id, enabled=enabled)
             if manager is not None
@@ -203,6 +227,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     description=description,
                     workspace_dir=agent_ref.workspace_dir,
                     enabled=enabled,
+                    pinned=pinned,
                     startup_status=startup_status,
                     active_model=active_model,
                 ),
@@ -215,6 +240,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     description="",
                     workspace_dir=agent_ref.workspace_dir,
                     enabled=enabled,
+                    pinned=pinned,
                     startup_status=startup_status,
                 ),
             )
@@ -250,6 +276,42 @@ async def reorder_agents(
     save_config(config)
 
     return {"success": True, "agent_ids": config.agents.agent_order}
+
+
+@router.patch(
+    "/{agentId}/pin",
+    summary="Pin or unpin an agent",
+    description="Persist an agent's pinned state in agent selectors",
+)
+async def set_agent_pinned(
+    agentId: str = PathParam(...),
+    pinned: bool = Body(..., embed=True),
+) -> dict:
+    """Persist an agent's pinned state without changing enabled state."""
+    config = load_config()
+
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    if agentId == "default" and not pinned:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot unpin the default agent",
+        )
+
+    agent_ref = config.agents.profiles[agentId]
+    if agentId != "default":
+        agent_ref.pinned = pinned
+        save_config(config)
+
+    return {
+        "success": True,
+        "agent_id": agentId,
+        "pinned": True if agentId == "default" else pinned,
+    }
 
 
 @router.get(

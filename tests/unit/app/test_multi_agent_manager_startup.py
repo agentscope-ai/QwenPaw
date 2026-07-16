@@ -31,6 +31,32 @@ def _config(*agent_ids: str):
     )
 
 
+@pytest.mark.asyncio
+async def test_disabled_agent_is_not_started_or_mutated(monkeypatch) -> None:
+    """Startup must preserve and skip an explicitly disabled profile."""
+    manager = MultiAgentManager()
+    config = _config("default", "disabled")
+    config.agents.profiles["disabled"].enabled = False
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: config,
+    )
+    manager.get_agent = AsyncMock(return_value=SimpleNamespace())
+
+    result = await manager.start_all_configured_agents()
+
+    assert result == {"default": True}
+    manager.get_agent.assert_awaited_once_with("default")
+    assert config.agents.profiles["disabled"].enabled is False
+    assert (
+        manager.get_agent_startup_status(
+            "disabled",
+            enabled=False,
+        )
+        == AgentStartupStatus.DISABLED
+    )
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [(None, 2), ("invalid", 2), ("0", 1), ("4", 4)],
