@@ -11,7 +11,17 @@
     "lang": "中文",
     "platform": "Platform",
     "platformTitle": "AgentScope Platform",
-    "agentscopeTeam": "AgentScope"
+    "agentscopeTeam": "AgentScope",
+    "communityBenefits": "Benefits",
+    "communityBenefitsNew": "NEW",
+    "benefit1Title": "ModelStudio: 100M free tokens",
+    "benefit1Desc": "Check your free quota",
+    "benefit2Title": "Token rebate",
+    "benefit2Desc": "Up to ¥200 back",
+    "benefit3Title": "Up to ¥1M tokens",
+    "benefit3Desc": "OPC innovation subsidy",
+    "benefit4Title": "Student subsidy",
+    "benefit4Desc": "¥50 credit · win iPhone 17"
   },
   "hero": {
     "titleleft": "Your Personal",

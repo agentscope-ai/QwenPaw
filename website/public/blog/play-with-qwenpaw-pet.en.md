@@ -1,8 +1,19 @@
 ---
 title: "Play with QwenPaw-Pet"
 date: 2026-07-01
-tags: [pet, plugin, make-skill]
+tags: [Plugin, DesktopPet, PixelPets, SkillCreation]
 excerpt: "QwenPaw introduced the plugin system in version 1.1.3 and the pet system in version 1.1.8. I was not a big fan of the official pet templates, so I had never configured them. Personally, I prefer pixel-style pet designs."
+related:
+  heading: "Related Capabilities"
+  items:
+    - label: "Plugin"
+      name: "QwenPaw Pet"
+      href: "https://platform.agentscope.io/plugins/qwenpaw-pet"
+      description: "The official desktop pet plugin that forwards QwenPaw backend lifecycle events to QwenPaw Pet Desktop."
+    - label: "Built-in Skill"
+      name: "make-skill"
+      href: "https://qwenpaw.agentscope.io/docs/skills#Create-from-current-session-via-make-skill-Beta"
+      description: "Turns the workflow and experience from the current session into a reusable Skill. In this post, it is used to package the desktop-pet creation workflow as a reusable Skill."
 ---
 
 # Play with QwenPaw-Pet

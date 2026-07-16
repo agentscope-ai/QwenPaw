@@ -1176,7 +1176,9 @@
     "name": "Tên tác vụ",
     "enabled": "Trạng thái",
     "saveResultToInbox": "Lưu kết quả vào Hộp thư",
-    "saveResultToInboxTooltip": "Khi bật, các lần thực thi thành công sẽ được lưu vào Hộp thư"
+    "saveResultToInboxTooltip": "Khi bật, các lần thực thi thành công sẽ được lưu vào Hộp thư",
+    "silentDelivery": "Gửi im lặng",
+    "silentDeliveryTooltip": "Chạy tác vụ agent và giữ lại phiên cùng dấu vết, nhưng không gửi kết quả tới kênh."
   },
   "backup": {
     "title": "Sao lưu",

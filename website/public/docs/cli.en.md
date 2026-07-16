@@ -553,6 +553,19 @@ qwenpaw cron create \
   --target-session "session_id" \
   --text "What are my todo items?"
 
+# Agent: run in the background without channel delivery
+qwenpaw cron create \
+  --agent-id abc123 \
+  --type agent \
+  --schedule-type cron \
+  --name "Refresh search index" \
+  --cron "0 * * * *" \
+  --channel console \
+  --target-user "your_user_id" \
+  --target-session "session_id" \
+  --text "Refresh the search index." \
+  --silent
+
 # Scheduled one-time task (no repeat)
 qwenpaw cron create \
   --type text \
@@ -607,6 +620,7 @@ JSON structure matches the output of `qwenpaw cron get <job_id>`.
 | `--timezone`                                           | user timezone | Schedule timezone (defaults to `user_timezone` from config)                 |
 | `--enabled` / `--no-enabled`                           | enabled       | Create enabled or disabled                                                  |
 | `--mode`                                               | `final`       | `stream` (incremental) or `final` (complete response)                       |
+| `--silent` / `--no-silent`                             | disabled      | Run an `agent` task without delivering its response to the channel          |
 | `--save-result-to-inbox` / `--no-save-result-to-inbox` | server rules  | Save execution results to Inbox (if omitted, server-side defaults are used) |
 | `--repeat-every-days`                                  | no repeat     | `--schedule-type scheduled` only; repeat every N days                       |
 | `--repeat-end-type`                                    | `never`       | For repeated scheduled jobs: `never` / `until` / `count`                    |

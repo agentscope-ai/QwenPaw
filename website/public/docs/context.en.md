@@ -31,9 +31,10 @@ flowchart LR
     E --> F[Evict finished middle turns]
     F --> G[Add seq span to eviction index]
     G --> H[Rebuild live context with one index message]
-    H --> I{Still over the reserve?}
-    I -->|Yes| J[Compact the index, then fold active-turn tool results to recall stubs]
-    I -->|No| K[Recall later with recall_history]
+    H --> I{Still over the pressure target?}
+    I -->|Yes| J[Fold completed live tool results to exact recall stubs]
+    I -->|No| K[Keep rebuilt live context]
+    J --> K
 ```
 
 Key properties:
@@ -44,6 +45,8 @@ Key properties:
 - **Recallable raw history**: each index line carries a `seq` span. The agent can call `recall_history(op="expand", lo, hi)` to read the full original rows (or `ms.expand(lo, hi)` in the `recall_history_python` REPL).
 - **Cross-session memory**: history rows include `session_id` and `agent_id`, so recall can search this agent's past sessions and, when explicitly widened, other agents in the same workspace.
 - **Fallback-safe**: if scroll cannot be wired or its recall tools cannot run safely, QwenPaw falls back to native context management instead of evicting history that cannot be recalled.
+
+Index tiers roll up only when they reach their 10-block capacity; pressure does not compact the index early. After rebuilding the live context, Scroll folds completed tool results only while the context remains above `max(trigger, reserve)`.
 
 ## Storage Layout
 
@@ -103,17 +106,16 @@ The split uses AgentScope's token accounting and pairing-safe compression helper
 
 ### Active-Turn Protection and the Pressure Pipeline
 
-A long tool-running turn (a `/heartbeat` cron run, a multi-search task) can exceed the reserve budget by itself, and the token-based split would then evict the **current request** along with old history — leaving the model staring at an old message plus an index, and answering the wrong thing. Scroll therefore relieves pressure in three escalating stages, each engaging only if the previous one wasn't enough:
+A long tool-running turn (a `/heartbeat` cron run, a multi-search task) can exceed the reserve budget by itself, and the token-based split would then evict the **current request** along with old history — leaving the model staring at an old message plus an index, and answering the wrong thing. Scroll therefore relieves pressure in two escalating stages, each engaging only if the previous one wasn't enough:
 
 1. **Evict** — finished turns before the active turn fold into the eviction index (the normal case).
-2. **Compact** — if the window still overflows the reserve, the index itself rolls up tier by tier toward a single line.
-3. **Fold** — still overflowing (typically: the active turn _is_ the whole context), the active turn's completed tool results are replaced **in place** with one-line recall stubs:
+2. **Fold** — still overflowing (typically: the active turn _is_ the whole context), the active turn's completed tool results are replaced **in place** with one-line recall stubs:
 
    ```text
-   [scroll folded] full result stored in history — re-read it with recall_history(op="expand", lo=184, hi=184)
+   [scroll folded] old tool result content cleared; recover with recall_history(op="recall_tool", tool_call_id='call_abc')
    ```
 
-   The request text, tool calls, reasoning, and the newest tool result stay verbatim — the turn itself remains a readable progress record, and every folded output is one `recall_history` call away (it was persisted before folding, like everything else). The stub points at the structured tool on purpose: it runs in-process without a sandbox, so the re-read works even on platforms where the Python REPL cannot run.
+   The request text, tool calls, reasoning, and the newest tool result stay verbatim — the turn itself remains a readable progress record, and every folded output is recoverable by its exact tool-call ID (it was persisted before folding, like everything else). `recall_tool` returns bounded pages; follow `next_cursor` when present. If it reports a saved full-output `file_path`, use `read_file` to read that artifact in bounded chunks. The stub points at the structured tool on purpose: it runs in-process without a sandbox, so the re-read works even on platforms where the Python REPL cannot run.
 
 ### Eviction Index
 
@@ -121,6 +123,7 @@ The eviction index is the heart of working memory: an in-context map of evicted 
 
 - **Tier 0** holds the most recently evicted blocks with the most detail.
 - Older tiers collapse older blocks into endpoint spans.
+- A tier rolls up only when it reaches its 10-block cap; context pressure never forces an early roll-up.
 - Every line still carries a `seq` or `seq lo-hi` span, so collapsed history remains expandable from `history.db`.
 
 Example shape:
@@ -204,7 +207,7 @@ Tool results are handled by one mechanism:
 | ----------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ToolResultPruningMiddleware` | registered for every context strategy; controlled by `tool_result_pruning_config.enabled` | Prunes current and historical tool results by bytes, saves oversized raw output under `tool_results/`, and records block-scoped recovery metadata plus a `read_file` continuation hint. The background-completion path uses the same pruner when coordinator offload is enabled. |
 
-Scroll no longer has a separate token-based tool-result cap. Recent and execution previews share `pruning_recent_msg_max_bytes`; after scroll compaction, retained live previews are reduced to `pruning_old_msg_max_bytes` while the full artifact remains recallable.
+Scroll no longer has a separate token-based tool-result cap. All live previews use `pruning_recent_msg_max_bytes`. Only if the rebuilt context remains above the pressure target does Scroll replace selected completed results with exact `recall_history` pointers. `pruning_recent_n` and `pruning_old_msg_max_bytes` apply only to the Native strategy.
 
 When unified pruning is enabled, QwenPaw makes AgentScope's built-in token-based tool-result cap non-binding. This prevents a second truncation pass from replacing the byte-bounded preview and discarding its block-scoped recovery metadata. If unified pruning is disabled, AgentScope's default cap remains active as a safety net.
 
@@ -246,16 +249,16 @@ Relevant configuration is under `running.light_context_config`:
       },
       "tool_result_pruning_config": {
         "enabled": true,
-        "pruning_recent_n": 2,
-        "pruning_old_msg_max_bytes": 3000,
         "pruning_recent_msg_max_bytes": 50000,
-        "offload_retention_days": 5,
+        "offload_retention_days": 30,
         "tool_results_cache": "tool_results"
       }
     }
   }
 }
 ```
+
+For the Native strategy, `pruning_recent_n` and `pruning_old_msg_max_bytes` control the recent and older preview tiers. Scroll ignores those tier settings.
 
 Important fields:
 

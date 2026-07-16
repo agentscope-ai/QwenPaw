@@ -26,6 +26,7 @@ const buildDispatch = () => ({
     session_id: "cron_job",
   },
   mode: "final" as const,
+  silent: false,
 });
 
 const buildRuntime = () => ({

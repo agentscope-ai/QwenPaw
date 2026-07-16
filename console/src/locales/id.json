@@ -646,6 +646,8 @@
     "executeNow": "Jalankan Sekarang",
     "totalItems": "Total {{count}} item",
     "selectTimezone": "Pilih zona waktu",
+    "silentDelivery": "Pengiriman senyap",
+    "silentDeliveryTooltip": "Jalankan tugas agen dan simpan sesi serta pelacakannya, tetapi jangan kirim hasil ke kanal.",
     "validation": {
       "cronRequired": "Ekspresi cron wajib diisi untuk jadwal berulang.",
       "runAtRequired": "Waktu eksekusi wajib diisi untuk jadwal sekali jalan.",
