@@ -8,7 +8,10 @@ import {
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { SliderWithValue } from "./SliderWithValue";
-import { usesTieredToolResultSettings } from "./toolResultSettings";
+import {
+  calculateReserveThreshold,
+  usesTieredToolResultSettings,
+} from "./toolResultSettings";
 import styles from "../index.module.less";
 
 interface LightContextCardProps {
@@ -36,8 +39,10 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
   const compactThreshold = Math.floor(
     (maxInputLength ?? 0) * (compactThresholdRatio ?? 0.8),
   );
-  const reserveThreshold = Math.floor(
-    (maxInputLength ?? 0) * (reserveThresholdRatio ?? 0.1),
+  const reserveThreshold = calculateReserveThreshold(
+    maxInputLength ?? 0,
+    reserveThresholdRatio ?? 0.1,
+    contextStrategy,
   );
 
   return (
