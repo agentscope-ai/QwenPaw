@@ -843,14 +843,27 @@ class SandboxStatusResponse(BaseModel):
 def _sandbox_effective_status(
     enabled: bool,
 ) -> tuple[bool, Optional[str]]:
-    """Return (effective, reason) for the sandbox setting."""
+    """Return (effective, reason) for the sandbox setting.
+
+    Checks both platform-level permissions (admin on Windows) and
+    actual sandbox capability availability.
+    """
     if not enabled:
         return False, None
-    # Enabled in config — check if it can actually work.
+
+    # Check platform-level permissions
     from ...utils.platform import is_windows_admin
 
     if not is_windows_admin():
         return False, "not_admin"
+
+    # Check if sandbox backend is actually available on this platform
+    from ...sandbox import probe_sandbox_support
+
+    capability = probe_sandbox_support()
+    if not capability.supported:
+        return False, "unsupported"
+
     return True, None
 
 
@@ -889,6 +902,21 @@ async def get_sandbox_setting(
 async def put_sandbox_setting(
     body: SandboxSettingBody = Body(...),
 ) -> SandboxStatusResponse:
+    config = load_config()
+    current_enabled = config.security.sandbox_enabled
+
+    # Idempotent: if the value hasn't changed, return current status
+    # without triggering the admin guard. This prevents partial-save
+    # issues when the frontend saves other security settings alongside
+    # an unchanged sandbox value.
+    if body.enabled == current_enabled:
+        effective, reason = _sandbox_effective_status(body.enabled)
+        return SandboxStatusResponse(
+            enabled=body.enabled,
+            effective=effective,
+            reason=reason,
+        )
+
     # Guard: enabling sandbox on Windows requires admin privileges.
     # Refuse early with a clear, actionable message rather than letting
     # the user flip the switch and hit cryptic ACL failures later.
@@ -908,7 +936,6 @@ async def put_sandbox_setting(
             ),
         )
 
-    config = load_config()
     config.security.sandbox_enabled = body.enabled
     save_config(config)
     effective, reason = _sandbox_effective_status(body.enabled)

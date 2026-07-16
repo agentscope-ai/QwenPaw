@@ -12,10 +12,7 @@ from ..config.utils import write_last_api
 from ..constant import LOG_LEVEL_ENV
 from ..utils.http import is_loopback_host
 from ..utils.logging import SuppressPathAccessLogFilter, setup_logger
-from ..utils.platform import (
-    auto_disable_sandbox_on_windows,
-    repair_windows_data_dir_permissions,
-)
+from ..utils.platform import auto_disable_sandbox_on_windows
 
 logger = logging.getLogger(__name__)
 
@@ -150,10 +147,6 @@ def app_cmd(
         )
 
     _warn_if_auth_off_non_loopback_bind(host, port)
-
-    # On Windows, repair broken ACLs left by a previous admin-elevated
-    # session before any code reads from ~/.qwenpaw.
-    repair_windows_data_dir_permissions()
 
     # On Windows, auto-disable sandbox when not running as admin so the
     # server starts without a half-broken sandbox layer.

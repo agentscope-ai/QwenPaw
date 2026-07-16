@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import sys
 
 logger = logging.getLogger(__name__)
@@ -62,84 +61,5 @@ def auto_disable_sandbox_on_windows() -> None:
     except Exception:  # noqa: BLE001
         logger.warning(
             "Windows sandbox auto-disable check failed; continuing as-is.",
-            exc_info=True,
-        )
-
-
-def repair_windows_data_dir_permissions() -> None:
-    """One-time repair for directories left with admin-only ACLs.
-
-    PR #5931 introduced UAC elevation that ran QwenPaw as admin.  The elevated
-    process may have created or modified files/directories under ~/.qwenpaw
-    with restrictive ACLs that block the normal (non-admin) user.  This
-    function detects the issue by testing write access, and if denied, runs
-    ``icacls /reset /t`` to restore inherited permissions.
-
-    Called once at startup on Windows when NOT running as admin.
-    Idempotent: if permissions are fine, this is a fast no-op.
-    """
-    if sys.platform != "win32":
-        return
-
-    if is_windows_admin():
-        return  # admin: no permission issue possible
-
-    try:
-        from ..constant import WORKING_DIR
-    except Exception:  # noqa: BLE001
-        return
-
-    data_dir = str(WORKING_DIR)
-    if not os.path.isdir(data_dir):
-        return
-
-    # Quick probe: can we create a temp file in the data directory?
-    probe_path = os.path.join(data_dir, ".qwenpaw_permission_probe")
-    try:
-        with open(probe_path, "w", encoding="utf-8") as f:
-            f.write("probe")
-        os.unlink(probe_path)
-        return  # writable: nothing to fix
-    except PermissionError:
-        pass  # need repair
-    except OSError:
-        return  # non-permission error, don't interfere
-
-    # Repair: reset ACLs to inherited defaults via icacls.
-    logger.warning(
-        "Detected broken permissions on %s (likely left by a previous "
-        "admin-elevated session). Attempting automatic repair via icacls...",
-        data_dir,
-    )
-    try:
-        import subprocess
-
-        result = subprocess.run(
-            ["icacls", data_dir, "/reset", "/t", "/q"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        if result.returncode == 0:
-            logger.info(
-                "Successfully repaired permissions on %s",
-                data_dir,
-            )
-        else:
-            logger.warning(
-                "icacls returned code %d. stdout=%s stderr=%s. "
-                "You may need to manually run: "
-                'icacls "%s" /reset /t /q',
-                result.returncode,
-                result.stdout.strip(),
-                result.stderr.strip(),
-                data_dir,
-            )
-    except Exception:  # noqa: BLE001
-        logger.warning(
-            "Automatic permission repair failed. Please run manually:\n"
-            '  icacls "%s" /reset /t /q',
-            data_dir,
             exc_info=True,
         )
