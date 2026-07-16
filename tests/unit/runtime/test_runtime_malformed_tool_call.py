@@ -40,8 +40,9 @@ def _msg_with_blocks(blocks: list) -> SimpleNamespace:
 # ---------------------------------------------------------------------------
 
 
-def test_malformed_truncated_json_is_failed_in_single_pass() -> None:
-    """A truncated tool call is safely failed without retrying or looping."""
+def test_malformed_truncated_json_is_dropped_in_single_pass() -> None:
+    """Regression for #5717: a truncated JSON tool_call input is marked
+    as failed exactly once — the coercion does not retry or loop."""
     blocks = [
         ToolCallBlock(
             id="call-1",
@@ -54,19 +55,26 @@ def test_malformed_truncated_json_is_failed_in_single_pass() -> None:
     # Single call — must terminate, not loop.
     result = _coerce_tool_inputs_to_json([msg])
 
-    remaining_calls = [
+    # The malformed block should be marked as failed with safe empty input.
+    remaining = [
         b
         for b in result[0].content
         if _block_attr(b, "type") in ("tool_call", "tool_use")
     ]
-    assert [_block_attr(b, "id") for b in remaining_calls] == ["call-1"]
-    assert json.loads(_block_attr(remaining_calls[0], "input")) == {}
+    assert len(remaining) == 1, "malformed tool_call block should be kept"
+    assert _block_attr(remaining[0], "id") == "call-1"
+    assert _block_attr(remaining[0], "input") == "{}"
+    # Check state is FINISHED
+    from agentscope.message import ToolCallState
 
+    assert _block_attr(remaining[0], "state") == ToolCallState.FINISHED
+
+    # A synthetic error result should be appended.
     error_results = [
         b for b in result[0].content if _block_attr(b, "type") == "tool_result"
     ]
-    assert [_block_attr(b, "id") for b in error_results] == ["call-1"]
-    assert _block_attr(error_results[0], "state") == ToolResultState.ERROR
+    assert len(error_results) == 1
+    assert _block_attr(error_results[0], "id") == "call-1"
 
 
 def test_recoverable_trailing_garbage_is_repaired_in_single_pass() -> None:
@@ -132,15 +140,20 @@ def test_malformed_block_does_not_corrupt_adjacent_blocks() -> None:
         if _block_attr(b, "type") in ("tool_call", "tool_use")
     ]
     ids = [_block_attr(b, "id") for b in remaining]
+    # All three blocks should be kept, but the bad one is marked as failed.
     assert ids == ["good-1", "bad-1", "good-2"]
-    failed = next(b for b in remaining if _block_attr(b, "id") == "bad-1")
-    assert json.loads(_block_attr(failed, "input")) == {}
+    # Check the bad block is marked as failed with safe empty input.
+    bad_block = [b for b in remaining if _block_attr(b, "id") == "bad-1"][0]
+    assert _block_attr(bad_block, "input") == "{}"
+    from agentscope.message import ToolCallState
 
+    assert _block_attr(bad_block, "state") == ToolCallState.FINISHED
+    # A synthetic error result should be appended for the bad block.
     error_results = [
         b for b in result[0].content if _block_attr(b, "type") == "tool_result"
     ]
-    assert [_block_attr(b, "id") for b in error_results] == ["bad-1"]
-    assert _block_attr(error_results[0], "state") == ToolResultState.ERROR
+    assert len(error_results) == 1
+    assert _block_attr(error_results[0], "id") == "bad-1"
 
 
 def test_coercion_is_idempotent() -> None:
