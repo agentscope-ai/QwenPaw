@@ -39,7 +39,7 @@ QwenPaw 完全跑在你自己的环境里，是一个常驻服务。一次安装
   <g>
     <rect x="40" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="136" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">请求路由器</text><text x="136" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">路由到目标智能体</text>
     <rect x="249" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="345" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">运行时生命周期</text><text x="345" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">钩子阶段 · 模式</text>
-    <rect x="458" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="554" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">智能体 — ReAct 循环</text><text x="554" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">上下文策略 · 按请求组装</text>
+    <rect x="458" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="554" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">智能体 — ReAct 循环</text><text x="554" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">循环工程 · 上下文策略</text>
     <rect x="667" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="763" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Harness 适配器</text><text x="763" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">外部 agent · ACP</text>
   </g>
   <line x1="450" y1="232" x2="450" y2="246" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.4" marker-end="url(#qpMapArrow)"/>
@@ -54,8 +54,9 @@ QwenPaw 完全跑在你自己的环境里，是一个常驻服务。一次安装
   <!-- memory lane -->
   <rect x="44" y="330" width="102" height="140" rx="7" fill="#2fb26b" fill-opacity="0.07" stroke="#2fb26b" stroke-opacity="0.4"/>
   <text x="95" y="348" text-anchor="middle" font-size="11" font-weight="700" fill="#2fb26b">记忆</text>
-  <rect x="52" y="358" width="86" height="42" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="384" text-anchor="middle" font-size="10" fill="currentColor">召回 / 写入</text>
-  <rect x="52" y="408" width="86" height="42" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="434" text-anchor="middle" font-size="10" fill="currentColor">Markdown 文件</text>
+  <rect x="52" y="356" width="86" height="34" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="377" text-anchor="middle" font-size="10" fill="currentColor">召回 / 写入</text>
+  <rect x="52" y="394" width="86" height="34" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="415" text-anchor="middle" font-size="10" fill="currentColor">Scroll</text>
+  <rect x="52" y="432" width="86" height="34" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="453" text-anchor="middle" font-size="10" fill="currentColor">Markdown 文件</text>
   <!-- skills lane -->
   <rect x="154" y="330" width="102" height="140" rx="7" fill="#e0a021" fill-opacity="0.07" stroke="#e0a021" stroke-opacity="0.4"/>
   <text x="205" y="348" text-anchor="middle" font-size="11" font-weight="700" fill="#e0a021">Skills</text>
@@ -191,56 +192,60 @@ QwenPaw 构建在 **AgentScope 2.0** 之上，把它当作一个库来用。Agen
 
 运行时把每个进来的请求变成一串 UI 事件。它是一条带阶段、阶段之间留有钩子点的固定流程，各项功能因此能挂上自己的行为，而不用动核心循环。请求被分到目标智能体的工作区，在那里为这次请求组装好智能体、运行，再把输出流式发回。
 
-<svg viewBox="0 0 820 600" width="100%" role="img" aria-label="请求生命周期：钩子阶段与固定步骤交错，用于命令分发、智能体组装和执行，而出错与清理处理器始终运行。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 820 254" width="100%" role="img" aria-label="请求生命周期：钩子阶段与固定步骤交错，用于命令分发、智能体组装和执行，而出错与清理处理器始终运行。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
     <marker id="qpFlowArrow" markerWidth="9" markerHeight="9" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L6,3 L0,6 Z" fill="#ff9d4d"/>
     </marker>
   </defs>
   <!-- legend -->
-  <rect x="556" y="20" width="20" height="14" rx="3" fill="#ff9d4d" fill-opacity="0.14" stroke="#ff9d4d" stroke-opacity="0.55"/>
-  <text x="582" y="31" font-size="10.5" fill="currentColor" fill-opacity="0.7">钩子阶段</text>
-  <rect x="664" y="20" width="20" height="14" rx="3" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/>
-  <text x="690" y="31" font-size="10.5" fill="currentColor" fill-opacity="0.7">固定步骤</text>
-  <!-- short flow arrows, one in each gap between consecutive boxes -->
+  <rect x="556" y="8" width="20" height="14" rx="3" fill="#ff9d4d" fill-opacity="0.14" stroke="#ff9d4d" stroke-opacity="0.55"/>
+  <text x="582" y="19" font-size="10.5" fill="currentColor" fill-opacity="0.7">钩子阶段</text>
+  <rect x="664" y="8" width="20" height="14" rx="3" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/>
+  <text x="690" y="19" font-size="10.5" fill="currentColor" fill-opacity="0.7">固定步骤</text>
+  <!-- ═══ ROW 1: 分发 ═══ -->
   <g stroke="#ff9d4d" stroke-width="1.4">
-    <line x1="250" y1="75" x2="250" y2="91" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="121" x2="250" y2="137" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="167" x2="250" y2="183" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="213" x2="250" y2="229" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="259" x2="250" y2="275" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="305" x2="250" y2="321" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="351" x2="250" y2="367" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="397" x2="250" y2="413" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="459" x2="250" y2="475" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="505" x2="250" y2="521" marker-end="url(#qpFlowArrow)"/>
+    <line x1="238" y1="53" x2="254" y2="53" marker-end="url(#qpFlowArrow)"/>
+    <line x1="402" y1="53" x2="418" y2="53" marker-end="url(#qpFlowArrow)"/>
+    <line x1="566" y1="53" x2="582" y2="53" marker-end="url(#qpFlowArrow)"/>
   </g>
-  <!-- rows -->
-  <g font-size="12">
-    <!-- input -->
-    <rect x="90" y="44" width="320" height="30" rx="15" fill="#ff9d4d" fill-opacity="0.18" stroke="#ff9d4d" stroke-opacity="0.6"/><text x="250" y="63" text-anchor="middle" font-weight="600" fill="currentColor">传入请求（来自频道或定时任务）</text>
-    <rect x="90" y="92" width="320" height="28" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="250" y="110" text-anchor="middle" fill="currentColor">分发前</text>
-    <rect x="90" y="138" width="320" height="28" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="250" y="156" text-anchor="middle" fill="currentColor">命令分发</text>
-    <text x="424" y="156" font-size="10.5" fill="currentColor" fill-opacity="0.6">/命令 → 直接回复并跳过智能体</text>
-    <rect x="90" y="184" width="320" height="28" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="250" y="202" text-anchor="middle" fill="currentColor">分发后</text>
-    <rect x="90" y="230" width="320" height="28" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="250" y="248" text-anchor="middle" fill="currentColor">构建前</text>
-    <text x="424" y="248" font-size="10.5" fill="currentColor" fill-opacity="0.6">加载会话 · 媒体 · 请求上下文</text>
-    <rect x="90" y="276" width="320" height="28" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="250" y="294" text-anchor="middle" fill="currentColor" font-weight="600">组装智能体</text>
-    <text x="424" y="290" font-size="10.5" fill="currentColor" fill-opacity="0.6">模型 · 工具 · 提示词</text>
-    <text x="424" y="303" font-size="10.5" fill="currentColor" fill-opacity="0.6">记忆 · 上下文策略 · 策略</text>
-    <rect x="90" y="322" width="320" height="28" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="250" y="340" text-anchor="middle" fill="currentColor">构建后</text>
-    <text x="424" y="340" font-size="10.5" fill="currentColor" fill-opacity="0.6">注入当前模式上下文</text>
-    <rect x="90" y="368" width="320" height="28" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="250" y="386" text-anchor="middle" fill="currentColor">执行前</text>
-    <text x="424" y="386" font-size="10.5" fill="currentColor" fill-opacity="0.6">首次运行初始化 · 提示词刷新</text>
-    <rect x="90" y="414" width="320" height="44" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="250" y="432" text-anchor="middle" fill="currentColor" font-weight="600">运行智能体</text><text x="250" y="448" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.65">ReAct 循环，受最大迭代次数限制约束</text>
-    <rect x="90" y="476" width="320" height="28" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="250" y="494" text-anchor="middle" fill="currentColor">响应后</text>
-    <text x="424" y="494" font-size="10.5" fill="currentColor" fill-opacity="0.6">保存会话 · 定时任务回写</text>
-    <rect x="90" y="522" width="320" height="30" rx="15" fill="#ff9d4d" fill-opacity="0.18" stroke="#ff9d4d" stroke-opacity="0.6"/><text x="250" y="541" text-anchor="middle" font-weight="600" fill="currentColor">将响应流式输出</text>
+  <rect x="90" y="38" width="148" height="30" rx="15" fill="#ff9d4d" fill-opacity="0.18" stroke="#ff9d4d" stroke-opacity="0.6"/><text x="164" y="57" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">传入请求</text>
+  <rect x="254" y="38" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="328" y="57" text-anchor="middle" font-size="11" fill="currentColor">分发前</text>
+  <rect x="418" y="38" width="148" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="492" y="57" text-anchor="middle" font-size="11" fill="currentColor">命令分发</text>
+  <rect x="582" y="38" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="656" y="57" text-anchor="middle" font-size="11" fill="currentColor">分发后</text>
+  <text x="164" y="82" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">来自频道 / 定时任务</text>
+  <text x="492" y="82" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">/命令 → 直接回复并跳过</text>
+  <!-- connector row 1→2 -->
+  <path d="M730,68 v22 H90 v8" fill="none" stroke="#ff9d4d" stroke-width="1.4" marker-end="url(#qpFlowArrow)"/>
+  <!-- ═══ ROW 2: 构建 ═══ -->
+  <g stroke="#ff9d4d" stroke-width="1.4">
+    <line x1="238" y1="113" x2="254" y2="113" marker-end="url(#qpFlowArrow)"/>
+    <line x1="402" y1="113" x2="418" y2="113" marker-end="url(#qpFlowArrow)"/>
+    <line x1="566" y1="113" x2="582" y2="113" marker-end="url(#qpFlowArrow)"/>
   </g>
-  <!-- error / cleanup bracket -->
-  <path d="M70,92 q-14,0 -14,14 v384 q0,14 14,14" fill="none" stroke="currentColor" stroke-opacity="0.35" stroke-width="1.5"/>
-  <text x="30" y="298" font-size="11" fill="currentColor" fill-opacity="0.7" transform="rotate(-90 30 298)" text-anchor="middle">出错时 · 清理（始终执行）</text>
-  <text x="250" y="576" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">清理始终执行：取消回复、关闭连接器、重置请求状态。</text>
+  <rect x="90" y="98" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="164" y="117" text-anchor="middle" font-size="11" fill="currentColor">构建前</text>
+  <rect x="254" y="98" width="148" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="328" y="117" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">组装智能体</text>
+  <rect x="418" y="98" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="492" y="117" text-anchor="middle" font-size="11" fill="currentColor">构建后</text>
+  <rect x="582" y="98" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="656" y="117" text-anchor="middle" font-size="11" fill="currentColor">执行前</text>
+  <text x="164" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">会话 · 媒体 · 上下文</text>
+  <text x="328" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">模型 · 工具 · 提示词</text>
+  <text x="328" y="153" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">记忆 · 上下文策略 · 策略</text>
+  <text x="492" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">注入当前模式上下文</text>
+  <text x="656" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">首次初始化 · 提示词刷新</text>
+  <!-- connector row 2→3 -->
+  <path d="M730,128 v30 H90 v10" fill="none" stroke="#ff9d4d" stroke-width="1.4" marker-end="url(#qpFlowArrow)"/>
+  <!-- ═══ ROW 3: 执行 ═══ -->
+  <g stroke="#ff9d4d" stroke-width="1.4">
+    <line x1="290" y1="183" x2="310" y2="183" marker-end="url(#qpFlowArrow)"/>
+    <line x1="458" y1="183" x2="478" y2="183" marker-end="url(#qpFlowArrow)"/>
+  </g>
+  <rect x="90" y="168" width="200" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="190" y="187" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">运行智能体</text>
+  <rect x="310" y="168" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="384" y="187" text-anchor="middle" font-size="11" fill="currentColor">响应后</text>
+  <rect x="478" y="168" width="200" height="30" rx="15" fill="#ff9d4d" fill-opacity="0.18" stroke="#ff9d4d" stroke-opacity="0.6"/><text x="578" y="187" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">将响应流式输出</text>
+  <text x="190" y="212" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">ReAct 循环 · 最大迭代次数</text>
+  <text x="384" y="212" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">保存会话 · 定时任务回写</text>
+  <!-- bottom note -->
+  <text x="410" y="244" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.55">清理始终执行：取消回复、关闭连接器、重置请求状态。</text>
 </svg>
 
 ### 钩子、模式与组装智能体
@@ -384,7 +389,7 @@ QwenPaw 把**频道**（人怎么联系到智能体）和**驱动**（智能体�
   <line x1="683" y1="226" x2="683" y2="252" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpSecArrow)"/>
   <rect x="560" y="256" width="246" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="683" y="275" text-anchor="middle" font-size="12" fill="currentColor">工具守卫 — 内容筛查</text><text x="683" y="289" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.65">路径 · 模式 · Shell 规避检查</text>
   <line x1="683" y1="296" x2="683" y2="320" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpSecArrow)"/>
-  <rect x="560" y="324" width="246" height="44" rx="8" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.55"/><text x="683" y="343" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">在原生 OS 沙箱中执行</text><text x="683" y="358" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.7">seatbelt · bubblewrap · landlock · appcontainer · 无</text>
+  <rect x="560" y="324" width="246" height="56" rx="8" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.55"/><text x="683" y="341" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">在原生 OS 沙箱中执行</text><text x="683" y="356" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.7">seatbelt · bubblewrap · landlock</text><text x="683" y="370" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.7">appcontainer · write restricted token · 无</text>
   <!-- side: skill scanner + secrets -->
   <rect x="40" y="256" width="280" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="180" y="275" text-anchor="middle" font-size="11.5" fill="currentColor">技能扫描器 — 把关技能安装</text><text x="180" y="289" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">代码运行前先静态分析</text>
   <rect x="40" y="324" width="280" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="180" y="343" text-anchor="middle" font-size="11.5" fill="currentColor">加密凭据存储</text><text x="180" y="357" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">静态存储的提供商密钥和连接器密钥</text>
