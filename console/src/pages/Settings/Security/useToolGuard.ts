@@ -22,6 +22,8 @@ export function useToolGuard() {
   >({});
   const [enabled, setEnabled] = useState(true);
   const [sandboxEnabled, setSandboxEnabled] = useState(false);
+  const [sandboxEffective, setSandboxEffective] = useState(true);
+  const [sandboxReason, setSandboxReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +44,8 @@ export function useToolGuard() {
       setAutoDenyRules(new Set(cfg.auto_denied_rules ?? []));
       setShellEvasionChecks(cfg.shell_evasion_checks ?? {});
       setSandboxEnabled(sandbox.enabled);
+      setSandboxEffective(sandbox.effective);
+      setSandboxReason(sandbox.reason);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Failed to load security config";
@@ -162,6 +166,8 @@ export function useToolGuard() {
     setEnabled,
     sandboxEnabled,
     setSandboxEnabled,
+    sandboxEffective,
+    sandboxReason,
     mergedRules,
     shellEvasionChecks,
     toggleShellEvasionCheck,

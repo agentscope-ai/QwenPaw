@@ -811,24 +811,63 @@ class SandboxSettingBody(BaseModel):
     )
 
 
+class SandboxStatusResponse(BaseModel):
+    """Sandbox config + runtime effective status."""
+
+    enabled: bool = Field(
+        description="The configured value of security.sandbox_enabled.",
+    )
+    effective: bool = Field(
+        description=(
+            "Whether the sandbox is actually active this session. "
+            "May be False even when enabled=True (e.g. non-admin on Windows)."
+        ),
+    )
+    reason: Optional[str] = Field(
+        default=None,
+        description=(
+            "When effective != enabled, explains why. "
+            "None when effective == enabled."
+        ),
+    )
+
+
+def _sandbox_effective_status(
+    enabled: bool,
+) -> tuple[bool, Optional[str]]:
+    """Return (effective, reason) for the sandbox setting."""
+    if not enabled:
+        return False, None
+    # Enabled in config — check if it can actually work.
+    from ...utils.platform import is_windows_admin
+
+    if not is_windows_admin():
+        return False, "not_admin"
+    return True, None
+
+
 @router.get(
     "/security/sandbox",
-    response_model=SandboxSettingBody,
+    response_model=SandboxStatusResponse,
     summary="Get global sandbox switch",
 )
-async def get_sandbox_setting() -> SandboxSettingBody:
+async def get_sandbox_setting() -> SandboxStatusResponse:
     config = load_config()
-    return SandboxSettingBody(enabled=config.security.sandbox_enabled)
+    enabled = config.security.sandbox_enabled
+    effective, reason = _sandbox_effective_status(enabled)
+    return SandboxStatusResponse(
+        enabled=enabled, effective=effective, reason=reason,
+    )
 
 
 @router.put(
     "/security/sandbox",
-    response_model=SandboxSettingBody,
+    response_model=SandboxStatusResponse,
     summary="Update global sandbox switch",
 )
 async def put_sandbox_setting(
     body: SandboxSettingBody = Body(...),
-) -> SandboxSettingBody:
+) -> SandboxStatusResponse:
     # Guard: enabling sandbox on Windows requires admin privileges.
     # Refuse early with a clear, actionable message rather than letting
     # the user flip the switch and hit cryptic ACL failures later.
@@ -850,10 +889,10 @@ async def put_sandbox_setting(
     config = load_config()
     config.security.sandbox_enabled = body.enabled
     save_config(config)
-    # No governor reload needed: ResourceGovernor reads this switch via the
-    # mtime-cached load_config() on each policy evaluation, and save_config
-    # invalidates that cache, so the change takes effect on the next call.
-    return body
+    effective, reason = _sandbox_effective_status(body.enabled)
+    return SandboxStatusResponse(
+        enabled=body.enabled, effective=effective, reason=reason,
+    )
 
 
 # ── Security / File Guard ────────────────────────────────────────────
