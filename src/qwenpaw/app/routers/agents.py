@@ -162,7 +162,7 @@ def _read_profile_description(workspace_dir: str) -> str:
     summary="List all agents",
     description="Get list of all configured agents",
 )
-async def list_agents(request: Request | None = None) -> AgentListResponse:
+async def list_agents(request: Request = None) -> AgentListResponse:
     """List all configured agents."""
     config = load_config()
     manager = (

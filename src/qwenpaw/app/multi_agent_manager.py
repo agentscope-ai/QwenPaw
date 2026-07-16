@@ -21,7 +21,7 @@ from .agent_startup import (
 from .workspace import Workspace
 from ..constant import BUILTIN_QA_AGENT_ID
 from ..config.utils import load_config
-from ..utils.startup_display import CustomAgentStartupProgress
+from ..utils.startup_display import AgentStartupDisplay
 
 logger = logging.getLogger(__name__)
 
@@ -586,6 +586,7 @@ class MultiAgentManager:
     async def start_all_configured_agents(
         self,
         on_core_ready: Callable[[dict[str, bool]], None] | None = None,
+        startup_display: AgentStartupDisplay | None = None,
     ) -> dict[str, bool]:
         """Start core agents, then custom agents with bounded concurrency.
 
@@ -670,26 +671,24 @@ class MultiAgentManager:
 
         startup_concurrency = get_custom_agent_startup_concurrency()
         semaphore = asyncio.Semaphore(startup_concurrency)
+        if startup_display is not None:
+            startup_display.start_custom_agents(len(custom_agent_ids))
 
-        with CustomAgentStartupProgress(len(custom_agent_ids)) as progress:
+        async def start_custom_agent(
+            agent_id: str,
+        ) -> tuple[str, bool]:
+            """Start one custom agent inside the concurrency bound."""
+            try:
+                async with semaphore:
+                    return await start_single_agent(agent_id)
+            finally:
+                if startup_display is not None:
+                    startup_display.advance(agent_id)
 
-            async def start_custom_agent(
-                agent_id: str,
-            ) -> tuple[str, bool]:
-                """Start one custom agent inside the concurrency bound."""
-                try:
-                    async with semaphore:
-                        return await start_single_agent(agent_id)
-                finally:
-                    progress.advance(agent_id)
-
-            custom_results = await asyncio.gather(
-                *(
-                    start_custom_agent(agent_id)
-                    for agent_id in custom_agent_ids
-                ),
-                return_exceptions=False,
-            )
+        custom_results = await asyncio.gather(
+            *(start_custom_agent(agent_id) for agent_id in custom_agent_ids),
+            return_exceptions=False,
+        )
 
         results = [*core_results, *custom_results]
 

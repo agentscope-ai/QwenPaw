@@ -133,10 +133,15 @@ async def test_custom_agent_startup_respects_concurrency(
         return SimpleNamespace()
 
     manager.get_agent = AsyncMock(side_effect=get_agent)
-    result = await manager.start_all_configured_agents()
+    startup_display = MagicMock()
+    result = await manager.start_all_configured_agents(
+        startup_display=startup_display,
+    )
 
     assert all(result.values())
     assert peak_custom == 2
+    startup_display.start_custom_agents.assert_called_once_with(6)
+    assert startup_display.advance.call_count == 6
 
 
 class _WorkspaceStub:
