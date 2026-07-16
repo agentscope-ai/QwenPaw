@@ -320,7 +320,7 @@ async def test_large_historical_tool_result_exposes_artifact_on_first_page(
         tool_call_id="call-large",
     )
 
-    assert str(artifact) in _text(chunk)
+    assert f"file_path={str(artifact)!r}" in _text(chunk)
     assert "start_line=37" in _text(chunk)
 
 
