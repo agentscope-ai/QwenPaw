@@ -3067,6 +3067,15 @@ def _remove_acl_with_verify_sync(path: str, sid: str) -> bool:
     ]
 
     for attempt, strategy in enumerate(strategies, 1):
+        # Respect the shutdown time budget: abort early if deadline exceeded.
+        if _SHUTDOWN_ACL_DEADLINE and time.monotonic() > _SHUTDOWN_ACL_DEADLINE:
+            logger.warning(
+                "ACL cleanup timeout reached; skipping remaining ACL "
+                "removal for %s (will retry on next admin startup)",
+                path,
+            )
+            return False
+
         strategy()
 
         if attempt > 1:
@@ -3112,6 +3121,13 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
+# Maximum seconds the atexit shutdown_cleanup is allowed to spend on ACL
+# removal before giving up.  Prevents blocking process exit indefinitely when
+# icacls consistently fails (e.g. SID belongs to a deleted sandbox user).
+_SHUTDOWN_ACL_DEADLINE: float = 0.0
+_SHUTDOWN_ACL_TIMEOUT_SECONDS: float = 10.0
+
+
 def shutdown_cleanup() -> None:
     """Destroys sandbox instances owned by this process or orphaned.
 
@@ -3131,6 +3147,8 @@ def shutdown_cleanup() -> None:
 
     Safe to call multiple times (idempotent after first call).
     """
+    global _SHUTDOWN_ACL_DEADLINE
+
     # Skip cleanup when not running as admin: the sandbox was never
     # activated this session (non-admin = sandbox disabled at runtime),
     # and non-admin processes cannot modify admin-created ACLs anyway.
@@ -3139,6 +3157,9 @@ def shutdown_cleanup() -> None:
 
     if not is_windows_admin():
         return
+
+    # Set a time budget so cleanup doesn't block process exit indefinitely.
+    _SHUTDOWN_ACL_DEADLINE = time.monotonic() + _SHUTDOWN_ACL_TIMEOUT_SECONDS
 
     sb_dir = _sandboxes_dir(_sandbox_state_dir)
     if not sb_dir.exists() or not list(sb_dir.glob("*.json")):
