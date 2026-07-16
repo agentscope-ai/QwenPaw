@@ -134,9 +134,7 @@ def _validate_and_apply_scheduled_repeat(
         raise click.UsageError(
             "--repeat-end-type requires --repeat-every-days",
         )
-    if repeat_until and (
-        repeat_end_type != "until" or repeat_every_days is None
-    ):
+    if repeat_until and (repeat_end_type != "until" or repeat_every_days is None):
         raise click.UsageError(
             "--repeat-until requires --repeat-every-days and "
             "--repeat-end-type until",
@@ -429,10 +427,7 @@ def _build_spec_from_cli(
 @click.option(
     "--target-session",
     default=None,
-    help=(
-        "Target session_id for the channel. "
-        "Required when not using -f/--file."
-    ),
+    help=("Target session_id for the channel. " "Required when not using -f/--file."),
 )
 @click.option(
     "--text",
@@ -722,9 +717,9 @@ def _resolve_update_spec(
                     },
                 ]
             else:
-                payload["request"]["input"][0]["content"][0]["text"] = (
-                    text.strip()
-                )
+                payload["request"]["input"][0]["content"][0][
+                    "text"
+                ] = text.strip()
         else:
             payload["text"] = text.strip()
 

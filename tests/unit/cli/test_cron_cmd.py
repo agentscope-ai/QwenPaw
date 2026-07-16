@@ -84,11 +84,15 @@ def _update(full_spec: dict, **overrides) -> dict:
 
 
 def test_update_preserves_runtime_fields():
-    """Renaming a job should not reset max_concurrency or misfire_grace_seconds."""
+    """Renaming a job should keep max_concurrency & misfire_grace_seconds."""
     spec = {
         "name": "original",
         "enabled": True,
-        "schedule": {"type": "cron", "cron": "0 4 * * *", "timezone": "Asia/Shanghai"},
+        "schedule": {
+            "type": "cron",
+            "cron": "0 4 * * *",
+            "timezone": "Asia/Shanghai",
+        },
         "task_type": "text",
         "text": "hello",
         "dispatch": {
@@ -119,7 +123,11 @@ def test_update_preserves_request_extensions():
     spec = {
         "name": "agent-job",
         "enabled": True,
-        "schedule": {"type": "cron", "cron": "*/5 * * * *", "timezone": "UTC"},
+        "schedule": {
+            "type": "cron",
+            "cron": "*/5 * * * *",
+            "timezone": "UTC",
+        },
         "task_type": "agent",
         "request": {
             "input": [
