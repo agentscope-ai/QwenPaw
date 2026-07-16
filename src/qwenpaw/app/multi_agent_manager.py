@@ -16,10 +16,12 @@ from qwenpaw.exceptions import (
 
 from .agent_startup import (
     AgentStartupStatus,
-    get_custom_agent_startup_concurrency,
 )
 from .workspace import Workspace
-from ..constant import BUILTIN_QA_AGENT_ID
+from ..constant import (
+    BUILTIN_QA_AGENT_ID,
+    CUSTOM_AGENT_STARTUP_CONCURRENCY,
+)
 from ..config.utils import load_config
 from ..utils.startup_display import AgentStartupDisplay
 
@@ -669,8 +671,7 @@ class MultiAgentManager:
                     exc_info=True,
                 )
 
-        startup_concurrency = get_custom_agent_startup_concurrency()
-        semaphore = asyncio.Semaphore(startup_concurrency)
+        semaphore = asyncio.Semaphore(CUSTOM_AGENT_STARTUP_CONCURRENCY)
         if startup_display is not None:
             startup_display.start_custom_agents(len(custom_agent_ids))
 
