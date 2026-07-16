@@ -59,7 +59,7 @@ async def test_disabled_agent_is_not_started_or_mutated(monkeypatch) -> None:
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [(None, 2), ("invalid", 2), ("0", 1), ("4", 4)],
+    [(None, 5), ("invalid", 5), ("0", 1), ("4", 4)],
 )
 def test_custom_startup_concurrency_parsing(
     monkeypatch,
