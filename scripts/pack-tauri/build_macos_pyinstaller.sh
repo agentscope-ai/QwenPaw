@@ -111,7 +111,7 @@ cd console
 echo "Building for macOS..."
 npm exec -- tauri build \
     --config src-tauri/tauri.version.conf.json \
-    --bundles app,updater
+    --bundles app
 cd ..
 echo "Tauri app built"
 echo ""
