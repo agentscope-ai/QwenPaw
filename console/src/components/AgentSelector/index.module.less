@@ -287,18 +287,7 @@
   z-index: 1;
   background: rgba(240, 126, 38, 0.055);
   box-shadow: 0 7px 18px rgba(72, 42, 20, 0.12);
-  transform: translateY(-2px) scale(1.012);
-
-  &::after {
-    position: absolute;
-    inset: 3px;
-    border: 1px solid transparent;
-    border-top-color: rgba(240, 126, 38, 0.9);
-    border-radius: 9px;
-    content: "";
-    pointer-events: none;
-    animation: pinProgress 0.5s linear forwards;
-  }
+  animation: pinHoldWiggle 0.14s ease-in-out infinite alternate;
 }
 
 .agentOptionPinFeedback {
@@ -502,12 +491,12 @@
   border-top: 1px solid rgba(240, 126, 38, 0.08);
 }
 
-@keyframes pinProgress {
+@keyframes pinHoldWiggle {
   from {
-    transform: rotate(0deg);
+    transform: translateY(-2px) rotate(-0.45deg) scale(1.012);
   }
   to {
-    transform: rotate(360deg);
+    transform: translateY(-2px) rotate(0.45deg) scale(1.012);
   }
 }
 
@@ -540,11 +529,6 @@
   .agentOptionPinFeedback {
     animation: none;
     transform: none;
-  }
-
-  .agentOptionPressing::after {
-    animation: none;
-    border-color: rgba(240, 126, 38, 0.55);
   }
 }
 
