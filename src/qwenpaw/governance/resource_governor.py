@@ -119,37 +119,32 @@ class ResourceGovernor:
         command through the sandbox instead of running it unsandboxed.
 
         On Windows, if ``sandbox_enabled`` is True but the process lacks
-        administrator privileges, the switch is automatically reverted to
-        False and a warning is logged.  This catches every path that can
-        flip the switch at runtime — API calls, direct config-file edits,
-        and agent-driven modifications.
+        administrator privileges, the switch is treated as False for this
+        session and a warning is logged.  The config file is NOT modified
+        so the user's intent is preserved for future admin launches.
         """
         global _sandbox_admin_warned_at
         try:
-            from ..config import load_config, save_config
+            from ..config import load_config
 
             config = load_config()
             enabled = bool(config.security.sandbox_enabled)
 
             # Runtime guard: if sandbox is enabled but we're on Windows
-            # without admin, revert immediately.
+            # without admin, treat as disabled for this session.
             if enabled:
-                from ..cli.app_cmd import _is_windows_admin
+                from ..utils.platform import is_windows_admin
 
-                if not _is_windows_admin():
+                if not is_windows_admin():
                     import time as _time
 
-                    config.security.sandbox_enabled = False
-                    save_config(config)
                     now = _time.monotonic()
                     if now - _sandbox_admin_warned_at > 30:
                         logger.warning(
-                            "Windows sandbox auto-disabled at runtime: "
-                            "sandbox_enabled was set to true (possibly by "
-                            "an agent or direct config edit) but the "
-                            "process lacks administrator privileges. The "
-                            "switch has been reverted to false. To use the "
-                            "sandbox, restart QwenPaw as administrator."
+                            "Windows sandbox inactive for this session: "
+                            "sandbox_enabled is true but the process lacks "
+                            "administrator privileges. To use the sandbox, "
+                            "restart QwenPaw as administrator."
                         )
                         _sandbox_admin_warned_at = now
                     return False
