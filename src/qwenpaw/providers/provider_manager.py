@@ -2223,6 +2223,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             model.thinking_budget = config["thinking_budget"]
         if config.get("reasoning_effort") is not None:
             model.reasoning_effort = config["reasoning_effort"]
+        if config.get("supports_multimodal") is not None:
+            model.supports_multimodal = config["supports_multimodal"]
+        if config.get("supports_image") is not None:
+            model.supports_image = config["supports_image"]
+        if config.get("supports_video") is not None:
+            model.supports_video = config["supports_video"]
 
     def _init_from_storage(self):
         """Initialize all providers and active model from disk storage."""

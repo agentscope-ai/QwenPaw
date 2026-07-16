@@ -463,6 +463,34 @@ def test_legacy_builtin_context_window_infers_non_default_as_configured(
     assert model.max_input_length_configured is expected_configured
 
 
+def test_builtin_capability_probe_results_survive_storage_reload(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    data = provider.model_dump()
+    for model in data["models"]:
+        if model["id"] == "gpt-4o":
+            model["supports_multimodal"] = False
+            model["supports_image"] = False
+            model["supports_video"] = False
+
+    builtin_path = isolated_secret_dir / "providers" / "builtin"
+    (builtin_path / "openai.json").write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    reloaded = ProviderManager().get_provider("openai")
+    assert reloaded is not None
+    model = reloaded.get_model_info("gpt-4o")
+    assert model is not None
+    assert model.supports_multimodal is False
+    assert model.supports_image is False
+    assert model.supports_video is False
+
+
 def test_update_provider_for_unknown_returns_false(
     isolated_secret_dir,
 ) -> None:

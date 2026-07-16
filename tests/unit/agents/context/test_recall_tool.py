@@ -488,6 +488,68 @@ async def test_unknown_op_fails_loudly(tool):
     assert _text(chunk).startswith("RECALL FAILED")
 
 
+async def test_unknown_op_observation_is_byte_bounded(history_db: Path):
+    bounded_tool = make_recall_history(
+        history_db_path=str(history_db),
+        session_id="s1",
+        agent_id="ag1",
+        page_max_bytes=1024,
+    )
+
+    chunk = await bounded_tool(op="坏" * 50_000)
+
+    assert chunk.state == ToolResultState.ERROR
+    assert len(_text(chunk).encode("utf-8")) <= 1024
+    assert "recall observation truncated" in _text(chunk)
+    assert chunk.metadata == {}
+
+
+async def test_empty_search_observation_is_byte_bounded(
+    history_db: Path,
+    monkeypatch,
+):
+    monkeypatch.setattr(MemorySpace, "search", lambda *_args, **_kwargs: [])
+    bounded_tool = make_recall_history(
+        history_db_path=str(history_db),
+        session_id="s1",
+        agent_id="ag1",
+        page_max_bytes=1024,
+    )
+
+    chunk = await bounded_tool(op="search", query="q" * 50_000)
+
+    assert chunk.state == ToolResultState.SUCCESS
+    assert len(_text(chunk).encode("utf-8")) <= 1024
+    assert "recall observation truncated" in _text(chunk)
+    page = chunk.metadata[RECALL_PAGE_METADATA_KEY]
+    assert page["next_cursor"] is None
+    assert page["complete"] is True
+    assert set(chunk.metadata) == {RECALL_PAGE_METADATA_KEY}
+
+
+async def test_execution_error_observation_is_byte_bounded(
+    history_db: Path,
+    monkeypatch,
+):
+    def raise_large_error(*_args, **_kwargs):
+        raise ValueError("x" * 50_000)
+
+    monkeypatch.setattr(MemorySpace, "expand", raise_large_error)
+    bounded_tool = make_recall_history(
+        history_db_path=str(history_db),
+        session_id="s1",
+        agent_id="ag1",
+        page_max_bytes=1024,
+    )
+
+    chunk = await bounded_tool(op="expand", lo=1, hi=1)
+
+    assert chunk.state == ToolResultState.ERROR
+    assert len(_text(chunk).encode("utf-8")) <= 1024
+    assert "recall observation truncated" in _text(chunk)
+    assert chunk.metadata == {}
+
+
 async def test_missing_params_fail_loudly(tool):
     for kwargs in (
         {"op": "expand"},  # no lo/hi

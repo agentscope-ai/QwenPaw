@@ -51,6 +51,9 @@ _RECALL_IN_FLIGHT_NOTICE = (
     "current user turn. Wait for that result instead of issuing a duplicate "
     "concurrent recall."
 )
+_RECALL_OBSERVATION_TRUNCATED = (
+    "\n[… recall observation truncated to byte limit]"
+)
 
 
 class RecallSnapshotChangedError(ValueError):
@@ -266,6 +269,17 @@ def _utf8_prefix(text: str, max_bytes: int) -> tuple[str, int]:
         return text, len(text)
     prefix = raw[:max_bytes].decode("utf-8", errors="ignore")
     return prefix, len(prefix)
+
+
+def _bound_observation(text: str, max_bytes: int) -> str:
+    """Bound every recall observation, including failures and empty reads."""
+    if len(text.encode("utf-8")) <= max_bytes:
+        return text
+    notice_bytes = len(_RECALL_OBSERVATION_TRUNCATED.encode("utf-8"))
+    if notice_bytes >= max_bytes:
+        return _utf8_prefix(_RECALL_OBSERVATION_TRUNCATED, max_bytes)[0]
+    prefix, _ = _utf8_prefix(text, max_bytes - notice_bytes)
+    return prefix + _RECALL_OBSERVATION_TRUNCATED
 
 
 def _result_fingerprint(rows: list[dict]) -> str:
@@ -578,7 +592,15 @@ def make_recall_history(
             claim_generation, blocked_notice = loop_guard.claim(op, payload)
             if blocked_notice is not None:
                 return ToolChunk(
-                    content=[TextBlock(type="text", text=blocked_notice)],
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=_bound_observation(
+                                blocked_notice,
+                                page_max_bytes,
+                            ),
+                        ),
+                    ],
                     state=ToolResultState.ERROR,
                 )
         block_target = False
@@ -622,6 +644,7 @@ def make_recall_history(
             metadata: dict[str, Any] = {}
             if page:
                 metadata[RECALL_PAGE_METADATA_KEY] = page
+            text = _bound_observation(text, page_max_bytes)
             block_target = ok
             return ToolChunk(
                 content=[TextBlock(type="text", text=text)],
