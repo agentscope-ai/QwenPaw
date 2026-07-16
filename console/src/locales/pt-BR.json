@@ -1889,6 +1889,8 @@
     "dreamCron": "Agendamento do Dream",
     "dreamCronTooltip": "Expressão Cron para otimizar periodicamente memórias de longo prazo; use o interruptor acima para ativar ou desativar",
     "dreamCronPlaceholder": "0 23 * * *",
+    "dreamCronRequired": "Insira uma expressão Cron quando o Dream estiver ativado",
+    "dreamCronInvalid": "Insira uma expressão Cron válida de 5 campos",
     "autoMemorySearch": "Busca automática na memória (Beta)",
     "autoMemorySearchTooltip": "Auto memory search to run on every conversation turn. Each query will automatically invoke memory search capabilities, helping QwenPaw understand you better — but this increases token consumption.",
     "autoMaxResults": "Automatico Pesquisar Max Results",

@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Optional, Union, Dict, List, Literal, Any, Set
 
+from apscheduler.triggers.cron import CronTrigger
 from pydantic import (
     BaseModel,
     Field,
@@ -721,9 +722,40 @@ class ReMeLightMemoryConfig(BaseModel):
 
     dream_cron: str = Field(
         default="0 23 * * *",
-        description="Cron expression for dream-based memory optimization job "
-        "(empty string is ignored; use dream_cron_enabled to disable)",
+        description=(
+            "Cron expression for dream-based memory optimization job "
+            "(use dream_cron_enabled to enable/disable)"
+        ),
     )
+
+    @model_validator(mode="after")
+    def validate_dream_cron(self) -> "ReMeLightMemoryConfig":
+        """Require a valid schedule whenever the dream job is enabled."""
+        dream_cron = self.dream_cron.strip()
+
+        # Preserve the behavior of legacy configs that used an empty cron to
+        # disable the job before dream_cron_enabled was introduced.
+        if (
+            not dream_cron
+            and "dream_cron_enabled" not in self.model_fields_set
+        ):
+            self.dream_cron_enabled = False
+
+        if not self.dream_cron_enabled:
+            return self
+        if not dream_cron:
+            raise ValueError(
+                "dream_cron must not be empty when dream_cron_enabled is true",
+            )
+        try:
+            CronTrigger.from_crontab(dream_cron)
+        except ValueError as exc:
+            raise ValueError(
+                "dream_cron must be a valid 5-field cron expression",
+            ) from exc
+
+        self.dream_cron = dream_cron
+        return self
 
     auto_memory_search_config: AutoMemorySearchConfig = Field(
         default_factory=AutoMemorySearchConfig,

@@ -45,6 +45,17 @@ export function isEmbeddingEnabled(
   return backend === "ollama";
 }
 
+export function isValidDreamCronShape(value?: string) {
+  if (!value?.trim()) {
+    return false;
+  }
+  const fields = value.trim().split(/\s+/);
+  return (
+    fields.length === 5 &&
+    fields.every((field) => /^[a-z0-9*/,-]+$/i.test(field))
+  );
+}
+
 export function ReMeLightMemoryCard() {
   const { t } = useTranslation();
 
@@ -136,6 +147,27 @@ export function ReMeLightMemoryCard() {
         label={t("agentConfig.dreamCron")}
         name={["reme_light_memory_config", "dream_cron"]}
         tooltip={t("agentConfig.dreamCronTooltip")}
+        rules={
+          dreamCronEnabled
+            ? [
+                {
+                  required: true,
+                  whitespace: true,
+                  message: t("agentConfig.dreamCronRequired"),
+                },
+                {
+                  validator: (_, value?: string) => {
+                    if (!value?.trim() || isValidDreamCronShape(value)) {
+                      return Promise.resolve();
+                    }
+                    return Promise.reject(
+                      new Error(t("agentConfig.dreamCronInvalid")),
+                    );
+                  },
+                },
+              ]
+            : []
+        }
       >
         <Input
           disabled={!dreamCronEnabled}

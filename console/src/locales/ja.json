@@ -1654,6 +1654,8 @@
     "dreamCron": "ドリームスケジュール",
     "dreamCronTooltip": "ドリーム状態を通じて定期的に長期記憶を最適化するCron式です。実行は上のスイッチで切り替えます",
     "dreamCronPlaceholder": "0 23 * * *",
+    "dreamCronRequired": "ドリームを有効にする場合は Cron 式を入力してください",
+    "dreamCronInvalid": "有効な5フィールドの Cron 式を入力してください",
     "autoMemorySearch": "自動記憶検索（Beta）",
     "autoMemorySearchTooltip": "毎回の会話で記憶検索を自動実行します。各クエリで自動的に記憶検索機能を呼び出し、QwenPawがあなたをより理解できますが、トークン消費が増加します。",
     "autoMaxResults": "自動検索の最大結果数",
