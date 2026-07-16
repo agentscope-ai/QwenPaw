@@ -54,6 +54,25 @@ from pydantic import Field
 MAX_INLINE_MEDIA_BYTES = 2 * 1024 * 1024  # 2 MB
 
 
+def _is_remote_url(url: str) -> bool:
+    """Return True if *url* is a remote/data scheme (not local)."""
+    return url.startswith(("http://", "https://", "data:"))
+
+
+def _resolve_local_path(url: str) -> str | None:
+    """Resolve a URL or bare path to a local filesystem path.
+
+    Returns ``None`` for remote URLs / data URIs.
+    Handles both ``file://`` URIs and bare local paths
+    (produced by ``_fixup_media_list`` normalization).
+    """
+    if _is_remote_url(url):
+        return None
+    if url.startswith("file://"):
+        return url2pathname(urlparse(url).path)
+    return url
+
+
 def inline_media_size(source: Any) -> int | None:
     """Return the byte size of *source* if it would be inlined locally.
 
@@ -61,14 +80,13 @@ def inline_media_size(source: Any) -> int | None:
     unrecognised source types so the caller leaves them untouched.
     """
     if isinstance(source, URLSource):
-        url = str(source.url)
-        if url.startswith("file://"):
-            path = url2pathname(urlparse(url).path)
-            try:
-                return os.path.getsize(path)
-            except OSError:
-                return None
-        return None
+        path = _resolve_local_path(str(source.url))
+        if path is None:
+            return None
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return None
     if isinstance(source, Base64Source):
         # base64 length -> approximate raw byte count.
         return len(source.data or "") * 3 // 4
@@ -125,18 +143,18 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
 
     @staticmethod
     def _local_source_to_base64(source: Any) -> Any:
-        """Convert a local ``file://`` URLSource to a Base64Source.
+        """Convert a local URLSource to a Base64Source.
 
-        Non-local sources (remote URLs, already-base64 sources, anything
-        else) are returned unchanged so the base formatter handles them as
-        before.
+        Handles both ``file://`` URIs and bare local paths
+        (produced by ``_fixup_media_list`` normalization).
+        Non-local sources (remote URLs, already-base64 sources,
+        anything else) are returned unchanged.
         """
         if not isinstance(source, URLSource):
             return source
-        url = str(source.url)
-        if not url.startswith("file://"):
+        path = _resolve_local_path(str(source.url))
+        if path is None:
             return source
-        path = url2pathname(urlparse(url).path)
         with open(path, "rb") as f:
             encoded = base64.b64encode(f.read()).decode("utf-8")
         return Base64Source(data=encoded, media_type=source.media_type)
