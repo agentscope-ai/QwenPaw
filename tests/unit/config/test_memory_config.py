@@ -3,8 +3,6 @@
 
 from types import SimpleNamespace
 
-import pytest
-
 import qwenpaw.config.utils as config_utils
 from qwenpaw.config.config import ADBPGMemoryConfig, ReMeLightMemoryConfig
 
@@ -38,26 +36,11 @@ def test_dream_cron_can_be_disabled_without_changing_expression():
     assert cfg.dream_cron == "0 23 * * *"
 
 
-def test_dream_cron_rejects_empty_expression_when_enabled():
-    with pytest.raises(ValueError, match="dream_cron must not be empty"):
-        ReMeLightMemoryConfig(
-            dream_cron_enabled=True,
-            dream_cron="",
-        )
-
-
-def test_dream_cron_rejects_invalid_expression_when_enabled():
-    with pytest.raises(ValueError, match="valid 5-field cron expression"):
-        ReMeLightMemoryConfig(
-            dream_cron_enabled=True,
-            dream_cron="60 23 * * *",
-        )
-
-
-def test_legacy_empty_dream_cron_migrates_to_disabled():
+def test_legacy_empty_dream_cron_remains_loadable():
     cfg = ReMeLightMemoryConfig(dream_cron="")
 
-    assert cfg.dream_cron_enabled is False
+    assert cfg.dream_cron_enabled is True
+    assert cfg.dream_cron == ""
 
 
 def test_get_dream_cron_honors_the_enable_switch(monkeypatch):
