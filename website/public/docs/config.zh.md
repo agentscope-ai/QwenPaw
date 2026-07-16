@@ -378,7 +378,8 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `summarize_when_compact`        | bool        | `true`           | 是否在上下文压缩时启用记忆总结                                       |
 | `inbox_push_enabled`            | bool        | `true`           | 是否将自动记忆、自动梦境和自动资源任务结果推送到收件箱               |
 | `auto_memory_interval`          | int \| null | `5`              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆 |
-| `dream_cron`                    | string      | `"0 23 * * *"`   | 梦境记忆优化任务的 Cron 表达式（空字符串禁用）                       |
+| `dream_cron_enabled`            | bool        | `true`           | 是否启用按 Cron 定时执行的梦境记忆优化任务                           |
+| `dream_cron`                    | string      | `"0 23 * * *"`   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）                |
 | `auto_memory_search_config`     | object      | _（见下方）_     | 自动记忆搜索配置                                                     |
 | `embedding_model_config`        | object      | _（见下方）_     | Embedding 模型配置                                                   |
 | `rebuild_memory_index_on_start` | bool        | `false`          | Agent 启动时是否清空并重建记忆搜索索引；否则只监控并索引新的文件变化 |

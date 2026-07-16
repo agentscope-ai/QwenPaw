@@ -344,10 +344,14 @@ class TestMattermostChannelInit:
 
         assert hasattr(channel, "_typing_tasks")
         assert isinstance(channel._typing_tasks, dict)
+        # Bounded OrderedDict-backed sets (FIFO eviction) prevent unbounded
+        # growth of the lazy-context tracking maps.
+        from collections import OrderedDict
+
         assert hasattr(channel, "_participated_threads")
-        assert isinstance(channel._participated_threads, set)
+        assert isinstance(channel._participated_threads, OrderedDict)
         assert hasattr(channel, "_seen_sessions")
-        assert isinstance(channel._seen_sessions, set)
+        assert isinstance(channel._seen_sessions, OrderedDict)
         assert channel._bot_id == ""
         assert channel._bot_username == ""
 
@@ -1372,7 +1376,7 @@ class TestMattermostIsTriggered:
         """Should trigger on thread participation."""
         mattermost_channel._bot_id = "bot_123"
         mattermost_channel._thread_follow = True
-        mattermost_channel._participated_threads.add("thread_abc")
+        mattermost_channel._participated_threads["thread_abc"] = None
 
         post = {
             "user_id": "user_abc",
@@ -1487,7 +1491,7 @@ class TestMattermostGetContextPrefix:
     @pytest.mark.asyncio
     async def test_get_context_prefix_cached_session(self, mattermost_channel):
         """Should return empty string for cached session."""
-        mattermost_channel._seen_sessions.add("mattermost_dm:dm_123")
+        mattermost_channel._seen_sessions["mattermost_dm:dm_123"] = None
 
         result = await mattermost_channel._get_context_prefix(
             session_id="mattermost_dm:dm_123",
