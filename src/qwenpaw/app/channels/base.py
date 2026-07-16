@@ -1652,9 +1652,10 @@ class BaseChannel(ABC):
         """Drop any staged per-session usage (turn start / cancel / error)."""
         if not session_id:
             return
-        from ...token_usage.model_wrapper import TokenRecordingModelWrapper
+        import importlib
 
-        TokenRecordingModelWrapper.pop_usage_for_session(session_id)
+        mod = importlib.import_module("qwenpaw.token_usage.model_wrapper")
+        mod.TokenRecordingModelWrapper.pop_usage_for_session(session_id)
 
     async def _commit_turn_usage(
         self,
@@ -1667,8 +1668,12 @@ class BaseChannel(ABC):
         if not session_id:
             return []
         try:
-            from ...token_usage import persist_turn_usage
-            from ...token_usage.turn_usage import resolve_turn_usage
+            import importlib
+
+            turn_usage = importlib.import_module(
+                "qwenpaw.token_usage.turn_usage",
+            )
+            token_usage = importlib.import_module("qwenpaw.token_usage")
 
             workspace = self._workspace
             session = (
@@ -1683,7 +1688,7 @@ class BaseChannel(ABC):
             )
             user_id = getattr(request, "user_id", "") or ""
             channel = getattr(request, "channel", "") or self.channel
-            turn, ctx, agent_state = await resolve_turn_usage(
+            turn, ctx, agent_state = await turn_usage.resolve_turn_usage(
                 session_id=session_id,
                 agent_id=agent_id,
                 session=session,
@@ -1697,7 +1702,7 @@ class BaseChannel(ABC):
                 logger.info("Usage for session %s: %s", session_id, turn)
             if session is not None:
                 try:
-                    await persist_turn_usage(
+                    await token_usage.persist_turn_usage(
                         session=session,
                         session_id=session_id,
                         user_id=user_id,
