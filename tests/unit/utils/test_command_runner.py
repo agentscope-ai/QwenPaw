@@ -711,6 +711,65 @@ def test_is_pid_running_uses_tasklist_on_windows(
     assert command_runner._is_pid_running(4321, "nt") is True
 
 
+def test_is_pid_running_tasklist_probe_is_bounded_and_hidden(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_check_output(_args: list[str], **kwargs: object) -> str:
+        captured.update(kwargs)
+        return "llama-server.exe              4321 Console\n"
+
+    monkeypatch.setattr(
+        command_runner,
+        "windows_hidden_subprocess_kwargs",
+        lambda *args, **kwargs: {"creationflags": 0x08000000},
+    )
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "check_output",
+        fake_check_output,
+    )
+
+    assert command_runner._is_pid_running(4321, "nt") is True
+    # A wedged tasklist must not stall the shutdown poll loop.
+    assert captured["timeout"] == command_runner._PID_PROBE_TIMEOUT
+    # Undecodable bytes on non-UTF-8 consoles must not raise.
+    assert captured["errors"] == "replace"
+    # The probe runs every poll; it must not flash a console window.
+    assert captured["creationflags"] == 0x08000000
+
+
+def test_is_pid_running_returns_false_when_tasklist_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_check_output(args: list[str], **_kwargs: object) -> str:
+        raise subprocess.TimeoutExpired(cmd=args, timeout=5.0)
+
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "check_output",
+        fake_check_output,
+    )
+
+    assert command_runner._is_pid_running(4321, "nt") is False
+
+
+def test_is_pid_running_returns_false_when_tasklist_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_check_output(_args: list[str], **_kwargs: object) -> str:
+        raise OSError("[WinError 193] not a valid Win32 application")
+
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "check_output",
+        fake_check_output,
+    )
+
+    assert command_runner._is_pid_running(4321, "nt") is False
+
+
 def test_is_pid_running_uses_os_kill_on_posix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

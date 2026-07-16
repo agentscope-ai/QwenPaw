@@ -16,6 +16,9 @@ from qwenpaw.exceptions import (
     ProcessLaunchError,
 )
 
+# Bounds the liveness probe so a wedged ``tasklist`` cannot stall shutdown.
+_PID_PROBE_TIMEOUT = 5.0
+
 
 @dataclass(frozen=True)
 class CommandResult:
@@ -575,13 +578,19 @@ def _is_pid_running(
     platform_name: str,
 ) -> bool:
     if platform_name == "nt":
+        probe_kwargs: dict[str, Any] = {
+            "stderr": subprocess.STDOUT,
+            "text": True,
+            "errors": "replace",
+            "timeout": _PID_PROBE_TIMEOUT,
+        }
+        probe_kwargs.update(windows_hidden_subprocess_kwargs())
         try:
             output = subprocess.check_output(
                 ["tasklist", "/fi", f"PID eq {pid}"],
-                stderr=subprocess.STDOUT,
-                text=True,
+                **probe_kwargs,
             )
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except (OSError, subprocess.SubprocessError):
             return False
         return str(pid) in output
 
