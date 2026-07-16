@@ -54,36 +54,42 @@ from pydantic import Field
 MAX_INLINE_MEDIA_BYTES = 2 * 1024 * 1024  # 2 MB
 
 
-def _is_remote_url(url: str) -> bool:
-    """Return True if *url* is a remote/data scheme (not local)."""
-    return url.startswith(("http://", "https://", "data:"))
-
-
 def _resolve_local_path(url: str) -> str | None:
     """Resolve a URL or bare path to a local filesystem path.
 
-    Returns ``None`` for remote URLs / data URIs.
-    Handles both ``file://`` URIs (including UNC authority
-    form) and bare local paths (produced by
-    ``_fixup_media_list`` normalization).
+    Returns ``None`` for any non-local scheme (http, https, s3,
+    oss, ftp, data, etc.).  Handles ``file://`` URIs (including
+    UNC and localhost authority) and bare local paths produced
+    by ``_fixup_media_list`` normalization.
     """
-    if _is_remote_url(url):
-        return None
-    if url.startswith("file://"):
-        parsed = urlparse(url)
-        if parsed.netloc:
-            # Distinguish drive letter (e.g. "C:") from UNC server.
-            nl = parsed.netloc
-            if len(nl) == 2 and nl[0].isalpha() and nl[1] == ":":
-                # Two-slash Windows: file://C:/path
-                full_path = f"{nl}{parsed.path}"
-            else:
-                # UNC: file://server/share/path
-                full_path = f"//{nl}{parsed.path}"
-        else:
+    parsed = urlparse(url)
+    scheme = parsed.scheme
+
+    if scheme == "file":
+        nl = parsed.netloc
+        if not nl or nl.lower() == "localhost":
+            # file:///path or file://localhost/path -> local
             full_path = parsed.path
+        elif len(nl) == 2 and nl[0].isalpha() and nl[1] == ":":
+            # Two-slash Windows: file://C:/path
+            full_path = f"{nl}{parsed.path}"
+        else:
+            # UNC: file://server/share/path
+            full_path = f"//{nl}{parsed.path}"
         return url2pathname(full_path)
-    return url
+
+    if scheme == "":
+        # Bare local path (e.g. /tmp/x.png, C:/Temp/x.png,
+        # //server/share/x.png).
+        return url
+
+    # Single-letter scheme on Windows is a drive letter,
+    # e.g. urlparse("C:/Temp/x.png") gives scheme="c".
+    if len(scheme) == 1 and scheme.isalpha():
+        return url
+
+    # Any other scheme (http, https, s3, oss, ftp, data, ...)
+    return None
 
 
 def inline_media_size(source: Any) -> int | None:

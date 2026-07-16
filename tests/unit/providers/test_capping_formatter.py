@@ -304,3 +304,20 @@ def test_bare_local_path_image_formatted(tmp_path) -> None:
     out = _CappingOpenAIFormatter()._format_image_source(source)
     assert out["type"] == "image_url"
     assert out["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+def test_non_http_remote_scheme_passthrough() -> None:
+    """s3://, oss://, ftp:// etc. pass through unchanged (#5934 H1)."""
+    from agentscope.message import URLSource
+
+    for scheme_url in [
+        "s3://bucket/image.png",
+        "oss://bucket/image.png",
+        "ftp://host/file.txt",
+    ]:
+        source = URLSource(url=scheme_url, media_type="image/png")
+        result = _CappingOpenAIFormatter._local_source_to_base64(source)
+        # Must return source unchanged (not try to open)
+        assert result is source, f"{scheme_url} was not passed through"
+        # inline_media_size must return None (not try getsize)
+        assert inline_media_size(source) is None
