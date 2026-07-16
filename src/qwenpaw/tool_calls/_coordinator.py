@@ -110,6 +110,18 @@ class ToolCoordinator:
                     yield event.chunk
                 elif event.type == "stream_closed":
                     break
+                elif event.type == "cancelled":
+                    # User-initiated cancel: stop the background task and
+                    # finalize the entry promptly instead of waiting for
+                    # the tool to finish naturally.
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(entry.background_task),
+                            timeout=self._cancel_grace,
+                        )
+                    except asyncio.TimeoutError:
+                        await self._apply_force_cancel(entry)
+                    break
                 elif event.type == "deadline_reached":
                     # TODO FIXME: offload is temporarily
                     # disabled. cancel_event kills the
