@@ -499,6 +499,7 @@ class ScrollContextManager:
             await self._index_evicted(agent, middle)
             mark("index_evicted")
             self._rebuild_context(agent, tail)
+            self._prune_bookkeeping_to_live_context(agent)
             mark("rebuild_context")
             self.last_compress["evicted"] = len(middle)
             tokens = await self._live_tokens(agent)
@@ -893,6 +894,65 @@ class ScrollContextManager:
         placeholder = UserMsg(name="memory", content=memory)
         self._synthetic_ids.add(placeholder.id)
         agent.state.context = [placeholder] + tail
+
+    def _prune_bookkeeping_to_live_context(self, agent: Any) -> None:
+        """Discard dedup/index helpers for messages no longer live.
+
+        Durable content and recovery spans already live in ``history.db`` and
+        the eviction index by the time this runs. Keeping per-message maps for
+        archived turns only bloats every subsequent session checkpoint. A
+        boundary message retained in the rebuilt tail keeps its original id,
+        so its update/dedup bookkeeping remains intact.
+        """
+        live_msg_ids: set[str] = set()
+        live_tool_ids: set[str] = set()
+        for msg in getattr(agent.state, "context", []) or []:
+            mid = getattr(msg, "id", None) or str(id(msg))
+            live_msg_ids.add(str(mid))
+            for block in getattr(msg, "content", None) or []:
+                btype = (
+                    block.get("type")
+                    if isinstance(block, dict)
+                    else getattr(block, "type", None)
+                )
+                if btype not in ("tool_call", "tool_result"):
+                    continue
+                tcid = (
+                    block.get("id")
+                    if isinstance(block, dict)
+                    else getattr(block, "id", None)
+                )
+                if tcid:
+                    live_tool_ids.add(str(tcid))
+
+        self._persisted_ids.intersection_update(live_msg_ids)
+        self._persisted_tcids.intersection_update(live_tool_ids)
+        self._synthetic_ids.intersection_update(live_msg_ids)
+        self._seq_by_id = {
+            key: value
+            for key, value in self._seq_by_id.items()
+            if key in live_msg_ids
+        }
+        self._model_turn_seq = {
+            key: value
+            for key, value in self._model_turn_seq.items()
+            if key in live_msg_ids
+        }
+        self._model_turn_nblk = {
+            key: value
+            for key, value in self._model_turn_nblk.items()
+            if key in live_msg_ids
+        }
+        self._leaf_by_id = {
+            key: value
+            for key, value in self._leaf_by_id.items()
+            if key in live_msg_ids
+        }
+        self._seq_by_tcid = {
+            key: value
+            for key, value in self._seq_by_tcid.items()
+            if key in live_tool_ids
+        }
 
     async def _index_evicted(self, agent: Any, middle: list[Msg]) -> None:
         """Append the evicted middle to the index as one fresh Tier 0 block.

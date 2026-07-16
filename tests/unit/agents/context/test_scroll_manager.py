@@ -351,6 +351,66 @@ async def test_compress_evicts_middle_into_index(store: HistoryStore):
     assert restored._continuity_checkpoint == mgr._continuity_checkpoint
 
 
+async def test_compress_prunes_bookkeeping_to_live_context(
+    store: HistoryStore,
+):
+    old_u = user("old request")
+    old_a = assistant("old reply", headline="OLD")
+    old_tool = assistant_with_tool("call-old")
+    current_u = user("current request")
+    current_tool = assistant_with_tool("call-current")
+    ctx = [old_u, old_a, old_tool, current_u, current_tool]
+    mgr = make_manager(store, summarize_unheadlined=False)
+    agent = FakeAgent(ctx, tokens=200)
+    agent._split_return = (ctx[:3], ctx[3:])
+
+    await mgr.compress(agent)
+
+    archived_ids = {old_u.id, old_a.id, old_tool.id}
+    live_ids = {current_u.id, current_tool.id}
+    for mapping in (
+        mgr._persisted_ids,
+        mgr._seq_by_id,
+        mgr._model_turn_seq,
+        mgr._model_turn_nblk,
+        mgr._leaf_by_id,
+    ):
+        assert archived_ids.isdisjoint(mapping)
+    assert live_ids <= mgr._persisted_ids
+    assert live_ids <= mgr._seq_by_id.keys()
+    assert "call-old" not in mgr._persisted_tcids
+    assert "call-old" not in mgr._seq_by_tcid
+    assert "call-current" in mgr._persisted_tcids
+    assert "call-current" in mgr._seq_by_tcid
+    assert mgr._synthetic_ids == {agent.state.context[0].id}
+
+    previous_placeholder = agent.state.context[0].id
+    next_u = user("next request")
+    next_a = assistant("next reply")
+    agent.state.context.extend([next_u, next_a])
+    agent._split_return = (
+        agent.state.context[:-2],
+        agent.state.context[-2:],
+    )
+
+    await mgr.compress(agent)
+
+    for mapping in (
+        mgr._persisted_ids,
+        mgr._seq_by_id,
+        mgr._model_turn_seq,
+        mgr._model_turn_nblk,
+        mgr._leaf_by_id,
+    ):
+        assert live_ids.isdisjoint(mapping)
+    assert {next_u.id, next_a.id} <= mgr._persisted_ids
+    assert "call-current" not in mgr._persisted_tcids
+    assert "call-current" not in mgr._seq_by_tcid
+    assert len(mgr._synthetic_ids) == 1
+    assert previous_placeholder not in mgr._synthetic_ids
+    assert mgr._synthetic_ids == {agent.state.context[0].id}
+
+
 async def test_compress_does_not_index_boundary_msg_still_in_tail(
     store: HistoryStore,
 ):
@@ -387,6 +447,9 @@ async def test_compress_does_not_index_boundary_msg_still_in_tail(
     assert "BOUNDARY" not in rendered  # still live → must not be indexed
     # And the boundary id is still present in the live context.
     assert boundary.id in {m.id for m in agent.state.context}
+    assert boundary.id in mgr._persisted_ids
+    assert boundary.id in mgr._seq_by_id
+    assert boundary.id in mgr._model_turn_seq
 
 
 async def test_compress_restores_complete_non_active_tool_boundary(

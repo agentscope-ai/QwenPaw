@@ -159,6 +159,7 @@ def build_scroll_components(
     # component can't be constructed, we log and return ``None`` so the agent
     # silently falls back to native context management instead of failing to
     # build. Native keeps full history in-context, so degrading is always safe.
+    history = None
     try:
         # Imported lazily so the native path never pays for the scroll
         # machinery — and so a missing scroll dependency degrades to native
@@ -230,6 +231,14 @@ def build_scroll_components(
             recall_tool=recall,
         )
     except Exception:  # noqa: BLE001 - any scroll failure degrades to native
+        if history is not None:
+            try:
+                history.close()
+            except Exception:  # noqa: BLE001 - preserve fallback behavior
+                logger.debug(
+                    "scroll: failed to close history after wiring failure",
+                    exc_info=True,
+                )
         logger.warning(
             "scroll: failed to wire components — falling back to native "
             "context management",
