@@ -258,7 +258,8 @@ export function patchContextMaxInputLength(
   const storeSnap = useTurnUsageStore.getState().snapshot;
   if (
     storeSnap?.context_usage &&
-    readNumber(storeSnap.context_usage, "max_input_length") !== newMaxInputLength
+    readNumber(storeSnap.context_usage, "max_input_length") !==
+      newMaxInputLength
   ) {
     const estimatedTokens = readNumber(
       storeSnap.context_usage,

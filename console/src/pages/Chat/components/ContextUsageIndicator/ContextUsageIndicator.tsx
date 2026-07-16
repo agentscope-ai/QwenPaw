@@ -113,7 +113,13 @@ function PopoverBody({
           />
         </>
       )}
-      <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(0,0,0,0.06)" }}>
+      <div
+        style={{
+          marginTop: 12,
+          paddingTop: 12,
+          borderTop: "1px solid rgba(0,0,0,0.06)",
+        }}
+      >
         <div style={{ fontSize: 12, opacity: 0.65, marginBottom: 8 }}>
           {t("chat.turnUsagePopover.manageContext")}
         </div>
