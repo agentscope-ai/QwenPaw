@@ -134,7 +134,6 @@ class ScrollContextManager:
         summarize_timeout_s: int = 20,
         compact_tool_result_max_bytes: int | None = None,
         tool_results_dir: str | None = None,
-        recall_loop_guard: Any = None,
     ) -> None:
         self._history = history
         self._session_id = session_id
@@ -147,7 +146,6 @@ class ScrollContextManager:
         # no longer folds live tool results at a fixed byte threshold; it
         # reclaims them only while the rebuilt context remains under pressure.
         del compact_tool_result_max_bytes, tool_results_dir
-        self._recall_loop_guard = recall_loop_guard
         self._continuity_checkpoint = ""
         # Dialog archive: when an offloader is wired (``offload_dialog``, on by
         # default), evicted turns are also written to ``dialog/{date}.jsonl``
@@ -264,20 +262,6 @@ class ScrollContextManager:
                     calls[str(getattr(block, "id", ""))] = raw
         return calls
 
-    def _block_recall_target(
-        self,
-        tool_call_id: str | None,
-        call_inputs: dict[str, dict[str, Any]],
-    ) -> None:
-        if self._recall_loop_guard is None or not tool_call_id:
-            return
-        payload = call_inputs.get(str(tool_call_id))
-        if not payload:
-            return
-        op = str(payload.get("op") or "")
-        if op:
-            self._recall_loop_guard.block(op, payload)
-
     # -- delegated hooks -----------------------------------------------------
 
     def on_save(  # pylint: disable=unused-argument
@@ -377,10 +361,6 @@ class ScrollContextManager:
             "folded": 0,
         }
         hard_limit = int(agent.model.context_size)
-        if self._recall_loop_guard is not None:
-            active = self._active_turn_tail(agent)
-            turn_id = getattr(active[0], "id", None) if active else None
-            self._recall_loop_guard.begin_turn(turn_id)
         t0 = time.perf_counter()
         stage_t0 = t0
         timings: dict[str, float] = {}
@@ -583,7 +563,7 @@ class ScrollContextManager:
     def _tool_result_fold_candidates(
         self,
         agent: Any,
-    ) -> tuple[list[tuple[bool, int, int, Any, str]], dict[str, Any]]:
+    ) -> list[tuple[bool, int, int, Any, str]]:
         """Return profitable fold candidates ordered by recovery priority.
 
         Results outside the active turn are less relevant and fold first.
@@ -647,7 +627,7 @@ class ScrollContextManager:
             )
 
         candidates.sort(key=lambda item: item[:3])
-        return candidates, recall_inputs
+        return candidates
 
     async def _fold_tool_results_under_pressure(
         self,
@@ -657,20 +637,14 @@ class ScrollContextManager:
         target: float,
     ) -> tuple[int, int]:
         """Fold profitable live results until ``tokens`` reaches ``target``."""
-        candidates, recall_inputs = self._tool_result_fold_candidates(agent)
+        candidates = self._tool_result_fold_candidates(agent)
         folded = 0
         for _, _, _, block, text in candidates:
             output = [TextBlock(type="text", text=text)]
             if isinstance(block, dict):
                 block["output"] = output
-                name = block.get("name")
-                tool_call_id = block.get("id")
             else:
                 block.output = output
-                name = getattr(block, "name", None)
-                tool_call_id = getattr(block, "id", None)
-            if name == "recall_history":
-                self._block_recall_target(tool_call_id, recall_inputs)
             folded += 1
             tokens = await self._live_tokens(agent)
             if tokens <= target:

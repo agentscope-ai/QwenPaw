@@ -10,7 +10,6 @@ failure-vs-empty observation shapes (same discipline as the REPL's), and the
 no-sandbox registration contract.
 """
 
-import asyncio
 import threading
 from pathlib import Path
 
@@ -21,7 +20,6 @@ from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.memoryspace import MemorySpace
 from qwenpaw.agents.context.scroll.recall_tool import (
     RECALL_PAGE_METADATA_KEY,
-    RecallLoopGuard,
     make_recall_history,
 )
 from qwenpaw.agents.context.types import LogEntry
@@ -113,58 +111,6 @@ async def test_recall_tool_by_call_id(tool):
     assert "RESULT-FULL" in _text(chunk)
 
 
-async def test_folded_recall_target_is_blocked_until_turn_changes(
-    history_db: Path,
-):
-    guard = RecallLoopGuard()
-    guard.begin_turn("user-1")
-    guard.block("expand", {"op": "expand", "lo": 1, "hi": 3})
-    guarded_tool = make_recall_history(
-        history_db_path=str(history_db),
-        session_id="s1",
-        agent_id="ag1",
-        loop_guard=guard,
-    )
-
-    blocked = await guarded_tool(op="expand", lo=1, hi=3)
-    assert "RECALL LOOP BLOCKED" in _text(blocked)
-
-    narrower = await guarded_tool(op="expand", lo=1, hi=2)
-    assert "RECALL LOOP BLOCKED" not in _text(narrower)
-    assert "hello there" in _text(narrower)
-
-    guard.begin_turn("user-2")
-    allowed_again = await guarded_tool(op="expand", lo=1, hi=3)
-    assert "RECALL LOOP BLOCKED" not in _text(allowed_again)
-
-
-def test_recall_guard_ignores_parameters_unused_by_operation():
-    guard = RecallLoopGuard()
-    guard.begin_turn("user-1")
-
-    guard.block("expand", {"lo": 1, "hi": 3})
-    assert guard.is_blocked(
-        "expand",
-        {"lo": 1, "hi": 3, "k": 99, "query": "ignored"},
-    )
-
-    guard.block("search", {"query": "flight", "k": 10})
-    assert guard.is_blocked(
-        "search",
-        {"query": "flight", "k": 10, "lo": 1, "hi": 999},
-    )
-
-    guard.block("recall_tool", {"tool_call_id": "call-1"})
-    assert guard.is_blocked(
-        "recall_tool",
-        {"tool_call_id": "call-1", "k": 77, "all_agents": True},
-    )
-    assert not guard.is_blocked(
-        "recall_tool",
-        {"tool_call_id": "call-1", "cursor": "0:100"},
-    )
-
-
 async def test_large_recall_is_cursor_paginated(
     tmp_path: Path,
 ):
@@ -180,13 +126,10 @@ async def test_large_recall_is_cursor_paginated(
         ),
     )
     history.close()
-    guard = RecallLoopGuard()
-    guard.begin_turn("user-1")
     bounded_tool = make_recall_history(
         history_db_path=str(tmp_path / "large-history.db"),
         session_id="current",
         agent_id="ag1",
-        loop_guard=guard,
         page_max_bytes=1024,
     )
 
@@ -195,9 +138,6 @@ async def test_large_recall_is_cursor_paginated(
     assert "[recall page incomplete]" in _text(chunk)
     page = chunk.metadata[RECALL_PAGE_METADATA_KEY]
     assert page["next_cursor"]
-
-    repeated = await bounded_tool(op="expand", lo=1, hi=1)
-    assert "RECALL LOOP BLOCKED" in _text(repeated)
 
     pages = 1
     while page["next_cursor"]:
@@ -208,7 +148,6 @@ async def test_large_recall_is_cursor_paginated(
             cursor=page["next_cursor"],
         )
         pages += 1
-        assert "RECALL LOOP BLOCKED" not in _text(chunk)
         assert len(_text(chunk).encode("utf-8")) <= 1024
         page = chunk.metadata[RECALL_PAGE_METADATA_KEY]
         assert pages < 200
@@ -362,89 +301,13 @@ async def test_cursor_detects_result_snapshot_drift(tmp_path: Path):
     assert drifted.state == ToolResultState.ERROR
     assert "results changed since the previous page" in _text(drifted)
 
-
-async def test_duplicate_concurrent_recall_executes_query_once(
-    history_db: Path,
-    monkeypatch,
-):
-    guard = RecallLoopGuard()
-    guard.begin_turn("user-1")
-    guarded_tool = make_recall_history(
-        history_db_path=str(history_db),
-        session_id="s1",
-        agent_id="ag1",
-        loop_guard=guard,
+    restarted = await bounded_tool(
+        op="search",
+        query="snapshotneedle",
+        k=10,
     )
-    started = threading.Event()
-    release = threading.Event()
-    query_calls = 0
-    original_expand = MemorySpace.expand
-
-    def slow_expand(self, lo, hi):
-        nonlocal query_calls
-        query_calls += 1
-        started.set()
-        assert release.wait(timeout=2)
-        return original_expand(self, lo, hi)
-
-    monkeypatch.setattr(MemorySpace, "expand", slow_expand)
-
-    first_task = asyncio.create_task(
-        guarded_tool(op="expand", lo=1, hi=3),
-    )
-    assert await asyncio.to_thread(started.wait, 1)
-    try:
-        duplicate = await guarded_tool(op="expand", lo=1, hi=3)
-        assert "RECALL LOOP BLOCKED" in _text(duplicate)
-        assert "already running" in _text(duplicate)
-        assert query_calls == 1
-    finally:
-        release.set()
-    first = await first_task
-    assert "RECALL LOOP BLOCKED" not in _text(first)
-
-    # A completed target is terminal for this turn, even when its result was
-    # small. A narrower target remains available.
-    repeated = await guarded_tool(op="expand", lo=1, hi=3)
-    assert "RECALL LOOP BLOCKED" in _text(repeated)
-    assert query_calls == 1
-
-    narrower = await guarded_tool(op="expand", lo=1, hi=2)
-    assert "RECALL LOOP BLOCKED" not in _text(narrower)
-    assert query_calls == 2
-
-
-def test_old_turn_completion_cannot_poison_new_turn_claim():
-    guard = RecallLoopGuard()
-    payload = {"lo": 1, "hi": 30}
-    guard.begin_turn("user-1")
-    old_generation, notice = guard.claim("expand", payload)
-    assert old_generation is not None
-    assert notice is None
-
-    guard.begin_turn("user-2")
-    new_generation, notice = guard.claim("expand", payload)
-    assert new_generation is not None
-    assert notice is None
-
-    guard.finish(
-        "expand",
-        payload,
-        old_generation,
-        block=True,
-    )
-    assert not guard.is_blocked("expand", payload)
-
-    # The new claim is still present; a concurrent duplicate remains blocked.
-    duplicate_generation, duplicate_notice = guard.claim("expand", payload)
-    assert duplicate_generation is None
-    assert "already running" in (duplicate_notice or "")
-    guard.finish(
-        "expand",
-        payload,
-        new_generation,
-        block=False,
-    )
+    assert restarted.state == ToolResultState.SUCCESS
+    assert restarted.metadata[RECALL_PAGE_METADATA_KEY]["total_rows"] == 2
 
 
 async def test_recall_queries_run_outside_event_loop(tool, monkeypatch):

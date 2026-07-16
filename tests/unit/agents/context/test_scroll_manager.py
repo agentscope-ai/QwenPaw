@@ -21,10 +21,7 @@ from agentscope.message import (
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
-from qwenpaw.agents.context.scroll.recall_tool import (
-    RECALL_PAGE_METADATA_KEY,
-    RecallLoopGuard,
-)
+from qwenpaw.agents.context.scroll.recall_tool import RECALL_PAGE_METADATA_KEY
 from qwenpaw.agents.context.types import ContextWindowUnfitError, LogEntry
 from qwenpaw.agents.memory.base_memory_manager import BaseMemoryManager
 from qwenpaw.agents.tools.utils import truncate_text_output
@@ -760,10 +757,9 @@ async def test_pressure_fold_stops_after_largest_result_relieves_pressure(
     assert agent.model.calls == 2
 
 
-async def test_consumed_recall_page_folds_to_next_cursor_and_blocks_retry(
+async def test_consumed_recall_page_folds_to_next_cursor(
     store: HistoryStore,
 ):
-    guard = RecallLoopGuard()
     recall_turn = Msg(
         name="a",
         role="assistant",
@@ -803,7 +799,7 @@ async def test_consumed_recall_page_folds_to_next_cursor_and_blocks_retry(
         ],
     )
     ctx = [user("find the old decision"), recall_turn]
-    mgr = make_manager(store, recall_loop_guard=guard)
+    mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=[600, 90])
     agent._split_return = (ctx, [])
 
@@ -812,11 +808,6 @@ async def test_consumed_recall_page_folds_to_next_cursor_and_blocks_retry(
     output = recall_turn.content[1].output[0].text
     assert output.startswith("[scroll recall folded]")
     assert '"cursor": "0:660"' in output
-    assert guard.is_blocked("expand", {"lo": 10, "hi": 20})
-    assert not guard.is_blocked(
-        "expand",
-        {"lo": 10, "hi": 20, "cursor": "0:660"},
-    )
     assert recall_turn.content[-1].output[0].text == "newest result"
 
 

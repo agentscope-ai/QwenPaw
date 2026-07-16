@@ -26,8 +26,6 @@ import binascii
 import hashlib
 import json
 import logging
-import threading
-from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from agentscope.message import TextBlock, ToolResultState
@@ -40,17 +38,6 @@ logger = logging.getLogger(__name__)
 
 _OPS = ("expand", "search", "recall_tool")
 RECALL_PAGE_METADATA_KEY = "qwenpaw_recall_page"
-_RECALL_BLOCKED_NOTICE = (
-    "RECALL LOOP BLOCKED — this exact recall target already completed, was "
-    "truncated, or was folded out of the current live turn. Do not retry it "
-    "with the same parameters. If its page returned next_cursor, continue "
-    "with that cursor; otherwise narrow the seq range or keyword search."
-)
-_RECALL_IN_FLIGHT_NOTICE = (
-    "RECALL LOOP BLOCKED — this exact recall target is already running in "
-    "the current turn. Do not issue duplicate concurrent recalls. Wait for "
-    "the first result, then narrow the seq range or keyword search if needed."
-)
 
 
 def _canonical_request_payload(
@@ -97,90 +84,6 @@ def _request_fingerprint(op: str, payload: dict[str, Any]) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
-
-
-@dataclass
-class RecallLoopGuard:
-    """Atomically guard folded, truncated, and concurrent recall targets."""
-
-    turn_id: str | None = None
-    blocked: set[str] = field(default_factory=set)
-    _generation: int = 0
-    _in_flight: dict[str, int] = field(default_factory=dict)
-    _lock: Any = field(
-        default_factory=threading.Lock,
-        repr=False,
-        compare=False,
-    )
-
-    @staticmethod
-    def key(op: str, payload: dict[str, Any]) -> str:
-        """Return the canonical target for one recall operation.
-
-        Parameters ignored by an operation must not affect the key, otherwise
-        a model can bypass the loop guard by changing an irrelevant argument
-        such as ``k`` on an ``expand`` call.
-        """
-        relevant = _canonical_request_payload(op, payload)
-        if payload.get("cursor") is not None:
-            relevant["cursor"] = payload["cursor"]
-        return f"{op}:" + json.dumps(
-            relevant,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-
-    def begin_turn(self, turn_id: str | None) -> None:
-        with self._lock:
-            if turn_id != self.turn_id:
-                self.turn_id = turn_id
-                self._generation += 1
-                self.blocked.clear()
-                self._in_flight.clear()
-
-    def block(self, op: str, payload: dict[str, Any]) -> None:
-        with self._lock:
-            self.blocked.add(self.key(op, payload))
-
-    def is_blocked(self, op: str, payload: dict[str, Any]) -> bool:
-        with self._lock:
-            return self.key(op, payload) in self.blocked
-
-    def claim(
-        self,
-        op: str,
-        payload: dict[str, Any],
-    ) -> tuple[int | None, str | None]:
-        """Claim a target, returning its generation or a blocking notice."""
-        key = self.key(op, payload)
-        with self._lock:
-            if key in self.blocked:
-                return None, _RECALL_BLOCKED_NOTICE
-            if key in self._in_flight:
-                return None, _RECALL_IN_FLIGHT_NOTICE
-            generation = self._generation
-            self._in_flight[key] = generation
-            return generation, None
-
-    def finish(
-        self,
-        op: str,
-        payload: dict[str, Any],
-        generation: int,
-        *,
-        block: bool,
-    ) -> None:
-        """Release a claim and optionally block it for the claimed turn."""
-        key = self.key(op, payload)
-        with self._lock:
-            # A slow result from an earlier turn must not release or block a
-            # new turn's claim for the same target.
-            if self._in_flight.get(key) != generation:
-                return
-            self._in_flight.pop(key, None)
-            if block and generation == self._generation:
-                self.blocked.add(key)
 
 
 _DOC = """Recall your recorded conversation history (raw turns) — structured.
@@ -430,7 +333,6 @@ def make_recall_history(
     history_db_path: str,
     session_id: str | None,
     agent_id: str | None = None,
-    loop_guard: RecallLoopGuard | None = None,
     page_max_bytes: int = DEFAULT_MAX_BYTES,
 ):
     """Build a ``recall_history`` tool bound to one session's history.
@@ -572,68 +474,41 @@ def make_recall_history(
             "cursor": cursor,
         }
         request_fingerprint = _request_fingerprint(op, payload)
-        claim_generation: int | None = None
-        if loop_guard is not None:
-            claim_generation, blocked_notice = loop_guard.claim(op, payload)
-            if blocked_notice is not None:
-                return ToolChunk(
-                    content=[TextBlock(type="text", text=blocked_notice)],
-                    state=ToolResultState.SUCCESS,
-                )
-        block_target = False
         try:
-            try:
-                text, ok, page = await asyncio.to_thread(
-                    _run,
-                    op,
-                    lo,
-                    hi,
-                    query,
-                    k,
-                    kind,
-                    all_agents,
-                    session_id,
-                    agent_id,
-                    tool_call_id,
-                    cursor,
-                    request_fingerprint,
-                )
-            except (
-                Exception
-            ) as exc:  # noqa: BLE001 - surface, never crash the loop
-                logger.warning("recall_history failed", exc_info=True)
-                text, ok, page = (
-                    "RECALL FAILED — the history was NOT read "
-                    f"({type(exc).__name__}: {exc}). This is an execution "
-                    "error, not an empty history: fix the parameters and "
-                    "retry, or say explicitly that you could not retrieve "
-                    "the context.",
-                    False,
-                    {},
-                )
-            metadata: dict[str, Any] = {}
-            if page:
-                metadata[RECALL_PAGE_METADATA_KEY] = page
-            content = [TextBlock(type="text", text=text)]
-            if ok:
-                # A successful target is terminal for this user turn. The
-                # model may still issue a narrower span or different search.
-                block_target = True
-            return ToolChunk(
-                content=content,
-                state=(
-                    ToolResultState.SUCCESS if ok else ToolResultState.ERROR
-                ),
-                metadata=metadata,
+            text, ok, page = await asyncio.to_thread(
+                _run,
+                op,
+                lo,
+                hi,
+                query,
+                k,
+                kind,
+                all_agents,
+                session_id,
+                agent_id,
+                tool_call_id,
+                cursor,
+                request_fingerprint,
             )
-        finally:
-            if loop_guard is not None and claim_generation is not None:
-                loop_guard.finish(
-                    op,
-                    payload,
-                    claim_generation,
-                    block=block_target,
-                )
+        except Exception as exc:  # noqa: BLE001 - surface, never crash loop
+            logger.warning("recall_history failed", exc_info=True)
+            text, ok, page = (
+                "RECALL FAILED — the history was NOT read "
+                f"({type(exc).__name__}: {exc}). This is an execution "
+                "error, not an empty history: fix the parameters and "
+                "retry, or say explicitly that you could not retrieve "
+                "the context.",
+                False,
+                {},
+            )
+        metadata: dict[str, Any] = {}
+        if page:
+            metadata[RECALL_PAGE_METADATA_KEY] = page
+        return ToolChunk(
+            content=[TextBlock(type="text", text=text)],
+            state=(ToolResultState.SUCCESS if ok else ToolResultState.ERROR),
+            metadata=metadata,
+        )
 
     recall_history.__doc__ = _DOC
     # Attach the descriptor directly (not via @tool_descriptor) so the tool is
