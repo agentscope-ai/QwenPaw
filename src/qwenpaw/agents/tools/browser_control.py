@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 _MAX_DIRECT_URL_DOWNLOAD_BYTES = 10 * 1024 * 1024
 _CDP_CONNECT_TIMEOUT_SECONDS = 30.0
 _BROWSER_CLEANUP_TIMEOUT_SECONDS = 5.0
-MAX_WAITTIME = 60.0
+_MAX_WAITTIME = 60.0
 _HEADLESS_VERIFICATION_WARNING = (
     "Headless browser launches are more likely to trigger verification. "
     "If verification appears, call browser_use with action='stop' to stop "
@@ -2290,7 +2290,14 @@ async def _action_click(  # pylint: disable=too-many-branches,too-many-return-st
         )
     try:
         if wait > 0:
-            await asyncio.sleep(min(wait / 1000.0, MAX_WAITTIME))
+            wait_secs = wait / 1000.0
+            if wait_secs > _MAX_WAITTIME:
+                logger.warning(
+                    "click wait %.1fs exceeds _MAX_WAITTIME %.1fs, capping",
+                    wait_secs,
+                    _MAX_WAITTIME,
+                )
+            await asyncio.sleep(min(wait_secs, _MAX_WAITTIME))
         mods = _parse_json_param(modifiers_json, [])
         if not isinstance(mods, list):
             mods = []
@@ -4147,12 +4154,12 @@ async def _action_wait_for(
         )
     try:
         if wait_time and wait_time > 0:
-            capped_wait = min(float(wait_time), MAX_WAITTIME)
+            capped_wait = min(float(wait_time), _MAX_WAITTIME)
             if capped_wait < wait_time:
                 logger.warning(
-                    "wait_for wait_time %.1fs exceeds MAX_WAITTIME %.1fs, capping",
+                    "wait_for wait_time %.1fs exceeds _MAX_WAITTIME %.1fs, capping",
                     wait_time,
-                    MAX_WAITTIME,
+                    _MAX_WAITTIME,
                 )
             await asyncio.sleep(capped_wait)
         text = (text or "").strip()
@@ -4569,7 +4576,13 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
 
         # Post-action wait
         if sub_wait > 0:
-            await asyncio.sleep(min(float(sub_wait), MAX_WAITTIME))
+            if float(sub_wait) > _MAX_WAITTIME:
+                logger.warning(
+                    "batch wait %.1fs exceeds _MAX_WAITTIME %.1fs, capping",
+                    float(sub_wait),
+                    _MAX_WAITTIME,
+                )
+            await asyncio.sleep(min(float(sub_wait), _MAX_WAITTIME))
 
     completed = sum(1 for r in results if r.get("ok"))
     all_ok = completed == len(results)
@@ -5039,7 +5052,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
             Seconds to wait. Used with action=wait_for and as the download
             event timeout for action=file_download. Defaults to 30 seconds for
             file_download when omitted. For action=wait_for it is capped at
-            60 seconds (MAX_WAITTIME) to avoid blocking the agent.
+            60 seconds (_MAX_WAITTIME) to avoid blocking the agent.
         text_gone (str):
             Wait until this text disappears from page. Used with
             action=wait_for.
