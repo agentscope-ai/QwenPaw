@@ -79,12 +79,12 @@ class ChatPage(BasePage):
     SESSION_MORE_BTN = '[class*=moreBtn]'
     # ``:text-is`` is exact so "Pin" does not also match "Unpin".
     SESSION_MENU_PIN = (
-        '.qwenpaw-dropdown-menu-item:text-is("Pin"), '
-        '.qwenpaw-dropdown-menu-item:text-is("置顶")'
+        '.qwenpaw-dropdown-menu-item:has-text("Pin"), '
+        '.qwenpaw-dropdown-menu-item:has-text("置顶")'
     )
     SESSION_MENU_UNPIN = (
-        '.qwenpaw-dropdown-menu-item:text-is("Unpin"), '
-        '.qwenpaw-dropdown-menu-item:text-is("取消置顶")'
+        '.qwenpaw-dropdown-menu-item:has-text("Unpin"), '
+        '.qwenpaw-dropdown-menu-item:has-text("取消置顶")'
     )
     SESSION_MENU_RENAME = (
         '.qwenpaw-dropdown-menu-item:has-text("Rename"), '
