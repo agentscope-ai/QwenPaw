@@ -2835,13 +2835,25 @@ export default function ChatPage() {
           </>
         ),
         actionAffix: (
-          <ApprovalLevelToggle
-            sessionId={queueSessionId}
-            runningConfigApprovalLevel={runningConfigApprovalLevel}
-            onChange={(sessionOverride) => {
-              sessionApprovalLevelRef.current = sessionOverride;
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
             }}
-          />
+          >
+            <ContextUsageIndicator
+              onCompact={handleCompactCommand}
+              onNew={handleNewCommand}
+            />
+            <ApprovalLevelToggle
+              sessionId={queueSessionId}
+              runningConfigApprovalLevel={runningConfigApprovalLevel}
+              onChange={(sessionOverride) => {
+                sessionApprovalLevelRef.current = sessionOverride;
+              }}
+            />
+          </span>
         ),
         attachments: {
           multiple: true,
@@ -2882,12 +2894,6 @@ export default function ChatPage() {
         placeholder: extPlaceholder ?? t("chat.inputPlaceholder"),
         ...(extDisclaimer !== undefined ? { disclaimer: extDisclaimer } : {}),
         suggestions: [...baseSuggestions, ...pluginSuggestions],
-        actionAffix: (
-          <ContextUsageIndicator
-            onCompact={handleCompactCommand}
-            onNew={handleNewCommand}
-          />
-        ),
       },
       session: {
         multiple: true,

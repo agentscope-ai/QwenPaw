@@ -5,7 +5,7 @@ import { formatCompact } from "../../../../utils/formatNumber";
 import { useTurnUsageStore } from "../../turnUsageStore";
 import type { ContextUsage, TurnUsage } from "../../turnUsage";
 
-const RING_SIZE = 18;
+const RING_SIZE = 20;
 const RING_STROKE = 3;
 const RING_R = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRC = 2 * Math.PI * RING_R;
