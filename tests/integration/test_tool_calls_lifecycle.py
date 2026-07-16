@@ -423,7 +423,10 @@ def test_session_level_approval_off_short_circuits_governance(
 # E class — happy path (shell sleep observation window) (6 tests)
 # ================================================================== #
 
-_SHELL_SLEEP_SECS = 6
+# Wide enough that the RUNNING state stays observable across poll
+# cycles even on slow/loaded Windows CI runners (avoids an
+# intermittent race where the tool-call window slips between polls).
+_SHELL_SLEEP_SECS = 10
 
 
 def _portable_sleep_cmd(seconds: int) -> str:
@@ -494,7 +497,7 @@ def _submit_shell_sleep_task(  # pylint: disable=redefined-outer-name
     return submit_resp.json()["task_id"], session_id
 
 
-def _poll_for_entry(app_server, session_id, timeout=15.0):
+def _poll_for_entry(app_server, session_id, timeout=20.0):
     """Poll list_calls until at least one entry appears; return it."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -505,7 +508,7 @@ def _poll_for_entry(app_server, session_id, timeout=15.0):
         )
         if resp.status_code == 200 and resp.json()["total"] > 0:
             return resp.json()["items"][0]
-        time.sleep(0.3)
+        time.sleep(0.15)
     return None
 
 
