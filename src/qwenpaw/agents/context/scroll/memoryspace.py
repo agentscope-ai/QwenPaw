@@ -829,6 +829,11 @@ class MemorySpace:
                         )
                 out.append(extra)
                 if budget.is_exhausted():
+                    # Preserve the durable bounded preview even when scanning
+                    # the full artifact runs out of time or bytes. The
+                    # pointer and partial-scan notice are supplemental rows;
+                    # neither may replace the history row itself.
+                    out.append(row)
                     out.append(self._artifact_scan_notice())
                     return out
             out.append(row)

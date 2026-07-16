@@ -270,7 +270,11 @@ def _render_page(
         request_fingerprint=request_fingerprint,
         result_fingerprint=result_fingerprint,
     )
-    bounded_label = label if len(label) <= 160 else label[:157] + "..."
+    if len(label.encode("utf-8")) <= 160:
+        bounded_label = label
+    else:
+        bounded_label, _ = _utf8_prefix(label, 157)
+        bounded_label += "..."
     intro = f"{len(rows)} row(s) for {bounded_label}; recall page:"
     parts = [intro]
     used = len(intro.encode("utf-8"))
@@ -288,13 +292,9 @@ def _render_page(
         separator = "\n\n"
         available = content_limit - used - len(separator.encode("utf-8"))
         if available <= 0:
-            next_cursor = _encode_cursor(
-                row_index,
-                char_offset,
-                request_fingerprint=request_fingerprint,
-                result_fingerprint=result_fingerprint,
+            raise ValueError(
+                "recall page byte limit is too small to make progress",
             )
-            break
         if len(rendered.encode("utf-8")) <= available:
             parts.append(separator + rendered)
             used += len((separator + rendered).encode("utf-8"))

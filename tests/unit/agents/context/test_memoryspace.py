@@ -844,21 +844,12 @@ def test_saved_tool_file_search_streams_without_read_text(
     ]
 
 
-def test_saved_tool_search_reports_exhausted_scan_budget(tmp_path: Path):
+def test_attach_saved_tool_preserves_preview_when_scan_budget_exhausts(
+    tmp_path: Path,
+):
     artifact = tmp_path / "large.txt"
     artifact.write_text("x" * 100 + " needle\n", encoding="utf-8")
     history = HistoryStore(tmp_path / "history.db")
-    history.append(
-        session_id="archive",
-        agent_id="ag1",
-        dedup_key="large-result",
-        entry=LogEntry(
-            kind="tool_result",
-            role="assistant",
-            content=_saved_tool_notice(artifact),
-            tool_call_id="large-call",
-        ),
-    )
     history.close()
     space = MemorySpace(
         history_db_path=tmp_path / "history.db",
@@ -868,10 +859,27 @@ def test_saved_tool_search_reports_exhausted_scan_budget(tmp_path: Path):
     )
 
     try:
-        rows = space.search("needle", k=3)
+        rows = space._attach_saved_tool_file_matches(
+            [
+                {
+                    "seq": 1,
+                    "kind": "tool_result",
+                    "role": "assistant",
+                    "name": "read_file",
+                    "content": (
+                        "bounded preview retained in history\n"
+                        + _saved_tool_notice(artifact)
+                    ),
+                },
+            ],
+            "needle",
+        )
     finally:
         space.close()
 
     notices = [row for row in rows if row["kind"] == "_notice"]
     assert len(notices) == 1
     assert "Results are partial" in notices[0]["content"]
+    previews = [row for row in rows if row["kind"] == "tool_result"]
+    assert len(previews) == 1
+    assert "bounded preview retained in history" in previews[0]["content"]

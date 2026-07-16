@@ -24,6 +24,7 @@ from ..security.secret_store import (
     is_encrypted,
 )
 from .anthropic_provider import AnthropicProvider
+from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .dashscope_provider import DashScopeProvider
 from .gemini_provider import GeminiProvider
 from .lmstudio_provider import LMStudioProvider
@@ -2245,8 +2246,14 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                                 model.max_input_length = cfg[
                                     "max_input_length"
                                 ]
+                            configured_length = cfg.get("max_input_length")
                             model.max_input_length_configured = bool(
-                                cfg.get("max_input_length_configured", False),
+                                cfg.get("max_input_length_configured", False)
+                                or (
+                                    configured_length is not None
+                                    and configured_length
+                                    != DEFAULT_CONTEXT_WINDOW
+                                ),
                             )
                             if cfg.get("relay_reasoning") is not None:
                                 model.relay_reasoning = cfg["relay_reasoning"]

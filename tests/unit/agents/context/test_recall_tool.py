@@ -20,6 +20,7 @@ from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.memoryspace import MemorySpace
 from qwenpaw.agents.context.scroll.recall_tool import (
     RECALL_PAGE_METADATA_KEY,
+    _render_page,
     make_recall_history,
 )
 from qwenpaw.agents.context.types import LogEntry
@@ -155,6 +156,49 @@ async def test_large_recall_is_cursor_paginated(
     assert pages > 1
     assert page["complete"] is True
     assert "[recall page complete]" in _text(chunk)
+
+
+def test_render_page_with_long_utf8_label_always_advances():
+    rows = [
+        {
+            "seq": 1,
+            "kind": "model_turn",
+            "role": "assistant",
+            "content": "page content " * 200,
+        },
+    ]
+    label = "搜索" * 100
+
+    _, first = _render_page(
+        rows,
+        label=label,
+        cursor=None,
+        max_bytes=1000,
+        request_fingerprint="request",
+    )
+    _, second = _render_page(
+        rows,
+        label=label,
+        cursor=first["next_cursor"],
+        max_bytes=1000,
+        request_fingerprint="request",
+    )
+
+    assert first["next_cursor"] is not None
+    assert second["next_cursor"] != first["next_cursor"]
+
+
+def test_render_page_fails_when_byte_limit_cannot_make_progress():
+    rows = [{"seq": 1, "kind": "model_turn", "content": "content"}]
+
+    with pytest.raises(ValueError, match="too small to make progress"):
+        _render_page(
+            rows,
+            label="搜索" * 100,
+            cursor=None,
+            max_bytes=100,
+            request_fingerprint="request",
+        )
 
 
 async def test_large_historical_tool_result_exposes_artifact_on_first_page(
