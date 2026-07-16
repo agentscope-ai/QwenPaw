@@ -424,7 +424,7 @@ def test_session_level_approval_off_short_circuits_governance(
 # E class — happy path (shell sleep observation window) (6 tests)
 # ================================================================== #
 
-_SHELL_SLEEP_SECS = 6
+_SHELL_SLEEP_SECS = 20
 
 
 def _portable_sleep_cmd(seconds: int) -> str:
