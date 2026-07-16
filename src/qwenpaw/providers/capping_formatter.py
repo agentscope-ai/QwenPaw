@@ -63,13 +63,26 @@ def _resolve_local_path(url: str) -> str | None:
     """Resolve a URL or bare path to a local filesystem path.
 
     Returns ``None`` for remote URLs / data URIs.
-    Handles both ``file://`` URIs and bare local paths
-    (produced by ``_fixup_media_list`` normalization).
+    Handles both ``file://`` URIs (including UNC authority
+    form) and bare local paths (produced by
+    ``_fixup_media_list`` normalization).
     """
     if _is_remote_url(url):
         return None
     if url.startswith("file://"):
-        return url2pathname(urlparse(url).path)
+        parsed = urlparse(url)
+        if parsed.netloc:
+            # Distinguish drive letter (e.g. "C:") from UNC server.
+            nl = parsed.netloc
+            if len(nl) == 2 and nl[0].isalpha() and nl[1] == ":":
+                # Two-slash Windows: file://C:/path
+                full_path = f"{nl}{parsed.path}"
+            else:
+                # UNC: file://server/share/path
+                full_path = f"//{nl}{parsed.path}"
+        else:
+            full_path = parsed.path
+        return url2pathname(full_path)
     return url
 
 

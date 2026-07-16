@@ -454,3 +454,19 @@ def test_datablock_percent_encoded_uri_resolved(
     model_factory._fixup_media_list(items)
 
     assert items[0].source.url == "/tmp/中文.png"
+
+
+def test_datablock_unc_file_uri_resolved(
+    monkeypatch,
+) -> None:
+    """file://server/share/x.png → //server/share/x.png (UNC)."""
+    monkeypatch.setattr("os.path.exists", lambda p: True)
+
+    block = _data_block(
+        "image/png",
+        "file://server/share/x.png",
+    )
+    items: list = [block]
+    model_factory._fixup_media_list(items)
+
+    assert items[0].source.url == "//server/share/x.png"
