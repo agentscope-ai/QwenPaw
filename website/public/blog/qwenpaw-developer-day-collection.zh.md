@@ -2,7 +2,7 @@
 title: "QwenPaw 开发者日会合集"
 date: 2026-07-09
 author: QwenPaw Team
-tags: [QwenPaw, 日会合集]
+tags: [开发者日会, 会议纪要, 会议录屏]
 cover: /blog/qwenpaw-developer-day-collection-cover.png
 excerpt: "QwenPaw团队召开开发者日会，为每一位 QwenPaw 开发者与爱好者提供一份兼具理论深度与落地价值的完整技术交流档案。"
 ---

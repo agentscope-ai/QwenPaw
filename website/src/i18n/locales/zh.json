@@ -11,7 +11,17 @@
     "lang": "ENG",
     "platform": "Platform",
     "platformTitle": "AgentScope 体验平台",
-    "agentscopeTeam": "AgentScope"
+    "agentscopeTeam": "AgentScope",
+    "communityBenefits": "社区福利",
+    "communityBenefitsNew": "NEW",
+    "benefit1Title": "百炼新客免费 1 亿 token",
+    "benefit1Desc": "点击查询我的免费额度",
+    "benefit2Title": "无门槛 Token 满返补贴",
+    "benefit2Desc": "个企同享新老同享，最高 200 元",
+    "benefit3Title": "最高 100 万元等额 Token",
+    "benefit3Desc": "OPC 创新助力，补贴权益升级",
+    "benefit4Title": "高校学生创新补贴",
+    "benefit4Desc": "50 元模型通兑，分享赢 iphone17"
   },
   "hero": {
     "titleleft": "欢迎使用你的",
