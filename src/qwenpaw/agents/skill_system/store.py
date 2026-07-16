@@ -478,7 +478,10 @@ def _is_builtin_skill(skill_name: str, builtin_names: list[str]) -> bool:
 def is_pool_builtin_entry(entry: dict[str, Any] | None) -> bool:
     """Return whether one pool manifest entry represents a builtin slot."""
     normalized = normalize_skill_manifest_entry(entry)
-    return bool(normalized) and str(normalized.get("source", "") or "") == "builtin"
+    return (
+        bool(normalized)
+        and str(normalized.get("source", "") or "") == "builtin"
+    )
 
 
 def classify_pool_skill_source(
@@ -908,7 +911,8 @@ def validate_skill_content(content: str) -> tuple[str, str]:
     if not skill_name or not skill_description:
         raise SkillsError(
             message=(
-                "SKILL.md must include non-empty frontmatter " "name and description"
+                "SKILL.md must include non-empty frontmatter "
+                "name and description"
             ),
         )
     metadata = post.get("metadata")
@@ -983,7 +987,9 @@ def extract_zip_skills(data: bytes) -> tuple[Path, list[tuple[Path, str]]]:
     tmp_dir = Path(tempfile.mkdtemp(prefix="qwenpaw_skill_upload_"))
     _extract_and_validate_zip(data, tmp_dir)
     real_entries = [
-        path for path in tmp_dir.iterdir() if not is_ignored_skill_entry(path.name)
+        path
+        for path in tmp_dir.iterdir()
+        if not is_ignored_skill_entry(path.name)
     ]
     extract_root = (
         real_entries[0]

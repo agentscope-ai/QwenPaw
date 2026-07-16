@@ -384,7 +384,9 @@ def _get_advapi32():
             ctypes.c_void_p,  # pSecurityDescriptor
             ctypes.wintypes.DWORD,  # dwRevision
         ]
-        _dll_advapi32.InitializeSecurityDescriptor.restype = ctypes.wintypes.BOOL
+        _dll_advapi32.InitializeSecurityDescriptor.restype = (
+            ctypes.wintypes.BOOL
+        )
         _dll_advapi32.SetSecurityDescriptorDacl.argtypes = [
             ctypes.c_void_p,  # pSecurityDescriptor
             ctypes.wintypes.BOOL,  # bDaclPresent
@@ -864,7 +866,8 @@ def _logon_user(username: str, password: str) -> ctypes.wintypes.HANDLE:
     )
     if not ok:
         raise OSError(
-            f"LogonUserW failed for '{username}': " f"error={ctypes.get_last_error()}",
+            f"LogonUserW failed for '{username}': "
+            f"error={ctypes.get_last_error()}",
         )
     return h_token
 
@@ -962,7 +965,8 @@ def _get_token_info_raw(
     )
     if not ok:
         raise OSError(
-            f"GetTokenInformation({label}) failed: " f"error={ctypes.get_last_error()}",
+            f"GetTokenInformation({label}) failed: "
+            f"error={ctypes.get_last_error()}",
         )
     return buf
 
@@ -1192,7 +1196,10 @@ def _set_default_dacl(
     if not sids:
         return
 
-    built = [_build_explicit_access(sid, _GENERIC_ALL, _GRANT_ACCESS) for sid in sids]
+    built = [
+        _build_explicit_access(sid, _GENERIC_ALL, _GRANT_ACCESS)
+        for sid in sids
+    ]
     entries = (_EXPLICIT_ACCESS_W * len(sids))(*built)
 
     p_new_dacl = ctypes.c_void_p()
@@ -2087,7 +2094,9 @@ def _build_shell_command_line(
     The sandbox itself is the security boundary, not execution policy or shell
     restrictions.
     """
-    name = os.path.basename(shell_executable).lower() if shell_executable else ""
+    name = (
+        os.path.basename(shell_executable).lower() if shell_executable else ""
+    )
     if shell_executable and name in _POWERSHELL_NAMES:
         ps_cmd = cmd.replace('"', '\\"')
         return (
@@ -2339,7 +2348,8 @@ def _compute_config_fingerprint(config: SandboxConfig) -> str:
             os.path.normpath(os.path.expanduser(p)) for p in config.deny_paths
         ),
         "mounts": sorted(
-            (os.path.normpath(m.path), m.writable, m.executable) for m in config.mounts
+            (os.path.normpath(m.path), m.writable, m.executable)
+            for m in config.mounts
         ),
         "network_allow": sorted(config.network_allow),
         "python_dir": os.path.normpath(python_dir) if python_dir else None,
@@ -2565,7 +2575,9 @@ def _create_new_sandbox(
     # Without this, processes crash with STATUS_DLL_INIT_FAILED (0xC0000142).
     _grant_winsta_desktop_access(user_sid_string)
 
-    network_blocked = not (bool(config.network_allow) and "*" in config.network_allow)
+    network_blocked = not (
+        bool(config.network_allow) and "*" in config.network_allow
+    )
     if network_blocked:
         _install_wfp_block_filters(username, user_sid_string)
 
@@ -3056,7 +3068,10 @@ def _remove_acl_with_verify_sync(path: str, sid: str) -> bool:
 
     for attempt, strategy in enumerate(strategies, 1):
         # Respect the shutdown time budget: abort early if deadline exceeded.
-        if _SHUTDOWN_ACL_DEADLINE and time.monotonic() > _SHUTDOWN_ACL_DEADLINE:
+        if (
+            _SHUTDOWN_ACL_DEADLINE
+            and time.monotonic() > _SHUTDOWN_ACL_DEADLINE
+        ):
             logger.warning(
                 "ACL cleanup timeout reached; skipping remaining ACL "
                 "removal for %s (will retry on next admin startup)",
