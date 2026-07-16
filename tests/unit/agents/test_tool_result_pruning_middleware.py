@@ -32,10 +32,12 @@ from qwenpaw.agents.tools.utils import (  # noqa: E402
 )
 from qwenpaw.config.config import (  # noqa: E402
     LightContextConfig,
+    ScrollContextConfig,
     ToolResultPruningConfig,
 )
 from qwenpaw.constant import TRUNCATION_NOTICE_MARKER  # noqa: E402
 from qwenpaw.runtime.builder import AgentBuilder  # noqa: E402
+from qwenpaw.agents.react_agent import QwenPawAgent  # noqa: E402
 from qwenpaw.tool_calls import (  # noqa: E402
     ToolCoordinator,
     ToolCoordinatorMiddleware,
@@ -54,6 +56,41 @@ async def _collect(iterator: AsyncGenerator[Any, None]) -> list[Any]:
     async for item in iterator:
         events.append(item)
     return events
+
+
+@pytest.mark.asyncio
+async def test_scroll_artifact_retention_uses_tool_result_setting():
+    class OffloaderStub:
+        def __init__(self) -> None:
+            self.retention_days: list[int] = []
+
+        def cleanup_expired(self, retention_days: int) -> None:
+            self.retention_days.append(retention_days)
+
+    offloader = OffloaderStub()
+    lcc = LightContextConfig(
+        strategy="scroll",
+        tool_result_pruning_config=ToolResultPruningConfig(
+            offload_retention_days=7,
+        ),
+        scroll_config=ScrollContextConfig(history_retention_days=45),
+    )
+    agent = types.SimpleNamespace(
+        _governor=None,
+        _context_manager=None,
+        offloader=offloader,
+        _agent_config=types.SimpleNamespace(
+            running=types.SimpleNamespace(light_context_config=lcc),
+        ),
+    )
+
+    await QwenPawAgent.close(agent)
+    assert offloader.retention_days == [7]
+
+    lcc.scroll_config.history_retention_days = 0
+    offloader.retention_days.clear()
+    await QwenPawAgent.close(agent)
+    assert offloader.retention_days == [7]
 
 
 @pytest.mark.asyncio

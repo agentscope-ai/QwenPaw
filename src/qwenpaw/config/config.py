@@ -61,6 +61,7 @@ class ActiveModelsInfo(BaseModel):
     """Active models information for provider manager."""
 
     active_llm: ModelSlotConfig | None
+    effective_max_input_length: int | None = None
 
 
 class ACPAgentConfig(BaseModel):
@@ -782,7 +783,8 @@ class ToolResultPruningConfig(BaseModel):
         le=10,
         description=(
             "Number of recent tool-result-bearing messages to keep at the "
-            "recent preview byte limit before scroll compaction."
+            "recent preview byte limit. Scroll keeps all live previews at "
+            "this limit until pressure-driven pointer folding is required."
         ),
     )
 
@@ -790,8 +792,10 @@ class ToolResultPruningConfig(BaseModel):
         default=3000,
         ge=100,
         description=(
-            "Byte threshold for tool result previews retained in live context "
-            "after scroll compaction."
+            "Older tool-result preview byte limit for non-Scroll context "
+            "strategies. Scroll does not use a fixed old-result size "
+            "threshold; it folds recoverable results only while the rebuilt "
+            "context remains under pressure."
         ),
     )
 
@@ -805,10 +809,15 @@ class ToolResultPruningConfig(BaseModel):
     )
 
     offload_retention_days: int = Field(
-        default=5,
+        default=30,
         ge=1,
-        le=10,
-        description="Number of days to retain tool result files",
+        le=365,
+        description=(
+            "Number of days to retain complete archived tool result files. "
+            "This lifetime is independent of Scroll history retention; after "
+            "expiry, history may still contain the bounded preview but not "
+            "the complete artifact."
+        ),
     )
 
     tool_results_cache: str = Field(
