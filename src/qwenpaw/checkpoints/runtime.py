@@ -1,0 +1,211 @@
+# -*- coding: utf-8 -*-
+"""Workspace service lifecycle and automatic snapshot scheduling."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import threading
+import time
+from pathlib import Path
+from typing import Any, Callable, Coroutine
+
+from .policy import DEFAULT_AUTO_DEBOUNCE_SECONDS
+from .service import CheckpointService
+from .policy import session_key
+
+logger = logging.getLogger("qwenpaw.checkpoints")
+
+_AUTO_GC_INTERVAL_SECONDS = 15 * 60
+
+
+class Debouncer:
+    """Asyncio debounce helper keyed by workspace/session."""
+
+    def __init__(self, delay_time: float = DEFAULT_AUTO_DEBOUNCE_SECONDS):
+        self.delay = delay_time
+        self._pending: dict[str, asyncio.TimerHandle] = {}
+        self._tasks: set[asyncio.Task[None]] = set()
+        self._tasks_by_key: dict[str, set[asyncio.Task[None]]] = {}
+
+    def schedule(
+        self,
+        key: str,
+        coro_factory: Callable[[], Coroutine[Any, Any, None]],
+        delay: float | None = None,
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        handle = self._pending.pop(key, None)
+        if handle is not None:
+            handle.cancel()
+
+        def _run() -> None:
+            self._pending.pop(key, None)
+            task = asyncio.create_task(coro_factory())
+            self._tasks.add(task)
+            self._tasks_by_key.setdefault(key, set()).add(task)
+
+            def _done(completed: asyncio.Task[None]) -> None:
+                self._tasks.discard(completed)
+                keyed_tasks = self._tasks_by_key.get(key)
+                if keyed_tasks is None:
+                    return
+                keyed_tasks.discard(completed)
+                if not keyed_tasks:
+                    self._tasks_by_key.pop(key, None)
+
+            task.add_done_callback(_done)
+
+        self._pending[key] = loop.call_later(
+            self.delay if delay is None else delay,
+            _run,
+        )
+
+    def cancel_pending(self, key: str) -> tuple[asyncio.Task[None], ...]:
+        """Cancel a pending timer and return snapshots already running."""
+        handle = self._pending.pop(key, None)
+        if handle is not None:
+            handle.cancel()
+        return tuple(self._tasks_by_key.get(key, ()))
+
+    def cancel_all(self) -> None:
+        for handle in self._pending.values():
+            handle.cancel()
+        self._pending.clear()
+
+    async def wait_all(self) -> None:
+        if self._tasks:
+            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+
+
+class CheckpointRuntime:
+    """Own workspace-scoped services and automatic snapshot scheduling."""
+
+    def __init__(self) -> None:
+        self._services: dict[str, CheckpointService] = {}
+        self._lock = threading.Lock()
+        self._generation = 0
+        self._last_auto_gc: dict[str, float] = {}
+        self.debouncer = Debouncer()
+
+    def get_for_workspace(self, workspace: Any) -> CheckpointService:
+        service = self.get_for_workspace_dir(workspace.workspace_dir)
+        service.workspace = workspace
+        return service
+
+    def get_for_workspace_dir(
+        self,
+        workspace_dir: str | Path,
+    ) -> CheckpointService:
+        key = str(Path(workspace_dir).expanduser().resolve())
+        with self._lock:
+            service = self._services.get(key)
+            if service is None:
+                service = CheckpointService(key)
+                self._services[key] = service
+                self._last_auto_gc[key] = time.monotonic()
+            return service
+
+    def schedule_auto_snapshot(
+        self,
+        workspace: Any,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        query_text: str | None = None,
+    ) -> None:
+        if not session_id:
+            return
+        service = self.get_for_workspace(workspace)
+        if not service.auto_enabled:
+            return
+        key = session_key(
+            channel=channel,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        debounce_key = f"{service.workspace_dir}:{key}"
+        workspace_key = str(service.workspace_dir)
+        with self._lock:
+            generation = self._generation
+
+        async def _snapshot() -> None:
+            try:
+                # The setting may have been disabled while this debounced task
+                # was waiting to run.
+                if not service.auto_enabled:
+                    return
+                with self._lock:
+                    if (
+                        generation != self._generation
+                        or self._services.get(workspace_key) is not service
+                    ):
+                        return
+                await service.make_auto_checkpoint(
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    query=query_text,
+                )
+
+                now = time.monotonic()
+                with self._lock:
+                    last_gc = self._last_auto_gc.get(workspace_key, 0.0)
+                    should_gc = now - last_gc >= _AUTO_GC_INTERVAL_SECONDS
+                    if should_gc:
+                        self._last_auto_gc[workspace_key] = now
+                if should_gc:
+                    await service.gc(
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                    )
+            except Exception:
+                logger.exception("Checkpoint auto snapshot failed")
+
+        self.debouncer.schedule(
+            debounce_key,
+            _snapshot,
+            delay=service.auto_debounce_seconds,
+        )
+
+    async def flush_and_close_all(self) -> None:
+        self.debouncer.cancel_all()
+        with self._lock:
+            self._generation += 1
+        await self.debouncer.wait_all()
+        with self._lock:
+            self._services.clear()
+            self._last_auto_gc.clear()
+
+    async def delete_session_checkpoints(
+        self,
+        workspace: Any,
+        sessions: list[tuple[str, str, str]],
+    ) -> tuple[str, ...]:
+        """Quiesce auto snapshots, then remove session checkpoint state."""
+        workspace_dir = Path(workspace.workspace_dir).expanduser().resolve()
+        workspace_key = str(workspace_dir)
+        with self._lock:
+            service = self._services.get(workspace_key)
+        if service is None:
+            if not (workspace_dir / "checkpoints" / "shadow.git").is_dir():
+                return ()
+            service = self.get_for_workspace_dir(workspace_dir)
+        service.workspace = workspace
+        active_tasks: set[asyncio.Task[None]] = set()
+        for session_id, user_id, channel in sessions:
+            key = session_key(
+                channel=channel,
+                user_id=user_id,
+                session_id=session_id,
+            )
+            debounce_key = f"{service.workspace_dir}:{key}"
+            active_tasks.update(self.debouncer.cancel_pending(debounce_key))
+        if active_tasks:
+            await asyncio.gather(*active_tasks, return_exceptions=True)
+        return await service.delete_sessions(sessions)
+
+
+RUNTIME = CheckpointRuntime()
