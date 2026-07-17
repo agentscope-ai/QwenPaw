@@ -29,6 +29,7 @@ const hoisted = vi.hoisted(() => {
     auto_denied_rules: [],
     shell_evasion_checks: {},
   }));
+  const markSandboxSavedMock = vi.fn();
   const setEnabledMock = vi.fn();
   const fetchAllMock = vi.fn();
   return {
@@ -40,6 +41,7 @@ const hoisted = vi.hoisted(() => {
     apiMocks,
     stableT,
     buildSaveBodyMock,
+    markSandboxSavedMock,
     setEnabledMock,
     fetchAllMock,
   };
@@ -78,6 +80,8 @@ vi.mock("./useToolGuard", () => ({
     enabled: true,
     setEnabled: hoisted.setEnabledMock,
     sandboxEnabled: true,
+    savedSandboxEnabled: false,
+    markSandboxSaved: hoisted.markSandboxSavedMock,
     setSandboxEnabled: vi.fn(),
     mergedRules: [],
     shellEvasionChecks: {},
@@ -103,6 +107,7 @@ const {
   messageMock,
   apiMocks,
   fetchAllMock,
+  markSandboxSavedMock,
 } = hoisted;
 
 describe("useSecurityPage", () => {
@@ -119,6 +124,7 @@ describe("useSecurityPage", () => {
     apiMocks.updateSandbox.mockResolvedValue({ enabled: true });
     hoisted.buildSaveBodyMock.mockClear();
     hoisted.setEnabledMock.mockClear();
+    markSandboxSavedMock.mockClear();
   });
 
   it("handleSave calls api.updateToolGuard with guarded_tools array and message.success", async () => {
@@ -144,6 +150,9 @@ describe("useSecurityPage", () => {
     expect(body.auto_denied_rules).toEqual([]);
     expect(messageMock.success).toHaveBeenCalledWith("security.saveSuccess");
     expect(hoisted.setEnabledMock).toHaveBeenCalledWith(true);
+    // Sandbox should be saved first (since sandboxEnabled=true !== savedSandboxEnabled=false)
+    expect(apiMocks.updateSandbox).toHaveBeenCalledTimes(1);
+    expect(markSandboxSavedMock).toHaveBeenCalledTimes(1);
   });
 
   it("handleSave sets guarded_tools to null when guardedTools is empty", async () => {
@@ -231,5 +240,77 @@ describe("useSecurityPage", () => {
     expect(setArg.severity).toBe("HIGH");
     expect(setArg.category).toBe("command_injection");
     expect(setArg.patterns).toBe("");
+  });
+
+  it("handleSave skips updateSandbox when sandbox value unchanged", async () => {
+    // Override mock so savedSandboxEnabled === sandboxEnabled (both true)
+    vi.doMock("./useToolGuard", () => ({
+      __esModule: true,
+      useToolGuard: () => ({
+        config: null,
+        customRules: [],
+        builtinRules: [],
+        enabled: true,
+        setEnabled: hoisted.setEnabledMock,
+        sandboxEnabled: true,
+        savedSandboxEnabled: true,
+        markSandboxSaved: hoisted.markSandboxSavedMock,
+        setSandboxEnabled: vi.fn(),
+        mergedRules: [],
+        shellEvasionChecks: {},
+        toggleShellEvasionCheck: vi.fn(),
+        loading: false,
+        error: null,
+        fetchAll: hoisted.fetchAllMock,
+        toggleRule: vi.fn(),
+        toggleAutoDeny: vi.fn(),
+        deleteCustomRule: vi.fn(),
+        addCustomRule: vi.fn(),
+        updateCustomRule: vi.fn(),
+        buildSaveBody: hoisted.buildSaveBodyMock,
+      }),
+    }));
+    mockFormValidateFields.mockResolvedValue({
+      enabled: true,
+      guarded_tools: ["t1"],
+      denied_tools: [],
+    });
+    apiMocks.updateToolGuard.mockResolvedValue({});
+
+    const { result } = renderHook(() => useSecurityPage());
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    // Sandbox should NOT be called since value hasn't changed
+    expect(apiMocks.updateSandbox).not.toHaveBeenCalled();
+    // Tool Guard should still be saved
+    expect(apiMocks.updateToolGuard).toHaveBeenCalledTimes(1);
+    expect(messageMock.success).toHaveBeenCalledWith("security.saveSuccess");
+  });
+
+  it("handleSave does not call updateToolGuard when sandbox save fails", async () => {
+    mockFormValidateFields.mockResolvedValue({
+      enabled: true,
+      guarded_tools: ["t1"],
+      denied_tools: [],
+    });
+    apiMocks.updateSandbox.mockRejectedValue(
+      new Error("Sandbox requires administrator privileges."),
+    );
+
+    const { result } = renderHook(() => useSecurityPage());
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    // Sandbox fails first, so Tool Guard should NOT be called
+    expect(apiMocks.updateToolGuard).not.toHaveBeenCalled();
+    expect(messageMock.error).toHaveBeenCalledWith(
+      "Sandbox requires administrator privileges.",
+    );
+    expect(messageMock.success).not.toHaveBeenCalled();
   });
 });

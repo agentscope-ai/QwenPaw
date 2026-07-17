@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../../../api";
 import type {
   ToolGuardConfig,
@@ -22,6 +22,10 @@ export function useToolGuard() {
   >({});
   const [enabled, setEnabled] = useState(true);
   const [sandboxEnabled, setSandboxEnabled] = useState(false);
+  // Track the last *persisted* sandbox value so the save handler can
+  // skip the API call when nothing changed (avoids unnecessary 403s
+  // and partial-save side-effects).
+  const savedSandboxEnabledRef = useRef(false);
   const [sandboxEffective, setSandboxEffective] = useState(true);
   const [sandboxReason, setSandboxReason] = useState<string | null>(null);
 
@@ -62,6 +66,7 @@ export function useToolGuard() {
       setAutoDenyRules(new Set(cfg.auto_denied_rules ?? []));
       setShellEvasionChecks(cfg.shell_evasion_checks ?? {});
       setSandboxEnabled(sandbox.enabled);
+      savedSandboxEnabledRef.current = sandbox.enabled;
       setSandboxEffective(sandbox.effective);
       setSandboxReason(sandbox.reason);
     } catch (err) {
@@ -183,6 +188,10 @@ export function useToolGuard() {
     enabled,
     setEnabled,
     sandboxEnabled,
+    savedSandboxEnabled: savedSandboxEnabledRef.current,
+    markSandboxSaved: useCallback(() => {
+      savedSandboxEnabledRef.current = sandboxEnabled;
+    }, [sandboxEnabled]),
     setSandboxEnabled: handleSandboxToggle,
     sandboxEffective,
     sandboxReason,
