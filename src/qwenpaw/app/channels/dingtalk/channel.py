@@ -59,6 +59,7 @@ from ....config.utils import get_config_path
 from ....constant import DEFAULT_MEDIA_DIR
 from ....exceptions import ChannelError
 
+from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
     ContentType,
@@ -138,14 +139,12 @@ class DingTalkChannel(BaseChannel):
         media_dir: str = "",
         workspace_dir: Path | None = None,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
         dm_policy: str = "open",
         group_policy: str = "open",
         allow_from: Optional[List[str]] = None,
         deny_message: str = "",
-        filter_thinking: bool = False,
         require_mention: bool = False,
         card_auto_layout: bool = False,
         at_sender_on_reply: bool = False,
@@ -171,10 +170,8 @@ class DingTalkChannel(BaseChannel):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config,
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             dm_policy=dm_policy,
             group_policy=group_policy,
             allow_from=allow_from,
@@ -304,10 +301,8 @@ class DingTalkChannel(BaseChannel):
         process: ProcessHandler,
         config: DingTalkChannelConfig,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "DingTalkChannel":
         return cls(
@@ -330,14 +325,13 @@ class DingTalkChannel(BaseChannel):
             media_dir=config.media_dir or "",
             workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
             no_text_debounce=no_text_debounce,
             dm_policy=config.dm_policy or "open",
             group_policy=config.group_policy or "open",
             allow_from=config.allow_from or [],
             deny_message=config.deny_message or "",
-            filter_thinking=filter_thinking,
             require_mention=config.require_mention,
             card_auto_layout=getattr(config, "card_auto_layout", False),
             at_sender_on_reply=getattr(

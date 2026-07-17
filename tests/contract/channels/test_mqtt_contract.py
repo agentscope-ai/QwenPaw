@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 from tests.contract.channels import ChannelContractTest
 
@@ -44,6 +45,8 @@ class TestMQTTChannelContract(ChannelContractTest):
             subscribe_topic="copaw/in",
             publish_topic="copaw/out",
             bot_prefix="[Test]",
-            show_tool_details=False,
-            filter_tool_messages=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )

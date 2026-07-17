@@ -18,6 +18,7 @@ from urllib.parse import unquote
 import aiohttp
 from aiohttp import web
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 from qwenpaw.app.channels.base import (
     BaseChannel,
     AudioContent,
@@ -105,10 +106,8 @@ class AzureBotChannel(BaseChannel):
         media_dir: str = "",
         workspace_dir: Optional[Path] = None,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         dm_policy: str = "open",
         group_policy: str = "open",
         allow_from: Optional[List[str]] = None,
@@ -121,10 +120,8 @@ class AzureBotChannel(BaseChannel):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config,
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             dm_policy=dm_policy,
             group_policy=group_policy,
             allow_from=allow_from,
@@ -277,10 +274,8 @@ class AzureBotChannel(BaseChannel):
         process: ProcessHandler,
         config: AzureBotChannelConfig,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         workspace_dir: Optional[Path] = None,
     ) -> "AzureBotChannel":
         return cls(
@@ -297,10 +292,9 @@ class AzureBotChannel(BaseChannel):
             media_dir=getattr(config, "media_dir", "") or "",
             workspace_dir=workspace_dir,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             dm_policy=getattr(config, "dm_policy", "") or "open",
             group_policy=getattr(config, "group_policy", "") or "open",
             allow_from=getattr(config, "allow_from", None) or [],

@@ -16,6 +16,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+
 from tests.contract.channels import ChannelContractTest
 
 if TYPE_CHECKING:
@@ -44,8 +46,10 @@ class TestFeishuChannelContract(ChannelContractTest):
             bot_prefix="[Test]",
             encrypt_key="",
             verification_token="",
-            show_tool_details=False,
-            filter_tool_messages=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
 
     # =========================================================================

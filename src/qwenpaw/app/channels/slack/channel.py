@@ -54,6 +54,7 @@ from qwenpaw.schemas import (
     TextContent,
 )
 from ....config.config import SlackConfig as SlackChannelConfig
+from ..renderer import ChannelDisplayConfig
 from ..base import BaseChannel, ProcessHandler, OnReplySent
 from .constants import (
     SLACK_RECONNECT_FACTOR,
@@ -137,10 +138,8 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         streaming_enabled: bool = False,
         require_mention: bool = True,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         dm_policy: str = "open",
         group_policy: str = "open",
         allow_from: Optional[list] = None,
@@ -155,10 +154,8 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         super().__init__(
             process=process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config,
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             dm_policy=dm_policy,
             group_policy=group_policy,
             allow_from=allow_from,
@@ -242,27 +239,12 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         process: ProcessHandler,
         config: Any,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "SlackChannel":
-        # Read from config if present, otherwise fall back to caller args
-        show_tool_details = getattr(
+        display_config = display_config or ChannelDisplayConfig.from_config(
             config,
-            "show_tool_details",
-            show_tool_details,
-        )
-        filter_tool_messages = getattr(
-            config,
-            "filter_tool_messages",
-            filter_tool_messages,
-        )
-        filter_thinking = getattr(
-            config,
-            "filter_thinking",
-            filter_thinking,
         )
         return cls(
             process=process,
@@ -274,10 +256,8 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
             streaming_enabled=getattr(config, "streaming_enabled", False),
             require_mention=getattr(config, "require_mention", True),
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config,
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             dm_policy=getattr(config, "dm_policy", "open"),
             group_policy=getattr(config, "group_policy", "open"),
             allow_from=getattr(config, "allow_from", None),
@@ -615,7 +595,10 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         accumulated_text: str = "",
     ) -> None:
         """Send a placeholder message for streaming."""
-        if stream_type == "reasoning" and self._filter_thinking:
+        if (
+            stream_type == "reasoning"
+            and not self._display_config.show_thinking
+        ):
             return
 
         channel_id = send_meta.get("slack_channel_id") or ""
@@ -655,7 +638,10 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         accumulated_text: str = "",
     ) -> None:
         """Update the streaming placeholder with accumulated text."""
-        if stream_type == "reasoning" and self._filter_thinking:
+        if (
+            stream_type == "reasoning"
+            and not self._display_config.show_thinking
+        ):
             return
 
         state = self._get_stream_state(send_meta)
@@ -699,7 +685,10 @@ class SlackChannel(BaseChannel):  # pylint: disable=too-many-public-methods
         msg_ts = state["message_ts"].pop(stream_type, None)
         channel_id = state["channel_id"]
 
-        if stream_type == "reasoning" and self._filter_thinking:
+        if (
+            stream_type == "reasoning"
+            and not self._display_config.show_thinking
+        ):
             return
 
         if not accumulated_text.strip():

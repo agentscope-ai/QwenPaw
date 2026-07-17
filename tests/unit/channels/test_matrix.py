@@ -26,6 +26,7 @@ from qwenpaw.schemas import (
     TextContent,
 )
 from qwenpaw.app.channels.matrix.channel import MatrixChannel
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 from qwenpaw.config.config import MatrixConfig
 
 
@@ -140,16 +141,20 @@ class TestMatrixChannelInit:
             group_disabled=False,
             access_control_dm=True,
             on_reply_sent=Mock(),
-            show_tool_details=False,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_details=False,
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
 
         assert channel.dm_disabled is True
         assert channel.group_disabled is False
-        assert channel._show_tool_details is False
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is False
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
 
 
 class TestMatrixChannelFromConfig:
@@ -176,14 +181,18 @@ class TestMatrixChannelFromConfig:
         channel = MatrixChannel.from_config(
             process=mock_process,
             config=matrix_config,
-            show_tool_details=False,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_details=False,
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
 
-        assert channel._show_tool_details is False
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is False
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
 
     def test_from_env_raises_not_implemented(self, mock_process):
         """Test that from_env creates a channel (uses env vars)."""

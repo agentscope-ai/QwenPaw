@@ -22,6 +22,7 @@ from typing import (
 from qwenpaw.config.config import SIPChannelConfig
 
 from ._audioop_compat import audioop  # noqa: F401  # must be first
+from ..renderer import ChannelDisplayConfig
 from ..base import BaseChannel, OnReplySent, ProcessHandler
 from .backend import SipBackend
 from .session import SIPCallSessionManager
@@ -50,18 +51,14 @@ class SIPChannel(BaseChannel):
         self,
         process: ProcessHandler,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
     ) -> None:
         super().__init__(
             process,
             on_reply_sent,
-            show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config,
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
         )
         self.backend: Optional[SipBackend] = None
         self.session_mgr = SIPCallSessionManager()
@@ -81,18 +78,15 @@ class SIPChannel(BaseChannel):
         process: ProcessHandler,
         config: SIPChannelConfig,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
     ) -> "SIPChannel":
         instance = cls(
             process,
             on_reply_sent,
-            show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
         )
         instance._config = config
         instance.backend = _create_backend(config)

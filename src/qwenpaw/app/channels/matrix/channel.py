@@ -68,6 +68,7 @@ from qwenpaw.schemas import (
     VideoContent,
 )
 
+from ....app.channels.renderer import ChannelDisplayConfig
 from ....app.channels.base import BaseChannel
 from ....app.channels.utils import file_url_to_local_path
 from ....constant import WORKING_DIR
@@ -199,10 +200,8 @@ class MatrixChannel(BaseChannel):
         history_limit: int = DEFAULT_HISTORY_LIMIT,
         sync_timeout_ms: int = 30000,
         on_reply_sent: Optional[Callable] = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         streaming_enabled: bool = False,
         workspace_dir: Path | None = None,
         access_control_dm: bool = False,
@@ -213,10 +212,8 @@ class MatrixChannel(BaseChannel):
         super().__init__(
             process=process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config,
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             streaming_enabled=streaming_enabled,
             access_control_dm=access_control_dm,
             access_control_group=access_control_group,
@@ -277,10 +274,8 @@ class MatrixChannel(BaseChannel):
         process: Callable,
         config: Any,
         on_reply_sent: Optional[Callable] = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "MatrixChannel":
         # Support pydantic model, dict, or SimpleNamespace
@@ -308,13 +303,8 @@ class MatrixChannel(BaseChannel):
             history_limit=raw.get("history_limit", DEFAULT_HISTORY_LIMIT),
             sync_timeout_ms=raw.get("sync_timeout_ms", 30000),
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=(
-                filter_tool_messages or raw.get("filter_tool_messages", False)
-            ),
-            filter_thinking=(
-                filter_thinking or raw.get("filter_thinking", False)
-            ),
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(raw),
             no_text_debounce=no_text_debounce,
             streaming_enabled=raw.get("streaming_enabled", False),
             workspace_dir=workspace_dir,

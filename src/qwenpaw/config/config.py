@@ -38,6 +38,14 @@ from ..constant import (
 
 logger = logging.getLogger(__name__)
 
+_CHANNEL_DISPLAY_DEFAULTS = {
+    "show_thinking": True,
+    "show_tool_calls": True,
+    "show_tool_results": True,
+    "tool_call_max_length": 200,
+    "tool_result_max_length": 500,
+}
+
 # A legacy field can be present in the root config and in several agent
 # profiles, all of which may be validated repeatedly during one process
 # lifetime.  The migration reminder is useful once, but repeating it for
@@ -206,8 +214,12 @@ class BaseChannelConfig(BaseModel):
 
     enabled: bool = False
     bot_prefix: str = ""
-    filter_tool_messages: bool = False
-    filter_thinking: bool = False
+    show_tool_calls: bool = True
+    show_tool_results: bool = True
+    # A value of 0 means unlimited (do not truncate).
+    tool_call_max_length: int = Field(default=200, ge=0)
+    tool_result_max_length: int = Field(default=500, ge=0)
+    show_thinking: bool = True
     dm_policy: Literal["open", "allowlist"] = "open"
     group_policy: Literal["open", "allowlist"] = "open"
     allow_from: List[str] = Field(default_factory=list)
@@ -2363,6 +2375,30 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
     return migrated
 
 
+def migrate_channel_display_fields(channels: object) -> bool:
+    """Migrate legacy channel display settings in-place."""
+    if not isinstance(channels, dict):
+        return False
+    migrated = False
+    for channel_cfg in channels.values():
+        if not isinstance(channel_cfg, dict):
+            continue
+        legacy = channel_cfg.pop("filter_tool_messages", None)
+        if legacy is not None:
+            channel_cfg.setdefault("show_tool_calls", not bool(legacy))
+            channel_cfg.setdefault("show_tool_results", not bool(legacy))
+            migrated = True
+        legacy_thinking = channel_cfg.pop("filter_thinking", None)
+        if legacy_thinking is not None:
+            channel_cfg.setdefault("show_thinking", not bool(legacy_thinking))
+            migrated = True
+        for key, value in _CHANNEL_DISPLAY_DEFAULTS.items():
+            if key not in channel_cfg:
+                channel_cfg[key] = value
+                migrated = True
+    return migrated
+
+
 def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     agent_id: str,
 ) -> AgentProfileConfig:
@@ -2423,59 +2459,51 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         with open(agent_config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # One-shot migration: rename legacy ``channels.weixin`` key to
-        # ``channels.wechat`` and rewrite the file on disk so future loads
-        # see the canonical key directly. This rewrite must happen BEFORE
-        # any in-memory normalization (e.g. ~/.copaw path rewriting) so we
-        # only persist the key rename, not unrelated runtime transforms.
+        # Match the existing migration behavior: migrate this workspace only
+        # when its agent configuration is loaded.
         channels = data.get("channels")
+        weixin_migrated = False
         if isinstance(channels, dict) and "weixin" in channels:
             legacy = channels.pop("weixin")
-            if "wechat" not in channels:
-                channels["wechat"] = legacy
-            try:
-                import uuid as _uuid
-                import shutil as _shutil
+            channels.setdefault("wechat", legacy)
+            weixin_migrated = True
 
-                backup_path = agent_config_path.with_suffix(
-                    f".{_uuid.uuid4().hex[:8]}.weixin-migrate.bak",
-                )
-                _shutil.copy2(agent_config_path, backup_path)
+        if isinstance(channels, dict):
+            display_migrated = migrate_channel_display_fields(channels)
+            access_control_migrated = _migrate_access_control_fields(
+                channels,
+                workspace_dir,
+            )
+        else:
+            display_migrated = False
+            access_control_migrated = False
+
+        if weixin_migrated or display_migrated or access_control_migrated:
+            try:
+                if weixin_migrated or display_migrated:
+                    import uuid as _uuid
+                    import shutil as _shutil
+
+                    migration_name = (
+                        "channel-display" if display_migrated else "weixin"
+                    )
+                    backup_path = agent_config_path.with_suffix(
+                        f".{_uuid.uuid4().hex[:8]}."
+                        f"{migration_name}-migrate.bak",
+                    )
+                    _shutil.copy2(agent_config_path, backup_path)
                 with open(
                     agent_config_path,
                     "w",
                     encoding="utf-8",
-                ) as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-                # Refresh mtime cache key after rewriting the file so the
-                # cached config still reflects the on-disk state.
+                ) as file:
+                    json.dump(data, file, ensure_ascii=False, indent=2)
                 try:
                     current_mtime = agent_config_path.stat().st_mtime
                 except OSError:
                     pass
             except OSError:
                 pass
-
-        # One-shot migration: convert legacy access control fields.
-        if isinstance(channels, dict):
-            _acl_migrated = _migrate_access_control_fields(
-                channels,
-                workspace_dir,
-            )
-            if _acl_migrated:
-                try:
-                    with open(
-                        agent_config_path,
-                        "w",
-                        encoding="utf-8",
-                    ) as f:
-                        json.dump(data, f, ensure_ascii=False, indent=2)
-                    try:
-                        current_mtime = agent_config_path.stat().st_mtime
-                    except OSError:
-                        pass
-                except OSError:
-                    pass
 
         # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
         # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json

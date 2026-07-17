@@ -25,6 +25,7 @@ Run:
 # pylint: disable=broad-exception-raised,unused-import,unused-variable
 from __future__ import annotations
 
+
 import asyncio
 import json
 from pathlib import Path
@@ -32,6 +33,8 @@ from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 from qwenpaw.app.channels.base import ContentType, OutgoingContentPart
 
 # =============================================================================
@@ -84,8 +87,10 @@ def feishu_channel(
         app_secret="test_app_secret_abcdef",
         bot_prefix="[TestBot] ",
         media_dir=str(temp_media_dir),
-        show_tool_details=False,
-        filter_tool_messages=True,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=False,
+            show_tool_results=False,
+        ),
     )
     yield channel
 
@@ -105,8 +110,10 @@ def feishu_channel_with_workspace(
         app_secret="test_app_secret_xyz",
         bot_prefix="[WorkspaceBot] ",
         workspace_dir=temp_workspace_dir,
-        show_tool_details=False,
-        filter_tool_messages=True,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=False,
+            show_tool_results=False,
+        ),
     )
     yield channel
 
