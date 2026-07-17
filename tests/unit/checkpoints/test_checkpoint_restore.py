@@ -1,0 +1,647 @@
+# -*- coding: utf-8 -*-
+"""Restore coverage for conversation, memory, and workspace files."""
+
+# pylint: disable=protected-access
+
+from __future__ import annotations
+
+import asyncio
+import json
+import shutil
+from pathlib import Path
+
+import pytest
+
+from qwenpaw.checkpoints.service import CheckpointService
+from qwenpaw.checkpoints.policy import (
+    sanitize_ref_component,
+    session_file_path,
+    session_key,
+)
+from qwenpaw.checkpoints.restore import MemoryRestorer
+from qwenpaw.checkpoints.models import CheckpointError, RestoreResult
+from qwenpaw.checkpoints.render import render_restore
+from qwenpaw.checkpoints.restore import RestoreService
+
+pytestmark = pytest.mark.skipif(
+    shutil.which("git") is None,
+    reason="checkpoint tests require git",
+)
+
+SESSION_ID = "session-1"
+USER_ID = "user"
+CHANNEL = "console"
+
+
+def _write_session(
+    workspace: Path,
+    text: str,
+    *,
+    session_id: str = SESSION_ID,
+    user_id: str = USER_ID,
+    channel: str = CHANNEL,
+) -> Path:
+    path = session_file_path(
+        workspace,
+        session_id=session_id,
+        user_id=user_id,
+        channel=channel,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "agent": {
+                    "state": {
+                        "context": [
+                            {
+                                "id": f"msg-{text}",
+                                "role": "user",
+                                "content": [{"type": "text", "text": text}],
+                            },
+                        ],
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _session_text(path: Path) -> str:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    content = data["agent"]["state"]["context"][-1]["content"]
+    if isinstance(content, str):
+        return content
+    return "\n".join(
+        block["text"]
+        for block in content
+        if isinstance(block, dict) and isinstance(block.get("text"), str)
+    )
+
+
+async def _checkpoint(
+    engine: CheckpointService,
+    text: str,
+    *,
+    session_id: str = SESSION_ID,
+) -> str:
+    ref = await engine.make_auto_checkpoint(
+        session_id=session_id,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        query=text,
+    )
+    return engine.repository.run_git("rev-parse", ref)
+
+
+def test_snapshot_name_preserves_unicode_and_removes_ref_separators() -> None:
+    assert sanitize_ref_component("涓枃 蹇収/name") == "涓枃-蹇収-name"
+
+
+def test_file_restore_dry_run_renders_every_candidate() -> None:
+    restored = tuple(f"src/changed_{index:02d}.py" for index in range(30))
+    deleted = tuple(f"docs/deleted_{index:02d}.md" for index in range(30))
+    result = RestoreResult(
+        target="#1",
+        commit="a" * 40,
+        restored_paths=("sessions/console/user_session-1.json", *restored),
+        pre_restore_ref=None,
+        dry_run=True,
+        include_files=True,
+        deleted_paths=deleted,
+        file_paths=(*restored, *deleted),
+    )
+
+    rendered = render_restore(result)
+
+    assert "**Would restore (30)**" in rendered
+    assert "`src/changed_29.py`" in rendered
+    assert "**Would delete (30)**" in rendered
+    assert "`docs/deleted_29.md`" in rendered
+    assert "and 10 more" not in rendered
+    assert f"/checkpoint restore {'a' * 40}" in rendered
+    assert '--files "src/changed_29.py"' in rendered
+    assert '--files "docs/deleted_29.md"' in rendered
+    assert rendered.rstrip().endswith("--confirm\n```")
+
+
+def test_file_restore_candidates_skip_qwenpaw_state_files(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    service = RestoreService(engine)
+
+    assert service._is_file_restore_candidate(
+        "src/app.py",
+        conv_rel="sessions/console/user_s1.json",
+    )
+    for rel in (
+        "chats.json",
+        "skill.json",
+        "AGENTS.md",
+        "PROFILE.md",
+        "HEARTBEAT.md",
+        "history.db",
+        "chats.json.tmp",
+        ".skill.json.lock",
+        "jobs_history/job.json",
+        "mem_agent/index.json",
+        "mem_session/state.json",
+        ".scroll/cache.json",
+        "sessions/console/user_s1.json",
+        "MEMORY.md",
+        "memory/note.md",
+    ):
+        assert not service._is_file_restore_candidate(
+            rel,
+            conv_rel="sessions/console/user_s1.json",
+        )
+
+
+@pytest.mark.asyncio
+async def test_snapshot_keeps_checkpoint_state_and_excludes_runtime_state(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    _write_session(tmp_path, "state boundary")
+    (tmp_path / "MEMORY.md").write_text("long term", encoding="utf-8")
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    (memory_dir / "daily.md").write_text("daily", encoding="utf-8")
+    mem_agent = tmp_path / "mem_agent"
+    mem_agent.mkdir()
+    (mem_agent / "index.json").write_text("{}", encoding="utf-8")
+    venv_cache = tmp_path / ".venv"
+    venv_cache.mkdir()
+    (venv_cache / "cache.txt").write_text("cache", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text("*.tmp\n", encoding="utf-8")
+
+    commit = await _checkpoint(engine, "state boundary")
+    tree_paths = set(
+        engine.repository.run_git(
+            "ls-tree",
+            "-r",
+            "--name-only",
+            commit,
+        ).splitlines(),
+    )
+
+    assert "sessions/console/user_session-1.json" in tree_paths
+    assert "MEMORY.md" in tree_paths
+    assert "memory/daily.md" in tree_paths
+    assert "mem_agent/index.json" not in tree_paths
+    assert ".venv/cache.txt" not in tree_paths
+    assert ".gitignore" not in tree_paths
+
+
+@pytest.mark.asyncio
+async def test_conversation_restore_dry_run_then_confirm(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    session_path = _write_session(tmp_path, "first")
+    first_commit = await _checkpoint(engine, "first")
+
+    _write_session(tmp_path, "second")
+    second_commit = await _checkpoint(engine, "second")
+
+    preview = await engine.restore(
+        target=first_commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        dry_run=True,
+    )
+    assert preview.dry_run is True
+    assert preview.pre_restore_ref is None
+    assert preview.restored_paths == ("sessions/console/user_session-1.json",)
+    assert _session_text(session_path) == "second"
+    assert (
+        engine.session_head(
+            session_key(
+                channel=CHANNEL,
+                user_id=USER_ID,
+                session_id=SESSION_ID,
+            ),
+        )
+        == second_commit
+    )
+
+    restored = await engine.restore(
+        target=first_commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+    )
+    assert restored.dry_run is False
+    assert restored.pre_restore_ref is not None
+    assert _session_text(session_path) == "first"
+    assert (
+        engine.session_head(
+            session_key(
+                channel=CHANNEL,
+                user_id=USER_ID,
+                session_id=SESSION_ID,
+            ),
+        )
+        == first_commit
+    )
+
+
+@pytest.mark.asyncio
+async def test_restore_with_memory_dry_run_then_confirm(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    session_path = _write_session(tmp_path, "with memory")
+    (tmp_path / "MEMORY.md").write_text("memory before", encoding="utf-8")
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    note = memory_dir / "note.md"
+    note.write_text("note before", encoding="utf-8")
+    first_commit = await _checkpoint(engine, "with memory")
+
+    _write_session(tmp_path, "after memory")
+    (tmp_path / "MEMORY.md").write_text("memory after", encoding="utf-8")
+    note.write_text("note after", encoding="utf-8")
+    extra = memory_dir / "extra.md"
+    extra.write_text("delete me", encoding="utf-8")
+
+    preview = await engine.restore_with_memory(
+        target=first_commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        dry_run=True,
+    )
+    assert preview.dry_run is True
+    assert preview.include_memory is True
+    assert "MEMORY.md" in preview.restored_paths
+    assert "memory/note.md" in preview.restored_paths
+    assert preview.deleted_paths == ("memory/extra.md",)
+    assert _session_text(session_path) == "after memory"
+    assert (tmp_path / "MEMORY.md").read_text(
+        encoding="utf-8",
+    ) == "memory after"
+    assert extra.exists()
+
+    restored = await engine.restore_with_memory(
+        target=first_commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+    )
+    assert restored.include_memory is True
+    assert restored.pre_restore_ref is not None
+    assert _session_text(session_path) == "with memory"
+    assert (tmp_path / "MEMORY.md").read_text(
+        encoding="utf-8",
+    ) == "memory before"
+    assert note.read_text(encoding="utf-8") == "note before"
+    assert not extra.exists()
+
+
+@pytest.mark.asyncio
+async def test_restore_with_files_dry_run_then_confirm_skips_qwenpaw_state(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    session_path = _write_session(tmp_path, "with files")
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("print('before')\n", encoding="utf-8")
+    state_file = tmp_path / "chats.json"
+    state_file.write_text("state before", encoding="utf-8")
+    first_commit = await _checkpoint(engine, "with files")
+
+    _write_session(tmp_path, "after files")
+    source.write_text("print('after')\n", encoding="utf-8")
+    added = tmp_path / "scratch.txt"
+    added.write_text("remove me", encoding="utf-8")
+    state_file.write_text("state after", encoding="utf-8")
+
+    preview = await engine.restore_with_files(
+        target=first_commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        dry_run=True,
+    )
+    assert preview.dry_run is True
+    assert preview.include_files is True
+    assert "src/app.py" in preview.restored_paths
+    assert "scratch.txt" in preview.deleted_paths
+    assert "chats.json" not in preview.restored_paths
+    assert _session_text(session_path) == "after files"
+    assert source.read_text(encoding="utf-8") == "print('after')\n"
+    assert added.exists()
+    assert state_file.read_text(encoding="utf-8") == "state after"
+
+    restored = await engine.restore_with_files(
+        target=first_commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        selected_files=("src/app.py", "scratch.txt"),
+    )
+    assert restored.include_files is True
+    assert restored.pre_restore_ref is not None
+    assert _session_text(session_path) == "with files"
+    assert source.read_text(encoding="utf-8") == "print('before')\n"
+    assert not added.exists()
+    assert state_file.read_text(encoding="utf-8") == "state after"
+
+
+@pytest.mark.asyncio
+async def test_restore_with_memory_and_files_combines_both_scopes(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    session_path = _write_session(tmp_path, "combined")
+    file_path = tmp_path / "docs" / "plan.md"
+    file_path.parent.mkdir()
+    file_path.write_text("file before", encoding="utf-8")
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    memory_file = memory_dir / "fact.md"
+    memory_file.write_text("memory before", encoding="utf-8")
+    first_commit = await _checkpoint(engine, "combined")
+
+    _write_session(tmp_path, "combined later")
+    file_path.write_text("file after", encoding="utf-8")
+    memory_file.write_text("memory after", encoding="utf-8")
+
+    preview = await engine.restore_with_files(
+        target=first_commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        include_memory=True,
+        dry_run=True,
+    )
+    assert preview.dry_run is True
+    assert preview.include_files is True
+    assert preview.include_memory is True
+    assert "docs/plan.md" in preview.restored_paths
+    assert "memory/fact.md" in preview.restored_paths
+    assert file_path.read_text(encoding="utf-8") == "file after"
+    assert memory_file.read_text(encoding="utf-8") == "memory after"
+
+    restored = await engine.restore_with_files(
+        target=first_commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        include_memory=True,
+        selected_files=("docs/plan.md",),
+    )
+    assert restored.include_files is True
+    assert restored.include_memory is True
+    assert _session_text(session_path) == "combined"
+    assert file_path.read_text(encoding="utf-8") == "file before"
+    assert memory_file.read_text(encoding="utf-8") == "memory before"
+
+
+@pytest.mark.asyncio
+async def test_restore_with_files_can_select_an_exact_subset(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    session_path = _write_session(tmp_path, "selected files")
+    selected = tmp_path / "src" / "selected.py"
+    skipped = tmp_path / "src" / "skipped.py"
+    selected.parent.mkdir()
+    selected.write_text("selected before", encoding="utf-8")
+    skipped.write_text("skipped before", encoding="utf-8")
+    first_commit = await _checkpoint(engine, "selected files")
+
+    _write_session(tmp_path, "selected files later")
+    selected.write_text("selected after", encoding="utf-8")
+    skipped.write_text("skipped after", encoding="utf-8")
+
+    preview = await engine.restore_with_files(
+        target=first_commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        selected_files=(r"src\selected.py",),
+        dry_run=True,
+    )
+    assert "src/selected.py" in preview.restored_paths
+    assert "src/skipped.py" not in preview.restored_paths
+    assert selected.read_text(encoding="utf-8") == "selected after"
+
+    restored = await engine.restore_with_files(
+        target=first_commit[:12],
+        session_id=SESSION_ID,
+        user_id=USER_ID,
+        channel=CHANNEL,
+        selected_files=("src/selected.py",),
+    )
+    assert "src/selected.py" in restored.restored_paths
+    assert "src/skipped.py" not in restored.restored_paths
+    assert _session_text(session_path) == "selected files"
+    assert selected.read_text(encoding="utf-8") == "selected before"
+    assert skipped.read_text(encoding="utf-8") == "skipped after"
+
+
+@pytest.mark.asyncio
+async def test_restore_with_files_rejects_invalid_selections(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    _write_session(tmp_path, "selection validation")
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("before", encoding="utf-8")
+    first_commit = await _checkpoint(engine, "selection validation")
+    source.write_text("after", encoding="utf-8")
+
+    common = {
+        "target": first_commit[:12],
+        "session_id": SESSION_ID,
+        "user_id": USER_ID,
+        "channel": CHANNEL,
+        "dry_run": True,
+    }
+    with pytest.raises(CheckpointError, match="workspace-relative"):
+        await engine.restore_with_files(
+            **common,
+            selected_files=("../outside.txt",),
+        )
+    with pytest.raises(CheckpointError, match="state path"):
+        await engine.restore_with_files(
+            **common,
+            selected_files=("mem_agent/index.json",),
+        )
+    with pytest.raises(CheckpointError, match="not changed"):
+        await engine.restore_with_files(
+            **common,
+            selected_files=("docs/missing.md",),
+        )
+
+    confirm_args = {**common, "dry_run": False}
+    with pytest.raises(CheckpointError, match="explicit.*--files"):
+        await engine.restore_with_files(**confirm_args)
+
+    head_before = engine.session_head(
+        session_key(
+            channel=CHANNEL,
+            user_id=USER_ID,
+            session_id=SESSION_ID,
+        ),
+    )
+    with pytest.raises(CheckpointError, match="not changed"):
+        await engine.restore_with_files(
+            **confirm_args,
+            selected_files=("docs/missing.md",),
+        )
+    pre_restore_refs = engine.repository.run_git(
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/pre-restore",
+    )
+    assert pre_restore_refs == ""
+    assert (
+        engine.session_head(
+            session_key(
+                channel=CHANNEL,
+                user_id=USER_ID,
+                session_id=SESSION_ID,
+            ),
+        )
+        == head_before
+    )
+
+
+@pytest.mark.asyncio
+async def test_restore_rejects_checkpoint_from_another_session(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    _write_session(tmp_path, "source", session_id="source")
+    _write_session(tmp_path, "fork", session_id="fork")
+    fork_commit = await _checkpoint(engine, "fork", session_id="fork")
+
+    with pytest.raises(CheckpointError, match="this session"):
+        await engine.restore(
+            target=fork_commit[:12],
+            session_id="source",
+            user_id=USER_ID,
+            channel=CHANNEL,
+            dry_run=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_memory_restore_fails_when_workspace_does_not_quiesce(
+    tmp_path: Path,
+) -> None:
+    class BusyTasks:
+        @staticmethod
+        async def wait_all_idle() -> None:
+            await asyncio.sleep(60)
+
+    class Workspace:
+        task_tracker = BusyTasks()
+
+    restorer = MemoryRestorer(
+        workspace_dir=tmp_path,
+        git_runner=lambda *_args: "",
+        read_blob=lambda *_args: b"",
+        workspace=Workspace(),
+        quiesce_timeout=0.01,
+    )
+
+    with pytest.raises(CheckpointError, match="did not become idle"):
+        await restorer._quiesce_workspace()
+
+
+@pytest.mark.asyncio
+async def test_restore_with_memory_rolls_back_session_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    session_path = _write_session(tmp_path, "first")
+    first_commit = await _checkpoint(engine, "first")
+    _write_session(tmp_path, "second")
+    second_commit = await _checkpoint(engine, "second")
+
+    async def fail_for_target_commit(self, commit: str):
+        del self
+        if commit == first_commit:
+            raise RuntimeError("memory restore failed")
+        return [], []
+
+    monkeypatch.setattr(MemoryRestorer, "apply", fail_for_target_commit)
+
+    with pytest.raises(RuntimeError, match="memory restore failed"):
+        await engine.restore_with_memory(
+            target=first_commit[:12],
+            session_id=SESSION_ID,
+            user_id=USER_ID,
+            channel=CHANNEL,
+        )
+
+    assert _session_text(session_path) == "second"
+    assert (
+        engine.session_head(
+            session_key(
+                channel=CHANNEL,
+                user_id=USER_ID,
+                session_id=SESSION_ID,
+            ),
+        )
+        == second_commit
+    )
+
+
+@pytest.mark.asyncio
+async def test_conversation_restore_rolls_back_after_head_update_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    session_path = _write_session(tmp_path, "first")
+    first_commit = await _checkpoint(engine, "first")
+    _write_session(tmp_path, "second")
+    second_commit = await _checkpoint(engine, "second")
+    original_set_head = engine.repository.set_session_head
+    failed = False
+
+    def fail_target_once(key: str, commit: str) -> None:
+        nonlocal failed
+        if commit == first_commit and not failed:
+            failed = True
+            raise OSError("heads write failed")
+        original_set_head(key, commit)
+
+    monkeypatch.setattr(
+        engine.repository,
+        "set_session_head",
+        fail_target_once,
+    )
+
+    with pytest.raises(OSError, match="heads write failed"):
+        await engine.restore(
+            target=first_commit[:12],
+            session_id=SESSION_ID,
+            user_id=USER_ID,
+            channel=CHANNEL,
+        )
+
+    assert _session_text(session_path) == "second"
+    assert (
+        engine.session_head(
+            session_key(
+                channel=CHANNEL,
+                user_id=USER_ID,
+                session_id=SESSION_ID,
+            ),
+        )
+        == second_commit
+    )
