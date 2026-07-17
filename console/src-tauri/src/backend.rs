@@ -1,8 +1,11 @@
 //! Backend sidecar lifecycle for the Tauri desktop app.
 
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Mutex,
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
+    time::Duration,
 };
 
 use tauri::Manager;
@@ -11,6 +14,15 @@ use tauri_plugin_shell::process::CommandChild;
 
 mod command;
 mod events;
+
+/// Path of the desktop-only graceful shutdown endpoint on the backend.
+const DESKTOP_SHUTDOWN_PATH: &str = "/api/desktop/shutdown";
+/// Upper bound for the graceful shutdown HTTP request.
+const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
+/// Brief delay after a successful shutdown request so the HTTP response can
+/// flush before we let the sidecar finish its own lifespan shutdown.
+const GRACEFUL_SHUTDOWN_SETTLE: Duration = Duration::from_millis(300);
+
 
 /// Shared sidecar process state managed by Tauri.
 #[derive(Default)]
@@ -84,17 +96,70 @@ impl BackendState {
         }
     }
 
-    fn stop(&self) {
+    fn take_child_and_port(&self) -> (Option<CommandChild>, Option<u16>) {
         self.next_generation();
-        let child = self.with_inner(|inner| inner.child.take());
-        if let Some(child) = child {
-            let pid = child.pid();
-            log::info!("[backend] stopping process pid={pid}");
-            if let Err(err) = child.kill() {
-                log::warn!("[backend] failed to stop process: {err}");
+        self.with_inner(|inner| (inner.child.take(), inner.port.take()))
+    }
+
+    async fn stop(&self) {
+        let (child, port) = self.take_child_and_port();
+        let Some(child) = child else {
+            return;
+        };
+
+        let pid = child.pid();
+        log::info!("[backend] stopping process pid={pid}");
+
+        if let Some(port) = port {
+            match request_graceful_shutdown(port).await {
+                Ok(()) => {
+                    // The sidecar (tauri-plugin-shell CommandChild) has no
+                    // kill-on-drop, so dropping `child` here does NOT terminate
+                    // the process. It keeps running to complete its own lifespan
+                    // shutdown (which flushes memory/index) even after the Tauri
+                    // shell exits. It then exits on its own.
+                    log::info!("[backend] graceful shutdown requested pid={pid}");
+                    return;
+                }
+                Err(err) => {
+                    log::warn!(
+                        "[backend] graceful shutdown failed pid={pid}: {err}; killing process"
+                    );
+                }
             }
+        } else {
+            log::warn!("[backend] no known port for pid={pid}; killing process");
+        }
+
+        if let Err(err) = child.kill() {
+            log::warn!("[backend] failed to stop process: {err}");
         }
     }
+}
+
+/// Requests a graceful shutdown from the desktop-only backend endpoint.
+///
+/// The endpoint sets uvicorn's `should_exit`, letting the sidecar run its
+/// normal lifespan shutdown instead of being force-killed.
+async fn request_graceful_shutdown(port: u16) -> Result<(), String> {
+    let url = format!("http://127.0.0.1:{port}{DESKTOP_SHUTDOWN_PATH}");
+    let client = reqwest::Client::builder()
+        .timeout(GRACEFUL_SHUTDOWN_TIMEOUT)
+        .build()
+        .map_err(|err| format!("failed to create shutdown HTTP client: {err}"))?;
+
+    let response = client
+        .post(url)
+        .send()
+        .await
+        .map_err(|err| format!("shutdown endpoint request failed: {err}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("shutdown endpoint returned HTTP {status}"));
+    }
+
+    tokio::time::sleep(GRACEFUL_SHUTDOWN_SETTLE).await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -113,8 +178,8 @@ pub(crate) fn backend_startup_error(state: tauri::State<'_, BackendState>) -> Op
 
 /// Stops the current sidecar, starts a fresh one, and returns its API port.
 #[tauri::command]
-pub(crate) fn restart_backend(app: tauri::AppHandle) -> Result<(), String> {
-    stop(&app);
+pub(crate) async fn restart_backend(app: tauri::AppHandle) -> Result<(), String> {
+    stop(&app).await;
     start(&app);
 
     let state = app.state::<BackendState>();
@@ -144,8 +209,8 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
 }
 
 /// Terminates the current sidecar process, if one is running.
-pub(crate) fn stop(app: &tauri::AppHandle) {
-    app.state::<BackendState>().stop();
+pub(crate) async fn stop(app: &tauri::AppHandle) {
+    app.state::<BackendState>().stop().await;
 }
 
 fn desktop_log_level() -> log::LevelFilter {

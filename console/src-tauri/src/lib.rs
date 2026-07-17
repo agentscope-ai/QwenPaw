@@ -81,7 +81,7 @@ pub fn run() {
                     }
                     #[cfg(not(target_os = "macos"))]
                     let _ = (&api, &code);
-                    backend::stop(app_handle);
+                    tauri::async_runtime::block_on(backend::stop(app_handle));
                 }
                 // macOS emits this when the user clicks the Dock icon. Without
                 // it, a window hidden via "minimize to tray" can only be

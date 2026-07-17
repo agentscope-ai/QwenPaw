@@ -48,7 +48,7 @@ pub(super) async fn check_installable_update(
         .on_before_exit({
             let app = app.clone();
             move || {
-                backend::stop(&app);
+                tauri::async_runtime::block_on(backend::stop(&app));
                 app.cleanup_before_exit();
             }
         })

@@ -191,6 +191,9 @@ pub(crate) fn hide_main_window(app: &tauri::AppHandle) {
 }
 
 fn exit_app(app: &tauri::AppHandle) {
-    backend::stop(app);
-    app.exit(0);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        backend::stop(&app).await;
+        app.exit(0);
+    });
 }

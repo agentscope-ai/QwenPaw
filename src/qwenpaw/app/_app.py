@@ -727,6 +727,26 @@ def get_doctor_runtime():
     }
 
 
+@app.post("/api/desktop/shutdown")
+async def post_desktop_shutdown():
+    """Gracefully stop the desktop sidecar before the Tauri app exits.
+
+    The Tauri shell calls this on quit so uvicorn performs a normal shutdown
+    (running the lifespan ``finally`` block that flushes memory/index) instead
+    of being force-killed. Only available when running as the desktop sidecar.
+    """
+    from ..tauri.env import DESKTOP_APP_ENV
+
+    if os.environ.get(DESKTOP_APP_ENV) != "1":
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    server = getattr(app.state, "uvicorn_server", None)
+    if server is not None:
+        server.should_exit = True
+
+    return {"ok": True}
+
+
 app.include_router(api_router, prefix="/api")
 
 app.include_router(healthz_router, prefix="/api")
