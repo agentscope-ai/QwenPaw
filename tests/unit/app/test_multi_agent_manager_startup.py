@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
+import os
+import subprocess
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -29,6 +31,36 @@ def _config(*agent_ids: str):
     return SimpleNamespace(
         agents=SimpleNamespace(profiles=profiles),
     )
+
+
+def _read_custom_startup_concurrency(
+    value: str | None = None,
+    legacy_value: str | None = None,
+) -> int:
+    """Read the import-time setting in an isolated interpreter."""
+    env = os.environ.copy()
+    env.pop(constants.CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV, None)
+    legacy_env = "COPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY"
+    env.pop(legacy_env, None)
+    if value is not None:
+        env[constants.CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV] = value
+    if legacy_value is not None:
+        env[legacy_env] = legacy_value
+
+    code = (
+        "from qwenpaw.constant import "
+        "CUSTOM_AGENT_STARTUP_CONCURRENCY; "
+        "print(CUSTOM_AGENT_STARTUP_CONCURRENCY)"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    return int(completed.stdout.strip())
 
 
 @pytest.mark.asyncio
@@ -62,43 +94,15 @@ async def test_disabled_agent_is_not_started_or_mutated(monkeypatch) -> None:
     [(None, 5), ("invalid", 5), ("0", 1), ("4", 4)],
 )
 def test_custom_startup_concurrency_parsing(
-    monkeypatch,
     value: str | None,
     expected: int,
 ) -> None:
-    with monkeypatch.context() as env:
-        env.delenv(
-            "QWENPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY",
-            raising=False,
-        )
-        env.delenv(
-            "COPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY",
-            raising=False,
-        )
-        if value is not None:
-            env.setenv(
-                "QWENPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY",
-                value,
-            )
-        reloaded = importlib.reload(constants)
-        assert reloaded.CUSTOM_AGENT_STARTUP_CONCURRENCY == expected
-    importlib.reload(constants)
+    assert _read_custom_startup_concurrency(value=value) == expected
 
 
-def test_custom_startup_concurrency_supports_legacy_env(monkeypatch) -> None:
+def test_custom_startup_concurrency_supports_legacy_env() -> None:
     """The legacy COPAW-prefixed environment variable remains supported."""
-    with monkeypatch.context() as env:
-        env.delenv(
-            "QWENPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY",
-            raising=False,
-        )
-        env.setenv(
-            "COPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY",
-            "3",
-        )
-        reloaded = importlib.reload(constants)
-        assert reloaded.CUSTOM_AGENT_STARTUP_CONCURRENCY == 3
-    importlib.reload(constants)
+    assert _read_custom_startup_concurrency(legacy_value="3") == 3
 
 
 @pytest.mark.asyncio
