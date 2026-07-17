@@ -177,6 +177,10 @@ class HistoryStore:
                 "CREATE INDEX IF NOT EXISTS ch_kind "
                 "ON conversation_history(kind)",
             )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS ch_created_at "
+                "ON conversation_history(created_at)",
+            )
             # Idempotency net: a second append of the same logical event, such
             # as a resume re-persisting its restored window, collides here and
             # is dropped by ON CONFLICT rather than duplicating a row. NULL

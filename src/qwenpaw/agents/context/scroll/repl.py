@@ -32,45 +32,43 @@ _PKG_DIR = str(Path(__file__).parent)
 
 _DOC = """Recall conversation history via Python — the ADVANCED recall tool.
 
-Prefer `recall_history` for ordinary expand/search/recall_tool reads. Use this
-sandboxed Python tool for session listing, custom SQL counting/ranking,
-scratch tables, or cross-referencing many turns programmatically.
+Prefer `recall_history` for ordinary reads. Use this sandboxed tool for custom
+SQL, scratch tables, session listing, or programmatic cross-referencing.
 
-`ms` is ALREADY DEFINED; use it directly (do not import it). Each call is a
-fresh process: Python variables do NOT persist, while tables written through
-`ms.sql_exec` persist in the scratch DB. Only printed stdout is returned.
+`ms` is ALREADY DEFINED; do not import it. Calls use fresh processes: Python
+variables do NOT persist, but `ms.sql_exec` scratch tables do. Print results.
 
-KEEP STDOUT BOUNDED. This tool has no continuation cursor and large stdout is
-truncated. Filter before printing, print short fields/slices, or page with SQL
-`LIMIT ? OFFSET ?`; issue another call for the next page. Never print a broad
-unbounded result set.
+KEEP STDOUT BOUNDED. Large output is truncated and has no cursor. Filter,
+slice, or page SQL with `LIMIT ? OFFSET ?`; never print broad result sets.
 
-Helpers return `list[dict]`; text is always in `content` (not
-`content_preview`). A trailing `{"_truncated": True}` means the row cap was
-reached: narrow or page the query.
+Helpers return `list[dict]`; text is in `content`. A trailing
+`{"_truncated": True}` means narrow or page the query.
 
   • ms.expand(lo, hi)
     Raw turns for an inclusive seq span, oldest first.
   • ms.search(query, k=10, kind=None, all_agents=False,
-              session_id=None, agent_id=None, include_exchange=True)
+              session_id=None, agent_id=None, include_exchange=True,
+              created_on=None, created_from=None, created_to=None)
     Keyword/FTS search across your sessions; uppercase OR is supported. Each
     hit includes its complete user-bounded `exchange` by default, plus
     `matched_seqs`, `exchange_start_seq`, and `exchange_end_seq`. Pass
     `include_exchange=False` only when matching rows alone are sufficient.
+    Use created_on="YYYY-MM-DD" for one source date, or created_from/created_to
+    for an inclusive range; an empty query performs date-only recall.
   • ms.recall_tool(tool_call_id, all_agents=False)
     Tool call/result; saved large outputs include an artifact file pointer.
   • ms.sessions(all_agents=False, limit=50)
   • ms.session(session_id, all_agents=False, limit=1000)
   • ms.agents(limit=100)
   • ms.days_between(d1, d2, inclusive=False)
+    Signed calendar-day difference; ISO timestamps: Z or +/-HH:MM.
   • ms.sql_query(sql, params)
     Read-only SQL; durable history is `hist.conversation_history`.
   • ms.sql_exec(sql, params)
     Writes only the persistent scratch DB. Always bind values via `params`.
 
-Typical flow: use `ms.search` and inspect each result's `exchange`. Use
-`ms.expand` only when you need a different surrounding seq range. For custom
-paging:
+Use `ms.search` and inspect each `exchange`; use `ms.expand` for another span.
+For custom paging:
 
     rows = ms.sql_query(
         "SELECT seq, content FROM hist.conversation_history "

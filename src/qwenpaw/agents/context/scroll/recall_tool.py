@@ -38,7 +38,7 @@ from ....runtime.tool_registry import ToolDescriptor
 
 logger = logging.getLogger(__name__)
 
-_OPS = ("expand", "search", "recall_tool")
+_OPS = ("expand", "search", "recall_tool", "days_between")
 RECALL_PAGE_METADATA_KEY = "qwenpaw_recall_page"
 _RECALL_BLOCKED_NOTICE = (
     "RECALL LOOP BLOCKED — this exact recall page already completed in the "
@@ -84,11 +84,22 @@ def _canonical_request_payload(
                 "all_agents",
                 "session_id",
                 "agent_id",
+                "created_on",
+                "created_from",
+                "created_to",
             )
             if normalized.get(key) is not None
         }
     if op == "recall_tool":
         return {"tool_call_id": payload.get("tool_call_id")}
+    if op == "days_between":
+        normalized = dict(payload)
+        normalized.setdefault("inclusive", False)
+        return {
+            key: normalized.get(key)
+            for key in ("start", "end", "inclusive")
+            if normalized.get(key) is not None
+        }
     return {key: value for key, value in payload.items() if key != "cursor"}
 
 
@@ -205,10 +216,17 @@ plus your earlier sessions. Pick an op:
     is never a hit — it is already in front of you.
     Optional: kind="model_turn"/"tool_result"; all_agents=true to span every
     agent; session_id/agent_id to pin a specific one (take precedence). If a
+    question asks what happened on a date, pass created_on="YYYY-MM-DD"; use
+    created_from/created_to for an inclusive date range. Date filters use the
+    source message's created_at and may be used with an empty query. If a
     large tool result was saved outside the DB, search can return a saved tool
     output match with file_path and nearby matching lines.
   • op="recall_tool", tool_call_id="call_abc" — a tool call and its result.
     For truncated large outputs, this also reports the saved full-output file.
+  • op="days_between", start="2024-11-01", end="2024-12-16" — signed
+    calendar-day difference (end minus start). Accepts strict ISO dates and
+    timestamps, including Z or +/-HH:MM timezones. Set inclusive=true to count
+    both endpoints while preserving direction. This operation never pages.
 
 Search exchanges show their matched seq(s) and complete seq span. Other ops
 return individual rows with their seq. A page ending in next_cursor is
@@ -216,11 +234,11 @@ incomplete; continue with the SAME arguments plus cursor=next_cursor. Never
 retry the same cursor. The cursor is bound to the original arguments and
 result snapshot; changing the query, range, filters, or k fails. An empty
 result is stated explicitly and means the history genuinely holds nothing for
-that span/query. For anything beyond these three reads, use a more advanced
+that span/query. For anything beyond these operations, use a more advanced
 Python recall tool if one is available to you.
 
 Args:
-    op (str): One of "expand", "search", "recall_tool".
+    op (str): One of "expand", "search", "recall_tool", "days_between".
     lo (int): expand only — first seq of the span.
     hi (int): expand only — last seq of the span.
     query (str): search only — keyword query (OR supported).
@@ -231,12 +249,25 @@ Args:
     session_id (str): search only — pin one conversation
         (e.g. "cron:<job>").
     agent_id (str): search only — pin one agent's history.
+    created_on (str): search only — exact ISO calendar date.
+    created_from (str): search only — inclusive ISO start date.
+    created_to (str): search only — inclusive ISO end date.
     tool_call_id (str): recall_tool only — the tool call to re-read.
+    start (str): days_between only — strict ISO start date/timestamp.
+    end (str): days_between only — strict ISO end date/timestamp.
+    inclusive (bool): days_between only — include both endpoints.
     cursor (str): Opaque continuation cursor returned by a previous page.
 """
 
 # Keys rendered per row, in display order, when present and non-empty.
-_ROW_META_KEYS = ("kind", "role", "name", "headline", "session_id")
+_ROW_META_KEYS = (
+    "kind",
+    "role",
+    "name",
+    "headline",
+    "session_id",
+    "created_at",
+)
 
 
 def _render_rows(rows: list[dict]) -> str:
@@ -486,6 +517,90 @@ def _render_page(
     return "".join(parts), page
 
 
+def _run_days_between(
+    ms: Any,
+    start: Optional[str],
+    end: Optional[str],
+    inclusive: bool,
+    cursor: Optional[str],
+) -> tuple[str, bool, dict[str, Any]]:
+    """Validate and execute the non-paginated date operation."""
+    if start is None or end is None:
+        return (
+            'RECALL FAILED — op="days_between" needs start and end ISO '
+            "date/timestamp strings.",
+            False,
+            {},
+        )
+    if cursor is not None:
+        return (
+            'RECALL FAILED — op="days_between" does not paginate; omit '
+            "cursor.",
+            False,
+            {},
+        )
+    difference = ms.days_between(start, end, inclusive=bool(inclusive))
+    return (
+        f"days_between(start={start!r}, end={end!r}, "
+        f"inclusive={bool(inclusive)}) = {difference}",
+        True,
+        {},
+    )
+
+
+def _execution_error_detail(op: str) -> str:
+    """Operation-specific failure wording for tool observations."""
+    if op == "days_between":
+        return (
+            "the date difference was NOT computed; fix the parameters and "
+            "retry"
+        )
+    return (
+        "the history was NOT read. This is an execution error, not an empty "
+        "history: fix the parameters and retry, or say explicitly that you "
+        "could not retrieve the context"
+    )
+
+
+def _run_search(
+    ms: Any,
+    query: Optional[str],
+    *,
+    session_id: Optional[str],
+    agent_id: Optional[str],
+    all_agents: bool,
+    kind: Optional[str],
+    k: int,
+    created_on: Optional[str],
+    created_from: Optional[str],
+    created_to: Optional[str],
+) -> tuple[list[dict], str]:
+    """Validate and execute one keyword/date search."""
+    if not (query or "").strip() and not any(
+        (created_on, created_from, created_to),
+    ):
+        raise ValueError(
+            'op="search" needs a query or a created-at date filter',
+        )
+    rows = ms.search(
+        query or "",
+        session_id=session_id,
+        agent_id=agent_id,
+        all_agents=bool(all_agents),
+        kind=kind,
+        k=int(k),
+        created_on=created_on,
+        created_from=created_from,
+        created_to=created_to,
+    )
+    label = f"search {(query or '')!r}"
+    if created_on:
+        label += f" created_on={created_on!r}"
+    elif created_from or created_to:
+        label += f" created_from={created_from!r} created_to={created_to!r}"
+    return rows, label
+
+
 def make_recall_history(
     *,
     history_db_path: str,
@@ -524,7 +639,13 @@ def make_recall_history(
         all_agents: bool,
         q_session_id: Optional[str],
         q_agent_id: Optional[str],
+        created_on: Optional[str],
+        created_from: Optional[str],
+        created_to: Optional[str],
         tool_call_id: Optional[str],
+        start: Optional[str],
+        end: Optional[str],
+        inclusive: bool,
         cursor: Optional[str],
         request_fingerprint: str,
     ) -> tuple[str, bool, dict[str, Any]]:
@@ -549,23 +670,19 @@ def make_recall_history(
                 rows = ms.expand(int(lo), int(hi))
                 label = f"expand [{int(lo)}, {int(hi)}]"
             elif op == "search":
-                if not (query or "").strip():
-                    return (
-                        'RECALL FAILED — op="search" needs a non-empty '
-                        "query.",
-                        False,
-                        {},
-                    )
-                rows = ms.search(
+                rows, label = _run_search(
+                    ms,
                     query,
                     session_id=q_session_id,
                     agent_id=q_agent_id,
-                    all_agents=bool(all_agents),
+                    all_agents=all_agents,
                     kind=kind,
-                    k=int(k),
+                    k=k,
+                    created_on=created_on,
+                    created_from=created_from,
+                    created_to=created_to,
                 )
-                label = f"search {query!r}"
-            else:  # recall_tool
+            elif op == "recall_tool":
                 if not (tool_call_id or "").strip():
                     return (
                         'RECALL FAILED — op="recall_tool" needs a '
@@ -575,6 +692,14 @@ def make_recall_history(
                     )
                 rows = ms.recall_tool(tool_call_id)
                 label = f"recall_tool {tool_call_id!r}"
+            else:  # days_between
+                return _run_days_between(
+                    ms,
+                    start,
+                    end,
+                    inclusive,
+                    cursor,
+                )
         finally:
             ms.close()
         if not rows:
@@ -588,8 +713,8 @@ def make_recall_history(
             # for the same discipline): this IS evidence of absence.
             return (
                 f"0 rows for {label} — the history genuinely holds nothing "
-                "there. For a search, one retry with different keywords is "
-                "worth it before concluding.",
+                "there. For a search, verify the keywords and date filters "
+                "before concluding.",
                 True,
                 {
                     "cursor": cursor,
@@ -617,7 +742,13 @@ def make_recall_history(
         all_agents: bool = False,
         session_id: Optional[str] = None,
         agent_id: Optional[str] = None,
+        created_on: Optional[str] = None,
+        created_from: Optional[str] = None,
+        created_to: Optional[str] = None,
         tool_call_id: Optional[str] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        inclusive: bool = False,
         cursor: Optional[str] = None,
     ) -> ToolChunk:
         payload = {
@@ -629,7 +760,13 @@ def make_recall_history(
             "all_agents": all_agents,
             "session_id": session_id,
             "agent_id": agent_id,
+            "created_on": created_on,
+            "created_from": created_from,
+            "created_to": created_to,
             "tool_call_id": tool_call_id,
+            "start": start,
+            "end": end,
+            "inclusive": inclusive,
             "cursor": cursor,
         }
         request_fingerprint = _request_fingerprint(op, payload)
@@ -663,7 +800,13 @@ def make_recall_history(
                     all_agents,
                     session_id,
                     agent_id,
+                    created_on,
+                    created_from,
+                    created_to,
                     tool_call_id,
+                    start,
+                    end,
+                    inclusive,
                     cursor,
                     request_fingerprint,
                 )
@@ -679,11 +822,9 @@ def make_recall_history(
                     if isinstance(exc, RecallSnapshotChangedError)
                     else type(exc).__name__
                 )
+                detail = _execution_error_detail(op)
                 text, ok, page = (
-                    "RECALL FAILED — the history was NOT read "
-                    f"({error_type}: {exc}). This is an execution error, "
-                    "not an empty history: fix the parameters and retry, or "
-                    "say explicitly that you could not retrieve the context.",
+                    f"RECALL FAILED — {detail} ({error_type}: {exc}).",
                     False,
                     {},
                 )

@@ -555,6 +555,114 @@ def test_explicit_target_takes_precedence(ms: MemorySpace):
     assert contents == {"tanks rolled in"}
 
 
+def test_search_filters_by_created_at_calendar_dates(tmp_path: Path):
+    history = HistoryStore(tmp_path / "history.db")
+    rows = [
+        (
+            "u1",
+            "context_msg",
+            "user",
+            "Jira sprint alpha",
+            "2024-11-05T08:00:00+08:00",
+        ),
+        (
+            "a1",
+            "model_turn",
+            "assistant",
+            "logged 18 tasks",
+            "2024-11-05T08:01:00+08:00",
+        ),
+        (
+            "u2",
+            "context_msg",
+            "user",
+            "Jira sprint beta",
+            "2024-11-06T23:00:00-08:00",
+        ),
+        (
+            "a2",
+            "model_turn",
+            "assistant",
+            "logged 21 tasks",
+            "2024-11-06T23:01:00-08:00",
+        ),
+        (
+            "u3",
+            "context_msg",
+            "user",
+            "unrelated current boundary",
+            "2024-11-07T00:00:00Z",
+        ),
+    ]
+    for key, kind, role, content, created_at in rows:
+        history.append(
+            session_id="archive",
+            agent_id="ag1",
+            dedup_key=key,
+            entry=LogEntry(
+                kind=kind,
+                role=role,
+                content=content,
+                created_at=created_at,
+            ),
+        )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        exact = space.search("tasks", created_on="2024-11-05")
+        date_only = space.search("", created_on="2024-11-06")
+        date_range = space.search(
+            "Jira",
+            created_from="2024-11-05",
+            created_to="2024-11-06",
+        )
+        space._fts_ok = False
+        like = space.search("tasks", created_on="2024-11-05")
+    finally:
+        space.close()
+
+    assert len(exact) == 1
+    assert exact[0]["content"] == "logged 18 tasks"
+    assert exact[0]["created_at"].startswith("2024-11-05")
+    assert {row["content"] for row in exact[0]["exchange"]} == {
+        "Jira sprint alpha",
+        "logged 18 tasks",
+    }
+    assert len(date_only) == 1
+    assert date_only[0]["exchange_start_seq"] == 3
+    assert len(date_range) == 2
+    assert {row["content"] for row in like if row["seq"] >= 0} == {
+        "logged 18 tasks",
+    }
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"created_on": "2024-02-30"},
+        {
+            "created_on": "2024-11-05",
+            "created_from": "2024-11-01",
+        },
+        {
+            "created_from": "2024-11-06",
+            "created_to": "2024-11-05",
+        },
+    ],
+)
+def test_search_rejects_invalid_created_at_filters(
+    ms: MemorySpace,
+    kwargs: dict,
+):
+    with pytest.raises(ValueError):
+        ms.search("tanks", **kwargs)
+
+
 def test_row_cap_truncates_with_marker(history_db: Path):
     space = MemorySpace(
         history_db_path=str(history_db),
@@ -603,6 +711,80 @@ def test_no_notice_when_fts_available(ms: MemorySpace):
     # All-punctuation query falls back to LIKE, but FTS5 *is* available here.
     rows = ms.search("!!!")
     assert all(r["kind"] != "_notice" for r in rows)
+
+
+# -- strict date arithmetic -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        ("2024-11-01", "2024-12-16", 45),
+        ("2024-12-16", "2024-11-01", -45),
+        ("2024-02-28", "2024-03-01", 2),
+        ("2023-02-28", "2023-03-01", 1),
+        (
+            "2024-11-01T23:59:59.123456+08:00",
+            "2024-12-16T00:00:00Z",
+            45,
+        ),
+        (
+            "2024-11-01T00:00-07:00",
+            "2024-10-31T23:59+14:00",
+            -1,
+        ),
+    ],
+)
+def test_days_between_is_signed_and_accepts_iso_timestamps(
+    ms: MemorySpace,
+    start: str,
+    end: str,
+    expected: int,
+):
+    assert ms.days_between(start, end) == expected
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        ("2024-11-01", "2024-11-01", 1),
+        ("2024-11-01", "2024-11-02", 2),
+        ("2024-11-02", "2024-11-01", -2),
+    ],
+)
+def test_days_between_inclusive_preserves_direction(
+    ms: MemorySpace,
+    start: str,
+    end: str,
+    expected: int,
+):
+    assert ms.days_between(start, end, inclusive=True) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2023-02-29",
+        "2024-02-30",
+        "2024/11/01",
+        "prefix 2024-11-01",
+        "2024-11-01 12:30:00Z",
+        "2024-11-01T12:30:00+24:00",
+        "2024-11-01T12:30:00 PST",
+        " 2024-11-01",
+    ],
+)
+def test_days_between_rejects_invalid_or_non_strict_dates(
+    ms: MemorySpace,
+    value: str,
+):
+    with pytest.raises(ValueError, match="invalid ISO date or timestamp"):
+        ms.days_between(value, "2024-12-16")
+
+
+def test_days_between_rejects_unsupported_types(ms: MemorySpace):
+    with pytest.raises(TypeError, match="must be an ISO string"):
+        ms.days_between(20241101, "2024-12-16")
 
 
 # -- intent-named recall helpers --------------------------------------------

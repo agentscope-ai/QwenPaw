@@ -39,6 +39,19 @@ def test_append_assigns_increasing_seq_and_counts(store: HistoryStore):
     assert store.count("other") == 0
 
 
+def test_created_at_index_exists_for_date_filtered_recall(
+    store: HistoryStore,
+):
+    indexes = {
+        row["name"]
+        for row in store._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index'",
+        )
+    }
+
+    assert "ch_created_at" in indexes
+
+
 def test_append_is_idempotent_on_session_dedup_key(store: HistoryStore):
     """A second append of the same (session, dedup_key) is a no-op that
     returns the existing seq — the resume/migration safety net."""

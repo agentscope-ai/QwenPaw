@@ -36,7 +36,12 @@ def history_db(tmp_path: Path) -> Path:
         session_id="s1",
         agent_id="ag1",
         dedup_key="u1",
-        entry=LogEntry(kind="context_msg", role="user", content="hello there"),
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="hello there",
+            created_at="2024-11-05T09:00:00+00:00",
+        ),
     )
     h.append(
         session_id="s1",
@@ -47,6 +52,7 @@ def history_db(tmp_path: Path) -> Path:
             role="assistant",
             content="the flight is AA231",
             headline="flight AA231",
+            created_at="2024-11-05T09:01:00+00:00",
         ),
     )
     h.append(
@@ -59,6 +65,7 @@ def history_db(tmp_path: Path) -> Path:
             name="grep",
             tool_call_id="call_abc",
             content="RESULT-FULL",
+            created_at="2024-11-05T09:02:00+00:00",
         ),
     )
     # The active turn: a later user request (search must never surface it).
@@ -70,6 +77,7 @@ def history_db(tmp_path: Path) -> Path:
             kind="context_msg",
             role="user",
             content="what was the flight again",
+            created_at="2024-11-06T09:00:00+00:00",
         ),
     )
     h.close()
@@ -97,6 +105,7 @@ async def test_expand_returns_full_turns(tool):
     assert "the flight is AA231" in text
     assert "RESULT-FULL" in text
     assert "seq=1" in text
+    assert "created_at=2024-11-05T09:00:00+00:00" in text
 
 
 async def test_search_finds_evicted_turn_not_active_turn(tool):
@@ -121,6 +130,56 @@ async def test_search_user_hit_returns_same_complete_exchange(tool):
     assert "hello there" in text
     assert "the flight is AA231" in text
     assert "RESULT-FULL" in text
+
+
+async def test_search_filters_and_displays_created_at(tool):
+    chunk = await tool(
+        op="search",
+        query="flight",
+        created_on="2024-11-05",
+        k=10,
+    )
+    wrong_date = await tool(
+        op="search",
+        query="flight",
+        created_on="2024-11-04",
+        k=10,
+    )
+    date_only = await tool(
+        op="search",
+        query="",
+        created_from="2024-11-05",
+        created_to="2024-11-05",
+        k=10,
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    assert "created_at=2024-11-05T09:01:00+00:00" in _text(chunk)
+    assert "the flight is AA231" in _text(chunk)
+    assert wrong_date.state == ToolResultState.SUCCESS
+    assert _text(wrong_date).startswith("0 rows")
+    assert date_only.state == ToolResultState.SUCCESS
+    assert "hello there" in _text(date_only)
+    assert "RESULT-FULL" in _text(date_only)
+
+
+async def test_search_rejects_invalid_created_at_filters(tool):
+    invalid = await tool(
+        op="search",
+        query="flight",
+        created_on="2024-02-30",
+    )
+    conflicting = await tool(
+        op="search",
+        query="flight",
+        created_on="2024-11-05",
+        created_from="2024-11-01",
+    )
+
+    assert invalid.state == ToolResultState.ERROR
+    assert "invalid ISO date" in _text(invalid)
+    assert conflicting.state == ToolResultState.ERROR
+    assert "cannot be combined" in _text(conflicting)
 
 
 async def test_search_saved_tool_output_keeps_match_excerpt(tmp_path: Path):
@@ -174,6 +233,76 @@ async def test_recall_tool_by_call_id(tool):
     chunk = await tool(op="recall_tool", tool_call_id="call_abc")
     assert chunk.state == ToolResultState.SUCCESS
     assert "RESULT-FULL" in _text(chunk)
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        ("2024-11-01", "2024-12-16", 45),
+        ("2024-12-16", "2024-11-01", -45),
+        (
+            "2024-02-28T23:00:00-08:00",
+            "2024-03-01T01:00:00Z",
+            2,
+        ),
+    ],
+)
+async def test_days_between_uses_shared_date_semantics(
+    tool,
+    start: str,
+    end: str,
+    expected: int,
+):
+    chunk = await tool(op="days_between", start=start, end=end)
+
+    assert chunk.state == ToolResultState.SUCCESS
+    assert _text(chunk).endswith(f"= {expected}")
+    assert chunk.metadata == {}
+
+
+async def test_days_between_supports_signed_inclusive_ranges(tool):
+    chunk = await tool(
+        op="days_between",
+        start="2024-11-02",
+        end="2024-11-01",
+        inclusive=True,
+    )
+
+    assert chunk.state == ToolResultState.SUCCESS
+    assert _text(chunk).endswith("= -2")
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (None, "2024-12-16"),
+        ("2024-11-01", None),
+        ("2024-02-30", "2024-12-16"),
+        ("2024-11-01 12:00:00Z", "2024-12-16"),
+    ],
+)
+async def test_days_between_rejects_missing_or_invalid_dates(
+    tool,
+    start: str | None,
+    end: str | None,
+):
+    chunk = await tool(op="days_between", start=start, end=end)
+
+    assert chunk.state == ToolResultState.ERROR
+    assert _text(chunk).startswith("RECALL FAILED")
+    assert "history genuinely holds nothing" not in _text(chunk)
+
+
+async def test_days_between_rejects_pagination_cursor(tool):
+    chunk = await tool(
+        op="days_between",
+        start="2024-11-01",
+        end="2024-12-16",
+        cursor="not-used-for-date-math",
+    )
+
+    assert chunk.state == ToolResultState.ERROR
+    assert "does not paginate" in _text(chunk)
 
 
 async def test_duplicate_recall_is_blocked_only_within_current_turn(
@@ -436,6 +565,16 @@ async def test_cursor_is_bound_to_original_search_arguments(tmp_path: Path):
     )
     assert changed_k.state == ToolResultState.ERROR
     assert "different recall request" in _text(changed_k)
+
+    changed_date = await bounded_tool(
+        op="search",
+        query="alpha",
+        k=10,
+        created_on="2024-11-05",
+        cursor=cursor,
+    )
+    assert changed_date.state == ToolResultState.ERROR
+    assert "different recall request" in _text(changed_date)
 
 
 async def test_cursor_detects_result_snapshot_drift(tmp_path: Path):
