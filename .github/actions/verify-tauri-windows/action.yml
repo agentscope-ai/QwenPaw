@@ -34,10 +34,6 @@ runs:
         ALLOW_FLAKY_LLM: ${{ inputs.allow-flaky-llm }}
       run: |
         . scripts/verify/launch_tauri_windows.ps1
-        if (-not $env:BASE_URL) {
-          Write-Host "::error::BASE_URL is empty — Tauri app likely failed to start. Check launch logs above."
-          exit 1
-        }
         $verifyArgs = @(
           "scripts/verify/desktop_verify.py",
           "--base-url", $env:BASE_URL,
