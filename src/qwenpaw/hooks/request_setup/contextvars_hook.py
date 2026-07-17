@@ -19,7 +19,10 @@ logger = logging.getLogger(__name__)
 class ContextVarsSetupHook(LifecycleHook):
     """Inject per-request ContextVars before agent execution."""
 
-    phase = Phase.PRE_DISPATCH
+    # POST_AGENT_BUILD, not PRE_DISPATCH: ``ctx.agent`` (and thus its toolkit
+    # / state) does not exist until the agent is built. Nothing before this
+    # phase reads these ContextVars — only tools during agent execution do.
+    phase = Phase.POST_AGENT_BUILD
     name = "contextvars_setup"
     priority = 10
 
