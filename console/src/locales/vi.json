@@ -959,7 +959,7 @@
     "toolResultCompactRetentionDaysTooltip": "Số ngày giữ lại file kết quả công cụ đã nén, file hết hạn sẽ tự động dọn dẹp",
     "toolResultCompactRetentionDaysRequired": "Bắt buộc",
     "historyRetentionDays": "Số ngày lưu lịch sử",
-    "historyRetentionDaysTooltip": "Số ngày lưu lịch sử trò chuyện lâu dài. Các bản ghi cũ hơn sẽ tự động bị xóa khi khởi động và khi tắt agent. Đặt 0 để lưu lịch sử vĩnh viễn (dung lượng lưu trữ sẽ tăng không giới hạn).",
+    "historyRetentionDaysTooltip": "Số ngày lưu lịch sử trò chuyện lâu dài. Các bản ghi cũ hơn sẽ tự động bị xóa khi khởi động và khi tắt agent.",
     "historyRetentionDaysRequired": "Bắt buộc",
     "historyRetentionDaysForeverWarning": "Đặt 0 sẽ lưu lịch sử vĩnh viễn — dung lượng lưu trữ sẽ tăng không giới hạn.",
     "historyRetentionDaysLargeWarning": "Khoảng thời gian lưu lớn có thể chiếm nhiều dung lượng lưu trữ.",

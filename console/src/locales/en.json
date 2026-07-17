@@ -1989,7 +1989,7 @@
     "toolResultCompactRetentionDaysTooltip": "Independent retention period for complete tool result artifacts. After cleanup, history.db may still retain a bounded preview.",
     "toolResultCompactRetentionDaysRequired": "Complete tool result retention days is required",
     "historyRetentionDays": "History Retention Days",
-    "historyRetentionDaysTooltip": "Days of durable chat history to keep. Older rows are purged automatically on startup and on agent teardown. Set 0 to keep history forever (storage grows without bound).",
+    "historyRetentionDaysTooltip": "Days of durable chat history to keep. Older rows are purged automatically on startup and on agent teardown.",
     "historyRetentionDaysRequired": "History retention days is required",
     "historyRetentionDaysForeverWarning": "Set to 0 keeps history forever — storage will grow without bound.",
     "historyRetentionDaysLargeWarning": "A large retention window may consume significant storage.",

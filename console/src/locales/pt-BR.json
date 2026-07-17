@@ -1839,7 +1839,7 @@
     "toolResultCompactRetentionDaysTooltip": "Independent retention period for complete tool result artifacts. After cleanup, history.db may still retain a bounded preview.",
     "toolResultCompactRetentionDaysRequired": "Complete tool result retention days is required",
     "historyRetentionDays": "Dias de Retenção do Histórico",
-    "historyRetentionDaysTooltip": "Dias de histórico de conversa persistente a manter. Linhas mais antigas são removidas automaticamente na inicialização e no encerramento do agente. Defina 0 para manter o histórico para sempre (o armazenamento cresce sem limite).",
+    "historyRetentionDaysTooltip": "Dias de histórico de conversa persistente a manter. Linhas mais antigas são removidas automaticamente na inicialização e no encerramento do agente.",
     "historyRetentionDaysRequired": "Os dias de retenção do histórico são obrigatórios",
     "historyRetentionDaysForeverWarning": "Definir como 0 mantém o histórico para sempre — o armazenamento crescerá sem limite.",
     "historyRetentionDaysLargeWarning": "Um período de retenção grande pode consumir bastante armazenamento.",
