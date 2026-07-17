@@ -100,7 +100,7 @@ class DoomLoopGate(LoopGate):
             ),
         )
 
-    def reset(self) -> None:
+    def reset_turn(self) -> None:
         """Clear history and counters for current session."""
         state = self._state()
         if state is not None:

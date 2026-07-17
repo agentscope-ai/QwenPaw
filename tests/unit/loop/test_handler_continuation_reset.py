@@ -43,7 +43,7 @@ class _AlwaysContinueGate(StopGate):
 
 
 class _ResettableGate(StopGate):
-    """Gate that tracks reset() calls."""
+    """Gate that tracks reset_turn() calls."""
 
     def __init__(self, gate_name: str = "resettable"):
         self._name = gate_name
@@ -59,7 +59,7 @@ class _ResettableGate(StopGate):
     ) -> Optional[StopHandlerResult]:
         return None
 
-    def reset(self) -> None:
+    def reset_turn(self) -> None:
         self.reset_count += 1
 
 
@@ -103,7 +103,7 @@ async def test_reset_peers_true_skips_trigger():
         def build_continuation(self):
             return "go"
 
-        def reset(self):
+        def reset_turn(self):
             self.reset_count += 1
 
     trigger = _ContinueResettable()
@@ -144,7 +144,7 @@ async def test_multiple_peers_all_reset():
 
 @pytest.mark.asyncio
 async def test_gate_without_reset_method_skipped():
-    """Gates without reset() are silently skipped."""
+    """Default no-op reset_turn() is accepted."""
     handler = StopHandler()
     trigger = _AlwaysContinueGate(reset_peers=True)
 

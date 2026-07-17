@@ -17,9 +17,9 @@ from typing import Any, Callable, Optional
 
 from .base import (
     StopAction,
-    StopGate,
     StopHandlerResult,
 )
+from .loop_gate import LoopGate
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +151,14 @@ class SubAgentRubric(RubricStrategy):
         )
 
 
-class StandaloneRubricGate(StopGate):
+@dataclass
+class _StandaloneRubricState:
+    """Per-session intervention count."""
+
+    count: int = 0
+
+
+class StandaloneRubricGate(LoopGate):
     """Re-prompt on text-only responses.
 
     Prevents premature stop when the LLM outputs text
@@ -165,9 +172,17 @@ class StandaloneRubricGate(StopGate):
         prompt: str = "",
         max_interventions: int = 1,
     ) -> None:
+        super().__init__()
         self._prompt = prompt
         self._max = max_interventions
-        self._count = 0
+
+    def _ensure_state(self) -> _StandaloneRubricState:
+        """Return current session state, creating it when needed."""
+        state = self._state()
+        if state is None:
+            state = _StandaloneRubricState()
+            self.activate(state)
+        return state
 
     @property
     def name(self) -> str:
@@ -194,14 +209,15 @@ class StandaloneRubricGate(StopGate):
         ):
             return _bypass
 
-        if self._count >= self._max:
-            self._count = 0
+        state = self._ensure_state()
+        if state.count >= self._max:
+            state.count = 0
             return _bypass
 
-        self._count += 1
+        state.count += 1
         logger.debug(
             "StandaloneRubricGate: intervene %d/%d",
-            self._count,
+            state.count,
             self._max,
         )
         return StopHandlerResult(
@@ -214,9 +230,11 @@ class StandaloneRubricGate(StopGate):
         """Return the re-prompt text."""
         return self._prompt
 
-    def reset(self) -> None:
+    def reset_turn(self) -> None:
         """Reset intervention counter for new turn."""
-        self._count = 0
+        state = self._state()
+        if state is not None:
+            state.count = 0
 
 
 __all__ = [

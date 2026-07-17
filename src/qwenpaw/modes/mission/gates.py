@@ -166,6 +166,11 @@ class MissionGate(LoopGate):
         )
         self.activate(ms)
 
+    def restore(self, ctx: Any) -> None:
+        """Restore current-session state when persisted mission data exists."""
+        if self._state() is None:
+            self._try_restore(ctx)
+
     def _try_restore(
         self,
         ctx: Any,
