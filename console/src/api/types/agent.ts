@@ -24,11 +24,20 @@ export interface ToolResultPruningConfig {
 
 export type ContextStrategy = "native" | "scroll";
 
+export interface ScrollConfig {
+  db_filename: string;
+  repl_timeout_s: number;
+  history_retention_days: number;
+  allow_unsandboxed: boolean;
+  offload_dialog: boolean;
+}
+
 export interface LightContextConfig {
   strategy: ContextStrategy;
   dialog_path: string;
   token_count_estimate_divisor: number;
   context_compact_config: ContextCompactConfig;
+  scroll_config: ScrollConfig;
   tool_result_pruning_config: ToolResultPruningConfig;
 }
 
