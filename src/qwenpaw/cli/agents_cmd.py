@@ -25,6 +25,10 @@ from ..config.config import (
 from ..constant import WORKING_DIR
 from ..config.config import ModelSlotConfig
 from ..providers.provider_manager import ProviderManager
+from ..security.workspace_paths import (
+    ReservedWorkspaceError,
+    assert_workspace_dir_allowed,
+)
 from .http import print_json, resolve_base_url
 
 SUPPORTED_AGENT_TEMPLATES = list_supported_agent_templates()
@@ -591,6 +595,10 @@ def create_cmd(
         new_id,
         workspace_dir,
     )
+    try:
+        assert_workspace_dir_allowed(resolved_workspace_dir)
+    except ReservedWorkspaceError as exc:
+        raise click.ClickException(str(exc)) from exc
     resolved_workspace_dir.mkdir(parents=True, exist_ok=True)
 
     effective_template = template or DEFAULT_AGENT_TEMPLATE

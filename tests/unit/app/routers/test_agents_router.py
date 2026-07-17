@@ -269,3 +269,42 @@ def test_delete_agent_happy_path_calls_stop_and_saves(
     manager_mock.stop_agent.assert_awaited_once_with("bot")
     save_mock.assert_called_once()
     assert "bot" not in fake_config.agents.profiles
+
+
+# ---------------------------------------------------------------------------
+# POST /agents — reserved workspace_dir guard
+# ---------------------------------------------------------------------------
+
+
+def test_create_agent_rejects_custom_channels_workspace(
+    client,
+    fake_config,
+    tmp_path,
+):
+    """workspace_dir inside custom_channels must be refused (RCE vector)."""
+    from qwenpaw import constant
+
+    custom_channels = tmp_path / "custom_channels"
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch.object(constant, "CUSTOM_CHANNELS_DIR", custom_channels),
+        patch.object(constant, "PLUGINS_DIR", tmp_path / "plugins"),
+        patch.object(constant, "SECRET_DIR", tmp_path / "secret"),
+        patch("qwenpaw.app.routers.agents.save_config") as save_mock,
+    ):
+        response = client.post(
+            "/api/agents",
+            json={
+                "id": "evilbot",
+                "name": "Evil",
+                "workspace_dir": str(custom_channels / "evilbot"),
+            },
+        )
+
+    assert response.status_code == 400
+    assert "reserved directory" in response.json()["detail"]
+    save_mock.assert_not_called()
+    assert not custom_channels.exists()

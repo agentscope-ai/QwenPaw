@@ -32,6 +32,10 @@ from ...agents.utils import copy_workspace_md_files, normalize_agent_language
 from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
+from ...security.workspace_paths import (
+    ReservedWorkspaceError,
+    assert_workspace_dir_allowed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -303,6 +307,10 @@ async def create_agent(
     workspace_dir = Path(
         request.workspace_dir or f"{WORKING_DIR}/workspaces/{new_id}",
     ).expanduser()
+    try:
+        assert_workspace_dir_allowed(workspace_dir)
+    except ReservedWorkspaceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
     from ...config.config import (
