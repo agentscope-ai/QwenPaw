@@ -46,6 +46,10 @@ class MultiAgentManager:
         self._lock = asyncio.Lock()
         self._pending_starts: Dict[str, asyncio.Event] = {}
         self._agent_startup_statuses: Dict[str, AgentStartupStatus] = {}
+        self._agent_startup_tasks: Dict[str, asyncio.Task[bool]] = {}
+        self._custom_startup_semaphore = asyncio.Semaphore(
+            CUSTOM_AGENT_STARTUP_CONCURRENCY,
+        )
         self._cleanup_tasks: Set[asyncio.Task] = set()
         logger.debug("MultiAgentManager initialized")
 
@@ -79,6 +83,8 @@ class MultiAgentManager:
         Raises:
             ConfigurationException: If agent ID not found in configuration
         """
+        await self._wait_for_scheduled_startup(agent_id)
+
         # Fast path: already loaded (no lock)
         if agent_id in self.agents:
             self._agent_startup_statuses[agent_id] = AgentStartupStatus.RUNNING
@@ -508,6 +514,7 @@ class MultiAgentManager:
             f"Stopping all agents ({len(self.agents)} running)...",
         )
 
+        await self.cancel_all_startup_tasks()
         await self.cancel_all_cleanup_tasks()
 
         async def _stop_one(agent_id: str, instance: Workspace):
@@ -584,6 +591,62 @@ class MultiAgentManager:
         except Exception as e:
             logger.error(f"Failed to preload agent {agent_id}: {e}")
             return False
+
+    async def _wait_for_scheduled_startup(self, agent_id: str) -> None:
+        """Join an existing queued startup instead of bypassing its limit."""
+        startup_task = self._agent_startup_tasks.get(agent_id)
+        if (
+            startup_task is None
+            or startup_task is asyncio.current_task()
+            or startup_task.done()
+        ):
+            return
+        if not await startup_task:
+            raise ConfigurationException(
+                config_key="agent",
+                message=f"Agent '{agent_id}' failed to initialize",
+            )
+
+    def schedule_agent_startup(self, agent_id: str) -> asyncio.Task[bool]:
+        """Queue one custom agent through the shared startup limit."""
+        existing_task = self._agent_startup_tasks.get(agent_id)
+        if existing_task is not None and not existing_task.done():
+            return existing_task
+
+        if agent_id in self.agents:
+            self._agent_startup_statuses[agent_id] = AgentStartupStatus.RUNNING
+        else:
+            self._agent_startup_statuses[agent_id] = AgentStartupStatus.PENDING
+
+        task = asyncio.create_task(
+            self._start_agent_with_limit(agent_id),
+            name=f"agent-startup:{agent_id}",
+        )
+        self._agent_startup_tasks[agent_id] = task
+
+        def discard(completed_task: asyncio.Task[bool]) -> None:
+            if self._agent_startup_tasks.get(agent_id) is completed_task:
+                self._agent_startup_tasks.pop(agent_id, None)
+
+        task.add_done_callback(discard)
+        return task
+
+    async def _start_agent_with_limit(self, agent_id: str) -> bool:
+        """Start one custom agent inside the process-wide startup bound."""
+        if agent_id in self.agents:
+            return True
+        async with self._custom_startup_semaphore:
+            return await self.preload_agent(agent_id)
+
+    async def cancel_all_startup_tasks(self) -> None:
+        """Cancel and await queued custom-agent startup tasks."""
+        tasks = list(self._agent_startup_tasks.values())
+        self._agent_startup_tasks.clear()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def start_all_configured_agents(
         self,
@@ -675,7 +738,6 @@ class MultiAgentManager:
                     exc_info=True,
                 )
 
-        semaphore = asyncio.Semaphore(CUSTOM_AGENT_STARTUP_CONCURRENCY)
         if startup_display is not None and custom_agent_ids:
             startup_display.start_custom_agents(len(custom_agent_ids))
 
@@ -684,8 +746,8 @@ class MultiAgentManager:
         ) -> tuple[str, bool]:
             """Start one custom agent inside the concurrency bound."""
             try:
-                async with semaphore:
-                    return await start_single_agent(agent_id)
+                success = await self.schedule_agent_startup(agent_id)
+                return (agent_id, success)
             finally:
                 if startup_display is not None:
                     startup_display.advance(agent_id)

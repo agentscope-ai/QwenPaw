@@ -36,6 +36,7 @@ def _ref(agent_id: str, *, enabled: bool = True) -> AgentProfileRef:
 def manager_mock():
     mgr = MagicMock(name="MultiAgentManager")
     mgr.stop_agent = AsyncMock(return_value=None)
+    mgr.schedule_agent_startup = MagicMock()
     mgr.get_agent_startup_status.side_effect = lambda _agent_id, *, enabled: (
         AgentStartupStatus.RUNNING if enabled else AgentStartupStatus.DISABLED
     )
@@ -222,7 +223,7 @@ def test_reorder_agents_happy_path_saves(client, fake_config):
     ):
         response = client.put(
             "/api/agents/order",
-            json={"agent_ids": ["bot", "default"]},
+            json={"agent_ids": ["default", "bot"]},
         )
 
     assert response.status_code == 200
@@ -295,6 +296,31 @@ def test_toggle_rejects_disabling_agent_during_startup(
 
     assert response.status_code == 409
     manager_mock.stop_agent.assert_not_awaited()
+
+
+def test_toggle_enable_queues_bounded_startup(
+    client,
+    fake_config,
+    manager_mock,
+):
+    fake_config.agents.profiles["bot"].enabled = False
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch("qwenpaw.app.routers.agents.save_config") as save_mock,
+    ):
+        response = client.patch(
+            "/api/agents/bot/toggle",
+            json={"enabled": True},
+        )
+
+    assert response.status_code == 200
+    assert fake_config.agents.profiles["bot"].enabled is True
+    manager_mock.schedule_agent_startup.assert_called_once_with("bot")
+    save_mock.assert_called_once()
 
 
 def test_delete_rejects_agent_during_startup(

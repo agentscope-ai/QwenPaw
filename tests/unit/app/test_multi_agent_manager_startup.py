@@ -153,6 +153,64 @@ async def test_core_agents_overlap_before_custom_agents(
 
 
 @pytest.mark.asyncio
+async def test_core_ready_waits_for_enabled_qa(monkeypatch) -> None:
+    """Ready is published only after both enabled core agents finish."""
+    manager = MultiAgentManager()
+    config = _config("default", BUILTIN_QA_AGENT_ID)
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: config,
+    )
+    default_done = asyncio.Event()
+    qa_started = asyncio.Event()
+    release_qa = asyncio.Event()
+
+    async def get_agent(agent_id: str):
+        if agent_id == "default":
+            default_done.set()
+        else:
+            qa_started.set()
+            await release_qa.wait()
+        return SimpleNamespace()
+
+    manager.get_agent = AsyncMock(side_effect=get_agent)
+    callback = MagicMock()
+    task = asyncio.create_task(
+        manager.start_all_configured_agents(on_core_ready=callback),
+    )
+
+    await asyncio.wait_for(default_done.wait(), timeout=1)
+    await asyncio.wait_for(qa_started.wait(), timeout=1)
+    callback.assert_not_called()
+
+    release_qa.set()
+    await asyncio.wait_for(task, timeout=1)
+    callback.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_core_ready_does_not_wait_for_disabled_qa(monkeypatch) -> None:
+    """A disabled QA agent is excluded from the core readiness phase."""
+    manager = MultiAgentManager()
+    config = _config("default", BUILTIN_QA_AGENT_ID)
+    config.agents.profiles[BUILTIN_QA_AGENT_ID].enabled = False
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: config,
+    )
+    manager.get_agent = AsyncMock(return_value=SimpleNamespace())
+    callback = MagicMock()
+
+    result = await manager.start_all_configured_agents(
+        on_core_ready=callback,
+    )
+
+    assert result == {"default": True}
+    manager.get_agent.assert_awaited_once_with("default")
+    callback.assert_called_once_with({"default": True})
+
+
+@pytest.mark.asyncio
 async def test_startup_preserves_loaded_agent_status_during_core_phase(
     monkeypatch,
 ) -> None:
@@ -191,7 +249,6 @@ async def test_startup_preserves_loaded_agent_status_during_core_phase(
 async def test_custom_agent_startup_respects_concurrency(
     monkeypatch,
 ) -> None:
-    manager = MultiAgentManager()
     custom_ids = [f"custom-{index}" for index in range(6)]
     config = _config("default", BUILTIN_QA_AGENT_ID, *custom_ids)
     monkeypatch.setattr(
@@ -207,6 +264,7 @@ async def test_custom_agent_startup_respects_concurrency(
         "CUSTOM_AGENT_STARTUP_CONCURRENCY",
         2,
     )
+    manager = MultiAgentManager()
 
     active_custom = 0
     peak_custom = 0
@@ -230,6 +288,53 @@ async def test_custom_agent_startup_respects_concurrency(
     assert peak_custom == 2
     startup_display.start_custom_agents.assert_called_once_with(6)
     assert startup_display.advance.call_count == 6
+
+
+@pytest.mark.asyncio
+async def test_runtime_startups_share_concurrency_and_pending_state(
+    monkeypatch,
+) -> None:
+    """Runtime-created agents use the same bounded startup scheduler."""
+    monkeypatch.setattr(
+        multi_agent_manager_module,
+        "CUSTOM_AGENT_STARTUP_CONCURRENCY",
+        1,
+    )
+    manager = MultiAgentManager()
+    config = _config("alpha", "beta")
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: config,
+    )
+    alpha_started = asyncio.Event()
+    release_alpha = asyncio.Event()
+    beta_started = asyncio.Event()
+
+    async def get_agent(agent_id: str):
+        if agent_id == "alpha":
+            alpha_started.set()
+            await release_alpha.wait()
+        else:
+            beta_started.set()
+        return SimpleNamespace()
+
+    manager.get_agent = AsyncMock(side_effect=get_agent)
+
+    alpha_task = manager.schedule_agent_startup("alpha")
+    beta_task = manager.schedule_agent_startup("beta")
+    await asyncio.wait_for(alpha_started.wait(), timeout=1)
+
+    assert manager.get_agent_startup_status("beta") == (
+        AgentStartupStatus.PENDING
+    )
+    assert manager.is_agent_startup_in_progress("beta")
+    assert not beta_started.is_set()
+
+    release_alpha.set()
+    await asyncio.wait_for(beta_started.wait(), timeout=1)
+    assert await asyncio.gather(alpha_task, beta_task) == [True, True]
+    await asyncio.sleep(0)
+    assert not manager._agent_startup_tasks
 
 
 @pytest.mark.asyncio

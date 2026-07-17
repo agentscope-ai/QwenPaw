@@ -211,13 +211,34 @@ async def test_reorder_agents_persists_valid_order(monkeypatch):
 
     response = await agents_router.reorder_agents(
         agents_router.ReorderAgentsRequest(
-            agent_ids=["beta", "default", "alpha"],
+            agent_ids=["default", "beta", "alpha"],
         ),
     )
 
     assert response["success"] is True
-    assert config.agents.agent_order == ["beta", "default", "alpha"]
-    assert saved_orders == [["beta", "default", "alpha"]]
+    assert config.agents.agent_order == ["default", "beta", "alpha"]
+    assert saved_orders == [["default", "beta", "alpha"]]
+
+
+@pytest.mark.asyncio
+async def test_reorder_agents_rejects_non_display_order(monkeypatch):
+    """A successful PUT must be returned unchanged by the next GET."""
+    config = _build_config(
+        ["default", "pinned", "regular"],
+        agent_order=["default", "pinned", "regular"],
+        pinned_ids={"pinned"},
+    )
+    monkeypatch.setattr(agents_router, "load_config", lambda: config)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await agents_router.reorder_agents(
+            agents_router.ReorderAgentsRequest(
+                agent_ids=["default", "regular", "pinned"],
+            ),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "pinned agents" in exc_info.value.detail
 
 
 @pytest.mark.asyncio
@@ -245,15 +266,25 @@ async def test_create_agent_appends_new_id_to_order(monkeypatch, tmp_path):
         "generate_short_agent_id",
         lambda: "beta",
     )
+    manager = SimpleNamespace(schedule_agent_startup=lambda agent_id: None)
+    scheduled_ids: list[str] = []
+    manager.schedule_agent_startup = scheduled_ids.append
+    http_request = SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(multi_agent_manager=manager),
+        ),
+    )
 
     await agents_router.create_agent(
         agents_router.CreateAgentRequest(
             name="Beta",
             workspace_dir=str(tmp_path / "beta"),
         ),
+        http_request=http_request,
     )
 
     assert config.agents.agent_order == ["alpha", "default", "beta"]
+    assert scheduled_ids == ["beta"]
 
 
 @pytest.mark.asyncio

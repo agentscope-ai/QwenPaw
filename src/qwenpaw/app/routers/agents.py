@@ -129,9 +129,8 @@ def _normalized_agent_order(config) -> list[str]:
     return ordered_ids
 
 
-def _display_agent_order(config) -> list[str]:
-    """Return stored order grouped by default, pinned, then regular."""
-    ordered_ids = _normalized_agent_order(config)
+def _group_agent_order(config, ordered_ids: list[str]) -> list[str]:
+    """Group a complete order by default, pinned, then regular."""
     pinned_ids = [
         agent_id
         for agent_id in ordered_ids
@@ -145,6 +144,16 @@ def _display_agent_order(config) -> list[str]:
     ]
     default_ids = ["default"] if "default" in ordered_ids else []
     return [*default_ids, *pinned_ids, *regular_ids]
+
+
+def _display_agent_order(config) -> list[str]:
+    """Return stored order grouped by default, pinned, then regular."""
+    return _group_agent_order(config, _normalized_agent_order(config))
+
+
+def _is_valid_display_order(config, agent_ids: list[str]) -> bool:
+    """Return whether an order respects default and pinned grouping."""
+    return _group_agent_order(config, agent_ids) == agent_ids
 
 
 def _read_profile_description(workspace_dir: str) -> str:
@@ -272,6 +281,15 @@ async def reorder_agents(
             detail="Each configured agent ID must appear exactly once.",
         )
 
+    if not _is_valid_display_order(config, reorder_request.agent_ids):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Agent order must keep default first and pinned agents "
+                "before unpinned agents."
+            ),
+        )
+
     config.agents.agent_order = list(reorder_request.agent_ids)
     save_config(config)
 
@@ -305,6 +323,7 @@ async def set_agent_pinned(
     agent_ref = config.agents.profiles[agentId]
     if agentId != "default":
         agent_ref.pinned = pinned
+        config.agents.agent_order = _display_agent_order(config)
         save_config(config)
 
     return {
@@ -357,6 +376,7 @@ def _generate_unique_id(existing_ids: set[str]) -> str:
 )
 async def create_agent(
     request: CreateAgentRequest = Body(...),
+    http_request: Request = None,
 ) -> AgentProfileRef:
     """Create a new agent.
 
@@ -439,6 +459,10 @@ async def create_agent(
     save_agent_config(new_id, agent_config)
 
     logger.info(f"Created new agent: {new_id} (name={request.name})")
+
+    if http_request is not None:
+        manager = _get_multi_agent_manager(http_request)
+        manager.schedule_agent_startup(new_id)
 
     return agent_ref
 
@@ -560,15 +584,7 @@ async def toggle_agent_enabled(
     save_config(config)
 
     if enabled:
-        try:
-            await manager.get_agent(agentId)
-            logger.info(f"Agent {agentId} started successfully")
-        except Exception as e:
-            logger.error(f"Failed to start agent {agentId}: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Agent enabled but failed to start: {str(e)}",
-            ) from e
+        manager.schedule_agent_startup(agentId)
 
     return {
         "success": True,
