@@ -1008,7 +1008,9 @@ async def put_file_guard(
 
         fg.sensitive_files = ensure_file_guard_paths(body.paths)
     if body.allow_preview_outside_workspace is not None:
-        fg.allow_preview_outside_workspace = body.allow_preview_outside_workspace
+        fg.allow_preview_outside_workspace = (
+            body.allow_preview_outside_workspace
+        )
 
     save_config(config)
 

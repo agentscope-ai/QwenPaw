@@ -278,7 +278,9 @@ class TestACLCommandGeneration:
         asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
 
         all_calls = mock_icacls.call_args_list
-        deny_calls = [call[0][0] for call in all_calls if "/deny" in call[0][0]]
+        deny_calls = [
+            call[0][0] for call in all_calls if "/deny" in call[0][0]
+        ]
         assert len(deny_calls) == 1
         assert r"C:\Users\testuser\.ssh" in deny_calls[0]
 

@@ -161,7 +161,9 @@ class SandboxCapability:
     supported: bool
     mode: SandboxMode
     reason: str  # Human-readable reason
-    landlock_abi_version: int = 0  # Linux only: Landlock ABI version (0=unsupported)
+    landlock_abi_version: int = (
+        0  # Linux only: Landlock ABI version (0=unsupported)
+    )
 
 
 def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements
@@ -264,7 +266,9 @@ def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements
             return SandboxCapability(
                 supported=False,
                 mode=SandboxMode.NONE,
-                reason=(f"landlock_create_ruleset syscall failed, errno={errno}"),
+                reason=(
+                    f"landlock_create_ruleset syscall failed, errno={errno}"
+                ),
             )
 
         return SandboxCapability(
@@ -410,7 +414,9 @@ def _probe_linux_bubblewrap() -> SandboxCapability:
         return SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,
-            reason=(f"bwrap probe failed (rc={result.returncode}): {stderr[:200]}"),
+            reason=(
+                f"bwrap probe failed (rc={result.returncode}): {stderr[:200]}"
+            ),
         )
     except subprocess.TimeoutExpired:
         return SandboxCapability(
