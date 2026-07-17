@@ -78,7 +78,12 @@ $wv2Files = Get-ChildItem -Path $installRoot -Filter "*WebView2*" `
 if ($wv2Files) {
   Write-Host "WebView2 bootstrapper present: $($wv2Files[0].Name)"
 } else {
-  Write-Host "::warning::WebView2 bootstrapper not found in install dir"
+  Write-Host "::error::WebView2 bootstrapper not found in install dir — Tauri app will fail to launch."
+  Write-Host "  Install root: $installRoot"
+  Write-Host "  Contents:"
+  Get-ChildItem -Path $installRoot -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "    $($_.Name)"
+  }
 }
 
 # 3. Launch the full Tauri shell with CDP debugging enabled.
