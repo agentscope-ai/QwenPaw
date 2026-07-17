@@ -5,10 +5,13 @@ import { PlusOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../../api/modules/agents";
 import { invalidateSkillCache, skillApi } from "../../../api/modules/skill";
-import type { AgentSummary } from "../../../api/types/agents";
+import type {
+  AgentSummary,
+  CopyAgentRequest,
+} from "../../../api/types/agents";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useAgents } from "./useAgents";
-import { AgentTable, AgentModal } from "./components";
+import { AgentTable, AgentModal, CopyAgentModal } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import { reorderAgents } from "./reorder";
 import styles from "./index.module.less";
@@ -20,6 +23,9 @@ export default function AgentsPage() {
   const { selectedAgent, setSelectedAgent } = useAgentStore();
   const [modalVisible, setModalVisible] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AgentSummary | null>(null);
+  const [copyModalVisible, setCopyModalVisible] = useState(false);
+  const [copyingAgent, setCopyingAgent] = useState<AgentSummary | null>(null);
+  const [copying, setCopying] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [form] = Form.useForm();
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
@@ -68,6 +74,31 @@ export default function AgentsPage() {
       }
     } catch {
       message.error(t("agent.deleteFailed"));
+    }
+  };
+
+  const handleOpenCopy = (agent: AgentSummary) => {
+    setCopyingAgent(agent);
+    setCopyModalVisible(true);
+  };
+
+  const handleCopy = async (body: CopyAgentRequest) => {
+    if (!copyingAgent) {
+      return;
+    }
+
+    setCopying(true);
+    try {
+      const result = await agentsApi.copyAgent(copyingAgent.id, body);
+      message.success(`${t("agent.copySuccess")} (ID: ${result.id})`);
+      setCopyModalVisible(false);
+      setCopyingAgent(null);
+      await loadAgents();
+    } catch (error: any) {
+      console.error("Failed to copy agent:", error);
+      message.error(error.message || t("agent.copyFailed"));
+    } finally {
+      setCopying(false);
     }
   };
 
@@ -195,6 +226,7 @@ export default function AgentsPage() {
           loading={loading || reordering}
           reordering={reordering}
           onEdit={handleEdit}
+          onCopy={handleOpenCopy}
           onDelete={handleDelete}
           onToggle={handleToggle}
           onReorder={handleReorder}
@@ -210,6 +242,17 @@ export default function AgentsPage() {
         onInstalledSkillsLoaded={handleInstalledSkillsLoaded}
         onSave={handleSubmit}
         onCancel={() => setModalVisible(false)}
+      />
+
+      <CopyAgentModal
+        open={copyModalVisible}
+        sourceAgent={copyingAgent}
+        confirmLoading={copying}
+        onOk={handleCopy}
+        onCancel={() => {
+          setCopyModalVisible(false);
+          setCopyingAgent(null);
+        }}
       />
     </div>
   );

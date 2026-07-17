@@ -365,7 +365,17 @@
     "modelHelp": "Tetapkan model LLM khusus untuk agen ini. Kosongkan untuk memakai default global.",
     "modelPlaceholder": "Gunakan default global",
     "noConfiguredModels": "Tidak ada model yang dikonfigurasi",
-    "modelColumn": "Model"
+    "modelColumn": "Model",
+    "copyTooltip": "Salin konfigurasi agen",
+    "copyTitle": "Salin Konfigurasi Agen",
+    "copyNameLabel": "Nama agen baru",
+    "copyOptionsLabel": "Konten yang disalin",
+    "copyOptionAgentJson": "agent.json",
+    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT.md",
+    "copyOptionSkills": "skills/ + manifest",
+    "copyOptionJobs": "jobs.json",
+    "copySuccess": "Konfigurasi agen berhasil disalin",
+    "copyFailed": "Gagal menyalin konfigurasi agen"
   },
   "skills": {
     "title": "Skill",

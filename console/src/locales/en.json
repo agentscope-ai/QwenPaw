@@ -534,7 +534,17 @@
     "modelHelp": "Assign a specific LLM model to this agent. Leave empty to use the global default.",
     "modelPlaceholder": "Use global default",
     "noConfiguredModels": "No configured models",
-    "modelColumn": "Model"
+    "modelColumn": "Model",
+    "copyTooltip": "Copy agent configuration",
+    "copyTitle": "Copy Agent Configuration",
+    "copyNameLabel": "New agent name",
+    "copyOptionsLabel": "Copy content",
+    "copyOptionAgentJson": "agent.json",
+    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT.md",
+    "copyOptionSkills": "skills/ + manifest",
+    "copyOptionJobs": "jobs.json",
+    "copySuccess": "Agent configuration copied successfully",
+    "copyFailed": "Failed to copy agent configuration"
   },
   "skills": {
     "title": "Skills",

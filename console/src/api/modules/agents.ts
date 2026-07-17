@@ -3,6 +3,7 @@ import type {
   AgentListResponse,
   AgentProfileConfig,
   CreateAgentRequest,
+  CopyAgentRequest,
   AgentProfileRef,
   ReorderAgentsResponse,
 } from "../types/agents";
@@ -21,6 +22,13 @@ export const agentsApi = {
     request<AgentProfileRef>("/agents", {
       method: "POST",
       body: JSON.stringify(agent),
+    }),
+
+  // Copy selected agent configuration files into a new agent
+  copyAgent: (agentId: string, body: CopyAgentRequest) =>
+    request<AgentProfileRef>(`/agents/${agentId}/copy`, {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
 
   // Update agent configuration

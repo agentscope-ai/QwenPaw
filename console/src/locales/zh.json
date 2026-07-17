@@ -317,7 +317,17 @@
     "modelHelp": "为此智能体指定特定的 LLM 模型。留空则使用全局默认模型。",
     "modelPlaceholder": "使用全局默认",
     "noConfiguredModels": "暂无已配置的模型",
-    "modelColumn": "模型"
+    "modelColumn": "模型",
+    "copyTooltip": "复制智能体配置",
+    "copyTitle": "复制智能体配置",
+    "copyNameLabel": "新智能体名称",
+    "copyOptionsLabel": "复制内容",
+    "copyOptionAgentJson": "agent.json",
+    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT.md",
+    "copyOptionSkills": "skills/ + manifest",
+    "copyOptionJobs": "jobs.json",
+    "copySuccess": "智能体配置复制成功",
+    "copyFailed": "智能体配置复制失败"
   },
   "acp": {
     "title": "ACP",

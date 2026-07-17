@@ -469,7 +469,17 @@
     "defaultDisplayName": "Agent mặc định",
     "currentWorkspace": "Agent hiện tại",
     "switchSuccess": "Đã chuyển agent thành công",
-    "switchFailed": "Chuyển agent thất bại"
+    "switchFailed": "Chuyển agent thất bại",
+    "copyTooltip": "Sao chép cấu hình agent",
+    "copyTitle": "Sao chép cấu hình Agent",
+    "copyNameLabel": "Tên agent mới",
+    "copyOptionsLabel": "Nội dung sao chép",
+    "copyOptionAgentJson": "agent.json",
+    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT.md",
+    "copyOptionSkills": "skills/ + manifest",
+    "copyOptionJobs": "jobs.json",
+    "copySuccess": "Sao chép cấu hình agent thành công",
+    "copyFailed": "Sao chép cấu hình agent thất bại"
   },
   "environments": {
     "parent": "Cài đặt",

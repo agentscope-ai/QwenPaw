@@ -170,7 +170,17 @@
     "selectBuiltin": "Встроенные",
     "selectNone": "Очистить",
     "noPoolSkills": "В пуле нет доступных навыков",
-    "addSkillsToAgent": "Добавить навыки"
+    "addSkillsToAgent": "Добавить навыки",
+    "copyTooltip": "Копировать конфигурацию агента",
+    "copyTitle": "Копировать конфигурацию агента",
+    "copyNameLabel": "Имя нового агента",
+    "copyOptionsLabel": "Что копировать",
+    "copyOptionAgentJson": "agent.json",
+    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT.md",
+    "copyOptionSkills": "skills/ + manifest",
+    "copyOptionJobs": "jobs.json",
+    "copySuccess": "Конфигурация агента успешно скопирована",
+    "copyFailed": "Не удалось скопировать конфигурацию агента"
   },
   "workspace": {
     "title": "Файлы",
