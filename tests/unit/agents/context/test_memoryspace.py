@@ -258,17 +258,17 @@ def test_search_excludes_the_active_turn(tmp_path: Path):
             "tanks question from earlier",
             "tanks moved in another session",
         }
-        old_exchange = next(
-            row["exchange"] for row in hits if row["session_id"] == "s1"
+        old_turn = next(
+            row["turn"] for row in hits if row["session_id"] == "s1"
         )
-        assert {row["content"] for row in old_exchange} == {
+        assert {row["content"] for row in old_turn} == {
             "tanks question from earlier",
             "tanks were parked at base",
         }
         legacy_hits = space.search(
             "tanks",
             k=10,
-            include_exchange=False,
+            include_turn=False,
         )
         assert {r["content"] for r in legacy_hits} == legacy_expected
         # The LIKE fallback applies the same exclusion.
@@ -279,7 +279,7 @@ def test_search_excludes_the_active_turn(tmp_path: Path):
         space.close()
 
 
-def test_search_returns_and_deduplicates_complete_exchange(tmp_path: Path):
+def test_search_returns_and_deduplicates_complete_turn(tmp_path: Path):
     history = HistoryStore(tmp_path / "history.db")
     user_seq = history.append(
         session_id="archive",
@@ -342,16 +342,16 @@ def test_search_returns_and_deduplicates_complete_exchange(tmp_path: Path):
         assistant_seq,
         tool_seq,
     ]
-    assert hits[0]["exchange_start_seq"] == user_seq
-    assert hits[0]["exchange_end_seq"] == tool_seq
-    assert [row["content"] for row in hits[0]["exchange"]] == [
+    assert hits[0]["turn_start_seq"] == user_seq
+    assert hits[0]["turn_end_seq"] == tool_seq
+    assert [row["content"] for row in hits[0]["turn"]] == [
         "order question for a compass",
         "order answer is north",
         "order receipt confirmed",
     ]
     assert len(user_hits) == 1
     assert user_hits[0]["match_seq"] == user_seq
-    assert user_hits[0]["exchange"] == hits[0]["exchange"]
+    assert user_hits[0]["turn"] == hits[0]["turn"]
 
 
 def test_search_groups_imported_kind_by_user_role(tmp_path: Path):
@@ -409,16 +409,16 @@ def test_search_groups_imported_kind_by_user_role(tmp_path: Path):
         space.close()
 
     assert len(assistant_hit) == 1
-    assert assistant_hit[0]["exchange_start_seq"] == user_seq
-    assert assistant_hit[0]["exchange_end_seq"] == assistant_seq
-    assert [row["content"] for row in assistant_hit[0]["exchange"]] == [
+    assert assistant_hit[0]["turn_start_seq"] == user_seq
+    assert assistant_hit[0]["turn_end_seq"] == assistant_seq
+    assert [row["content"] for row in assistant_hit[0]["turn"]] == [
         "How many Jira tasks did I log?",
         "You logged 18 Jira tasks.",
     ]
-    assert user_hit[0]["exchange"] == assistant_hit[0]["exchange"]
+    assert user_hit[0]["turn"] == assistant_hit[0]["turn"]
 
 
-def test_search_exchange_does_not_cross_session_or_agent(tmp_path: Path):
+def test_search_turn_does_not_cross_session_or_agent(tmp_path: Path):
     history = HistoryStore(tmp_path / "history.db")
     for session_id, agent_id, suffix in (
         ("s1", "ag1", "one"),
@@ -460,7 +460,7 @@ def test_search_exchange_does_not_cross_session_or_agent(tmp_path: Path):
     assert len(hits) == 3
     for hit in hits:
         assert {
-            (row["session_id"], row["agent_id"]) for row in hit["exchange"]
+            (row["session_id"], row["agent_id"]) for row in hit["turn"]
         } == {
             (hit["session_id"], hit["agent_id"]),
         }
@@ -695,12 +695,12 @@ def test_search_filters_by_created_at_calendar_dates(tmp_path: Path):
     assert len(exact) == 1
     assert exact[0]["content"] == "logged 18 tasks"
     assert exact[0]["created_at"].startswith("2024-11-05")
-    assert {row["content"] for row in exact[0]["exchange"]} == {
+    assert {row["content"] for row in exact[0]["turn"]} == {
         "Jira sprint alpha",
         "logged 18 tasks",
     }
     assert len(date_only) == 1
-    assert date_only[0]["exchange_start_seq"] == 3
+    assert date_only[0]["turn_start_seq"] == 3
     assert len(date_range) == 2
     assert {row["content"] for row in like if row["seq"] >= 0} == {
         "logged 18 tasks",

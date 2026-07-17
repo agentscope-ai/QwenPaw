@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 from agentscope.message import ToolResultState
+from agentscope.tool import FunctionTool
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.memoryspace import MemorySpace
@@ -108,11 +109,56 @@ async def test_expand_returns_full_turns(tool):
     assert "created_at=2024-11-05T09:00:00+00:00" in text
 
 
+@pytest.mark.parametrize(
+    ("lo", "hi"),
+    [
+        ("1", "3"),
+        ("001", 3),
+        (1, "3"),
+    ],
+)
+async def test_expand_accepts_ascii_decimal_string_seqs(tool, lo, hi):
+    chunk = await tool(op="expand", lo=lo, hi=hi)
+
+    assert chunk.state == ToolResultState.SUCCESS
+    assert "expand [1, 3]" in _text(chunk)
+    assert "the flight is AA231" in _text(chunk)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [True, 0, -1, 1.0, "", " 1", "1 ", "+1", "-1", "1.0", "１"],
+)
+@pytest.mark.parametrize("argument", ["lo", "hi"])
+async def test_expand_rejects_non_positive_or_non_decimal_seqs(
+    tool,
+    argument,
+    value,
+):
+    kwargs = {"lo": 1, "hi": 3, argument: value}
+
+    chunk = await tool(op="expand", **kwargs)
+
+    assert chunk.state == ToolResultState.ERROR
+    assert 'invalid op="expand" seq span' in _text(chunk)
+    assert argument in _text(chunk)
+
+
+def test_expand_schema_accepts_integer_or_string_seqs(tool):
+    properties = FunctionTool(tool).input_schema["properties"]
+
+    for argument in ("lo", "hi"):
+        accepted_types = {
+            item["type"] for item in properties[argument]["anyOf"]
+        }
+        assert accepted_types == {"integer", "string", "null"}
+
+
 async def test_search_finds_evicted_turn_not_active_turn(tool):
     chunk = await tool(op="search", query="flight", k=10)
     assert chunk.state == ToolResultState.SUCCESS
     text = _text(chunk)
-    assert "exchange_seq=1–3" in text
+    assert "turn_seq=1–3" in text
     assert "matched_seq=2" in text
     assert "hello there" in text
     assert "the flight is AA231" in text
@@ -121,7 +167,7 @@ async def test_search_finds_evicted_turn_not_active_turn(tool):
     assert "what was the flight again" not in text
 
 
-async def test_search_user_hit_returns_same_complete_exchange(tool):
+async def test_search_user_hit_returns_same_complete_turn(tool):
     chunk = await tool(op="search", query="hello", k=10)
 
     assert chunk.state == ToolResultState.SUCCESS
@@ -317,7 +363,7 @@ async def test_duplicate_recall_is_blocked_only_within_current_turn(
         loop_guard=guard,
     )
 
-    first = await guarded_tool(op="expand", lo=1, hi=3)
+    first = await guarded_tool(op="expand", lo="1", hi="3")
     duplicate = await guarded_tool(op="expand", lo=1, hi=3)
     narrower = await guarded_tool(op="expand", lo=1, hi=2)
 
@@ -398,7 +444,7 @@ async def test_large_recall_is_cursor_paginated(
         page_max_bytes=1024,
     )
 
-    chunk = await bounded_tool(op="expand", lo=1, hi=1)
+    chunk = await bounded_tool(op="expand", lo="1", hi="1")
     assert len(_text(chunk).encode("utf-8")) <= 1024
     assert "[recall page incomplete]" in _text(chunk)
     page = chunk.metadata[RECALL_PAGE_METADATA_KEY]

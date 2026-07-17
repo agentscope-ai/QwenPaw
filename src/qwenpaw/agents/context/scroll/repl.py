@@ -47,12 +47,12 @@ Helpers return `list[dict]`; text is in `content`. A trailing
   • ms.expand(lo, hi)
     Raw turns for an inclusive seq span, oldest first.
   • ms.search(query, k=10, kind=None, all_agents=False,
-              session_id=None, agent_id=None, include_exchange=True,
+              session_id=None, agent_id=None, include_turn=True,
               created_on=None, created_from=None, created_to=None)
     Keyword/FTS search across your sessions; uppercase OR is supported. Each
-    hit includes its complete user-bounded `exchange` by default, plus
-    `matched_seqs`, `exchange_start_seq`, and `exchange_end_seq`. Pass
-    `include_exchange=False` only when matching rows alone are sufficient.
+    hit includes its complete user-bounded `turn` by default, plus
+    `matched_seqs`, `turn_start_seq`, and `turn_end_seq`. Pass
+    `include_turn=False` only when matching rows alone are sufficient.
     Use created_on="YYYY-MM-DD" for one source date, or created_from/created_to
     for an inclusive range; an empty query performs date-only recall.
   • ms.recall_tool(tool_call_id, all_agents=False)
@@ -67,7 +67,7 @@ Helpers return `list[dict]`; text is in `content`. A trailing
   • ms.sql_exec(sql, params)
     Writes only the persistent scratch DB. Always bind values via `params`.
 
-Use `ms.search` and inspect each `exchange`; use `ms.expand` for another span.
+Use `ms.search` and inspect each `turn`; use `ms.expand` for another span.
 For custom paging:
 
     rows = ms.sql_query(

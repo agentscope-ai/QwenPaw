@@ -568,7 +568,7 @@ class MemorySpace:
         all_agents: bool = False,
         kind: str | None = None,
         k: int = 10,
-        include_exchange: bool = True,
+        include_turn: bool = True,
         created_on: str | None = None,
         created_from: str | None = None,
         created_to: str | None = None,
@@ -578,11 +578,11 @@ class MemorySpace:
 
         Returns up to ``k`` ranked matches. By default each match keeps its
         row-shaped compatibility fields (``seq``, ``role``, ``content``, ...)
-        and also carries the complete containing exchange in ``exchange``. The
-        exchange starts at the nearest real user row in the same
+        and also carries the complete containing turn in ``turn``. The turn
+        starts at the nearest real user row in the same
         ``session_id``/``agent_id`` lineage and ends before the next real user
-        row. Matches from the same exchange are deduplicated and their seqs
-        collected in ``matched_seqs``. Pass ``include_exchange=False`` for the
+        row. Matches from the same turn are deduplicated and their seqs are
+        collected in ``matched_seqs``. Pass ``include_turn=False`` for the
         legacy matching-row-only shape. By default searches this agent across
         all its sessions. Pass ``all_agents=True`` to span every agent, or pin
         a *specific* conversation / agent with ``session_id='cron:<job>'``
@@ -619,10 +619,10 @@ class MemorySpace:
         )
         # A turn may contain several matching rows. Fetch beyond the requested
         # number so deduplication can still return a useful number of distinct
-        # exchanges. The row cap remains the hard upper bound.
+        # turns. The row cap remains the hard upper bound.
         raw_limit = (
             min(self._row_cap, max(requested * 4, requested))
-            if include_exchange
+            if include_turn
             else requested
         )
         # FTS5 MATCH takes a query grammar, not plain text. Sanitize first; an
@@ -638,8 +638,8 @@ class MemorySpace:
                 created_bounds=created_bounds,
             )
             return (
-                self._attach_search_exchanges(rows, requested)
-                if include_exchange
+                self._attach_search_turns(rows, requested)
+                if include_turn
                 else rows[:requested]
             )
         # bm25 and the `tbl MATCH` syntax need the table NAME, not an alias.
@@ -693,8 +693,8 @@ class MemorySpace:
                 created_bounds=created_bounds,
             )
             return (
-                self._attach_search_exchanges(rows, requested)
-                if include_exchange
+                self._attach_search_turns(rows, requested)
+                if include_turn
                 else rows[:requested]
             )
         if kind in (None, "tool_result") and len(rows) < raw_limit:
@@ -707,8 +707,8 @@ class MemorySpace:
                 ),
             )
         return (
-            self._attach_search_exchanges(rows, requested)
-            if include_exchange
+            self._attach_search_turns(rows, requested)
+            if include_turn
             else rows[:requested]
         )
 
@@ -719,7 +719,7 @@ class MemorySpace:
         Native Scroll rows use ``kind='context_msg'`` while imported history
         can use source-specific kinds such as ``beam_chat_turn``. The role is
         the portable boundary signal; tagged continuation stubs remain part
-        of the preceding exchange rather than opening a new one.
+        of the preceding turn rather than opening a new one.
         """
         conditions = [f"{prefix}role = 'user'"]
         params: list = []
@@ -730,8 +730,8 @@ class MemorySpace:
             params.append(f'%"{tag}"%')
         return conditions, params
 
-    def _exchange_for_hit(self, hit: dict) -> tuple[int, int, list[dict]]:
-        """Return the complete user-bounded exchange containing ``hit``."""
+    def _turn_for_hit(self, hit: dict) -> tuple[int, int, list[dict]]:
+        """Return the complete user-bounded turn containing ``hit``."""
         hit_seq = int(hit["seq"])
         session_id = hit.get("session_id")
         agent_id = hit.get("agent_id")
@@ -751,14 +751,14 @@ class MemorySpace:
             # Legacy/imported rows may predate their user boundary. There is
             # no reliable way to pair such an orphan with neighbouring model
             # rows, so preserve the old row-only behaviour for this hit.
-            exchange = self._select(
+            turn = self._select(
                 "SELECT seq, session_id, agent_id, kind, role, name, "
                 "headline, content, tool_call_id, tool_input, tool_state, "
                 "metadata, created_at FROM hist.conversation_history "
                 "WHERE seq = ?",
                 (hit_seq,),
             )
-            return hit_seq, hit_seq, exchange or [dict(hit)]
+            return hit_seq, hit_seq, turn or [dict(hit)]
 
         next_row = self._conn.execute(
             "SELECT MIN(seq) AS seq FROM hist.conversation_history WHERE "
@@ -773,7 +773,7 @@ class MemorySpace:
         if next_user_seq is not None:
             span_conditions.append("seq < ?")
             span_params.append(int(next_user_seq))
-        exchange = self._select(
+        turn = self._select(
             "SELECT seq, session_id, agent_id, kind, role, name, headline, "
             "content, tool_call_id, tool_input, tool_state, metadata, "
             "created_at FROM hist.conversation_history WHERE "
@@ -781,48 +781,48 @@ class MemorySpace:
             + " ORDER BY seq",
             tuple(span_params),
         )
-        real_rows = [row for row in exchange if not row.get("_truncated")]
+        real_rows = [row for row in turn if not row.get("_truncated")]
         if not real_rows:
             return hit_seq, hit_seq, [dict(hit)]
-        return int(real_rows[0]["seq"]), int(real_rows[-1]["seq"]), exchange
+        return int(real_rows[0]["seq"]), int(real_rows[-1]["seq"]), turn
 
-    def _attach_search_exchanges(
+    def _attach_search_turns(
         self,
         rows: list[dict],
         limit: int,
     ) -> list[dict]:
-        """Attach and deduplicate complete exchanges for ranked hit rows."""
+        """Attach and deduplicate complete turns for ranked hit rows."""
         results: list[dict] = []
-        by_exchange: dict[tuple[object, object, int], dict] = {}
-        exchange_count = 0
+        by_turn: dict[tuple[object, object, int], dict] = {}
+        turn_count = 0
         for row in rows:
             if row.get("_truncated") or int(row.get("seq", -1)) < 0:
                 results.append(row)
                 continue
-            start, end, exchange = self._exchange_for_hit(row)
+            start, end, turn = self._turn_for_hit(row)
             key = (row.get("session_id"), row.get("agent_id"), start)
-            existing = by_exchange.get(key)
+            existing = by_turn.get(key)
             if existing is not None:
                 seq = int(row["seq"])
                 if seq not in existing["matched_seqs"]:
                     existing["matched_seqs"].append(seq)
                 continue
-            if exchange_count >= limit:
+            if turn_count >= limit:
                 continue
             result = dict(row)
             result.update(
                 {
                     "match_seq": int(row["seq"]),
                     "matched_seqs": [int(row["seq"])],
-                    "exchange_start_seq": start,
-                    "exchange_end_seq": end,
-                    "exchange": exchange,
+                    "turn_start_seq": start,
+                    "turn_end_seq": end,
+                    "turn": turn,
                 },
             )
-            by_exchange[key] = result
+            by_turn[key] = result
             results.append(result)
-            exchange_count += 1
-        for result in by_exchange.values():
+            turn_count += 1
+        for result in by_turn.values():
             result["matched_seqs"].sort()
         return results
 

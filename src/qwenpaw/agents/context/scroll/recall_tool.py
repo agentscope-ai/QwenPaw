@@ -60,6 +60,61 @@ class RecallSnapshotChangedError(ValueError):
     """A continuation cursor no longer matches its result snapshot."""
 
 
+def _normalize_seq_arg(value: int | str | None, name: str) -> int | None:
+    """Normalize one model-facing seq argument to a positive integer.
+
+    Some models serialize JSON integer tool arguments as strings. Accept an
+    ASCII-decimal string for that compatibility case, but reject coercions
+    that could silently change the requested span (booleans, floats, signs,
+    whitespace, decimal points, or non-positive values).
+    """
+    if value is None:
+        return None
+    if type(value) is int:  # ``bool`` is an ``int`` subclass; reject it.
+        normalized = value
+    elif (
+        isinstance(value, str)
+        and value
+        and value.isascii()
+        and value.isdecimal()
+    ):
+        normalized = int(value)
+    else:
+        raise ValueError(
+            f"{name} must be a positive JSON integer or an ASCII-decimal "
+            "integer string",
+        )
+    if normalized <= 0:
+        raise ValueError(f"{name} must be greater than zero")
+    return normalized
+
+
+def _normalize_expand_args(
+    op: str,
+    lo: int | str | None,
+    hi: int | str | None,
+    max_bytes: int,
+) -> tuple[int | None, int | None] | ToolChunk:
+    """Canonicalize expand seqs or return a bounded validation failure."""
+    if op != "expand":
+        # These arguments belong only to ``expand``. Dropping them for other
+        # operations also gives the execution layer one stable, integer-only
+        # type regardless of the model-facing compatibility schema.
+        return None, None
+    try:
+        return _normalize_seq_arg(lo, "lo"), _normalize_seq_arg(hi, "hi")
+    except ValueError as exc:
+        text = _bound_observation(
+            f'RECALL FAILED — invalid op="expand" seq span '
+            f"(ValueError: {exc}).",
+            max_bytes,
+        )
+        return ToolChunk(
+            content=[TextBlock(type="text", text=text)],
+            state=ToolResultState.ERROR,
+        )
+
+
 def _canonical_request_payload(
     op: str,
     payload: dict[str, Any],
@@ -210,7 +265,7 @@ plus your earlier sessions. Pick an op:
   • op="search", query="flight number", k=10 — full-text search over your
     whole history (across your past sessions). Whether the keyword matches a
     user, assistant, or tool-result row, each result includes that row's full
-    user-bounded exchange. Query with keywords, not full sentences (all terms
+    user-bounded turn. Query with keywords, not full sentences (all terms
     must appear); use OR for alternatives and a generous k to cast a wide net:
     query="tank OR aquarium OR goldfish", k=20. Your current in-progress turn
     is never a hit — it is already in front of you.
@@ -228,7 +283,7 @@ plus your earlier sessions. Pick an op:
     timestamps, including Z or +/-HH:MM timezones. Set inclusive=true to count
     both endpoints while preserving direction. This operation never pages.
 
-Search exchanges show their matched seq(s) and complete seq span. Other ops
+Search turns show their matched seq(s) and complete seq span. Other ops
 return individual rows with their seq. A page ending in next_cursor is
 incomplete; continue with the SAME arguments plus cursor=next_cursor. Never
 retry the same cursor. The cursor is bound to the original arguments and
@@ -239,8 +294,10 @@ Python recall tool if one is available to you.
 
 Args:
     op (str): One of "expand", "search", "recall_tool", "days_between".
-    lo (int): expand only — first seq of the span.
-    hi (int): expand only — last seq of the span.
+    lo (int | str): expand only — first positive seq of the span; an ASCII
+        decimal integer string is accepted for model compatibility.
+    hi (int | str): expand only — last positive seq of the span; an ASCII
+        decimal integer string is accepted for model compatibility.
     query (str): search only — keyword query (OR supported).
     k (int): search only — max hits to return (default 10).
     kind (str): search only — optional row-kind filter
@@ -280,35 +337,32 @@ def _render_rows(rows: list[dict]) -> str:
                 "narrow the span]",
             )
             continue
-        exchange = row.get("exchange")
-        if isinstance(exchange, list):
+        turn = row.get("turn")
+        if isinstance(turn, list):
             matched = ",".join(
                 str(seq) for seq in row.get("matched_seqs", [row.get("seq")])
             )
-            span = (
-                f"{row.get('exchange_start_seq')}–"
-                f"{row.get('exchange_end_seq')}"
-            )
+            span = f"{row.get('turn_start_seq')}–" f"{row.get('turn_end_seq')}"
             lineage = " ".join(
                 f"{key}={row[key]}"
                 for key in ("session_id", "agent_id")
                 if row.get(key) not in (None, "")
             )
-            header = f"— matched_seq={matched} exchange_seq={span}"
+            header = f"— matched_seq={matched} turn_seq={span}"
             if lineage:
                 header += f" {lineage}"
-            rendered_exchange = _render_rows(exchange)
+            rendered_turn = _render_rows(turn)
             matched_row = next(
                 (
                     item
-                    for item in exchange
+                    for item in turn
                     if item.get("seq") == row.get("match_seq")
                 ),
                 None,
             )
             match_content = str(row.get("content") or "").rstrip()
             # Saved large tool-output matches carry an excerpt in the search
-            # hit while the durable exchange row contains only its bounded
+            # hit while the durable turn row contains only its bounded
             # preview. Preserve that otherwise-hidden evidence.
             if (
                 matched_row
@@ -319,8 +373,7 @@ def _render_rows(rows: list[dict]) -> str:
             ):
                 header += f"\n[matched content excerpt]\n{match_content}"
             parts.append(
-                header
-                + (f"\n{rendered_exchange}" if rendered_exchange else ""),
+                header + (f"\n{rendered_turn}" if rendered_turn else ""),
             )
             continue
         meta = " ".join(
@@ -734,8 +787,8 @@ def make_recall_history(
 
     async def recall_history(
         op: str,
-        lo: Optional[int] = None,
-        hi: Optional[int] = None,
+        lo: Optional[int | str] = None,
+        hi: Optional[int | str] = None,
         query: Optional[str] = None,
         k: int = 10,
         kind: Optional[str] = None,
@@ -751,6 +804,10 @@ def make_recall_history(
         inclusive: bool = False,
         cursor: Optional[str] = None,
     ) -> ToolChunk:
+        normalized = _normalize_expand_args(op, lo, hi, page_max_bytes)
+        if isinstance(normalized, ToolChunk):
+            return normalized
+        lo, hi = normalized
         payload = {
             "lo": lo,
             "hi": hi,
