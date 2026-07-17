@@ -2,7 +2,7 @@
 title: "QwenPaw Runtime 架构升级解析：架构、实现与扩展"
 date: 2026-07-07
 author: QwenPaw Team
-tags: [architecture, runtime, hook, qwenpaw-2.0]
+tags: [架构升级, 八阶段编排, Hook机制, QwenPaw2.0]
 cover: /blog/runtime-architecture-upgrade-cover.png
 excerpt: "QwenPaw Runtime 从 650 行 god method 重构为 8 阶段编排引擎，通过 Hook、AgentMode 与声明式注册实现「一个功能一个目录、Runtime 零侵入扩展」。"
 ---
@@ -444,7 +444,7 @@ class CronManager(ManagerBase):
 
 `ToolCoordinator`（`src/qwenpaw/tool_calls/`）提供了**单 tool call 粒度**的控制。旧系统中 `/stop` 只能杀掉整个 agent。现在可以追踪、取消或后台化单个 tool 调用。
 
-关键组件包括 `ToolCallEntry`（per-call 状态）、`ToolCallStatus`（PENDING → RUNNING → DONE / CANCELLED 状态机）、`ToolCoordinatorMiddleware`（注入 agent 中间件栈）、`ToolResultLimiter`（结果大小限制）、`ToolStream`（流式工具输出）、`ToolCallContext` / `ToolHookRegistry`（HITL 生命周期钩子）等。
+关键组件包括 `ToolCallEntry`（per-call 状态）、`ToolCallStatus`（PENDING → RUNNING → DONE / CANCELLED 状态机）、`ToolCoordinatorMiddleware`（注入 agent 中间件栈）、`ToolResultPruningMiddleware`（工具结果裁剪）、`ToolStream`（流式工具输出）、`ToolCallContext` / `ToolHookRegistry`（HITL 生命周期钩子）等。
 
 ### ApprovalCoordinator — 跨 Agent 审批
 

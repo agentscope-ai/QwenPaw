@@ -7,11 +7,13 @@ import styles from "../index.module.less";
 interface ChannelAvailableItemProps {
   channelKey: ChannelKey;
   onClick: () => void;
+  iconUrl?: string;
 }
 
 export const ChannelAvailableItem = React.memo(function ChannelAvailableItem({
   channelKey,
   onClick,
+  iconUrl,
 }: ChannelAvailableItemProps) {
   const { t } = useTranslation();
   const label = getChannelLabel(channelKey, t);
@@ -31,7 +33,7 @@ export const ChannelAvailableItem = React.memo(function ChannelAvailableItem({
       role="button"
       tabIndex={0}
     >
-      <ChannelIcon channelKey={channelKey} size={24} />
+      <ChannelIcon channelKey={channelKey} size={24} iconUrl={iconUrl} />
       <span className={styles.availableItemName}>{label}</span>
       <span className={styles.availableItemAction}>
         {t("channels.enableAction")}

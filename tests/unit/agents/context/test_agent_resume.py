@@ -40,6 +40,10 @@ class AgentShim:
         self._context_manager = context_manager
         self.state = state if state is not None else AgentState()
 
+    def _sanitize_loaded_context(self) -> None:
+        """Delegate to the production loaded-context sanitizer."""
+        QwenPawAgent._sanitize_loaded_context(self)
+
 
 def _user(text):
     return Msg(

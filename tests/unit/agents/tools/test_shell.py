@@ -14,6 +14,11 @@ Covers:
 """
 # pylint: disable=protected-access,unused-argument
 
+import os
+import shlex
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,6 +26,7 @@ import pytest
 from qwenpaw.agents.tools.shell import (
     _collapse_embedded_newlines,
     _collapse_newlines_outside_quotes,
+    _execute_in_sandbox,
     _extract_powershell_command,
     _is_cmd,
     _is_dangerous_self_kill,
@@ -29,6 +35,12 @@ from qwenpaw.agents.tools.shell import (
     _sanitize_win_cmd,
     _shell_basename,
     smart_decode,
+)
+from qwenpaw.sandbox import (
+    ExecutionResult,
+    MountSpec,
+    SandboxConfig,
+    SandboxMode,
 )
 
 
@@ -307,13 +319,9 @@ class TestIsDangerousSelfKill:
         assert _is_dangerous_self_kill("taskkill /F /IM python")
 
     def test_taskkill_by_pid_self(self):
-        import os
-
         assert _is_dangerous_self_kill(f"taskkill /F /PID {os.getpid()}")
 
     def test_taskkill_by_pid_parent(self):
-        import os
-
         if hasattr(os, "getppid"):
             assert _is_dangerous_self_kill(
                 f"taskkill /F /PID {os.getppid()}",
@@ -323,8 +331,6 @@ class TestIsDangerousSelfKill:
         assert not _is_dangerous_self_kill("taskkill /F /PID 99999")
 
     def test_kill_unix_pid_self(self):
-        import os
-
         assert _is_dangerous_self_kill(f"kill -9 {os.getpid()}")
 
     def test_kill_unix_pid_other_is_safe(self):
@@ -560,3 +566,86 @@ class TestExecuteShellCommand:
                 timeout="invalid",
             )
             assert result.content is not None
+
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="NoneSandbox currently requires a POSIX shell",
+    )
+    async def test_sandbox_path_starts_with_running_python_bin(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        from qwenpaw.agents.tools.shell import execute_shell_command
+
+        system_bin = tmp_path / "system-bin"
+        system_bin.mkdir()
+        monkeypatch.setenv("PATH", str(system_bin))
+        if sys.platform != "win32":
+            monkeypatch.setenv("SHELL", "/bin/sh")
+
+        script = "import os; print(os.environ.get('PATH', ''))"
+        args = [sys.executable, "-c", script]
+        command = (
+            subprocess.list2cmdline(args)
+            if sys.platform == "win32"
+            else shlex.join(args)
+        )
+        config = SandboxConfig(
+            mode=SandboxMode.NONE,
+            workspace_dir=str(tmp_path),
+            mounts=[MountSpec(path=str(tmp_path), writable=True)],
+        )
+
+        result = await execute_shell_command(
+            command,
+            cwd=tmp_path,
+            sandbox_config=config,
+        )
+
+        path_entries = result.content[0].text.strip().split(os.pathsep)
+        assert Path(path_entries[0]) == Path(sys.executable).parent
+        assert config.env_vars == {}
+        assert config.timeout_seconds == 30
+
+    @pytest.mark.asyncio
+    async def test_sandbox_uses_explicit_path_without_mutating_config(
+        self,
+        tmp_path,
+    ):
+        configured_path = os.pathsep.join(["custom", "bin"])
+        config = SandboxConfig(
+            mode=SandboxMode.NONE,
+            workspace_dir=str(tmp_path),
+            env_vars={"PATH": configured_path, "MASKED_SECRET": ""},
+        )
+        sandbox = AsyncMock()
+        sandbox.execute.return_value = ExecutionResult(0, "ok", "")
+        context_manager = MagicMock()
+        context_manager.__aenter__ = AsyncMock(return_value=sandbox)
+        context_manager.__aexit__ = AsyncMock(return_value=None)
+
+        with patch(
+            "qwenpaw.sandbox.create_sandbox",
+            return_value=context_manager,
+        ) as create_sandbox:
+            await _execute_in_sandbox(
+                "echo ok",
+                config,
+                12.9,
+                str(tmp_path),
+                {"PATH": os.pathsep.join(["venv", "system"])},
+            )
+
+        effective_config = create_sandbox.call_args.args[0]
+        assert effective_config.env_vars == {
+            "PATH": configured_path,
+            "MASKED_SECRET": "",
+        }
+        assert effective_config.timeout_seconds == 12
+        assert config.env_vars == {
+            "PATH": configured_path,
+            "MASKED_SECRET": "",
+        }
+        assert config.timeout_seconds == 30

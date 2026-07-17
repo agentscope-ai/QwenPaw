@@ -22,6 +22,17 @@ const WriteFileCard: React.FC<WriteFileCardProps> = ({
     ? t("tool.writeFile", { file })
     : t("tool.writeFileDefault");
 
+  if (content.status === "error") {
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<FileAddOutlined />}
+        title={title}
+      />
+    );
+  }
+
   const writtenContent = (params.content as string) || "";
   const lineCount = countLines(writtenContent);
 

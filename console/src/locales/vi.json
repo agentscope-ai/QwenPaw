@@ -177,6 +177,7 @@
     "prompt1": "Hãy bắt đầu hành trình mới!",
     "prompt2": "Bạn có thể cho tôi biết những kỹ năng của mình không?",
     "inputPlaceholder": "\"↑↓\" điều hướng tin nhắn · \"/\" lệnh nhanh (\"/approve\" hoặc \"/deny\" khi phê duyệt)",
+    "longTextUploadPrompt": "Vui lòng đọc tệp prompt đã tải lên và trả lời dựa trên nội dung đó.",
     "emptyOutputError": "Trợ lý đã trả về phản hồi trống.",
     "commands": {
       "clear": {
@@ -646,7 +647,7 @@
     "period": "Khoảng thời gian"
   },
   "approval": {
-    "title": "Yêu cầu phê duyệt",
+    "title": "Yêu cầu phê duyệt bảo mật",
     "description": "Agent đang yêu cầu phê duyệt để thực thi hành động sau:",
     "approve": "Phê duyệt",
     "deny": "Từ chối",
@@ -654,7 +655,26 @@
     "denySuccess": "Đã từ chối",
     "expired": "Yêu cầu đã hết hạn",
     "tool": "Công cụ",
-    "arguments": "Tham số"
+    "arguments": "Tham số",
+    "approvePattern": "Luôn Cho Phép",
+    "strictModeHint": "Luôn cho phép không khả dụng trong chế độ nghiêm ngặt",
+    "approveExact": "Chỉ Lần Này",
+    "approvalScope": "Phạm vi phê duyệt",
+    "details": "Chi tiết",
+    "ownerAgent": "Agent Chủ Sở Hữu",
+    "executingAgent": "Agent Đang Thực Thi",
+    "severity": "Mức Độ Nghiêm Trọng",
+    "findings": "Phát Hiện",
+    "parameters": "Tham Số",
+    "source": "Nguồn",
+    "builtinSource": "Tích Hợp",
+    "subSession": "Sub-Agent",
+    "approved": "Đã phê duyệt lệnh gọi công cụ",
+    "denied": "Đã từ chối lệnh gọi công cụ",
+    "approveFailed": "Không thể phê duyệt",
+    "denyFailed": "Không thể từ chối",
+    "timeoutAutoDenied": "Hết thời gian, tự động từ chối",
+    "acknowledge": "Đã Hiểu"
   },
   "preview": {
     "error": {
@@ -845,9 +865,13 @@
     "autoContinueOnTextOnlyTooltip": "Khi mô hình kết thúc bước suy luận chỉ bằng văn bản, tự động chèn gợi ý và chạy thêm một lần.",
     "autoGenerateSessionTitle": "Tự tạo tiêu đề phiên",
     "autoGenerateSessionTitleTooltip": "Sau tin nhắn đầu tiên, gọi LLM ngắn để tạo tiêu đề súc tích.",
+    "inboxPushEnabled": "Thông báo hộp thư kết quả bộ nhớ",
+    "inboxPushEnabledTooltip": "Gửi kết quả tự động ghi nhớ, giấc mơ và tài nguyên vào hộp thư. Việc tắt thông báo không dừng các tác vụ bộ nhớ.",
     "autoMemoryInterval": "Khoảng tự động ghi nhớ",
-    "autoMemoryIntervalTooltip": "Kích hoạt tự động ghi nhớ sau mỗi N truy vấn của người dùng. Để trống để tắt tự động ghi nhớ định kỳ. 1 nghĩa là tự động ghi nhớ sau mỗi truy vấn. Khuyến nghị đặt 2-5; đặt 1 cần chú ý mức tiêu thụ token cao.",
-    "autoMemoryIntervalPlaceholder": "Để trống để tắt tự động ghi nhớ định kỳ",
+    "autoMemoryIntervalTooltip": "Kích hoạt tự động ghi nhớ sau mỗi N truy vấn của người dùng. 0 tắt tự động ghi nhớ định kỳ. 1 nghĩa là tự động ghi nhớ sau mỗi truy vấn. Khuyến nghị đặt 2-5; đặt 1 cần chú ý mức tiêu thụ token cao.",
+    "autoMemoryIntervalPlaceholder": "Nhập 0 để tắt tự động ghi nhớ định kỳ",
+    "autoMemoryIntervalRequired": "Bắt buộc nhập khoảng tự động ghi nhớ",
+    "autoMemoryIntervalMin": "Khoảng tự động ghi nhớ phải lớn hơn hoặc bằng 0",
     "autoMemorySearch": "Tìm kiếm bộ nhớ tự động (Beta)",
     "autoMemorySearchTooltip": "Tự động chạy tìm kiếm bộ nhớ ở mỗi lượt hội thoại. Mỗi truy vấn sẽ tự động gọi khả năng tìm kiếm bộ nhớ, giúp QwenPaw hiểu bạn hơn, nhưng sẽ làm tăng mức tiêu thụ token.",
     "autoMaxResults": "Số kết quả tối đa khi tự động tìm kiếm",
@@ -892,8 +916,6 @@
     "embeddingEnableHint": "Embedding được bật khi các trường bắt buộc được điền: Tên mô hình và API Key cho backend tương thích OpenAI hoặc Gemini; Tên mô hình cho Ollama.",
     "rebuildMemoryIndexOnStart": "Xây dựng lại chỉ mục bộ nhớ khi khởi động",
     "rebuildMemoryIndexOnStartTooltip": "Xóa và xây dựng lại chỉ mục tìm kiếm bộ nhớ khi agent khởi động. Bật khi phương thức lập chỉ mục thay đổi, ví dụ cơ chế cập nhật chỉ mục nền thay đổi hoặc thêm chỉ mục vector.",
-    "enableSearchRawLog": "Bật tìm kiếm log thô (Beta)",
-    "enableSearchRawLogTooltip": "Sau khi bật, tìm kiếm bộ nhớ sẽ bao gồm log hội thoại gốc. Việc bật tính năng này có thể làm tăng mức sử dụng bộ nhớ, hãy bật một cách thận trọng.",
     "shellCommandTimeout": "Timeout lệnh shell (giây)",
     "shellCommandTimeoutTooltip": "Timeout mặc định cho công cụ execute_shell_command.",
     "shellCommandTimeoutPlaceholder": "Nhập timeout",
@@ -991,8 +1013,8 @@
     "addHeader": "+ Thêm header",
     "generateConfig": "Tham số tạo văn bản",
     "generateConfigHint": "Tham số dạng JSON object, sẽ được mở rộng vào mỗi yêu cầu.",
-    "preserveThinkingLabel": "Giữ nội dung suy luận",
-    "preserveThinkingHint": "Chuyển tiếp nội dung suy luận sang các lượt hội thoại tiếp theo",
+    "relayReasoningLabel": "Chuyển tiếp suy luận",
+    "relayReasoningHint": "Chuyển tiếp nội dung suy luận sang các lượt hội thoại tiếp theo",
     "thinkingModeLabel": "Bật suy nghĩ",
     "thinkingModeHint": "Bật để kích hoạt suy nghĩ/lập luận. Tắt để vô hiệu hóa suy nghĩ.",
     "thinkingBudgetLabel": "Ngân sách suy nghĩ",
@@ -1154,7 +1176,9 @@
     "name": "Tên tác vụ",
     "enabled": "Trạng thái",
     "saveResultToInbox": "Lưu kết quả vào Hộp thư",
-    "saveResultToInboxTooltip": "Khi bật, các lần thực thi thành công sẽ được lưu vào Hộp thư"
+    "saveResultToInboxTooltip": "Khi bật, các lần thực thi thành công sẽ được lưu vào Hộp thư",
+    "silentDelivery": "Gửi im lặng",
+    "silentDeliveryTooltip": "Chạy tác vụ agent và giữ lại phiên cùng dấu vết, nhưng không gửi kết quả tới kênh."
   },
   "backup": {
     "title": "Sao lưu",
@@ -1318,7 +1342,29 @@
     "selectedItems": "Đã chọn {{count}} mục",
     "editSession": "Chỉnh sửa phiên",
     "pleaseInputName": "Vui lòng nhập tên phiên",
-    "sessionNamePlaceholder": "Tên phiên"
+    "sessionNamePlaceholder": "Tên phiên",
+    "activeTab": "Đang hoạt động",
+    "archivedTab": "Đã lưu trữ",
+    "archivedAtColumn": "Thời gian lưu trữ",
+    "archive": {
+      "action": "Lưu trữ",
+      "unaction": "Bỏ lưu trữ",
+      "batchAction": "Lưu trữ hàng loạt",
+      "batchUnaction": "Bỏ lưu trữ hàng loạt",
+      "success": "Đã lưu trữ cuộc trò chuyện",
+      "successHint": "Đã lưu trữ. Xem tại Bảng điều khiển > Phiên > Đã lưu trữ.",
+      "failed": "Lưu trữ thất bại",
+      "unarchiveSuccess": "Đã bỏ lưu trữ",
+      "unarchiveFailed": "Bỏ lưu trữ thất bại",
+      "batchSuccess": "Đã lưu trữ {{count}} cuộc trò chuyện",
+      "batchFailed": "Lưu trữ hàng loạt thất bại",
+      "batchUnarchiveSuccess": "Đã bỏ lưu trữ {{count}} cuộc trò chuyện",
+      "batchUnarchiveFailed": "Bỏ lưu trữ hàng loạt thất bại",
+      "groupLabel": "Đã lưu trữ ({{count}})",
+      "modalTitle": "Cuộc trò chuyện đã lưu trữ",
+      "unarchiveAll": "Bỏ lưu trữ tất cả",
+      "noArchived": "Không có cuộc trò chuyện đã lưu trữ"
+    }
   },
   "loop": {
     "gotoSettings": "Cài đặt Loop Agent"

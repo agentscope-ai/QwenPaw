@@ -1,8 +1,19 @@
 ---
 title: "Play with QwenPaw-Pet"
 date: 2026-07-01
-tags: [pet, plugin, make-skill]
+tags: [插件, 桌宠, 像素宠物, 技能制作]
 excerpt: "QwenPaw在1.1.3版本引入了插件系统，并在1.1.8版本引入了宠物系统。但官方的宠物模板个人不太喜欢，就一直没有配置。个人一直比较喜欢像素风的宠物类型"
+related:
+  heading: "相关能力"
+  items:
+    - label: "插件"
+      name: "QwenPaw Pet"
+      href: "https://platform.agentscope.io/plugins/qwenpaw-pet"
+      description: "QwenPaw 官方桌宠插件，用于将后端生命周期事件同步至 QwenPaw Pet Desktop。"
+    - label: "内置技能"
+      name: "make-skill"
+      href: "https://qwenpaw.agentscope.io/docs/skills#通过-make-skill-从当前会话创建-Beta"
+      description: "将当前会话中的操作流程与经验沉淀为可复用 Skill。本文使用该能力将桌宠制作流程封装为可复用 Skill。"
 ---
 
 # Play with QwenPaw-Pet

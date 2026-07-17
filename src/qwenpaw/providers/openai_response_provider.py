@@ -8,7 +8,8 @@ from typing import Any
 
 from agentscope.model import ChatModelBase, OpenAIResponseModel
 
-from qwenpaw.providers.openai_provider import OpenAIProvider
+from .capping_formatter import _CappingOpenAIResponseFormatter
+from .openai_provider import OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
@@ -137,4 +138,7 @@ class OpenAIResponseProvider(OpenAIProvider):
             context_size=self._get_context_size(model_id),
             client_kwargs=client_kwargs,
             extra_generate_kwargs=gen_kwargs or None,
+            formatter=_CappingOpenAIResponseFormatter(
+                max_bytes=self.max_inline_media_bytes,
+            ),
         )

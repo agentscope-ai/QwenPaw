@@ -402,6 +402,31 @@ class ConsoleChannel(BaseChannel):
         session_id = getattr(request, "session_id", "") or session_id
         user_id = getattr(request, "user_id", "") or ""
         channel_name = getattr(request, "channel", "") or self.channel
+
+        # Refresh the chat's updated_at so the console session list surfaces
+        # this new message as the latest activity (issue #6131). stream_one is
+        # the single console executor for the web streaming, background-task,
+        # and terminal CLI paths, so touching here covers them all. We only
+        # touch an already-existing chat (never create one) to preserve the
+        # current behavior for sessions that have no ChatSpec yet.
+        if self._workspace is not None and session_id:
+            try:
+                chat_mgr = getattr(self._workspace, "chat_manager", None)
+                if chat_mgr is not None:
+                    existing_chat_id = await chat_mgr.get_chat_id_by_session(
+                        session_id=session_id,
+                        channel=channel_name,
+                        user_id=user_id or None,
+                    )
+                    if existing_chat_id:
+                        await chat_mgr.touch_chat(existing_chat_id)
+            except Exception:  # pylint: disable=broad-except
+                logger.debug(
+                    "failed to touch chat updated_at for session=%s",
+                    session_id[:30],
+                    exc_info=True,
+                )
+
         try:
             from ....token_usage import (
                 finalize_console_turn_usage,

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .approval import ApprovalGate
 from .capabilities import (
@@ -16,6 +16,7 @@ from .capabilities import (
 from .constants import (
     CREDENTIAL_ALIAS_DEFAULT,
     DRIVER_OPERATION_INVOKE,
+    POLICY_EFFECT_ALLOW,
     POLICY_EFFECT_ASK,
     POLICY_EFFECT_DENY,
 )
@@ -37,6 +38,53 @@ from .policy import DriverInvocationContext, evaluate_policy
 from .time import current_policy_time
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from ..security.tool_guard.execution_level import ToolExecutionLevel
+
+
+def _resolve_driver_execution_level(
+    request_context: dict[str, Any],
+) -> "ToolExecutionLevel":
+    """Resolve runtime approval level for Driver invocation."""
+    from ..security.tool_guard.execution_level import ToolExecutionLevel
+
+    raw = request_context.get("approval_level")
+    if raw:
+        return ToolExecutionLevel.from_config(str(raw))
+
+    agent_id = str(
+        request_context.get("agent_id")
+        or request_context.get("root_agent_id")
+        or "",
+    ).strip()
+    if not agent_id:
+        try:
+            from ..config.utils import load_config
+
+            config = load_config()
+            agent_id = str(config.agents.active_agent or "default")
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning(
+                "Failed to resolve active agent for Driver approval level: %s",
+                exc,
+            )
+            agent_id = "default"
+
+    try:
+        from ..config.config import load_agent_config
+
+        profile = load_agent_config(agent_id)
+        return ToolExecutionLevel.from_config(
+            getattr(profile, "approval_level", None),
+        )
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        logger.warning(
+            "Failed to resolve Driver approval_level for agent=%s: %s",
+            agent_id,
+            exc,
+        )
+        return ToolExecutionLevel.AUTO
 
 
 class DriverHandler(ABC):
@@ -127,7 +175,17 @@ class DriverHandler(ABC):
                 subject,
                 operation,
             )
-        if effect == POLICY_EFFECT_ASK:
+
+        execution_level = _resolve_driver_execution_level(
+            context.request_context,
+        )
+        needs_approval = (
+            effect == POLICY_EFFECT_ASK and not execution_level.is_disabled()
+        ) or (
+            effect == POLICY_EFFECT_ALLOW
+            and execution_level.requires_approval_for_all_tools()
+        )
+        if needs_approval:
             await self._request_approval(context)
         return context
 

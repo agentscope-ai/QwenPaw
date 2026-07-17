@@ -89,6 +89,63 @@ def _http_get(url: str, **kwargs) -> httpx.Response:
     return httpx.get(url, **kwargs)
 
 
+def _check_api_health(
+    base: str,
+    timeout: float,
+) -> tuple[bool, httpx.Response | None]:
+    """Probe the application readiness endpoint and report its status."""
+    health_url = f"{base.rstrip('/')}/api/healthz"
+    try:
+        response = _http_get(health_url, timeout=timeout)
+    except httpx.RequestError as exc:
+        click.echo(
+            click.style("FAIL", fg="red")
+            + f" — health not reachable ({health_url})\n{exc}",
+            err=True,
+        )
+        click.echo(
+            f"Hint: start the server with `qwenpaw app` (default {base}).",
+            err=True,
+        )
+        return False, None
+
+    if response.status_code == 200:
+        click.echo(
+            click.style("OK", fg="green")
+            + f" — health ({health_url}, HTTP 200)",
+        )
+        return True, response
+
+    if response.status_code == 503:
+        detail = "Background startup in progress"
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict):
+            response_detail = body.get("detail")
+            if isinstance(response_detail, str) and response_detail.strip():
+                detail = response_detail.strip()
+        click.echo(
+            click.style("FAIL", fg="red")
+            + f" — health not ready ({health_url}, HTTP 503)\n{detail}",
+            err=True,
+        )
+        click.echo(
+            "Hint: wait for background startup to complete, then rerun "
+            "`qwenpaw doctor`.",
+            err=True,
+        )
+        return False, response
+
+    click.echo(
+        click.style("FAIL", fg="red")
+        + f" — health HTTP {response.status_code} ({health_url})",
+        err=True,
+    )
+    return False, response
+
+
 def _fetch_running_server_python(
     base: str,
     timeout: float,
@@ -843,35 +900,11 @@ def run_doctor_checks(
             click.echo(click.style("Note:", fg="yellow") + f" {mismatch}")
 
     click.echo("\n=== API ===")
-    health_url = f"{base}/api/agent/health"
     version_url = f"{base}/api/version"
-    try:
-        health_resp = _http_get(health_url, timeout=timeout)
-    except httpx.RequestError as exc:
+    health_ok, health_resp = _check_api_health(base, timeout)
+    if not health_ok:
         failed = True
-        click.echo(
-            click.style("FAIL", fg="red")
-            + f" — health not reachable ({health_url})\n{exc}",
-            err=True,
-        )
-        click.echo(
-            f"Hint: start the server with `qwenpaw app` (default {base}).",
-            err=True,
-        )
-    else:
-        if health_resp.status_code == 200:
-            click.echo(
-                click.style("OK", fg="green")
-                + f" — health ({health_url}, HTTP 200)",
-            )
-        else:
-            failed = True
-            click.echo(
-                click.style("FAIL", fg="red")
-                + f" — health HTTP {health_resp.status_code} ({health_url})",
-                err=True,
-            )
-
+    if health_resp is not None:
         try:
             version_resp = _http_get(version_url, timeout=timeout)
         except httpx.RequestError as exc:
@@ -915,7 +948,7 @@ def run_doctor_checks(
                         ),
                     )
 
-        if health_resp.status_code == 200:
+        if health_ok:
             try:
                 root_resp = _http_get(
                     f"{base}/",

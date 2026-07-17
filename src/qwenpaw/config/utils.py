@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import plistlib
+import shlex
 import shutil
 import socket
 import subprocess
@@ -278,6 +279,31 @@ def _get_win32_default_browser() -> Tuple[Optional[str], Optional[str]]:
     return (None, None)
 
 
+def _exec_executable_token(exec_value: str) -> Optional[str]:
+    """Extract the real executable from a .desktop ``Exec=`` value.
+
+    Handles the common ``env VAR=val /path/to/browser %U`` form (seen with
+    IME setups, e.g. ``Exec=env GTK_IM_MODULE=ibus /usr/bin/google-chrome``)
+    by skipping a leading ``env`` wrapper and any ``VAR=VALUE`` assignments,
+    so the browser binary is returned instead of ``env``.
+    """
+    try:
+        tokens = shlex.split(exec_value)
+    except ValueError:
+        tokens = exec_value.split()
+    idx = 0
+    if idx < len(tokens) and Path(tokens[idx]).name == "env":
+        idx += 1
+        # Skip VAR=VALUE assignments that follow the `env` wrapper.
+        while (
+            idx < len(tokens)
+            and "=" in tokens[idx]
+            and not tokens[idx].startswith("/")
+        ):
+            idx += 1
+    return tokens[idx] if idx < len(tokens) else None
+
+
 def _get_linux_default_browser() -> Tuple[Optional[str], Optional[str]]:
     """Return (browser_kind, executable_path) for Linux default HTTP
     handler.
@@ -307,7 +333,11 @@ def _get_linux_default_browser() -> Tuple[Optional[str], Optional[str]]:
             with open(path, encoding="utf-8") as f:
                 for line in f:
                     if line.strip().startswith("Exec="):
-                        exe = line.split("=", 1)[1].strip().split()[0]
+                        exe = _exec_executable_token(
+                            line.split("=", 1)[1].strip(),
+                        )
+                        if not exe:
+                            break
                         if exe.startswith("/") and Path(exe).is_file():
                             return _linux_desktop_to_kind_and_path(exe)
                         for p in ["/usr/bin", "/usr/local/bin"]:
@@ -720,13 +750,16 @@ def get_dream_cron(agent_id: Optional[str] = None) -> str:
                   root config.agents.defaults (legacy behavior).
 
     Returns:
-        str: Cron expression for dream-based memory optimization job, or empty
-             string if disabled.
+        str: Cron expression for dream-based memory optimization job, or an
+             empty string if disabled.
     """
     if agent_id is not None:
         try:
             agent_config = load_agent_config(agent_id)
-            return agent_config.running.reme_light_memory_config.dream_cron
+            memory_config = agent_config.running.reme_light_memory_config
+            if not getattr(memory_config, "dream_cron_enabled", True):
+                return ""
+            return memory_config.dream_cron
         except Exception:
             return ""
     # Legacy: return empty string if no agent_id provided

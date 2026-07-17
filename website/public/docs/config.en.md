@@ -404,13 +404,13 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **Light Tool Result Pruning (`light_context_config.tool_result_pruning_config` object):**
 
-| Field                          | Type | Default | Description                                      |
-| ------------------------------ | ---- | ------- | ------------------------------------------------ |
-| `enabled`                      | bool | `true`  | Whether to enable tool result pruning            |
-| `pruning_recent_n`             | int  | `2`     | Number of recent messages using higher threshold |
-| `pruning_old_msg_max_bytes`    | int  | `3000`  | Byte threshold for older tool results            |
-| `pruning_recent_msg_max_bytes` | int  | `50000` | Byte threshold for recent tool results           |
-| `offload_retention_days`       | int  | `5`     | Number of days to retain tool result files       |
+| Field                          | Type | Default | Description                                                                                                 |
+| ------------------------------ | ---- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `enabled`                      | bool | `true`  | Whether to enable tool result pruning                                                                       |
+| `pruning_recent_n`             | int  | `2`     | Number of recent tool-result-bearing messages kept at the recent preview threshold before scroll compaction |
+| `pruning_old_msg_max_bytes`    | int  | `3000`  | Compact preview byte threshold for tool results retained in live context after scroll compaction            |
+| `pruning_recent_msg_max_bytes` | int  | `50000` | Recent/execution preview byte threshold for tool results before and shortly after entering context          |
+| `offload_retention_days`       | int  | `5`     | Number of days to retain tool result files                                                                  |
 
 **ReMeLight Memory Configuration (`reme_light_memory_config` object):**
 
@@ -422,10 +422,11 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `resource_dir`                  | string      | `"resource"`     | Subdirectory for external assets                                                                                   |
 | `daily_dir`                     | string      | `"memory"`       | Subdirectory for daily memory                                                                                      |
 | `digest_dir`                    | string      | `"digest"`       | Subdirectory for digest memory                                                                                     |
-| `enable_search_raw_log`         | bool        | `false`          | Whether to enable raw log search                                                                                   |
 | `summarize_when_compact`        | bool        | `true`           | Whether to enable memory summarization during compaction                                                           |
+| `inbox_push_enabled`            | bool        | `true`           | Whether to push auto-memory, auto-dream, and auto-resource job results to the inbox                                |
 | `auto_memory_interval`          | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                   |
-| `dream_cron`                    | string      | `"0 23 * * *"`   | Cron expression for dream-based memory optimization (empty to disable)                                             |
+| `dream_cron_enabled`            | bool        | `true`           | Whether to enable the scheduled dream-based memory optimization job                                                |
+| `dream_cron`                    | string      | `"0 23 * * *"`   | Valid 5-field cron expression for dream-based memory optimization (required when enabled)                          |
 | `auto_memory_search_config`     | object      | _(see below)_    | Auto memory search configuration                                                                                   |
 | `embedding_model_config`        | object      | _(see below)_    | Embedding model configuration                                                                                      |
 | `rebuild_memory_index_on_start` | bool        | `false`          | Whether to clear and rebuild the memory search index when the agent starts; otherwise only new changes are indexed |

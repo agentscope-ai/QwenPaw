@@ -2,7 +2,7 @@
 title: "QwenPaw Runtime Architecture Upgrade: Design, Implementation & Extensibility"
 date: 2026-07-07
 author: QwenPaw Team
-tags: [architecture, runtime, hook, qwenpaw-2.0]
+tags: [ArchitectureUpgrade, EightPhaseOrchestration, HookSystem, QwenPaw2.0]
 cover: /blog/runtime-architecture-upgrade-cover.png
 excerpt: "QwenPaw Runtime was refactored from a 650-line god method into an 8-phase orchestration engine—enabling one-feature-one-directory extensibility with zero changes to Runtime core code."
 ---
@@ -444,7 +444,7 @@ Adding a new management interface = writing one `@api_action` method. Triple reg
 
 `ToolCoordinator` (`src/qwenpaw/tool_calls/`) provides **single tool call granularity** control. In the old system, `/stop` could only kill the entire agent. Now individual tool calls can be tracked, cancelled, or backgrounded.
 
-Key components include `ToolCallEntry` (per-call state), `ToolCallStatus` (PENDING → RUNNING → DONE / CANCELLED state machine), `ToolCoordinatorMiddleware` (injected into agent middleware stack), `ToolResultLimiter` (result size limiting), `ToolStream` (streaming tool output), `ToolCallContext` / `ToolHookRegistry` (HITL lifecycle hooks), etc.
+Key components include `ToolCallEntry` (per-call state), `ToolCallStatus` (PENDING → RUNNING → DONE / CANCELLED state machine), `ToolCoordinatorMiddleware` (injected into agent middleware stack), `ToolResultPruningMiddleware` (tool result pruning), `ToolStream` (streaming tool output), `ToolCallContext` / `ToolHookRegistry` (HITL lifecycle hooks), etc.
 
 ### ApprovalCoordinator — Cross-Agent Approval
 

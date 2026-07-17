@@ -557,6 +557,18 @@ class BaseChannel(ABC):
             f"session={session_id[:30]}",
         )
 
+        # Refresh updated_at so the session list surfaces this chat as the
+        # latest activity (issue #6131). get_or_create_chat returns an
+        # existing chat unchanged, so without this the timestamp stays stale.
+        try:
+            await self._workspace.chat_manager.touch_chat(chat.id)
+        except Exception:  # pylint: disable=broad-except
+            logger.debug(
+                "failed to touch chat updated_at: chat_id=%s",
+                chat.id,
+                exc_info=True,
+            )
+
         queue, is_new = await self._workspace.task_tracker.attach_or_start(
             chat.id,
             payload,
@@ -1028,20 +1040,18 @@ class BaseChannel(ABC):
         except Exception:  # noqa: BLE001 - fall back to the unstripped data
             return fallback
 
-        def walk(node: Any) -> None:
+        def walk(node: Any) -> Any:
+            if isinstance(node, str):
+                return strip_headline(node)
             if isinstance(node, dict):
-                if node.get("type") == "text" and isinstance(
-                    node.get("text"),
-                    str,
-                ):
-                    node["text"] = strip_headline(node["text"])
-                for value in node.values():
-                    walk(value)
-            elif isinstance(node, list):
-                for value in node:
-                    walk(value)
+                for key, value in list(node.items()):
+                    node[key] = walk(value)
+                return node
+            if isinstance(node, list):
+                return [walk(value) for value in node]
+            return node
 
-        walk(payload)
+        payload = walk(payload)
         return json.dumps(payload, ensure_ascii=False, default=str)
 
     def _serialize_event_for_sse(self, event: Any) -> str:

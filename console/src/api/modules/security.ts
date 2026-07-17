@@ -22,6 +22,12 @@ export interface ToolGuardConfig {
   shell_evasion_checks: Record<string, boolean>;
 }
 
+// ── Sandbox switch types ──────────────────────────────
+
+export interface SandboxSetting {
+  enabled: boolean;
+}
+
 // ── File Guard types ──────────────────────────────────────────────
 
 export interface FileGuardResponse {
@@ -101,6 +107,16 @@ export const securityApi = {
 
   getBuiltinRules: () =>
     request<ToolGuardRule[]>("/config/security/tool-guard/builtin-rules"),
+
+  // ── Sandbox switch ───────────────────────────
+
+  getSandbox: () => request<SandboxSetting>("/config/security/sandbox"),
+
+  updateSandbox: (body: SandboxSetting) =>
+    request<SandboxSetting>("/config/security/sandbox", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
 
   // ── File Guard ─────────────────────────────────────────────────
 

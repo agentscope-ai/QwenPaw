@@ -264,7 +264,7 @@ def _sync_file(
     res.messages = len(messages)
     res.unparseable = unparseable
 
-    before = 0 if dry_run else history.count(session_id)
+    pending_entries = []
     for row_index, msg in enumerate(messages):
         # Skip messages older than the retention window so we don't import rows
         # the same-boot purge would immediately delete. NULL timestamps are
@@ -295,14 +295,17 @@ def _sync_file(
                 dedup_key = mid
             res.rows_processed += 1
             if not dry_run:
-                history.append(
-                    session_id=session_id,
-                    agent_id=agent_id,
-                    entry=entry,
-                    dedup_key=dedup_key,
-                )
+                pending_entries.append((entry, dedup_key))
 
-    res.rows_inserted = 0 if dry_run else history.count(session_id) - before
+    # One transaction per source file. The old per-row append path committed
+    # every event independently, making migration time proportional to disk
+    # fsync latency (tens of minutes for a large backlog).
+    if not dry_run:
+        res.rows_inserted = history.append_many(
+            session_id=session_id,
+            agent_id=agent_id,
+            entries=pending_entries,
+        )
     return res
 
 

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Button, Form, Tabs } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
@@ -16,6 +16,7 @@ import {
   MEMORY_MANAGER_BACKEND_MAPPINGS,
 } from "@/constants/backendMappings";
 import api from "@/api";
+import { useAgentStore } from "@/stores/agentStore";
 import styles from "./index.module.less";
 
 function AgentConfigPage() {
@@ -46,27 +47,56 @@ function AgentConfigPage() {
     Form.useWatch("context_manager_backend", form) || "light";
   const memoryBackend =
     Form.useWatch("memory_manager_backend", form) || "remelight";
+  const { selectedAgent } = useAgentStore();
 
   const [maxInputLength, setMaxInputLength] = useState(131072);
-  useEffect(() => {
-    api
-      .getActiveModels({ scope: "effective" })
+  const refreshEffectiveContextWindow = useCallback(() => {
+    return api
+      .getActiveModels({
+        scope: "effective",
+        agent_id: selectedAgent || undefined,
+      })
       .then((info) => {
+        if (info.effective_max_input_length != null) {
+          setMaxInputLength(info.effective_max_input_length);
+          return;
+        }
         if (info.active_llm) {
           return api.listProviders().then((providers) => {
-            for (const p of providers) {
-              const all = [...(p.models ?? []), ...(p.extra_models ?? [])];
-              const m = all.find((m) => m.id === info.active_llm?.model);
-              if (m?.max_input_length) {
-                setMaxInputLength(m.max_input_length);
-                return;
-              }
+            const provider = providers.find(
+              (p) => p.id === info.active_llm?.provider_id,
+            );
+            const all = [
+              ...(provider?.models ?? []),
+              ...(provider?.extra_models ?? []),
+            ];
+            const model = all.find(
+              (item) => item.id === info.active_llm?.model,
+            );
+            if (model?.max_input_length != null) {
+              setMaxInputLength(model.max_input_length);
             }
           });
         }
       })
       .catch(() => {});
-  }, []);
+  }, [selectedAgent]);
+
+  useEffect(() => {
+    refreshEffectiveContextWindow();
+  }, [refreshEffectiveContextWindow]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshEffectiveContextWindow();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [refreshEffectiveContextWindow]);
 
   const dynamicTabs = useMemo(() => {
     const baseTabs = [

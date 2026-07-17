@@ -57,10 +57,48 @@ class ChatPage(BasePage):
     WELCOME_TEXT = 'textarea.qwenpaw-sender-input'
     QUICK_ACTIONS = '.quick-action'
 
-    # Session management (through the history drawer, using CSS Modules class names)
-    SESSION_ITEM = '[class*=chatSessionItem]'
-    SESSION_ACTIVE = '[class*=chatSessionItem][class*=active]'
-    SESSION_NAME = '[class*=chatSessionItem] [class*=name]'
+    # Session management (right-side "All Chats" drawer).
+    # Post v2.0.0 redesign the SessionItem container is a hashed CSS-Module
+    # class (``styles.item``) carrying ``role="button"``; the legacy
+    # ``chatSessionItem`` class is gone. Anchor on the drawer list wrapper +
+    # role, keeping the old class as a fallback for older builds.
+    SESSION_ITEM = (
+        '[class*=listWrapper] div[role="button"], '
+        '[class*=chatSessionItem]'
+    )
+    SESSION_ACTIVE = (
+        '[class*=listWrapper] div[role="button"][class*=active], '
+        '[class*=chatSessionItem][class*=active]'
+    )
+    SESSION_NAME = (
+        '[class*=listWrapper] div[role="button"] [class*=name], '
+        '[class*=chatSessionItem] [class*=name]'
+    )
+    # SessionItem actions now live behind a "more" button (SparkMoreLine)
+    # that opens an antd Dropdown menu (Pin / Rename / Archive / Delete).
+    SESSION_MORE_BTN = '[class*=moreBtn]'
+    # ``:text-is`` is exact so "Pin" does not also match "Unpin".
+    SESSION_MENU_PIN = (
+        '.qwenpaw-dropdown-menu-item:has-text("Pin"), '
+        '.qwenpaw-dropdown-menu-item:has-text("置顶")'
+    )
+    SESSION_MENU_UNPIN = (
+        '.qwenpaw-dropdown-menu-item:has-text("Unpin"), '
+        '.qwenpaw-dropdown-menu-item:has-text("取消置顶")'
+    )
+    SESSION_MENU_RENAME = (
+        '.qwenpaw-dropdown-menu-item:has-text("Rename"), '
+        '.qwenpaw-dropdown-menu-item:has-text("重命名")'
+    )
+    SESSION_MENU_DELETE = (
+        '.qwenpaw-dropdown-menu-item:has-text("Delete"), '
+        '.qwenpaw-dropdown-menu-item:has-text("删除")'
+    )
+    # Inline rename input rendered when a SessionItem enters edit mode.
+    SESSION_RENAME_INPUT = 'input[class*=renameInput]'
+    # Conversation search box inside the drawer (filters sessions by title).
+    SESSION_SEARCH_INPUT = '[class*=searchContainer] input'
+    # Legacy hover-button selectors (kept for older builds / fallbacks).
     SESSION_PIN_BTN = 'button:has(.spark-icon-spark-mark-line), button:has(.anticon-pushpin)'
     SESSION_EDIT_BTN = 'button:has(.spark-icon-spark-edit-line), button:has(.anticon-edit)'
     SESSION_DELETE_BTN = 'button:has(.spark-icon-spark-delete-line), button:has(.anticon-delete)'
@@ -800,74 +838,77 @@ class ChatPage(BasePage):
             self.step_shot(f"switch_to_session_{index}")
         return self
 
-    def rename_session(self, index: int, new_name: str) -> "ChatPage":
+    def _open_session_menu(self, index: int) -> bool:
+        """Hover a session item and open its actions dropdown.
+
+        The dropdown is triggered by the SparkMoreLine "more" button and
+        holds Pin / Rename / Archive / Delete items. Returns True when the
+        menu is visible.
         """
-        Rename a session (hover, click the edit button, type a new name, then press Enter).
-
-        Args:
-            index: session index
-            new_name: new name
-
-        Returns:
-            self
-        """
-        logger.info(f"Renaming session {index} to: {new_name}")
-
         sessions = self.get_session_items()
         if not sessions or index >= len(sessions):
             logger.warning(f"Session at index {index} not found")
+            return False
+        target = sessions[index]
+        try:
+            target.scroll_into_view_if_needed(timeout=5000)
+            target.hover(timeout=8000)
+        except Exception:
+            try:
+                target.hover(force=True, timeout=5000)
+            except Exception as exc:
+                logger.warning(f"[_open_session_menu] hover failed: {exc}")
+                return False
+        self.wait(300)
+        more_btn = target.locator(self.SESSION_MORE_BTN).first
+        if more_btn.count() == 0:
+            logger.warning("[_open_session_menu] more button not found")
+            return False
+        try:
+            more_btn.click(timeout=5000)
+        except Exception:
+            try:
+                more_btn.click(force=True, timeout=5000)
+            except Exception as exc:
+                logger.warning(f"[_open_session_menu] more click failed: {exc}")
+                return False
+        try:
+            self.page.locator(
+                '.qwenpaw-dropdown-menu-item'
+            ).first.wait_for(state="visible", timeout=5000)
+        except (TimeoutError, Exception):
+            logger.warning("[_open_session_menu] dropdown did not appear")
+            return False
+        self.wait(200)
+        return True
+
+    def rename_session(self, index: int, new_name: str) -> "ChatPage":
+        """Rename a session via more-menu → Rename → inline input → Enter."""
+        logger.info(f"Renaming session {index} to: {new_name}")
+
+        if not self._open_session_menu(index):
+            self.step_shot(f"rename_session_{index}_menu_failed")
             return self
 
-        target_session = sessions[index]
-
-        # Hover the session item to reveal action buttons
-        target_session.hover()
+        rename_item = self.page.locator(self.SESSION_MENU_RENAME).first
+        if rename_item.count() == 0 or not rename_item.is_visible():
+            logger.warning("Rename menu item not found, skipping rename")
+            self.page.keyboard.press("Escape")
+            return self
+        rename_item.click()
         self.wait(500)
 
-        # Approach 1: click the edit button
-        edit_btn = target_session.locator(self.SESSION_EDIT_BTN)
-        if edit_btn.count() > 0:
-            edit_btn.first.click()
-            self.wait(500)
-        else:
-            # Approach 2: double-click the session name to trigger edit mode
-            logger.info("Edit button not found, trying double-click on session name")
-            name_el = target_session.locator(self.SESSION_NAME)
-            if name_el.count() > 0:
-                name_el.first.dblclick()
-            else:
-                target_session.dblclick()
-            self.wait(500)
-
-        # Try several selectors to find the input (may live inside or outside the session item)
-        rename_input = None
-        input_selectors = [
-            'input.qwenpaw-input',
-            'input[type="text"]',
-            'input',
-        ]
-
-        # Search inside the session item first
-        for selector in input_selectors:
-            locator = target_session.locator(selector)
-            if locator.count() > 0 and locator.first.is_visible():
-                rename_input = locator.first
-                logger.info(f"Found rename input inside session with selector: {selector}")
-                break
-
-        # If not found inside the session item, search globally on the page
-        if rename_input is None:
-            for selector in input_selectors:
-                locator = self.page.locator(f'.qwenpaw-modal input, .qwenpaw-drawer input, {self.SESSION_ITEM} {selector}')
-                if locator.count() > 0 and locator.first.is_visible():
-                    rename_input = locator.first
-                    logger.info(f"Found rename input globally with selector: {selector}")
-                    break
-        
-        if rename_input is None:
-            logger.warning("Rename input not found with any selector, skipping rename")
+        # Inline rename input (autofocus). Fall back to any visible input in
+        # the drawer if the class-based selector misses.
+        rename_input = self.page.locator(self.SESSION_RENAME_INPUT).first
+        if rename_input.count() == 0 or not rename_input.is_visible():
+            rename_input = self.page.locator(
+                '[class*=listWrapper] input, .qwenpaw-drawer input'
+            ).first
+        if rename_input.count() == 0 or not rename_input.is_visible():
+            logger.warning("Rename input not found, skipping rename")
             return self
-        
+
         rename_input.fill(new_name)
         self.step_shot(f"rename_input_filled_{new_name[:20]}")
         rename_input.press("Enter")
@@ -876,134 +917,98 @@ class ChatPage(BasePage):
         logger.info(f"Session renamed to: {new_name}")
         self.step_shot(f"rename_done_{new_name[:20]}")
         return self
+
     
     def pin_session(self, index: int) -> "ChatPage":
-        """
-        Pin a session (hover, then click the pin button inside the session item).
-
-        WARNING: pin/edit/delete buttons are all hover-only; clicking without hovering first will
-        cause Playwright to wait up to 60s for an invisible button.
-        """
+        """Pin a session via more-menu → Pin."""
         logger.info(f"Pinning session at index {index}")
-
-        sessions = self.get_session_items()
-        if not sessions or index >= len(sessions):
-            logger.warning(f"Session at index {index} not found")
-            self.step_shot(f"pin_session_{index}_not_found")
+        if not self._open_session_menu(index):
+            self.step_shot(f"pin_session_{index}_menu_failed")
             return self
 
-        target_session = sessions[index]
-        # Must scroll into view + hover first to reveal the action buttons
-        try:
-            target_session.scroll_into_view_if_needed(timeout=5000)
-            target_session.hover(timeout=10000)
-        except Exception as e:
-            logger.warning(f"[pin_session] regular hover failed ({e}), trying force hover")
-            try:
-                target_session.hover(force=True, timeout=10000)
-            except Exception as e2:
-                logger.warning(f"[pin_session] force hover also failed: {e2}")
-                self.step_shot(f"pin_session_{index}_hover_failed")
-                return self
-        self.wait(400)
-        self.step_shot(f"pin_session_{index}_after_hover")
-
-        # Click the pin button (short timeout; force click if still not visible)
-        pin_btn = target_session.locator(self.SESSION_PIN_BTN)
-        if pin_btn.count() == 0:
-            logger.warning("Pin button not found in session item")
-            self.step_shot(f"pin_session_{index}_btn_missing")
+        pin_item = self.page.locator(self.SESSION_MENU_PIN).first
+        if pin_item.count() == 0 or not pin_item.is_visible():
+            # No "Pin" item means it is already pinned ("Unpin" shown).
+            logger.info("Pin menu item not present (already pinned?)")
+            self.page.keyboard.press("Escape")
             return self
-
-        try:
-            pin_btn.first.click(timeout=5000)
-        except Exception as e:
-            logger.warning(f"[pin_session] regular click failed ({e}), trying force click")
-            try:
-                pin_btn.first.click(force=True, timeout=5000)
-            except Exception as e2:
-                logger.warning(f"[pin_session] force click also failed: {e2}")
-                self.step_shot(f"pin_session_{index}_click_failed")
-                return self
-
+        pin_item.click()
         self.wait(1000)
         logger.info("Session pinned")
         self.step_shot(f"pin_session_{index}_done")
         return self
 
     def delete_session(self, index: int) -> "ChatPage":
-        """
-        Delete a session (hover then click the delete button; deletes directly with no confirmation popup).
-
-        WARNING: the delete button is hover-only -- it is only shown while hovering the session item.
-        Between step_shot/wait the mouse may "drift" and the button gets hidden again, so
-        Playwright will wait up to 60s by default. Therefore:
-        - Do not wait for long before taking the screenshot
-        - click must use a short timeout + force-click fallback
-        - Re-hover before retrying click to ensure the button is visible
-        """
+        """Delete a session via more-menu → Delete (confirm modal if shown)."""
         logger.info(f"Deleting session at index {index}")
-
         sessions_before = self.get_session_count()
-        sessions = self.get_session_items()
 
-        if not sessions or index >= len(sessions):
-            logger.warning(f"Session at index {index} not found")
+        if not self._open_session_menu(index):
+            self.step_shot(f"delete_session_{index}_menu_failed")
             return self
 
-        target_session = sessions[index]
-
-        # Hover the session item to reveal action buttons (scroll into view first)
-        try:
-            target_session.scroll_into_view_if_needed(timeout=5000)
-            target_session.hover(timeout=10000)
-        except Exception:
-            logger.warning(f"Session {index} not visible, trying force hover")
-            try:
-                target_session.hover(force=True, timeout=10000)
-            except Exception as e:
-                logger.warning(f"[delete_session] force hover also failed: {e}")
-                self.step_shot(f"delete_session_{index}_hover_failed")
-                return self
-        self.wait(300)
-        # Screenshot: hover done, before clicking delete (take screenshot only 200ms later to avoid mouse drift)
-        self.step_shot(f"delete_session_{index}_before_click")
-
-        # Click the delete button (deletes directly, no confirmation popup)
-        del_btn = target_session.locator(self.SESSION_DELETE_BTN)
-        if del_btn.count() == 0:
-            logger.warning("Delete button not found")
-            self.step_shot(f"delete_session_{index}_btn_missing")
+        del_item = self.page.locator(self.SESSION_MENU_DELETE).first
+        if del_item.count() == 0 or not del_item.is_visible():
+            logger.warning("Delete menu item not found")
+            self.page.keyboard.press("Escape")
+            self.step_shot(f"delete_session_{index}_item_missing")
             return self
+        del_item.click()
+        self.wait(800)
 
-        # Short timeout + force click triple fallback: hover state may already be lost
+        # A confirmation modal may appear; confirm it when present.
+        confirm = self.page.locator(
+            '.qwenpaw-modal-confirm-btns button.qwenpaw-btn-dangerous, '
+            '.qwenpaw-modal button.qwenpaw-btn-dangerous, '
+            '.qwenpaw-modal-confirm-btns button.qwenpaw-btn-primary'
+        ).first
         try:
-            del_btn.first.click(timeout=3000)
-        except Exception as e:
-            logger.warning(f"[delete_session] regular click failed ({e}), re-hover and retry")
-            try:
-                # Re-hover so the button becomes visible again
-                target_session.hover(force=True, timeout=5000)
-                self.wait(200)
-                del_btn.first.click(timeout=3000)
-            except Exception as e2:
-                logger.warning(f"[delete_session] retry click failed ({e2}), trying force click")
-                try:
-                    del_btn.first.click(force=True, timeout=5000)
-                except Exception as e3:
-                    logger.warning(f"[delete_session] force click also failed: {e3}")
-                    self.step_shot(f"delete_session_{index}_click_failed")
-                    return self
+            if confirm.count() > 0 and confirm.is_visible(timeout=1500):
+                confirm.click()
+                self.wait(500)
+        except (TimeoutError, Exception):
+            pass
 
-        self.wait(1000)
-        logger.info(f"Session deleted (before: {sessions_before}, after: {self.get_session_count()})")
+        self.wait(800)
+        logger.info(
+            f"Session deleted (before: {sessions_before}, "
+            f"after: {self.get_session_count()})"
+        )
         self.step_shot(f"delete_session_{index}_done")
         return self
 
     def verify_pinned_session(self) -> bool:
-        """Verify that at least one session is pinned (checked via the data-pinned attribute)."""
-        pinned_btn = self.page.locator('[class*=pinButton][data-pinned="true"]')
-        return pinned_btn.count() > 0
+        """Verify the top session is pinned.
+
+        A pinned session's more-menu shows "Unpin" instead of "Pin"; we
+        re-open the first session's menu and look for that item.
+        """
+        if not self._open_session_menu(0):
+            return False
+        unpin = self.page.locator(self.SESSION_MENU_UNPIN).first
+        result = unpin.count() > 0 and unpin.is_visible()
+        try:
+            self.page.keyboard.press("Escape")
+        except Exception:
+            pass
+        self.wait(300)
+        return result
+
+    def search_sessions(self, keyword: str) -> "ChatPage":
+        """Filter the drawer session list via the conversation search box."""
+        box = self.page.locator(self.SESSION_SEARCH_INPUT).first
+        box.wait_for(state="visible", timeout=5000)
+        box.fill(keyword)
+        self.wait(800)
+        return self
+
+    def clear_session_search(self) -> "ChatPage":
+        """Clear the drawer conversation search box."""
+        box = self.page.locator(self.SESSION_SEARCH_INPUT).first
+        if box.count() > 0 and box.is_visible():
+            box.fill("")
+            self.wait(800)
+        return self
 
     # ========== Model and Agent switching ==========
     

@@ -33,6 +33,24 @@ TOKEN_PLAN_BASE_URL = (
     "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 )
 
+
+def _uses_max_completion_tokens(model_id: str) -> bool:
+    """Return whether an OpenAI model requires max_completion_tokens."""
+    model_name = model_id.strip().lower().rsplit("/", maxsplit=1)[-1]
+    return model_name.startswith("gpt-5") or (
+        len(model_name) > 1
+        and model_name[0] == "o"
+        and model_name[1].isdigit()
+    )
+
+
+def _token_limit_kwargs(model_id: str, limit: int) -> dict[str, int]:
+    """Build the model-specific output token limit argument."""
+    if _uses_max_completion_tokens(model_id):
+        return {"max_completion_tokens": limit}
+    return {"max_tokens": limit}
+
+
 if os.environ.get("LANGFUSE_SECRET_KEY") and importlib.util.find_spec(
     "langfuse",
 ):
@@ -156,8 +174,8 @@ class OpenAIProvider(Provider):
                     },
                 ],
                 timeout=timeout,
-                max_tokens=20,
                 stream=True,
+                **_token_limit_kwargs(model_id, 20),
             )
             # consume the stream to ensure the model is actually responsive
             async for _ in res:
@@ -200,8 +218,16 @@ class OpenAIProvider(Provider):
             merged_headers["X-DashScope-Cdpl"] = dashscope_meta
 
         gen_kwargs = self.get_effective_generate_kwargs(model_id)
+        max_tokens = gen_kwargs.pop("max_tokens", None)
+        if _uses_max_completion_tokens(model_id):
+            if max_tokens is not None:
+                gen_kwargs.setdefault(
+                    "max_completion_tokens",
+                    max_tokens,
+                )
+            max_tokens = None
         parameters = OpenAIChatModel.Parameters(
-            max_tokens=gen_kwargs.pop("max_tokens", None),
+            max_tokens=max_tokens,
             temperature=gen_kwargs.pop("temperature", None),
             top_p=gen_kwargs.pop("top_p", None),
         )
@@ -216,7 +242,7 @@ class OpenAIProvider(Provider):
             context_size=self._get_context_size(model_id),
             formatter=_CappingOpenAIFormatter(
                 max_bytes=self.max_inline_media_bytes,
-                relay_reasoning_content=self._get_preserve_thinking(model_id),
+                relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
         )
 
@@ -322,8 +348,8 @@ class OpenAIProvider(Provider):
                         ],
                     },
                 ],
-                max_tokens=200,
                 timeout=timeout,
+                **_token_limit_kwargs(model_id, 200),
             )
             answer = (res.choices[0].message.content or "").lower().strip()
             reasoning = ""
@@ -440,8 +466,8 @@ class OpenAIProvider(Provider):
                         ],
                     },
                 ],
-                max_tokens=200,
                 timeout=req_timeout,
+                **_token_limit_kwargs(model_id, 200),
             )
             return self._evaluate_video_response(
                 res,
@@ -655,8 +681,8 @@ class GitHubModelsProvider(OpenAIProvider):
                     },
                 ],
                 timeout=timeout,
-                max_tokens=5,
                 stream=True,
+                **_token_limit_kwargs(model_id, 5),
             )
             try:
                 async for _ in res:

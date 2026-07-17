@@ -15,7 +15,28 @@ import pytest
 from agentscope.message import ToolResultState
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
-from qwenpaw.agents.context.scroll.repl import make_recall_history_python
+from qwenpaw.agents.context.scroll.repl import (
+    _DOC,
+    make_recall_history_python,
+)
+
+
+def test_tool_description_is_bounded_and_keeps_execution_contract():
+    size = len(_DOC.encode("utf-8"))
+    assert 1500 <= size <= 2500
+    for required in (
+        "Prefer `recall_history`",
+        "`ms` is ALREADY DEFINED",
+        "variables do NOT persist",
+        "KEEP STDOUT BOUNDED",
+        "LIMIT ? OFFSET ?",
+        "ms.expand(lo, hi)",
+        "ms.search(query",
+        "ms.recall_tool(tool_call_id",
+        "ms.sql_query(sql, params)",
+    ):
+        assert required in _DOC
+    assert "ANSWERING FROM RECALL" not in _DOC
 
 
 @pytest.fixture

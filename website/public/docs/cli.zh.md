@@ -538,6 +538,19 @@ qwenpaw cron create \
   --target-session "会话ID" \
   --text "我有什么待办事项？"
 
+# agent：后台执行，不向渠道投递回复
+qwenpaw cron create \
+  --agent-id abc123 \
+  --type agent \
+  --schedule-type cron \
+  --name "刷新搜索索引" \
+  --cron "0 * * * *" \
+  --channel console \
+  --target-user "你的用户ID" \
+  --target-session "会话ID" \
+  --text "刷新搜索索引。" \
+  --silent
+
 # 日程任务：一次性执行（不重复）
 qwenpaw cron create \
   --type text \
@@ -592,6 +605,7 @@ JSON 结构见 `qwenpaw cron get <job_id>` 的返回。
 | `--timezone`                                           | 用户时区 | 调度时区（默认使用 config 中的 `user_timezone`）                  |
 | `--enabled` / `--no-enabled`                           | 启用     | 创建时启用或禁用                                                  |
 | `--mode`                                               | `final`  | `stream`（逐步发送）或 `final`（完成后一次性发送）                |
+| `--silent` / `--no-silent`                             | 关闭     | 执行 `agent` 任务但不向渠道投递回复                               |
 | `--save-result-to-inbox` / `--no-save-result-to-inbox` | 自动规则 | 是否将执行结果写入收件箱（省略时由服务端默认策略决定）            |
 | `--repeat-every-days`                                  | 不重复   | 仅 `--schedule-type scheduled` 可用；每 N 天重复                  |
 | `--repeat-end-type`                                    | `never`  | 仅重复日程可用；`never` / `until` / `count`                       |

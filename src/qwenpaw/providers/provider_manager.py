@@ -24,6 +24,7 @@ from ..security.secret_store import (
     is_encrypted,
 )
 from .anthropic_provider import AnthropicProvider
+from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .dashscope_provider import DashScopeProvider
 from .gemini_provider import GeminiProvider
 from .lmstudio_provider import LMStudioProvider
@@ -69,6 +70,7 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         supports_video=False,
         probe_source="documentation",
         thinking_enabled=True,
+        relay_reasoning=False,
     ),
     ModelInfo(
         id="qwen3.7-plus",
@@ -77,6 +79,7 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         supports_video=True,
         probe_source="documentation",
         thinking_enabled=True,
+        relay_reasoning=False,
     ),
     ModelInfo(
         id="qwen3.6-plus",
@@ -85,6 +88,7 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         supports_video=True,
         probe_source="documentation",
         thinking_enabled=True,
+        relay_reasoning=False,
     ),
     ModelInfo(
         id="deepseek-v4-pro",
@@ -95,6 +99,7 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         thinking_enabled=True,
         thinking_param_style="effort",
         reasoning_effort_options=["high", "max"],
+        relay_reasoning=False,
     ),
     ModelInfo(
         id="glm-5.2",
@@ -105,6 +110,7 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         thinking_enabled=True,
         thinking_param_style="effort",
         reasoning_effort_options=["high", "max"],
+        relay_reasoning=False,
     ),
 ]
 
@@ -496,7 +502,7 @@ OPENCODE_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="mimo-v2.5-free",
         name="Mimo V2.5",
-        supports_image=False,
+        supports_image=True,
         supports_video=False,
         probe_source="documentation",
         is_free=True,
@@ -1577,6 +1583,20 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # Add a new custom provider with the given data. This will update the
         # providers.json file and make the new provider available in the UI.
         provider_payload = provider_data.model_dump()
+        # ``max_input_length`` equal to the historical 128K default is only
+        # distinguishable from an omitted value while the request model still
+        # carries Pydantic's field-presence information. Preserve that intent
+        # before model_dump/storage erase it. This is deliberately scoped to
+        # the user-facing custom-provider ingestion path: legacy provider JSON
+        # serialized every default field, so applying the same inference while
+        # loading from disk would incorrectly mark all old 128K defaults as
+        # explicit overrides.
+        for field in ("models", "extra_models"):
+            source_models = getattr(provider_data, field, ())
+            payload_models = provider_payload.get(field, ())
+            for source, payload in zip(source_models, payload_models):
+                if "max_input_length" in source.model_fields_set:
+                    payload["max_input_length_configured"] = True
         provider_payload["id"] = self._resolve_custom_provider_id(
             provider_data.id,
         )
@@ -2175,6 +2195,41 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     "Failed to remove legacy providers.json after migration.",
                 )
 
+    @staticmethod
+    def _restore_builtin_model_config(
+        model: ModelInfo,
+        config: dict,
+    ) -> None:
+        """Restore persisted overrides onto a built-in model definition."""
+        if config["generate_kwargs"]:
+            model.generate_kwargs = config["generate_kwargs"]
+        if config["max_tokens"] is not None:
+            model.max_tokens = config["max_tokens"]
+        if config["max_input_length"] is not None:
+            model.max_input_length = config["max_input_length"]
+        configured_length = config.get("max_input_length")
+        model.max_input_length_configured = bool(
+            config.get("max_input_length_configured", False)
+            or (
+                configured_length is not None
+                and configured_length != DEFAULT_CONTEXT_WINDOW
+            ),
+        )
+        if config.get("relay_reasoning") is not None:
+            model.relay_reasoning = config["relay_reasoning"]
+        if config.get("thinking_enabled") is not None:
+            model.thinking_enabled = config["thinking_enabled"]
+        if config.get("thinking_budget") is not None:
+            model.thinking_budget = config["thinking_budget"]
+        if config.get("reasoning_effort") is not None:
+            model.reasoning_effort = config["reasoning_effort"]
+        if config.get("supports_multimodal") is not None:
+            model.supports_multimodal = config["supports_multimodal"]
+        if config.get("supports_image") is not None:
+            model.supports_image = config["supports_image"]
+        if config.get("supports_video") is not None:
+            model.supports_video = config["supports_video"]
+
     def _init_from_storage(self):
         """Initialize all providers and active model from disk storage."""
         # Load built-in providers
@@ -2212,10 +2267,14 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     "generate_kwargs",
                     "max_tokens",
                     "max_input_length",
-                    "preserve_thinking",
+                    "max_input_length_configured",
+                    "relay_reasoning",
                     "thinking_enabled",
                     "thinking_budget",
                     "reasoning_effort",
+                    "supports_multimodal",
+                    "supports_image",
+                    "supports_video",
                 )
                 for m in provider.models:
                     stored_model_config[m.id] = {
@@ -2231,28 +2290,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     for model in builtin.models:
                         cfg = stored_model_config.get(model.id)
                         if cfg:
-                            if cfg["generate_kwargs"]:
-                                model.generate_kwargs = cfg["generate_kwargs"]
-                            if cfg["max_tokens"] is not None:
-                                model.max_tokens = cfg["max_tokens"]
-                            if cfg["max_input_length"] is not None:
-                                model.max_input_length = cfg[
-                                    "max_input_length"
-                                ]
-                            if cfg.get("preserve_thinking") is not None:
-                                model.preserve_thinking = cfg[
-                                    "preserve_thinking"
-                                ]
-                            if cfg.get("thinking_enabled") is not None:
-                                model.thinking_enabled = cfg[
-                                    "thinking_enabled"
-                                ]
-                            if cfg.get("thinking_budget") is not None:
-                                model.thinking_budget = cfg["thinking_budget"]
-                            if cfg.get("reasoning_effort") is not None:
-                                model.reasoning_effort = cfg[
-                                    "reasoning_effort"
-                                ]
+                            self._restore_builtin_model_config(model, cfg)
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)

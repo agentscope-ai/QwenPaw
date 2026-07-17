@@ -209,6 +209,7 @@ function ChannelsPage() {
                       key={key}
                       channelKey={key}
                       config={config}
+                      iconUrl={channelSchemas[key]?.icon}
                       onClick={() => handleCardClick(key)}
                     />
                   ))}
@@ -247,6 +248,7 @@ function ChannelsPage() {
                     <ChannelAvailableItem
                       key={key}
                       channelKey={key}
+                      iconUrl={channelSchemas[key]?.icon}
                       onClick={() => handleCardClick(key)}
                     />
                   ))}

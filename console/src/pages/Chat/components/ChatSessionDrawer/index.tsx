@@ -20,11 +20,6 @@ import {
   useChatAnywhereSessionsState,
   type IAgentScopeRuntimeWebUISession,
 } from "@agentscope-ai/chat";
-import {
-  ContextMenu,
-  useContextMenu,
-} from "../../../../components/ContextMenu";
-import type { ContextMenuItem } from "../../../../components/ContextMenu";
 import { useIsMobile } from "../../../../hooks/useIsMobile";
 import { useCodingMode } from "../../../../stores/codingModeStore";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
@@ -32,6 +27,7 @@ import SessionItem from "../../../../components/SessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
+import { useMessageQueueStore } from "../../../../stores/messageQueueStore";
 import {
   buildSessionPath,
   getSessionIdFromPath,
@@ -44,6 +40,7 @@ import {
   type DateGroup,
   groupSessions,
 } from "../../../../utils/sessionGrouping";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import styles from "./index.module.less";
 import type { ChatStatus } from "../../../../api/types/chat";
 
@@ -75,10 +72,10 @@ interface VirtualRowData {
   handleEditStart: (sessionId: string, currentName: string) => void;
   handleDelete: (sessionId: string) => void;
   handlePinToggle: (sessionId: string) => void;
+  handleArchiveToggle: (sessionId: string) => void;
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
-  handleItemContextMenu: (sessionId: string, event: React.MouseEvent) => void;
   toggleGroup: (key: DateGroup) => void;
 }
 
@@ -135,6 +132,7 @@ const VirtualRow = React.memo(function VirtualRow({
         chatStatus={session.status}
         generating={session.generating}
         pinned={session.pinned}
+        archived={session.archived}
         active={
           session.id === data.currentSessionId ||
           session.id === data.switchingSessionId ||
@@ -147,10 +145,10 @@ const VirtualRow = React.memo(function VirtualRow({
         onEdit={data.handleEditStart}
         onDelete={data.handleDelete}
         onPin={data.handlePinToggle}
+        onArchive={data.handleArchiveToggle}
         onEditChange={data.handleEditChange}
         onEditSubmit={data.handleEditSubmit}
         onEditCancel={data.handleEditCancel}
-        onContextMenu={data.handleItemContextMenu}
       />
     </div>
   );
@@ -168,6 +166,8 @@ interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   status?: ChatStatus;
   generating?: boolean;
   pinned?: boolean;
+  archivedAt?: string | null;
+  archived?: boolean;
 }
 
 interface ChatSessionDrawerProps {
@@ -227,6 +227,7 @@ const getBackendId = (session: ExtendedChatSession): string | null => {
 
 const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const navigate = useNavigate();
   const location = useLocation();
   const sdkState = useChatAnywhereSessionsState();
@@ -297,27 +298,24 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     return () => clearTimeout(handle);
   }, [searchInput]);
 
-  /** Shared context menu — only one instance instead of one per item */
-  const sharedContextMenu = useContextMenu();
-  const [contextMenuSessionId, setContextMenuSessionId] = useState<
-    string | null
-  >(null);
-
   /** Sessions sorted by pinned first, then by updatedAt/createdAt descending.
    *  Filter out local temporary sessions (created by clicking "New Chat" but
    *  not yet persisted to backend). These sessions have local timestamp IDs
    *  (matching /^\d+-[a-z0-9]+$/) and no realId field. They should only appear
    *  in the list after the first message is sent and the backend creates them.
    */
+  const resolvedSessions = useMemo(() => {
+    return sessions.filter((session) => {
+      const ext = session as ExtendedChatSession;
+      const isLocalId = /^\d+-[a-z0-9]+$/.test(session.id);
+      const hasRealId = !!ext.realId;
+      return !isLocalId || hasRealId;
+    });
+  }, [sessions]);
+
   const sortedSessions = useMemo(() => {
-    return [...sessions]
-      .filter((session) => {
-        const ext = session as ExtendedChatSession;
-        const isLocalId = /^\d+-[a-z0-9]+$/.test(session.id);
-        const hasRealId = !!ext.realId;
-        // Keep if: not a local ID, OR has been resolved to a real backend ID
-        return !isLocalId || hasRealId;
-      })
+    return [...resolvedSessions]
+      .filter((s) => !(s as ExtendedChatSession).archived)
       .sort((a, b) => {
         const extA = a as ExtendedChatSession;
         const extB = b as ExtendedChatSession;
@@ -325,7 +323,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         if (extA.pinned && !extB.pinned) return -1;
         if (!extA.pinned && extB.pinned) return 1;
 
-        // ISO 8601 strings are lexicographically sortable — avoid new Date()
         const aTime = extA.updatedAt ?? extA.createdAt ?? "";
         const bTime = extB.updatedAt ?? extB.createdAt ?? "";
         if (!aTime && !bTime) return 0;
@@ -333,7 +330,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         if (!bTime) return -1;
         return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
       });
-  }, [sessions]);
+  }, [resolvedSessions]);
 
   /** Re-fetch session list from the backend and sync to context state */
   const refreshSessions = useCallback(async () => {
@@ -455,6 +452,15 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
       localStorage.removeItem(`approval_level-${sessionId}`);
 
+      // Clear the message queue for the deleted session so stale items don't
+      // linger in storage or get sent after deletion. The queue may be keyed
+      // by the local id or the resolved backend id, so clear both. Also notify
+      // the chat page (when mounted) to abort any in-flight background send.
+      const mq = useMessageQueueStore.getState();
+      mq.clear(sessionId);
+      if (backendId && backendId !== sessionId) mq.clear(backendId);
+      sessionApi.onSessionRemoved?.(backendId ?? sessionId);
+
       // Fetch the updated session list after deletion
       const freshList =
         (await sessionApi.getSessionList()) as ExtendedChatSession[];
@@ -544,57 +550,45 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     [sessions, refreshSessions],
   );
 
-  /** Show shared context menu for a specific session */
-  const handleItemContextMenu = useCallback(
-    (sessionId: string, event: React.MouseEvent) => {
-      setContextMenuSessionId(sessionId);
-      sharedContextMenu.show(event);
-    },
-    [sharedContextMenu],
-  );
+  /** Toggle archive status for a session */
+  const handleArchiveToggle = useCallback(
+    async (sessionId: string) => {
+      const session = sessions.find((s) => s.id === sessionId) as
+        | ExtendedChatSession
+        | undefined;
+      const backendId = session ? getBackendId(session) : null;
+      if (!backendId) return;
+      const wasArchived = !!session?.archived;
+      try {
+        if (wasArchived) {
+          await chatApi.unarchiveChat(backendId);
+          message.success(
+            t("sessions.archive.unarchiveSuccess", "Chat unarchived"),
+          );
+        } else {
+          await chatApi.archiveChat(backendId);
+          message.success(t("sessions.archive.successHint"));
+        }
+        await refreshSessions();
 
-  /** Build context menu items for the currently right-clicked session */
-  const contextMenuItems: ContextMenuItem[] = useMemo(() => {
-    if (!contextMenuSessionId) return [];
-    const session = sessions.find((s) => s.id === contextMenuSessionId) as
-      | ExtendedChatSession
-      | undefined;
-    return [
-      {
-        key: "open",
-        label: t("chat.contextMenu.open", "Open"),
-        onClick: () => handleSessionClick(contextMenuSessionId),
-      },
-      {
-        key: "rename",
-        label: t("chat.contextMenu.rename", "Rename"),
-        onClick: () =>
-          handleEditStart(contextMenuSessionId, session?.name || "New Chat"),
-      },
-      {
-        key: "pin",
-        label: session?.pinned
-          ? t("chat.contextMenu.unpin", "Unpin")
-          : t("chat.contextMenu.pin", "Pin"),
-        onClick: () => handlePinToggle(contextMenuSessionId),
-      },
-      { key: "divider-1", label: "", divider: true },
-      {
-        key: "delete",
-        label: t("chat.contextMenu.delete", "Delete"),
-        danger: true,
-        onClick: () => handleDelete(contextMenuSessionId),
-      },
-    ];
-  }, [
-    contextMenuSessionId,
-    sessions,
-    t,
-    handleSessionClick,
-    handleEditStart,
-    handlePinToggle,
-    handleDelete,
-  ]);
+        if (!wasArchived) {
+          const urlChatId = getSessionIdFromPath(location.pathname);
+          if (
+            urlChatId &&
+            (sessionId === urlChatId || backendId === urlChatId)
+          ) {
+            window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+          }
+        }
+      } catch (err) {
+        console.error("Failed to toggle archive status:", err);
+        message.error(
+          t("sessions.archive.failed", "Failed to update archive status"),
+        );
+      }
+    },
+    [sessions, refreshSessions, location.pathname, message, t],
+  );
 
   /** Filter sessions by search query */
   const filteredSessions = useMemo(() => {
@@ -708,10 +702,10 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       handleEditStart,
       handleDelete,
       handlePinToggle,
+      handleArchiveToggle,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
-      handleItemContextMenu,
       toggleGroup,
     }),
     [
@@ -725,10 +719,10 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       handleEditStart,
       handleDelete,
       handlePinToggle,
+      handleArchiveToggle,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
-      handleItemContextMenu,
       toggleGroup,
     ],
   );
@@ -823,15 +817,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         )}
         <div className={styles.bottomGradient} />
       </div>
-
-      {/* Shared context menu — single instance for all session items */}
-      <ContextMenu
-        visible={sharedContextMenu.visible}
-        x={sharedContextMenu.x}
-        y={sharedContextMenu.y}
-        items={contextMenuItems}
-        onClose={sharedContextMenu.hide}
-      />
     </>
   );
 

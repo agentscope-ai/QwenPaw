@@ -231,9 +231,11 @@ def _build_spec_from_cli(
     timezone: str,
     enabled: bool,
     mode: str,
+    silent: bool,
     save_result_to_inbox: Optional[bool] = None,
     share_session: bool = True,
     timeout_seconds: int = 120,
+    tool_safety: bool = False,
 ) -> dict:
     """Build CronJobSpec JSON payload from CLI args (no id)."""
     schedule = _build_schedule_from_cli(
@@ -251,6 +253,7 @@ def _build_spec_from_cli(
         "channel": channel,
         "target": {"user_id": target_user, "session_id": target_session},
         "mode": mode,
+        "silent": silent,
         "meta": {},
     }
     runtime = {
@@ -258,8 +261,13 @@ def _build_spec_from_cli(
         "max_concurrency": 1,
         "timeout_seconds": timeout_seconds,
         "misfire_grace_seconds": 600,
+        "tool_safety": tool_safety,
     }
     if task_type == "text":
+        if silent:
+            raise click.UsageError(
+                "--silent is only supported when task type is 'agent'",
+            )
         if not (text and text.strip()):
             raise click.UsageError(
                 "--text is required when task type is 'text'",
@@ -458,6 +466,14 @@ def _build_spec_from_cli(
     ),
 )
 @click.option(
+    "--silent/--no-silent",
+    default=False,
+    help=(
+        "Run an agent task without delivering its response to the channel. "
+        "Session, trace, and optional Inbox records are still preserved."
+    ),
+)
+@click.option(
     "--save-result-to-inbox/--no-save-result-to-inbox",
     default=None,
     help=(
@@ -483,6 +499,16 @@ def _build_spec_from_cli(
         "Maximum execution time in seconds for agent tasks. "
         "If the task takes longer, it will be cancelled. "
         "Increase for complex tasks (e.g. --timeout 1800)."
+    ),
+)
+@click.option(
+    "--tool-safety/--no-tool-safety",
+    default=False,
+    show_default=True,
+    help=(
+        "Tool execution safety check. When enabled, risky tool calls "
+        "require approval (may block unattended jobs). "
+        "When disabled, all tools execute without approval."
     ),
 )
 @click.option(
@@ -515,9 +541,11 @@ def create_job(
     timezone: Optional[str],
     enabled: bool,
     mode: str,
+    silent: bool,
     save_result_to_inbox: Optional[bool],
     share_session: bool,
     timeout_seconds: int,
+    tool_safety: bool,
     base_url: Optional[str],
     agent_id: str,
 ) -> None:
@@ -572,9 +600,11 @@ def create_job(
             timezone=timezone,
             enabled=enabled,
             mode=mode,
+            silent=silent,
             save_result_to_inbox=save_result_to_inbox,
             share_session=share_session,
             timeout_seconds=timeout_seconds,
+            tool_safety=tool_safety,
         )
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
@@ -601,9 +631,11 @@ def _resolve_update_spec(
     timezone: Optional[str],
     enabled: Optional[bool],
     mode: Optional[str],
+    silent: Optional[bool],
     save_result_to_inbox: Optional[bool],
     share_session: Optional[bool],
     timeout_seconds: Optional[int],
+    tool_safety: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """Merge CLI overrides with an existing cron-job spec.
 
@@ -648,6 +680,11 @@ def _resolve_update_spec(
     t_name = name if name is not None else spec.get("name", "")
     t_enabled = enabled if enabled is not None else spec.get("enabled", True)
     t_mode = mode or spec.get("dispatch", {}).get("mode", "final")
+    t_silent = (
+        silent
+        if silent is not None
+        else spec.get("dispatch", {}).get("silent", False)
+    )
     t_save = (
         save_result_to_inbox
         if save_result_to_inbox is not None
@@ -662,6 +699,11 @@ def _resolve_update_spec(
         timeout_seconds
         if timeout_seconds is not None
         else spec.get("runtime", {}).get("timeout_seconds", 120)
+    )
+    t_tool_safety = (
+        tool_safety
+        if tool_safety is not None
+        else spec.get("runtime", {}).get("tool_safety", False)
     )
 
     ext_dispatch = spec.get("dispatch", {})
@@ -695,9 +737,11 @@ def _resolve_update_spec(
         timezone=tz,
         enabled=t_enabled,
         mode=t_mode,
+        silent=t_silent,
         save_result_to_inbox=t_save,
         share_session=t_share,
         timeout_seconds=t_timeout,
+        tool_safety=t_tool_safety,
     )
 
     # Preserve existing meta
@@ -812,6 +856,11 @@ def _resolve_update_spec(
     help="Delivery mode: 'stream' or 'final'.",
 )
 @click.option(
+    "--silent/--no-silent",
+    default=None,
+    help="Run an agent task without channel delivery.",
+)
+@click.option(
     "--save-result-to-inbox/--no-save-result-to-inbox",
     default=None,
     help="Save execution results to Inbox.",
@@ -827,6 +876,14 @@ def _resolve_update_spec(
     type=click.IntRange(min=1),
     default=None,
     help="Maximum execution time in seconds.",
+)
+@click.option(
+    "--tool-safety/--no-tool-safety",
+    default=None,
+    help=(
+        "Tool execution safety check. When enabled, risky tool calls "
+        "require approval. When disabled, all tools execute without approval."
+    ),
 )
 @click.option(
     "--base-url",
@@ -859,9 +916,11 @@ def update_job(
     timezone: Optional[str],
     enabled: Optional[bool],
     mode: Optional[str],
+    silent: Optional[bool],
     save_result_to_inbox: Optional[bool],
     share_session: Optional[bool],
     timeout_seconds: Optional[int],
+    tool_safety: Optional[bool],
     base_url: Optional[str],
     agent_id: str,
 ) -> None:
@@ -903,9 +962,11 @@ def update_job(
             timezone=timezone,
             enabled=enabled,
             mode=mode,
+            silent=silent,
             save_result_to_inbox=save_result_to_inbox,
             share_session=share_session,
             timeout_seconds=timeout_seconds,
+            tool_safety=tool_safety,
         )
 
     payload["id"] = job_id

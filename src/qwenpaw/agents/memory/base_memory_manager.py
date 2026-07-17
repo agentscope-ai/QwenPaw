@@ -28,6 +28,7 @@ from ..utils.registry import Registry
 logger = logging.getLogger(__name__)
 AUTO_MEMORY_TURN_STATE_TTL_SECONDS = 24 * 60 * 60
 MAX_QUERY_CHARS = 50
+SUMMARY_WORKER_CLOSE_TIMEOUT_SECONDS = 5.0
 
 
 class BaseMemoryManager(ABC):
@@ -54,6 +55,7 @@ class BaseMemoryManager(ABC):
             tuple[str, list[Msg], dict]
         ] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
+        self._worker_stopping = False
 
     @abstractmethod
     async def start(self) -> None:
@@ -267,6 +269,10 @@ class BaseMemoryManager(ABC):
         """
         return None
 
+    async def reme_status(self) -> Any | None:
+        """Return ReMe runtime status when supported by the backend."""
+        return None
+
     async def auto_memory_search(
         self,
         messages: list[Msg] | Msg,
@@ -360,8 +366,10 @@ class BaseMemoryManager(ABC):
 
     async def _summarize_worker(self) -> None:
         """Background worker that processes summarize tasks serially."""
-        while True:
+        while not self._worker_stopping:
             task_id, messages, kwargs = await self._task_queue.get()
+            if self._worker_stopping:
+                return
             info = self._summary_task_info.get(task_id)
             if info is None:
                 continue
@@ -382,6 +390,41 @@ class BaseMemoryManager(ABC):
                 info["error"] = str(e)
                 logger.error(f"Summary task {task_id} failed: {e}")
 
+    async def _shutdown_summarize_worker(
+        self,
+        timeout: float = SUMMARY_WORKER_CLOSE_TIMEOUT_SECONDS,
+    ) -> bool:
+        """Stop the summary worker without allowing shutdown to hang.
+
+        The stopping flag is required in addition to ``Task.cancel()``:
+        cancellation may be consumed by a nested model/job call. In that
+        case the worker exits after the current summarize call returns rather
+        than looping back to an empty queue forever.
+        """
+        self._worker_stopping = True
+        worker = self._worker_task
+        if worker is None:
+            return True
+
+        if not worker.done():
+            worker.cancel()
+            done, _pending = await asyncio.wait({worker}, timeout=timeout)
+            if not done:
+                # A second cancellation handles the common case where the
+                # first one was swallowed and the worker has since reached
+                # another cancellation point. Do not await it without a
+                # bound: a coroutine is allowed to suppress cancellation.
+                worker.cancel()
+                logger.error(
+                    "Summary worker did not stop within %.1fs: agent_id=%s",
+                    timeout,
+                    self.agent_id,
+                )
+                return False
+
+        self._worker_task = None
+        return True
+
     def add_summarize_task(self, messages: list[Msg], **kwargs):
         """Schedule a background summarization task without blocking.
 
@@ -393,6 +436,7 @@ class BaseMemoryManager(ABC):
             **kwargs: Forwarded to ``summarize()``.
         """
         # Ensure worker is running
+        self._worker_stopping = False
         if self._worker_task is None or self._worker_task.done():
             self._worker_task = asyncio.create_task(self._summarize_worker())
 

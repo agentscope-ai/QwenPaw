@@ -3,11 +3,13 @@
 """Unit tests for :class:`ScrollContextManager`.
 
 Covers write-through dedup, the resume checkpoint (no re-append of a restored
-window), the boundary-Msg double-presence fix, cap-middleware seq adoption,
+window), the boundary-Msg double-presence fix, tool-result preview persistence,
 degraded-durability fail-safe (no eviction when a write fails), and retention.
 """
 
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from agentscope.message import (
@@ -19,8 +21,13 @@ from agentscope.message import (
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
-from qwenpaw.agents.context.types import LogEntry
+from qwenpaw.agents.context.scroll.recall_tool import (
+    RECALL_PAGE_METADATA_KEY,
+    RecallLoopGuard,
+)
+from qwenpaw.agents.context.types import ContextWindowUnfitError, LogEntry
 from qwenpaw.agents.memory.base_memory_manager import BaseMemoryManager
+from qwenpaw.agents.tools.utils import truncate_text_output
 from qwenpaw.constant import AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY
 
 # -- fixtures ---------------------------------------------------------------
@@ -178,14 +185,27 @@ def test_persist_new_records_seq_and_headline_leaf(store: HistoryStore):
 
 def test_tool_result_persisted_under_tool_call_id(store: HistoryStore):
     mgr = make_manager(store)
-    agent = FakeAgent([assistant_with_tool("call-1", "big output")])
+    msg = assistant_with_tool("call-1", "big output")
+    msg.content[2].metadata.update(
+        {
+            "qwenpaw_truncation": {
+                "0": {
+                    "file_path": "/tmp/artifact.txt",
+                },
+            },
+        },
+    )
+    agent = FakeAgent([msg])
     mgr._persist_new(agent)
     rows = store._conn.execute(
-        "SELECT content FROM conversation_history "
+        "SELECT content, metadata FROM conversation_history "
         "WHERE kind='tool_result' AND tool_call_id='call-1'",
     ).fetchall()
     assert len(rows) == 1
     assert rows[0]["content"] == "big output"
+    assert json.loads(rows[0]["metadata"])["qwenpaw_truncation"]["0"] == {
+        "file_path": "/tmp/artifact.txt",
+    }
 
 
 def test_auto_memory_search_message_not_persisted(store: HistoryStore):
@@ -272,22 +292,31 @@ def test_load_state_tolerates_garbage(store: HistoryStore):
     assert mgr._persisted_ids == set()
 
 
-# -- cap-middleware seq adoption --------------------------------------------
+# -- tool-result preview persistence ----------------------------------------
 
 
-def test_capped_result_is_not_re_persisted(store: HistoryStore):
-    """When the cap middleware already wrote a result in full, the manager
-    adopts its seq and does NOT re-persist the truncated in-context stub."""
-    capped = {"call-1": 999}
-    mgr = make_manager(store, capped_results=capped)
-    agent = FakeAgent([assistant_with_tool("call-1", "truncated stub")])
+def test_tool_result_preview_is_persisted_once(store: HistoryStore):
+    """Tool results are persisted exactly as they appear in live context."""
+    mgr = make_manager(store)
+    preview = (
+        "partial output\n"
+        "<<<EXECUTION_TOOL_RESULT_TRUNCATED>>>\n"
+        "Full output saved to: /tmp/tool-result.txt."
+    )
+    agent = FakeAgent([assistant_with_tool("call-1", preview)])
     mgr._persist_new(agent)
-    # No tool_result row was written by the manager (the cap owns it).
+
     rows = store._conn.execute(
-        "SELECT 1 FROM conversation_history "
+        "SELECT content FROM conversation_history "
         "WHERE kind='tool_result' AND tool_call_id='call-1'",
     ).fetchall()
-    assert rows == []
+    assert [row["content"] for row in rows] == [preview]
+    mgr._persist_new(agent)
+    rows = store._conn.execute(
+        "SELECT content FROM conversation_history "
+        "WHERE kind='tool_result' AND tool_call_id='call-1'",
+    ).fetchall()
+    assert [row["content"] for row in rows] == [preview]
     assert "call-1" in mgr._persisted_tcids
 
 
@@ -315,7 +344,74 @@ async def test_compress_evicts_middle_into_index(store: HistoryStore):
     names = [m.name for m in agent.state.context]
     assert names[0] == "memory"  # the index placeholder leads
     assert "did-step" in mgr._index.render()
+    memory_text = agent.state.context[0].get_text_content()
+    assert "[continuity checkpoint]" in memory_text
+    assert "Use recall_history with the listed seq span" in memory_text
     assert mgr.last_compress["evicted"] == 2  # /compact reporting source
+
+    restored = make_manager(store)
+    restored.load_state(mgr.to_dict())
+    assert restored._continuity_checkpoint == mgr._continuity_checkpoint
+
+
+async def test_compress_prunes_bookkeeping_to_live_context(
+    store: HistoryStore,
+):
+    old_u = user("old request")
+    old_a = assistant("old reply", headline="OLD")
+    old_tool = assistant_with_tool("call-old")
+    current_u = user("current request")
+    current_tool = assistant_with_tool("call-current")
+    ctx = [old_u, old_a, old_tool, current_u, current_tool]
+    mgr = make_manager(store, summarize_unheadlined=False)
+    agent = FakeAgent(ctx, tokens=200)
+    agent._split_return = (ctx[:3], ctx[3:])
+
+    await mgr.compress(agent)
+
+    archived_ids = {old_u.id, old_a.id, old_tool.id}
+    live_ids = {current_u.id, current_tool.id}
+    for mapping in (
+        mgr._persisted_ids,
+        mgr._seq_by_id,
+        mgr._model_turn_seq,
+        mgr._model_turn_nblk,
+        mgr._leaf_by_id,
+    ):
+        assert archived_ids.isdisjoint(mapping)
+    assert live_ids <= mgr._persisted_ids
+    assert live_ids <= mgr._seq_by_id.keys()
+    assert "call-old" not in mgr._persisted_tcids
+    assert "call-old" not in mgr._seq_by_tcid
+    assert "call-current" in mgr._persisted_tcids
+    assert "call-current" in mgr._seq_by_tcid
+    assert mgr._synthetic_ids == {agent.state.context[0].id}
+
+    previous_placeholder = agent.state.context[0].id
+    next_u = user("next request")
+    next_a = assistant("next reply")
+    agent.state.context.extend([next_u, next_a])
+    agent._split_return = (
+        agent.state.context[:-2],
+        agent.state.context[-2:],
+    )
+
+    await mgr.compress(agent)
+
+    for mapping in (
+        mgr._persisted_ids,
+        mgr._seq_by_id,
+        mgr._model_turn_seq,
+        mgr._model_turn_nblk,
+        mgr._leaf_by_id,
+    ):
+        assert live_ids.isdisjoint(mapping)
+    assert {next_u.id, next_a.id} <= mgr._persisted_ids
+    assert "call-current" not in mgr._persisted_tcids
+    assert "call-current" not in mgr._seq_by_tcid
+    assert len(mgr._synthetic_ids) == 1
+    assert previous_placeholder not in mgr._synthetic_ids
+    assert mgr._synthetic_ids == {agent.state.context[0].id}
 
 
 async def test_compress_does_not_index_boundary_msg_still_in_tail(
@@ -354,6 +450,50 @@ async def test_compress_does_not_index_boundary_msg_still_in_tail(
     assert "BOUNDARY" not in rendered  # still live → must not be indexed
     # And the boundary id is still present in the live context.
     assert boundary.id in {m.id for m in agent.state.context}
+    assert boundary.id in mgr._persisted_ids
+    assert boundary.id in mgr._seq_by_id
+    assert boundary.id in mgr._model_turn_seq
+
+
+async def test_compress_restores_complete_non_active_tool_boundary(
+    store: HistoryStore,
+):
+    """A retained non-active boundary Msg must not remain a block fragment.
+
+    AgentScope's splitter can reserve only the tool_result half of a Msg.  The
+    orphan sanitizer used to drop that fragment, silently losing the retained
+    boundary.  Restore the full live Msg before sanitizing instead.
+    """
+    old_u = user("older question")
+    old_a = assistant("older reply", headline="OLD")
+    boundary = assistant_with_tool("call-boundary")
+    cur_u = user("current request")
+    cur_a = assistant("current reply")
+    ctx = [old_u, old_a, boundary, cur_u, cur_a]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=200)
+    reserve_fragment = Msg(
+        name="a",
+        role="assistant",
+        content=[boundary.content[-1]],
+    )
+    object.__setattr__(reserve_fragment, "id", boundary.id)
+    agent._split_return = (
+        [old_u, old_a, boundary],
+        [reserve_fragment, cur_u, cur_a],
+    )
+
+    await mgr.compress(agent)
+
+    retained = next(
+        msg for msg in agent.state.context if msg.id == boundary.id
+    )
+    assert retained is boundary
+    assert [block.type for block in retained.content] == [
+        "text",
+        "tool_call",
+        "tool_result",
+    ]
 
 
 async def test_compress_keeps_active_turn_live(store: HistoryStore):
@@ -380,6 +520,36 @@ async def test_compress_keeps_active_turn_live(store: HistoryStore):
     # The active turn sits after the placeholder, mirroring a normal tail.
     names = [m.name for m in agent.state.context]
     assert names.index("memory") < live_ids.index(cur_u.id)
+
+
+async def test_compress_does_not_evict_user_only_exchange_boundary(
+    store: HistoryStore,
+):
+    """If the split lands between an old user request and its assistant
+    reply, pull the reply into the evicted middle. Otherwise scroll archives a
+    user-only span, misses the existing assistant headline, and has to call
+    the model just to label the index."""
+    old_u = user("generate a long fixture")
+    old_a = assistant("fixture generated", headline="FIXTURE GENERATED")
+    cur_u = user("summarize it")
+    cur_a = assistant("summary", headline="SUMMARY")
+    ctx = [old_u, old_a, cur_u, cur_a]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    agent = FakeAgent(ctx, tokens=200)
+    agent._split_return = ([old_u], [old_a, cur_u, cur_a])
+
+    async def fail_summarize(*args, **kwargs):
+        raise AssertionError("user-only fallback summarization should not run")
+
+    mgr._summarize_span = fail_summarize
+
+    await mgr.compress(agent)
+
+    rendered = mgr._index.render()
+    assert "FIXTURE GENERATED" in rendered
+    assert old_a.id not in {m.id for m in agent.state.context}
+    assert cur_u.id in {m.id for m in agent.state.context}
+    assert cur_a.id in {m.id for m in agent.state.context}
 
 
 def continuation_stub(text: str = "Continue working on the task.") -> Msg:
@@ -444,7 +614,7 @@ async def test_compress_noop_when_active_turn_fits_reserve(
     assert mgr._index.is_empty
 
 
-def _multi_tool_turn(n: int = 3) -> Msg:
+def _multi_tool_turn(n: int = 3, *, padding: int = 0) -> Msg:
     """An accumulated assistant Msg with ``n`` completed call/result pairs."""
     blocks = []
     for i in range(n):
@@ -462,7 +632,12 @@ def _multi_tool_turn(n: int = 3) -> Msg:
                 type="tool_result",
                 id=f"c{i}",
                 name="grep",
-                output=[TextBlock(type="text", text=f"RESULT-{i}")],
+                output=[
+                    TextBlock(
+                        type="text",
+                        text=f"RESULT-{i}" + "x" * padding,
+                    ),
+                ],
             ),
         )
     return Msg(name="a", role="assistant", content=blocks)
@@ -483,7 +658,9 @@ async def test_fold_not_triggered_between_reserve_and_trigger(
 
     old_u = user("older question")
     old_a = assistant("older reply", headline="OLD")
-    turn = _multi_tool_turn()
+    # Deliberately exceed the former fixed 3 KB threshold. Once eviction has
+    # relieved the pressure, size alone must not fold these live results.
+    turn = _multi_tool_turn(padding=5000)
     ctx = [old_u, old_a, user("/heartbeat"), turn]
     mgr = make_manager(store)
     # 900 at the trigger check; 300 after eviction — over the reserve (100)
@@ -501,6 +678,53 @@ async def test_fold_not_triggered_between_reserve_and_trigger(
             assert block.output[0].text.startswith("RESULT-")
 
 
+async def test_compress_replaces_old_preview_with_tool_call_pointer(
+    store: HistoryStore,
+):
+    text = "\n".join(f"line {idx}: {'x' * 40}" for idx in range(100))
+    preview, metadata = truncate_text_output(
+        text,
+        start_line=50,
+        total_lines=149,
+        max_bytes=500,
+        file_path="/tmp/full-tool-result.txt",
+    )
+    turn = assistant_with_tool("call-1", preview)
+    turn.content[2].metadata.update(metadata)
+    turn.content.extend(
+        [
+            ToolCallBlock(
+                type="tool_call",
+                id="call-2",
+                name="grep",
+                input="{}",
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="call-2",
+                name="grep",
+                output=[TextBlock(type="text", text="newest result")],
+            ),
+        ],
+    )
+    ctx = [user("current request"), turn]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=[600, 50])
+    agent._split_return = (ctx, [])
+
+    await mgr.compress(agent)
+
+    compacted = turn.content[2].output[0].text
+    assert compacted.startswith("[scroll folded]")
+    assert 'recall_history(op="recall_tool"' in compacted
+    assert "call-1" in compacted
+    assert "read_file" not in compacted
+    assert "/tmp/full-tool-result.txt" not in compacted
+    assert "covers the next 120 bytes" not in compacted
+    assert turn.content[-1].output[0].text == "newest result"
+    assert mgr.last_compress["folded"] == 1
+
+
 async def test_pressure_fold_stubs_older_results_keeps_newest(
     store: HistoryStore,
 ):
@@ -510,7 +734,7 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
     result stay verbatim; the durable rows keep the full outputs; the Msg
     object (and id) is untouched so the runtime keeps extending the same
     message."""
-    turn = _multi_tool_turn()
+    turn = _multi_tool_turn(padding=500)
     ctx = [user("/heartbeat"), turn]
     mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=600)  # > trigger (100): sustained pressure
@@ -525,17 +749,17 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
         block = turn.content[3 * i + 2]
         return block.output[0].text
 
-    # folded → seq-addressed stub pointing at the structured recall tool
-    assert 'recall_history(op="expand"' in out_text(0)
-    assert 'recall_history(op="expand"' in out_text(1)
-    assert out_text(2) == "RESULT-2"  # newest result kept verbatim
+    # folded → tool-call-addressed stub pointing at structured recall
+    assert 'recall_history(op="recall_tool"' in out_text(0)
+    assert 'recall_history(op="recall_tool"' in out_text(1)
+    assert out_text(2) == "RESULT-2" + "x" * 500  # newest stays verbatim
     # The durable rows still hold the FULL outputs (persisted before fold).
     for i in range(3):
         row = store._conn.execute(
             "SELECT content FROM conversation_history "
             f"WHERE kind='tool_result' AND tool_call_id='c{i}'",
         ).fetchone()
-        assert row["content"] == f"RESULT-{i}"
+        assert row["content"] == f"RESULT-{i}" + "x" * 500
 
     # /compact reads this to report honestly (fold changes no msg count).
     assert mgr.last_compress["folded"] == 2
@@ -543,8 +767,127 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
     # Idempotent: a second round neither double-folds nor rewrites rows.
     await mgr.compress(agent)
     assert out_text(0).count("[scroll folded]") == 1
-    assert out_text(2) == "RESULT-2"
+    assert out_text(2) == "RESULT-2" + "x" * 500
     assert mgr.last_compress["folded"] == 0  # nothing newly folded
+
+
+async def test_pressure_fold_does_not_replace_small_results_with_larger_stubs(
+    store: HistoryStore,
+):
+    """There is no fixed lower size threshold, but folding must reclaim
+    bytes. Small outputs stay live when their recovery pointers would grow the
+    context, even during sustained pressure."""
+    turn = _multi_tool_turn()
+    ctx = [user("current request"), turn]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=600)
+    agent._split_return = (ctx, [])
+
+    await mgr.compress(agent)
+
+    for index in range(3):
+        assert turn.content[3 * index + 2].output[0].text == f"RESULT-{index}"
+    assert mgr.last_compress["folded"] == 0
+    assert agent.model.calls == 1
+
+
+async def test_pressure_fold_stops_after_largest_result_relieves_pressure(
+    store: HistoryStore,
+):
+    """Pressure folding is incremental and reclaim-driven, not a fixed-size
+    sweep: fold the largest profitable old result, recount, and stop once the
+    trigger is met."""
+
+    class _RealisticConfig:
+        trigger_ratio = 0.8
+        reserve_ratio = 0.1
+
+    turn = _multi_tool_turn(n=4, padding=500)
+    # Make the second completed result the best reclaim candidate. The fourth
+    # result is newest and must remain verbatim regardless of size.
+    turn.content[5].output[0].text = "LARGEST-" + "x" * 5000
+    turn.content[11].output[0].text = "NEWEST-" + "x" * 8000
+    ctx = [user("current request"), turn]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=[900, 750])
+    agent.context_config = _RealisticConfig()
+    agent._split_return = (ctx, [])
+
+    await mgr.compress(agent)
+
+    assert turn.content[2].output[0].text.startswith("RESULT-0")
+    assert turn.content[5].output[0].text.startswith("[scroll folded]")
+    assert turn.content[8].output[0].text.startswith("RESULT-2")
+    assert turn.content[11].output[0].text.startswith("NEWEST-")
+    assert mgr.last_compress["folded"] == 1
+    assert agent.model.calls == 2
+
+
+async def test_consumed_recall_page_folds_to_next_cursor(
+    store: HistoryStore,
+):
+    recall_turn = Msg(
+        name="a",
+        role="assistant",
+        content=[
+            ToolCallBlock(
+                type="tool_call",
+                id="recall-1",
+                name="recall_history",
+                input='{"op":"expand","lo":10,"hi":20}',
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="recall-1",
+                name="recall_history",
+                output=[TextBlock(type="text", text="history\n" * 100)],
+                metadata={
+                    RECALL_PAGE_METADATA_KEY: {
+                        "cursor": None,
+                        "next_cursor": "0:660",
+                        "total_rows": 1,
+                        "complete": False,
+                    },
+                },
+            ),
+            ToolCallBlock(
+                type="tool_call",
+                id="newer-1",
+                name="grep",
+                input="{}",
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="newer-1",
+                name="grep",
+                output=[TextBlock(type="text", text="newest result")],
+            ),
+        ],
+    )
+    ctx = [user("find the old decision"), recall_turn]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=[600, 90])
+    agent._split_return = (ctx, [])
+
+    await mgr.compress(agent)
+
+    output = recall_turn.content[1].output[0].text
+    assert output.startswith("[scroll recall folded]")
+    assert '"cursor": "0:660"' in output
+    assert recall_turn.content[-1].output[0].text == "newest result"
+
+
+async def test_single_message_over_hard_limit_fails_closed(
+    store: HistoryStore,
+):
+    mgr = make_manager(store)
+    agent = FakeAgent([user("oversized request")], tokens=1200)
+
+    with pytest.raises(ContextWindowUnfitError) as exc:
+        await mgr.compress(agent)
+
+    assert exc.value.tokens == 1200
+    assert exc.value.hard_limit == 1000
 
 
 async def test_steady_state_counts_once_and_warns_once(
@@ -577,12 +920,36 @@ async def test_steady_state_counts_once_and_warns_once(
     assert len(stuck) == 1
 
 
-async def test_empty_middle_still_compacts_index_under_pressure(
+async def test_manual_compact_trigger_does_not_warn_below_reserve(
+    store: HistoryStore,
+    caplog,
+):
+    """A manual /compact trigger is intentionally near zero and must not be
+    reported as a context overflow when the result fits the reserve target."""
+    import logging as _logging
+
+    class _ManualConfig:
+        trigger_ratio = 1e-6
+        reserve_ratio = 0.1
+
+    ctx = [user("old"), assistant("old reply"), user("current")]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=[200, 80])
+    agent._split_return = (ctx[:2], ctx[2:])
+
+    with caplog.at_level(_logging.WARNING):
+        await mgr.compress(agent, _ManualConfig())
+
+    assert not any(
+        "compression trigger" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+async def test_pressure_does_not_compact_index_before_tier_cap(
     store: HistoryStore,
 ):
-    """Regression for the phase-1 early return: with nothing evictable but
-    an index already built, sustained pressure must still roll the index up
-    (and re-render the placeholder) instead of doing nothing."""
+    """Context pressure must not roll up index blocks before the tier cap."""
     from qwenpaw.agents.context.scroll.eviction_index import Leaf
 
     mgr = make_manager(store)
@@ -596,16 +963,211 @@ async def test_empty_middle_still_compacts_index_under_pressure(
     mgr._persist_new(FakeAgent(ctx))
     agent = FakeAgent(ctx, tokens=600)  # > reserve: sustained pressure
     agent._split_return = (ctx, [])  # nothing evictable
+    before = mgr._index.describe()
     await mgr.compress(agent)
-    # The index was force-compacted to a single block and re-rendered.
-    names = [m.name for m in agent.state.context]
-    assert names[0] == "memory"
+    # All three blocks remain detailed; only the tier cap may roll them up.
+    assert mgr._index.describe() == before
     assert (
         len([ln for ln in mgr._index.describe().splitlines() if "[seq" in ln])
-        == 1
+        == 3
     )
-    # The active turn is still live, after the placeholder.
+    # The active turn is still live.
     assert agent.state.context[-1].id == ctx[-1].id
+
+
+# -- generated headlines for un-headlined evicted spans ---------------------
+
+
+class _CallableModel(FakeModel):
+    """A ``FakeModel`` that is also callable as a chat model.
+
+    ``reply`` is the text an index call returns (``<n>: headline`` section
+    lines by convention); set it to an ``Exception`` instance to have the call
+    raise (to exercise the fallback). ``call_count`` records how many times it
+    was invoked as a chat model — so a test can assert the index path was (or
+    was not) taken. ``last_body`` captures the user message (the numbered
+    sections the harness assembled) of the last call."""
+
+    def __init__(self, tokens, reply="1: a legacy 1.x decision", **kw):
+        super().__init__(tokens, **kw)
+        self._reply = reply
+        self.call_count = 0
+        self.last_body = ""
+
+    async def __call__(self, messages, *args, **kwargs):
+        self.call_count += 1
+        self.last_body = messages[-1].get_text_content()
+        if isinstance(self._reply, Exception):
+            raise self._reply
+        return SimpleNamespace(text=self._reply)
+
+
+def _agent_with_callable_model(
+    ctx,
+    reply="1: a legacy 1.x decision",
+    tokens=200,
+):
+    agent = FakeAgent(ctx, tokens=tokens)
+    agent.model = _CallableModel(tokens, reply=reply)
+    return agent
+
+
+def _index_headline_lines(mgr) -> list[str]:
+    """The ``·`` headline lines of the eviction-index map (text after ⟦)."""
+    return [ln for ln in mgr._index.describe().splitlines() if "·" in ln]
+
+
+async def test_unheadlined_span_gets_generated_summary(store: HistoryStore):
+    """An evicted span with no headline is labelled by the model's synthesized
+    headline instead of the bare ``(no milestone)`` marker."""
+    ctx = [
+        user("what was the old plan"),
+        assistant("we shipped v1 without milestones"),  # NO headline
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    agent = _agent_with_callable_model(
+        ctx,
+        reply="1: shipped v1 sans milestones",
+    )
+    agent._split_return = (ctx[:2], ctx[2:])
+    await mgr.compress(agent)
+    index = mgr._index.describe()
+    assert "shipped v1 sans milestones" in index
+    assert "(no milestone)" not in index
+    assert agent.model.call_count == 1
+
+
+async def test_unheadlined_span_tiled_into_multiple_headlines(
+    store: HistoryStore,
+):
+    """A longer un-headlined span is tiled into several harness-addressed
+    headlines, each its own ``·`` line — structurally like real milestones.
+    The model only writes ``<n>: headline``; the seqs are the harness's."""
+    ctx = [
+        user("q1 about billing"),
+        assistant("answered billing"),  # NO headline
+        user("q2 about shipping"),
+        assistant("answered shipping"),  # NO headline
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    agent = _agent_with_callable_model(
+        ctx,
+        reply=(
+            "1: billing question resolved\n" "2: shipping question resolved"
+        ),
+    )
+    agent._split_return = (ctx[:4], ctx[4:])
+    await mgr.compress(agent)
+    index = mgr._index.describe()
+    assert "billing question resolved" in index
+    assert "shipping question resolved" in index
+    # Two distinct headline lines, not one coarse summary.
+    assert len(_index_headline_lines(mgr)) == 2
+    # The harness split the span into numbered sections for the model.
+    assert "[1]" in agent.model.last_body
+    assert "[2]" in agent.model.last_body
+
+
+async def test_skipped_section_keeps_extractive_fallback(store: HistoryStore):
+    """A section the model omits is still labelled — the harness fills it with
+    an extractive fallback drawn from that section's own text, never
+    ``(no milestone)`` for a section that had content."""
+    ctx = [
+        user("distinctive-billing-question"),
+        assistant("answered billing"),  # NO headline
+        user("distinctive-shipping-question"),
+        assistant("answered shipping"),  # NO headline
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    # Model labels section 1 only; section 2 must fall back to its own content.
+    agent = _agent_with_callable_model(ctx, reply="1: billing resolved")
+    agent._split_return = (ctx[:4], ctx[4:])
+    await mgr.compress(agent)
+    index = mgr._index.describe()
+    assert "billing resolved" in index  # model's headline for section 1
+    assert "distinctive-shipping-question" in index  # fallback for section 2
+    assert len(_index_headline_lines(mgr)) == 2
+
+
+async def test_bare_reply_lines_map_positionally(store: HistoryStore):
+    """A reply without ``<n>:`` prefixes still lines up: bare headline lines
+    are assigned to sections in order."""
+    ctx = [
+        user("old thing"),
+        assistant("did old thing"),  # NO headline
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    agent = _agent_with_callable_model(
+        ctx,
+        reply="This stretch was about the old thing",
+    )
+    agent._split_return = (ctx[:2], ctx[2:])
+    await mgr.compress(agent)
+    index = mgr._index.describe()
+    assert "This stretch was about the old thing" in index
+    assert "(no milestone)" not in index
+    assert len(_index_headline_lines(mgr)) == 1
+
+
+async def test_headlined_span_never_calls_summary_model(store: HistoryStore):
+    """A span that already has a headline uses it as the leaf — no index
+    call is made (leaves present)."""
+    ctx = [
+        user("task"),
+        assistant("step", headline="did-step"),
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    agent = _agent_with_callable_model(ctx)
+    agent._split_return = (ctx[:2], ctx[2:])
+    await mgr.compress(agent)
+    assert "did-step" in mgr._index.describe()
+    assert agent.model.call_count == 0
+
+
+async def test_unheadlined_span_falls_back_when_summary_fails(
+    store: HistoryStore,
+):
+    """A model/timeout error must never abort eviction — the span keeps the
+    ``(no milestone)`` marker and the evicted count is unaffected."""
+    ctx = [
+        user("old thing"),
+        assistant("did old thing"),  # NO headline
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=True)
+    agent = _agent_with_callable_model(ctx, reply=RuntimeError("model down"))
+    agent._split_return = (ctx[:2], ctx[2:])
+    await mgr.compress(agent)
+    assert "(no milestone)" in mgr._index.describe()
+    assert mgr.last_compress["evicted"] == 2
+
+
+async def test_summary_disabled_keeps_no_milestone(store: HistoryStore):
+    """With the flag off the span stays ``(no milestone)`` and the model is
+    never called — the default behaviour is preserved."""
+    ctx = [
+        user("old thing"),
+        assistant("did old thing"),  # NO headline
+        user("next question"),
+        assistant("recent"),
+    ]
+    mgr = make_manager(store, summarize_unheadlined=False)
+    agent = _agent_with_callable_model(ctx)
+    agent._split_return = (ctx[:2], ctx[2:])
+    await mgr.compress(agent)
+    assert "(no milestone)" in mgr._index.describe()
+    assert agent.model.call_count == 0
 
 
 def test_seq_by_tcid_round_trips_through_checkpoint(store: HistoryStore):
@@ -668,6 +1230,30 @@ def test_on_save_after_close_is_quiet_noop(store: HistoryStore):
     assert store.degraded is False
     assert store.write_failures == 0
     assert mgr._persisted_ids == set()
+
+
+def test_on_save_resets_recall_guard_for_next_real_user_turn(
+    store: HistoryStore,
+):
+    guard = RecallLoopGuard()
+    first_user = user("first request")
+    agent = FakeAgent([first_user])
+    mgr = make_manager(store, recall_loop_guard=guard)
+
+    mgr.on_save(agent, None)
+    payload = {"lo": 1, "hi": 3}
+    generation, notice = guard.claim("expand", payload)
+    assert generation is not None
+    assert notice is None
+    guard.finish("expand", payload, generation, block=True)
+    assert guard.is_blocked("expand", payload) is True
+
+    second_user = user("second request")
+    agent.state.context.append(second_user)
+    mgr.on_save(agent, None)
+
+    assert guard.turn_id == second_user.id
+    assert guard.is_blocked("expand", payload) is False
 
 
 # -- optional dialog offload (offload_dialog opt-in) ------------------------

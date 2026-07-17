@@ -156,6 +156,8 @@ async def list_channel_schemas() -> dict:
             "description": reg.description,
             "plugin_id": reg.plugin_id,
             "config_fields": reg.config_fields,
+            "icon": reg.icon,
+            "doc_url": reg.doc_url,
         }
     return result
 
@@ -791,6 +793,49 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
         )
         for r in rules
     ]
+
+
+# ── Security / Sandbox ───────────────────────────────────────────────
+
+
+class SandboxSettingBody(BaseModel):
+    """Global governance sandbox switch (``security.sandbox_enabled``)."""
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "When True, shell tools with no matching rule run inside the "
+            "sandbox without prompting. When False (default), such calls "
+            "run directly without the sandbox (no prompt)."
+        ),
+    )
+
+
+@router.get(
+    "/security/sandbox",
+    response_model=SandboxSettingBody,
+    summary="Get global sandbox switch",
+)
+async def get_sandbox_setting() -> SandboxSettingBody:
+    config = load_config()
+    return SandboxSettingBody(enabled=config.security.sandbox_enabled)
+
+
+@router.put(
+    "/security/sandbox",
+    response_model=SandboxSettingBody,
+    summary="Update global sandbox switch",
+)
+async def put_sandbox_setting(
+    body: SandboxSettingBody = Body(...),
+) -> SandboxSettingBody:
+    config = load_config()
+    config.security.sandbox_enabled = body.enabled
+    save_config(config)
+    # No governor reload needed: ResourceGovernor reads this switch via the
+    # mtime-cached load_config() on each policy evaluation, and save_config
+    # invalidates that cache, so the change takes effect on the next call.
+    return body
 
 
 # ── Security / File Guard ────────────────────────────────────────────
