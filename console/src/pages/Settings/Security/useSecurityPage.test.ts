@@ -32,6 +32,9 @@ const hoisted = vi.hoisted(() => {
   const markSandboxSavedMock = vi.fn();
   const setEnabledMock = vi.fn();
   const fetchAllMock = vi.fn();
+  // Mutable value so individual tests can override savedSandboxEnabled
+  // without needing vi.doMock (which doesn't work after module import).
+  let savedSandboxEnabledValue = false;
   return {
     mockFormInstance,
     mockFormValidateFields,
@@ -44,6 +47,13 @@ const hoisted = vi.hoisted(() => {
     markSandboxSavedMock,
     setEnabledMock,
     fetchAllMock,
+    savedSandboxEnabledValue,
+    get savedSandboxEnabled() {
+      return savedSandboxEnabledValue;
+    },
+    set savedSandboxEnabled(v: boolean) {
+      savedSandboxEnabledValue = v;
+    },
   };
 });
 
@@ -80,7 +90,9 @@ vi.mock("./useToolGuard", () => ({
     enabled: true,
     setEnabled: hoisted.setEnabledMock,
     sandboxEnabled: true,
-    savedSandboxEnabled: false,
+    get savedSandboxEnabled() {
+      return hoisted.savedSandboxEnabled;
+    },
     markSandboxSaved: hoisted.markSandboxSavedMock,
     setSandboxEnabled: vi.fn(),
     mergedRules: [],
@@ -125,6 +137,7 @@ describe("useSecurityPage", () => {
     hoisted.buildSaveBodyMock.mockClear();
     hoisted.setEnabledMock.mockClear();
     markSandboxSavedMock.mockClear();
+    hoisted.savedSandboxEnabled = false;
   });
 
   it("handleSave calls api.updateToolGuard with guarded_tools array and message.success", async () => {
@@ -243,33 +256,8 @@ describe("useSecurityPage", () => {
   });
 
   it("handleSave skips updateSandbox when sandbox value unchanged", async () => {
-    // Override mock so savedSandboxEnabled === sandboxEnabled (both true)
-    vi.doMock("./useToolGuard", () => ({
-      __esModule: true,
-      useToolGuard: () => ({
-        config: null,
-        customRules: [],
-        builtinRules: [],
-        enabled: true,
-        setEnabled: hoisted.setEnabledMock,
-        sandboxEnabled: true,
-        savedSandboxEnabled: true,
-        markSandboxSaved: hoisted.markSandboxSavedMock,
-        setSandboxEnabled: vi.fn(),
-        mergedRules: [],
-        shellEvasionChecks: {},
-        toggleShellEvasionCheck: vi.fn(),
-        loading: false,
-        error: null,
-        fetchAll: hoisted.fetchAllMock,
-        toggleRule: vi.fn(),
-        toggleAutoDeny: vi.fn(),
-        deleteCustomRule: vi.fn(),
-        addCustomRule: vi.fn(),
-        updateCustomRule: vi.fn(),
-        buildSaveBody: hoisted.buildSaveBodyMock,
-      }),
-    }));
+    // Set savedSandboxEnabled === sandboxEnabled (both true)
+    hoisted.savedSandboxEnabled = true;
     mockFormValidateFields.mockResolvedValue({
       enabled: true,
       guarded_tools: ["t1"],
