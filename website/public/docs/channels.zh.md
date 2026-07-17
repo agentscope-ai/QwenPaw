@@ -1671,20 +1671,20 @@ https://xxxx.ngrok-free.app/api/messages
 
 所有频道都支持以下通用字段：
 
-| 字段                     | 类型     | 默认值   | 说明                                                      |
-| ------------------------ | -------- | -------- | --------------------------------------------------------- |
-| `enabled`                | bool     | `false`  | 是否启用该频道                                            |
-| `bot_prefix`             | string   | `""`     | 机器人回复前缀（如 `[BOT]`）                              |
-| `show_tool_calls`        | bool     | `true`   | 是否显示工具调用信息                                      |
-| `show_tool_results`      | bool     | `true`   | 是否显示工具结果文本；结果媒体始终发送                    |
-| `tool_call_max_length`   | int      | `200`    | 工具调用预览长度；`0` 表示不截断                          |
-| `tool_result_max_length` | int      | `500`    | 工具结果预览长度；`0` 表示不截断                          |
-| `show_thinking`          | bool     | `true`   | 是否显示思考/推理内容                                     |
+| 字段                     | 类型     | 默认值   | 说明                                                    |
+| ------------------------ | -------- | -------- | ------------------------------------------------------- |
+| `enabled`                | bool     | `false`  | 是否启用该频道                                          |
+| `bot_prefix`             | string   | `""`     | 机器人回复前缀（如 `[BOT]`）                            |
+| `show_tool_calls`        | bool     | `true`   | 是否显示工具调用信息                                    |
+| `show_tool_results`      | bool     | `true`   | 是否显示工具结果文本；结果媒体始终发送                  |
+| `tool_call_max_length`   | int      | `200`    | 工具调用预览长度；`0` 表示不截断                        |
+| `tool_result_max_length` | int      | `500`    | 工具结果预览长度；`0` 表示不截断                        |
+| `show_thinking`          | bool     | `true`   | 是否显示思考/推理内容                                   |
 | `dm_policy`              | string   | `"open"` | 私聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
 | `group_policy`           | string   | `"open"` | 群聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
-| `allow_from`             | string[] | `[]`     | 白名单列表（当 policy 为 `"allowlist"` 时生效）           |
-| `deny_message`           | string   | `""`     | 拒绝访问时的提示消息                                      |
-| `require_mention`        | bool     | `false`  | 是否需要 @机器人 才响应                                   |
+| `allow_from`             | string[] | `[]`     | 白名单列表（当 policy 为 `"allowlist"` 时生效）         |
+| `deny_message`           | string   | `""`     | 拒绝访问时的提示消息                                    |
+| `require_mention`        | bool     | `false`  | 是否需要 @机器人 才响应                                 |
 
 ### 多模态消息支持
 
