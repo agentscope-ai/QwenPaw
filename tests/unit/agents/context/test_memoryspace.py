@@ -248,18 +248,156 @@ def test_search_excludes_the_active_turn(tmp_path: Path):
         agent_id="ag1",
     )
     try:
-        expected = {
+        legacy_expected = {
             "tanks question from earlier",
             "tanks were parked at base",
             "tanks moved in another session",
         }
-        assert {r["content"] for r in space.search("tanks", k=10)} == expected
+        hits = space.search("tanks", k=10)
+        assert {r["content"] for r in hits} == {
+            "tanks question from earlier",
+            "tanks moved in another session",
+        }
+        old_exchange = next(
+            row["exchange"] for row in hits if row["session_id"] == "s1"
+        )
+        assert {row["content"] for row in old_exchange} == {
+            "tanks question from earlier",
+            "tanks were parked at base",
+        }
+        legacy_hits = space.search(
+            "tanks",
+            k=10,
+            include_exchange=False,
+        )
+        assert {r["content"] for r in legacy_hits} == legacy_expected
         # The LIKE fallback applies the same exclusion.
         like = space._search_like("tanks", [("agent_id", "ag1")], None, 10)
         got = {r["content"] for r in like if r["kind"] != "_notice"}
-        assert got == expected
+        assert got == legacy_expected
     finally:
         space.close()
+
+
+def test_search_returns_and_deduplicates_complete_exchange(tmp_path: Path):
+    history = HistoryStore(tmp_path / "history.db")
+    user_seq = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="u1",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="order question for a compass",
+        ),
+    )
+    assistant_seq = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="a1",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="order answer is north",
+        ),
+    )
+    tool_seq = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="t1",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            name="lookup",
+            content="order receipt confirmed",
+            tool_call_id="call-1",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="u2",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="unrelated active request",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="archive",
+        agent_id="ag1",
+    )
+
+    try:
+        hits = space.search("order", k=10)
+        user_hits = space.search("compass", k=10)
+    finally:
+        space.close()
+
+    assert len(hits) == 1
+    assert hits[0]["matched_seqs"] == [
+        user_seq,
+        assistant_seq,
+        tool_seq,
+    ]
+    assert hits[0]["exchange_start_seq"] == user_seq
+    assert hits[0]["exchange_end_seq"] == tool_seq
+    assert [row["content"] for row in hits[0]["exchange"]] == [
+        "order question for a compass",
+        "order answer is north",
+        "order receipt confirmed",
+    ]
+    assert len(user_hits) == 1
+    assert user_hits[0]["match_seq"] == user_seq
+    assert user_hits[0]["exchange"] == hits[0]["exchange"]
+
+
+def test_search_exchange_does_not_cross_session_or_agent(tmp_path: Path):
+    history = HistoryStore(tmp_path / "history.db")
+    for session_id, agent_id, suffix in (
+        ("s1", "ag1", "one"),
+        ("s2", "ag1", "two"),
+        ("s1", "ag2", "three"),
+    ):
+        history.append(
+            session_id=session_id,
+            agent_id=agent_id,
+            dedup_key=f"u-{suffix}",
+            entry=LogEntry(
+                kind="context_msg",
+                role="user",
+                content=f"needle request {suffix}",
+            ),
+        )
+        history.append(
+            session_id=session_id,
+            agent_id=agent_id,
+            dedup_key=f"a-{suffix}",
+            entry=LogEntry(
+                kind="model_turn",
+                role="assistant",
+                content=f"answer {suffix}",
+            ),
+        )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        hits = space.search("needle", all_agents=True, k=10)
+    finally:
+        space.close()
+
+    assert len(hits) == 3
+    for hit in hits:
+        assert {
+            (row["session_id"], row["agent_id"]) for row in hit["exchange"]
+        } == {(hit["session_id"], hit["agent_id"])}
 
 
 def test_active_turn_floor_is_computed_once_per_instance(

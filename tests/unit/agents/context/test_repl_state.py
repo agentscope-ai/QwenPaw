@@ -32,6 +32,8 @@ def test_tool_description_is_bounded_and_keeps_execution_contract():
         "LIMIT ? OFFSET ?",
         "ms.expand(lo, hi)",
         "ms.search(query",
+        "include_exchange=True",
+        "complete user-bounded `exchange`",
         "ms.recall_tool(tool_call_id",
         "ms.sql_query(sql, params)",
     ):

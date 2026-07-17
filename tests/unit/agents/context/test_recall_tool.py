@@ -103,9 +103,71 @@ async def test_search_finds_evicted_turn_not_active_turn(tool):
     chunk = await tool(op="search", query="flight", k=10)
     assert chunk.state == ToolResultState.SUCCESS
     text = _text(chunk)
+    assert "exchange_seq=1–3" in text
+    assert "matched_seq=2" in text
+    assert "hello there" in text
     assert "the flight is AA231" in text
+    assert "RESULT-FULL" in text
     # The active turn (latest user request) is excluded from hits.
     assert "what was the flight again" not in text
+
+
+async def test_search_user_hit_returns_same_complete_exchange(tool):
+    chunk = await tool(op="search", query="hello", k=10)
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "matched_seq=1" in text
+    assert "hello there" in text
+    assert "the flight is AA231" in text
+    assert "RESULT-FULL" in text
+
+
+async def test_search_saved_tool_output_keeps_match_excerpt(tmp_path: Path):
+    artifact = tmp_path / "saved-tool-output.txt"
+    artifact.write_text("the deepneedle is here\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="u1",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="inspect the saved output",
+        ),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="t1",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            name="shell",
+            tool_call_id="call-saved",
+            content=(
+                "[tool output truncated]\n"
+                "If more content is needed, call `read_file` with "
+                f"file_path={artifact} start_line=1 to read more."
+            ),
+        ),
+    )
+    history.close()
+    saved_tool = make_recall_history(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    chunk = await saved_tool(op="search", query="deepneedle", k=10)
+
+    assert chunk.state == ToolResultState.SUCCESS
+    text = _text(chunk)
+    assert "[matched content excerpt]" in text
+    assert "deepneedle" in text
+    assert "inspect the saved output" in text
+    assert str(artifact) in text
 
 
 async def test_recall_tool_by_call_id(tool):

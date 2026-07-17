@@ -197,10 +197,12 @@ plus your earlier sessions. Pick an op:
     first. Results are explicit pages that never silently truncate; pass the
     returned cursor unchanged to continue.
   • op="search", query="flight number", k=10 — full-text search over your
-    whole history (across your past sessions). Query with keywords, not full
-    sentences (all terms must appear); use OR for alternatives and a generous
-    k to cast a wide net: query="tank OR aquarium OR goldfish", k=20. Your
-    current in-progress turn is never a hit — it is already in front of you.
+    whole history (across your past sessions). Whether the keyword matches a
+    user, assistant, or tool-result row, each result includes that row's full
+    user-bounded exchange. Query with keywords, not full sentences (all terms
+    must appear); use OR for alternatives and a generous k to cast a wide net:
+    query="tank OR aquarium OR goldfish", k=20. Your current in-progress turn
+    is never a hit — it is already in front of you.
     Optional: kind="model_turn"/"tool_result"; all_agents=true to span every
     agent; session_id/agent_id to pin a specific one (take precedence). If a
     large tool result was saved outside the DB, search can return a saved tool
@@ -208,13 +210,14 @@ plus your earlier sessions. Pick an op:
   • op="recall_tool", tool_call_id="call_abc" — a tool call and its result.
     For truncated large outputs, this also reports the saved full-output file.
 
-Rows come back with their seq. A page ending in next_cursor is incomplete;
-continue with the SAME arguments plus cursor=next_cursor. Never retry the
-same cursor. The cursor is bound to the original arguments and result
-snapshot; changing the query, range, filters, or k fails. An empty result is
-stated explicitly and means the history genuinely holds nothing for that
-span/query. For anything beyond these three reads, use a more advanced Python
-recall tool if one is available to you.
+Search exchanges show their matched seq(s) and complete seq span. Other ops
+return individual rows with their seq. A page ending in next_cursor is
+incomplete; continue with the SAME arguments plus cursor=next_cursor. Never
+retry the same cursor. The cursor is bound to the original arguments and
+result snapshot; changing the query, range, filters, or k fails. An empty
+result is stated explicitly and means the history genuinely holds nothing for
+that span/query. For anything beyond these three reads, use a more advanced
+Python recall tool if one is available to you.
 
 Args:
     op (str): One of "expand", "search", "recall_tool".
@@ -244,6 +247,49 @@ def _render_rows(rows: list[dict]) -> str:
             parts.append(
                 f"[… truncated at {row.get('_row_cap')} rows — "
                 "narrow the span]",
+            )
+            continue
+        exchange = row.get("exchange")
+        if isinstance(exchange, list):
+            matched = ",".join(
+                str(seq) for seq in row.get("matched_seqs", [row.get("seq")])
+            )
+            span = (
+                f"{row.get('exchange_start_seq')}–"
+                f"{row.get('exchange_end_seq')}"
+            )
+            lineage = " ".join(
+                f"{key}={row[key]}"
+                for key in ("session_id", "agent_id")
+                if row.get(key) not in (None, "")
+            )
+            header = f"— matched_seq={matched} exchange_seq={span}"
+            if lineage:
+                header += f" {lineage}"
+            rendered_exchange = _render_rows(exchange)
+            matched_row = next(
+                (
+                    item
+                    for item in exchange
+                    if item.get("seq") == row.get("match_seq")
+                ),
+                None,
+            )
+            match_content = str(row.get("content") or "").rstrip()
+            # Saved large tool-output matches carry an excerpt in the search
+            # hit while the durable exchange row contains only its bounded
+            # preview. Preserve that otherwise-hidden evidence.
+            if (
+                matched_row
+                and match_content
+                != str(
+                    matched_row.get("content") or "",
+                ).rstrip()
+            ):
+                header += f"\n[matched content excerpt]\n{match_content}"
+            parts.append(
+                header
+                + (f"\n{rendered_exchange}" if rendered_exchange else ""),
             )
             continue
         meta = " ".join(

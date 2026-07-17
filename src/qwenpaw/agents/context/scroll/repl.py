@@ -52,8 +52,11 @@ reached: narrow or page the query.
   • ms.expand(lo, hi)
     Raw turns for an inclusive seq span, oldest first.
   • ms.search(query, k=10, kind=None, all_agents=False,
-              session_id=None, agent_id=None)
-    Keyword/FTS search across your sessions; uppercase OR is supported.
+              session_id=None, agent_id=None, include_exchange=True)
+    Keyword/FTS search across your sessions; uppercase OR is supported. Each
+    hit includes its complete user-bounded `exchange` by default, plus
+    `matched_seqs`, `exchange_start_seq`, and `exchange_end_seq`. Pass
+    `include_exchange=False` only when matching rows alone are sufficient.
   • ms.recall_tool(tool_call_id, all_agents=False)
     Tool call/result; saved large outputs include an artifact file pointer.
   • ms.sessions(all_agents=False, limit=50)
@@ -65,8 +68,9 @@ reached: narrow or page the query.
   • ms.sql_exec(sql, params)
     Writes only the persistent scratch DB. Always bind values via `params`.
 
-Typical flow: locate targeted seq values with `ms.search`, then read only the
-needed range with `ms.expand`. For custom paging:
+Typical flow: use `ms.search` and inspect each result's `exchange`. Use
+`ms.expand` only when you need a different surrounding seq range. For custom
+paging:
 
     rows = ms.sql_query(
         "SELECT seq, content FROM hist.conversation_history "

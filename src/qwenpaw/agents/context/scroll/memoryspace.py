@@ -494,15 +494,19 @@ class MemorySpace:
         all_agents: bool = False,
         kind: str | None = None,
         k: int = 10,
+        include_exchange: bool = True,
     ) -> list[dict]:
         """Full-text search over ``hist.conversation_history`` content
         (FTS5), with saved tool-output file fallback.
 
-        Returns up to ``k`` rows ranked by relevance (bm25), each a dict with
-        keys: ``seq``, ``session_id``, ``kind``, ``role``, ``name``,
-        ``headline``, ``content`` (the FULL turn text — the answer is often
-        buried late in a long, multi-topic turn, so don't judge from the head
-        of it). By default searches this agent across
+        Returns up to ``k`` ranked matches. By default each match keeps its
+        row-shaped compatibility fields (``seq``, ``role``, ``content``, ...)
+        and also carries the complete containing exchange in ``exchange``. The
+        exchange starts at the nearest real user row in the same
+        ``session_id``/``agent_id`` lineage and ends before the next real user
+        row. Matches from the same exchange are deduplicated and their seqs
+        collected in ``matched_seqs``. Pass ``include_exchange=False`` for the
+        legacy matching-row-only shape. By default searches this agent across
         all its sessions. Pass ``all_agents=True`` to span every agent, or pin
         a *specific* conversation / agent with ``session_id='cron:<job>'``
         and/or ``agent_id='<other>'`` (these AND-combine and take precedence).
@@ -523,13 +527,29 @@ class MemorySpace:
         previous recall round back. Earlier evicted turns of this session
         remain searchable.
         """
+        requested = max(0, int(k))
+        if requested == 0:
+            return []
         targets = self._scope_filters(all_agents, session_id, agent_id)
+        # A turn may contain several matching rows. Fetch beyond the requested
+        # number so deduplication can still return a useful number of distinct
+        # exchanges. The row cap remains the hard upper bound.
+        raw_limit = (
+            min(self._row_cap, max(requested * 4, requested))
+            if include_exchange
+            else requested
+        )
         # FTS5 MATCH takes a query grammar, not plain text. Sanitize first; an
         # all-punctuation query (no word tokens) has nothing to MATCH, so use
         # the LIKE scan instead — as we also do when FTS5 is unavailable.
         match = fts_match_query(query)
         if not self._fts_available() or not match:
-            return self._search_like(query, targets, kind, int(k))
+            rows = self._search_like(query, targets, kind, raw_limit)
+            return (
+                self._attach_search_exchanges(rows, requested)
+                if include_exchange
+                else rows[:requested]
+            )
         # bm25 and the `tbl MATCH` syntax need the table NAME, not an alias.
         fts = "conversation_history_fts"
         # Exclude the recall tool's own turns (NULL-safe: keep un-named rows).
@@ -550,7 +570,7 @@ class MemorySpace:
             where.append("ch.kind = ?")
             params.append(kind)
         sql = (
-            "SELECT ch.seq, ch.session_id, ch.kind, ch.role, "
+            "SELECT ch.seq, ch.session_id, ch.agent_id, ch.kind, ch.role, "
             "ch.name, ch.headline, ch.content, ch.metadata "
             f"FROM hist.{fts} JOIN hist.conversation_history ch "
             f"ON ch.seq = {fts}.rowid "
@@ -558,7 +578,7 @@ class MemorySpace:
             + " AND ".join(where)
             + f" ORDER BY bm25({fts}), ch.seq LIMIT ?"
         )
-        params.append(int(k))
+        params.append(raw_limit)
         try:
             rows = [
                 {kk: r[kk] for kk in r.keys()}
@@ -567,17 +587,136 @@ class MemorySpace:
         except sqlite3.OperationalError:
             # Backstop: any residual MATCH-grammar edge case the sanitizer
             # missed degrades to LIKE rather than crashing the recall call.
-            return self._search_like(query, targets, kind, int(k))
-        if kind not in (None, "tool_result") or len(rows) >= int(k):
-            return rows
-        rows.extend(
-            self._search_saved_tool_files(
-                query,
-                targets,
-                limit=max(0, int(k) - len(rows)),
-            ),
+            rows = self._search_like(query, targets, kind, raw_limit)
+            return (
+                self._attach_search_exchanges(rows, requested)
+                if include_exchange
+                else rows[:requested]
+            )
+        if kind in (None, "tool_result") and len(rows) < raw_limit:
+            rows.extend(
+                self._search_saved_tool_files(
+                    query,
+                    targets,
+                    limit=max(0, raw_limit - len(rows)),
+                ),
+            )
+        return (
+            self._attach_search_exchanges(rows, requested)
+            if include_exchange
+            else rows[:requested]
         )
-        return rows
+
+    @staticmethod
+    def _real_user_conditions(prefix: str = "") -> tuple[list[str], list]:
+        """SQL conditions identifying a real user request boundary."""
+        conditions = [
+            f"{prefix}kind = 'context_msg'",
+            f"{prefix}role = 'user'",
+        ]
+        params: list = []
+        for tag in _SYNTHETIC_USER_TAGS:
+            conditions.append(
+                f"({prefix}metadata IS NULL OR {prefix}metadata NOT LIKE ?)",
+            )
+            params.append(f'%"{tag}"%')
+        return conditions, params
+
+    def _exchange_for_hit(self, hit: dict) -> tuple[int, int, list[dict]]:
+        """Return the complete user-bounded exchange containing ``hit``."""
+        hit_seq = int(hit["seq"])
+        session_id = hit.get("session_id")
+        agent_id = hit.get("agent_id")
+        lineage = ["session_id = ?", "agent_id IS ?"]
+        lineage_params: list = [session_id, agent_id]
+        user_conditions, user_params = self._real_user_conditions()
+
+        start_row = self._conn.execute(
+            "SELECT MAX(seq) AS seq FROM hist.conversation_history WHERE "
+            + " AND ".join(
+                [*lineage, *user_conditions, "seq <= ?"],
+            ),
+            (*lineage_params, *user_params, hit_seq),
+        ).fetchone()
+        start_seq = start_row["seq"] if start_row else None
+        if start_seq is None:
+            # Legacy/imported rows may predate their user boundary. There is
+            # no reliable way to pair such an orphan with neighbouring model
+            # rows, so preserve the old row-only behaviour for this hit.
+            exchange = self._select(
+                "SELECT seq, session_id, agent_id, kind, role, name, "
+                "headline, content, tool_call_id, tool_input, tool_state, "
+                "metadata, created_at FROM hist.conversation_history "
+                "WHERE seq = ?",
+                (hit_seq,),
+            )
+            return hit_seq, hit_seq, exchange or [dict(hit)]
+
+        next_row = self._conn.execute(
+            "SELECT MIN(seq) AS seq FROM hist.conversation_history WHERE "
+            + " AND ".join(
+                [*lineage, *user_conditions, "seq > ?"],
+            ),
+            (*lineage_params, *user_params, int(start_seq)),
+        ).fetchone()
+        next_user_seq = next_row["seq"] if next_row else None
+        span_conditions = [*lineage, "seq >= ?"]
+        span_params: list = [*lineage_params, int(start_seq)]
+        if next_user_seq is not None:
+            span_conditions.append("seq < ?")
+            span_params.append(int(next_user_seq))
+        exchange = self._select(
+            "SELECT seq, session_id, agent_id, kind, role, name, headline, "
+            "content, tool_call_id, tool_input, tool_state, metadata, "
+            "created_at FROM hist.conversation_history WHERE "
+            + " AND ".join(span_conditions)
+            + " ORDER BY seq",
+            tuple(span_params),
+        )
+        real_rows = [row for row in exchange if not row.get("_truncated")]
+        if not real_rows:
+            return hit_seq, hit_seq, [dict(hit)]
+        return int(real_rows[0]["seq"]), int(real_rows[-1]["seq"]), exchange
+
+    def _attach_search_exchanges(
+        self,
+        rows: list[dict],
+        limit: int,
+    ) -> list[dict]:
+        """Attach and deduplicate complete exchanges for ranked hit rows."""
+        results: list[dict] = []
+        by_exchange: dict[tuple[object, object, int], dict] = {}
+        exchange_count = 0
+        for row in rows:
+            if row.get("_truncated") or int(row.get("seq", -1)) < 0:
+                results.append(row)
+                continue
+            start, end, exchange = self._exchange_for_hit(row)
+            key = (row.get("session_id"), row.get("agent_id"), start)
+            existing = by_exchange.get(key)
+            if existing is not None:
+                seq = int(row["seq"])
+                if seq not in existing["matched_seqs"]:
+                    existing["matched_seqs"].append(seq)
+                continue
+            if exchange_count >= limit:
+                continue
+            result = dict(row)
+            result.update(
+                {
+                    "match_seq": int(row["seq"]),
+                    "matched_seqs": [int(row["seq"])],
+                    "exchange_start_seq": start,
+                    "exchange_end_seq": end,
+                    "exchange": exchange,
+                },
+            )
+            by_exchange[key] = result
+            results.append(result)
+            exchange_count += 1
+        for result in by_exchange.values():
+            result["matched_seqs"].sort()
+        return results
 
     def _fts_available(self) -> bool:
         """True iff the read-only history DB has the FTS5 index table."""
@@ -616,8 +755,8 @@ class MemorySpace:
             where.append("kind = ?")
             params.append(kind)
         sql = (
-            "SELECT seq, session_id, kind, role, name, headline, content, "
-            "metadata "
+            "SELECT seq, session_id, agent_id, kind, role, name, headline, "
+            "content, metadata "
             "FROM hist.conversation_history "
             "WHERE " + " AND ".join(where) + " ORDER BY seq DESC LIMIT ?"
         )
@@ -670,7 +809,7 @@ class MemorySpace:
             where.append("seq < ?")
             params.append(int(before_seq))
         sql = (
-            "SELECT seq, session_id, kind, role, name, headline, "
+            "SELECT seq, session_id, agent_id, kind, role, name, headline, "
             "tool_call_id, content, metadata FROM hist.conversation_history "
             "WHERE " + " AND ".join(where) + " ORDER BY seq DESC LIMIT ?"
         )
@@ -734,6 +873,7 @@ class MemorySpace:
                             {
                                 "seq": row["seq"],
                                 "session_id": row.get("session_id"),
+                                "agent_id": row.get("agent_id"),
                                 "kind": row.get("kind"),
                                 "role": row.get("role"),
                                 "name": row.get("name"),
