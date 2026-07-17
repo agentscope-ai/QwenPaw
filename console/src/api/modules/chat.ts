@@ -54,12 +54,20 @@ export const chatApi = {
 
     return url;
   },
-  listChats: (params?: { user_id?: string; channel?: string }) => {
+  listChats: (
+    params?: { user_id?: string; channel?: string },
+    options?: { agentId?: string },
+  ) => {
     const searchParams = new URLSearchParams();
     if (params?.user_id) searchParams.append("user_id", params.user_id);
     if (params?.channel) searchParams.append("channel", params.channel);
     const query = searchParams.toString();
-    return request<ChatSpec[]>(`/chats${query ? `?${query}` : ""}`);
+    const path = `/chats${query ? `?${query}` : ""}`;
+    return options?.agentId
+      ? request<ChatSpec[]>(path, {
+          headers: { "X-Agent-Id": options.agentId },
+        })
+      : request<ChatSpec[]>(path);
   },
 
   createChat: (chat: Partial<ChatSpec>) =>
@@ -68,9 +76,15 @@ export const chatApi = {
       body: JSON.stringify(chat),
     }),
 
-  getChat: (chatId: string, options?: { signal?: AbortSignal }) =>
+  getChat: (
+    chatId: string,
+    options?: { signal?: AbortSignal; agentId?: string },
+  ) =>
     request<ChatHistory>(`/chats/${encodeURIComponent(chatId)}`, {
       signal: options?.signal,
+      ...(options?.agentId
+        ? { headers: { "X-Agent-Id": options.agentId } }
+        : {}),
     }),
 
   updateChat: (chatId: string, chat: ChatUpdateRequest) =>
@@ -79,9 +93,12 @@ export const chatApi = {
       body: JSON.stringify(chat),
     }),
 
-  deleteChat: (chatId: string) =>
+  deleteChat: (chatId: string, options?: { agentId?: string }) =>
     request<ChatDeleteResponse>(`/chats/${encodeURIComponent(chatId)}`, {
       method: "DELETE",
+      ...(options?.agentId
+        ? { headers: { "X-Agent-Id": options.agentId } }
+        : {}),
     }),
 
   batchDeleteChats: (chatIds: string[]) =>

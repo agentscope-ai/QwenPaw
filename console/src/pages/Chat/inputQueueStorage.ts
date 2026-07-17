@@ -9,6 +9,14 @@ interface InputQueueStateSnapshot {
   updatedAt?: number;
 }
 
+interface StoredInputQueueItem {
+  id?: string;
+  data?: {
+    qwenpaw_queue_request_id?: unknown;
+    biz_params?: { __qwenpaw_queue_request_id?: unknown };
+  };
+}
+
 function getInputQueueStorageKey(sessionId: string) {
   return `${INPUT_QUEUE_STORAGE_PREFIX}:${sessionId}`;
 }
@@ -61,6 +69,56 @@ function hasQueueWork(state: InputQueueStateSnapshot) {
 
 function shouldRemoveQueueState(state: InputQueueStateSnapshot) {
   return !hasQueueWork(state) && !state.ownerTabId && !state.paused;
+}
+
+export function hasStoredInputQueueItems(sessionId: string | undefined) {
+  if (!sessionId) return false;
+  try {
+    const state = parseQueueState(
+      localStorage.getItem(getInputQueueStorageKey(sessionId)),
+    );
+    return Array.isArray(state.items) && state.items.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function removeStoredInputQueueItem(
+  sessionId: string,
+  acceptedRequestId: string,
+) {
+  try {
+    const key = getInputQueueStorageKey(sessionId);
+    const oldValue = localStorage.getItem(key);
+    const state = parseQueueState(oldValue);
+    const items = Array.isArray(state.items) ? state.items : [];
+    const acceptedIndex = items.findIndex((item) => {
+      const data = (item as StoredInputQueueItem)?.data;
+      return (
+        data?.qwenpaw_queue_request_id === acceptedRequestId ||
+        data?.biz_params?.__qwenpaw_queue_request_id === acceptedRequestId
+      );
+    });
+    if (acceptedIndex < 0) return false;
+
+    const nextState: InputQueueStateSnapshot = {
+      ...state,
+      items: items.filter((_, index) => index !== acceptedIndex),
+      updatedAt: Date.now(),
+    };
+    const nextValue = shouldRemoveQueueState(nextState)
+      ? null
+      : JSON.stringify(nextState);
+    if (nextValue) {
+      localStorage.setItem(key, nextValue);
+    } else {
+      localStorage.removeItem(key);
+    }
+    notifyQueueStorageChange(key, oldValue, nextValue);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function notifyQueueStorageChange(

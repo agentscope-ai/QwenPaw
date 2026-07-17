@@ -481,6 +481,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.lastSelectedIds.clear();
   }
 
+  isActiveAgent(agentId: string | undefined): boolean {
+    return this.activeAgentId === agentId;
+  }
+
   // ---------------------------------------------------------------------------
   // Session switch lock (issue #4557)
   // Prevents rapid session switching from causing infinite loops by blocking
@@ -1055,7 +1059,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     this.sessionListRequest = (async () => {
       try {
-        const chats = await api.listChats();
+        // Do not let a rapid selector change retarget this request through
+        // buildAuthHeaders' storage lookup. The SessionApi cache belongs to
+        // the runtime agent captured by setActiveAgent, so its backend request
+        // must use the same immutable scope.
+        const chats = await api.listChats(undefined, {
+          agentId: this.activeAgentId,
+        });
         if (scopeVersion !== this.sessionScopeVersion) return [];
         return this.applyChatsToSessionList(chats);
       } finally {
@@ -1135,7 +1145,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       }
     }
 
-    const chatHistory = await api.getChat(backendId, { signal });
+    const chatHistory = await api.getChat(backendId, {
+      signal,
+      agentId: this.activeAgentId,
+    });
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     if (scopeVersion !== this.sessionScopeVersion) {
       throw new DOMException("Aborted", "AbortError");
@@ -1410,7 +1423,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const deleteId =
       existing?.realId ?? (isLocalTimestamp(sessionId) ? null : sessionId);
 
-    if (deleteId) await api.deleteChat(deleteId);
+    if (deleteId) {
+      await api.deleteChat(deleteId, { agentId: this.activeAgentId });
+    }
 
     // Invalidate LRU cache for the deleted session
     if (deleteId) this.invalidateConvertedCache(deleteId);

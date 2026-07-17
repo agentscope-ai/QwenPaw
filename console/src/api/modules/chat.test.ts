@@ -154,6 +154,13 @@ describe("chatApi.listChats", () => {
       expect.stringContaining("channel=dingtalk"),
     );
   });
+
+  it("pins list requests to an explicit agent when provided", async () => {
+    await chatApi.listChats(undefined, { agentId: "agent-1" });
+    expect(request).toHaveBeenCalledWith("/chats", {
+      headers: { "X-Agent-Id": "agent-1" },
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -171,6 +178,16 @@ describe("chatApi CRUD", () => {
     );
   });
 
+  it("pins getChat to an explicit agent when provided", async () => {
+    await chatApi.getChat("chat-1", { agentId: "agent-2" });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1",
+      expect.objectContaining({
+        headers: { "X-Agent-Id": "agent-2" },
+      }),
+    );
+  });
+
   it("updateChat sends PUT to the correct path", async () => {
     await chatApi.updateChat("chat-1", { name: "New Name" });
     expect(request).toHaveBeenCalledWith(
@@ -184,6 +201,17 @@ describe("chatApi CRUD", () => {
     expect(request).toHaveBeenCalledWith(
       "/chats/chat-1",
       expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("pins deleteChat to an explicit agent when provided", async () => {
+    await chatApi.deleteChat("chat-1", { agentId: "agent-2" });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat-1",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: { "X-Agent-Id": "agent-2" },
+      }),
     );
   });
 

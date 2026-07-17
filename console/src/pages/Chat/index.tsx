@@ -68,7 +68,11 @@ import {
   resolveChatRequestContext,
   type QueuedChatRequestData,
 } from "./chatRequestContext";
-import { migrateInputQueueStorage } from "./inputQueueStorage";
+import {
+  hasStoredInputQueueItems,
+  migrateInputQueueStorage,
+  removeStoredInputQueueItem,
+} from "./inputQueueStorage";
 import { applyApprovalLevelToRequestBody } from "./approvalPayload";
 
 interface ApprovalMessageData {
@@ -203,8 +207,60 @@ function renderSuggestionLabel(command: string, description?: string) {
 
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
+const AGENT_SWITCH_QUEUE_SETTLE_MS = 1500;
+const ACCEPTED_QUEUE_RESTORE_RETRY_DELAYS_MS = [
+  0, 50, 200, 500, 1000, 2000, 5000, 10000, 30000, 60000,
+];
+const ACCEPTED_QUEUE_TOMBSTONE_TTL_MS = 5 * 60 * 1000;
+const INTERNAL_QUEUE_REQUEST_ID_PARAM = "__qwenpaw_queue_request_id";
 const WIDE_MODE_STORAGE_KEY = "qwenpaw_chat_wide_mode";
 const CHAT_STREAM_SNAPSHOT_CHANNEL = "qwenpaw:chat-stream-snapshot";
+
+function clearAcceptedQueueRequestOnStreamCompletion(
+  response: Response,
+  onComplete: () => void,
+) {
+  if (!response.body || typeof TransformStream === "undefined") {
+    onComplete();
+    return response;
+  }
+
+  const body = response.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        controller.enqueue(chunk);
+      },
+      flush() {
+        onComplete();
+      },
+    }),
+  );
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+let queueRequestSequence = 0;
+
+function createQueueRequestId() {
+  queueRequestSequence += 1;
+  return `qwenpaw-queue-${Date.now().toString(
+    36,
+  )}-${queueRequestSequence.toString(36)}`;
+}
+
+function scheduleAcceptedQueueItemRemoval(
+  queueSessionId: string,
+  requestId: string,
+) {
+  for (const delay of ACCEPTED_QUEUE_RESTORE_RETRY_DELAYS_MS) {
+    window.setTimeout(() => {
+      removeStoredInputQueueItem(queueSessionId, requestId);
+    }, delay);
+  }
+}
 
 interface ChatStreamSnapshotPayload {
   type: "request" | "snapshot";
@@ -822,6 +878,20 @@ export default function ChatPage() {
     }>
   >([]);
   const { selectedAgent } = useAgentStore();
+  // selectedAgent changes before the route is restored. Keep the SDK on the
+  // previous agent until the switch effect has saved the old route, otherwise
+  // one render briefly scopes the old chat to the new agent's input queue.
+  const runtimeAgentRef = useRef(selectedAgent);
+  const runtimeAgent = runtimeAgentRef.current;
+  const queueDrainBlockedUntilRef = useRef(new Map<string, number>());
+  const acceptedQueuedInputRef = useRef(
+    new Map<string, { agentId: string; queueSessionId: string }>(),
+  );
+  // sessionApi is a module singleton, so it must be re-scoped synchronously
+  // before this render resolves route/session aliases for the runtime agent.
+  // Otherwise agent switches can reuse another agent's chat mapping and make
+  // its input queue appear under the wrong storage key.
+  sessionApi.setActiveAgent(runtimeAgent);
   const { toolRenderConfig } = usePlugins();
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
@@ -851,7 +921,7 @@ export default function ChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedAgent, refreshKey]);
+  }, [runtimeAgent, refreshKey]);
 
   useEffect(() => {
     void fetchAvailableLoopSkills();
@@ -901,7 +971,7 @@ export default function ChatPage() {
   useEffect(() => {
     let cancelled = false;
     skillApi
-      .listSkills(selectedAgent)
+      .listSkills(runtimeAgent)
       .then((skills) => {
         if (cancelled) return;
         const nextSkills = Array.isArray(skills) ? skills : [];
@@ -909,7 +979,7 @@ export default function ChatPage() {
       })
       .catch((error) => {
         console.warn("[ChatSkills] failed to load slash skills", {
-          selectedAgent,
+          selectedAgent: runtimeAgent,
           error,
         });
         if (!cancelled) setChatSkills([]);
@@ -917,7 +987,7 @@ export default function ChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedAgent]);
+  }, [runtimeAgent]);
 
   const isChatActiveRef = useRef(false);
   // Issue #5142: In Coding mode the Chat component is embedded under /coding/*,
@@ -1107,14 +1177,13 @@ export default function ChatPage() {
     refreshKey,
     location.pathname,
     isChatActive,
-    selectedAgent,
+    runtimeAgent,
   );
 
   const { setLastChatId, getLastChatId } = useAgentStore();
   const setLastChatIdRef = useRef(setLastChatId);
   setLastChatIdRef.current = setLastChatId;
-  const selectedAgentRef = useRef(selectedAgent);
-  selectedAgentRef.current = selectedAgent;
+  const selectedAgentRef = runtimeAgentRef;
 
   const resolveBackendSessionId = useCallback(
     (sessionId?: string) =>
@@ -1128,10 +1197,10 @@ export default function ChatPage() {
     (sessionId?: string) =>
       resolveAgentScopedQueueSessionId(
         sessionId,
-        selectedAgentRef.current,
+        runtimeAgent,
         (rawSessionId) => sessionApi.getQueueSessionId(rawSessionId),
       ),
-    [],
+    [runtimeAgent],
   );
 
   const lastSessionIdRef = useRef<string | null>(null);
@@ -1399,7 +1468,7 @@ export default function ChatPage() {
     (sessionApi.suppressBaseAutoSelect
       ? undefined
       : sessionApi.getRoutableSessionId(sessionApi.lastActiveChatId) ||
-        getLastChatId(selectedAgent));
+        getLastChatId(runtimeAgent));
   if (effectiveChatId && sessionApi.preferredChatId !== effectiveChatId) {
     sessionApi.preferredChatId = effectiveChatId;
   }
@@ -1561,6 +1630,20 @@ export default function ChatPage() {
         lastSessionIdRef.current || chatIdRef.current || null;
       lastSessionIdRef.current = null;
 
+      queueDrainBlockedUntilRef.current.set(
+        selectedAgent,
+        Date.now() + AGENT_SWITCH_QUEUE_SETTLE_MS,
+      );
+      for (const [requestId, acceptedInput] of acceptedQueuedInputRef.current) {
+        if (acceptedInput.agentId !== prevAgent) continue;
+        scheduleAcceptedQueueItemRemoval(
+          acceptedInput.queueSessionId,
+          requestId,
+        );
+      }
+      // The next render switches the session singleton and SDK options as one
+      // unit, after the old agent's route has been persisted above.
+      runtimeAgentRef.current = selectedAgent;
       setRefreshKey((prev) => prev + 1);
     }
     prevSelectedAgentRef.current = selectedAgent;
@@ -1586,12 +1669,16 @@ export default function ChatPage() {
         signal?: AbortSignal;
       },
     ): Promise<Response> => {
-      const { input = [], biz_params } = data;
+      const { input = [], biz_params: rawBizParams } = data;
+      const bizParams =
+        rawBizParams && typeof rawBizParams === "object"
+          ? rawBizParams
+          : undefined;
       const session: SessionInfo = input[input.length - 1]?.session || {};
       const requestContext = resolveChatRequestContext({
         data,
         session,
-        selectedAgent,
+        selectedAgent: runtimeAgent,
         getSessionIdentity: (sessionId?: string) =>
           sessionApi.getSessionIdentity(sessionId),
         defaultUserId: DEFAULT_USER_ID,
@@ -1633,6 +1720,41 @@ export default function ChatPage() {
               },
             ]
           : lastInput;
+      const userText = rewrittenInput
+        .filter((message: any) => message.role === "user")
+        .map(extractUserMessageText)
+        .join("\n")
+        .trim();
+      const queuedSessionId =
+        typeof data.session_id === "string" && data.session_id.trim()
+          ? data.session_id
+          : undefined;
+      const queuedAgentId =
+        typeof data.agent_id === "string" && data.agent_id
+          ? data.agent_id
+          : undefined;
+      const queuedRequestId =
+        typeof data.qwenpaw_queue_request_id === "string" &&
+        data.qwenpaw_queue_request_id
+          ? data.qwenpaw_queue_request_id
+          : typeof bizParams?.[INTERNAL_QUEUE_REQUEST_ID_PARAM] === "string" &&
+              bizParams[INTERNAL_QUEUE_REQUEST_ID_PARAM]
+            ? String(bizParams[INTERNAL_QUEUE_REQUEST_ID_PARAM])
+            : undefined;
+      const requestBizParams = bizParams
+        ? Object.fromEntries(
+            Object.entries(bizParams).filter(
+              ([key]) => key !== INTERNAL_QUEUE_REQUEST_ID_PARAM,
+            ),
+          )
+        : undefined;
+      // Resolve the queue key while sessionApi is still scoped to this
+      // request's runtime agent. The fetch may outlive an Agent switch, after
+      // which the singleton's alias table belongs to a different Agent.
+      const acceptedQueueSessionId =
+        queuedAgentId && queuedRequestId && userText
+          ? resolveInputQueueSessionId(queuedSessionId)
+          : undefined;
 
       let requestBody: Record<string, unknown> = {
         input: rewrittenInput,
@@ -1641,7 +1763,7 @@ export default function ChatPage() {
         channel: requestContext.channel,
         agent_id: requestAgentId,
         stream: true,
-        ...biz_params,
+        ...requestBizParams,
       };
 
       for (const entry of sortByOrder(
@@ -1669,26 +1791,19 @@ export default function ChatPage() {
           ? String(requestBody.session_id || "")
           : chatIdRef.current) ??
         String(requestBody.session_id || "");
-      if (backendChatId) {
-        const userText = rewrittenInput
+      if (backendChatId && userText) {
+        // Also pass the full content array so patchLastUserMessage can
+        // rebuild user card with images/files when reconnecting.
+        const lastUserMsg = rewrittenInput
           .filter((m: any) => m.role === "user")
-          .map(extractUserMessageText)
-          .join("\n")
-          .trim();
-        if (userText) {
-          // Also pass the full content array so patchLastUserMessage can
-          // rebuild user card with images/files when reconnecting.
-          const lastUserMsg = rewrittenInput
-            .filter((m: any) => m.role === "user")
-            .slice(-1)[0];
-          const contentArr = Array.isArray(lastUserMsg?.content)
-            ? (lastUserMsg.content as Array<{
-                type: string;
-                [key: string]: unknown;
-              }>)
-            : undefined;
-          sessionApi.setLastUserMessage(backendChatId, userText, contentArr);
-        }
+          .slice(-1)[0];
+        const contentArr = Array.isArray(lastUserMsg?.content)
+          ? (lastUserMsg.content as Array<{
+              type: string;
+              [key: string]: unknown;
+            }>)
+          : undefined;
+        sessionApi.setLastUserMessage(backendChatId, userText, contentArr);
       }
 
       const response = await fetch(getApiUrl("/console/chat"), {
@@ -1698,19 +1813,48 @@ export default function ChatPage() {
         signal: data.signal,
       });
 
-      const queuedSessionId =
-        typeof data.session_id === "string" && data.session_id.trim()
-          ? data.session_id
-          : undefined;
       const localIdToResolve =
         queuedSessionId || sessionApi.lastActiveChatId || chatIdRef.current;
-      if (response.ok && localIdToResolve) {
+      if (
+        response.ok &&
+        localIdToResolve &&
+        sessionApi.isActiveAgent(runtimeAgent)
+      ) {
         sessionApi.triggerResolve(localIdToResolve);
       }
 
-      return wrapChatResponseUsageStream(response, chatRef);
+      const wrappedResponse = wrapChatResponseUsageStream(response, chatRef);
+      if (
+        !response.ok ||
+        !acceptedQueueSessionId ||
+        !queuedAgentId ||
+        !queuedRequestId
+      ) {
+        return wrappedResponse;
+      }
+
+      acceptedQueuedInputRef.current.set(queuedRequestId, {
+        agentId: queuedAgentId,
+        queueSessionId: acceptedQueueSessionId,
+      });
+      scheduleAcceptedQueueItemRemoval(acceptedQueueSessionId, queuedRequestId);
+      // An aborted SDK instance can restore the dequeued item much later after
+      // many rapid Agent switches. Keep a short-lived tombstone so every
+      // subsequent switch can remove that exact accepted request again.
+      window.setTimeout(
+        () => acceptedQueuedInputRef.current.delete(queuedRequestId),
+        ACCEPTED_QUEUE_TOMBSTONE_TTL_MS,
+      );
+      return clearAcceptedQueueRequestOnStreamCompletion(wrappedResponse, () =>
+        acceptedQueuedInputRef.current.delete(queuedRequestId),
+      );
     },
-    [extLists, selectedAgent, runningConfigApprovalLevel],
+    [
+      extLists,
+      runtimeAgent,
+      runningConfigApprovalLevel,
+      resolveInputQueueSessionId,
+    ],
   );
 
   const handleFileUpload = useCallback(
@@ -1816,7 +1960,7 @@ export default function ChatPage() {
       }));
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
-      localStorage.removeItem(getDraftStorageKey(selectedAgent));
+      localStorage.removeItem(getDraftStorageKey(runtimeAgent));
       draftSuppressed = true;
       if (!inputQueueEnabled) {
         clearSenderTextareaOnNextTick();
@@ -2162,17 +2306,41 @@ export default function ChatPage() {
             const identity = sessionApi.getSessionIdentity(
               rawSessionId || backendSessionId,
             );
+            const queueRequestId = createQueueRequestId();
             return {
               session_id: backendSessionId || identity.sessionId,
               user_id: identity.userId,
               channel: identity.channel,
-              agent_id: getQueueAgentId(sessionId) || selectedAgentRef.current,
+              agent_id: getQueueAgentId(sessionId) || runtimeAgent,
+              // Persist a stable ID inside the SDK queue item. If the SDK
+              // restores an already-accepted item after an Agent-switch abort,
+              // we can remove that exact item without confusing duplicate text.
+              qwenpaw_queue_request_id: queueRequestId,
+              // The SDK narrows queued data before customFetch to its public
+              // request fields. Carry the same ID through biz_params, then
+              // strip it before the backend payload is built above.
+              biz_params: {
+                [INTERNAL_QUEUE_REQUEST_ID_PARAM]: queueRequestId,
+              },
             };
           },
           isSessionRunning: async ({
             sessionId,
             queueSessionId,
           }: IAgentScopeRuntimeWebUIQueueSessionContext) => {
+            const queueAgentId =
+              getQueueAgentId(queueSessionId) ||
+              getQueueAgentId(sessionId) ||
+              runtimeAgent;
+            const queueDrainBlockedUntil =
+              queueDrainBlockedUntilRef.current.get(queueAgentId) ?? 0;
+            if (
+              Date.now() < queueDrainBlockedUntil &&
+              hasStoredInputQueueItems(queueSessionId)
+            ) {
+              return true;
+            }
+
             const currentQueueSessionId = chatIdRef.current
               ? resolveInputQueueSessionId(chatIdRef.current)
               : undefined;
@@ -2212,7 +2380,9 @@ export default function ChatPage() {
 
             for (const statusChatId of Array.from(new Set(candidates))) {
               try {
-                const chat = await chatApi.getChat(statusChatId);
+                const chat = await chatApi.getChat(statusChatId, {
+                  agentId: queueAgentId,
+                });
                 if (chat.status === "running") return true;
               } catch {
                 // Try the next alias; queue/session ids can arrive before
@@ -2390,7 +2560,7 @@ export default function ChatPage() {
     extLists,
     scheduleHistoryClear,
     consoleSkills,
-    selectedAgent,
+    runtimeAgent,
     inputQueueEnabled,
     isFrontendChatRunning,
     controlledSdkSessionId,

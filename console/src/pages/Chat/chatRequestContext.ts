@@ -3,6 +3,7 @@ export interface QueuedChatRequestData {
   user_id?: unknown;
   channel?: unknown;
   agent_id?: unknown;
+  qwenpaw_queue_request_id?: unknown;
 }
 
 export interface ChatSessionInfo {
