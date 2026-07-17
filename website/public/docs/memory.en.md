@@ -257,7 +257,6 @@ Memory configuration is located in `agent.json` under `running.reme_light_memory
 | `auto_memory_interval`          | Auto-Memory every N user turns. `None` or `<= 0` disables periodic Auto-Memory | `5`              |
 | `dream_cron_enabled`            | Whether the scheduled Auto-Dream job is enabled                                | `true`           |
 | `dream_cron`                    | Valid 5-field cron expression for Auto-Dream (required when enabled)           | `"0 23 * * *"`   |
-| `rebuild_memory_index_on_start` | Whether to clear and rebuild the ReMe search index on agent startup            | `false`          |
 
 ### Auto Memory Search Configuration
 

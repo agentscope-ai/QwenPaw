@@ -30,6 +30,12 @@ export const agentsApi = {
       body: JSON.stringify(agent),
     }),
 
+  rebuildMemoryIndex: (agentId: string) =>
+    request<{ status: "completed" }>(`/agents/${agentId}/memory/reindex`, {
+      method: "POST",
+      timeout: 10 * 60 * 1000,
+    }),
+
   // Delete agent
   deleteAgent: (agentId: string) =>
     request<{ success: boolean; agent_id: string }>(`/agents/${agentId}`, {

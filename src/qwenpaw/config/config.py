@@ -735,16 +735,6 @@ class ReMeLightMemoryConfig(BaseModel):
         default_factory=EmbeddingModelConfig,
     )
 
-    rebuild_memory_index_on_start: bool = Field(
-        default=False,
-        description=(
-            "Whether to clear and rebuild the memory search index when the"
-            " agent starts. Set to False to skip re-indexing and only monitor"
-            " new file changes."
-        ),
-    )
-
-
 class ContextCompactConfig(BaseModel):
     """Context compaction configuration."""
 

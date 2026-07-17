@@ -207,7 +207,6 @@ graph LR
 | `auto_memory_interval`          | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆 | `5`              |
 | `dream_cron_enabled`            | 是否启用按 Cron 定时执行的 Auto-Dream 任务                               | `true`           |
 | `dream_cron`                    | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）                     | `"0 23 * * *"`   |
-| `rebuild_memory_index_on_start` | Agent 启动时是否清空并重建 ReMe 搜索索引                                 | `false`          |
 
 ### 自动记忆搜索配置
 

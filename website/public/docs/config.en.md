@@ -429,7 +429,6 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `dream_cron`                    | string      | `"0 23 * * *"`   | Valid 5-field cron expression for dream-based memory optimization (required when enabled)                          |
 | `auto_memory_search_config`     | object      | _(see below)_    | Auto memory search configuration                                                                                   |
 | `embedding_model_config`        | object      | _(see below)_    | Embedding model configuration                                                                                      |
-| `rebuild_memory_index_on_start` | bool        | `false`          | Whether to clear and rebuild the memory search index when the agent starts; otherwise only new changes are indexed |
 
 **Auto Memory Search Configuration (`reme_light_memory_config.auto_memory_search_config` object):**
 

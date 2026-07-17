@@ -55,6 +55,17 @@ describe("agentsApi", () => {
     expect(result).toEqual(agent);
   });
 
+  it("rebuildMemoryIndex sends POST with an extended timeout", async () => {
+    const resp = { status: "completed" } as const;
+    vi.mocked(request).mockResolvedValue(resp);
+    const result = await agentsApi.rebuildMemoryIndex("a1");
+    expect(request).toHaveBeenCalledWith("/agents/a1/memory/reindex", {
+      method: "POST",
+      timeout: 10 * 60 * 1000,
+    });
+    expect(result).toEqual(resp);
+  });
+
   it("deleteAgent sends DELETE /agents/${id}", async () => {
     const resp = { success: true, agent_id: "a1" };
     vi.mocked(request).mockResolvedValue(resp);

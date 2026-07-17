@@ -382,7 +382,6 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `dream_cron`                    | string      | `"0 23 * * *"`   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）                |
 | `auto_memory_search_config`     | object      | _（见下方）_     | 自动记忆搜索配置                                                     |
 | `embedding_model_config`        | object      | _（见下方）_     | Embedding 模型配置                                                   |
-| `rebuild_memory_index_on_start` | bool        | `false`          | Agent 启动时是否清空并重建记忆搜索索引；否则只监控并索引新的文件变化 |
 
 **自动记忆搜索配置（`reme_light_memory_config.auto_memory_search_config` 对象）：**
 
