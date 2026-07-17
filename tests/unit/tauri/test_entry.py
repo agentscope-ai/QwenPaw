@@ -146,6 +146,8 @@ def test_main_supports_frozen_entry_without_package_context(
     calls = []
 
     monkeypatch.setattr(entry, "__package__", None)
+    monkeypatch.setattr(entry, "__spec__", None)
+    monkeypatch.setattr(entry, "__name__", "__main__")
     monkeypatch.setattr(entry, "_is_frozen_desktop", lambda: False)
     monkeypatch.setattr(entry, "_ensure_utf8_stdio", lambda: None)
     monkeypatch.setattr(entry, "_install_subprocess_guard", lambda: None)
