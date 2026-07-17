@@ -225,6 +225,16 @@ class Workspace:
                         exc_info=True,
                     )
 
+        try:
+            from ...modes.custom_loop import load_custom_loop_modes
+
+            load_custom_loop_modes(self)
+        except Exception:
+            logger.warning(
+                "bootstrap: custom loop modes could not be loaded",
+                exc_info=True,
+            )
+
         # pylint: disable=protected-access
         n_hooks = len(self.plugins.hook_registry._by_phase)
         n_cmds = len(
