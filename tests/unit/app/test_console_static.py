@@ -115,6 +115,25 @@ async def test_forces_streaming_when_server_advertises_pathsend(
     assert gzip.decompress(_response_body(messages)) == javascript
 
 
+async def test_compressible_variants_share_weak_etag(
+    assets: tuple[ConsoleAssetFiles, bytes, bytes],
+) -> None:
+    app, _, _ = assets
+    identity = await _request(app, _scope("/app-12345678.js"))
+    compressed = await _request(
+        app,
+        _scope(
+            "/app-12345678.js",
+            headers=[(b"accept-encoding", b"gzip")],
+        ),
+    )
+
+    identity_etag = _response_headers(identity)["etag"]
+    compressed_etag = _response_headers(compressed)["etag"]
+    assert identity_etag == compressed_etag
+    assert identity_etag.startswith('W/"')
+
+
 @pytest.mark.parametrize(
     "accept_encoding",
     [b"identity", b"gzip;q=0", b"br"],
@@ -154,6 +173,7 @@ async def test_does_not_compress_binary_assets(
     assert headers["cache-control"] == ASSET_CACHE_CONTROL
     assert "content-encoding" not in headers
     assert "vary" not in headers
+    assert not headers["etag"].startswith("W/")
     assert _response_body(messages) == image
 
 
@@ -176,6 +196,7 @@ async def test_range_requests_are_not_compressed(
     assert headers["cache-control"] == ASSET_CACHE_CONTROL
     assert "content-encoding" not in headers
     assert headers["content-range"].startswith("bytes 0-31/")
+    assert not headers["etag"].startswith("W/")
     assert _response_body(messages) == javascript[:32]
 
 
@@ -185,6 +206,7 @@ async def test_conditional_request_preserves_cache_policy(
     app, _, _ = assets
     initial = await _request(app, _scope("/app-12345678.js"))
     etag = _response_headers(initial)["etag"]
+    assert etag.startswith('W/"')
 
     messages = await _request(
         app,
@@ -203,3 +225,4 @@ async def test_conditional_request_preserves_cache_policy(
     headers = _response_headers(messages)
     assert headers["cache-control"] == ASSET_CACHE_CONTROL
     assert headers["vary"] == "Accept-Encoding"
+    assert headers["etag"] == etag

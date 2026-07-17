@@ -103,6 +103,15 @@ class ConsoleAssetFiles:
                 }
                 if "accept-encoding" not in vary_values:
                     response_headers.add_vary_header("Accept-Encoding")
+                etag = response_headers.get("etag")
+                if (
+                    message["status"] in {200, 304}
+                    and etag
+                    and etag[:2] != "W/"
+                ):
+                    # Identity and gzip share one opaque validator. Mark it
+                    # weak because their representation bytes differ.
+                    response_headers["etag"] = f"W/{etag}"
             await send(message)
 
         asset_send = send_with_vary if is_compressible else send
