@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, AsyncGenerator, Callable
@@ -532,12 +533,56 @@ def _expand_schema_refs(schema: Any) -> Any:
     return _inline_schema_refs(schema, defs, frozenset())
 
 
+# ECMA-262 regex shorthands → GBNF-safe character classes.
+# JSON Schema ``pattern`` uses ECMA-262 regex where these are
+# exact equivalences (no Unicode-extended digits/words).
+# Backends like llama.cpp convert schemas to GBNF grammar
+# which only recognises ``[0-9]``-style classes, not ``\d``.
+_REGEX_SHORTHAND_MAP: dict[str, str] = {
+    r"\d": "[0-9]",
+    r"\D": "[^0-9]",
+    r"\w": "[a-zA-Z0-9_]",
+    r"\W": "[^a-zA-Z0-9_]",
+    r"\s": r"[\t\n\r\f\v ]",
+    r"\S": r"[^\t\n\r\f\v ]",
+}
+
+_SHORTHAND_RE = re.compile(r"\\[dDwWsS]")
+
+
+def _expand_regex_shorthands(pattern: str) -> str:
+    """Replace ECMA-262 regex shorthands with character classes.
+
+    ``\\d`` → ``[0-9]`` etc.  This is a lossless, semantically
+    equivalent transformation in every regex engine.
+    """
+    return _SHORTHAND_RE.sub(
+        lambda m: _REGEX_SHORTHAND_MAP[m.group()],
+        pattern,
+    )
+
+
+def _expand_pattern_fields(schema: Any) -> Any:
+    """Recursively expand regex shorthands in ``pattern`` fields."""
+    if isinstance(schema, list):
+        return [_expand_pattern_fields(s) for s in schema]
+    if not isinstance(schema, dict):
+        return schema
+    result: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key == "pattern" and isinstance(value, str):
+            result[key] = _expand_regex_shorthands(value)
+        else:
+            result[key] = _expand_pattern_fields(value)
+    return result
+
+
 def _sanitize_tool_schemas(
     tools: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Sanitize tool function schemas to be compatible with strict providers.
 
-    Applies three passes over each tool's ``parameters`` schema:
+    Applies four passes over each tool's ``parameters`` schema:
 
     1. **$ref / $defs expansion** — inlines all local ``$ref`` references so
        that models which do not support ``$defs`` (e.g. GLM-5.x) receive a
@@ -547,6 +592,10 @@ def _sanitize_tool_schemas(
     3. **Nullable schema sanitization** — removes JSON Schema ``null`` type
        branches that OpenAI-compatible relays to Gemini-style providers reject
        in function declarations.
+    4. **Pattern shorthand expansion** — converts ECMA-262 regex shorthands
+       (``\\d``, ``\\w``, ``\\s``, etc.) in ``pattern`` fields to character
+       classes (``[0-9]``, ``[a-zA-Z0-9_]``, etc.).  llama.cpp's GBNF grammar
+       parser does not support these escape sequences (#6201).
     """
     sanitized = []
     for tool in tools:
@@ -561,9 +610,11 @@ def _sanitize_tool_schemas(
         if not isinstance(params, dict):
             sanitized.append(tool)
             continue
-        sanitized_params = _sanitize_nullable_schemas(
-            _sanitize_boolean_schemas(
-                _expand_schema_refs(params),
+        sanitized_params = _expand_pattern_fields(
+            _sanitize_nullable_schemas(
+                _sanitize_boolean_schemas(
+                    _expand_schema_refs(params),
+                ),
             ),
         )
         sanitized.append(
