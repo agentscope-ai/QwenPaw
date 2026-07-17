@@ -72,7 +72,7 @@ class TestIsWindowsAdmin:
         """When ctypes raises an exception, returns False (conservative)."""
         mock_ctypes = MagicMock()
         mock_ctypes.windll.shell32.IsUserAnAdmin.side_effect = OSError(
-            "ctypes failed"
+            "ctypes failed",
         )
         with (
             patch.object(sys, "platform", "win32"),
@@ -100,13 +100,16 @@ class TestAutoDisableSandboxOnWindows:
         with (
             patch.object(sys, "platform", "win32"),
             patch(
-                "qwenpaw.utils.platform.is_windows_admin", return_value=True
+                "qwenpaw.utils.platform.is_windows_admin",
+                return_value=True,
             ),
         ):
             auto_disable_sandbox_on_windows()
 
     def test_windows_non_admin_sandbox_disabled_logs_warning(
-        self, _platform_caplog, caplog: pytest.LogCaptureFixture
+        self,
+        _platform_caplog,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """When non-admin and sandbox_enabled=True, logs a warning."""
         mock_config = MagicMock()
@@ -115,7 +118,8 @@ class TestAutoDisableSandboxOnWindows:
         with (
             patch.object(sys, "platform", "win32"),
             patch(
-                "qwenpaw.utils.platform.is_windows_admin", return_value=False
+                "qwenpaw.utils.platform.is_windows_admin",
+                return_value=False,
             ),
             patch(
                 "qwenpaw.config.load_config",
@@ -129,7 +133,9 @@ class TestAutoDisableSandboxOnWindows:
         )
 
     def test_windows_non_admin_sandbox_already_off_no_warning(
-        self, _platform_caplog, caplog: pytest.LogCaptureFixture
+        self,
+        _platform_caplog,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """When non-admin and sandbox_enabled=False, no warning is logged."""
         mock_config = MagicMock()
@@ -138,7 +144,8 @@ class TestAutoDisableSandboxOnWindows:
         with (
             patch.object(sys, "platform", "win32"),
             patch(
-                "qwenpaw.utils.platform.is_windows_admin", return_value=False
+                "qwenpaw.utils.platform.is_windows_admin",
+                return_value=False,
             ),
             patch(
                 "qwenpaw.config.load_config",
@@ -152,13 +159,16 @@ class TestAutoDisableSandboxOnWindows:
         )
 
     def test_windows_non_admin_config_load_failure_logs_warning(
-        self, _platform_caplog, caplog: pytest.LogCaptureFixture
+        self,
+        _platform_caplog,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """When load_config raises, logs a warning but does not crash."""
         with (
             patch.object(sys, "platform", "win32"),
             patch(
-                "qwenpaw.utils.platform.is_windows_admin", return_value=False
+                "qwenpaw.utils.platform.is_windows_admin",
+                return_value=False,
             ),
             patch(
                 "qwenpaw.config.load_config",
