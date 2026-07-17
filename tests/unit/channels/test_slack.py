@@ -2349,6 +2349,47 @@ class TestSlackEventHandlerUserResolution:
         )
         assert name == ""
 
+    async def test_user_name_cache_is_lru_bounded(
+        self,
+        slack_event_handler,
+        monkeypatch,
+    ):
+        from qwenpaw.app.channels.slack import handler as handler_module
+
+        monkeypatch.setattr(
+            handler_module,
+            "SLACK_USER_NAME_CACHE_MAX_ENTRIES",
+            2,
+        )
+        slack_event_handler._cache_user_name("U1", "one")
+        slack_event_handler._cache_user_name("U2", "two")
+        slack_event_handler._cache_user_name("U3", "three")
+
+        assert list(slack_event_handler._user_name_cache) == ["U2", "U3"]
+
+    async def test_user_name_cache_expires(
+        self,
+        slack_event_handler,
+        monkeypatch,
+    ):
+        from qwenpaw.app.channels.slack import handler as handler_module
+
+        monkeypatch.setattr(
+            handler_module,
+            "SLACK_USER_NAME_CACHE_TTL_S",
+            0,
+        )
+        slack_event_handler._cache_user_name("U123", "Old Name")
+        client = AsyncMock()
+        client.users_info.return_value = {
+            "user": {"profile": {"display_name": "New Name"}},
+        }
+
+        name = await slack_event_handler._resolve_user_name("U123", client)
+
+        assert name == "New Name"
+        client.users_info.assert_awaited_once()
+
 
 # =============================================================================
 # P1: Handler Slash Command
