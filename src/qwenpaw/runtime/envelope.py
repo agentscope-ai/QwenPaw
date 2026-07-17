@@ -85,6 +85,30 @@ class Envelope:
         obj.sequence_number = self._next_seq()
         return obj
 
+    @staticmethod
+    def _with_event_metadata(obj: Any, event: Any) -> Any:
+        """Return a real-time output carrying its source event metadata.
+
+        Envelope state objects are reused when a message is completed and
+        later embedded in ``AgentResponse.output``.  Attach metadata to a
+        shallow output copy so event-scoped extension data cannot leak into
+        those durable objects.  Empty metadata follows the exact legacy path.
+        """
+        event_metadata = getattr(event, "metadata", None)
+        if not isinstance(event_metadata, dict) or not event_metadata:
+            return obj
+
+        output_metadata = dict(event_metadata)
+        host_metadata = getattr(obj, "metadata", None)
+        if isinstance(host_metadata, dict):
+            # Host-owned metadata wins on conflicts with extension metadata.
+            output_metadata.update(host_metadata)
+
+        return obj.model_copy(
+            update={"metadata": output_metadata},
+            deep=False,
+        )
+
     # ------------------------------------------------------------------
     # Response lifecycle
     # ------------------------------------------------------------------
@@ -165,7 +189,10 @@ class Envelope:
         # === TEXT BLOCK ===
         if evt_type == EventType.TEXT_BLOCK_START.value:
             if not self._message_started:
-                yield self._tag_seq(self._completed_message)
+                yield self._with_event_metadata(
+                    self._tag_seq(self._completed_message),
+                    event,
+                )
                 self._message_started = True
             block_id = event.block_id
             index = len(self._text_blocks)
@@ -173,7 +200,10 @@ class Envelope:
 
         elif evt_type == EventType.TEXT_BLOCK_DELTA.value:
             if not self._message_started:
-                yield self._tag_seq(self._completed_message)
+                yield self._with_event_metadata(
+                    self._tag_seq(self._completed_message),
+                    event,
+                )
                 self._message_started = True
             block_id = event.block_id
             delta = event.delta or ""
@@ -189,7 +219,7 @@ class Envelope:
                 index=state["index"],
             )
             chunk.msg_id = self._message_id
-            yield self._tag_seq(chunk)
+            yield self._with_event_metadata(self._tag_seq(chunk), event)
 
         elif evt_type == EventType.TEXT_BLOCK_END.value:
             block_id = event.block_id
@@ -203,7 +233,10 @@ class Envelope:
                 index=state["index"],
             )
             final_chunk.msg_id = self._message_id
-            yield self._tag_seq(final_chunk)
+            yield self._with_event_metadata(
+                self._tag_seq(final_chunk),
+                event,
+            )
             self._completed_message.content.append(
                 TextContent(
                     type=ContentType.TEXT,
@@ -231,7 +264,7 @@ class Envelope:
                 "envelope": r_envelope,
                 "text": "",
             }
-            yield self._tag_seq(r_envelope)
+            yield self._with_event_metadata(self._tag_seq(r_envelope), event)
 
         elif evt_type == EventType.THINKING_BLOCK_DELTA.value:
             block_id = event.block_id
@@ -254,7 +287,10 @@ class Envelope:
                     "text": "",
                 }
                 self._reasoning_blocks[block_id] = state
-                yield self._tag_seq(r_envelope)
+                yield self._with_event_metadata(
+                    self._tag_seq(r_envelope),
+                    event,
+                )
             state["text"] += delta
             r_chunk = TextContent(
                 type=ContentType.TEXT,
@@ -263,7 +299,7 @@ class Envelope:
                 index=0,
             )
             r_chunk.msg_id = state["msg_id"]
-            yield self._tag_seq(r_chunk)
+            yield self._with_event_metadata(self._tag_seq(r_chunk), event)
 
         elif evt_type == EventType.THINKING_BLOCK_END.value:
             block_id = event.block_id
@@ -277,7 +313,7 @@ class Envelope:
                 index=0,
             )
             r_final.msg_id = state["msg_id"]
-            yield self._tag_seq(r_final)
+            yield self._with_event_metadata(self._tag_seq(r_final), event)
             state["envelope"].content.append(
                 TextContent(
                     type=ContentType.TEXT,
@@ -288,7 +324,10 @@ class Envelope:
             )
             state["envelope"].status = RunStatus.Completed
             self._response.output.append(state["envelope"])
-            yield self._tag_seq(state["envelope"])
+            yield self._with_event_metadata(
+                self._tag_seq(state["envelope"]),
+                event,
+            )
 
         # === TOOL CALL ===
         elif evt_type == EventType.TOOL_CALL_START.value:
@@ -321,8 +360,14 @@ class Envelope:
             )
             stub_content.msg_id = msg_id
 
-            yield self._tag_seq(plugin_call_message.in_progress())
-            yield self._tag_seq(stub_content.in_progress())
+            yield self._with_event_metadata(
+                self._tag_seq(plugin_call_message.in_progress()),
+                event,
+            )
+            yield self._with_event_metadata(
+                self._tag_seq(stub_content.in_progress()),
+                event,
+            )
 
             self._tool_calls[call_id] = {
                 "name": event.tool_call_name,
@@ -350,7 +395,10 @@ class Envelope:
                 index=0,
             )
             delta_content.msg_id = state["message"].id
-            yield self._tag_seq(delta_content.in_progress())
+            yield self._with_event_metadata(
+                self._tag_seq(delta_content.in_progress()),
+                event,
+            )
 
         elif evt_type == EventType.TOOL_CALL_END.value:
             call_id = event.tool_call_id
@@ -368,9 +416,15 @@ class Envelope:
                 delta=False,
             )
             state["message"].add_content(new_content=final_content)
-            yield self._tag_seq(final_content.completed())
+            yield self._with_event_metadata(
+                self._tag_seq(final_content.completed()),
+                event,
+            )
             self._response.output.append(state["message"])
-            yield self._tag_seq(state["message"].completed())
+            yield self._with_event_metadata(
+                self._tag_seq(state["message"].completed()),
+                event,
+            )
 
         # === TOOL RESULT ===
         elif evt_type == EventType.TOOL_RESULT_START.value:
@@ -408,8 +462,14 @@ class Envelope:
             )
             stub_content.msg_id = out_msg_id
 
-            yield self._tag_seq(out_message.in_progress())
-            yield self._tag_seq(stub_content.in_progress())
+            yield self._with_event_metadata(
+                self._tag_seq(out_message.in_progress()),
+                event,
+            )
+            yield self._with_event_metadata(
+                self._tag_seq(stub_content.in_progress()),
+                event,
+            )
 
             state["output_message"] = out_message
             state["output_text_acc"] = ""
@@ -429,7 +489,10 @@ class Envelope:
                 FunctionCallOutput,
             )
             delta_content.msg_id = state["output_message"].id
-            yield self._tag_seq(delta_content.in_progress())
+            yield self._with_event_metadata(
+                self._tag_seq(delta_content.in_progress()),
+                event,
+            )
 
         elif evt_type == EventType.TOOL_RESULT_DATA_DELTA.value:
             call_id = event.tool_call_id
@@ -477,7 +540,10 @@ class Envelope:
                 FunctionCallOutput,
             )
             delta_content.msg_id = state["output_message"].id
-            yield self._tag_seq(delta_content.in_progress())
+            yield self._with_event_metadata(
+                self._tag_seq(delta_content.in_progress()),
+                event,
+            )
 
         elif evt_type == EventType.TOOL_RESULT_END.value:
             call_id = event.tool_call_id
@@ -510,9 +576,15 @@ class Envelope:
                 out_message.object = "message"
 
             out_message.add_content(new_content=final_content)
-            yield self._tag_seq(final_content.completed())
+            yield self._with_event_metadata(
+                self._tag_seq(final_content.completed()),
+                event,
+            )
             self._response.output.append(out_message)
-            yield self._tag_seq(out_message.completed())
+            yield self._with_event_metadata(
+                self._tag_seq(out_message.completed()),
+                event,
+            )
 
         # === DATA BLOCK ===
         elif evt_type == EventType.DATA_BLOCK_START.value:
@@ -520,7 +592,10 @@ class Envelope:
             media_type = getattr(event, "media_type", "")
 
             if not self._message_started:
-                yield self._tag_seq(self._completed_message)
+                yield self._with_event_metadata(
+                    self._tag_seq(self._completed_message),
+                    event,
+                )
                 self._message_started = True
 
             self._data_blocks[block_id] = {
@@ -577,7 +652,10 @@ class Envelope:
 
             content_block.msg_id = self._message_id
             self._completed_message.content.append(content_block)
-            yield self._tag_seq(content_block)
+            yield self._with_event_metadata(
+                self._tag_seq(content_block),
+                event,
+            )
 
         # === MODEL_CALL_END ===
         elif evt_type == EventType.MODEL_CALL_END.value:
@@ -604,7 +682,10 @@ class Envelope:
             )
             err_message.name = "assistant"
             err_message.object = "message"
-            yield self._tag_seq(err_message)
+            yield self._with_event_metadata(
+                self._tag_seq(err_message),
+                event,
+            )
 
             err_text = TextContent(
                 type=ContentType.TEXT,
@@ -616,12 +697,15 @@ class Envelope:
                 index=0,
             )
             err_text.msg_id = err_msg_id
-            yield self._tag_seq(err_text)
+            yield self._with_event_metadata(self._tag_seq(err_text), event)
 
             err_message.content.append(err_text)
             err_message.status = RunStatus.Completed
             self._response.output.append(err_message)
-            yield self._tag_seq(err_message)
+            yield self._with_event_metadata(
+                self._tag_seq(err_message),
+                event,
+            )
 
         # === HINT_BLOCK (P2-2: warn and drop) ===
         # ``EventType.HINT_BLOCK`` does not exist in every agentscope version;
