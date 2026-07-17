@@ -460,6 +460,77 @@
     "runNowSuccess": "Đã kích hoạt Heartbeat. Kiểm tra Hộp thư hoặc kênh đích.",
     "runNowFailed": "Kích hoạt Heartbeat thất bại"
   },
+  "checkpoints": {
+    "nav": "Điểm kiểm tra",
+    "title": "Điểm kiểm tra trạng thái",
+    "auto": "Tự động",
+    "autoEnabled": "Đã bật điểm kiểm tra tự động",
+    "autoDisabled": "Đã tắt điểm kiểm tra tự động",
+    "refresh": "Làm mới",
+    "snapshot": "Ảnh chụp",
+    "snapshotCreated": "Đã tạo ảnh chụp",
+    "graph": "Đồ thị",
+    "checkpoint": "Điểm kiểm tra",
+    "type": "Loại",
+    "commit": "Commit",
+    "createdAt": "Thời gian tạo",
+    "session": "Phiên",
+    "channel": "Kênh",
+    "parent": "Nút cha",
+    "details": "Chi tiết",
+    "search": "Tìm truy vấn, tên, phiên hoặc SHA",
+    "allTypes": "Tất cả loại",
+    "allSessions": "Tất cả phiên",
+    "showingLatest": "Hiển thị {{count}} mục mới nhất",
+    "loadFailed": "Không thể tải điểm kiểm tra",
+    "retry": "Thử lại",
+    "more": "Thao tác khác",
+    "noMatches": "Không có điểm kiểm tra phù hợp.",
+    "empty": "Chưa có điểm kiểm tra trạng thái. Lịch sử phiên bản sẽ xuất hiện ở đây.",
+    "kind": {
+      "auto": "Tự động",
+      "snapshot": "Ảnh chụp",
+      "safety": "An toàn",
+      "commit": "Commit"
+    },
+    "summary": { "total": "điểm" },
+    "snapshotDialog": {
+      "title": "Tạo ảnh chụp",
+      "session": "Phiên",
+      "name": "Tên",
+      "placeholder": "Tên ảnh chụp không bắt buộc"
+    },
+    "gc": {
+      "action": "Dọn dẹp điểm kiểm tra",
+      "title": "Dọn dẹp điểm kiểm tra?",
+      "description": "Có thể xóa {{count}} điểm.",
+      "confirm": "Dọn dẹp",
+      "success": "Đã xóa {{count}} điểm"
+    },
+    "reset": {
+      "action": "Đặt lại dữ liệu",
+      "title": "Đặt lại toàn bộ dữ liệu?",
+      "description": "Thao tác này xóa vĩnh viễn mọi điểm và tắt chế độ tự động.",
+      "confirm": "Đặt lại",
+      "success": "Đã đặt lại dữ liệu"
+    },
+    "restore": {
+      "action": "Khôi phục",
+      "title": "Khôi phục điểm kiểm tra",
+      "preview": "Xem trước",
+      "confirm": "Khôi phục",
+      "conversation": "Hội thoại",
+      "memory": "Bộ nhớ",
+      "files": "Tệp workspace",
+      "refreshWarning": "Hội thoại sẽ thay đổi. Hãy làm mới sau khi khôi phục.",
+      "selectedCount": "Đã chọn {{count}} tệp",
+      "selectAll": "Chọn tất cả tệp thay đổi",
+      "delete": "Xóa",
+      "restore": "Khôi phục",
+      "noFileChanges": "Không cần thay đổi tệp nào.",
+      "success": "Đã khôi phục. Hãy làm mới hội thoại để tải trạng thái."
+    }
+  },
   "workspace": {
     "title": "Tệp tin",
     "workspacePath": "Workspace:",

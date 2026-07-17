@@ -331,6 +331,77 @@
     "progressDone": "Backup complete",
     "localModelsNotice": "Backup files do not include local model files. For cross-device migration, you will need to re-download the required local models on the target device."
   },
+  "checkpoints": {
+    "nav": "Pontos de controle",
+    "title": "Pontos de controle de estado",
+    "auto": "Automático",
+    "autoEnabled": "Pontos automáticos ativados",
+    "autoDisabled": "Pontos automáticos desativados",
+    "refresh": "Atualizar",
+    "snapshot": "Snapshot",
+    "snapshotCreated": "Snapshot criado",
+    "graph": "Grafo",
+    "checkpoint": "Ponto de controle",
+    "type": "Tipo",
+    "commit": "Commit",
+    "createdAt": "Criado em",
+    "session": "Sessão",
+    "channel": "Canal",
+    "parent": "Pai",
+    "details": "Detalhes",
+    "search": "Pesquisar consulta, nome, sessão ou SHA",
+    "allTypes": "Todos os tipos",
+    "allSessions": "Todas as sessões",
+    "showingLatest": "Exibindo os {{count}} mais recentes",
+    "loadFailed": "Não foi possível carregar",
+    "retry": "Tentar novamente",
+    "more": "Mais ações",
+    "noMatches": "Nenhum ponto corresponde aos filtros.",
+    "empty": "Ainda não há pontos de controle. O histórico aparecerá aqui.",
+    "kind": {
+      "auto": "Auto",
+      "snapshot": "Snapshot",
+      "safety": "Segurança",
+      "commit": "Commit"
+    },
+    "summary": { "total": "pontos" },
+    "snapshotDialog": {
+      "title": "Criar snapshot",
+      "session": "Sessão",
+      "name": "Nome",
+      "placeholder": "Nome opcional"
+    },
+    "gc": {
+      "action": "Limpar pontos",
+      "title": "Limpar pontos de controle?",
+      "description": "{{count}} ponto(s) podem ser removidos.",
+      "confirm": "Limpar",
+      "success": "{{count}} ponto(s) removidos"
+    },
+    "reset": {
+      "action": "Redefinir dados",
+      "title": "Redefinir todos os dados?",
+      "description": "Isso remove permanentemente todos os pontos e desativa a criação automática.",
+      "confirm": "Redefinir",
+      "success": "Dados redefinidos"
+    },
+    "restore": {
+      "action": "Restaurar",
+      "title": "Restaurar ponto",
+      "preview": "Visualizar restauração",
+      "confirm": "Restaurar",
+      "conversation": "Conversa",
+      "memory": "Memória",
+      "files": "Arquivos do workspace",
+      "refreshWarning": "A conversa será alterada. Atualize-a após a restauração.",
+      "selectedCount": "{{count}} arquivos selecionados",
+      "selectAll": "Selecionar todos os arquivos alterados",
+      "delete": "Excluir",
+      "restore": "Restaurar",
+      "noFileChanges": "Nenhuma alteração de arquivo é necessária.",
+      "success": "Ponto restaurado. Atualize a conversa para carregar o estado."
+    }
+  },
   "workspace": {
     "title": "Arquivos",
     "workspacePath": "Workspace:",

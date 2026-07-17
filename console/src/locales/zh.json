@@ -270,6 +270,77 @@
     "sourceTypeHeartbeat": "心跳",
     "sourceTypeMemory": "记忆"
   },
+  "checkpoints": {
+    "nav": "检查点",
+    "title": "状态检查点",
+    "auto": "自动检查点",
+    "autoEnabled": "已开启自动检查点",
+    "autoDisabled": "已关闭自动检查点",
+    "refresh": "刷新检查点",
+    "snapshot": "创建快照",
+    "snapshotCreated": "快照已创建",
+    "graph": "图谱",
+    "checkpoint": "检查点",
+    "type": "类型",
+    "commit": "提交",
+    "createdAt": "创建时间",
+    "session": "会话",
+    "channel": "频道",
+    "parent": "父节点",
+    "details": "检查点详情",
+    "search": "搜索 Query、名称、会话或 SHA",
+    "allTypes": "全部类型",
+    "allSessions": "全部会话",
+    "showingLatest": "显示最近 {{count}} 条",
+    "loadFailed": "无法加载检查点",
+    "retry": "重试",
+    "more": "更多操作",
+    "noMatches": "没有符合筛选条件的检查点。",
+    "empty": "暂无状态检查点。创建后，版本历史会显示在这里。",
+    "kind": {
+      "auto": "自动",
+      "snapshot": "快照",
+      "safety": "安全快照",
+      "commit": "提交"
+    },
+    "summary": { "total": "个检查点" },
+    "snapshotDialog": {
+      "title": "创建快照",
+      "session": "会话",
+      "name": "名称",
+      "placeholder": "可选的快照名称"
+    },
+    "gc": {
+      "action": "清理检查点",
+      "title": "清理检查点？",
+      "description": "有 {{count}} 个检查点可以清理。",
+      "confirm": "清理",
+      "success": "已清理 {{count}} 个检查点"
+    },
+    "reset": {
+      "action": "重置检查点数据",
+      "title": "重置全部检查点数据？",
+      "description": "这会永久删除所有检查点，并关闭自动检查点。",
+      "confirm": "重置",
+      "success": "检查点数据已重置"
+    },
+    "restore": {
+      "action": "恢复",
+      "title": "恢复检查点",
+      "preview": "预览恢复",
+      "confirm": "恢复检查点",
+      "conversation": "会话内容",
+      "memory": "记忆",
+      "files": "工作区文件",
+      "refreshWarning": "会话内容将发生变化。恢复完成后，请刷新会话以载入最新状态。",
+      "selectedCount": "已选择 {{count}} 个文件",
+      "selectAll": "选择全部变更文件",
+      "delete": "删除",
+      "restore": "恢复",
+      "noFileChanges": "无需恢复工作区文件。",
+      "success": "检查点恢复成功，请刷新会话以载入恢复后的状态。"
+    }
+  },
   "workspace": {
     "title": "文件",
     "workspacePath": "工作区路径：",

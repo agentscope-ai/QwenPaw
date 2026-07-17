@@ -487,6 +487,77 @@
     "progressDone": "Backup complete",
     "localModelsNotice": "Backup files do not include local model files. For cross-device migration, you will need to re-download the required local models on the target device."
   },
+  "checkpoints": {
+    "nav": "Checkpoints",
+    "title": "State Checkpoints",
+    "auto": "Auto",
+    "autoEnabled": "Automatic checkpoints enabled",
+    "autoDisabled": "Automatic checkpoints disabled",
+    "refresh": "Refresh checkpoints",
+    "snapshot": "Snapshot",
+    "snapshotCreated": "Snapshot created",
+    "graph": "Graph",
+    "checkpoint": "Checkpoint",
+    "type": "Type",
+    "commit": "Commit",
+    "createdAt": "Created",
+    "session": "Session",
+    "channel": "Channel",
+    "parent": "Parent",
+    "details": "Checkpoint details",
+    "search": "Search query, name, session, or SHA",
+    "allTypes": "All types",
+    "allSessions": "All sessions",
+    "showingLatest": "Latest {{count}} shown",
+    "loadFailed": "Unable to load checkpoints",
+    "retry": "Retry",
+    "more": "More actions",
+    "noMatches": "No checkpoints match these filters.",
+    "empty": "No state checkpoints yet. Your version history will appear here.",
+    "kind": {
+      "auto": "Auto",
+      "snapshot": "Snapshot",
+      "safety": "Safety",
+      "commit": "Commit"
+    },
+    "summary": { "total": "checkpoints" },
+    "snapshotDialog": {
+      "title": "Create snapshot",
+      "session": "Session",
+      "name": "Name",
+      "placeholder": "Optional snapshot name"
+    },
+    "gc": {
+      "action": "Clean up checkpoints",
+      "title": "Clean up checkpoints?",
+      "description": "{{count}} checkpoint(s) are eligible for removal.",
+      "confirm": "Clean up",
+      "success": "Removed {{count}} checkpoint(s)"
+    },
+    "reset": {
+      "action": "Reset checkpoint data",
+      "title": "Reset all checkpoint data?",
+      "description": "This permanently removes every checkpoint and turns automatic checkpoints off.",
+      "confirm": "Reset",
+      "success": "Checkpoint data reset"
+    },
+    "restore": {
+      "action": "Restore",
+      "title": "Restore checkpoint",
+      "preview": "Preview restore",
+      "confirm": "Restore checkpoint",
+      "conversation": "Conversation",
+      "memory": "Memory",
+      "files": "Workspace files",
+      "refreshWarning": "The conversation will change. Refresh the conversation after the restore completes.",
+      "selectedCount": "{{count}} files selected",
+      "selectAll": "Select all changed files",
+      "delete": "Delete",
+      "restore": "Restore",
+      "noFileChanges": "No workspace file changes are needed.",
+      "success": "Checkpoint restored. Refresh the conversation to load its restored state."
+    }
+  },
   "workspace": {
     "title": "Files",
     "workspacePath": "Workspace:",

@@ -760,6 +760,77 @@
       "add": "Tambah Aturan"
     }
   },
+  "checkpoints": {
+    "nav": "Checkpoint",
+    "title": "Checkpoint Status",
+    "auto": "Otomatis",
+    "autoEnabled": "Checkpoint otomatis diaktifkan",
+    "autoDisabled": "Checkpoint otomatis dinonaktifkan",
+    "refresh": "Muat ulang",
+    "snapshot": "Snapshot",
+    "snapshotCreated": "Snapshot dibuat",
+    "graph": "Grafik",
+    "checkpoint": "Checkpoint",
+    "type": "Jenis",
+    "commit": "Commit",
+    "createdAt": "Dibuat",
+    "session": "Sesi",
+    "channel": "Kanal",
+    "parent": "Induk",
+    "details": "Detail checkpoint",
+    "search": "Cari kueri, nama, sesi, atau SHA",
+    "allTypes": "Semua jenis",
+    "allSessions": "Semua sesi",
+    "showingLatest": "Menampilkan {{count}} terbaru",
+    "loadFailed": "Checkpoint tidak dapat dimuat",
+    "retry": "Coba lagi",
+    "more": "Tindakan lainnya",
+    "noMatches": "Tidak ada checkpoint yang cocok.",
+    "empty": "Belum ada checkpoint status. Riwayat versi akan muncul di sini.",
+    "kind": {
+      "auto": "Otomatis",
+      "snapshot": "Snapshot",
+      "safety": "Pengaman",
+      "commit": "Commit"
+    },
+    "summary": { "total": "checkpoint" },
+    "snapshotDialog": {
+      "title": "Buat snapshot",
+      "session": "Sesi",
+      "name": "Nama",
+      "placeholder": "Nama snapshot opsional"
+    },
+    "gc": {
+      "action": "Bersihkan checkpoint",
+      "title": "Bersihkan checkpoint?",
+      "description": "{{count}} checkpoint dapat dihapus.",
+      "confirm": "Bersihkan",
+      "success": "{{count}} checkpoint dihapus"
+    },
+    "reset": {
+      "action": "Reset data checkpoint",
+      "title": "Reset semua data?",
+      "description": "Semua checkpoint akan dihapus permanen dan mode otomatis dinonaktifkan.",
+      "confirm": "Reset",
+      "success": "Data checkpoint direset"
+    },
+    "restore": {
+      "action": "Pulihkan",
+      "title": "Pulihkan checkpoint",
+      "preview": "Pratinjau pemulihan",
+      "confirm": "Pulihkan",
+      "conversation": "Percakapan",
+      "memory": "Memori",
+      "files": "File workspace",
+      "refreshWarning": "Percakapan akan berubah. Muat ulang setelah pemulihan selesai.",
+      "selectedCount": "{{count}} file dipilih",
+      "selectAll": "Pilih semua file yang berubah",
+      "delete": "Hapus",
+      "restore": "Pulihkan",
+      "noFileChanges": "Tidak ada perubahan file yang diperlukan.",
+      "success": "Checkpoint dipulihkan. Muat ulang percakapan untuk memuat statusnya."
+    }
+  },
   "workspace": {
     "title": "File",
     "workspacePath": "Workspace:",
