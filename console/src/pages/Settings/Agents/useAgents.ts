@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 import { agentsApi } from "@/api/modules/agents";
 import type { AgentSummary } from "@/api/types/agents";
 import { useAgentStore } from "@/stores/agentStore";
-import { useAgentStatusPolling } from "@/hooks/useAgentStatusPolling";
 
 interface UseAgentsReturn {
   agents: AgentSummary[];
@@ -19,10 +18,13 @@ interface UseAgentsReturn {
 
 export function useAgents(): UseAgentsReturn {
   const { t } = useTranslation();
-  const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const { setAgents: updateStoreAgents } = useAgentStore();
+  const {
+    agents,
+    setAgents: updateStoreAgents,
+    refreshAgents,
+  } = useAgentStore();
   const { message } = useAppMessage();
   const messageRef = useRef(message);
   const translationRef = useRef(t);
@@ -31,7 +33,6 @@ export function useAgents(): UseAgentsReturn {
 
   const setAgentsState = useCallback(
     (nextAgents: AgentSummary[]) => {
-      setAgents(nextAgents);
       updateStoreAgents(nextAgents);
     },
     [updateStoreAgents],
@@ -44,8 +45,7 @@ export function useAgents(): UseAgentsReturn {
       }
       setError(null);
       try {
-        const data = await agentsApi.listAgents();
-        setAgentsState(data.agents);
+        await refreshAgents();
       } catch (err) {
         console.error("Failed to load agents:", err);
         const errorMsg =
@@ -62,7 +62,7 @@ export function useAgents(): UseAgentsReturn {
         }
       }
     },
-    [setAgentsState],
+    [refreshAgents],
   );
 
   const loadAgents = useCallback(() => fetchAgents(true, true), [fetchAgents]);
@@ -131,12 +131,6 @@ export function useAgents(): UseAgentsReturn {
   useEffect(() => {
     void loadAgents();
   }, [loadAgents]);
-
-  const refreshStatuses = useCallback(
-    () => fetchAgents(false, false),
-    [fetchAgents],
-  );
-  useAgentStatusPolling(agents, refreshStatuses);
 
   return {
     agents,

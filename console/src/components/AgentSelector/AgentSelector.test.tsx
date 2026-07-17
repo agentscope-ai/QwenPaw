@@ -7,7 +7,7 @@ import AgentSelector from "./index";
 const mocks = vi.hoisted(() => ({
   setSelectedAgent: vi.fn(),
   setAgents: vi.fn(),
-  listAgents: vi.fn(),
+  refreshAgents: vi.fn(),
   toggleAgentEnabled: vi.fn(),
   setAgentPinned: vi.fn(),
   navigate: vi.fn(),
@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/api/modules/agents", () => ({
   agentsApi: {
-    listAgents: mocks.listAgents,
     toggleAgentEnabled: mocks.toggleAgentEnabled,
     setAgentPinned: mocks.setAgentPinned,
   },
@@ -30,6 +29,7 @@ vi.mock("@/stores/agentStore", () => ({
     ...mocks.storeState,
     setSelectedAgent: mocks.setSelectedAgent,
     setAgents: mocks.setAgents,
+    refreshAgents: mocks.refreshAgents,
   })),
 }));
 
@@ -76,7 +76,7 @@ describe("AgentSelector", () => {
   beforeEach(() => {
     mocks.storeState.selectedAgent = "default";
     mocks.storeState.agents = agents;
-    mocks.listAgents.mockResolvedValue({ agents });
+    mocks.refreshAgents.mockResolvedValue(undefined);
     mocks.toggleAgentEnabled.mockResolvedValue({
       success: true,
       agent_id: "agent-2",
@@ -91,14 +91,14 @@ describe("AgentSelector", () => {
 
   afterEach(() => vi.clearAllMocks());
 
-  it("calls listAgents on mount", async () => {
+  it("refreshes the shared agent store on mount", async () => {
     renderWithProviders(<AgentSelector />);
-    await waitFor(() => expect(mocks.listAgents).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.refreshAgents).toHaveBeenCalledOnce());
   });
 
   it("does not render Select in collapsed mode", async () => {
     renderWithProviders(<AgentSelector collapsed />);
-    await waitFor(() => expect(mocks.listAgents).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.refreshAgents).toHaveBeenCalled());
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 
@@ -131,7 +131,6 @@ describe("AgentSelector", () => {
     };
     const nextAgents = [...agents, pinnedDisabledAgent];
     mocks.storeState.agents = nextAgents;
-    mocks.listAgents.mockResolvedValue({ agents: nextAgents });
     const user = userEvent.setup();
     renderWithProviders(<AgentSelector />);
 

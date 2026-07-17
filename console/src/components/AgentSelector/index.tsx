@@ -19,7 +19,6 @@ import { useTranslation } from "react-i18next";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
 import { useNavigate } from "react-router-dom";
 import { useAppMessage } from "../../hooks/useAppMessage";
-import { useAgentStatusPolling } from "../../hooks/useAgentStatusPolling";
 import { AgentStatusIndicator } from "../AgentStatusIndicator";
 import { useAgentLongPress } from "./useAgentLongPress";
 import styles from "./index.module.less";
@@ -33,7 +32,7 @@ export default function AgentSelector({
 }: AgentSelectorProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { selectedAgent, agents, setSelectedAgent, setAgents } =
+  const { selectedAgent, agents, setSelectedAgent, setAgents, refreshAgents } =
     useAgentStore();
   const { message } = useAppMessage();
   const messageRef = useRef(message);
@@ -52,8 +51,7 @@ export default function AgentSelector({
         if (showLoading) {
           setLoading(true);
         }
-        const data = await agentsApi.listAgents();
-        setAgents(data.agents);
+        await refreshAgents();
       } catch (error) {
         console.error("Failed to load agents:", error);
         if (reportError) {
@@ -65,18 +63,12 @@ export default function AgentSelector({
         }
       }
     },
-    [setAgents],
+    [refreshAgents],
   );
 
   useEffect(() => {
     void loadAgents();
   }, [loadAgents]);
-
-  const refreshStatuses = useCallback(
-    () => loadAgents(false, false),
-    [loadAgents],
-  );
-  useAgentStatusPolling(agents, refreshStatuses);
 
   const enabledAgents = useMemo(
     () => agents.filter((agent) => agent.enabled),
