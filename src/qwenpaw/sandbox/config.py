@@ -32,6 +32,7 @@ Typical usage:
 
 from __future__ import annotations
 
+import functools
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -160,9 +161,7 @@ class SandboxCapability:
     supported: bool
     mode: SandboxMode
     reason: str  # Human-readable reason
-    landlock_abi_version: int = (
-        0  # Linux only: Landlock ABI version (0=unsupported)
-    )
+    landlock_abi_version: int = 0  # Linux only: Landlock ABI version (0=unsupported)
 
 
 def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements
@@ -265,9 +264,7 @@ def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements
             return SandboxCapability(
                 supported=False,
                 mode=SandboxMode.NONE,
-                reason=(
-                    f"landlock_create_ruleset syscall failed, errno={errno}"
-                ),
+                reason=(f"landlock_create_ruleset syscall failed, errno={errno}"),
             )
 
         return SandboxCapability(
@@ -413,9 +410,7 @@ def _probe_linux_bubblewrap() -> SandboxCapability:
         return SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,
-            reason=(
-                f"bwrap probe failed (rc={result.returncode}): {stderr[:200]}"
-            ),
+            reason=(f"bwrap probe failed (rc={result.returncode}): {stderr[:200]}"),
         )
     except subprocess.TimeoutExpired:
         return SandboxCapability(
@@ -431,6 +426,7 @@ def _probe_linux_bubblewrap() -> SandboxCapability:
         )
 
 
+@functools.lru_cache(maxsize=1)
 def probe_sandbox_support() -> SandboxCapability:
     """Probe current platform sandbox support at startup.
 
@@ -439,6 +435,11 @@ def probe_sandbox_support() -> SandboxCapability:
     the SANDBOX_FALLBACK path.
 
     On Linux the priority is: bubblewrap > Landlock > NONE.
+
+    The result is cached (``lru_cache(maxsize=1)``) because OS-level
+    sandbox capability does not change during the process lifetime.
+    The first call may block (e.g. ``subprocess.run`` with a timeout
+    on Linux); subsequent calls return instantly from cache.
     """
     import sys
 

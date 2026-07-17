@@ -840,13 +840,18 @@ class SandboxStatusResponse(BaseModel):
     )
 
 
-def _sandbox_effective_status(
+async def _sandbox_effective_status(
     enabled: bool,
 ) -> tuple[bool, Optional[str]]:
     """Return (effective, reason) for the sandbox setting.
 
     Checks both platform-level permissions (admin on Windows) and
     actual sandbox capability availability.
+
+    The capability probe runs in a thread-pool worker via
+    ``asyncio.to_thread`` so that the (potentially blocking) first
+    call never stalls the async event loop.  Subsequent calls hit
+    the ``lru_cache`` and return instantly.
     """
     if not enabled:
         return False, None
@@ -857,10 +862,12 @@ def _sandbox_effective_status(
     if not is_windows_admin():
         return False, "not_admin"
 
-    # Check if sandbox backend is actually available on this platform
+    # Check if sandbox backend is actually available on this platform.
+    # probe_sandbox_support() is lru_cache'd; the first call may block
+    # (subprocess.run on Linux), so we offload it to a thread.
     from ...sandbox import probe_sandbox_support
 
-    capability = probe_sandbox_support()
+    capability = await asyncio.to_thread(probe_sandbox_support)
     if not capability.supported:
         return False, "unsupported"
 
@@ -886,7 +893,7 @@ async def get_sandbox_setting(
     current_enabled = config.security.sandbox_enabled
     # Use the proposed value if provided, otherwise the current config value.
     target_enabled = enabled if enabled is not None else current_enabled
-    effective, reason = _sandbox_effective_status(target_enabled)
+    effective, reason = await _sandbox_effective_status(target_enabled)
     return SandboxStatusResponse(
         enabled=target_enabled,
         effective=effective,
@@ -910,7 +917,7 @@ async def put_sandbox_setting(
     # issues when the frontend saves other security settings alongside
     # an unchanged sandbox value.
     if body.enabled == current_enabled:
-        effective, reason = _sandbox_effective_status(body.enabled)
+        effective, reason = await _sandbox_effective_status(body.enabled)
         return SandboxStatusResponse(
             enabled=body.enabled,
             effective=effective,
@@ -938,7 +945,7 @@ async def put_sandbox_setting(
 
     config.security.sandbox_enabled = body.enabled
     save_config(config)
-    effective, reason = _sandbox_effective_status(body.enabled)
+    effective, reason = await _sandbox_effective_status(body.enabled)
     return SandboxStatusResponse(
         enabled=body.enabled,
         effective=effective,
@@ -1001,9 +1008,7 @@ async def put_file_guard(
 
         fg.sensitive_files = ensure_file_guard_paths(body.paths)
     if body.allow_preview_outside_workspace is not None:
-        fg.allow_preview_outside_workspace = (
-            body.allow_preview_outside_workspace
-        )
+        fg.allow_preview_outside_workspace = body.allow_preview_outside_workspace
 
     save_config(config)
 

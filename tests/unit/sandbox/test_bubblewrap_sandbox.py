@@ -62,9 +62,7 @@ class TestBuildBwrapArgs:
         args = sb._build_bwrap_args("echo hello", "/tmp/ws")
         # Find --tmpfs for the deny_path
         tmpfs_indices = [i for i, x in enumerate(args) if x == "--tmpfs"]
-        deny_found = any(
-            args[i + 1] == "/home/user/.ssh" for i in tmpfs_indices
-        )
+        deny_found = any(args[i + 1] == "/home/user/.ssh" for i in tmpfs_indices)
         assert deny_found, f"deny_path not masked with --tmpfs, args={args}"
 
     @patch("os.path.exists", return_value=True)
@@ -96,9 +94,7 @@ class TestBuildBwrapArgs:
         args = sb._build_bwrap_args("echo hello", "/tmp/ws")
         # Find --bind for writable mount
         bind_indices = [i for i, x in enumerate(args) if x == "--bind"]
-        writable_found = any(
-            args[i + 1] == "/workspace/project" for i in bind_indices
-        )
+        writable_found = any(args[i + 1] == "/workspace/project" for i in bind_indices)
         assert writable_found, f"writable mount not found, args={args}"
 
     def test_dev_always_present(self):
@@ -225,6 +221,15 @@ class TestProbeLinuxBubblewrap:
 
 class TestProbeSandboxSupportLinuxBwrap:
     """Test that probe_sandbox_support on Linux tries bwrap first."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_probe_cache(self):
+        """Clear lru_cache so each test starts fresh."""
+        from qwenpaw.sandbox.config import probe_sandbox_support
+
+        probe_sandbox_support.cache_clear()
+        yield
+        probe_sandbox_support.cache_clear()
 
     @patch("sys.platform", "linux")
     @patch(

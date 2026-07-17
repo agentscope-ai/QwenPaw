@@ -25,9 +25,7 @@ from qwenpaw.sandbox.config import (
 # os.uname is Linux/macOS only; skip entirely on Windows.
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32",
-    reason=(
-        "Linux sandbox tests require os.uname which is unavailable on Windows"
-    ),
+    reason=("Linux sandbox tests require os.uname which is unavailable on Windows"),
 )
 
 # ============================================================================
@@ -37,6 +35,13 @@ pytestmark = pytest.mark.skipif(
 
 class TestProbeSandboxSupport:
     """Test probe_sandbox_support() for each platform."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_probe_cache(self):
+        """Clear lru_cache so each test starts fresh."""
+        probe_sandbox_support.cache_clear()
+        yield
+        probe_sandbox_support.cache_clear()
 
     @patch("sys.platform", "darwin")
     @patch("shutil.which", return_value="/usr/bin/sandbox-exec")
@@ -289,9 +294,7 @@ class TestLinuxSandboxRuleCompilation:
         # deny_paths should NOT appear as an add_path call
         # (the path should not be granted access)
         lines_with_ssh = [
-            line
-            for line in script.split("\n")
-            if ".ssh" in line and "add_path" in line
+            line for line in script.split("\n") if ".ssh" in line and "add_path" in line
         ]
         assert len(lines_with_ssh) == 0
 
