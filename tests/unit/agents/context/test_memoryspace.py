@@ -354,6 +354,70 @@ def test_search_returns_and_deduplicates_complete_exchange(tmp_path: Path):
     assert user_hits[0]["exchange"] == hits[0]["exchange"]
 
 
+def test_search_groups_imported_kind_by_user_role(tmp_path: Path):
+    history = HistoryStore(tmp_path / "history.db")
+    user_seq = history.append(
+        session_id="beam-batch",
+        agent_id="ag1",
+        dedup_key="beam-u1",
+        entry=LogEntry(
+            kind="beam_chat_turn",  # type: ignore[arg-type]
+            role="user",
+            content="How many Jira tasks did I log?",
+            created_at="2024-11-05T00:00:00+00:00",
+        ),
+    )
+    assistant_seq = history.append(
+        session_id="beam-batch",
+        agent_id="ag1",
+        dedup_key="beam-a1",
+        entry=LogEntry(
+            kind="beam_chat_turn",  # type: ignore[arg-type]
+            role="assistant",
+            content="You logged 18 Jira tasks.",
+            created_at="2024-11-05T00:00:00+00:00",
+        ),
+    )
+    history.append(
+        session_id="beam-batch",
+        agent_id="ag1",
+        dedup_key="beam-u2",
+        entry=LogEntry(
+            kind="beam_chat_turn",  # type: ignore[arg-type]
+            role="user",
+            content="A separate benchmark question",
+            created_at="2024-11-06T00:00:00+00:00",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="probe",
+        agent_id="ag1",
+    )
+
+    try:
+        assistant_hit = space.search(
+            "18 Jira",
+            kind="beam_chat_turn",
+        )
+        user_hit = space.search(
+            "How many",
+            kind="beam_chat_turn",
+        )
+    finally:
+        space.close()
+
+    assert len(assistant_hit) == 1
+    assert assistant_hit[0]["exchange_start_seq"] == user_seq
+    assert assistant_hit[0]["exchange_end_seq"] == assistant_seq
+    assert [row["content"] for row in assistant_hit[0]["exchange"]] == [
+        "How many Jira tasks did I log?",
+        "You logged 18 Jira tasks.",
+    ]
+    assert user_hit[0]["exchange"] == assistant_hit[0]["exchange"]
+
+
 def test_search_exchange_does_not_cross_session_or_agent(tmp_path: Path):
     history = HistoryStore(tmp_path / "history.db")
     for session_id, agent_id, suffix in (
@@ -397,7 +461,9 @@ def test_search_exchange_does_not_cross_session_or_agent(tmp_path: Path):
     for hit in hits:
         assert {
             (row["session_id"], row["agent_id"]) for row in hit["exchange"]
-        } == {(hit["session_id"], hit["agent_id"])}
+        } == {
+            (hit["session_id"], hit["agent_id"]),
+        }
 
 
 def test_active_turn_floor_is_computed_once_per_instance(

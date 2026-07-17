@@ -714,11 +714,14 @@ class MemorySpace:
 
     @staticmethod
     def _real_user_conditions(prefix: str = "") -> tuple[list[str], list]:
-        """SQL conditions identifying a real user request boundary."""
-        conditions = [
-            f"{prefix}kind = 'context_msg'",
-            f"{prefix}role = 'user'",
-        ]
+        """SQL conditions identifying a kind-agnostic user boundary.
+
+        Native Scroll rows use ``kind='context_msg'`` while imported history
+        can use source-specific kinds such as ``beam_chat_turn``. The role is
+        the portable boundary signal; tagged continuation stubs remain part
+        of the preceding exchange rather than opening a new one.
+        """
+        conditions = [f"{prefix}role = 'user'"]
         params: list = []
         for tag in _SYNTHETIC_USER_TAGS:
             conditions.append(
