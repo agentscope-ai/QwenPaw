@@ -33,8 +33,6 @@ from qwenpaw.sandbox.windows_restricted_sandbox import (
     _remaining_budget,
     _run_icacls_sync,
     _sandboxes_dir,
-    _SHUTDOWN_ACL_DEADLINE,
-    _SHUTDOWN_ACL_TIMEOUT_SECONDS,
     _verify_acl_removed_sync,
 )
 from qwenpaw.sandbox.windows_sandbox import (
