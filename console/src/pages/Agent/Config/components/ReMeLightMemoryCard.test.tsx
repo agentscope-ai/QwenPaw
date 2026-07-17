@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
 
-import { isEmbeddingEnabled } from "./ReMeLightMemoryCard";
+import {
+  isEmbeddingEnabled,
+  isValidDreamCronShape,
+} from "./ReMeLightMemoryCard";
+
+describe("isValidDreamCronShape", () => {
+  it("accepts a five-field cron expression", () => {
+    expect(isValidDreamCronShape("0 23 * * *")).toBe(true);
+    expect(isValidDreamCronShape("  0 3 * * mon-fri  ")).toBe(true);
+  });
+
+  it("rejects empty and malformed expressions", () => {
+    expect(isValidDreamCronShape("")).toBe(false);
+    expect(isValidDreamCronShape("0 23 * *")).toBe(false);
+    expect(isValidDreamCronShape("0 23 * * ?")).toBe(false);
+  });
+});
 
 describe("isEmbeddingEnabled", () => {
   it("requires model name for every backend", () => {

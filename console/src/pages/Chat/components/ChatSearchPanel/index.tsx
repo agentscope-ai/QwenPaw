@@ -115,7 +115,7 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
         const query = searchQuery.toLowerCase();
         const results: SearchResult[] = [];
 
-        const chats = await chatApi.listChats();
+        const chats = await chatApi.listChats({ archived: false });
         if (seq !== searchSeqRef.current) return;
 
         const validChats = chats.filter(

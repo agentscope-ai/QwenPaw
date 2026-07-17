@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  clearStoredInputQueue,
   hasStoredInputQueueItems,
   removeStoredInputQueueItem,
 } from "../inputQueueStorage";
@@ -80,6 +81,21 @@ describe("input queue accepted-request recovery", () => {
     expect(removeStoredInputQueueItem(queueSessionId, "request-biz")).toBe(
       true,
     );
+    expect(localStorage.getItem(storageKey)).toBeNull();
+  });
+
+  it("clears all stored queue state when a session is removed", () => {
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        items: [{ id: "queued", data: { query: "later" } }],
+        paused: true,
+        ownerTabId: "tab-1",
+      }),
+    );
+
+    clearStoredInputQueue(queueSessionId);
+
     expect(localStorage.getItem(storageKey)).toBeNull();
   });
 });

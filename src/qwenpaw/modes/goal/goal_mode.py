@@ -100,11 +100,22 @@ class GoalMode(AgentMode):
         """Default token budget for new goals."""
         return self._default_max_tokens
 
-    def first_active_session(
+    def active_session(
         self,
     ) -> GoalSession | None:
-        """Return first active GoalSession or None."""
-        return self._first_active_session()
+        """Return active session for current context.
+
+        Uses get_current_session_id() ContextVar to
+        look up session. Returns None if no session or
+        session is inactive.
+        """
+        key = get_current_session_id()
+        if key is None:
+            return None
+        s = self._sessions.get(key)
+        if s is not None and s.active:
+            return s
+        return None
 
     def session_by_ctx_var(
         self,
@@ -119,6 +130,23 @@ class GoalMode(AgentMode):
         if key is None:
             return None
         return self._sessions.get(key)
+
+    def deactivate(self) -> None:
+        """Remove current session from _sessions.
+
+        Called after goal completion to prevent stale
+        sessions from blocking subsequent messages.
+        """
+        key = get_current_session_id()
+        if key is not None:
+            self._sessions.pop(key, None)
+
+    def on_conversation_reset(
+        self,
+        workspace: object,  # noqa: ARG002
+    ) -> None:
+        """Clear all goal sessions on /new or /clear."""
+        self._sessions.clear()
 
     # ---- AgentMode interface ----
 
@@ -202,9 +230,6 @@ class GoalMode(AgentMode):
         handler.register(GoalTurnGate(self))
         handler.register(GoalBudgetGate(self))
         handler.register(RubricGate(self, rubric))
-        handler.set_continuation(
-            self._build_continuation,
-        )
 
         completion_gate = create_completion_gate(
             workspace,
@@ -216,7 +241,7 @@ class GoalMode(AgentMode):
 
     def is_active(self, ctx: Any) -> bool:
         """Goal mode is active when session live."""
-        return self._first_active_session() is not None
+        return self.active_session() is not None
 
     # ---- slash command handlers ----
 
@@ -262,27 +287,6 @@ class GoalMode(AgentMode):
         rewrite_user_msg(ctx, goal_text)
         return None
 
-    def _build_continuation(
-        self,
-        ctx: Any,  # pylint: disable=unused-argument
-    ) -> str:
-        """Build continuation message."""
-        session = self._first_active_session()
-        if session is None:
-            return ""
-        remaining = max(
-            0,
-            session.max_tokens - session.tokens_used,
-        )
-        return CONTINUATION_PROMPT.format(
-            objective=session.goal,
-            iteration=session.iteration,
-            max_iterations=(session.max_iterations),
-            tokens_used=session.tokens_used,
-            token_budget=session.max_tokens,
-            remaining_tokens=remaining,
-        )
-
     # ---- prompt / session helpers ----
 
     def prompt_provider(
@@ -294,7 +298,7 @@ class GoalMode(AgentMode):
         First turn uses INITIAL_GOAL_PROMPT;
         subsequent turns use CONTINUATION_PROMPT.
         """
-        session = self._first_active_session()
+        session = self.active_session()
         if session is None:
             return ""
 
@@ -317,18 +321,6 @@ class GoalMode(AgentMode):
             token_budget=session.max_tokens,
             remaining_tokens=remaining,
         )
-
-    def _first_active_session(
-        self,
-    ) -> Optional[GoalSession]:
-        """Return active session via ContextVar."""
-        key = get_current_session_id()
-        if key is None:
-            return None
-        s = self._sessions.get(key)
-        if s is not None and s.active:
-            return s
-        return None
 
     @staticmethod
     def _current_session_key(

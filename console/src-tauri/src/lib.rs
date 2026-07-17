@@ -22,10 +22,15 @@ pub fn run() {
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(
+            tauri_plugin_updater::Builder::new()
+                .default_version_comparator(updates::is_remote_update_newer)
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             open_devtools,
             backend_download::download_backend_file,
+            backend_download::read_workspace_binary_file,
             backend::backend_port,
             backend::backend_startup_error,
             backend::restart_backend,

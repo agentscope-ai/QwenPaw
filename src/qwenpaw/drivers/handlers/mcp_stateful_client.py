@@ -62,6 +62,8 @@ _TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
 # in practice) with headroom, while still failing fast enough that a
 # permanently-broken client doesn't stall every turn for long.
 _LIST_TOOLS_RECONNECT_WAIT: float = 3.0
+_LIFECYCLE_CLEANUP_TIMEOUT: float = 5.0
+_LIFECYCLE_REAPERS: dict[asyncio.Task, asyncio.Task] = {}
 
 
 def _is_transport_error(exc: BaseException) -> bool:
@@ -252,8 +254,11 @@ class _MCPClientMixin:
                 f"Timeout waiting for MCP client '{self.name}' to connect",
             )
             self._stop_event.set()
-            if self._lifecycle_task:
-                await self._lifecycle_task
+            lifecycle_task = self._lifecycle_task
+            if lifecycle_task:
+                if not lifecycle_task.done():
+                    lifecycle_task.cancel()
+                await self._wait_for_lifecycle_exit(lifecycle_task)
             raise
 
         if self._oauth_required:
@@ -420,29 +425,80 @@ class _MCPClientMixin:
                 )
             return
 
+        lifecycle_task = self._lifecycle_task
         try:
-            # Signal stop and wait for the lifecycle task to finish.  This
-            # must happen even when is_connected is False (reconnect loop).
             self._stop_event.set()
-            if self._lifecycle_task:
-                await self._lifecycle_task
+            if lifecycle_task:
+                await self._wait_for_lifecycle_exit(lifecycle_task)
         except Exception as e:
             if not ignore_errors:
                 raise
             logger.warning(
                 f"Error closing MCP client '{self.name}': {e}",
             )
-        finally:
-            # Clear the reference unconditionally — including when the current
-            # coroutine is cancelled (CancelledError is BaseException, not
-            # Exception, so it bypasses the except block above).  _stop_event
-            # is already set at this point, so the task will exit on its next
-            # iteration even if we don't hold the reference.
-            self._lifecycle_task = None
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _clear_lifecycle_state(self, task: asyncio.Task) -> None:
+        """Clear state once the current lifecycle task has exited."""
+        if self._lifecycle_task is task:
+            self._lifecycle_task = None
+            self.session = None
+            self.is_connected = False
+            self._ready_event.clear()
+
+    async def _reap_lifecycle_task(self, lifecycle_task: asyncio.Task) -> None:
+        """Retain and retry cleanup until the lifecycle task exits."""
+        try:
+            while not lifecycle_task.done():
+                lifecycle_task.cancel()
+                done, _ = await asyncio.wait(
+                    {lifecycle_task},
+                    timeout=_LIFECYCLE_CLEANUP_TIMEOUT,
+                )
+                if lifecycle_task not in done:
+                    logger.warning(
+                        "MCP client '%s' lifecycle cleanup is still pending; "
+                        "retrying cancellation: done=%s, cancelled=%s, "
+                        "cancelling=%s",
+                        self.name,
+                        lifecycle_task.done(),
+                        lifecycle_task.cancelled(),
+                        lifecycle_task.cancelling(),
+                    )
+            await asyncio.gather(lifecycle_task, return_exceptions=True)
+            self._clear_lifecycle_state(lifecycle_task)
+        finally:
+            _LIFECYCLE_REAPERS.pop(lifecycle_task, None)
+
+    async def _wait_for_lifecycle_exit(self, task: asyncio.Task) -> None:
+        """Wait briefly for lifecycle cleanup without blocking forever."""
+        done, _ = await asyncio.wait(
+            {task},
+            timeout=_LIFECYCLE_CLEANUP_TIMEOUT,
+        )
+        if task not in done:
+            if task not in _LIFECYCLE_REAPERS:
+                reaper = asyncio.create_task(
+                    self._reap_lifecycle_task(task),
+                    name=f"mcp-lifecycle-reaper:{self.name}",
+                )
+                _LIFECYCLE_REAPERS[task] = reaper
+            logger.error(
+                "Timed out cleaning up MCP client '%s'; background reaper "
+                "active: "
+                "done=%s, cancelled=%s, cancelling=%s",
+                self.name,
+                task.done(),
+                task.cancelled(),
+                task.cancelling(),
+            )
+            return
+
+        await asyncio.gather(task, return_exceptions=True)
+        self._clear_lifecycle_state(task)
 
     def _handle_transport_error(self, exc: BaseException) -> None:
         """Mark the client as disconnected and schedule a reconnect when *exc*

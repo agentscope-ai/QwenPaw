@@ -7,7 +7,21 @@ window (update on /compact, reset on /clear, preserve otherwise). The prior bug
 was that *every* command silently dropped the scroll block.
 """
 
-from qwenpaw.runtime.builtin_commands import _resolve_scroll_block
+from qwenpaw.agents.command_handler import ConversationCommandHandlerMixin
+from qwenpaw.runtime.builtin_commands import (
+    _collect_conversation_specs,
+    _CONVERSATION_COMMANDS,
+    _resolve_scroll_block,
+)
+
+
+def test_runtime_registers_every_command_handler_conversation_command():
+    assert _CONVERSATION_COMMANDS == (
+        ConversationCommandHandlerMixin.SYSTEM_COMMANDS
+    )
+    assert "reme_status" in {
+        spec.name for spec in _collect_conversation_specs()
+    }
 
 
 def test_compact_saves_the_refreshed_block():

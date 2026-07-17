@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 from .mcp_binding import (
+    EnvRefPlan,
     binding_plain_keys,
     binding_to_response,
     classify_mcp_binding,
     mask_mcp_secret_value,
     normalize_secret_key,
+    plan_env_ref_bindings,
     restore_masked_value,
     source_binding_from_split,
     split_mcp_binding,
@@ -27,6 +29,7 @@ from .mcp_card_builder import (
 )
 
 __all__ = [
+    "EnvRefPlan",
     "OAUTH_CREDENTIAL_ALIAS",
     "STATIC_CREDENTIAL_ALIAS",
     "attach_mcp_oauth_credential",
@@ -41,6 +44,7 @@ __all__ = [
     "mcp_credential_ref",
     "mcp_oauth_credential_ref",
     "normalize_secret_key",
+    "plan_env_ref_bindings",
     "restore_masked_value",
     "source_binding_from_split",
     "split_mcp_binding",

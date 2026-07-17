@@ -46,6 +46,129 @@ def get_tool_config(tool_name: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+# -------------------------------------------------------------------
+# Helpers for PluginApi.register_tool
+# -------------------------------------------------------------------
+
+
+def _bridge_to_runtime(
+    tool_name: str,
+    tool_func: Callable,
+    enabled: bool,
+    description: str,
+    registry,
+) -> None:
+    """Attach ToolDescriptor and inject into runtime ToolRegistries."""
+    import inspect
+
+    from ..runtime.tool_registry import ToolDescriptor
+
+    desc = getattr(tool_func, "_tool_descriptor", None)
+    if desc is None:
+        is_async = inspect.iscoroutinefunction(tool_func)
+        desc = ToolDescriptor(
+            name=tool_name,
+            func=tool_func,
+            enabled_by_default=enabled,
+            async_execution=is_async,
+            description=description,
+        )
+        # pylint: disable-next=protected-access
+        tool_func._tool_descriptor = desc  # type: ignore[attr-defined]
+        logger.info(
+            "Attached ToolDescriptor to '%s'",
+            tool_name,
+        )
+
+    if registry is None:
+        return
+    wm = registry.get_workspace_manager()
+    if wm is None:
+        return
+
+    for ws in getattr(wm, "agents", {}).values():
+        tr = getattr(
+            getattr(ws, "plugins", None),
+            "tool_registry",
+            None,
+        )
+        if tr is None or tool_name in tr:
+            continue
+        try:
+            tr.register(desc)
+            logger.info(
+                "Injected '%s' into workspace '%s' ToolRegistry",
+                tool_name,
+                ws.agent_id,
+            )
+        except (ValueError, TypeError):
+            pass
+
+    bk = getattr(wm, "_bootstrap_kwargs", None)
+    if bk is not None:
+        funcs = bk.setdefault("builtin_tool_funcs", [])
+        if tool_func not in funcs:
+            funcs.append(tool_func)
+
+
+def _write_tool_config(
+    tool_name: str,
+    enabled: bool,
+    description: str,
+    icon: str,
+) -> None:
+    """Persist BuiltinToolConfig entry to the agent config file."""
+    from ..config.config import (
+        BuiltinToolConfig,
+        load_agent_config,
+        save_agent_config,
+    )
+    from ..app.agent_context import get_current_agent_id
+
+    agent_id = get_current_agent_id()
+    if not agent_id:
+        logger.warning(
+            "No current agent ID; tool '%s' "
+            "will be available after restart",
+            tool_name,
+        )
+        return
+
+    agent_config = load_agent_config(agent_id)
+
+    if not agent_config.tools:
+        from ..config.config import ToolsConfig
+
+        agent_config.tools = ToolsConfig()
+
+    if tool_name not in agent_config.tools.builtin_tools:
+        agent_config.tools.builtin_tools[tool_name] = BuiltinToolConfig(
+            name=tool_name,
+            enabled=enabled,
+            description=description,
+            display_to_user=True,
+            async_execution=False,
+            icon=icon,
+        )
+        logger.info(
+            "Added tool '%s' to agent '%s' config (enabled=%s)",
+            tool_name,
+            agent_id,
+            enabled,
+        )
+    else:
+        logger.info(
+            "Tool '%s' already in agent '%s' config, skipping",
+            tool_name,
+            agent_id,
+        )
+
+    save_agent_config(agent_id, agent_config)
+
+
+# -------------------------------------------------------------------
+
+
 class PluginApi:  # pylint: disable=too-many-public-methods
     """Plugin API - Interface for plugin developers.
 
@@ -504,6 +627,8 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         - Appends the name to ``tools.__all__``
         - Creates a ``BuiltinToolConfig`` entry in the current agent
           config (disabled by default so the user can opt-in)
+        - Bridges to the runtime ToolRegistry so the agent can
+          actually invoke the tool at runtime.
 
         The actual registration is deferred to a startup hook so it
         runs after the application and agent context are fully
@@ -542,50 +667,19 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                     f"to tools module",
                 )
 
-                from ..config.config import (
-                    BuiltinToolConfig,
-                    load_agent_config,
-                    save_agent_config,
+                _bridge_to_runtime(
+                    tool_name,
+                    tool_func,
+                    enabled,
+                    description,
+                    self._registry,
                 )
-                from ..app.agent_context import get_current_agent_id
-
-                agent_id = get_current_agent_id()
-                if not agent_id:
-                    logger.warning(
-                        f"No current agent ID; tool '{tool_name}' "
-                        f"will be available after restart",
-                    )
-                    return
-
-                agent_config = load_agent_config(agent_id)
-
-                if not agent_config.tools:
-                    from ..config.config import ToolsConfig
-
-                    agent_config.tools = ToolsConfig()
-
-                if tool_name not in agent_config.tools.builtin_tools:
-                    agent_config.tools.builtin_tools[
-                        tool_name
-                    ] = BuiltinToolConfig(
-                        name=tool_name,
-                        enabled=enabled,
-                        description=description,
-                        display_to_user=True,
-                        async_execution=False,
-                        icon=icon,
-                    )
-                    logger.info(
-                        f"Added tool '{tool_name}' to agent "
-                        f"'{agent_id}' config (enabled={enabled})",
-                    )
-                else:
-                    logger.info(
-                        f"Tool '{tool_name}' already in agent "
-                        f"'{agent_id}' config, skipping",
-                    )
-
-                save_agent_config(agent_id, agent_config)
+                _write_tool_config(
+                    tool_name,
+                    enabled,
+                    description,
+                    icon,
+                )
 
             except Exception as exc:
                 logger.error(
@@ -594,7 +688,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 )
 
         self.register_startup_hook(
-            hook_name=f"register_tool_{self.plugin_id}_{tool_name}",
+            hook_name=(f"register_tool_{self.plugin_id}_{tool_name}"),
             callback=_startup_register,
             priority=50,
         )
@@ -602,10 +696,6 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             f"Plugin '{self.plugin_id}' scheduled tool "
             f"'{tool_name}' for registration on startup",
         )
-
-    # ================================================================
-    # Loop Engineering: 改动 1-7
-    # ================================================================
 
     def register_slash_command(
         self,

@@ -10,6 +10,11 @@ import pytest
 from agentscope.message import Msg, TextBlock
 
 from qwenpaw.agents.middlewares import MemoryMiddleware
+from qwenpaw.constant import (
+    EXTERNAL_USER_QUERY_MESSAGE_TAG,
+    LOOP_CONTINUATION_MESSAGE_TAG,
+    QWENPAW_MESSAGE_TAG_KEY,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +43,9 @@ def _user_msg(text: str = "hello", *, msg_id: str = "turn-1") -> Msg:
         name="user",
         role="user",
         content=[TextBlock(type="text", text=text)],
+        metadata={
+            QWENPAW_MESSAGE_TAG_KEY: EXTERNAL_USER_QUERY_MESSAGE_TAG,
+        },
     )
     msg.id = msg_id
     return msg
@@ -147,6 +155,54 @@ class TestOnModelCallAutomationSkip:
         await mw.on_model_call(agent, {"messages": []}, next_handler)
 
         mm.auto_memory_search.assert_awaited_once()
+        assert mm.auto_memory_search.await_args.args[0].id == "turn-1"
+
+    @pytest.mark.asyncio
+    async def test_untagged_user_message_does_not_search(self):
+        mm = _make_memory_manager()
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        agent.state.context = [
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text="internal prompt")],
+            ),
+        ]
+
+        await mw.on_model_call(
+            agent,
+            {"messages": []},
+            AsyncMock(return_value="model_result"),
+        )
+
+        mm.auto_memory_search.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_loop_continuation_does_not_retrigger_search(self):
+        mm = _make_memory_manager()
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        real_query = _user_msg("real query")
+        agent.state.context = [real_query]
+        next_handler = AsyncMock(return_value="model_result")
+
+        await mw.on_model_call(agent, {"messages": []}, next_handler)
+        continuation = Msg(
+            name="user",
+            role="user",
+            content=[
+                TextBlock(text="[WARNING] Repetitive pattern detected."),
+            ],
+            metadata={
+                QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
+            },
+        )
+        agent.state.context.append(continuation)
+        await mw.on_model_call(agent, {"messages": []}, next_handler)
+
+        mm.auto_memory_search.assert_awaited_once()
+        assert mm.auto_memory_search.await_args.args[0] is real_query
 
     @pytest.mark.asyncio
     async def test_model_call_search_state_survives_middleware_rebuild(self):
@@ -213,6 +269,42 @@ class TestOnReplyAutomationSkip:
             pass
 
         mm.auto_memory.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_internal_user_message_is_excluded_from_memory(self):
+        """Internal user-role controls must not enter auto-memory."""
+        mm = _make_memory_manager(interval=1)
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        query = _user_msg("real query")
+        reply = Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(text="reply")],
+        )
+        continuation = Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="[WARNING] Repetitive pattern detected.")],
+            metadata={
+                QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
+            },
+        )
+        final_reply = Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(text="done")],
+        )
+        agent.state.context = [query, reply, continuation, final_reply]
+
+        async def _next(**_kwargs):
+            yield "done"
+
+        async for _ in mw.on_reply(agent, {}, _next):
+            pass
+
+        mm.auto_memory.assert_awaited_once()
+        assert mm.auto_memory.await_args.args[0] == [query, reply, final_reply]
 
     @pytest.mark.asyncio
     async def test_interval_state_survives_middleware_rebuild(self):

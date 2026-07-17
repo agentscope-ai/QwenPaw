@@ -10,7 +10,7 @@ per-request ReAct iterations (inner loop).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from ...loop.gates.base import (
     StopAction,
@@ -71,8 +71,8 @@ class GoalTurnGate(LoopGate):
     per-request ReAct iterations (inner loop).
 
     Returns:
-        CONTINUE — session active, under limit.
-        STOP — session deactivated (update_goal
+        INTERRUPT_AND_CONTINUE — active, under limit.
+        TERMINATE — session deactivated (update_goal
             called) or iteration limit reached.
         None — no active session (not in goal mode).
     """
@@ -97,15 +97,17 @@ class GoalTurnGate(LoopGate):
     async def check(
         self,
         ctx: Any,
-    ) -> Optional[StopHandlerResult]:
+    ) -> StopHandlerResult:
         """Check turn limit via GoalSession."""
         session = self._mode.session_by_ctx_var()
         if session is None:
-            return None
+            return StopHandlerResult(
+                action=StopAction.BYPASS,
+            )
 
         if not session.active:
             return StopHandlerResult(
-                action=StopAction.STOP,
+                action=StopAction.TERMINATE,
                 reason=(f"Goal completed: " f"{session.last_verdict}"),
             )
 
@@ -122,18 +124,38 @@ class GoalTurnGate(LoopGate):
         if session.iteration >= self._max_iterations:
             session.active = False
             return StopHandlerResult(
-                action=StopAction.STOP,
+                action=StopAction.TERMINATE,
                 reason="Max iterations reached",
             )
         return StopHandlerResult(
-            action=StopAction.CONTINUE,
+            action=StopAction.INTERRUPT_AND_CONTINUE,
+        )
+
+    def build_continuation(self) -> str:
+        """Build goal continuation prompt."""
+        from .prompts import CONTINUATION_PROMPT
+
+        session = self._mode.session_by_ctx_var()
+        if session is None:
+            return ""
+        remaining = max(
+            0,
+            session.max_tokens - session.tokens_used,
+        )
+        return CONTINUATION_PROMPT.format(
+            objective=session.goal,
+            iteration=session.iteration,
+            max_iterations=session.max_iterations,
+            tokens_used=session.tokens_used,
+            token_budget=session.max_tokens,
+            remaining_tokens=remaining,
         )
 
 
 class GoalBudgetGate(LoopGate):
     """Goal-mode token budget gate.
 
-    Returns STOP when token budget is exceeded.
+    Returns TERMINATE when token budget is exceeded.
     """
 
     def __init__(
@@ -154,16 +176,19 @@ class GoalBudgetGate(LoopGate):
     async def check(
         self,
         ctx: Any,  # pylint: disable=unused-argument
-    ) -> Optional[StopHandlerResult]:
+    ) -> StopHandlerResult:
+        _bypass = StopHandlerResult(
+            action=StopAction.BYPASS,
+        )
         session = self._mode.session_by_ctx_var()
         if session is None or not session.active:
-            return None
+            return _bypass
         if session.tokens_used < session.max_tokens:
-            return None
+            return _bypass
 
         session.active = False
         return StopHandlerResult(
-            action=StopAction.STOP,
+            action=StopAction.TERMINATE,
             reason="Token budget exceeded",
         )
 
@@ -171,8 +196,8 @@ class GoalBudgetGate(LoopGate):
 class RubricGate(LoopGate):
     """Rubric evaluation gate (session-safe).
 
-    SATISFIED (goal completed) -> STOP.
-    Otherwise -> None (no objection, continue).
+    SATISFIED (goal completed) -> TERMINATE.
+    Otherwise -> BYPASS (no objection).
     """
 
     @property
@@ -195,11 +220,13 @@ class RubricGate(LoopGate):
     async def check(
         self,
         ctx: Any,  # pylint: disable=unused-argument
-    ) -> Optional[StopHandlerResult]:
+    ) -> StopHandlerResult:
         """Evaluate rubric for goal completion."""
         session = self._mode.session_by_ctx_var()
         if session is None:
-            return None
+            return StopHandlerResult(
+                action=StopAction.BYPASS,
+            )
 
         evaluation = await self._rubric.evaluate(
             goal=session.goal,
@@ -220,10 +247,12 @@ class RubricGate(LoopGate):
                 session.iteration,
             )
             return StopHandlerResult(
-                action=StopAction.STOP,
+                action=StopAction.TERMINATE,
                 reason=evaluation.explanation,
             )
-        return None
+        return StopHandlerResult(
+            action=StopAction.BYPASS,
+        )
 
 
 __all__ = [

@@ -60,7 +60,15 @@ _RECONNECT_FACTOR = 1.8
 _POLLING_STATUS_CHECK_INTERVAL_S = 15
 _POLLING_NETWORK_RETRY_BASE_S = 5.0
 _POLLING_NETWORK_RETRY_MAX_S = 60.0
-_POLLING_CONFLICT_RETRY_DELAY_S = 10.0
+# Worst-case client-side lifetime of an in-flight getUpdates request; the
+# conflict backoff cap must exceed it so a stale poll is surely gone.
+_GET_UPDATES_READ_TIMEOUT_S = 20
+# Conflict backoff: start small (most conflicts are transient self-overlaps),
+# escalate up to a cap above the worst-case old-connection lifetime.
+_POLLING_CONFLICT_RETRY_BASE_S = 5.0
+_POLLING_CONFLICT_RETRY_MAX_S = _GET_UPDATES_READ_TIMEOUT_S + 1.0
+# Grace period after shutdown for the HTTP session to fully close.
+_TEARDOWN_SETTLE_S = 0.5
 
 _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
     ("document", FileContent, ContentType.FILE, "file_url"),
@@ -365,6 +373,9 @@ class TelegramChannel(BaseChannel):
         self._pending_reconnect_delay_s = _RECONNECT_INITIAL_S
         self._polling_network_error_count = 0
         self._polling_conflict_count = 0
+        # Set when a reconnect is requested so the polling watchdog exits
+        # immediately instead of waiting out its status-check interval.
+        self._reconnect_event = asyncio.Event()
 
         # Interactive card handler (tool-guard approval cards).
         from .cards.dispatcher import TelegramCardHandler
@@ -412,7 +423,7 @@ class TelegramChannel(BaseChannel):
         base_url, base_file_url = _telegram_base_urls(self._base_url)
         if base_url:
             builder = builder.base_url(base_url).base_file_url(base_file_url)
-        builder = builder.get_updates_read_timeout(20)
+        builder = builder.get_updates_read_timeout(_GET_UPDATES_READ_TIMEOUT_S)
         builder = builder.get_updates_connect_timeout(10)
         proxy = proxy_url()
         if proxy:
@@ -511,10 +522,13 @@ class TelegramChannel(BaseChannel):
         if reason == "conflict":
             self._polling_conflict_count += 1
             self._polling_network_error_count = 0
-            return (
-                self._polling_conflict_count,
-                _POLLING_CONFLICT_RETRY_DELAY_S,
+            attempt = self._polling_conflict_count
+            delay = min(
+                _POLLING_CONFLICT_RETRY_BASE_S
+                * (_RECONNECT_FACTOR ** (attempt - 1)),
+                _POLLING_CONFLICT_RETRY_MAX_S,
             )
+            return attempt, delay
 
         self._polling_network_error_count += 1
         self._polling_conflict_count = 0
@@ -562,6 +576,9 @@ class TelegramChannel(BaseChannel):
                     reason,
                     stop_err,
                 )
+        # Wake the polling watchdog so the cycle exits without waiting out
+        # its status-check interval.
+        self._reconnect_event.set()
 
     @classmethod
     def from_env(
@@ -1289,6 +1306,7 @@ class TelegramChannel(BaseChannel):
         self._pending_reconnect_attempt = 0
         self._pending_reconnect_delay_s = _RECONNECT_INITIAL_S
         self._polling_error_task = None
+        self._reconnect_event.clear()
 
         def _on_poll_error(exc) -> None:
             if (
@@ -1369,7 +1387,15 @@ class TelegramChannel(BaseChannel):
         logger.info("telegram: polling started (receiving updates)")
 
         while getattr(app.updater, "running", False):
-            await asyncio.sleep(_POLLING_STATUS_CHECK_INTERVAL_S)
+            try:
+                await asyncio.wait_for(
+                    self._reconnect_event.wait(),
+                    timeout=_POLLING_STATUS_CHECK_INTERVAL_S,
+                )
+            except asyncio.TimeoutError:
+                continue
+            else:
+                break
 
         if self._polling_error_task:
             try:
@@ -1407,7 +1433,12 @@ class TelegramChannel(BaseChannel):
             if getattr(app, "running", False):
                 await app.stop()
             await app.shutdown()
+            # Give the closed HTTP session and Telegram's server side a brief
+            # moment to release the old getUpdates connection.
+            await asyncio.sleep(_TEARDOWN_SETTLE_S)
         except Exception as exc:
+            # CancelledError is BaseException, so it propagates and is not
+            # swallowed here (keeps stop()'s cancellation working).
             logger.debug("telegram teardown: %s", exc)
 
     async def _run_polling(self) -> None:

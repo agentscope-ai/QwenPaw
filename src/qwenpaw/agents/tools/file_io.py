@@ -10,15 +10,17 @@ from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
 from .utils import (
+    build_truncation_metadata,
     truncate_text_output,
     read_file_safe,
     DEFAULT_MAX_BYTES,
+    TRUNCATION_METADATA_KEY,
 )
 from ...config.context import (
     get_current_workspace_dir,
     get_current_recent_max_bytes,
 )
-from ...constant import WORKING_DIR, TRUNCATION_NOTICE_MARKER
+from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 
 
@@ -199,35 +201,36 @@ async def read_file(  # pylint: disable=too-many-return-statements
 
         # Apply smart truncation (consistent with shell output format)
         max_bytes = get_current_recent_max_bytes() or DEFAULT_MAX_BYTES
-        text = truncate_text_output(
+        text, metadata = truncate_text_output(
             selected_content,
             start_line=s,
             total_lines=total,
             file_path=file_path,
+            file_size_bytes=len(content.encode("utf-8")),
             max_bytes=max_bytes,
         )
 
         # Add continuation hint if partial read without truncation.
-        # Use TRUNCATION_NOTICE_MARKER format so ToolResultCompactor can
-        # re-truncate with the correct start_line when compacting old messages.
+        # Use TRUNCATION_NOTICE_MARKER format so ToolResultPruningMiddleware can
+        # re-truncate with the correct start_line when pruning old messages.
         if text == selected_content and e < total:
             content_bytes = len(text.encode("utf-8"))
-            notice = (
-                TRUNCATION_NOTICE_MARKER + f"\nThe output above was truncated."
-                f"\nThe full content is saved to the file "
-                f"and contains {total} lines in total."
-                f"\nThis excerpt starts at line {s} and "
-                f"covers the next {content_bytes} bytes."
-                "\nIf the current content is not enough, "
-                f"call `read_file` with file_path={file_path} "
-                f"start_line={e + 1} to read more."
+            metadata = build_truncation_metadata(
+                file_path=file_path,
+                file_size_bytes=len(content.encode("utf-8")),
+                total_lines=total,
+                start_line=s,
+                max_bytes=content_bytes,
+                excerpt_bytes=content_bytes,
+                read_from=e + 1,
             )
-            text = text + notice
+            text += metadata[TRUNCATION_METADATA_KEY]["0"]["notice"]
 
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,
             content=[TextBlock(type="text", text=text)],
+            metadata=metadata,
         )
 
     except Exception as e:

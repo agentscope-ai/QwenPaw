@@ -6,6 +6,20 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 
+class ContextWindowUnfitError(RuntimeError):
+    """Raised when context compaction cannot fit the model input window."""
+
+    def __init__(self, *, tokens: int, hard_limit: int) -> None:
+        self.tokens = tokens
+        self.hard_limit = hard_limit
+        super().__init__(
+            "CONTEXT_UNFIT: context compaction could not fit the active "
+            f"request into the model input window ({tokens} > {hard_limit} "
+            "tokens). Reduce the request/tool set, start a new turn, or "
+            "switch to a model with a larger context window.",
+        )
+
+
 @dataclass(frozen=True)
 class LogEntry:
     """One durable row appended to ``conversation_history``.

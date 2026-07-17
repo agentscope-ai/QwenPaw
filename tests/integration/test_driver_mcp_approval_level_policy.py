@@ -7,8 +7,19 @@ import pytest
 
 from qwenpaw.app.approvals.driver_gate import QwenPawDriverApprovalGate
 from qwenpaw.app.approvals.service import ApprovalService
+from qwenpaw.app.driver_config_watcher import DriverConfigWatcher
+from qwenpaw.app.mcp.config_service import MCPConfigService
+from qwenpaw.app.mcp.schemas import (
+    MCPAccessPolicy,
+    MCPAccessRule,
+    MCPToolDefaultPolicy,
+)
 from qwenpaw.drivers.capabilities import DriverInvocation
-from qwenpaw.drivers.contracts import DriverCard, PolicyRule
+from qwenpaw.drivers.contracts import (
+    DriverCard,
+    PolicyRule,
+    coerce_driver_policy,
+)
 from qwenpaw.drivers.credentials.store import AsyncCredentialStore
 from qwenpaw.drivers.handlers.mcp import MCPDriverHandler
 from qwenpaw.drivers.manager import DriverManager
@@ -87,6 +98,256 @@ async def test_driver_mcp_policy_deny_blocks_client_call(
 
     assert result.error_type == "driver_policy_denied"
     assert FakeStdIOClient.instances[0].calls == []
+
+
+@pytest.mark.asyncio
+async def test_mcp_policy_update_applies_without_transport_reload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_mcp_runtime_clients(monkeypatch)
+    manager = await _registry_with_policy(
+        tmp_path,
+        [PolicyRule(subject="*", effect="allow")],
+    )
+    capabilities = {
+        item.name: item
+        for item in await manager.list_capabilities(kind="tool")
+    }
+    service = MCPConfigService(
+        SimpleNamespace(
+            workspace_dir=tmp_path,
+            driver_manager=manager,
+        ),
+    )
+
+    reload_attempts = 0
+
+    async def fail_transport_reload(_name: str) -> None:
+        nonlocal reload_attempts
+        reload_attempts += 1
+        raise RuntimeError("transport reconnect failed")
+
+    monkeypatch.setattr(manager, "reload_driver", fail_transport_reload)
+
+    updated_policy = MCPAccessPolicy(
+        default_effect="deny",
+        client_overrides=[
+            MCPAccessRule(
+                source_value="console",
+                subject_type="all",
+                effect="allow",
+            ),
+        ],
+        tool_defaults=[
+            MCPToolDefaultPolicy(tool_name="echo", effect="deny"),
+        ],
+    )
+    returned_policy = await service.update_policy(
+        "policy_echo",
+        updated_policy,
+    )
+    # Let the previous fire-and-forget reload path run, if it was scheduled.
+    await asyncio.sleep(0)
+
+    request_context = {
+        "session_id": "s1",
+        "channel": "console",
+        "approval_level": "AUTO",
+    }
+    allowed_result = await manager.invoke_capability(
+        DriverInvocation(
+            capabilities["get_secret_status"].capability_id,
+            {},
+            request_context,
+        ),
+    )
+    denied_result = await manager.invoke_capability(
+        DriverInvocation(
+            capabilities["echo"].capability_id,
+            {"text": "blocked after update"},
+            request_context,
+        ),
+    )
+
+    assert allowed_result.ok is True
+    assert denied_result.error_type == "driver_policy_denied"
+    assert FakeStdIOClient.instances[0].calls == [
+        ("get_secret_status", {}),
+    ]
+    assert returned_policy == updated_policy
+    assert await service.get_policy("policy_echo") == updated_policy
+    assert reload_attempts == 0
+    assert len(FakeStdIOClient.instances) == 1
+
+
+@pytest.mark.asyncio
+async def test_mcp_policy_updates_serialize_persistence_and_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_mcp_runtime_clients(monkeypatch)
+    manager = await _registry_with_policy(
+        tmp_path,
+        [PolicyRule(subject="*", effect="allow")],
+    )
+    capability = next(
+        item
+        for item in await manager.list_capabilities(kind="tool")
+        if item.name == "echo"
+    )
+    stored_path = card_path(
+        tmp_path / "drivers",
+        "policy_echo",
+        protocol="mcp",
+    )
+    first_card = load_card(stored_path)
+    first_card.policy = coerce_driver_policy(
+        [PolicyRule(subject="*", effect="allow")],
+    )
+    second_card = load_card(stored_path)
+    second_card.policy = coerce_driver_policy(
+        [PolicyRule(subject="*", effect="deny")],
+    )
+
+    original_save = manager.card_store.save
+    first_save_started = asyncio.Event()
+    release_first_save = asyncio.Event()
+    saved_effects: list[str] = []
+
+    async def controlled_save(card: DriverCard) -> Path:
+        saved_effects.append(card.policy.rules[0].effect)
+        if len(saved_effects) == 1:
+            first_save_started.set()
+            await release_first_save.wait()
+        return await original_save(card)
+
+    monkeypatch.setattr(manager.card_store, "save", controlled_save)
+
+    first_update = asyncio.create_task(manager.sync_driver_policy(first_card))
+    await asyncio.sleep(0)
+    first_save_was_started = first_save_started.is_set()
+    if not first_save_was_started:
+        await first_update
+    assert first_save_was_started
+
+    second_update = asyncio.create_task(
+        manager.sync_driver_policy(second_card),
+    )
+    await asyncio.sleep(0)
+    updates_were_serialized = saved_effects == ["allow"]
+
+    release_first_save.set()
+    await asyncio.gather(first_update, second_update)
+    assert updates_were_serialized
+
+    stored_card = load_card(stored_path)
+    denied_result = await manager.invoke_capability(
+        DriverInvocation(
+            capability.capability_id,
+            {"text": "blocked after concurrent updates"},
+            {"session_id": "s1"},
+        ),
+    )
+
+    assert [rule.effect for rule in stored_card.policy.rules] == ["deny"]
+    assert denied_result.error_type == "driver_policy_denied"
+    assert saved_effects == ["allow", "deny"]
+
+
+@pytest.mark.asyncio
+async def test_manual_policy_edit_applies_without_transport_reload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_mcp_runtime_clients(monkeypatch)
+    manager = await _registry_with_policy(
+        tmp_path,
+        [PolicyRule(subject="*", effect="allow")],
+    )
+    capability = next(
+        item
+        for item in await manager.list_capabilities(kind="tool")
+        if item.name == "echo"
+    )
+    watcher = DriverConfigWatcher(manager, tmp_path / "drivers")
+    baseline = await manager.card_store.snapshot()
+    # Ensure the test is independent of filesystem timestamp resolution.
+    watcher._last_snapshot = {  # pylint: disable=protected-access
+        path_id: (name, modified_at - 1.0)
+        for path_id, (name, modified_at) in baseline.items()
+    }
+
+    stored_path = card_path(
+        tmp_path / "drivers",
+        "policy_echo",
+        protocol="mcp",
+    )
+    edited_card = load_card(stored_path)
+    edited_card.policy = coerce_driver_policy(
+        [PolicyRule(subject="*", effect="deny")],
+    )
+    dump_card(edited_card, stored_path)
+
+    reload_attempts = 0
+
+    async def fail_transport_reload(_name: str) -> None:
+        nonlocal reload_attempts
+        reload_attempts += 1
+        raise RuntimeError("transport reconnect failed")
+
+    monkeypatch.setattr(manager, "reload_driver", fail_transport_reload)
+
+    await watcher._check_once()  # pylint: disable=protected-access
+    denied_result = await manager.invoke_capability(
+        DriverInvocation(
+            capability.capability_id,
+            {"text": "blocked after manual edit"},
+            {"session_id": "s1"},
+        ),
+    )
+
+    assert denied_result.error_type == "driver_policy_denied"
+    assert reload_attempts == 0
+    assert len(FakeStdIOClient.instances) == 1
+
+
+@pytest.mark.asyncio
+async def test_manual_endpoint_edit_reloads_transport(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_mcp_runtime_clients(monkeypatch)
+    manager = await _registry_with_policy(
+        tmp_path,
+        [PolicyRule(subject="*", effect="allow")],
+    )
+    original_client = FakeStdIOClient.instances[0]
+    watcher = DriverConfigWatcher(manager, tmp_path / "drivers")
+    baseline = await manager.card_store.snapshot()
+    watcher._last_snapshot = {  # pylint: disable=protected-access
+        path_id: (name, modified_at - 1.0)
+        for path_id, (name, modified_at) in baseline.items()
+    }
+
+    stored_path = card_path(
+        tmp_path / "drivers",
+        "policy_echo",
+        protocol="mcp",
+    )
+    edited_card = load_card(stored_path)
+    edited_card.endpoint = {
+        **edited_card.endpoint,
+        "command": "python-updated",
+    }
+    dump_card(edited_card, stored_path)
+
+    await watcher._check_once()  # pylint: disable=protected-access
+
+    assert len(FakeStdIOClient.instances) == 2
+    assert original_client.is_connected is False
+    assert FakeStdIOClient.instances[1].is_connected is True
+    assert FakeStdIOClient.instances[1].kwargs["command"] == "python-updated"
 
 
 @pytest.mark.asyncio

@@ -69,11 +69,19 @@ import {
   type QueuedChatRequestData,
 } from "./chatRequestContext";
 import {
+  clearStoredInputQueue,
   hasStoredInputQueueItems,
   migrateInputQueueStorage,
   removeStoredInputQueueItem,
 } from "./inputQueueStorage";
 import { applyApprovalLevelToRequestBody } from "./approvalPayload";
+import {
+  createHeadlineFilterState,
+  filterHeadlineDelta,
+  flushHeadlineFilter,
+  type HeadlineStreamFilterState,
+  stripScrollHeadlineTextBlocks,
+} from "./headlineFilter";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -81,6 +89,7 @@ interface ApprovalMessageData {
   rootSessionId?: string;
   agentId: string;
   toolName: string;
+  toolSource?: string;
   severity: string;
   findingsCount: number;
   findingsSummary: string;
@@ -119,10 +128,9 @@ import {
 import { openExternalLink } from "../../utils/openExternalLink";
 import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
-import ApprovalLevelToggle, {
-  normalizeLevel,
-  type ToolExecutionLevel,
-} from "./components/ApprovalLevelToggle";
+import ApprovalLevelToggle from "./components/ApprovalLevelToggle";
+import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
+import type { ToolExecutionLevel } from "../../utils/approval";
 
 // ---------------------------------------------------------------------------
 
@@ -312,6 +320,20 @@ function replaceChatMessages(
   for (const item of messages) {
     api.updateMessage(item);
   }
+}
+
+function sanitizeHeadlinePayload(
+  node: unknown,
+  streamState: HeadlineStreamFilterState,
+): void {
+  if (!node || typeof node !== "object") return;
+  if (!Array.isArray(node)) {
+    const record = node as Record<string, unknown>;
+    if (typeof record.delta === "string") {
+      record.delta = filterHeadlineDelta(record.delta, streamState);
+    }
+  }
+  stripScrollHeadlineTextBlocks(node);
 }
 
 // ---------------------------------------------------------------------------
@@ -897,31 +919,14 @@ export default function ChatPage() {
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
   const controlledSdkSessionId = sessionApi.getLibrarySessionId(chatId);
+  const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
+    createHeadlineFilterState(),
+  );
   // Keep approval overrides stable while a local session resolves to its
   // backend ID. This is separate from the agent-scoped SDK queue key.
   const approvalSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
-  const [runningConfigApprovalLevel, setRunningConfigApprovalLevel] =
-    useState<ToolExecutionLevel>("AUTO");
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const config = await agentApi.getAgentRunningConfig();
-        if (!cancelled) {
-          setRunningConfigApprovalLevel(normalizeLevel(config.approval_level));
-        }
-      } catch {
-        if (!cancelled) {
-          setRunningConfigApprovalLevel("AUTO");
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [runtimeAgent, refreshKey]);
+  const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
 
   useEffect(() => {
     void fetchAvailableLoopSkills();
@@ -1073,6 +1078,7 @@ export default function ChatPage() {
         rootSessionId: approval.root_session_id,
         agentId: approval.agent_id,
         toolName: approval.tool_name,
+        toolSource: approval.tool_source,
         severity: approval.severity,
         findingsCount: approval.findings_count,
         findingsSummary: approval.findings_summary,
@@ -1501,16 +1507,13 @@ export default function ChatPage() {
     };
 
     sessionApi.onSessionRemoved = (removedId) => {
-      if (!isChatActiveRef.current) return;
-      // Clear URL when current session is removed
-      // Check if removed session matches current session (by realId or sessionId)
-      const currentRealId = sessionApi.getRealIdForSession(
-        chatIdRef.current || "",
+      const agentId = selectedAgentRef.current;
+      const queueSessionId = resolveAgentScopedQueueSessionId(
+        removedId,
+        agentId,
+        (rawSessionId) => sessionApi.getQueueSessionId(rawSessionId),
       );
-      if (chatIdRef.current === removedId || currentRealId === removedId) {
-        lastSessionIdRef.current = null;
-        navigateRef.current(buildCurrentBasePath(), { replace: true });
-      }
+      clearStoredInputQueue(queueSessionId);
     };
 
     sessionApi.onSessionSelected = (
@@ -1738,9 +1741,9 @@ export default function ChatPage() {
         data.qwenpaw_queue_request_id
           ? data.qwenpaw_queue_request_id
           : typeof bizParams?.[INTERNAL_QUEUE_REQUEST_ID_PARAM] === "string" &&
-              bizParams[INTERNAL_QUEUE_REQUEST_ID_PARAM]
-            ? String(bizParams[INTERNAL_QUEUE_REQUEST_ID_PARAM])
-            : undefined;
+            bizParams[INTERNAL_QUEUE_REQUEST_ID_PARAM]
+          ? String(bizParams[INTERNAL_QUEUE_REQUEST_ID_PARAM])
+          : undefined;
       const requestBizParams = bizParams
         ? Object.fromEntries(
             Object.entries(bizParams).filter(
@@ -1805,6 +1808,8 @@ export default function ChatPage() {
           : undefined;
         sessionApi.setLastUserMessage(backendChatId, userText, contentArr);
       }
+
+      headlineStreamFilterRef.current = createHeadlineFilterState();
 
       const response = await fetch(getApiUrl("/console/chat"), {
         method: "POST",
@@ -1905,6 +1910,11 @@ export default function ChatPage() {
     const i18nConfig = getDefaultConfig(t);
     const commandSuggestions: CommandSuggestion[] = [
       {
+        command: "/new",
+        value: "new",
+        description: "",
+      },
+      {
         command: "/clear",
         value: "clear",
         description: t("chat.commands.clear.description"),
@@ -1931,7 +1941,7 @@ export default function ChatPage() {
       },
     ];
     const reservedCommands = new Set(
-      commandSuggestions.map((item) => item.value.trim()),
+      commandSuggestions.map((item) => item.command.slice(1).trim()),
     );
     const loopSkillNames = new Set(
       useLoopStore.getState().availableSkills.map((s) => s.name),
@@ -2399,9 +2409,18 @@ export default function ChatPage() {
         fetch: customFetch,
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
+          sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
           if (payloadCompletesResponse(payload)) {
+            const trailing = flushHeadlineFilter(
+              headlineStreamFilterRef.current,
+            );
+            headlineStreamFilterRef.current = createHeadlineFilterState();
             const output = payload.output;
+            // A completed response normally carries canonical full output,
+            // which already contains any ordinary trailing prefix. Use the
+            // flushed delta only when that canonical output is absent, so it
+            // is neither lost nor duplicated.
             if (!output || (Array.isArray(output) && output.length === 0)) {
               const errorMsg =
                 (payload.error as any)?.message || t("chat.emptyOutputError");
@@ -2409,7 +2428,7 @@ export default function ChatPage() {
                 {
                   type: "message",
                   role: "assistant",
-                  content: [{ type: "text", text: errorMsg }],
+                  content: [{ type: "text", text: trailing || errorMsg }],
                 },
               ];
             }
@@ -2456,6 +2475,7 @@ export default function ChatPage() {
           };
 
           const reconnectIdentity = sessionApi.getSessionIdentity();
+          headlineStreamFilterRef.current = createHeadlineFilterState();
           const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
             headers,
@@ -2656,6 +2676,7 @@ export default function ChatPage() {
               requestId={request.requestId}
               agentId={request.agentId}
               toolName={request.toolName}
+              toolSource={request.toolSource}
               severity={request.severity}
               findingsCount={request.findingsCount}
               findingsSummary={request.findingsSummary}

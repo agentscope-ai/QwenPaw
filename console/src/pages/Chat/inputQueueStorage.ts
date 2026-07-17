@@ -83,6 +83,19 @@ export function hasStoredInputQueueItems(sessionId: string | undefined) {
   }
 }
 
+export function clearStoredInputQueue(sessionId: string | undefined) {
+  if (!sessionId) return;
+  try {
+    const key = getInputQueueStorageKey(sessionId);
+    const oldValue = localStorage.getItem(key);
+    if (oldValue === null) return;
+    localStorage.removeItem(key);
+    notifyQueueStorageChange(key, oldValue, null);
+  } catch {
+    // Local storage can be unavailable in some browser modes.
+  }
+}
+
 export function removeStoredInputQueueItem(
   sessionId: string,
   acceptedRequestId: string,

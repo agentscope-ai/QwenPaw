@@ -6,6 +6,7 @@ This module handles system commands like /compact, /new, /clear, etc.
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
@@ -79,6 +80,7 @@ class ConversationCommandHandlerMixin:
             "system_prompt",
             "dream",
             "memorize",
+            "reme_status",
         },
     )
 
@@ -206,6 +208,45 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Write the rolling compaction summary."""
         self._state.summary = value or ""
 
+    def _reset_stop_gates(  # pylint: disable=protected-access
+        self,
+    ) -> None:
+        """Reset all gate / mode state on /new or /clear."""
+        ws = getattr(
+            self._prompt_context,
+            "workspace",
+            None,
+        )
+        if ws is None:
+            return
+
+        handler = getattr(ws, "_stop_handler", None)
+        if handler is not None:
+            handler.reset()
+
+        for mode in getattr(
+            getattr(ws, "plugins", None),
+            "modes",
+            [],
+        ):
+            try:
+                mode.on_conversation_reset(ws)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "mode '%s' reset raised",
+                    getattr(mode, "name", "?"),
+                    exc_info=True,
+                )
+
+        agent = self._agent or getattr(
+            self._prompt_context,
+            "agent",
+            None,
+        )
+        if agent is not None:
+            agent._gate_pending_stop = None
+            agent._gate_pending_continue = None
+
     def is_command(self, query: str | None) -> bool:
         """Check if the query is a system command (alias for mixin)."""
         return self.is_conversation_command(query)
@@ -234,6 +275,26 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def _has_memory_manager(self) -> bool:
         """Check if memory manager is available."""
         return self.memory_manager is not None
+
+    def _current_session_id(self) -> str:
+        """Resolve the active session id on a best-effort basis.
+
+        Prefers the explicitly-injected ``session_id`` (standalone slash
+        command mode), falls back to ``state.session_id``, and finally to the
+        request-scoped ``get_current_session_id()`` ContextVar (seeded by the
+        contextvars setup hook). The last fallback covers reconstructed-state
+        paths where ``state.session_id`` is absent but the dispatching request
+        carried one. Command-triggered memory archival relies on this so ReMe
+        ``auto_memory`` never runs with an empty ``session_id``.
+        """
+        from ..app.agent_context import get_current_session_id
+
+        return str(
+            self._session_id
+            or getattr(self._state, "session_id", "")
+            or get_current_session_id()
+            or "",
+        )
 
     def _forced_context_config(self, agent: "Agent"):
         """Clone the agent's ContextConfig for a manual ``/compact``.
@@ -345,7 +406,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
         evicted = max(0, before - after)
         reme_cfg = agent_config.running.reme_light_memory_config
         if self._has_memory_manager() and reme_cfg.summarize_when_compact:
-            self.memory_manager.add_summarize_task(messages=messages)
+            self.memory_manager.add_summarize_task(
+                messages=messages,
+                session_id=self._current_session_id(),
+            )
 
         summary = self._get_summary()
         folded = int(compress_stats.get("folded", 0) or 0)
@@ -356,7 +420,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- No turns were evicted",
             )
         if index_text:
-            detail = f"**Eviction Index:**\n{index_text}\n"
+            detail = (
+                "**Archived Turns:**\n"
+                f"{self._format_scroll_compact_detail(index_text)}\n"
+            )
         else:
             detail = f"**Compressed Summary:**\n{summary}\n"
         # The fold rewrites tool results in place (message count unchanged),
@@ -373,6 +440,38 @@ class CommandHandler(ConversationCommandHandlerMixin):
             f"{folded_line}"
             f"{detail}",
         )
+
+    @staticmethod
+    def _format_scroll_compact_detail(
+        index_text: str,
+        *,
+        max_items: int = 5,
+    ) -> str:
+        """Return a user-readable summary of the scroll eviction index."""
+        headlines = []
+        for line in index_text.splitlines():
+            match = re.search(r"⟦\s*(.*?)\s*⟧", line)
+            if match:
+                headline = match.group(1).strip()
+                if headline:
+                    headlines.append(headline)
+
+        if not headlines:
+            return (
+                "- Older turns were archived and remain available through "
+                "scroll history."
+            )
+
+        shown = headlines[-max_items:]
+        lines = [f"- {headline}" for headline in shown]
+        remaining = len(headlines) - len(shown)
+        if remaining > 0:
+            lines.append(f"- ...and {remaining} older archived turn(s)")
+        lines.append(
+            "\nOlder turns were removed from the live context but remain "
+            "available in scroll history.",
+        )
+        return "\n".join(lines)
 
     @staticmethod
     def _scroll_index_text(agent: "Agent") -> str:
@@ -480,6 +579,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     async def _process_new(self, messages: list[Msg], _args: str = "") -> Msg:
         """Process /new command."""
+        self._reset_stop_gates()
         if not messages:
             self._set_summary("")
             return await self._make_system_msg(
@@ -497,7 +597,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- Enable memory manager to use this feature",
             )
 
-        self.memory_manager.add_summarize_task(messages=messages)
+        self.memory_manager.add_summarize_task(
+            messages=messages,
+            session_id=self._current_session_id(),
+        )
         self._set_summary("")
 
         await self._persist_and_clear()
@@ -517,6 +620,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Process /clear command."""
         await self._persist_and_clear()
         self._set_summary("")
+        self._reset_stop_gates()
         return await self._make_system_msg(
             "**History Cleared!**\n\n"
             "- Compressed summary reset\n"
@@ -701,6 +805,53 @@ class CommandHandler(ConversationCommandHandlerMixin):
             "- Ran one auto-dream memory optimization pass",
         )
 
+    async def _process_reme_status(
+        self,
+        _messages: list[Msg],
+        _args: str = "",
+    ) -> Msg:
+        """Process /reme_status to report embedded ReMe memory usage."""
+        if not self._has_memory_manager():
+            return await self._make_system_msg(
+                "**Memory Manager Disabled**\n\n"
+                "- Cannot inspect ReMe memory usage\n"
+                "- Enable the ReMe memory manager to use this feature",
+            )
+
+        try:
+            response = await self.memory_manager.reme_status()
+        except Exception as e:
+            logger.exception("ReMe status failed: %s", e)
+            return await self._make_system_msg(
+                f"**ReMe Status Failed**\n\n- Error: {e}",
+            )
+
+        if response is None:
+            return await self._make_system_msg(
+                "**ReMe Status Unavailable**\n\n"
+                "- ReMe is not started or this memory backend does not "
+                "support status reporting",
+            )
+
+        answer = str(getattr(response, "answer", "") or "").strip()
+        if not getattr(response, "success", False):
+            return await self._make_system_msg(
+                "**ReMe Status Failed**\n\n"
+                f"- Error: {answer or 'Unknown ReMe error'}",
+            )
+
+        warning = (
+            "⚠️ **Estimation note:** ReMe estimates `EMBEDDING_STORE`, "
+            "`FILE_GRAPH`, `FILE_STORE`, and `KEYWORD_INDEX` independently. "
+            "Objects shared across those components may be counted more than "
+            "once, so the components total is not unique memory usage and "
+            "should not be compared directly with process RSS."
+        )
+        return await self._make_system_msg(
+            f"**ReMe Memory Status**\n\n```text\n{answer}\n```\n\n{warning}",
+            metadata=dict(getattr(response, "metadata", None) or {}),
+        )
+
     async def _process_memorize(
         self,
         messages: list[Msg],
@@ -757,7 +908,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         try:
             await self.memory_manager.auto_memory(
                 memory_messages,
-                session_id=str(getattr(self._state, "session_id", "") or ""),
+                session_id=self._current_session_id(),
                 reply_id=reply_ids[-1],
                 reply_ids=reply_ids,
             )

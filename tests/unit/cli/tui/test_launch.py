@@ -196,6 +196,37 @@ def test_run_tui_prints_resume_hint(monkeypatch, capsys, tmp_path):
     )
 
 
+def test_run_tui_applies_textual_compat_before_app_runs(monkeypatch):
+    """The hit-test guard is active before Textual handles any events."""
+    calls = []
+
+    class FakeTransport:
+        session_id = None
+        _project_dir = None
+
+    class FakeApp:
+        def __init__(self, *_args, **_kwargs):
+            calls.append("app-created")
+
+        def run(self):
+            calls.append("app-ran")
+
+    monkeypatch.setattr(
+        "qwenpaw.cli.tui.compat.apply_textual_compat",
+        lambda: calls.append("compat"),
+    )
+    monkeypatch.setattr(
+        launch,
+        "_build_transport",
+        lambda **_: (FakeTransport(), "fake transport"),
+    )
+    monkeypatch.setattr("qwenpaw.cli.tui.app.PawApp", FakeApp)
+
+    launch.run_tui()
+
+    assert calls == ["compat", "app-created", "app-ran"]
+
+
 def test_tui_help():
     result = CliRunner().invoke(tui_cmd, ["--help"])
     assert result.exit_code == 0

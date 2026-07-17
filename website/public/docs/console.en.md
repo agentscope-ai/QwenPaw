@@ -480,10 +480,28 @@ model (same settings apply to voice input in chat and channel voice messages).
 - **Audio mode** — **Auto**: transcribe per settings below, then send text
   (works for most models). **Native**: send audio as an attachment (only for
   models that support audio).
-- **Transcription backend** — **Off**; **Whisper API** (OpenAI-compatible
-  `audio/transcriptions`; configure keys under [Models](#models) and select the
-  provider here); **Local Whisper** (requires `ffmpeg` and
-  `pip install 'qwenpaw[whisper]'`).
+- **Transcription backend** — **Off**; **Whisper API**; **Local Whisper**.
+
+**Whisper API setup:**
+
+1. Add an OpenAI-compatible provider under [Models](#models).
+2. Make sure the provider supports `audio/transcriptions` and has a valid API
+   key.
+3. Return here and select that provider as the Whisper API backend.
+
+**Local Whisper setup:**
+
+1. Install `ffmpeg` with your system package manager.
+2. Install the optional Python dependency in the environment that runs QwenPaw:
+   `pip install "qwenpaw[whisper]"`.
+3. Restart QwenPaw, then select **Local Whisper** here.
+
+Verify the local installation with:
+
+```bash
+ffmpeg -version
+python -c "import whisper; print('openai-whisper installed')"
+```
 
 **Save** applies to newly received audio. Follow on-page help for details.
 

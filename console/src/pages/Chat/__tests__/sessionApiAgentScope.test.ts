@@ -27,9 +27,10 @@ describe("sessionApi agent scope", () => {
 
     sessionApi.setActiveAgent("agent-1");
     await sessionApi.getSessionList();
-    expect(listChats).toHaveBeenCalledWith(undefined, {
-      agentId: "agent-1",
-    });
+    expect(listChats).toHaveBeenCalledWith(
+      { archived: false },
+      { agentId: "agent-1" },
+    );
     expect(sessionApi.getQueueSessionId("console:default")).toBe(
       "agent-1-chat",
     );

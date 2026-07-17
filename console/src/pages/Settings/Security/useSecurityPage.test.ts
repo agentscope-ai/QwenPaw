@@ -21,6 +21,7 @@ const hoisted = vi.hoisted(() => {
     getToolGuard: vi.fn(),
     getBuiltinRules: vi.fn(),
     updateToolGuard: vi.fn(),
+    updateSandbox: vi.fn(),
   };
   const stableT = (k: string) => k;
   const buildSaveBodyMock = vi.fn(() => ({
@@ -76,6 +77,8 @@ vi.mock("./useToolGuard", () => ({
     builtinRules: [],
     enabled: true,
     setEnabled: hoisted.setEnabledMock,
+    sandboxEnabled: true,
+    setSandboxEnabled: vi.fn(),
     mergedRules: [],
     shellEvasionChecks: {},
     toggleShellEvasionCheck: vi.fn(),
@@ -112,6 +115,8 @@ describe("useSecurityPage", () => {
     messageMock.success.mockReset();
     messageMock.error.mockReset();
     apiMocks.updateToolGuard.mockReset();
+    apiMocks.updateSandbox.mockReset();
+    apiMocks.updateSandbox.mockResolvedValue({ enabled: true });
     hoisted.buildSaveBodyMock.mockClear();
     hoisted.setEnabledMock.mockClear();
   });

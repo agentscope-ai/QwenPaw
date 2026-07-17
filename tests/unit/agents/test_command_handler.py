@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -35,6 +36,83 @@ async def test_process_clear_returns_clear_history_metadata() -> None:
     msg = await handler.handle_command("/clear")
 
     assert msg.metadata == {"clear_history": True, "clear_plan": True}
+
+
+@pytest.mark.asyncio
+async def test_clear_resets_stop_gates_and_pending_gate_state() -> None:
+    agent = _make_agent()
+    agent._gate_pending_stop = object()
+    agent._gate_pending_continue = "continue"
+    stop_handler = MagicMock()
+    ctx = SimpleNamespace(
+        workspace=SimpleNamespace(_stop_handler=stop_handler),
+        agent=agent,
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        prompt_context=ctx,
+    )
+
+    await handler.handle_command("/clear")
+
+    stop_handler.reset.assert_called_once_with()
+    assert agent._gate_pending_stop is None
+    assert agent._gate_pending_continue is None
+
+
+@pytest.mark.asyncio
+async def test_new_empty_resets_stop_gates() -> None:
+    agent = _make_agent()
+    agent._gate_pending_stop = object()
+    agent._gate_pending_continue = "stale"
+    stop_handler = MagicMock()
+    ctx = SimpleNamespace(
+        workspace=SimpleNamespace(
+            _stop_handler=stop_handler,
+        ),
+        agent=agent,
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        prompt_context=ctx,
+    )
+
+    await handler.handle_command("/new")
+
+    stop_handler.reset.assert_called_once_with()
+    assert agent._gate_pending_stop is None
+    assert agent._gate_pending_continue is None
+
+
+@pytest.mark.asyncio
+async def test_new_no_mem_mgr_resets_stop_gates() -> None:
+    agent = _make_agent()
+    agent.state.context = [
+        _msg("user", "hi"),
+    ]
+    agent._gate_pending_stop = object()
+    agent._gate_pending_continue = "stale"
+    stop_handler = MagicMock()
+    ctx = SimpleNamespace(
+        workspace=SimpleNamespace(
+            _stop_handler=stop_handler,
+        ),
+        agent=agent,
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        prompt_context=ctx,
+    )
+
+    msg = await handler.handle_command("/new")
+
+    stop_handler.reset.assert_called_once_with()
+    assert agent._gate_pending_stop is None
+    assert agent._gate_pending_continue is None
+    assert "Memory Manager Disabled" in msg.get_text_content()
 
 
 @pytest.mark.asyncio
@@ -80,6 +158,51 @@ async def test_dream_command_requires_memory_manager() -> None:
     handler = CommandHandler(agent_name="QwenPaw", agent=agent)
 
     msg = await handler.handle_command("/dream")
+
+    assert "Memory Manager Disabled" in msg.get_text_content()
+
+
+@pytest.mark.asyncio
+async def test_reme_status_reports_memory_and_count_warning() -> None:
+    agent = _make_agent()
+    memory_manager = MagicMock()
+    memory_manager.reme_status = AsyncMock(
+        return_value=SimpleNamespace(
+            success=True,
+            answer=(
+                "Memory (estimated component object size)\n"
+                "  file_store:default  12.00 MiB\n"
+                "  Components total  12.00 MiB\n"
+                "  Process RSS       80.00 MiB"
+            ),
+            metadata={"status": {"memory": {"process_rss": "80.00 MiB"}}},
+        ),
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command("/reme_status")
+    text = msg.get_text_content()
+
+    assert handler.is_command("/reme_status")
+    memory_manager.reme_status.assert_awaited_once_with()
+    assert "Process RSS       80.00 MiB" in text
+    assert "may be counted more than once" in text
+    assert "EMBEDDING_STORE" in text
+    assert msg.metadata == {
+        "status": {"memory": {"process_rss": "80.00 MiB"}},
+    }
+
+
+@pytest.mark.asyncio
+async def test_reme_status_requires_memory_manager() -> None:
+    agent = _make_agent()
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+
+    msg = await handler.handle_command("/reme_status")
 
     assert "Memory Manager Disabled" in msg.get_text_content()
 
@@ -312,6 +435,22 @@ async def test_compact_uses_manual_force_context_config() -> None:
     # The live agent's own config is left untouched (model_copy, not mutated).
     assert agent.context_config.reserve_ratio == 0.2
     assert "Compact Complete" in msg.get_text_content()
+
+
+def test_scroll_compact_detail_hides_internal_index_terms() -> None:
+    index_text = (
+        "===== Tier 0 (recently compressed) =====\n"
+        "  [seq 2850–2852]\n"
+        "    · seq 2851  ⟦ 执行 yes | head -n 3000 成功，输出 3000 行重复字符串 ⟧"
+    )
+
+    # pylint: disable=protected-access
+    detail = CommandHandler._format_scroll_compact_detail(index_text)
+
+    assert "执行 yes | head -n 3000 成功" in detail
+    assert "Tier 0" not in detail
+    assert "seq 2851" not in detail
+    assert "live context" in detail
 
 
 @pytest.mark.asyncio

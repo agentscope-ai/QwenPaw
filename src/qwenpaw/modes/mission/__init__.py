@@ -106,6 +106,14 @@ class MissionMode(AgentMode):
                 ),
             )
 
+    def on_conversation_reset(
+        self,
+        workspace: object,  # noqa: ARG002
+    ) -> None:
+        """Clear active mission gate state."""
+        if self._gate is not None:
+            self._gate.deactivate()
+
     def is_active(self, ctx: HookContext) -> bool:
         return bool(
             (ctx.session_state or {}).get(
@@ -130,7 +138,6 @@ class MissionMode(AgentMode):
             format_help,
             format_list,
             format_status,
-            is_meta_question,
             parse_mission_args,
             start_mission,
         )
@@ -160,17 +167,6 @@ class MissionMode(AgentMode):
         # --- help / empty ---
         if not task_text or len(task_text.strip()) < 5:
             return _info_msg(format_help())
-
-        # --- meta questions ---
-        if is_meta_question(task_text):
-            return _info_msg(
-                "**Mission Mode**\n\n"
-                "Describe a task to start a mission:\n"
-                "- `/mission \u5b9e\u73b0\u7528\u6237\u8ba4\u8bc1`\n"
-                "- `/mission Add notifications`\n\n"
-                "Info: `/mission status` or "
-                "`/mission list`",
-            )
 
         # --- start new mission ---
         workspace_dir = getattr(ctx, "workspace_dir")

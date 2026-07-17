@@ -190,83 +190,72 @@ class GovernanceRule:
 # builtin_rules
 # ---------------------------------------------------------------------------
 
+# (match, reason) pairs for builtin ASK rules, grouped by concern. Expanded
+# into GovernanceRule objects below. All share action=ASK / grantee="*" /
+# duration="permanent" defaults, so only match+reason need to vary.
+_BUILTIN_ASK_SPECS: List[tuple[str, str]] = [
+    # ── Resource protection (any tool access requires confirmation) ──
+    ("*(**/.env*)", "Env file may contain secrets/credentials"),
+    ("*(**/.ssh/**)", "SSH credentials directory"),
+    ("*(**/*.pem)", "Private key file"),
+    ("*(**/*.key)", "Private key file"),
+    ("*(**/*.p12)", "PKCS#12 certificate bundle"),
+    ("*(**/*.pfx)", "PKCS#12 certificate bundle"),
+    ("*(**/.aws/**)", "AWS credentials directory"),
+    ("*(**/.gnupg/**)", "GPG keys directory"),
+    ("*(**/.kube/**)", "Kubernetes config directory"),
+    ("*(**/.netrc)", "Netrc login credentials file"),
+    ("*(**/.npmrc)", "npm auth token file"),
+    ("*(**/.pypirc)", "PyPI API token file"),
+    # ── LLM provider / AI coding-assistant configs (may hold API keys) ──
+    # Generic-name fallback (api_key*/apikey*) catches future providers
+    # whose key file is named accordingly; vendor dirs cover the known
+    # ones. Shell rc files and PowerShell profiles are included because
+    # users frequently `export`/`setx` API keys into them.
+    ("*(**/api_key*)", "API key file by generic name"),
+    ("*(**/apikey*)", "API key file by generic name"),
+    ("*(**/.anthropic/**)", "Anthropic CLI/SDK config may contain API key"),
+    ("*(**/.config/anthropic/**)", "Anthropic config may contain API key"),
+    ("*(**/.openai/**)", "OpenAI config may contain API key"),
+    ("*(**/.config/openai/**)", "OpenAI config (XDG) may contain API key"),
+    ("*(**/.codex/**)", "OpenAI Codex CLI config may contain API key"),
+    ("*(**/.gemini/**)", "Gemini CLI config may contain API key"),
+    ("*(**/.config/gemini/**)", "Gemini config (XDG) may contain API key"),
+    ("*(**/.claude/**)", "Claude config/memory may contain API key"),
+    ("*(**/.cursor/**)", "Cursor config may contain token"),
+    ("*(**/.copilot/**)", "GitHub Copilot config may contain token"),
+    ("*(**/.codeium/**)", "Codeium config may contain token"),
+    ("*(**/.opencode/**)", "OpenCode config may contain API key"),
+    # ── Shell rc / history (users often `export` API keys here) ──
+    ("*(**/.bashrc)", "Shell rc may export API keys"),
+    ("*(**/.zshrc)", "Shell rc may export API keys"),
+    ("*(**/.profile)", "Shell rc may export API keys"),
+    ("*(**/.bash_profile)", "Shell rc may export API keys"),
+    ("*(**/.bash_history)", "Shell history may contain typed secrets"),
+    ("*(**/.zsh_history)", "Shell history may contain typed secrets"),
+    # ── Windows (PowerShell profile + history may hold keys) ──
+    ("*(**/Microsoft.PowerShell_profile.ps1)", "PS profile may setx API keys"),
+    ("*(**/ConsoleHost_history.txt)", "PowerShell may contain typed secrets"),
+    ("Bash(sudo *)", "Privilege escalation, ASK"),
+    ("Bash(gh repo delete *)", "Repository deletion, ASK"),
+    ("Bash(gh api -X DELETE *)", "Destructive GitHub API calls, ASK"),
+]
+
+# (match, reason) pairs for builtin DENY rules — hard walls, never allowed.
+# NOTE: these glob patterns are best-effort fast-path checks. The
+# authoritative shell danger detection is in
+# ``_check_shell_danger_keywords()`` below, which uses regex to catch
+# command variants that fnmatch cannot match.
+_BUILTIN_DENY_SPECS: List[tuple[str, str]] = [
+    ("Bash(rm * -rf *//*)", "Root filesystem deletion"),
+]
+
 DEFAULT_BUILTIN_RULES: List[GovernanceRule] = [
-    # ── Resource protection (any tool access requires user confirmation) ──
-    GovernanceRule(
-        match="*(**/.env*)",
-        action=GovernanceAction.ASK,
-        reason="Env file may contain secrets/credentials",
-    ),
-    GovernanceRule(
-        match="*(**/.ssh/**)",
-        action=GovernanceAction.ASK,
-        reason="SSH credentials directory",
-    ),
-    GovernanceRule(
-        match="*(**/*.pem)",
-        action=GovernanceAction.ASK,
-        reason="Private key file",
-    ),
-    GovernanceRule(
-        match="*(**/*.key)",
-        action=GovernanceAction.ASK,
-        reason="Private key file",
-    ),
-    GovernanceRule(
-        match="*(**/*.p12)",
-        action=GovernanceAction.ASK,
-        reason="PKCS#12 certificate bundle",
-    ),
-    GovernanceRule(
-        match="*(**/*.pfx)",
-        action=GovernanceAction.ASK,
-        reason="PKCS#12 certificate bundle",
-    ),
-    GovernanceRule(
-        match="*(**/.aws/**)",
-        action=GovernanceAction.ASK,
-        reason="AWS credentials directory",
-    ),
-    GovernanceRule(
-        match="*(**/.gnupg/**)",
-        action=GovernanceAction.ASK,
-        reason="GPG keys directory",
-    ),
-    GovernanceRule(
-        match="*(**/.kube/**)",
-        action=GovernanceAction.ASK,
-        reason="Kubernetes config directory",
-    ),
-    GovernanceRule(
-        match="*(**/.netrc)",
-        action=GovernanceAction.ASK,
-        reason="Netrc login credentials file",
-    ),
-    GovernanceRule(
-        match="*(**/.npmrc)",
-        action=GovernanceAction.ASK,
-        reason="npm auth token file",
-    ),
-    GovernanceRule(
-        match="*(**/.pypirc)",
-        action=GovernanceAction.ASK,
-        reason="PyPI API token file",
-    ),
-    # ── High-risk commands (hard wall, never allowed) ──
-    # NOTE: These glob patterns are best-effort fast-path checks.
-    # The authoritative shell danger detection is in
-    # ``_check_shell_danger_keywords()`` below, which uses regex to
-    # catch command variants that fnmatch cannot match.
-    GovernanceRule(
-        match="Bash(rm * -rf *//*)",
-        action=GovernanceAction.DENY,
-        reason="Root filesystem deletion",
-    ),
-    GovernanceRule(
-        match="Bash(sudo *)",
-        action=GovernanceAction.DENY,
-        reason="Privilege escalation prohibited",
-    ),
+    GovernanceRule(match=m, action=GovernanceAction.ASK, reason=r)
+    for m, r in _BUILTIN_ASK_SPECS
+] + [
+    GovernanceRule(match=m, action=GovernanceAction.DENY, reason=r)
+    for m, r in _BUILTIN_DENY_SPECS
 ]
 
 
@@ -282,17 +271,6 @@ _SHELL_DANGER_PATTERNS: list[tuple[re.Pattern[str], str]] = [
             r"\brm\b(?=[^;|&]*\s+-[a-zA-Z]*[rR])[^;|&]*\s+/(?:\s|$|\*)",
         ),
         "Recursive deletion targeting root filesystem",
-    ),
-    # sudo in any position: start of command, after pipe/semicolon,
-    # subshell, absolute path, env prefix, xargs, etc.
-    (
-        re.compile(
-            r"(?:^|[;&|`]|\$\()\s*(?:/usr/s?bin/|/bin/)?sudo\b"
-            r"|\bxargs\s+.*\bsudo\b"
-            r"|\bcommand\s+sudo\b"
-            r"|\benv\s+.*\bsudo\b",
-        ),
-        "Privilege escalation (sudo)",
     ),
     # Fork bomb patterns
     (
@@ -383,7 +361,9 @@ DEFAULT_SANDBOX_DENY_PATHS: List[str] = [
     # pip / PyPI API tokens
     "~/.pypirc",
     # Other common sensitive configs
-    "~/.config/gh",  # GitHub CLI
+    # NOTE: ~/.config/gh intentionally excluded — gh CLI needs to read its
+    # auth config (hosts.yml) for operations. The gh ALLOW rule + DENY for
+    # destructive subcommands provides the safety boundary instead.
     "~/.config/nix",  # Nix config
     "~/.netrc",  # generic login credentials
 ]
@@ -399,41 +379,45 @@ FILE_WRITE_TOOLS: frozenset[str] = frozenset({"Write", "Edit", "Append"})
 # ---------------------------------------------------------------------------
 
 DEFAULT_USER_RULES: List[GovernanceRule] = [
-    # ── Internal tools (no side effects, always allowed) ──
+    # NOTE: Internal tools (GetCurrentTime, GetTokenUsage, ListAgents,
+    # ChatWithAgent, SubmitToAgent, CheckAgentTask, DelegateExternalAgent)
+    # need no rule here — they are registered as "internal" type and
+    # short-circuited to ALLOW in Phase 0 of evaluate().
+    # ── Read-only file tools (global allow) ──
+    # Reads are safe to allow on any path: the builtin sensitive-path ASK
+    # rules (*.env / .ssh / .aws / …) are evaluated BEFORE user_rules
+    # (Phase 2 builtin-first), so reading secrets still prompts. Note '**'
+    # is required here, not '*': file tools match via wcmatch where '*'
+    # does not cross '/', so '*' would only match a single path segment.
     GovernanceRule(
-        match="GetCurrentTime(*)",
+        match="Read(**)",
         action=GovernanceAction.ALLOW,
-        reason="Read-only system tool",
+        reason="Read-only file access (global)",
     ),
     GovernanceRule(
-        match="GetTokenUsage(*)",
+        match="Grep(**)",
         action=GovernanceAction.ALLOW,
-        reason="Read-only usage query",
+        reason="Content search (global)",
     ),
     GovernanceRule(
-        match="ListAgents(*)",
+        match="Glob(**)",
         action=GovernanceAction.ALLOW,
-        reason="Read-only agent list",
+        reason="File listing (global)",
     ),
     GovernanceRule(
-        match="ChatWithAgent(*)",
+        match="ViewImage(**)",
         action=GovernanceAction.ALLOW,
-        reason="Inter-agent messaging",
+        reason="Image view (global)",
     ),
     GovernanceRule(
-        match="SubmitToAgent(*)",
+        match="ViewVideo(**)",
         action=GovernanceAction.ALLOW,
-        reason="Inter-agent task submission",
+        reason="Video view (global)",
     ),
     GovernanceRule(
-        match="CheckAgentTask(*)",
+        match="SendFileToUser(**)",
         action=GovernanceAction.ALLOW,
-        reason="Read-only task status query",
-    ),
-    GovernanceRule(
-        match="DelegateExternalAgent(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Inter-agent delegation",
+        reason="File send to user (global)",
     ),
     # ── File tools (operations within WORKSPACE_DIR, always allowed) ──
     GovernanceRule(
@@ -516,14 +500,19 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         action=GovernanceAction.ALLOW,
         reason="Coding project dir",
     ),
+    # ALLOW all other gh operations
+    # (agent needs write access for PR/issue management)
+    GovernanceRule(
+        match="Bash(gh)",
+        action=GovernanceAction.ALLOW,
+        reason="GitHub CLI operations",
+    ),
+    GovernanceRule(
+        match="Bash(gh *)",
+        action=GovernanceAction.ALLOW,
+        reason="GitHub CLI operations",
+    ),
 ]
-
-# Default user rules added after policy.yaml existed in the wild. Existing
-# persisted policies keep their user_rules, so migrate only these known safe
-# defaults instead of replacing user customizations wholesale.
-_MIGRATED_DEFAULT_USER_RULE_MATCHES = {
-    "*(CODING_PROJECT_DIR/**)",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -617,7 +606,8 @@ class GovernancePolicy:
             Phase 2: Policy rules first-match-wins
                      (builtin_rules + user_rules)
             Phase 3: Fallback + execution_level threshold
-                     shell → SANDBOX_FALLBACK, others → ASK
+                     shell: findings honored (MEDIUM+ -> ASK in SMART),
+                     else SANDBOX_FALLBACK; other tools -> fallback
 
         Returns: GovernanceDecision (with optional findings attached)
         """
@@ -679,8 +669,7 @@ class GovernancePolicy:
                 if action == GovernanceAction.ALLOW and is_strict:
                     return GovernanceDecision(
                         action=GovernanceAction.ASK,
-                        reason="STRICT mode: all tool calls "
-                        "require approval",
+                        reason="STRICT mode: all tool calls require approval",
                         findings=findings or None,
                         source="STRICT mode",
                     )
@@ -700,8 +689,7 @@ class GovernancePolicy:
                 if action == GovernanceAction.ALLOW and is_strict:
                     return GovernanceDecision(
                         action=GovernanceAction.ASK,
-                        reason="STRICT mode: all tool calls "
-                        "require approval",
+                        reason="STRICT mode: all tool calls require approval",
                         findings=findings or None,
                         source="STRICT mode",
                     )
@@ -718,10 +706,23 @@ class GovernancePolicy:
             if is_strict:
                 return GovernanceDecision(
                     action=GovernanceAction.ASK,
-                    reason="STRICT mode: all tool calls " "require approval",
+                    reason="STRICT mode: all tool calls require approval",
                     findings=findings or None,
                     source="STRICT mode",
                 )
+            # Finding-driven approval for shell: when the deep scan surfaced
+            # findings (e.g. a frontend custom rule matched the command),
+            # honor the execution-level severity threshold. MEDIUM+ findings
+            # in SMART, or any finding in AUTO/OFF, escalate to ASK so the
+            # user's own detection rules take effect for shell tools too.
+            # INFO/LOW findings (fallback returns ALLOW) fall through to the
+            # sandbox path below, where sandbox isolation is the safety net.
+            if findings:
+                fb = self._apply_execution_level_fallback(tc_spec, findings)
+                if fb.action is not GovernanceAction.ALLOW:
+                    return fb
+            # No findings (or only INFO/LOW): route to sandbox. When the
+            # sandbox is unusable, ResourceGovernor downgrades this to ALLOW.
             return GovernanceDecision(
                 action=GovernanceAction.SANDBOX_FALLBACK,
                 reason="sandbox fallback",
@@ -737,19 +738,31 @@ class GovernancePolicy:
     ) -> list[Any]:
         """Run deep security detectors (Phase 1).
 
+        Merges policy.yaml detection_rules/shell_evasion_checks with the
+        frontend Security page configuration (config.json →
+        security.tool_guard). Uses the mtime-cached load_config() so there
+        is negligible overhead on the hot path.  On config read failure the
+        scan falls back to policy.yaml-only rules (graceful degradation).
+
         Delegates to governance.detectors module.
         Returns a list of GuardFinding objects.
         """
         try:
             from .detectors import run_deep_scan
 
+            # Merge config.json custom_rules + shell_evasion_checks into
+            # the policy.yaml-sourced rules so frontend settings take
+            # effect in governance evaluation.
+            detection_rules, shell_evasion_checks = self._merge_config_rules()
+
             return run_deep_scan(
                 tool_name=tc_spec.tool_name,
                 target=tc_spec.target,
                 tool_type=tool_type,
                 sensitive_paths=self.sensitive_paths,
-                detection_rules=self.detection_rules,
-                shell_evasion_checks=self.shell_evasion_checks,
+                detection_rules=detection_rules,
+                shell_evasion_checks=shell_evasion_checks,
+                raw_params=tc_spec.raw_params,
             )
         except Exception as exc:
             logger.warning(
@@ -757,6 +770,54 @@ class GovernancePolicy:
                 exc,
             )
             return []
+
+    def _merge_config_rules(
+        self,
+    ) -> tuple[list[Any], dict[str, bool]]:
+        """Merge policy.yaml rules with config.json security.tool_guard.
+
+        Returns:
+            (merged_detection_rules, merged_shell_evasion_checks)
+
+        - custom_rules from config are appended to policy detection_rules.
+        - disabled_rules from config filter out rules by ID from both
+          policy.yaml and config custom_rules.
+        - shell_evasion_checks are OR-merged: enabled in either source
+          means enabled.
+        - On any config read error, returns the unmodified policy.yaml
+          values (graceful degradation).
+        """
+        try:
+            from ..config import load_config
+
+            cfg = load_config().security.tool_guard
+        except Exception as exc:
+            logger.warning(
+                "_merge_config_rules: config load failed: %s; "
+                "using policy.yaml rules only",
+                exc,
+            )
+            return list(self.detection_rules), dict(self.shell_evasion_checks)
+
+        disabled_ids = set(cfg.disabled_rules or [])
+
+        # Start with policy.yaml detection_rules, filtering disabled
+        merged_rules: list[Any] = [
+            r for r in self.detection_rules if r.id not in disabled_ids
+        ]
+
+        # Append config.json custom_rules (excluding disabled)
+        for cr in cfg.custom_rules or []:
+            if cr.id not in disabled_ids:
+                merged_rules.append(cr)
+
+        # Merge shell evasion checks: config values override policy.yaml
+        # defaults on overlapping keys (so the UI can turn checks OFF).
+        merged_evasion = dict(self.shell_evasion_checks)
+        for check_name, enabled in (cfg.shell_evasion_checks or {}).items():
+            merged_evasion[check_name] = enabled
+
+        return merged_rules, merged_evasion
 
     def _apply_execution_level_fallback(
         self,
@@ -772,7 +833,10 @@ class GovernancePolicy:
 
         No findings (nothing matched, nothing flagged):
             - STRICT: ASK (all tools require approval)
-            - OTHERS: ASK (no allow rule hit).
+            - SMART / AUTO: ALLOW (deep scan cleared it and no protective
+              rule objected — asking here only trains users to rubber-stamp
+              benign calls; finding-driven approval is restored)
+            - OFF: ALLOW (guard effectively disabled)
         Has findings:
             - STRICT: ASK (any finding triggers approval)
             - SMART: INFO/LOW → ALLOW; MEDIUM+ → ASK
@@ -788,9 +852,14 @@ class GovernancePolicy:
                     reason="STRICT mode: all tool calls require approval",
                     source="fallback",
                 )
+            # SMART / AUTO / OFF: the deep scan surfaced nothing and no
+            # builtin/user rule objected. Asking the user here produces a
+            # flood of low-value prompts, so allow the call (finding-driven
+            # approval). Sensitive-path / dangerous-command protection still
+            # lives in Phase 1/1.5 and the builtin ASK/DENY rules.
             return GovernanceDecision(
-                action=GovernanceAction.ASK,
-                reason=f"{level.upper()} mode: no allow rule hit.",
+                action=GovernanceAction.ALLOW,
+                reason=f"{level.upper()} mode: no findings, no rule hit.",
                 source="fallback",
             )
 
@@ -1050,10 +1119,10 @@ def load_governance_policy(
             coding_project_dir,
             applied_migrations=applied_migrations,
         )
-    # Record all known migrations as applied so the next save makes any
-    # user deletion of a migrated rule stick.
+    # Record all DEFAULT_USER_RULES as applied so the next save
+    # makes any user deletion of a default rule stick.
     applied_migrations = sorted(
-        set(applied_migrations) | _MIGRATED_DEFAULT_USER_RULE_MATCHES,
+        set(applied_migrations) | {r.match for r in DEFAULT_USER_RULES},
     )
     if not env_blacklist:
         env_blacklist = list(DEFAULT_ENV_BLACKLIST)
@@ -1211,7 +1280,7 @@ def _create_default_policy(
         execution_level="smart",
         sensitive_paths=list(_DEFAULT_SENSITIVE_PATHS),
         shell_evasion_checks=dict(_DEFAULT_SHELL_EVASION_CHECKS),
-        applied_migrations=sorted(_MIGRATED_DEFAULT_USER_RULE_MATCHES),
+        applied_migrations=sorted(r.match for r in DEFAULT_USER_RULES),
     )
 
 
@@ -1229,17 +1298,15 @@ def _merge_missing_default_user_rules(
     coding_project_dir: str = "",
     applied_migrations: List[str] | None = None,
 ) -> List[GovernanceRule]:
-    """Append migrated default user rules missing from a persisted policy.
+    """Append default user rules missing from a persisted policy.
 
     A rule whose match is recorded in ``applied_migrations`` is never
-    re-added: the migration already ran once, so a missing rule means the
-    user deleted it on purpose.
+    re-added: the migration already ran once, so a missing rule means
+    the user deleted it on purpose.
     """
     applied = set(applied_migrations or [])
     merged = list(user_rules)
     for default_rule in DEFAULT_USER_RULES:
-        if default_rule.match not in _MIGRATED_DEFAULT_USER_RULE_MATCHES:
-            continue
         if default_rule.match in applied:
             continue
         if _has_equivalent_rule(

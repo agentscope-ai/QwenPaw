@@ -174,6 +174,31 @@ describe("ModelSelector", () => {
     });
   });
 
+  it("publishes the backend-resolved context window after a model switch", async () => {
+    vi.mocked(providerApi.setActiveLlm).mockResolvedValue({
+      active_llm: {
+        provider_id: "openai",
+        model: "gpt-3.5-turbo",
+      },
+      effective_max_input_length: 65536,
+    });
+    const switched = vi.fn();
+    window.addEventListener("model-switched", switched);
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+
+    await user.click(screen.getAllByText("GPT-4")[0]);
+    await user.click(await screen.findByText("GPT-3.5 Turbo"));
+
+    await waitFor(() => expect(switched).toHaveBeenCalledOnce());
+    const event = switched.mock.calls[0][0] as CustomEvent;
+    expect(event.detail).toEqual({
+      maxInputLength: 65536,
+    });
+    window.removeEventListener("model-switched", switched);
+  });
+
   it("clicking the already active model does not call setActiveLlm", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ModelSelector />);
