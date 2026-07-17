@@ -354,6 +354,21 @@ export function ReMeLightMemoryCard() {
                   </Form.Item>
                 )}
 
+                {normalizedBackend === "openai" && (
+                  <Form.Item
+                    label={t("agentConfig.embeddingUseDimensions")}
+                    name={[
+                      "reme_light_memory_config",
+                      "embedding_model_config",
+                      "use_dimensions",
+                    ]}
+                    valuePropName="checked"
+                    tooltip={t("agentConfig.embeddingUseDimensionsTooltip")}
+                  >
+                    <Switch disabled={!embeddingEnabled} />
+                  </Form.Item>
+                )}
+
                 <Form.Item
                   label={t("agentConfig.embeddingDimensions")}
                   name={[

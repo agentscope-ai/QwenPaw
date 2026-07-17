@@ -379,7 +379,7 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `inbox_push_enabled`            | bool        | `true`           | 是否将自动记忆、自动梦境和自动资源任务结果推送到收件箱               |
 | `auto_memory_interval`          | int \| null | `5`              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆 |
 | `dream_cron_enabled`            | bool        | `true`           | 是否启用按 Cron 定时执行的梦境记忆优化任务                           |
-| `dream_cron`                    | string      | `"0 23 * * *"`   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）                |
+| `dream_cron`                    | string      | `"0 23 * * *"`   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动，以避免集中调用 |
 | `auto_memory_search_config`     | object      | _（见下方）_     | 自动记忆搜索配置                                                     |
 | `embedding_model_config`        | object      | _（见下方）_     | Embedding 模型配置                                                   |
 

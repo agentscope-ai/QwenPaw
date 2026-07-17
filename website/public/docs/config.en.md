@@ -426,7 +426,7 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `inbox_push_enabled`            | bool        | `true`           | Whether to push auto-memory, auto-dream, and auto-resource job results to the inbox                                |
 | `auto_memory_interval`          | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                   |
 | `dream_cron_enabled`            | bool        | `true`           | Whether to enable the scheduled dream-based memory optimization job                                                |
-| `dream_cron`                    | string      | `"0 23 * * *"`   | Valid 5-field cron expression for dream-based memory optimization (required when enabled)                          |
+| `dream_cron`                    | string      | `"0 23 * * *"`   | Valid 5-field cron expression for dream-based memory optimization (required when enabled); scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls |
 | `auto_memory_search_config`     | object      | _(see below)_    | Auto memory search configuration                                                                                   |
 | `embedding_model_config`        | object      | _(see below)_    | Embedding model configuration                                                                                      |
 

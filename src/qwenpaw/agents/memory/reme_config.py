@@ -47,7 +47,7 @@ def build_reme_app_config(
             "language": agent_config.language,
             "timezone": user_timezone or "Asia/Shanghai",
             "enable_logo": False,
-            "log_to_console": False,
+            "log_to_console": True,
         },
     )
 
@@ -645,9 +645,13 @@ def _apply_embedding_config(
 ) -> None:
     """Map QwenPaw embedding config into ReMe component config."""
     components = cfg["components"]
-    embedding_store_name = (
-        "default" if _is_embedding_enabled(embedding_config) else ""
-    )
+    if not _is_embedding_enabled(embedding_config):
+        # Keep the explicit empty value: LocalFileStore otherwise defaults to
+        # looking up embedding_store:default even when the component is absent.
+        components["file_store"]["default"]["embedding_store"] = ""
+        components.pop("embedding_store", None)
+        components.pop("as_embedding", None)
+        return
 
     components["as_embedding"]["default"].update(
         {
@@ -669,9 +673,7 @@ def _apply_embedding_config(
             "max_batch_size": embedding_config.max_batch_size,
         },
     )
-    components["file_store"]["default"][
-        "embedding_store"
-    ] = embedding_store_name
+    components["file_store"]["default"]["embedding_store"] = "default"
 
 
 def _is_embedding_enabled(embedding_config: EmbeddingModelConfig) -> bool:

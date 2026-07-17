@@ -723,7 +723,8 @@ class ReMeLightMemoryConfig(BaseModel):
         default="0 23 * * *",
         description=(
             "Cron expression for dream-based memory optimization job "
-            "(use dream_cron_enabled to enable/disable)"
+            "(use dream_cron_enabled to enable/disable). Scheduled runs "
+            "start after a random delay of 0 to 60 seconds."
         ),
     )
 

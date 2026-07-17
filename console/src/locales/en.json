@@ -2064,7 +2064,7 @@
     "dreamCronEnabled": "Enable Dream",
     "dreamCronEnabledTooltip": "Enable the scheduled dream-based memory optimization job",
     "dreamCron": "Dream Schedule",
-    "dreamCronTooltip": "Cron expression for periodically optimizing long-term memories through dream state; use the switch above to enable or disable it",
+    "dreamCronTooltip": "Cron expression for periodically optimizing long-term memories through dream state. Scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls; use the switch above to enable or disable it",
     "dreamCronPlaceholder": "0 23 * * *",
     "dreamCronRequired": "Enter a cron expression when Dream is enabled",
     "dreamCronInvalid": "Enter a valid 5-field cron expression",
