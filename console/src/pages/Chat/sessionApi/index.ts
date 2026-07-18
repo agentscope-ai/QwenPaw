@@ -459,8 +459,17 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    */
   suppressBaseAutoSelect = false;
 
-  setActiveAgent(agentId: string | undefined): void {
-    if (this.activeAgentId === agentId) return;
+  setActiveAgent(
+    agentId: string | undefined,
+    preferredChatId?: string | null,
+  ): void {
+    if (this.activeAgentId === agentId) {
+      if (preferredChatId !== undefined) {
+        this.preferredChatId = preferredChatId;
+        this.lastActiveChatId = preferredChatId;
+      }
+      return;
+    }
     this.activeAgentId = agentId;
     this.sessionScopeVersion += 1;
 
@@ -481,10 +490,72 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.resolvePromise = null;
     this.sessionRequests.clear();
     this.lastSelectedIds.clear();
+
+    // Agent switching restores the destination route at the same time as the
+    // singleton is re-scoped. Applying it after the reset prevents the next
+    // render from losing the restored chat and briefly loading the old route.
+    if (preferredChatId !== undefined) {
+      this.preferredChatId = preferredChatId;
+      this.lastActiveChatId = preferredChatId;
+    }
   }
 
   isActiveAgent(agentId: string | undefined): boolean {
     return this.activeAgentId === agentId;
+  }
+
+  /**
+   * Give each mounted SDK instance an immutable view of the active Agent
+   * scope. An SDK instance may issue delayed session calls while it is being
+   * unmounted; those calls must not be retargeted through this singleton after
+   * another Agent becomes active.
+   */
+  createScopedApi(
+    agentId: string | undefined,
+    initialSessionId?: string,
+  ): IAgentScopeRuntimeWebUISessionAPI {
+    const scopeVersion = this.sessionScopeVersion;
+    const isCurrentScope = () =>
+      this.activeAgentId === agentId &&
+      this.sessionScopeVersion === scopeVersion;
+    const abort = () => new DOMException("Aborted", "AbortError");
+
+    return {
+      getSessionList: async () => {
+        if (!isCurrentScope()) return [];
+        const sessions = await this.getSessionList();
+        return isCurrentScope() ? sessions : [];
+      },
+      getSession: async (sessionId: string) => {
+        if (!isCurrentScope()) throw abort();
+
+        // A newly mounted SDK may retain a delayed selection from the instance
+        // it replaced. Only the controlled route or a session in this Agent's
+        // freshly loaded list may be selected.
+        if (
+          sessionId !== initialSessionId &&
+          !this.findSessionByIdentity(sessionId)
+        ) {
+          throw abort();
+        }
+
+        const session = await this.getSession(sessionId);
+        if (!isCurrentScope()) throw abort();
+        return session;
+      },
+      updateSession: async (session) => {
+        if (!isCurrentScope()) return [];
+        return this.updateSession(session);
+      },
+      createSession: async (session) => {
+        if (!isCurrentScope()) return [];
+        return this.createSession(session);
+      },
+      removeSession: async (session) => {
+        if (!isCurrentScope()) return [];
+        return this.removeSession(session);
+      },
+    };
   }
 
   // ---------------------------------------------------------------------------

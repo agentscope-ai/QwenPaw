@@ -55,17 +55,33 @@ function getLatestRoutableSession(
  *  - qwenpaw:sidebar-select-session → switch to the given sessionId
  *  - qwenpaw:sidebar-new-chat       → create a new session
  */
-const ChatSessionInitializer: React.FC = () => {
+interface ChatSessionInitializerProps {
+  /**
+   * Resolve the route owned by the currently mounted Agent SDK instance.
+   *
+   * The SDK retains the header React node from its initial options. A stable
+   * resolver can read current refs when this component re-renders, while a
+   * captured string would keep restoring a stale conversation after New Chat.
+   */
+  resolveChatId?: (
+    routeChatId: string | undefined,
+  ) => string | undefined;
+}
+
+const ChatSessionInitializer: React.FC<ChatSessionInitializerProps> = ({
+  resolveChatId,
+}) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { codingMode } = useCodingMode();
 
   // Issue #5142: Match both /chat/<id> and /coding/<id> so that Coding mode
   // sessions are restored from the URL on page refresh, just like Chat mode.
-  const chatId = useMemo(
+  const routeChatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
   );
+  const chatId = resolveChatId ? resolveChatId(routeChatId) : routeChatId;
 
   const { sessions, currentSessionId, setCurrentSessionId, setSessions } =
     useChatAnywhereSessionsState();

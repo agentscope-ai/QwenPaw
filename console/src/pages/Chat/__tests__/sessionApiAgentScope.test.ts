@@ -65,4 +65,50 @@ describe("sessionApi agent scope", () => {
       "agent-2-chat",
     );
   });
+
+  it("restores the destination chat after resetting the agent scope", () => {
+    sessionApi.setActiveAgent("agent-1");
+    sessionApi.preferredChatId = "agent-1-chat";
+    sessionApi.lastActiveChatId = "agent-1-chat";
+
+    sessionApi.setActiveAgent("agent-2", "agent-2-chat");
+
+    expect(sessionApi.preferredChatId).toBe("agent-2-chat");
+    expect(sessionApi.lastActiveChatId).toBe("agent-2-chat");
+    expect(sessionApi.getLibrarySessionId("agent-2-chat")).toBe("agent-2-chat");
+  });
+
+  it("rejects delayed SDK calls from the previous agent scope", async () => {
+    const getChat = vi.spyOn(api, "getChat");
+
+    sessionApi.setActiveAgent("agent-1");
+    const agent1Api = sessionApi.createScopedApi("agent-1", "agent-1-chat");
+
+    sessionApi.setActiveAgent("agent-2", "agent-2-chat");
+
+    await expect(agent1Api.getSession?.("agent-1-chat")).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(getChat).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale session selection retained by the replaced SDK", async () => {
+    const listChats = vi
+      .spyOn(api, "listChats")
+      .mockResolvedValue([buildChat("agent-2-chat")]);
+    const getChat = vi.spyOn(api, "getChat");
+
+    sessionApi.setActiveAgent("agent-2", "agent-2-chat");
+    const agent2Api = sessionApi.createScopedApi("agent-2", "agent-2-chat");
+    await agent2Api.getSessionList?.();
+
+    await expect(agent2Api.getSession?.("agent-1-chat")).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(listChats).toHaveBeenCalledWith(
+      { archived: false },
+      { agentId: "agent-2" },
+    );
+    expect(getChat).not.toHaveBeenCalled();
+  });
 });

@@ -74,6 +74,11 @@ import {
   migrateInputQueueStorage,
   removeStoredInputQueueItem,
 } from "./inputQueueStorage";
+import {
+  resolveRuntimeChatId,
+  resolveSessionInitializerChatId,
+  type PendingAgentChatScope,
+} from "./agentSwitchScope";
 import { applyApprovalLevelToRequestBody } from "./approvalPayload";
 import {
   createHeadlineFilterState,
@@ -886,10 +891,6 @@ export default function ChatPage() {
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
   );
-  const inputQueueEnabled = useMemo(() => {
-    if (!chatId) return false;
-    return !sessionApi.isUnresolvedLocalSession(chatId);
-  }, [chatId]);
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const [rateLimitAlternatives, setRateLimitAlternatives] = useState<
     Array<{
@@ -904,6 +905,7 @@ export default function ChatPage() {
   // previous agent until the switch effect has saved the old route, otherwise
   // one render briefly scopes the old chat to the new agent's input queue.
   const runtimeAgentRef = useRef(selectedAgent);
+  const pendingAgentChatScopeRef = useRef<PendingAgentChatScope | null>(null);
   const runtimeAgent = runtimeAgentRef.current;
   const queueDrainBlockedUntilRef = useRef(new Map<string, number>());
   const acceptedQueuedInputRef = useRef(
@@ -914,17 +916,40 @@ export default function ChatPage() {
   // Otherwise agent switches can reuse another agent's chat mapping and make
   // its input queue appear under the wrong storage key.
   sessionApi.setActiveAgent(runtimeAgent);
+  const runtimeChatId = resolveRuntimeChatId(
+    chatId,
+    runtimeAgent,
+    pendingAgentChatScopeRef.current,
+  );
+  const resolveInitializerChatId = useCallback(
+    (routeChatId: string | undefined) =>
+      resolveSessionInitializerChatId(
+        routeChatId,
+        runtimeAgentRef.current,
+        pendingAgentChatScopeRef.current,
+        sessionApi.userInitiatedCreate || sessionApi.suppressBaseAutoSelect,
+      ),
+    [],
+  );
+  const inputQueueEnabled = runtimeChatId
+    ? !sessionApi.isUnresolvedLocalSession(runtimeChatId)
+    : false;
   const { toolRenderConfig } = usePlugins();
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
   const [refreshKey, setRefreshKey] = useState(0);
-  const controlledSdkSessionId = sessionApi.getLibrarySessionId(chatId);
+  const controlledSdkSessionId = sessionApi.getLibrarySessionId(runtimeChatId);
+  const scopedSessionApi = useMemo(
+    () => sessionApi.createScopedApi(runtimeAgent, controlledSdkSessionId),
+    [controlledSdkSessionId, runtimeAgent],
+  );
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
   );
   // Keep approval overrides stable while a local session resolves to its
   // backend ID. This is separate from the agent-scoped SDK queue key.
-  const approvalSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
+  const approvalSessionId =
+    runtimeChatId ?? sessionApi.lastActiveChatId ?? "new";
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
   const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
 
@@ -1044,7 +1069,7 @@ export default function ChatPage() {
   const prevApprovalKeyRef = useRef("");
 
   useEffect(() => {
-    const currentSessionId = window.currentSessionId || chatId || "";
+    const currentSessionId = window.currentSessionId || runtimeChatId || "";
 
     // When no session ID is available yet, use the first approval's
     // root_session_id as a hint (handles the race where approval arrives
@@ -1092,7 +1117,7 @@ export default function ChatPage() {
     }
 
     setApprovalRequests(newMap);
-  }, [approvals, chatId]);
+  }, [approvals, runtimeChatId]);
 
   const handleApprove = useCallback(
     async (requestId: string, scope?: "exact" | "similar") => {
@@ -1134,7 +1159,7 @@ export default function ChatPage() {
         console.error("Failed to approve:", error);
       }
     },
-    [approvalRequests, chatId, t, message, setApprovals],
+    [approvalRequests, t, message, setApprovals],
   );
 
   const handleDeny = useCallback(
@@ -1174,7 +1199,7 @@ export default function ChatPage() {
         console.error("Failed to deny:", error);
       }
     },
-    [approvalRequests, chatId, t, message, setApprovals],
+    [approvalRequests, t, message, setApprovals],
   );
 
   // Use custom hooks for better separation of concerns
@@ -1212,7 +1237,7 @@ export default function ChatPage() {
   const lastSessionIdRef = useRef<string | null>(null);
   /** Tracks the stale auto-selected session ID that was skipped on init, so we can suppress its late-arriving onSessionSelected callback. */
   const staleAutoSelectedIdRef = useRef<string | null>(null);
-  const chatIdRef = useRef(chatId);
+  const chatIdRef = useRef(runtimeChatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
   const streamSnapshotTabIdRef = useRef(createChatStreamSnapshotTabId());
@@ -1236,10 +1261,10 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    if (!inputQueueEnabled || !chatId) return;
+    if (!inputQueueEnabled || !runtimeChatId) return;
     if (typeof BroadcastChannel === "undefined") return;
 
-    const queueSessionId = resolveInputQueueSessionId(chatId);
+    const queueSessionId = resolveInputQueueSessionId(runtimeChatId);
     if (!queueSessionId) return;
 
     const sourceTabId = streamSnapshotTabIdRef.current;
@@ -1308,7 +1333,7 @@ export default function ChatPage() {
       timers.forEach((timer) => window.clearTimeout(timer));
       channel.close();
     };
-  }, [chatId, inputQueueEnabled, resolveInputQueueSessionId]);
+  }, [runtimeChatId, inputQueueEnabled, resolveInputQueueSessionId]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1454,7 +1479,7 @@ export default function ChatPage() {
     document.addEventListener("keydown", handleShortcut);
     return () => document.removeEventListener("keydown", handleShortcut);
   }, [isChatActive, whisperEnabled]);
-  chatIdRef.current = chatId;
+  chatIdRef.current = runtimeChatId;
   navigateRef.current = navigate;
 
   const scheduleHistoryClear = useCallback(() => {
@@ -1470,7 +1495,7 @@ export default function ChatPage() {
   // When URL has no chatId (e.g. navigating back from /settings), fall back to the
   // last actively selected session to avoid jumping to the first session on re-mount.
   const effectiveChatId =
-    sessionApi.getRoutableSessionId(chatId) ||
+    sessionApi.getRoutableSessionId(runtimeChatId) ||
     (sessionApi.suppressBaseAutoSelect
       ? undefined
       : sessionApi.getRoutableSessionId(sessionApi.lastActiveChatId) ||
@@ -1615,23 +1640,30 @@ export default function ChatPage() {
 
       // Restore last chat ID for the agent we're switching to
       const restored = getLastChatId(selectedAgent);
+      // Mark the current session as stale before replacing the runtime scope,
+      // so late callbacks from the old SDK instance cannot navigate back.
+      staleAutoSelectedIdRef.current =
+        lastSessionIdRef.current || chatIdRef.current || null;
+      lastSessionIdRef.current = null;
+
+      // React Router applies navigation on a later render. Pin the destination
+      // chat to the destination agent until that route catches up, and reset
+      // the singleton before restoring its preferred chat.
+      pendingAgentChatScopeRef.current = {
+        agentId: selectedAgent,
+        chatId: restored,
+      };
+      runtimeAgentRef.current = selectedAgent;
+      sessionApi.setActiveAgent(selectedAgent, restored ?? null);
+      chatIdRef.current = restored;
+
       if (restored) {
         navigateRef.current(buildSessionPath("chat", restored), {
           replace: true,
         });
-        sessionApi.preferredChatId = restored;
-        sessionApi.lastActiveChatId = restored;
       } else {
         navigateRef.current("/chat", { replace: true });
-        sessionApi.lastActiveChatId = null;
       }
-      // Mark the current session as stale so late-arriving onSessionSelected
-      // callbacks from the OLD library instance are suppressed (Bug: after
-      // agent switch, old library's in-flight getSession may complete and
-      // trigger onSessionSelected for the wrong session).
-      staleAutoSelectedIdRef.current =
-        lastSessionIdRef.current || chatIdRef.current || null;
-      lastSessionIdRef.current = null;
 
       queueDrainBlockedUntilRef.current.set(
         selectedAgent,
@@ -1644,13 +1676,20 @@ export default function ChatPage() {
           requestId,
         );
       }
-      // The next render switches the session singleton and SDK options as one
-      // unit, after the old agent's route has been persisted above.
-      runtimeAgentRef.current = selectedAgent;
       setRefreshKey((prev) => prev + 1);
     }
     prevSelectedAgentRef.current = selectedAgent;
   }, [selectedAgent, setLastChatId, getLastChatId]);
+
+  useEffect(() => {
+    const pendingScope = pendingAgentChatScopeRef.current;
+    if (
+      pendingScope?.agentId === runtimeAgent &&
+      pendingScope.chatId === chatId
+    ) {
+      pendingAgentChatScopeRef.current = null;
+    }
+  }, [chatId, runtimeAgent]);
 
   const copyResponse = useCallback(
     async (response: CopyableResponse) => {
@@ -2196,7 +2235,7 @@ export default function ChatPage() {
         leftHeader: mergedLeftHeader,
         rightHeader: (
           <>
-            <ChatSessionInitializer />
+            <ChatSessionInitializer resolveChatId={resolveInitializerChatId} />
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
             <ModelSelector />
@@ -2403,7 +2442,10 @@ export default function ChatPage() {
           },
         },
       },
-      session: buildChatSessionOptions(controlledSdkSessionId),
+      session: buildChatSessionOptions(
+        controlledSdkSessionId,
+        scopedSessionApi,
+      ),
       api: {
         ...defaultConfig.api,
         fetch: customFetch,
@@ -2581,9 +2623,12 @@ export default function ChatPage() {
     scheduleHistoryClear,
     consoleSkills,
     runtimeAgent,
+    runtimeChatId,
+    resolveInitializerChatId,
     inputQueueEnabled,
     isFrontendChatRunning,
     controlledSdkSessionId,
+    scopedSessionApi,
     resolveBackendSessionId,
     resolveInputQueueSessionId,
     runningConfigApprovalLevel,
@@ -2609,7 +2654,7 @@ export default function ChatPage() {
         >
           <AgentScopeRuntimeWebUI
             ref={chatRef}
-            key={refreshKey}
+            key={`${runtimeAgent}:${refreshKey}`}
             options={options}
           />
         </div>

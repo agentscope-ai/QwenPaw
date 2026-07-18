@@ -1,8 +1,12 @@
-import type { IAgentScopeRuntimeWebUIOptions } from "@agentscope-ai/chat";
+import type {
+  IAgentScopeRuntimeWebUIOptions,
+  IAgentScopeRuntimeWebUISessionAPI,
+} from "@agentscope-ai/chat";
 import sessionApi from "./sessionApi";
 
 export function buildChatSessionOptions(
   currentSessionId: string | undefined,
+  api: IAgentScopeRuntimeWebUISessionAPI = sessionApi,
 ): IAgentScopeRuntimeWebUIOptions["session"] {
   return {
     multiple: true,
@@ -10,6 +14,6 @@ export function buildChatSessionOptions(
     // Omitting this key lets the SDK retain a stale internal currentSessionId.
     currentSessionId,
     hideBuiltInSessionList: true,
-    api: sessionApi,
+    api,
   };
 }

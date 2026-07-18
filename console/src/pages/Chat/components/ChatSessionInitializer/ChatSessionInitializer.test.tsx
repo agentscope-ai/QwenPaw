@@ -114,4 +114,27 @@ describe("ChatSessionInitializer", () => {
     );
     expect(mockSetCurrentSessionId).not.toHaveBeenCalled();
   });
+
+  it("uses the mounted Agent session while the route still belongs to the previous Agent", async () => {
+    mockSessions([{ id: "target-agent-chat", name: "Target Agent Chat" }]);
+
+    renderWithProviders(
+      <>
+        <ChatSessionInitializer
+          resolveChatId={() => "target-agent-chat"}
+        />
+        <LocationProbe />
+      </>,
+      { initialEntries: ["/chat/previous-agent-chat"] },
+    );
+
+    await waitFor(() =>
+      expect(mockSetCurrentSessionId).toHaveBeenCalledWith(
+        "target-agent-chat",
+      ),
+    );
+    expect(mockSetCurrentSessionId).not.toHaveBeenCalledWith(
+      "previous-agent-chat",
+    );
+  });
 });

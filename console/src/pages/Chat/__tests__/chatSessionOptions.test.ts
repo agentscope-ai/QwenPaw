@@ -16,4 +16,11 @@ describe("buildChatSessionOptions", () => {
 
     expect(options.currentSessionId).toBe("chat-uuid");
   });
+
+  it("uses an Agent-scoped session API for the mounted SDK instance", () => {
+    const api = {};
+    const options = buildChatSessionOptions("chat-uuid", api);
+
+    expect(options.api).toBe(api);
+  });
 });
