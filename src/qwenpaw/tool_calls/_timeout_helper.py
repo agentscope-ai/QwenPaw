@@ -48,13 +48,20 @@ async def cancellable_wait(
         )
 
         if cancel_waiter in done:
+            # Distinguish between cancel (user stop) and offload (deadline).
+            # For offload, do NOT cancel the task — let the subprocess
+            # continue running under background supervision.
+            if ctx.offload_reason is not None:
+                raise asyncio.CancelledError(
+                    f"tool offloaded (reason={ctx.offload_reason.value})"
+                )
             task.cancel()
             try:
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
             raise asyncio.CancelledError(
-                f"tool cancelled by manager (reason={ctx.cancel_reason})",
+                f"tool cancelled by manager (reason={ctx.cancel_reason})"
             )
 
         return task.result()

@@ -625,6 +625,15 @@ async def execute_shell_command(
                 returncode = proc.returncode
 
             except (asyncio.TimeoutError, asyncio.CancelledError):
+                # Check if this is an offload (deadline reached) vs a cancel.
+                # For offload, do NOT kill the subprocess — let it continue
+                # in background under coordinator supervision.
+                from ...tool_calls import get_call_context
+                ctx = get_call_context()
+                if ctx is not None and ctx.offload_reason is not None:
+                    # Re-raise without killing; coordinator handles offload.
+                    raise
+
                 stderr_suffix = (
                     f"⚠️ TimeoutError: The command execution exceeded "
                     f"the timeout of {timeout} seconds. "
