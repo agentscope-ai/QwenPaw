@@ -40,6 +40,8 @@ from .storage import (
 )
 
 logger = logging.getLogger(__name__)
+# Start common multi-MCP setups in one wave without unbounded process launches.
+_DRIVER_STARTUP_CONCURRENCY = 8
 _SHUTDOWN_TIMEOUT_SECONDS = 10.0
 EndpointValidator = Callable[[DriverCard], None]
 
@@ -88,7 +90,7 @@ class DriverManager:
 
     async def build_drivers(self) -> None:
         """Scan cards_dir and build enabled handlers."""
-        built: dict[str, DriverHandler] = {}
+        cards: list[DriverCard] = []
         for path in await self._card_store.list_paths():
             try:
                 card = await self._card_store.load_path(path)
@@ -100,15 +102,25 @@ class DriverManager:
                     exc_info=True,
                 )
                 continue
+            if not card.enabled:
+                logger.debug(
+                    "Driver '%s' is disabled; skipping",
+                    card.name,
+                )
+                continue
+            cards.append(card)
+
+        startup_limit = asyncio.Semaphore(_DRIVER_STARTUP_CONCURRENCY)
+        initialized_handlers: list[DriverHandler] = []
+
+        async def build_handler(
+            card: DriverCard,
+        ) -> tuple[str, DriverHandler | None]:
             try:
-                if not card.enabled:
-                    logger.debug(
-                        "Driver '%s' is disabled; skipping",
-                        card.name,
-                    )
-                    continue
-                handler = await self._build_and_init_handler(card)
-                built[card.name] = handler
+                async with startup_limit:
+                    handler = await self._build_and_init_handler(card)
+                initialized_handlers.append(handler)
+                return card.name, handler
             except Exception as exc:
                 logger.warning(
                     "Failed to build Driver '%s': %s",
@@ -116,10 +128,27 @@ class DriverManager:
                     exc,
                     exc_info=True,
                 )
+                return card.name, None
 
-        async with self._lock:
-            old_handlers = self._handlers
-            self._handlers = built
+        published = False
+        try:
+            results = await asyncio.gather(
+                *(build_handler(card) for card in cards),
+            )
+            built = {
+                name: handler
+                for name, handler in results
+                if handler is not None
+            }
+
+            async with self._lock:
+                old_handlers = self._handlers
+                self._handlers = built
+                published = True
+        except asyncio.CancelledError:
+            if not published:
+                await self._shutdown_handlers(initialized_handlers)
+            raise
 
         await self._shutdown_handlers(old_handlers.values())
 
