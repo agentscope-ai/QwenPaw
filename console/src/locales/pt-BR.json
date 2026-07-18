@@ -1947,6 +1947,8 @@
     "embeddingMaxCacheSizeRequired": "Max cache Tamanho e obrigatorio",
     "embeddingUseDimensions": "Use Personalizado Dimensions",
     "embeddingUseDimensionsTooltip": "Use custom embedding dimensions (only supported by some models)",
+    "useCustomDimensions": "Pass Custom Dimensions",
+    "useCustomDimensionsTooltip": "When enabled, the configured embedding dimensions will be passed to the API.",
     "embeddingDimensions": "Embedding Dimensions",
     "embeddingDimensionsTooltip": "Number of embedding dimensions; takes effect when custom dimensions are enabled",
     "embeddingDimensionsRequired": "Embedding dimensions is Obrigatorio",

@@ -320,6 +320,19 @@ export function ReMeLightMemoryCard() {
                 )}
 
                 <Form.Item
+                  label={t("agentConfig.useCustomDimensions")}
+                  name={[
+                    "reme_light_memory_config",
+                    "embedding_model_config",
+                    "use_dimensions",
+                  ]}
+                  valuePropName="checked"
+                  tooltip={t("agentConfig.useCustomDimensionsTooltip")}
+                >
+                  <Switch disabled={!embeddingEnabled} />
+                </Form.Item>
+
+                <Form.Item
                   label={t("agentConfig.embeddingDimensions")}
                   name={[
                     "reme_light_memory_config",

@@ -926,6 +926,8 @@
     "embeddingMaxCacheSizeRequired": "Bắt buộc nhập kích thước cache tối đa",
     "embeddingUseDimensions": "Dùng số chiều tùy chỉnh",
     "embeddingUseDimensionsTooltip": "Dùng số chiều embedding tùy chỉnh (chỉ một số mô hình hỗ trợ)",
+    "useCustomDimensions": "Pass Custom Dimensions",
+    "useCustomDimensionsTooltip": "When enabled, the configured embedding dimensions will be passed to the API.",
     "embeddingDimensions": "Số chiều embedding",
     "embeddingDimensionsTooltip": "Số chiều của embedding; có hiệu lực khi bật số chiều tùy chỉnh",
     "embeddingDimensionsRequired": "Bắt buộc nhập số chiều embedding",

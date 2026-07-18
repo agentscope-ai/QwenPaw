@@ -1956,6 +1956,8 @@
     "embeddingMaxCacheSizeRequired": "最大缓存条目数为必填项",
     "embeddingUseDimensions": "使用自定义维度",
     "embeddingUseDimensionsTooltip": "是否使用自定义向量维度（仅部分模型支持）",
+    "useCustomDimensions": "传递自定义维度",
+    "useCustomDimensionsTooltip": "启用后，配置的嵌入维度将传递给 API。当 OpenAI 兼容 API 的默认输出维度与目标维度不同时，必须开启此项。",
     "embeddingDimensions": "向量维度",
     "embeddingDimensionsTooltip": "向量嵌入的维度数，启用自定义维度后生效",
     "embeddingDimensionsRequired": "向量维度为必填项",

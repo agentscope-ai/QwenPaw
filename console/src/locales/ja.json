@@ -1719,6 +1719,8 @@
     "embeddingMaxCacheSizeRequired": "最大キャッシュサイズは必須です",
     "embeddingUseDimensions": "カスタム次元を使用",
     "embeddingUseDimensionsTooltip": "カスタム埋め込み次元を使用します（一部のモデルのみ対応）",
+    "useCustomDimensions": "Pass Custom Dimensions",
+    "useCustomDimensionsTooltip": "When enabled, the configured embedding dimensions will be passed to the API.",
     "embeddingDimensions": "埋め込み次元数",
     "embeddingDimensionsTooltip": "埋め込みの次元数。カスタム次元が有効な場合に適用されます",
     "embeddingDimensionsRequired": "埋め込み次元数は必須です",

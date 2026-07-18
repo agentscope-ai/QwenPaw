@@ -2097,6 +2097,8 @@
     "embeddingMaxCacheSizeRequired": "Max cache size is required",
     "embeddingUseDimensions": "Use Custom Dimensions",
     "embeddingUseDimensionsTooltip": "Use custom embedding dimensions (only supported by some models)",
+    "useCustomDimensions": "Pass Custom Dimensions",
+    "useCustomDimensionsTooltip": "When enabled, the configured embedding dimensions will be passed to the API. Required for OpenAI-compatible APIs whose default output dimension differs from your target.",
     "embeddingDimensions": "Embedding Dimensions",
     "embeddingDimensionsTooltip": "Number of embedding dimensions; takes effect when custom dimensions are enabled",
     "embeddingDimensionsRequired": "Embedding dimensions is required",

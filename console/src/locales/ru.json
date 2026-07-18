@@ -1734,6 +1734,8 @@
     "embeddingMaxCacheSizeRequired": "Требуется указать макс. размер кэша",
     "embeddingUseDimensions": "Использовать пользовательские размерности",
     "embeddingUseDimensionsTooltip": "Использовать пользовательские размерности эмбеддинга (поддерживается только некоторыми моделями)",
+    "useCustomDimensions": "Pass Custom Dimensions",
+    "useCustomDimensionsTooltip": "When enabled, the configured embedding dimensions will be passed to the API.",
     "embeddingDimensions": "Размерности эмбеддинга",
     "embeddingDimensionsTooltip": "Количество размерностей эмбеддинга; вступает в силу при включённых пользовательских размерностях",
     "embeddingDimensionsRequired": "Требуется указать размерности эмбеддинга",

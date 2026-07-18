@@ -109,6 +109,55 @@ def test_openai_compatible_embedding_can_pass_dimensions() -> None:
     assert as_embedding["pass_dimensions"] is True
 
 
+def test_dashscope_embedding_can_pass_dimensions() -> None:
+    """Test that dashscope backend also supports pass_dimensions."""
+    cfg = _config_for_embedding(
+        EmbeddingModelConfig(
+            backend="dashscope",
+            api_key="dashscope-key",
+            model_name="text-embedding-v3",
+            dimensions=1024,
+            use_dimensions=True,
+        ),
+    )
+
+    as_embedding = cfg["components"]["as_embedding"]["default"]
+    assert as_embedding["dimensions"] == 1024
+    assert as_embedding["pass_dimensions"] is True
+
+
+def test_dashscope_embedding_omits_pass_dimensions_by_default() -> None:
+    """Test that dashscope backend omits pass_dimensions when not explicitly enabled."""
+    cfg = _config_for_embedding(
+        EmbeddingModelConfig(
+            backend="dashscope",
+            api_key="dashscope-key",
+            model_name="text-embedding-v3",
+            dimensions=1024,
+        ),
+    )
+
+    as_embedding = cfg["components"]["as_embedding"]["default"]
+    assert as_embedding["dimensions"] == 1024
+    assert as_embedding["pass_dimensions"] is False
+
+
+def test_gemini_embedding_omits_pass_dimensions() -> None:
+    """Test that non-OpenAI-compatible backends (gemini) don't set pass_dimensions."""
+    cfg = _config_for_embedding(
+        EmbeddingModelConfig(
+            backend="gemini",
+            api_key="gemini-key",
+            model_name="text-embedding-004",
+            dimensions=768,
+            use_dimensions=True,
+        ),
+    )
+
+    as_embedding = cfg["components"]["as_embedding"]["default"]
+    assert "pass_dimensions" not in as_embedding
+
+
 def test_openai_compatible_embedding_omits_blank_base_url() -> None:
     cfg = _config_for_embedding(
         EmbeddingModelConfig(

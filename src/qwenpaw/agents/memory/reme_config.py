@@ -657,7 +657,8 @@ def _apply_embedding_config(
             "credential": _embedding_credential(embedding_config),
         },
     )
-    if embedding_config.backend == "openai":
+    # Pass dimensions to all OpenAI-compatible backends when explicitly enabled
+    if embedding_config.backend in _OPENAI_COMPAT_EMBEDDING_BACKENDS:
         components["as_embedding"]["default"][
             "pass_dimensions"
         ] = embedding_config.use_dimensions

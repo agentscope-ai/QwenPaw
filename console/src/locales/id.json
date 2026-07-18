@@ -2116,6 +2116,8 @@
     "embeddingMaxCacheSizeRequired": "Ukuran cache maksimum wajib diisi",
     "embeddingUseDimensions": "Gunakan Dimensi Kustom",
     "embeddingUseDimensionsTooltip": "Gunakan dimensi embedding kustom (hanya didukung oleh beberapa model)",
+    "useCustomDimensions": "Pass Custom Dimensions",
+    "useCustomDimensionsTooltip": "When enabled, the configured embedding dimensions will be passed to the API.",
     "embeddingDimensions": "Dimensi Embedding",
     "embeddingDimensionsTooltip": "Jumlah dimensi embedding; berlaku ketika dimensi kustom diaktifkan",
     "embeddingDimensionsRequired": "Dimensi embedding wajib diisi",
