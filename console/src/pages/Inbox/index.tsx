@@ -21,7 +21,7 @@ import {
   DownOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
-import { PackageOpen, Bell } from "lucide-react";
+import { PackageOpen, Bell, BellOff } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
@@ -32,6 +32,8 @@ import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
 import { PushMessageCard } from "./components";
+import { NotificationSettingsDrawer } from "./components/NotificationSettingsDrawer";
+import { useNotifications } from "../Settings/Notifications/useNotifications";
 import { useInboxData } from "./hooks/useInboxData";
 import { useTraceViewer } from "./hooks/useTraceViewer";
 import { useAgentStore } from "../../stores/agentStore";
@@ -76,6 +78,9 @@ const renderMarkdownText = (text: string, className: string) => (
 export default function InboxPage() {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabKey>(resolveInitialTab);
+  const [notifDrawerOpen, setNotifDrawerOpen] = useState(false);
+  const { config: notifConfig, fetchConfig: refetchNotifConfig } =
+    useNotifications();
   const [markAllReading, setMarkAllReading] = useState(false);
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<
     string | undefined
@@ -507,7 +512,19 @@ export default function InboxPage() {
 
   return (
     <div className={styles.inboxPage}>
-      <PageHeader items={[{ title: t("inbox.title") }]} extra={null} />
+      <PageHeader
+        items={[{ title: t("inbox.title") }]}
+        extra={
+          <Button
+            type="text"
+            onClick={() => setNotifDrawerOpen(true)}
+            style={{ display: "flex", alignItems: "center", gap: 4 }}
+          >
+            {notifConfig?.enabled ? <Bell size={14} /> : <BellOff size={14} />}
+            {t("notifications.title")}
+          </Button>
+        }
+      />
 
       <div className={styles.pageContent}>
         <Tabs
@@ -776,6 +793,13 @@ export default function InboxPage() {
           </div>
         ) : null}
       </Modal>
+      <NotificationSettingsDrawer
+        open={notifDrawerOpen}
+        onClose={() => {
+          setNotifDrawerOpen(false);
+          refetchNotifConfig();
+        }}
+      />
     </div>
   );
 }

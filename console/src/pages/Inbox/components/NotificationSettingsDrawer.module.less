@@ -1,0 +1,96 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--ant-color-text-secondary);
+}
+
+/* Each logical section */
+.section {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Section title - prominent */
+.sectionTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ant-color-text);
+  margin-bottom: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+/* Standard row: label + control */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  padding: 0;
+}
+
+.row + .row {
+  border-top: 1px solid var(--ant-color-fill-quaternary);
+}
+
+.label {
+  font-size: 14px;
+  color: var(--ant-color-text);
+}
+
+.labelBold {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ant-color-text);
+}
+
+/* Sub-label for "定时任务" parent */
+.labelMuted {
+  font-size: 14px;
+  color: var(--ant-color-text-tertiary);
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary);
+  margin-top: 1px;
+}
+
+/* Field with label + select/input below */
+.fieldBlock {
+  padding: 6px 0;
+}
+
+.fieldBlock + .row {
+  border-top: 1px solid var(--ant-color-fill-quaternary);
+  margin-top: 8px;
+}
+
+.fieldLabel {
+  font-size: 14px;
+  color: var(--ant-color-text);
+  margin-bottom: 6px;
+}
+
+.testRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 10px;
+}
+
+.tooltipTrigger {
+  color: var(--ant-color-text-quaternary);
+  cursor: help;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}

@@ -207,6 +207,7 @@ class CronJobSpec(BaseModel):
     request: Optional[CronJobRequest] = None
     dispatch: DispatchSpec
     save_result_to_inbox: Optional[bool] = None
+    system_notify: Optional[bool] = None
 
     runtime: JobRuntimeSpec = Field(default_factory=JobRuntimeSpec)
     meta: Dict[str, Any] = Field(default_factory=dict)

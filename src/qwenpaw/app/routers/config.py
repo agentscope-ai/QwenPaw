@@ -38,6 +38,7 @@ from ...config.config import (
     MatrixConfig,
     MattermostConfig,
     MQTTConfig,
+    NotificationConfig,
     QQConfig,
     SIPChannelConfig,
     SkillScannerConfig,
@@ -1242,3 +1243,71 @@ async def put_allow_no_auth_hosts(
     config.security.allow_no_auth_hosts = normalized_hosts
     save_config(config)
     return AllowNoAuthHostsResponse(hosts=normalized_hosts)
+
+
+# ─── Notifications ─────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/notifications",
+    summary="Get notification config",
+    description="Return current system notification settings",
+)
+async def get_notifications():
+    """Return the system notification configuration."""
+    config = load_config()
+    return config.notifications.model_dump(mode="json")
+
+
+@router.put(
+    "/notifications",
+    summary="Update notification config",
+    description="Update system-level desktop notification settings",
+)
+async def put_notifications(body: NotificationConfig):
+    """Update the notification configuration."""
+    config = load_config()
+    config.notifications = body
+    save_config(config)
+    return config.notifications.model_dump(mode="json")
+
+
+class NotificationTestResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@router.post(
+    "/notifications/test",
+    response_model=NotificationTestResponse,
+    summary="Send test notification",
+    description="Dispatch a test system notification to verify availability",
+)
+async def post_notifications_test() -> NotificationTestResponse:
+    """Send a test notification to verify the system can deliver."""
+    from ..notifications.service import get_notification_service
+
+    config = load_config()
+    svc = get_notification_service()
+
+    if not svc.available:
+        return NotificationTestResponse(
+            success=False,
+            message=(
+                "No notification backend available on this "
+                "platform. Install desktop-notifier or ensure "
+                "notify-send/osascript is accessible."
+            ),
+        )
+
+    ok = await svc.send_test(config.notifications)
+    if ok:
+        return NotificationTestResponse(
+            success=True,
+            message="Test notification sent successfully.",
+        )
+    return NotificationTestResponse(
+        success=False,
+        message="All notification backends failed. "
+        "Check system notification permissions.",
+    )

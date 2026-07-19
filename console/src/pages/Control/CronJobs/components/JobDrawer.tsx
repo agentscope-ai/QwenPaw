@@ -216,6 +216,15 @@ export function JobDrawer({
         </Form.Item>
 
         <Form.Item
+          name="system_notify"
+          label={t("cronJobs.systemNotify")}
+          valuePropName="checked"
+          tooltip={t("cronJobs.systemNotifyTooltip")}
+        >
+          <Switch />
+        </Form.Item>
+
+        <Form.Item
           name="scheduleType"
           label={t("cronJobs.scheduleType")}
           rules={[

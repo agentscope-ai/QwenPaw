@@ -2189,6 +2189,145 @@ class SecurityConfig(BaseModel):
         return cleaned
 
 
+class NotificationRuleConfig(BaseModel):
+    """A single notification filter rule.
+
+    All non-None fields within a rule are AND-ed together.
+    Rules in the list are OR-ed: matching any rule triggers a notification.
+    A field set to None means "no restriction on this dimension".
+    """
+
+    enabled: bool = True
+    source_types: Optional[List[str]] = Field(
+        default=None,
+        description="Match events with these source_type values "
+        "(e.g. cron, heartbeat, memory, skill_autoupdate). "
+        "None = match all.",
+    )
+    severities: Optional[List[str]] = Field(
+        default=None,
+        description="Match events with these severity levels "
+        "(e.g. info, warning, error). None = match all.",
+    )
+    event_types: Optional[List[str]] = Field(
+        default=None,
+        description="Match events with these event_type values "
+        "(e.g. cron_result, cron_delivery_failed_fallback). "
+        "None = match all.",
+    )
+    agent_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Match events belonging to these agent IDs. "
+        "None = match all.",
+    )
+
+
+def _default_notification_rules() -> List[NotificationRuleConfig]:
+    return [NotificationRuleConfig(severities=["error", "warning"])]
+
+
+_SUPPORTED_NOTIFICATION_LANGS = {"en", "zh", "ja", "ru", "pt"}
+
+
+def _detect_notification_language() -> str:
+    """Detect the system locale and map to a supported lang code.
+
+    Falls back to ``"en"`` when detection fails.
+    """
+    try:
+        import locale
+
+        raw, _ = locale.getlocale()
+        if raw:
+            lang = raw.split("_")[0].lower()
+            if lang in _SUPPORTED_NOTIFICATION_LANGS:
+                return lang
+    except Exception:
+        pass
+    return "en"
+
+
+class NotificationSourceToggles(BaseModel):
+    """Per-source-type toggles for system notifications."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    approval: bool = Field(
+        default=True,
+        description="Notify when a tool execution requires security approval.",
+    )
+    cron_text: bool = Field(
+        default=True,
+        description="Notify for text-type cron job results.",
+    )
+    cron_agent: bool = Field(
+        default=True,
+        description="Notify for agent-type cron job results.",
+    )
+    heartbeat: bool = Field(
+        default=True,
+        description="Notify for heartbeat events.",
+    )
+    memory: bool = Field(
+        default=True,
+        description="Notify for memory job events.",
+    )
+    skill_autoupdate: bool = Field(
+        default=True,
+        description="Notify for skill auto-update events.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_cron(cls, data: Any) -> Any:
+        """Migrate old 'cron' field to cron_text + cron_agent."""
+        if isinstance(data, dict) and "cron" in data:
+            val = data.pop("cron")
+            data.setdefault("cron_text", val)
+            data.setdefault("cron_agent", val)
+        return data
+
+
+class NotificationConfig(BaseModel):
+    """System-level desktop notification settings."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Master switch. When False, no system notifications "
+        "are sent regardless of other settings.",
+    )
+    sound: bool = Field(
+        default=True,
+        description="Whether notifications should play a sound.",
+    )
+    min_interval_seconds: int = Field(
+        default=5,
+        ge=1,
+        description="Rate-limit: minimum seconds between consecutive "
+        "notifications. Excess events are batched into a summary.",
+    )
+    sources: NotificationSourceToggles = Field(
+        default_factory=NotificationSourceToggles,
+        description="Per-source-type on/off toggles.",
+    )
+    language: str = Field(
+        default_factory=_detect_notification_language,
+        description="Language for notification text "
+        "(auto-detected from system locale, synced with console UI).",
+    )
+    agent_ids: Optional[List[str]] = Field(
+        default=None,
+        description="If set, only notify for events from these agent IDs. "
+        "None = notify for all agents.",
+    )
+    rules: List[NotificationRuleConfig] = Field(
+        default_factory=_default_notification_rules,
+        description="Advanced whitelist rules (kept for power users). "
+        "An event triggers a notification if it passes the source/agent "
+        "filters OR matches any enabled rule.",
+    )
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
@@ -2200,6 +2339,9 @@ class Config(BaseModel):
     last_dispatch: Optional[LastDispatchConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     acp: ACPConfig = Field(default_factory=ACPConfig)
+    notifications: NotificationConfig = Field(
+        default_factory=NotificationConfig,
+    )
     show_tool_details: bool = True
     user_timezone: str = Field(
         default_factory=detect_system_timezone,

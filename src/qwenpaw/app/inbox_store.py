@@ -79,7 +79,34 @@ async def append_event(
         events.insert(0, event)
         del events[_MAX_EVENTS:]
         _save_events(events)
+
+    asyncio.create_task(
+        _try_system_notify(event),
+        name="inbox-sys-notify",
+    )
+
     return event
+
+
+async def _try_system_notify(
+    event: dict[str, Any],
+    notifications_config: Any = None,
+) -> None:
+    """Fire-and-forget: dispatch a system notification if rules match."""
+    try:
+        payload = event.get("payload") or {}
+        if payload.get("system_notify") is False:
+            return
+        from qwenpaw.app.notifications.service import get_notification_service
+
+        if notifications_config is None:
+            from qwenpaw.config.utils import load_config
+
+            notifications_config = load_config().notifications
+        svc = get_notification_service()
+        await svc.notify_event(event, notifications_config)
+    except Exception as exc:
+        logger.debug("System notification dispatch error: %s", exc)
 
 
 async def list_events(
