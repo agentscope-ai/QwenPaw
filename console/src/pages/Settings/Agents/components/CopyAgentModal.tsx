@@ -14,12 +14,7 @@ interface CopyAgentModalProps {
   onCancel: () => void;
 }
 
-interface CopyOptions {
-  copy_agent_json: boolean;
-  copy_md_files: boolean;
-  copy_skills: boolean;
-  copy_jobs: boolean;
-}
+type CopyOptions = Required<Omit<CopyAgentRequest, "name">>;
 
 const DEFAULT_OPTIONS: CopyOptions = {
   copy_agent_json: true,

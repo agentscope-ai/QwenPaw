@@ -512,6 +512,7 @@ async def copy_agent(
     source_workspace = Path(
         config.agents.profiles[agentId].workspace_dir,
     ).expanduser()
+    source_workspace_exists = source_workspace.is_dir()
 
     existing_ids = set(config.agents.profiles.keys())
     new_id = _generate_unique_id(existing_ids)
@@ -520,9 +521,7 @@ async def copy_agent(
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
     language = normalize_agent_language(
-        getattr(source_config, "language", None)
-        or config.agents.language
-        or "en",
+        source_config.language or config.agents.language or "en",
     )
 
     if request.copy_agent_json:
@@ -557,13 +556,13 @@ async def copy_agent(
         language=language,
     )
 
-    if request.copy_md_files and source_workspace.is_dir():
+    if request.copy_md_files and source_workspace_exists:
         for md_name in _COPYABLE_MD_FILES:
             src = source_workspace / md_name
             if src.is_file():
                 shutil.copy2(src, workspace_dir / md_name)
 
-    if request.copy_skills and source_workspace.is_dir():
+    if request.copy_skills and source_workspace_exists:
         src_skills = get_workspace_skills_dir(source_workspace)
         dst_skills = get_workspace_skills_dir(workspace_dir)
         if src_skills.is_dir():
@@ -572,7 +571,7 @@ async def copy_agent(
         if src_manifest.is_file():
             shutil.copy2(src_manifest, workspace_dir / "skill.json")
 
-    if request.copy_jobs and source_workspace.is_dir():
+    if request.copy_jobs and source_workspace_exists:
         src_jobs = source_workspace / "jobs.json"
         if src_jobs.is_file():
             shutil.copy2(src_jobs, workspace_dir / "jobs.json")
