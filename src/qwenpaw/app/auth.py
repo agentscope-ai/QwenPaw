@@ -38,6 +38,11 @@ from ..security.secret_store import (
     encrypt_dict_fields,
     is_encrypted,
 )
+from ..utils.http import is_loopback_host
+from ..utils.ip import (
+    ip_in_networks as _ip_in_networks,
+    parse_ip_networks as _parse_networks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -570,7 +575,6 @@ def revoke_all_tokens() -> bool:
 # FastAPI middleware — client IP resolution with trusted proxy verification
 # ---------------------------------------------------------------------------
 
-_LOOPBACK = frozenset({"127.0.0.1", "::1"})
 _BRACKETED = re.compile(r"^\[([^\]]+)\](?::\d+)?$")
 _V4_PORT = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){3}):\d+$")
 
@@ -594,35 +598,12 @@ def _normalize_ip(raw: str) -> str | None:
         return None
 
 
-def _parse_networks(entries: list[str]) -> list:
-    """Parse CIDR/IP strings into network objects."""
-    nets = []
-    for entry in entries:
-        try:
-            nets.append(ipaddress.ip_network(entry, strict=False))
-        except ValueError:
-            continue
-    return nets
-
-
-def _ip_in_networks(ip_str: str, networks: list) -> bool:
-    """Check if a normalized IP string falls within any network."""
-    try:
-        addr = ipaddress.ip_address(ip_str)
-    except ValueError:
-        return False
-    for net in networks:
-        if addr.version == net.version and addr in net:
-            return True
-    return False
-
-
 # Cached config for hot-path auth checks (avoids disk read per request)
-_auth_config_cache: tuple = (0, None, [])
+_auth_config_cache: tuple = (0, None, [], [])
 
 
 def _get_config_cached():
-    """Return (config, trusted_networks) with mtime-based cache."""
+    """Return config and parsed proxy/auth networks with mtime caching."""
     global _auth_config_cache  # noqa: PLW0603
     from ..config import load_config
     from ..config.utils import get_config_path
@@ -634,9 +615,14 @@ def _get_config_cached():
         mtime_ns = 0
     if mtime_ns != _auth_config_cache[0] or _auth_config_cache[1] is None:
         cfg = load_config()
-        nets = _parse_networks(cfg.security.trusted_proxies)
-        _auth_config_cache = (mtime_ns, cfg, nets)
-    return _auth_config_cache[1], _auth_config_cache[2]
+        trusted_nets = _parse_networks(cfg.security.trusted_proxies)
+        allowed_nets = _parse_networks(cfg.security.allow_no_auth_hosts)
+        _auth_config_cache = (mtime_ns, cfg, trusted_nets, allowed_nets)
+    return (
+        _auth_config_cache[1],
+        _auth_config_cache[2],
+        _auth_config_cache[3],
+    )
 
 
 def _resolve_client_ip(request: Request) -> str:
@@ -649,7 +635,7 @@ def _resolve_client_ip(request: Request) -> str:
     direct_raw = request.client.host if request.client else ""
     direct_ip = _normalize_ip(direct_raw) or direct_raw
 
-    _cfg, networks = _get_config_cached()
+    _cfg, networks, _allowed_networks = _get_config_cached()
     if not networks or not _ip_in_networks(direct_ip, networks):
         # Log once per untrusted source to avoid flooding
         has_proxy_hdr = request.headers.get(
@@ -729,20 +715,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         ):
             return True
 
-        cfg, _ = _get_config_cached()
-        allowed = cfg.security.allow_no_auth_hosts
+        _cfg, _trusted_networks, allowed_networks = _get_config_cached()
         client_ip = resolve_client_ip(request)
         norm = _normalize_ip(client_ip) or client_ip
-        if norm not in allowed:
+        if not _ip_in_networks(norm, allowed_networks):
             return False
 
         # Defense-in-depth: loopback whitelist requires
         # direct TCP peer also be loopback.
-        if norm in _LOOPBACK:
+        if is_loopback_host(norm):
             peer = _normalize_ip(
                 request.client.host if request.client else "",
             )
-            if peer not in _LOOPBACK:
+            if peer is None or not is_loopback_host(peer):
                 logger.warning(
                     "Auth skip blocked: client_ip=%s but"
                     " direct peer %s is not loopback",
@@ -766,11 +751,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
 def check_proxy_config_sanity() -> None:
     """Log a warning at startup if proxy config looks suspect."""
     try:
-        cfg, _ = _get_config_cached()
+        cfg, _trusted_networks, allowed_networks = _get_config_cached()
     except (OSError, ValueError):
         return
     sec = cfg.security
-    has_non_loopback = any(h not in _LOOPBACK for h in sec.allow_no_auth_hosts)
+    has_non_loopback = any(
+        not network.is_loopback for network in allowed_networks
+    )
     if has_non_loopback and not sec.trusted_proxies:
         logger.warning(
             "allow_no_auth_hosts contains non-loopback entries"

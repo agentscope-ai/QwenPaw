@@ -224,12 +224,12 @@ def test_global_allow_no_auth_hosts_normalization_roundtrip(
     app_server,
 ) -> None:
     """Test purpose:
-    - Verify allow-no-auth-hosts update path normalizes (trim/dedup) valid IPs
-      and supports readback.
+    - Verify allow-no-auth-hosts update path normalizes (trim/dedup) valid IP
+      addresses or CIDR networks and supports readback.
 
     Test flow:
     1. GET current allow-no-auth-hosts list.
-    2. PUT a list with duplicates and whitespace around valid IPs.
+    2. PUT valid IP/CIDR entries with duplicates and surrounding whitespace.
     3. Assert response is normalized and deduplicated.
     4. GET again and assert persisted hosts match normalized result.
     5. Restore original hosts.
@@ -246,7 +246,15 @@ def test_global_allow_no_auth_hosts_normalization_roundtrip(
     before_hosts = get_before.json().get("hosts")
     assert isinstance(before_hosts, list)
 
-    update_body = {"hosts": [" 127.0.0.1 ", "::1", "127.0.0.1", "  ::1  "]}
+    update_body = {
+        "hosts": [
+            " 127.0.0.1 ",
+            "::1",
+            "192.168.1.0/24",
+            "192.168.1.0/24",
+            "fd00:0:0:0::/64",
+        ],
+    }
 
     try:
         put_resp = app_server.api_request(
@@ -256,14 +264,19 @@ def test_global_allow_no_auth_hosts_normalization_roundtrip(
         )
         assert put_resp.status_code == 200, app_server.logs_tail()
         put_hosts = put_resp.json().get("hosts")
-        assert put_hosts == ["127.0.0.1", "::1"]
+        assert put_hosts == [
+            "127.0.0.1",
+            "::1",
+            "192.168.1.0/24",
+            "fd00::/64",
+        ]
 
         get_after = app_server.api_request(
             "GET",
             "/api/config/security/allow-no-auth-hosts",
         )
         assert get_after.status_code == 200, app_server.logs_tail()
-        assert get_after.json().get("hosts") == ["127.0.0.1", "::1"]
+        assert get_after.json().get("hosts") == put_hosts
     finally:
         restore = app_server.api_request(
             "PUT",
@@ -275,13 +288,16 @@ def test_global_allow_no_auth_hosts_normalization_roundtrip(
 
 @pytest.mark.integration
 @pytest.mark.p2
-def test_global_allow_no_auth_hosts_reject_invalid_ip(app_server) -> None:
+def test_global_allow_no_auth_hosts_rejects_invalid_ip_or_cidr(
+    app_server,
+) -> None:
     """Test purpose:
-    - Verify allow-no-auth-hosts rejects invalid IP literals with 400.
+    - Verify allow-no-auth-hosts rejects invalid IP addresses or CIDR networks
+      with 400.
 
     Test flow:
-    1. PUT hosts payload containing an invalid IP token.
-    2. Assert 400 status and error detail mentions invalid IP.
+    1. PUT a hosts payload containing invalid IP/CIDR entries.
+    2. Assert 400 status and error detail identifies every invalid entry.
 
     API endpoints:
     - PUT /api/config/security/allow-no-auth-hosts
@@ -289,11 +305,23 @@ def test_global_allow_no_auth_hosts_reject_invalid_ip(app_server) -> None:
     bad_resp = app_server.api_request(
         "PUT",
         "/api/config/security/allow-no-auth-hosts",
-        json={"hosts": ["127.0.0.1", "bad-ip-value"]},
+        json={
+            "hosts": [
+                "192.168.1.42/24",
+                "fd00::1234/64",
+                "bad-ip-value",
+                "fd00::/129",
+            ],
+        },
     )
     assert bad_resp.status_code == 400, app_server.logs_tail()
     detail = bad_resp.json().get("detail", "")
-    assert "Invalid IP address" in detail
+    assert "Invalid IP address or CIDR network" in detail
+    assert "192.168.1.42/24" in detail
+    assert "fd00::1234/64" in detail
+    assert "bad-ip-value" in detail
+    assert "fd00::/129" in detail
+    assert "network address implied by their prefix" in detail
 
 
 @pytest.mark.integration
@@ -301,7 +329,7 @@ def test_global_allow_no_auth_hosts_reject_invalid_ip(app_server) -> None:
 def test_agent_scoped_allow_no_auth_hosts_put_roundtrip(app_server) -> None:
     """Test purpose:
     - Verify agent-scoped allow-no-auth-hosts endpoint supports update and
-      readback with normalized values.
+      readback with normalized IP addresses and CIDR networks.
 
     Test flow:
     1. Create a dedicated test agent.
@@ -340,14 +368,25 @@ def test_agent_scoped_allow_no_auth_hosts_put_roundtrip(app_server) -> None:
         put_resp = app_server.api_request(
             "PUT",
             endpoint,
-            json={"hosts": [" 127.0.0.1 ", " ::1 ", "127.0.0.1"]},
+            json={
+                "hosts": [
+                    " 127.0.0.1 ",
+                    " ::1 ",
+                    "10.20.30.0/24",
+                    "10.20.30.0/24",
+                ],
+            },
         )
         assert put_resp.status_code == 200, app_server.logs_tail()
-        assert put_resp.json().get("hosts") == ["127.0.0.1", "::1"]
+        assert put_resp.json().get("hosts") == [
+            "127.0.0.1",
+            "::1",
+            "10.20.30.0/24",
+        ]
 
         get_after = app_server.api_request("GET", endpoint)
         assert get_after.status_code == 200, app_server.logs_tail()
-        assert get_after.json().get("hosts") == ["127.0.0.1", "::1"]
+        assert get_after.json().get("hosts") == put_resp.json().get("hosts")
     finally:
         if isinstance(before_hosts, list):
             restore = app_server.api_request(

@@ -47,24 +47,29 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
     fetchData();
   }, [fetchData]);
 
-  const isValidIP = (ip: string): boolean => {
-    // IPv4 validation
+  const isValidIPOrCIDR = (value: string): boolean => {
+    const [address, prefix, extra] = value.split("/");
+    if (!address || extra !== undefined) return false;
+
     const ipv4Regex =
-      /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-
-    // IPv6 validation - comprehensive regex supporting compressed notation
-    // Matches: full format, compressed (::), leading/trailing compression
+      /^(25[0-5]|2[0-4]\d|1?\d?\d)\.(25[0-5]|2[0-4]\d|1?\d?\d)\.(25[0-5]|2[0-4]\d|1?\d?\d)\.(25[0-5]|2[0-4]\d|1?\d?\d)$/;
     const ipv6Regex =
-      /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]+|::(ffff(:0{1,4})?:)?((25[0-5]|(2[0-4]|1?[0-9])?[0-9])\.){3}(25[0-5]|(2[0-4]|1?[0-9])?[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1?[0-9])?[0-9])\.){3}(25[0-5]|(2[0-4]|1?[0-9])?[0-9]))$/;
+      /^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]+|::(ffff(:0{1,4})?:)?((25[0-5]|(2[0-4]|1?\d)?\d)\.){3}(25[0-5]|(2[0-4]|1?\d)?\d)|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1?\d)?\d)\.){3}(25[0-5]|(2[0-4]|1?\d)?\d))$/;
 
-    return ipv4Regex.test(ip) || ipv6Regex.test(ip);
+    const isIPv4 = ipv4Regex.test(address);
+    const isIPv6 = ipv6Regex.test(address);
+    if (!isIPv4 && !isIPv6) return false;
+    if (prefix === undefined) return true;
+    if (!/^(0|[1-9]\d*)$/.test(prefix)) return false;
+
+    return Number(prefix) <= (isIPv4 ? 32 : 128);
   };
 
   const handleAdd = useCallback(() => {
     const trimmed = newHost.trim();
     if (!trimmed) return;
 
-    if (!isValidIP(trimmed)) {
+    if (!isValidIPOrCIDR(trimmed)) {
       message.error(t("security.allowNoAuthHosts.invalidIP"));
       return;
     }
@@ -85,10 +90,15 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
   const handleSave = useCallback(async () => {
     try {
       setSaving(true);
-      await api.updateAllowNoAuthHosts({ hosts });
+      const result = await api.updateAllowNoAuthHosts({ hosts });
+      setHosts(result.hosts);
       message.success(t("security.allowNoAuthHosts.saveSuccess"));
-    } catch {
-      message.error(t("security.allowNoAuthHosts.saveFailed"));
+    } catch (error) {
+      message.error(
+        error instanceof Error
+          ? error.message
+          : t("security.allowNoAuthHosts.saveFailed"),
+      );
     } finally {
       setSaving(false);
     }

@@ -50,6 +50,7 @@ from ...config.config import (
     WecomConfig,
 )
 from ...config.timezone import normalize_tz
+from ...utils.ip import normalize_ip_network_entries
 from ..channels.qrcode_auth_handler import (
     QRCODE_AUTH_HANDLERS,
     generate_qrcode_image,
@@ -1140,7 +1141,7 @@ class AllowNoAuthHostsResponse(BaseModel):
     """Response model for allow_no_auth_hosts configuration."""
 
     hosts: List[str] = Field(
-        description="List of IP addresses allowed without authentication",
+        description="IP addresses or CIDR networks allowed without auth",
     )
 
 
@@ -1148,7 +1149,7 @@ class AllowNoAuthHostsUpdateBody(BaseModel):
     """Request body for updating allow_no_auth_hosts configuration."""
 
     hosts: List[str] = Field(
-        description="List of IP addresses allowed without authentication",
+        description="IP addresses or CIDR networks allowed without auth",
     )
 
 
@@ -1158,7 +1159,7 @@ class AllowNoAuthHostsUpdateBody(BaseModel):
     summary="Get allow no auth hosts configuration",
 )
 async def get_allow_no_auth_hosts() -> AllowNoAuthHostsResponse:
-    """Get the list of IP addresses allowed without authentication."""
+    """Get IP addresses and CIDR networks allowed without authentication."""
     config = load_config()
     return AllowNoAuthHostsResponse(
         hosts=config.security.allow_no_auth_hosts,
@@ -1173,51 +1174,26 @@ async def get_allow_no_auth_hosts() -> AllowNoAuthHostsResponse:
 async def put_allow_no_auth_hosts(
     body: AllowNoAuthHostsUpdateBody = Body(...),
 ) -> AllowNoAuthHostsResponse:
-    """Update the list of IP addresses allowed without authentication.
+    """Update IP addresses and CIDR networks allowed without authentication.
 
-    Validates and normalizes each IP address:
+    Validates and normalizes each IP address or CIDR network:
     - Strips whitespace
     - Removes empty strings
     - Deduplicates entries
-    - Validates as literal IPv4/IPv6 using ipaddress module
-    - Returns 400 on invalid IP addresses
+    - Rejects CIDRs whose address is not aligned with the prefix
+    - Returns 400 on invalid addresses or prefixes
     """
-    import ipaddress
+    normalized_hosts, invalid_entries = normalize_ip_network_entries(
+        body.hosts,
+    )
 
-    # Normalize and validate IP addresses
-    normalized_hosts = []
-    seen = set()
-    invalid_ips = []
-
-    for host in body.hosts:
-        # Strip whitespace
-        host = host.strip()
-
-        # Skip empty strings
-        if not host:
-            continue
-
-        # Validate IP address format
-        try:
-            # This validates and normalizes the IP address
-            ip_obj = ipaddress.ip_address(host)
-            # Use the compressed string representation
-            normalized_ip = str(ip_obj)
-
-            # Deduplicate
-            if normalized_ip not in seen:
-                seen.add(normalized_ip)
-                normalized_hosts.append(normalized_ip)
-        except ValueError:
-            invalid_ips.append(host)
-
-    # Return 400 if any invalid IP addresses were provided
-    if invalid_ips:
+    if invalid_entries:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Invalid IP address(es): {', '.join(invalid_ips)}. "
-                "Only literal IPv4/IPv6 addresses are allowed."
+                f"Invalid IP address or CIDR network(s): "
+                f"{', '.join(invalid_entries)}. CIDR entries must use "
+                "the network address implied by their prefix."
             ),
         )
 
