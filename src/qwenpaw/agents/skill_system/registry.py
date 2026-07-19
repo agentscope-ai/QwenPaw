@@ -1203,7 +1203,33 @@ def resolve_effective_skills(
 
 def ensure_skills_initialized(workspace_dir: Path) -> None:
     """Ensure workspace manifests exist before runtime use."""
-    reconcile_workspace_manifest(workspace_dir)
+    manifest_path = get_workspace_skill_manifest_path(workspace_dir)
+    if not manifest_path.exists():
+        reconcile_workspace_manifest(workspace_dir)
+        return
+
+    # Skip full-reconcile if disk skills match manifest keys.
+    try:
+        skills_dir = get_workspace_skills_dir(workspace_dir)
+        if not skills_dir.exists():
+            reconcile_workspace_manifest(workspace_dir)
+            return
+
+        manifest = read_skill_manifest(workspace_dir)
+        manifest_skills = set(manifest.get("skills", {}).keys())
+
+        disk_skills = {
+            path.name
+            for path in skills_dir.iterdir()
+            if not is_ignored_skill_entry(path.name)
+            and path.is_dir()
+            and (path / "SKILL.md").exists()
+        }
+
+        if disk_skills != manifest_skills:
+            reconcile_workspace_manifest(workspace_dir)
+    except Exception:
+        reconcile_workspace_manifest(workspace_dir)
 
 
 # ---------------------------------------------------------------------------
