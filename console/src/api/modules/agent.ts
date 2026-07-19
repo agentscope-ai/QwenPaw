@@ -104,6 +104,20 @@ export const agentApi = {
       whisper_installed: boolean;
     }>("/workspace/local-whisper-status"),
 
+  getImageDetail: () =>
+    request<{ image_detail: string | null; agent_id: string }>(
+      "/workspace/image-detail",
+    ),
+
+  updateImageDetail: (image_detail: string | null) =>
+    request<{ image_detail: string | null; agent_id: string }>(
+      "/workspace/image-detail",
+      {
+        method: "PUT",
+        body: JSON.stringify({ image_detail }),
+      },
+    ),
+
   transcribeAudio: async (file: File | Blob): Promise<{ text: string }> => {
     const formData = new FormData();
     formData.append("file", file);

@@ -32,6 +32,7 @@
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
+  align-items: start;
 }
 
 /* ---- Panel Section (grouped containers) ---- */
@@ -441,4 +442,18 @@
       color: rgba(255, 255, 255, 0.85);
     }
   }
+}
+
+// Image detail modal content
+.imageDetailModal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.imageDetailHint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.55));
+  line-height: 1.5;
 }

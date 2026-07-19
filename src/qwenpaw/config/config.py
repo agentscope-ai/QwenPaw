@@ -1523,6 +1523,14 @@ class AgentProfileConfig(BaseModel):
         default_factory=CodingModeConfig,
         description="Coding Mode configuration for this agent",
     )
+    image_detail: Optional[str] = Field(
+        default=None,
+        description=(
+            "Image detail level for view_image tool. "
+            "None means do not pass detail (API default). "
+            "Valid values: 'auto', 'low', 'high'."
+        ),
+    )
 
 
 class AgentsConfig(BaseModel):
