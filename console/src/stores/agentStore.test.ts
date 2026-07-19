@@ -1,12 +1,23 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAgentStore } from "./agentStore";
 import type { AgentSummary } from "@/api/types/agents";
+
+const mocks = vi.hoisted(() => ({
+  listAgents: vi.fn(),
+}));
+
+vi.mock("../api/modules/agents", () => ({
+  agentsApi: {
+    listAgents: mocks.listAgents,
+  },
+}));
 
 const mockAgent = (id: string): AgentSummary =>
   ({ id, name: `Agent ${id}` }) as AgentSummary;
 
 describe("agentStore", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     // Reset to initial state before each test
     useAgentStore.setState({
       selectedAgent: "default",
@@ -49,6 +60,47 @@ describe("agentStore", () => {
     useAgentStore.getState().setAgents([mockAgent("1")]);
     useAgentStore.getState().setAgents([]);
     expect(useAgentStore.getState().agents).toEqual([]);
+  });
+
+  it("deduplicates concurrent agent refresh requests", async () => {
+    let resolveRequest!: (value: { agents: AgentSummary[] }) => void;
+    mocks.listAgents.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRequest = resolve;
+      }),
+    );
+
+    const firstRefresh = useAgentStore.getState().refreshAgents();
+    const secondRefresh = useAgentStore.getState().refreshAgents();
+
+    expect(mocks.listAgents).toHaveBeenCalledOnce();
+    resolveRequest({ agents: [mockAgent("1")] });
+    await Promise.all([firstRefresh, secondRefresh]);
+
+    expect(useAgentStore.getState().agents).toEqual([mockAgent("1")]);
+  });
+
+  it("allows a new refresh after the previous request settles", async () => {
+    mocks.listAgents.mockResolvedValue({ agents: [] });
+
+    await useAgentStore.getState().refreshAgents();
+    await useAgentStore.getState().refreshAgents();
+
+    expect(mocks.listAgents).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows a new refresh after the previous request fails", async () => {
+    mocks.listAgents
+      .mockRejectedValueOnce(new Error("request failed"))
+      .mockResolvedValueOnce({ agents: [mockAgent("1")] });
+
+    await expect(useAgentStore.getState().refreshAgents()).rejects.toThrow(
+      "request failed",
+    );
+    await useAgentStore.getState().refreshAgents();
+
+    expect(mocks.listAgents).toHaveBeenCalledTimes(2);
+    expect(useAgentStore.getState().agents).toEqual([mockAgent("1")]);
   });
 
   // ---------------------------------------------------------------------------

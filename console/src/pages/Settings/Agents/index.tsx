@@ -18,8 +18,15 @@ import styles from "./index.module.less";
 
 export default function AgentsPage() {
   const { t, i18n } = useTranslation();
-  const { agents, loading, deleteAgent, toggleAgent, loadAgents, setAgents } =
-    useAgents();
+  const {
+    agents,
+    loading,
+    deleteAgent,
+    toggleAgent,
+    pinAgent,
+    loadAgents,
+    setAgents,
+  } = useAgents();
   const { selectedAgent, setSelectedAgent } = useAgentStore();
   const [modalVisible, setModalVisible] = useState(false);
   const [editingAgent, setEditingAgent] = useState<AgentSummary | null>(null);
@@ -111,6 +118,14 @@ export default function AgentsPage() {
         setSelectedAgent("default");
         message.info(t("agent.switchedToDefault"));
       }
+    } catch {
+      // Error already handled in hook
+    }
+  };
+
+  const handlePin = async (agentId: string, currentPinned: boolean) => {
+    try {
+      await pinAgent(agentId, !currentPinned);
     } catch {
       // Error already handled in hook
     }
@@ -229,6 +244,7 @@ export default function AgentsPage() {
           onCopy={handleOpenCopy}
           onDelete={handleDelete}
           onToggle={handleToggle}
+          onPin={handlePin}
           onReorder={handleReorder}
         />
       </Card>

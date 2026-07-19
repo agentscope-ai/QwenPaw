@@ -11,6 +11,7 @@ proactive send arrives, it is pretty-printed to the terminal.
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json as _json
 import logging
@@ -323,26 +324,18 @@ class ConsoleChannel(BaseChannel):
                 media_message.object = "message"
         return media_message
 
-    def _build_trailing_usage_sse(self, session_id: str) -> str | None:
-        """Return one trailing turn_usage SSE block for the console UI."""
-        from ....token_usage import get_pending_usage_for_stream
+    def _on_turn_usage_ready(
+        self,
+        turn: Optional[Dict[str, Any]],
+        ctx: Optional[Dict[str, Any]],
+    ) -> None:
+        """Print a one-line terminal summary when per-turn usage is staged.
 
-        turn, ctx = get_pending_usage_for_stream(session_id)
-        if turn is None and ctx is None:
-            return None
-
-        if turn:
-            logger.info("Usage for session %s: %s", session_id, turn)
-            if ctx:
-                self._print_status_line(turn, ctx)
-
-        payload: Dict[str, Any] = {
-            "type": "turn_usage",
-            "session_id": session_id,
-            "usage": turn,
-            "context_usage": ctx,
-        }
-        return f"data: {_json.dumps(payload, ensure_ascii=False)}\n\n"
+        The shared SSE block is built by ``BaseChannel`` — the console only
+        adds the terminal status line on top of it.
+        """
+        if turn and ctx:
+            self._print_status_line(turn, ctx)
 
     def _print_status_line(
         self,
@@ -400,6 +393,7 @@ class ConsoleChannel(BaseChannel):
                 if merged and hasattr(request.input[0], "content"):
                     request.input[0].content = merged
         session_id = getattr(request, "session_id", "") or session_id
+        self._clear_session_turn_usage(session_id)
         user_id = getattr(request, "user_id", "") or ""
         channel_name = getattr(request, "channel", "") or self.channel
 
@@ -428,12 +422,6 @@ class ConsoleChannel(BaseChannel):
                 )
 
         try:
-            from ....token_usage import (
-                finalize_console_turn_usage,
-                reset_pending_usage_for_stream,
-            )
-
-            reset_pending_usage_for_stream(session_id)
             send_meta = getattr(request, "channel_meta", None) or {}
             send_meta.setdefault("bot_prefix", self.bot_prefix)
             last_response = None
@@ -473,38 +461,23 @@ class ConsoleChannel(BaseChannel):
                 elif obj == "response":
                     last_response = event
 
-            # Session is on ``workspace.session``.
-            session = (
-                getattr(self._workspace, "session", None)
-                if self._workspace is not None
-                else None
-            )
-            agent_id = (
-                getattr(self._workspace, "agent_id", "default")
-                if self._workspace is not None
-                else "default"
-            )
-            if session is not None and session_id:
-                await finalize_console_turn_usage(
-                    session=session,
-                    session_id=session_id,
-                    user_id=user_id,
-                    channel=channel_name,
-                    agent_id=agent_id,
-                )
-
-            if trailing := self._build_trailing_usage_sse(session_id):
-                yield trailing
+            err_msg = self._get_response_error_message(last_response)
+            if err_msg:
+                self._clear_session_turn_usage(session_id)
+                self._print_error(err_msg)
+            else:
+                for sse in await self._commit_turn_usage(
+                    request,
+                    session_id,
+                    emit_sse=True,
+                ):
+                    yield sse
 
             logger.info(
                 "console stream done: event_count=%s has_response=%s",
                 event_count,
                 last_response is not None,
             )
-
-            err_msg = self._get_response_error_message(last_response)
-            if err_msg:
-                self._print_error(err_msg)
 
             to_handle = request.user_id or ""
             if self._on_reply_sent:
@@ -514,7 +487,11 @@ class ConsoleChannel(BaseChannel):
                     request.session_id or f"{self.channel}:{to_handle}",
                 )
 
+        except asyncio.CancelledError:
+            self._clear_session_turn_usage(session_id)
+            raise
         except ModelQuotaExceededException as e:
+            self._clear_session_turn_usage(session_id)
             logger.warning("rate limit hit: %s", e)
             alternatives = self._get_free_model_alternatives()
             rl_event = _json.dumps(
@@ -527,6 +504,7 @@ class ConsoleChannel(BaseChannel):
             yield f"data: {rl_event}\n\n"
             self._print_error(str(e).strip())
         except Exception as e:
+            self._clear_session_turn_usage(session_id)
             logger.exception("console process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
             self._print_error(err_msg)

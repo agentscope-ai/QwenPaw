@@ -362,7 +362,7 @@ def main() -> None:
     # On Windows, auto-disable sandbox when not running as admin so the
     # desktop backend starts without a half-broken sandbox layer (mirrors
     # the same guard in cli/app_cmd.py for `qwenpaw app`).
-    from ..utils.platform import auto_disable_sandbox_on_windows
+    from qwenpaw.utils.platform import auto_disable_sandbox_on_windows
 
     auto_disable_sandbox_on_windows()
 

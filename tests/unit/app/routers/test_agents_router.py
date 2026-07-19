@@ -19,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from qwenpaw.exceptions import AppBaseException
+from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.routers.agents import router as agents_router
 from qwenpaw.config.config import AgentProfileConfig, AgentProfileRef
 
@@ -35,6 +36,11 @@ def _ref(agent_id: str, *, enabled: bool = True) -> AgentProfileRef:
 def manager_mock():
     mgr = MagicMock(name="MultiAgentManager")
     mgr.stop_agent = AsyncMock(return_value=None)
+    mgr.schedule_agent_startup = MagicMock()
+    mgr.get_agent_startup_status.side_effect = lambda _agent_id, *, enabled: (
+        AgentStartupStatus.RUNNING if enabled else AgentStartupStatus.DISABLED
+    )
+    mgr.is_agent_startup_in_progress.return_value = False
     return mgr
 
 
@@ -104,6 +110,7 @@ def test_list_agents_returns_all_profiles(client, fake_config):
     assert response.status_code == 200
     body = response.json()
     assert {a["id"] for a in body["agents"]} == {"default", "bot"}
+    assert {a["startup_status"] for a in body["agents"]} == {"running"}
 
 
 def test_list_agents_falls_back_to_id_when_load_fails(client, fake_config):
@@ -216,7 +223,7 @@ def test_reorder_agents_happy_path_saves(client, fake_config):
     ):
         response = client.put(
             "/api/agents/order",
-            json={"agent_ids": ["bot", "default"]},
+            json={"agent_ids": ["default", "bot"]},
         )
 
     assert response.status_code == 200
@@ -269,3 +276,65 @@ def test_delete_agent_happy_path_calls_stop_and_saves(
     manager_mock.stop_agent.assert_awaited_once_with("bot")
     save_mock.assert_called_once()
     assert "bot" not in fake_config.agents.profiles
+
+
+def test_toggle_rejects_disabling_agent_during_startup(
+    client,
+    fake_config,
+    manager_mock,
+):
+    manager_mock.is_agent_startup_in_progress.return_value = True
+
+    with patch(
+        "qwenpaw.app.routers.agents.load_config",
+        return_value=fake_config,
+    ):
+        response = client.patch(
+            "/api/agents/bot/toggle",
+            json={"enabled": False},
+        )
+
+    assert response.status_code == 409
+    manager_mock.stop_agent.assert_not_awaited()
+
+
+def test_toggle_enable_queues_bounded_startup(
+    client,
+    fake_config,
+    manager_mock,
+):
+    fake_config.agents.profiles["bot"].enabled = False
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch("qwenpaw.app.routers.agents.save_config") as save_mock,
+    ):
+        response = client.patch(
+            "/api/agents/bot/toggle",
+            json={"enabled": True},
+        )
+
+    assert response.status_code == 200
+    assert fake_config.agents.profiles["bot"].enabled is True
+    manager_mock.schedule_agent_startup.assert_called_once_with("bot")
+    save_mock.assert_called_once()
+
+
+def test_delete_rejects_agent_during_startup(
+    client,
+    fake_config,
+    manager_mock,
+):
+    manager_mock.is_agent_startup_in_progress.return_value = True
+
+    with patch(
+        "qwenpaw.app.routers.agents.load_config",
+        return_value=fake_config,
+    ):
+        response = client.delete("/api/agents/bot")
+
+    assert response.status_code == 409
+    manager_mock.stop_agent.assert_not_awaited()

@@ -901,6 +901,8 @@ class BaseChannel(ABC):
             send_meta = {**send_meta, "bot_prefix": bot_prefix}
 
         to_handle = self.get_to_handle_from_request(request)
+        session_id = getattr(request, "session_id", "") or ""
+        self._clear_session_turn_usage(session_id)
 
         await self._before_consume_process(request)
 
@@ -955,6 +957,7 @@ class BaseChannel(ABC):
 
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
+                self._clear_session_turn_usage(session_id)
                 await self._on_consume_error(
                     request,
                     to_handle,
@@ -966,6 +969,12 @@ class BaseChannel(ABC):
                     to_handle,
                     send_meta,
                 )
+                for sse in await self._commit_turn_usage(
+                    request,
+                    session_id,
+                    emit_sse=True,
+                ):
+                    yield sse
 
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
@@ -976,6 +985,7 @@ class BaseChannel(ABC):
                 f"channel task cancelled: "
                 f"session={getattr(request, 'session_id', '')[:30]}",
             )
+            self._clear_session_turn_usage(session_id)
             if process_iterator is not None:
                 await process_iterator.aclose()
             raise
@@ -986,6 +996,7 @@ class BaseChannel(ABC):
                 f"session={getattr(request, 'session_id', 'N/A')[:30]}, "
                 f"agent={to_handle}",
             )
+            self._clear_session_turn_usage(session_id)
             await self._on_consume_error(
                 request,
                 to_handle,
@@ -1405,6 +1416,8 @@ class BaseChannel(ABC):
         loop (e.g. DingTalk _process_one_request with webhook sends).
         """
         last_response = None
+        session_id = getattr(request, "session_id", "") or ""
+        self._clear_session_turn_usage(session_id)
         try:
             async for event in self._process(request):
                 obj = getattr(event, "object", None)
@@ -1429,6 +1442,7 @@ class BaseChannel(ABC):
                     await self.on_event_response(request, event)
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
+                self._clear_session_turn_usage(session_id)
                 await self._on_consume_error(
                     request,
                     to_handle,
@@ -1440,11 +1454,24 @@ class BaseChannel(ABC):
                     to_handle,
                     send_meta,
                 )
+                await self._commit_turn_usage(
+                    request,
+                    session_id,
+                    emit_sse=False,
+                )
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
                 self._on_reply_sent(self.channel, *args)
+        except asyncio.CancelledError:
+            logger.info(
+                "channel task cancelled: session=%s",
+                getattr(request, "session_id", "")[:30],
+            )
+            self._clear_session_turn_usage(session_id)
+            raise
         except Exception:
             logger.exception("channel consume_one failed")
+            self._clear_session_turn_usage(session_id)
             await self._on_consume_error(
                 request,
                 to_handle,
@@ -1630,6 +1657,99 @@ class BaseChannel(ABC):
         """Hook called after all events processed without error.
 
         Override for post-processing (e.g. Feishu DONE reaction).
+        """
+
+    @staticmethod
+    def _clear_session_turn_usage(session_id: str) -> None:
+        """Drop any staged per-session usage (turn start / cancel / error)."""
+        if not session_id:
+            return
+        import importlib
+
+        mod = importlib.import_module("qwenpaw.token_usage.model_wrapper")
+        mod.TokenRecordingModelWrapper.pop_usage_for_session(session_id)
+
+    async def _commit_turn_usage(
+        self,
+        request: "AgentRequest",
+        session_id: str,
+        *,
+        emit_sse: bool = True,
+    ) -> List[str]:
+        """Resolve, persist, and optionally emit a ``turn_usage`` SSE."""
+        if not session_id:
+            return []
+        try:
+            import importlib
+
+            turn_usage = importlib.import_module(
+                "qwenpaw.token_usage.turn_usage",
+            )
+            token_usage = importlib.import_module("qwenpaw.token_usage")
+
+            workspace = self._workspace
+            session = (
+                getattr(workspace, "session", None)
+                if workspace is not None
+                else None
+            )
+            agent_id = (
+                getattr(workspace, "agent_id", "default")
+                if workspace is not None
+                else "default"
+            )
+            user_id = getattr(request, "user_id", "") or ""
+            channel = getattr(request, "channel", "") or self.channel
+            turn, ctx, agent_state = await turn_usage.resolve_turn_usage(
+                session_id=session_id,
+                agent_id=agent_id,
+                session=session,
+                user_id=user_id,
+                channel=channel,
+            )
+            if turn is None and ctx is None:
+                return []
+            self._on_turn_usage_ready(turn, ctx)
+            if turn:
+                logger.info("Usage for session %s: %s", session_id, turn)
+            if session is not None:
+                try:
+                    await token_usage.persist_turn_usage(
+                        session=session,
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                        turn=turn,
+                        ctx=ctx,
+                        agent_state=agent_state,
+                    )
+                except Exception:
+                    logger.warning(
+                        "turn usage persist skipped",
+                        exc_info=True,
+                    )
+            if not emit_sse:
+                return []
+            payload: Dict[str, Any] = {
+                "type": "turn_usage",
+                "session_id": session_id,
+                "usage": turn,
+                "context_usage": ctx,
+            }
+            return [
+                f"data: {json.dumps(payload, ensure_ascii=False)}\n\n",
+            ]
+        except Exception:
+            logger.warning("turn usage commit skipped", exc_info=True)
+            return []
+
+    def _on_turn_usage_ready(
+        self,
+        turn: Optional[Dict[str, Any]],
+        ctx: Optional[Dict[str, Any]],
+    ) -> None:
+        """Hook: channel-specific side effect once per-turn usage is staged
+        (e.g. console prints a terminal status line). Default: no-op.
         """
 
     async def _on_consume_error(

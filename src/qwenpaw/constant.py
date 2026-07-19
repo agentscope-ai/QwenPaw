@@ -86,6 +86,17 @@ class EnvVarLoader:
         return _get_env(env_var, default)
 
 
+CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV = (
+    "QWENPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY"
+)
+DEFAULT_CUSTOM_AGENT_STARTUP_CONCURRENCY = 5
+CUSTOM_AGENT_STARTUP_CONCURRENCY = EnvVarLoader.get_int(
+    CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV,
+    default=DEFAULT_CUSTOM_AGENT_STARTUP_CONCURRENCY,
+    min_value=1,
+)
+
+
 # WORKING_DIR priority:
 # 1. QWENPAW_WORKING_DIR / COPAW_WORKING_DIR env var is set → use it
 # 2. ~/.copaw exists (legacy installation) → use it as-is
