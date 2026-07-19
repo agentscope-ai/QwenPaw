@@ -146,7 +146,7 @@ class ToolRegistry:
 
 
 # ---------------------------------------------------------------------------
-# Default registry instance (21 tools)
+# Default registry instance
 # ---------------------------------------------------------------------------
 
 
@@ -198,6 +198,7 @@ def _register_builtin_tools(r: ToolRegistry) -> None:
         ("SubmitToAgent", "agent_id"),
         ("CheckAgentTask", "task_id"),
         ("SpawnSubagent", ""),
+        ("CancelSubagent", "task_id"),
         ("DelegateExternalAgent", "runner"),
         ("MemorySearch", ""),
     ]:
@@ -233,6 +234,7 @@ def _register_python_name_mappings(
         "submit_to_agent": "SubmitToAgent",
         "check_agent_task": "CheckAgentTask",
         "spawn_subagent": "SpawnSubagent",
+        "cancel_subagent": "CancelSubagent",
         "materialize_skill": "MaterializeSkill",
     }
     for py_name, policy_name in mappings.items():

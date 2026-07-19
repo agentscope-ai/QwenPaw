@@ -10,6 +10,7 @@ Each Workspace represents a standalone agent workspace with its own:
 
 Request processing is handled by ``Runtime`` (see ``stream_query``).
 """
+
 import logging
 from pathlib import Path
 from typing import Any, AsyncGenerator, Iterable, Optional
@@ -118,6 +119,11 @@ class Workspace:
     def cron_manager(self):
         """Get cron manager instance from ServiceManager."""
         return self._service_manager.services.get("cron_manager")
+
+    @property
+    def subagent_task_manager(self):
+        """Get the workspace-scoped background subagent manager."""
+        return self._service_manager.services.get("subagent_task_manager")
 
     # Non-service state
     @property
@@ -368,6 +374,22 @@ class Workspace:
                 start_method="start_all",
                 stop_method="stop_all",
                 priority=30,
+                concurrent_init=False,
+            ),
+        )
+
+        # Priority 35: background subagent lifecycle.  Start after channels so
+        # terminal events can be routed through the wakeup bridge.
+        from ..subagents import SubagentTaskManager
+
+        sm.register(
+            ServiceDescriptor(
+                name="subagent_task_manager",
+                service_class=SubagentTaskManager,
+                init_args=lambda ws: {"workspace": ws},
+                start_method="start",
+                stop_method="stop",
+                priority=35,
                 concurrent_init=False,
             ),
         )

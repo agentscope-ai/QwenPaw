@@ -510,7 +510,18 @@ class ConsoleChannel(BaseChannel):
             self._print_error(err_msg)
 
     async def consume_one(self, payload: Any) -> None:
-        """Process one payload; drain stream_one (queue/terminal)."""
+        """Process one queue payload.
+
+        Ordinary console requests own an HTTP SSE subscriber and keep the
+        historical ``stream_one`` drain behavior.  A subagent wakeup has no
+        browser request to receive that stream, so route it through the base
+        channel send path; completed messages are then written to the
+        console push store and picked up by the frontend poll service.
+        """
+        request_context = getattr(payload, "request_context", None) or {}
+        if request_context.get("subagent_wakeup"):
+            await super().consume_one(payload)
+            return
         async for _ in self.stream_one(payload):
             pass
 

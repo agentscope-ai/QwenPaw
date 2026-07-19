@@ -1910,6 +1910,12 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             ),
             icon="🔀",
         ),
+        "cancel_subagent": BuiltinToolConfig(
+            name="cancel_subagent",
+            enabled=True,
+            description="Cancel a background subagent owned by this session",
+            icon="🛑",
+        ),
     }
 
     # Merge dynamically registered tools from plugins
