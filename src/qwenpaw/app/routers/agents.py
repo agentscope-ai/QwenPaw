@@ -30,6 +30,7 @@ from ...config.config import (
 from ...config.utils import load_config, save_config
 from ...agents.utils import copy_workspace_md_files, normalize_agent_language
 from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
+from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
 
@@ -46,6 +47,8 @@ class AgentSummary(BaseModel):
     description: str
     workspace_dir: str
     enabled: bool
+    pinned: bool
+    startup_status: AgentStartupStatus
     active_model: ModelSlotConfig | None = None
 
 
@@ -126,6 +129,33 @@ def _normalized_agent_order(config) -> list[str]:
     return ordered_ids
 
 
+def _group_agent_order(config, ordered_ids: list[str]) -> list[str]:
+    """Group a complete order by default, pinned, then regular."""
+    pinned_ids = [
+        agent_id
+        for agent_id in ordered_ids
+        if agent_id != "default"
+        and getattr(config.agents.profiles[agent_id], "pinned", False)
+    ]
+    regular_ids = [
+        agent_id
+        for agent_id in ordered_ids
+        if agent_id != "default" and agent_id not in pinned_ids
+    ]
+    default_ids = ["default"] if "default" in ordered_ids else []
+    return [*default_ids, *pinned_ids, *regular_ids]
+
+
+def _display_agent_order(config) -> list[str]:
+    """Return stored order grouped by default, pinned, then regular."""
+    return _group_agent_order(config, _normalized_agent_order(config))
+
+
+def _is_valid_display_order(config, agent_ids: list[str]) -> bool:
+    """Return whether an order respects default and pinned grouping."""
+    return _group_agent_order(config, agent_ids) == agent_ids
+
+
 def _read_profile_description(workspace_dir: str) -> str:
     """Read description from PROFILE.md if exists."""
     try:
@@ -160,14 +190,32 @@ def _read_profile_description(workspace_dir: str) -> str:
     summary="List all agents",
     description="Get list of all configured agents",
 )
-async def list_agents() -> AgentListResponse:
+async def list_agents(request: Request = None) -> AgentListResponse:
     """List all configured agents."""
     config = load_config()
-    ordered_agent_ids = _normalized_agent_order(config)
+    manager = (
+        _get_multi_agent_manager(request) if request is not None else None
+    )
+    ordered_agent_ids = _display_agent_order(config)
 
     agents = []
     for agent_id in ordered_agent_ids:
         agent_ref = config.agents.profiles[agent_id]
+        enabled = getattr(agent_ref, "enabled", True)
+        pinned = agent_id == "default" or getattr(
+            agent_ref,
+            "pinned",
+            False,
+        )
+        startup_status = (
+            manager.get_agent_startup_status(agent_id, enabled=enabled)
+            if manager is not None
+            else (
+                AgentStartupStatus.PENDING
+                if enabled
+                else AgentStartupStatus.DISABLED
+            )
+        )
         try:
             agent_config = load_agent_config(agent_id)
             description = agent_config.description or ""
@@ -187,7 +235,9 @@ async def list_agents() -> AgentListResponse:
                     name=agent_config.name,
                     description=description,
                     workspace_dir=agent_ref.workspace_dir,
-                    enabled=getattr(agent_ref, "enabled", True),
+                    enabled=enabled,
+                    pinned=pinned,
+                    startup_status=startup_status,
                     active_model=active_model,
                 ),
             )
@@ -198,7 +248,9 @@ async def list_agents() -> AgentListResponse:
                     name=agent_id.title(),
                     description="",
                     workspace_dir=agent_ref.workspace_dir,
-                    enabled=getattr(agent_ref, "enabled", True),
+                    enabled=enabled,
+                    pinned=pinned,
+                    startup_status=startup_status,
                 ),
             )
 
@@ -229,10 +281,56 @@ async def reorder_agents(
             detail="Each configured agent ID must appear exactly once.",
         )
 
+    if not _is_valid_display_order(config, reorder_request.agent_ids):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Agent order must keep default first and pinned agents "
+                "before unpinned agents."
+            ),
+        )
+
     config.agents.agent_order = list(reorder_request.agent_ids)
     save_config(config)
 
     return {"success": True, "agent_ids": config.agents.agent_order}
+
+
+@router.patch(
+    "/{agentId}/pin",
+    summary="Pin or unpin an agent",
+    description="Persist an agent's pinned state in agent selectors",
+)
+async def set_agent_pinned(
+    agentId: str = PathParam(...),
+    pinned: bool = Body(..., embed=True),
+) -> dict:
+    """Persist an agent's pinned state without changing enabled state."""
+    config = load_config()
+
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    if agentId == "default" and not pinned:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot unpin the default agent",
+        )
+
+    agent_ref = config.agents.profiles[agentId]
+    if agentId != "default":
+        agent_ref.pinned = pinned
+        config.agents.agent_order = _display_agent_order(config)
+        save_config(config)
+
+    return {
+        "success": True,
+        "agent_id": agentId,
+        "pinned": True if agentId == "default" else pinned,
+    }
 
 
 @router.get(
@@ -278,6 +376,7 @@ def _generate_unique_id(existing_ids: set[str]) -> str:
 )
 async def create_agent(
     request: CreateAgentRequest = Body(...),
+    http_request: Request = None,
 ) -> AgentProfileRef:
     """Create a new agent.
 
@@ -361,6 +460,10 @@ async def create_agent(
 
     logger.info(f"Created new agent: {new_id} (name={request.name})")
 
+    if http_request is not None:
+        manager = _get_multi_agent_manager(http_request)
+        manager.schedule_agent_startup(new_id)
+
     return agent_ref
 
 
@@ -423,6 +526,11 @@ async def delete_agent(
         )
 
     manager = _get_multi_agent_manager(request)
+    if manager.is_agent_startup_in_progress(agentId):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Agent '{agentId}' cannot be deleted while starting",
+        )
     await manager.stop_agent(agentId)
 
     del config.agents.profiles[agentId]
@@ -460,6 +568,15 @@ async def toggle_agent_enabled(
     agent_ref = config.agents.profiles[agentId]
     manager = _get_multi_agent_manager(request)
 
+    if not enabled and manager.is_agent_startup_in_progress(agentId):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Agent '{agentId}' is still starting and cannot be "
+                f"disabled yet"
+            ),
+        )
+
     if not enabled and getattr(agent_ref, "enabled", True):
         await manager.stop_agent(agentId)
 
@@ -467,15 +584,7 @@ async def toggle_agent_enabled(
     save_config(config)
 
     if enabled:
-        try:
-            await manager.get_agent(agentId)
-            logger.info(f"Agent {agentId} started successfully")
-        except Exception as e:
-            logger.error(f"Failed to start agent {agentId}: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Agent enabled but failed to start: {str(e)}",
-            ) from e
+        manager.schedule_agent_startup(agentId)
 
     return {
         "success": True,

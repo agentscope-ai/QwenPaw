@@ -35,18 +35,34 @@ class ChannelsPage(BasePage):
     # ========== Selector definitions ==========
     # Based on console/src/pages/Control/Channels/index.tsx and index.module.less
 
-    # Page load indicator (no h1 on the page; channel cards mark a fully loaded page)
-    PAGE_LOAD_INDICATOR = '[class*=channelCard]'
+    # Page load indicator. Since v2.0.0 (PR #5504) the Channels page uses a
+    # dual-section layout: Enabled section uses <ChannelCard> (`.channelCard`),
+    # Available section uses <ChannelAvailableItem> (`.availableItem`, a plain
+    # button-like div — no status dot, no tag). Fresh workspaces have only
+    # Console enabled, so we treat either as "page loaded".
+    #
+    # NOTE: `availableItem`, `availableItemName` and `availableItemAction` all
+    # share the `availableItem` substring after CSS-module hashing, so
+    # `[class*=availableItem]` would match one tile three times. The tile
+    # container is a <div>; the name/action are <span>. Anchor on
+    # `div[class*=availableItem]` to count each tile exactly once.
+    PAGE_LOAD_INDICATOR = '[class*=channelCard], div[class*=availableItem]'
 
     # Filter buttons (UI text is Chinese; use button[class*=filterTab] to match the button rather than the parent container)
     FILTER_ALL_BTN = 'button[class*=filterTab]:has-text("全部"), button:has-text("All")'
     FILTER_BUILTIN_BTN = 'button[class*=filterTab]:has-text("内置"), button:has-text("Built-in")'
     FILTER_CUSTOM_BTN = 'button[class*=filterTab]:has-text("自定义"), button:has-text("Custom")'
 
-    # Channel cards
-    CHANNEL_CARD = '[class*=channelCard]'
+    # Channel cards / available items (v2.0.0 dual-section layout).
+    #   CHANNEL_CARD          — union: any enabled ChannelCard OR available tile
+    #   CHANNEL_CARD_ENABLED  — only enabled cards (rendered in the enabled section)
+    #   CHANNEL_CARD_DISABLED — only disabled entries (rendered as availableItem)
+    # `find_channel_card` / `get_channel_card_count` operate on the union.
+    # `div[class*=availableItem]` (not the bare substring) avoids triple
+    # matching on the item's name/action spans.
+    CHANNEL_CARD = '[class*=channelCard], div[class*=availableItem]'
     CHANNEL_CARD_ENABLED = '[class*=channelCard][class*=enabled]'
-    CHANNEL_CARD_DISABLED = '[class*=channelCard]:not([class*=enabled])'
+    CHANNEL_CARD_DISABLED = 'div[class*=availableItem]'
 
     # Channel card content
     CHANNEL_ICON = '[class*=channelCard] [class*=icon]'
@@ -205,6 +221,13 @@ class ChannelsPage(BasePage):
         """
         Return the channel status (enabled/disabled).
 
+        v2.0.0 note: disabled channels are rendered as <ChannelAvailableItem>
+        (class contains `availableItem`) and only carry an "Enable" action
+        label. Enabled channels remain <ChannelCard> with a status dot and
+        "Enabled / 已启用" status text. We distinguish by DOM class first,
+        which is more reliable than substring matching (the word "Enable"
+        appears inside "Enabled" and inside the action label).
+
         Args:
             channel_name: Channel name.
 
@@ -215,10 +238,24 @@ class ChannelsPage(BasePage):
         if not card:
             raise Exception(f"Channel card not found: {channel_name}")
 
-        card_text = card.inner_text()
-        if '已启用' in card_text or 'Enabled' in card_text:
-            return 'enabled'
-        return 'disabled'
+        try:
+            class_attr = card.get_attribute("class") or ""
+        except Exception:
+            class_attr = ""
+
+        if "availableItem" in class_attr:
+            return "disabled"
+
+        try:
+            card_text = card.inner_text()
+        except Exception:
+            return "disabled"
+
+        # ChannelCard status text is the standalone word "Enabled" or "已启用"
+        # rendered by statusText; avoid matching the action word "Enable".
+        if "已启用" in card_text or "Enabled" in card_text:
+            return "enabled"
+        return "disabled"
 
     def get_channel_bot_prefix(self, channel_name: str) -> str:
         """
@@ -248,29 +285,34 @@ class ChannelsPage(BasePage):
         except Exception:
             return ""
 
+    # Built-in channel labels (aligned with console/src/pages/Control/Channels/
+    # components/constants.ts::CHANNEL_LABELS and the backend
+    # src/qwenpaw/app/channels/registry.py::_BUILTIN_SPECS).
+    #
+    # In v2.0.0 (PR #5504) built-in channels rendered in the Available section
+    # use <ChannelAvailableItem> and no longer show a "内置 / Built-in" tag,
+    # so DOM-based detection is not reliable. We match on channel label
+    # instead — this matches the source of truth (frontend + backend).
+    _BUILTIN_LABELS = frozenset({
+        "iMessage", "Discord", "DingTalk", "Feishu", "QQ", "Telegram",
+        "Slack", "MQTT", "Mattermost", "Matrix", "Console", "Twilio",
+        "SIP", "WeCom", "XiaoYi", "WeChat", "OneBot", "Yuanbao",
+    })
+
     def is_builtin_channel(self, channel_name: str) -> bool:
         """
         Return whether the channel is a built-in channel.
 
-        Args:
-            channel_name: Channel name.
-
-        Returns:
-            True if the channel is built-in.
+        v2.0.0 note: since PR #5504 the Available section uses
+        <ChannelAvailableItem>, which does not render a Built-in tag.
+        We resolve built-in vs custom via the frontend/backend label
+        list rather than DOM inspection. This also removes false
+        negatives caused by aliases (e.g. "钉钉" vs "DingTalk").
         """
-        card = self.find_channel_card(channel_name)
-        if not card:
-            raise Exception(f"Channel card not found: {channel_name}")
-
-        try:
-            # Check whether the card text contains "内置" or "Built-in"
-            card_text = card.inner_text()
-            return "内置" in card_text or "Built-in" in card_text
-        except Exception:
-            try:
-                return not card.locator(self.CHANNEL_CUSTOM_TAG).first.is_visible()
-            except Exception:
-                return True  # Treat as built-in by default
+        for candidate in self._resolve_channel_aliases(channel_name):
+            if candidate in self._BUILTIN_LABELS:
+                return True
+        return False
 
     # ========== Edit dialog/drawer operations ==========
 
@@ -416,6 +458,28 @@ class ChannelsPage(BasePage):
         logger.info(f"Channel count: {actual_count}, expected: {expected_count}")
         return actual_count == expected_count
 
+    def _card_label_matches_builtin(self, card: Locator) -> Optional[bool]:
+        """
+        Inspect a card/available item and decide whether its channel label
+        maps to a built-in channel.
+
+        Returns:
+            True  — built-in label was found in the card text
+            False — the card carries a recognizable non-built-in label
+            None  — could not determine (empty text / unreadable)
+        """
+        try:
+            text = card.inner_text()
+        except Exception:
+            return None
+        for label in self._BUILTIN_LABELS:
+            if label in text:
+                return True
+        # No built-in label matched. If the text is non-empty, treat as
+        # custom (there is a visible label but it is not on the built-in
+        # list). Empty text stays as "unknown" (None).
+        return False if text.strip() else None
+
     def verify_filter_result(self, filter_type: str) -> bool:
         """
         Verify the filter result.
@@ -426,24 +490,14 @@ class ChannelsPage(BasePage):
         cards = self.get_channel_cards()
         if filter_type == 'all':
             return len(cards) > 0
-        elif filter_type == 'builtin':
-            # Every card must be built-in
+        if filter_type == 'builtin':
             for card in cards:
-                try:
-                    card_text = card.inner_text()
-                    if "内置" not in card_text and "Built-in" not in card_text:
-                        return False
-                except Exception:
+                if self._card_label_matches_builtin(card) is False:
                     return False
             return len(cards) > 0
-        elif filter_type == 'custom':
-            # Every card must be custom
+        if filter_type == 'custom':
             for card in cards:
-                try:
-                    card_text = card.inner_text()
-                    if "自定义" not in card_text and "Custom" not in card_text:
-                        return False
-                except Exception:
+                if self._card_label_matches_builtin(card) is True:
                     return False
             return len(cards) > 0
         return False

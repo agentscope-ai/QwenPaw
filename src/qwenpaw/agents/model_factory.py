@@ -46,14 +46,32 @@ from ..token_usage import TokenRecordingModelWrapper
 
 
 def _file_url_to_path(url: str) -> str:
+    """Convert a file:// URI to a local filesystem path.
+
+    Handles Windows drive letters, UNC authority, and
+    percent-encoded characters.  Non-file:// URLs are
+    returned with only percent-decoding applied.
+
+    Examples:
+        file:///C:/path       -> C:/path
+        file:///tmp/path      -> /tmp/path
+        file://server/share/x -> //server/share/x  (UNC)
     """
-    Strip file:// to path. On Windows file:///C:/path -> C:/path not /C:/path.
-    Percent-decodes the path so non-ASCII filenames resolve correctly.
-    """
-    s = url.removeprefix("file://")
-    # Windows: file:///C:/path yields "/C:/path"; remove leading slash.
+    if not url.startswith("file://"):
+        return unquote(url)
+    s = url[7:]  # strip "file://"
+    # Strip localhost authority: localhost/path -> /path
+    if s.startswith("localhost/"):
+        s = s[9:]  # len("localhost") == 9
+    # Windows drive letter: /C:/path -> C:/path (three-slash form)
     if len(s) >= 3 and s.startswith("/") and s[1].isalpha() and s[2] == ":":
         s = s[1:]
+    # Windows drive letter: C:/path (two-slash form file://C:/...)
+    elif len(s) >= 2 and s[0].isalpha() and s[1] == ":":
+        pass  # already correct
+    elif not s.startswith("/"):
+        # UNC authority form: server/share/x -> //server/share/x
+        s = f"//{s}"
     return unquote(s)
 
 
@@ -768,8 +786,8 @@ def _fixup_media_list(items: list) -> None:
                             f" — file deleted from disk]"
                         ),
                     )
-                elif unquote(url_str) != url_str:
-                    source.url = unquote(url_str)
+                else:
+                    source.url = local_path
         elif btype == "file":
             if isinstance(block, dict):
                 source = block.get("source") or {}

@@ -12,6 +12,7 @@ import os
 import re
 import time
 import zipfile
+from collections import OrderedDict
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -105,17 +106,23 @@ SKILL_PACKAGE_MAX_BYTES = 200 * 1024 * 1024
 HTTP_READ_CHUNK_BYTES = 256 * 1024
 
 _GITHUB_CACHE_DEFAULT_TTL = 300  # 5 minutes
+_GITHUB_CACHE_MAX_ENTRIES = 500
 _GITHUB_CACHE_MISS = object()
 
 # ---------- Module-level mutable state -------------------------------------
 
 # GitHub response cache: key → (timestamp, value).
-_github_cache: dict[str, tuple[float, Any]] = {}
+_github_cache: OrderedDict[str, tuple[float, Any]] = OrderedDict()
 
-# Per-key locks for the GitHub response cache. Without these, two
-# concurrent callers seeing the same cache miss both fire the same HTTP
-# request and burn the GitHub rate-limit budget twice.
-_github_cache_key_locks: dict[str, asyncio.Lock] = {}
+
+@dataclass
+class _GitHubCacheLockEntry:
+    lock: asyncio.Lock
+    users: int = 0
+
+
+# Locks exist only while a cache miss for that key is running or waiting.
+_github_cache_key_locks: dict[str, _GitHubCacheLockEntry] = {}
 _github_cache_locks_lock = asyncio.Lock()
 
 # Lazy module-level httpx singleton.
@@ -258,14 +265,30 @@ def _with_cancel_checker(checker: Any | None):
 # ---------- GitHub response cache ------------------------------------------
 
 
+def _github_cache_prune(*, now: float | None = None) -> None:
+    """Globally expire old entries and enforce the LRU size threshold."""
+    current_time = time.monotonic() if now is None else now
+    ttl = _github_cache_ttl()
+    expired = [
+        key
+        for key, (timestamp, _) in _github_cache.items()
+        if current_time - timestamp > ttl
+    ]
+    for key in expired:
+        _github_cache.pop(key, None)
+    while len(_github_cache) > _GITHUB_CACHE_MAX_ENTRIES:
+        _github_cache.popitem(last=False)
+
+
 def _github_cache_get(key: str) -> Any:
     entry = _github_cache.get(key)
     if entry is None:
         return None
-    ts, value = entry
-    if time.monotonic() - ts > _github_cache_ttl():
-        del _github_cache[key]
+    timestamp, value = entry
+    if time.monotonic() - timestamp > _github_cache_ttl():
+        _github_cache.pop(key, None)
         return None
+    _github_cache.move_to_end(key)
     return value
 
 
@@ -276,22 +299,35 @@ def _github_cached(key: str) -> Any:
 
 def _github_cache_set(key: str, value: Any) -> None:
     _github_cache[key] = (time.monotonic(), value)
+    _github_cache.move_to_end(key)
+    if len(_github_cache) > _GITHUB_CACHE_MAX_ENTRIES:
+        _github_cache_prune()
 
 
-async def _github_cache_lock_for(key: str) -> asyncio.Lock:
+@asynccontextmanager
+async def _github_cache_lock(key: str) -> Any:
     async with _github_cache_locks_lock:
-        lock = _github_cache_key_locks.get(key)
-        if lock is None:
-            lock = asyncio.Lock()
-            _github_cache_key_locks[key] = lock
-        return lock
+        entry = _github_cache_key_locks.get(key)
+        if entry is None:
+            entry = _GitHubCacheLockEntry(lock=asyncio.Lock())
+            _github_cache_key_locks[key] = entry
+        entry.users += 1
+
+    try:
+        async with entry.lock:
+            yield
+    finally:
+        async with _github_cache_locks_lock:
+            entry.users -= 1
+            if entry.users == 0 and _github_cache_key_locks.get(key) is entry:
+                _github_cache_key_locks.pop(key, None)
 
 
 async def _github_cached_call(
     key: str,
     factory: Callable[[], Awaitable[Any]],
 ) -> Any:
-    """Return cached value or run factory under a per-key lock.
+    """Return cached value or run factory under a temporary per-key lock.
 
     Prevents thundering-herd when multiple coroutines miss the same key:
     only the first one fires the network call; the rest wait on the lock
@@ -300,8 +336,7 @@ async def _github_cached_call(
     cached = _github_cached(key)
     if cached is not _GITHUB_CACHE_MISS:
         return cached
-    lock = await _github_cache_lock_for(key)
-    async with lock:
+    async with _github_cache_lock(key):
         cached = _github_cached(key)
         if cached is not _GITHUB_CACHE_MISS:
             return cached

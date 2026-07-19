@@ -5,6 +5,7 @@ import {
   Input,
   Collapse,
   Select,
+  InputNumber,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { SliderWithValue } from "./SliderWithValue";
@@ -17,6 +18,10 @@ import styles from "../index.module.less";
 interface LightContextCardProps {
   maxInputLength: number;
 }
+
+// Retention windows longer than this many days trigger a (non-blocking)
+// storage warning. 0 (keep forever) warns separately.
+const HISTORY_RETENTION_LARGE_WARN_DAYS = 30;
 
 export function LightContextCard({ maxInputLength }: LightContextCardProps) {
   const { t } = useTranslation();
@@ -35,6 +40,31 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
     Form.useWatch(["light_context_config", "strategy"]) ?? "scroll";
   const showTieredToolResultSettings =
     usesTieredToolResultSettings(contextStrategy);
+
+  // history_retention_days only applies to the scroll strategy.
+  const isScrollStrategy = contextStrategy === "scroll";
+  const historyRetentionDays = Form.useWatch([
+    "light_context_config",
+    "scroll_config",
+    "history_retention_days",
+  ]);
+  // Warn (never block): 0 keeps history forever, a very large window eats disk.
+  let historyRetentionWarning: string | null = null;
+  if (
+    isScrollStrategy &&
+    historyRetentionDays !== undefined &&
+    historyRetentionDays !== null
+  ) {
+    if (historyRetentionDays <= 0) {
+      historyRetentionWarning = t(
+        "agentConfig.historyRetentionDaysForeverWarning",
+      );
+    } else if (historyRetentionDays > HISTORY_RETENTION_LARGE_WARN_DAYS) {
+      historyRetentionWarning = t(
+        "agentConfig.historyRetentionDaysLargeWarning",
+      );
+    }
+  }
 
   const compactThreshold = Math.floor(
     (maxInputLength ?? 0) * (compactThresholdRatio ?? 0.8),
@@ -180,6 +210,38 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                     )}
                   />
                 </Form.Item>
+
+                {isScrollStrategy && (
+                  <Form.Item
+                    label={t("agentConfig.historyRetentionDays")}
+                    name={[
+                      "light_context_config",
+                      "scroll_config",
+                      "history_retention_days",
+                    ]}
+                    rules={[
+                      {
+                        required: true,
+                        message: t("agentConfig.historyRetentionDaysRequired"),
+                      },
+                    ]}
+                    tooltip={t("agentConfig.historyRetentionDaysTooltip")}
+                    extra={
+                      historyRetentionWarning ? (
+                        <span style={{ color: "#faad14" }}>
+                          {historyRetentionWarning}
+                        </span>
+                      ) : undefined
+                    }
+                  >
+                    <InputNumber
+                      min={0}
+                      step={1}
+                      precision={0}
+                      style={{ width: "100%" }}
+                    />
+                  </Form.Item>
+                )}
               </>
             ),
           },

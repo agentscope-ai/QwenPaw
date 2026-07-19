@@ -564,204 +564,39 @@ class TestChatMessageSearch:
         ai_response = clean_chat_page.wait_for_ai_response(timeout=30000)
         assert ai_response is not None, "AI response timed out"
 
-        log_test_step("4. Click the search button to open the search panel")
-        # Source: ChatActionGroup uses the SparkSearchLine icon for the search button.
-        # The button sits in the action group area; its icon class contains spark-icon or SparkSearchLine.
-        search_button = None
-        search_selectors = [
-            'button:has([class*="spark-icon"])[class*="search" i]',
-            'button:has(svg[class*="Search"])',
-            'button:has(svg[class*="search"])',
-            '[class*="actionGroup"] button:nth-child(1)',
-            'button[title*="搜索"], button[title*="Search"]',
-            'button[aria-label*="搜索"], button[aria-label*="Search"]',
-            '[class*="chatAction"] button',
-        ]
-        for selector in search_selectors:
-            try:
-                btn = clean_chat_page.page.locator(selector).first
-                if btn.count() > 0 and btn.is_visible(timeout=2000):
-                    search_button = btn
-                    logger.info(f"Found search button: {selector}")
-                    break
-            except Exception:
-                continue
+        log_test_step("4. Open the All Chats drawer (conversation search lives here)")
+        # The message-level search panel (ChatSearchPanel) was removed from
+        # the UI in the v2.0.0 redesign: ChatActionGroup no longer renders a
+        # search trigger and the panel is mounted nowhere. Search now filters
+        # SESSIONS by title inside the right-side "All Chats" drawer, so we
+        # verify that behaviour (no-match empties the list, clear restores it).
+        clean_chat_page.page.keyboard.press("Escape")
+        clean_chat_page.wait(300)
+        clean_chat_page.open_session_list()
+        initial_count = clean_chat_page.get_session_count()
+        assert initial_count >= 1, f"No sessions available to search: {initial_count}"
+        logger.info(f"Session count before search: {initial_count}")
 
-        if search_button is None:
-            # Last-resort fallback: scan all buttons for one whose inner HTML contains a search icon
-            all_buttons = clean_chat_page.page.locator('button').all()
-            for btn in all_buttons:
-                try:
-                    inner_html = btn.inner_html()
-                    if 'Search' in inner_html or 'search' in inner_html:
-                        if btn.is_visible():
-                            search_button = btn
-                            logger.info("Found search button via innerHTML match")
-                            break
-                except Exception:
-                    continue
+        log_test_step("5. Search a term that matches no conversation")
+        no_match_term = "zzqx_nomatch_e2e_9911"
+        clean_chat_page.search_sessions(no_match_term)
+        filtered_count = clean_chat_page.get_session_count()
+        assert filtered_count == 0, (
+            f"No-match search should empty the session list, got {filtered_count}"
+        )
+        logger.info("No-match term filtered the conversation list to empty")
 
-        assert search_button is not None, "Search button not found"
-        search_button.click()
-        clean_chat_page.wait(2000)
+        log_test_step("6. Clear the search and verify the list is restored")
+        clean_chat_page.clear_session_search()
+        restored_count = clean_chat_page.get_session_count()
+        assert restored_count >= initial_count, (
+            f"Conversation list not restored after clearing search: "
+            f"expected >= {initial_count}, got {restored_count}"
+        )
+        logger.info(f"Session count restored: {restored_count}")
 
-        log_test_step("5. Type the keyword in the search box")
-        # Source: ChatSearchPanel is a Drawer (placement=right, width=360px).
-        # The search input class is .searchInput (CSS Module); it is an antd Input (allowClear).
-        search_input = None
-        search_input_selectors = [
-            '.qwenpaw-drawer input.qwenpaw-input',
-            '.qwenpaw-drawer input[type="text"]',
-            '.qwenpaw-drawer-body input',
-            '[class*="searchSection"] input',
-            '[class*="searchInput"]',
-            'input[placeholder*="搜索"], input[placeholder*="Search"]',
-            'input[placeholder*="search"]',
-        ]
-        for selector in search_input_selectors:
-            try:
-                inp = clean_chat_page.page.locator(selector).first
-                if inp.count() > 0 and inp.is_visible(timeout=2000):
-                    search_input = inp
-                    logger.info(f"Found search input: {selector}")
-                    break
-            except Exception:
-                continue
-
-        assert search_input is not None, "Search input not found"
-
-        search_input.fill(search_keyword)
-        clean_chat_page.wait(1500)
-
-        log_test_step("6. Verify the search results contain matches")
-        # Wait for the search results to load (debounce 300ms + API request time)
-        clean_chat_page.wait(3000)
-        # Source: results render via antd List; each item class is .searchResultItem
-        search_results = clean_chat_page.page.locator(
-            '[class*="searchResultItem"], [class*="searchResult"], '
-            '[class*="search-result"], [class*="SearchResult"], '
-            '.qwenpaw-list-item, .ant-list-item, '
-            '[class*="resultItem"], [class*="result-item"]'
-        ).all()
-        if len(search_results) == 0:
-            # Try checking any list item or highlighted text inside the drawer
-            drawer_items = clean_chat_page.page.locator(
-                '.qwenpaw-drawer-body .qwenpaw-list-item, '
-                '.qwenpaw-drawer-body li, '
-                '.qwenpaw-drawer-body mark, '
-                '.qwenpaw-drawer-body [class*="highlight"]'
-            ).all()
-            if len(drawer_items) > 0:
-                search_results = drawer_items
-                logger.info(f"Found {len(drawer_items)} match(es) via drawer content")
-            else:
-                # Wait and retry once
-                clean_chat_page.wait(3000)
-                search_results = clean_chat_page.page.locator(
-                    '.qwenpaw-drawer-body [class*="Item"], '
-                    '.qwenpaw-drawer-body [class*="result"]'
-                ).all()
-                assert len(search_results) > 0, "Search did not return any recognizable result elements"
-        logger.info(f"Found {len(search_results)} search result element(s)")
-
-        # First, check the result-count text on the page (e.g. "Found X results")
-        result_count_text = clean_chat_page.page.locator(
-            '.qwenpaw-drawer-body'
-        ).text_content() or ""
-        logger.info(f"Search panel content: {result_count_text[:200]}")
-
-        # Decide whether the search actually returned results (rule out "0 results found")
-        has_zero_results = "找到 0" in result_count_text or "未找到" in result_count_text or "no result" in result_count_text.lower()
-
-        # Keep the "latest drawer text" for the final assertion (may be refreshed after retry)
-        latest_drawer_text = result_count_text
-
-        if has_zero_results:
-            # Search panel explicitly shows 0 results; retry with a shorter keyword
-            logger.info("Initial search returned 0 results; retrying with a shorter keyword")
-            search_input_retry = clean_chat_page.page.locator(
-                '.qwenpaw-drawer input.qwenpaw-input, .qwenpaw-drawer input[type="text"]'
-            ).first
-            search_input_retry.clear()
-            clean_chat_page.wait(500)
-            short_keyword = search_keyword[:5].lower()
-            search_input_retry.fill(short_keyword)
-            clean_chat_page.wait(3000)
-
-            retry_text = clean_chat_page.page.locator('.qwenpaw-drawer-body').text_content() or ""
-            logger.info(f"Retry search '{short_keyword}' result: {retry_text[:200]}")
-            has_zero_results = "找到 0" in retry_text or "未找到" in retry_text or "no result" in retry_text.lower()
-            latest_drawer_text = retry_text  # Use new text for final assertion after retry
-            # After retry, also re-fetch result elements to replace the stale search_results
-            try:
-                refreshed_results = clean_chat_page.page.locator(
-                    '[class*="searchResultItem"], [class*="searchResult"], '
-                    '.qwenpaw-drawer-body .qwenpaw-list-item, '
-                    '.qwenpaw-drawer-body li'
-                ).all()
-                if len(refreshed_results) > 0:
-                    search_results = refreshed_results
-                    logger.info(f"After retry, got {len(refreshed_results)} result element(s)")
-            except Exception:
-                pass
-
-        if has_zero_results:
-            # Final fallback: only verify that the search panel opens and accepts input
-            logger.warning("Search did not return matching results, but the search panel interacts normally")
-            # Do not hard-assert that the results must contain the keyword, since the
-            # search API may have latency or indexing issues
-        else:
-            # When there are search results, verify at least one contains the keyword
-            found_match = False
-            for result in search_results[:5]:
-                result_text = result.text_content() or ""
-                if search_keyword.lower() in result_text.lower() or "playwright" in result_text.lower():
-                    found_match = True
-                    logger.info(f"Search result contains keyword: {result_text[:100]}")
-                    break
-
-            if not found_match:
-                # Check whether the drawer content as a whole contains the keyword (use latest, possibly post-retry text)
-                if (
-                    search_keyword.lower() in latest_drawer_text.lower()
-                    or "playwright" in latest_drawer_text.lower()
-                ):
-                    found_match = True
-                    logger.info("Search panel overall content contains the keyword (based on latest drawer text)")
-
-            assert found_match, (
-                f"No match containing keyword '{search_keyword}' found in search results; "
-                f"latest drawer text preview: {latest_drawer_text[:200]}"
-            )
-
-        log_test_step("7. Click a search result to jump to the corresponding message")
-        if len(search_results) > 0:
-            try:
-                search_results[0].click()
-                clean_chat_page.wait(1000)
-                logger.info("Clicked the first search result")
-            except Exception as e:
-                logger.warning(f"Failed to click the search result: {e}")
-
-        log_test_step("8. Close the search panel")
-        # Try to close the search panel
-        close_selectors = [
-            'button[aria-label*="Close"]',
-            'button[aria-label*="关闭"]',
-            '[class*="closeButton"]',
-            '.ant-modal-close',
-        ]
-        for selector in close_selectors:
-            close_btn = clean_chat_page.page.locator(selector).first
-            if close_btn.count() > 0 and close_btn.is_visible():
-                close_btn.click()
-                logger.info("Closed the search panel")
-                break
-        else:
-            # Press ESC to close
-            clean_chat_page.page.keyboard.press("Escape")
-            clean_chat_page.wait(500)
-            logger.info("Pressed ESC to close the search panel")
+        log_test_step("7. Close the drawer")
+        clean_chat_page.close_session_list()
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed")

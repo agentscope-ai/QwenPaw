@@ -61,10 +61,25 @@ class TestVoiceConfigDisplay:
         log_test_step("1. Navigate to voice transcription page")
         navigate_to_voice(page)
 
-        # Step 2: Verify page loaded (voice page has no breadcrumb)
+        # Step 2: Verify page loaded (voice page has no breadcrumb).
+        # The page renders asynchronously and can be slow on a loaded CI
+        # runner, so wait for actual voice content/controls rather than just
+        # `body` visibility (which fires before the SPA route content mounts).
         log_test_step("2. Verify page loaded")
         page_loaded = page.locator('body').first
         expect(page_loaded).to_be_visible(timeout=5000)
+        try:
+            page.wait_for_selector(
+                '.qwenpaw-radio-group, .qwenpaw-radio-wrapper, '
+                '.qwenpaw-switch, '
+                'h1:has-text("Voice"), .qwenpaw-page-header:has-text("Voice")',
+                timeout=15000,
+            )
+        except Exception:
+            logger.warning(
+                "Voice content selectors not visible within 15s; page may "
+                "be rendering slowly on this runner"
+            )
         logger.info("Voice transcription page loaded")
 
         # Step 3: Verify page title

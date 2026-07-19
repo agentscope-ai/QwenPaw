@@ -15,6 +15,7 @@
 
 // ─── Collapsed (icon only) ────────────────────────────────────────────────────
 .agentSelectorCollapsed {
+  position: relative;
   width: 40px;
   height: 40px;
   display: flex;
@@ -32,6 +33,13 @@
     background: rgba(43, 18, 0, 0.08);
     border-color: rgba(240, 126, 38, 0.3);
   }
+}
+
+.collapsedStatusIndicator {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: inline-flex;
 }
 
 // ─── Label ────────────────────────────────────────────────────────────────────
@@ -224,29 +232,180 @@
     }
 
     .rc-virtual-list {
-      padding: 6px 0;
+      padding: 4px 0;
+    }
+
+    .ant-select-item-group,
+    .qwenpaw-select-item-group {
+      min-height: 24px;
+      padding: 5px 14px 2px !important;
+      color: rgba(26, 26, 46, 0.42) !important;
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.06em;
+      line-height: 1.4;
+      text-transform: uppercase;
     }
   }
 }
 
+.dropdownContent {
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+}
+
+.enabledAgentList {
+  min-height: 0;
+}
+
 // ─── Agent Option ─────────────────────────────────────────────────────────────
 .agentOption {
-  padding: 10px 14px;
+  position: relative;
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  border-radius: 8px;
+  outline: none;
+  transform-origin: center;
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  &:focus-visible {
+    background: rgba(240, 126, 38, 0.06);
+    box-shadow: inset 0 0 0 1px rgba(240, 126, 38, 0.32);
+  }
+}
+
+.agentOptionDisabled {
+  opacity: 0.68;
+}
+
+.agentOptionPressing {
+  z-index: 1;
+  background: rgba(240, 126, 38, 0.055);
+  box-shadow: 0 7px 18px rgba(72, 42, 20, 0.12);
+  animation: pinHoldWiggle 0.14s ease-in-out infinite alternate;
+}
+
+.agentOptionPinFeedback {
+  animation: pinWiggle 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);
 }
 
 .agentOptionHeader {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+}
+
+.agentStatusColumn {
+  width: 12px;
+  flex: 0 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.agentToggleButton {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: rgba(26, 26, 46, 0.48);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease;
+
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    color: #f07e26;
+    background: rgba(240, 126, 38, 0.08);
+    border-color: rgba(240, 126, 38, 0.18);
+    outline: none;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+  }
+}
+
+.toggleSpinner {
+  animation: toggleSpin 0.9s linear infinite;
+}
+
+@keyframes toggleSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.disabledAgentSection {
+  border-top: 1px solid rgba(26, 23, 22, 0.08);
+  padding: 4px 6px 6px;
+}
+
+.disabledAgentHeader {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  color: rgba(26, 26, 46, 0.58);
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    color: rgba(26, 26, 46, 0.82);
+    background: rgba(43, 18, 0, 0.04);
+    outline: none;
+  }
+
+  svg {
+    transition: transform 0.18s ease;
+  }
+}
+
+.disabledChevronExpanded {
+  transform: rotate(180deg);
+}
+
+.disabledAgentList {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 2px;
+}
+
+.disabledAgentRow {
+  border-radius: 8px;
+
+  &:hover,
+  &:focus-within {
+    background: rgba(43, 18, 0, 0.04);
+  }
 }
 
 .agentOptionIcon {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -275,7 +434,7 @@
 .agentOptionName {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 6px;
   font-size: 13px;
   font-weight: 600;
@@ -288,6 +447,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+}
+
+.pinnedIndicator {
+  flex: 0 0 auto;
+  color: #f07e26;
+  filter: drop-shadow(0 1px 2px rgba(240, 126, 38, 0.18));
 }
 
 .activeIndicator {
@@ -321,8 +486,50 @@
   font-family: "SF Mono", "Consolas", "Monaco", monospace;
   color: rgba(240, 126, 38, 0.45);
   letter-spacing: 0.3px;
-  padding-top: 4px;
+  margin-left: 52px;
+  padding-top: 3px;
   border-top: 1px solid rgba(240, 126, 38, 0.08);
+}
+
+@keyframes pinHoldWiggle {
+  from {
+    transform: translateY(-2px) rotate(-0.45deg) scale(1.012);
+  }
+  to {
+    transform: translateY(-2px) rotate(0.45deg) scale(1.012);
+  }
+}
+
+@keyframes pinWiggle {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+  20% {
+    transform: rotate(-1.3deg) scale(1.012);
+  }
+  40% {
+    transform: rotate(1.1deg) scale(1.012);
+  }
+  60% {
+    transform: rotate(-0.8deg) scale(1.006);
+  }
+  80% {
+    transform: rotate(0.5deg) scale(1.003);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agentOption,
+  .pinnedIndicator {
+    transition: none;
+  }
+
+  .agentOptionPressing,
+  .agentOptionPinFeedback {
+    animation: none;
+    transform: none;
+  }
 }
 
 // ─── Dark mode overrides ───────────────────────────────────────────────────────
@@ -361,6 +568,15 @@
 
   .dropdownHeaderTitle {
     color: rgba(255, 255, 255, 0.4);
+  }
+
+  .agentSelectorDropdown {
+    :global {
+      .ant-select-item-group,
+      .qwenpaw-select-item-group {
+        color: rgba(255, 255, 255, 0.4) !important;
+      }
+    }
   }
 
   .agentSelector {
@@ -461,6 +677,11 @@
     color: rgba(255, 255, 255, 0.88);
   }
 
+  .agentOption:focus-visible,
+  .agentOptionPressing {
+    background: rgba(240, 126, 38, 0.12);
+  }
+
   .agentOptionDescription {
     color: rgba(255, 255, 255, 0.4);
   }
@@ -468,5 +689,47 @@
   .agentOptionId {
     color: rgba(245, 160, 90, 0.5);
     border-top-color: rgba(245, 160, 90, 0.12);
+  }
+
+  .agentToggleButton {
+    color: rgba(255, 255, 255, 0.48);
+
+    &:hover:not(:disabled),
+    &:focus-visible:not(:disabled) {
+      color: #f5a05a;
+      background: rgba(240, 126, 38, 0.14);
+      border-color: rgba(245, 160, 90, 0.22);
+    }
+  }
+
+  .disabledAgentSection {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .disabledAgentHeader {
+    color: rgba(255, 255, 255, 0.5);
+
+    &:hover,
+    &:focus-visible {
+      color: rgba(255, 255, 255, 0.82);
+      background: rgba(255, 255, 255, 0.05);
+    }
+  }
+
+  .disabledAgentRow {
+    &:hover,
+    &:focus-within {
+      background: rgba(255, 255, 255, 0.05);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggleSpinner {
+    animation-duration: 1.8s;
+  }
+
+  .disabledAgentHeader svg {
+    transition: none;
   }
 }
