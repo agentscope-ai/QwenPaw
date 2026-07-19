@@ -2150,6 +2150,30 @@ class SecurityConfig(BaseModel):
             "unaffected either way."
         ),
     )
+    sandbox_unavailable_action: str = Field(
+        default="allow",
+        description=(
+            "Governance behavior for a shell SANDBOX_FALLBACK when the "
+            "sandbox is unusable (platform unsupported or globally "
+            "disabled). One of 'allow' (default, run unsandboxed), 'ask' "
+            "(prompt for approval), or 'deny' (reject). Phase 0-2 "
+            "protections (secret-file / dangerous-command blocking) still "
+            "apply before this action is reached."
+        ),
+    )
+
+    @field_validator("sandbox_unavailable_action")
+    @classmethod
+    def _validate_sandbox_unavailable_action(cls, v: str) -> str:
+        allowed = {"allow", "ask", "deny"}
+        normalized = str(v).strip().lower()
+        if normalized not in allowed:
+            raise ValueError(
+                "sandbox_unavailable_action must be one of "
+                f"{sorted(allowed)}",
+            )
+        return normalized
+
     allow_no_auth_hosts: List[str] = Field(
         default_factory=lambda: ["127.0.0.1", "::1"],
         description=(

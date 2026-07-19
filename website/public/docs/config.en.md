@@ -545,9 +545,10 @@ Contains three protection modules:
 
 Top-level field:
 
-| Field                 | Type     | Default                | Description                                                                    |
-| --------------------- | -------- | ---------------------- | ------------------------------------------------------------------------------ |
-| `allow_no_auth_hosts` | string[] | `["127.0.0.1", "::1"]` | IP whitelist that bypasses web authentication. Localhost is allowed by default |
+| Field                        | Type     | Default                | Description                                                                                                                                              |
+| ---------------------------- | -------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allow_no_auth_hosts`        | string[] | `["127.0.0.1", "::1"]` | IP whitelist that bypasses web authentication. Localhost is allowed by default                                                                           |
+| `sandbox_unavailable_action` | string   | `"allow"`              | What a shell `SANDBOX_FALLBACK` does when the sandbox is unusable (unsupported platform or `sandbox_enabled=false`): `allow` (run unsandboxed), `ask`, or `deny`. Phase 0-2 protections still apply first. |
 
 > **Complete configuration:** Detailed field descriptions, security rules, custom rule configuration, etc. for each module are documented in [Security](./security).
 

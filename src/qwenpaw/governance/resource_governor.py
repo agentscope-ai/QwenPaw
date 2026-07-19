@@ -162,12 +162,39 @@ class ResourceGovernor:
             )
             return True
 
+    @staticmethod
+    def _sandbox_unavailable_action() -> str:
+        """Read ``security.sandbox_unavailable_action`` (config.json).
+
+        Controls what a shell ``SANDBOX_FALLBACK`` does when the sandbox is
+        unusable: ``allow`` (run unsandboxed, default), ``ask`` (prompt for
+        approval), or ``deny`` (reject). Uses the mtime-cached
+        :func:`load_config` so it is cheap on the hot path and reflects
+        Console updates. On a config read error it returns ``allow`` to
+        preserve the historical behavior.
+        """
+        try:
+            from ..config import load_config
+
+            action = str(load_config().security.sandbox_unavailable_action)
+            action = action.strip().lower()
+            if action in {"allow", "ask", "deny"}:
+                return action
+        except Exception:
+            logger.debug(
+                "ResourceGovernor: failed to read "
+                "sandbox_unavailable_action; defaulting to 'allow'.",
+                exc_info=True,
+            )
+        return "allow"
+
     def _sandbox_usable(self) -> bool:
         """Effective sandbox availability: platform support AND global switch.
 
         When the operator turns the switch off, the sandbox is treated as
-        if the platform did not support it — ``SANDBOX_FALLBACK`` then
-        escalates to ASK rather than running the command unsandboxed.
+        if the platform did not support it — a ``SANDBOX_FALLBACK`` then
+        resolves according to ``security.sandbox_unavailable_action``
+        (allow / ask / deny) instead of running inside the sandbox.
         """
         return self._sandbox_available and self._sandbox_globally_enabled()
 
@@ -262,10 +289,12 @@ class ResourceGovernor:
         # run inside a sandbox. Reaching this point means the command already
         # cleared Phase 1 deep scan (CRITICAL → DENY), Phase 1.5 shell-danger
         # keywords, and every builtin/user DENY/ASK rule — i.e. nothing
-        # flagged it. Rather than nag the user, run it unsandboxed (ALLOW).
-        # Only the sandbox isolation layer is dropped; Phase 0-2 protections
-        # stay fully in force. STRICT never reaches here (it returns ASK in
-        # evaluate() before producing SANDBOX_FALLBACK).
+        # flagged it. The security.sandbox_unavailable_action config decides
+        # what happens next: 'allow' (default) runs it unsandboxed, 'ask'
+        # prompts for approval, 'deny' rejects it. Only the sandbox isolation
+        # layer is affected; Phase 0-2 protections stay fully in force.
+        # STRICT never reaches here (it returns ASK in evaluate() before
+        # producing SANDBOX_FALLBACK).
         if (
             decision.action is GovernanceAction.SANDBOX_FALLBACK
             and not self._sandbox_usable()
@@ -275,15 +304,37 @@ class ResourceGovernor:
                 if self._sandbox_available
                 else f"sandbox unavailable ({self._sandbox_capability.reason})"
             )
-            logger.info(
-                "ResourceGovernor: %s, running '%s' unsandboxed (ALLOW)",
-                reason,
-                tc_spec.tool_name,
-            )
-            decision = GovernanceDecision(
-                action=GovernanceAction.ALLOW,
-                reason=f"{reason}, running unsandboxed",
-            )
+            action = self._sandbox_unavailable_action()
+            if action == "ask":
+                logger.info(
+                    "ResourceGovernor: %s, asking for approval to run '%s'",
+                    reason,
+                    tc_spec.tool_name,
+                )
+                decision = GovernanceDecision(
+                    action=GovernanceAction.ASK,
+                    reason=f"{reason}, approval required",
+                )
+            elif action == "deny":
+                logger.info(
+                    "ResourceGovernor: %s, denying '%s'",
+                    reason,
+                    tc_spec.tool_name,
+                )
+                decision = GovernanceDecision(
+                    action=GovernanceAction.DENY,
+                    reason=f"{reason}, denied by config",
+                )
+            else:
+                logger.info(
+                    "ResourceGovernor: %s, running '%s' unsandboxed (ALLOW)",
+                    reason,
+                    tc_spec.tool_name,
+                )
+                decision = GovernanceDecision(
+                    action=GovernanceAction.ALLOW,
+                    reason=f"{reason}, running unsandboxed",
+                )
 
         # compile sandbox config
         if decision.action is GovernanceAction.SANDBOX_FALLBACK:
