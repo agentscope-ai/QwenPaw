@@ -5,10 +5,7 @@ import { PlusOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../../api/modules/agents";
 import { invalidateSkillCache, skillApi } from "../../../api/modules/skill";
-import type {
-  AgentSummary,
-  CopyAgentRequest,
-} from "../../../api/types/agents";
+import type { AgentSummary, CopyAgentRequest } from "../../../api/types/agents";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useAgents } from "./useAgents";
 import { AgentTable, AgentModal, CopyAgentModal } from "./components";
