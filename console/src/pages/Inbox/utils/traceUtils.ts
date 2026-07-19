@@ -71,14 +71,14 @@ export const extractTraceText = (event: Record<string, unknown>): string => {
   const blockType = String(block.type || "").toLowerCase();
   if (blockType === "thinking") {
     const thinking = block.thinking;
-    if (typeof thinking === "string" && thinking.trim()) {
-      return thinking.trim();
+    if (typeof thinking === "string") {
+      return thinking;
     }
   }
   if (blockType === "text") {
     const text = block.text;
-    if (typeof text === "string" && text.trim()) {
-      return text.trim();
+    if (typeof text === "string") {
+      return text;
     }
   }
   if (blockType === "tool_result") {

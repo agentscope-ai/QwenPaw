@@ -123,7 +123,7 @@ describe("extractTraceText", () => {
       extractTraceText({
         content: [{ type: "thinking", thinking: "  hmm  " }],
       }),
-    ).toBe("hmm");
+    ).toBe("  hmm  ");
   });
 
   it("extracts text field from text block", () => {
