@@ -263,18 +263,24 @@ qwenpaw models set-llm          # 切换到其他 Ollama 模型
 
 管理工具和技能在运行时使用的环境变量。
 
-| 命令                        | 说明                 |
-| --------------------------- | -------------------- |
-| `qwenpaw env list`          | 列出所有已配置的变量 |
-| `qwenpaw env set KEY VALUE` | 设置或更新变量       |
-| `qwenpaw env delete KEY`    | 删除变量             |
+| 命令                        | 说明                           |
+| --------------------------- | ------------------------------ |
+| `qwenpaw env list [--json]` | 以表格或 JSON 对象列出所有变量 |
+| `qwenpaw env get KEY`       | 输出一个变量的值               |
+| `qwenpaw env set KEY VALUE` | 设置或更新变量                 |
+| `qwenpaw env delete KEY`    | 删除变量                       |
 
 ```bash
 qwenpaw env list
+qwenpaw env list --json
+qwenpaw env get TAVILY_API_KEY
 qwenpaw env set TAVILY_API_KEY "tvly-xxxxxxxx"
 qwenpaw env set GITHUB_TOKEN "ghp_xxxxxxxx"  # 也支持以 github_pat_ 开头的 fine-grained PAT
 qwenpaw env delete TAVILY_API_KEY
 ```
+
+`get` 和 `list --json` 每次执行都会读取加密环境变量存储，因此脚本无需重启后端，
+也能读取其他进程刚写入的值。这两个命令会输出未脱敏的值，请勿将输出写入共享日志。
 
 > **注意：** QwenPaw 只负责存储和加载，值的有效性需要用户自行保证。
 > 详见 [配置 — 环境变量](./config#环境变量)。
@@ -761,7 +767,7 @@ qwenpaw --host 0.0.0.0 --port 9090 cron list
 | `qwenpaw doctor`    | `fix`                                                                                |        否         |
 | `qwenpaw daemon`    | `status` · `restart` · `reload-config` · `version` · `logs`                          |        否         |
 | `qwenpaw models`    | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` |        否         |
-| `qwenpaw env`       | `list` · `set` · `delete`                                                            |        否         |
+| `qwenpaw env`       | `list` · `get` · `set` · `delete`                                                    |        否         |
 | `qwenpaw channels`  | `list` · `send` · `install` · `add` · `remove` · `config`                            |      **是**       |
 | `qwenpaw agents`    | `list` · `create` · `delete` · `chat`                                                |    部分需要 ¹     |
 | `qwenpaw cron`      | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |      **是**       |

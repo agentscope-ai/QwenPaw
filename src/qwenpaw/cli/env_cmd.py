@@ -2,6 +2,8 @@
 """CLI commands for environment variable management."""
 from __future__ import annotations
 
+import json
+
 import click
 
 from ..envs import load_envs, set_env_var, delete_env_var
@@ -18,9 +20,20 @@ def env_group() -> None:
 
 
 @env_group.command("list")
-def list_cmd() -> None:
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Output configured variables as a JSON object.",
+)
+def list_cmd(as_json: bool) -> None:
     """List all environment variables."""
     envs = load_envs()
+    if as_json:
+        click.echo(
+            json.dumps(envs, indent=2, ensure_ascii=False, sort_keys=True),
+        )
+        return
     if not envs:
         click.echo("No environment variables configured.")
         return
@@ -29,6 +42,21 @@ def list_cmd() -> None:
     for key in sorted(envs):
         click.echo(f"  {key:<30s}  {envs[key]}")
     click.echo()
+
+
+# ---------------------------------------------------------------
+# get
+# ---------------------------------------------------------------
+
+
+@env_group.command("get")
+@click.argument("key")
+def get_cmd(key: str) -> None:
+    """Print the value of a configured environment variable."""
+    envs = load_envs()
+    if key not in envs:
+        raise click.ClickException(f"Env var '{key}' not found.")
+    click.echo(envs[key])
 
 
 # ---------------------------------------------------------------

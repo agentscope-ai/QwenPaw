@@ -276,18 +276,26 @@ qwenpaw models set-llm          # Switch to a different Ollama model
 
 Manage environment variables used by tools and skills at runtime.
 
-| Command                     | What it does                  |
-| --------------------------- | ----------------------------- |
-| `qwenpaw env list`          | List all configured variables |
-| `qwenpaw env set KEY VALUE` | Set or update a variable      |
-| `qwenpaw env delete KEY`    | Delete a variable             |
+| Command                     | What it does                             |
+| --------------------------- | ---------------------------------------- |
+| `qwenpaw env list [--json]` | List variables as a table or JSON object |
+| `qwenpaw env get KEY`       | Print one variable value                 |
+| `qwenpaw env set KEY VALUE` | Set or update a variable                 |
+| `qwenpaw env delete KEY`    | Delete a variable                        |
 
 ```bash
 qwenpaw env list
+qwenpaw env list --json
+qwenpaw env get TAVILY_API_KEY
 qwenpaw env set TAVILY_API_KEY "tvly-xxxxxxxx"
 qwenpaw env set GITHUB_TOKEN "ghp_xxxxxxxx"  # fine-grained PATs starting with github_pat_ are also supported
 qwenpaw env delete TAVILY_API_KEY
 ```
+
+`get` and `list --json` read the encrypted environment store on every
+invocation, so scripts can observe values written by another process without
+restarting the backend. Both commands print unmasked values; do not send their
+output to shared logs.
 
 > **Note:** QwenPaw only stores and loads these values; you are responsible for
 > ensuring they are correct. See
@@ -779,7 +787,7 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 | `qwenpaw doctor`    | `fix`                                                                                |        No        |
 | `qwenpaw daemon`    | `status` · `restart` · `reload-config` · `version` · `logs`                          |        No        |
 | `qwenpaw models`    | `list` · `config` · `config-key` · `set-llm` · `download` · `local` · `remove-local` |        No        |
-| `qwenpaw env`       | `list` · `set` · `delete`                                                            |        No        |
+| `qwenpaw env`       | `list` · `get` · `set` · `delete`                                                    |        No        |
 | `qwenpaw channels`  | `list` · `send` · `install` · `add` · `remove` · `config`                            |     **Yes**      |
 | `qwenpaw agents`    | `list` · `create` · `delete` · `chat`                                                |    Partial ¹     |
 | `qwenpaw cron`      | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |     **Yes**      |
