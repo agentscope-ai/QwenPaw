@@ -230,7 +230,8 @@ class ResourceGovernor:
         if not self._sandbox_available:
             logger.warning(
                 "ResourceGovernor: sandbox not available — %s. "
-                "SANDBOX_FALLBACK will escalate to ASK.",
+                "SANDBOX_FALLBACK resolves per "
+                "security.sandbox_unavailable_action (default: allow).",
                 self._sandbox_capability.reason,
             )
 
