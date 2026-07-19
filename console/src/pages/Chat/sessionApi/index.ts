@@ -32,9 +32,21 @@ const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
 function hydrateTurnUsageFromMessages(
   messages: IAgentScopeRuntimeWebUIMessage[],
 ): void {
-  useTurnUsageStore
-    .getState()
-    .setSnapshot(extractLatestSnapshotFromCards(messages));
+  const snap = extractLatestSnapshotFromCards(messages);
+  const activeMax = useTurnUsageStore.getState().activeMaxInputLength;
+  if (snap?.context_usage && typeof activeMax === "number" && activeMax > 0) {
+    const estimatedTokens = snap.context_usage.estimated_tokens;
+    useTurnUsageStore.getState().setSnapshot({
+      usage: snap.usage,
+      context_usage: {
+        estimated_tokens: estimatedTokens,
+        max_input_length: activeMax,
+        context_usage_ratio: Math.min((estimatedTokens / activeMax) * 100, 100),
+      },
+    });
+    return;
+  }
+  useTurnUsageStore.getState().setSnapshot(snap);
 }
 
 // ---------------------------------------------------------------------------
