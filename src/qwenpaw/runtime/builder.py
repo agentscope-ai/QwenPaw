@@ -828,6 +828,7 @@ class AgentBuilder:
         governor: Any,
     ) -> Any:
         """Wrap a raw tool fn in the repo's standard guard (policy or tool)."""
+        _ = agent_id
         if governor is not None:
             from ..governance import PolicyGuardedTool
 
@@ -836,13 +837,9 @@ class AgentBuilder:
                 governor=governor,
                 request_context=request_context,
             )
-        from .tool_guard import GuardedFunctionTool
+        from agentscope.tool import FunctionTool
 
-        return GuardedFunctionTool(
-            fn,
-            agent_id=agent_id,
-            request_context=request_context,
-        )
+        return FunctionTool(fn)
 
     @staticmethod
     def _build_offloader(ctx: Any, agent_config: Any) -> Any:

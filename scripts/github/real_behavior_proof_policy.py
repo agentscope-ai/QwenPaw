@@ -123,6 +123,10 @@ _PROBLEM_ALIASES = [
     "issue addressed",
     "behavior addressed",
     "description",
+    "summary",
+    "overview",
+    "what i did",
+    "what this pr does",
 ]
 
 _EVIDENCE_ALIASES = [
@@ -133,6 +137,9 @@ _EVIDENCE_ALIASES = [
     "local verification evidence",
     "testing",
     "how to test these changes",
+    "verification",
+    "validation",
+    "test results",
 ]
 
 
