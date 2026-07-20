@@ -170,15 +170,15 @@ Stores globally shared configuration:
 
 **Global config.json field descriptions:**
 
-| Field                 | Type           | Default             | Description                                                                                                                                                      |
-| --------------------- | -------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                                                                                                                        |
-| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                                                                                                                       |
-| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                                                                                                                       |
-| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                                                                                                                               |
-| `show_tool_details`   | bool           | `true`              | Global detail switch. When `false`, enabled tool call/result categories show `...`; their per-channel visibility switches and result media delivery still apply. |
-| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                                                                                                                     |
-| `last_dispatch`       | object \| null | `null`              | Last message dispatch target (used for heartbeat `target="last"`)                                                                                                |
+| Field                 | Type           | Default             | Description                                                       |
+| --------------------- | -------------- | ------------------- | ----------------------------------------------------------------- |
+| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                         |
+| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                        |
+| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                        |
+| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                                |
+| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages      |
+| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                      |
+| `last_dispatch`       | object \| null | `null`              | Last message dispatch target (used for heartbeat `target="last"`) |
 
 **`agents.profiles[agent_id]` reference fields:**
 

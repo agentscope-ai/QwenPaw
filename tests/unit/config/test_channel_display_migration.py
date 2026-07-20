@@ -29,8 +29,6 @@ def test_migrate_legacy_hidden_tool_messages():
         "show_tool_calls": False,
         "show_tool_results": False,
         "show_thinking": False,
-        "tool_call_max_length": 200,
-        "tool_result_max_length": 500,
     }
 
 
@@ -47,8 +45,18 @@ def test_migrate_preserves_explicit_new_fields():
     assert channels["slack"]["show_tool_calls"] is False
     assert channels["slack"]["show_tool_results"] is True
     assert channels["slack"]["tool_call_max_length"] == 0
-    assert channels["slack"]["tool_result_max_length"] == 500
-    assert channels["slack"]["show_thinking"] is True
+
+
+def test_no_legacy_fields_is_not_migrated():
+    """Channels without legacy fields must not be rewritten/backfilled."""
+    channels = {
+        "slack": {"enabled": True, "bot_prefix": ""},
+        "qq": {"show_tool_calls": False},
+    }
+
+    assert migrate_channel_display_fields(channels) is False
+    assert channels["slack"] == {"enabled": True, "bot_prefix": ""}
+    assert channels["qq"] == {"show_tool_calls": False}
 
 
 def test_root_config_migration_persists(tmp_path):

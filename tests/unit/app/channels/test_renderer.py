@@ -319,6 +319,37 @@ class TestMessageToParts:
             getattr(part, "type", None) == ContentType.IMAGE for part in parts
         )
 
+    def test_hidden_tool_result_drops_internal_tool_media(self):
+        """Internal tools (display_to_user=False) withhold media when the
+        tool result is hidden."""
+        r = MessageRenderer(
+            RenderStyle(
+                display_config=ChannelDisplayConfig(show_tool_results=False),
+                internal_tools=frozenset({"view_image"}),
+            ),
+        )
+        msg = _mk_message(
+            [
+                DataContent(
+                    data={
+                        "name": "view_image",
+                        "output": [
+                            {"type": "text", "text": "hidden"},
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "url",
+                                    "url": "https://example.com/image.png",
+                                },
+                            },
+                        ],
+                    },
+                ),
+            ],
+            MessageType.PLUGIN_CALL_OUTPUT,
+        )
+        assert r.message_to_parts(msg) == []
+
     def test_no_details_result_uses_placeholder_and_keeps_media(self):
         r = MessageRenderer(
             RenderStyle(

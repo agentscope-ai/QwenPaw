@@ -110,6 +110,9 @@ class RenderStyle:
     supports_markdown: bool = True
     supports_code_fence: bool = True
     use_emoji: bool = True
+    # Builtin tools with display_to_user=False (e.g. view_image/view_video).
+    # Their media output is withheld from users when tool results are hidden.
+    internal_tools: frozenset = frozenset()
 
 
 def _truncate_tool_text(value: Any, limit: int) -> str:
@@ -282,11 +285,21 @@ class MessageRenderer:
                         ContentType.VIDEO,
                         ContentType.FILE,
                     )
-                    media_parts = [
-                        p
-                        for p in block_parts
-                        if getattr(p, "type", None) in media_types
-                    ]
+                    # Internal tools (e.g. view_image/view_video) load media
+                    # into the LLM context, not for the user. Withhold their
+                    # media when tool results are hidden.
+                    media_parts = (
+                        []
+                        if (
+                            not s.display_config.show_tool_results
+                            and name in s.internal_tools
+                        )
+                        else [
+                            p
+                            for p in block_parts
+                            if getattr(p, "type", None) in media_types
+                        ]
+                    )
                     out.extend(media_parts)
                     if s.display_config.show_tool_results:
                         if not s.display_config.show_tool_details:

@@ -1860,7 +1860,7 @@ def build_agent_request_from_native(self, native_payload):
 ### Adding custom channels via plugins
 
 Custom channels are now registered through the **plugin system**. See the
-[Plugin System — Example 8: Register a Custom Channel](./plugins) for a
+[Plugin System — Example 10: Register a Custom Channel](./plugins#example-10-register-a-custom-channel) for a
 complete tutorial.
 
 To add a custom channel:

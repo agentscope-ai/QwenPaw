@@ -38,14 +38,6 @@ from ..constant import (
 
 logger = logging.getLogger(__name__)
 
-_CHANNEL_DISPLAY_DEFAULTS = {
-    "show_thinking": True,
-    "show_tool_calls": True,
-    "show_tool_results": True,
-    "tool_call_max_length": 200,
-    "tool_result_max_length": 500,
-}
-
 # A legacy field can be present in the root config and in several agent
 # profiles, all of which may be validated repeatedly during one process
 # lifetime.  The migration reminder is useful once, but repeating it for
@@ -2376,7 +2368,12 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
 
 
 def migrate_channel_display_fields(channels: object) -> bool:
-    """Migrate legacy channel display settings in-place."""
+    """Migrate legacy channel display settings in-place.
+
+    Only translates the legacy boolean flags into their replacements; the
+    remaining fields fall back to the model defaults, so channels without
+    legacy settings are left untouched (no spurious config rewrite).
+    """
     if not isinstance(channels, dict):
         return False
     migrated = False
@@ -2392,10 +2389,6 @@ def migrate_channel_display_fields(channels: object) -> bool:
         if legacy_thinking is not None:
             channel_cfg.setdefault("show_thinking", not bool(legacy_thinking))
             migrated = True
-        for key, value in _CHANNEL_DISPLAY_DEFAULTS.items():
-            if key not in channel_cfg:
-                channel_cfg[key] = value
-                migrated = True
     return migrated
 
 

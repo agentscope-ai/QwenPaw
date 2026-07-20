@@ -38,6 +38,7 @@ from qwenpaw.schemas import (
 from .renderer import ChannelDisplayConfig, MessageRenderer, RenderStyle
 from .schema import ChannelType
 from .access_control import get_access_control_store
+from ...config.utils import load_config
 
 # Optional callback to enqueue payload (set by manager)
 EnqueueCallback = Optional[Callable[[Any], None]]
@@ -149,8 +150,15 @@ class BaseChannel(ABC):
         self._language = "zh"
         self._enqueue: EnqueueCallback = None
         self._workspace = None
+        cfg = load_config()
+        internal_tools = frozenset(
+            name
+            for name, tc in cfg.tools.builtin_tools.items()
+            if not tc.display_to_user
+        )
         self._render_style = RenderStyle(
             display_config=self._display_config,
+            internal_tools=internal_tools,
         )
         self._renderer = MessageRenderer(self._render_style)
         self._http: Optional[Any] = None
@@ -908,8 +916,6 @@ class BaseChannel(ABC):
         try:
             process_iterator = self._process(request)
             async for event in process_iterator:
-                print(event)
-                print("*" * 100)
                 data = self._serialize_event_for_sse(event)
 
                 yield f"data: {data}\n\n"
@@ -1819,13 +1825,9 @@ class BaseChannel(ABC):
     def _truncate_stream_tool_chunk(
         self,
         text: Any,
-        limit: Optional[int] = None,
+        limit: int = 72,
     ) -> str:
-        if limit is None:
-            limit = self._display_config.tool_result_max_length
         preview = " ".join(str(text or "").split()).strip()
-        if limit <= 0 or len(preview) <= limit:
-            return preview
         if len(preview) > limit:
             return preview[:limit] + "..."
         return preview
@@ -1860,11 +1862,7 @@ class BaseChannel(ABC):
                 raw_text = str(block.get("thinking") or "")
             if not raw_text.strip():
                 continue
-            preview = (
-                "..."
-                if not self._display_config.show_tool_details
-                else self._truncate_stream_tool_chunk(raw_text)
-            )
+            preview = self._truncate_stream_tool_chunk(raw_text)
             if not preview or preview in seen_chunks:
                 continue
             seen_chunks.add(preview)
