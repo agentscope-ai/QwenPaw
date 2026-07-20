@@ -736,6 +736,7 @@ class ReMeLightMemoryConfig(BaseModel):
         default_factory=EmbeddingModelConfig,
     )
 
+
 class ContextCompactConfig(BaseModel):
     """Context compaction configuration."""
 
