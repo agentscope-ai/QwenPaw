@@ -313,7 +313,7 @@ async def test_custom_mode_command_activates_current_session() -> None:
 
 
 @pytest.mark.asyncio
-async def test_switching_custom_mode_resets_previous_handler() -> None:
+async def test_switching_custom_mode_requires_explicit_exit() -> None:
     store = LoopModeActivationStore()
     quality = DeclarativeLoopMode(
         _mode(_gate("quality-limit", "iteration")),
@@ -340,8 +340,8 @@ async def test_switching_custom_mode_resets_previous_handler() -> None:
     await quality.commands()[0].handler(ctx, "")
     await research.commands()[0].handler(ctx, "")
 
-    assert store.current("session-a") == "research"
-    quality.handler.reset_session.assert_called_once()
+    assert store.current("session-a") == "quality"
+    quality.handler.reset_session.assert_not_called()
 
 
 @pytest.mark.asyncio

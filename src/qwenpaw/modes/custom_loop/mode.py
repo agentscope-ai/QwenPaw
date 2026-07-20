@@ -12,6 +12,7 @@ from ...loop.gates import StopHandler, StopHandlerRegistration
 from ...runtime.hooks import HookContext
 from ...runtime.slash_command_registry import CommandSpec
 from ..base import AgentMode
+from ..base import find_active_explicit_mode
 
 
 def _system_message(text: str) -> Msg:
@@ -132,7 +133,7 @@ class DeclarativeLoopMode(AgentMode):
         args: str,
     ) -> Msg | None:
         """Activate this custom mode for the current conversation."""
-        conflict = self._active_builtin_mode(ctx)
+        conflict = find_active_explicit_mode(ctx)
         if conflict is not None:
             return _system_message(
                 f"End the active {conflict} mode before switching to "
@@ -152,14 +153,6 @@ class DeclarativeLoopMode(AgentMode):
                 f"Custom loop mode '{self.config.name}' is active.",
             )
         _rewrite_user_message(ctx, task)
-        return None
-
-    def _active_builtin_mode(self, ctx: HookContext) -> str | None:
-        for mode in ctx.workspace.plugins.modes:
-            if getattr(mode, "name", "") not in ("goal", "mission"):
-                continue
-            if mode.is_active(ctx):
-                return str(mode.name)
         return None
 
 

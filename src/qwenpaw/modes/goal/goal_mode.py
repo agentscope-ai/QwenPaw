@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from agentscope.message import Msg, TextBlock
 
-from ..base import AgentMode
+from ..base import AgentMode, find_active_explicit_mode
 from ...app.agent_context import (
     get_current_session_id,
 )
@@ -288,6 +288,22 @@ class GoalMode(AgentMode):
                             "Usage: /goal <description>"
                             "\nExample: /goal fix all "
                             "failing tests"
+                        ),
+                    ),
+                ],
+                role="system",
+            )
+
+        conflict = find_active_explicit_mode(ctx)
+        if conflict is not None:
+            return Msg(
+                name="system",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"End the active {conflict} mode before "
+                            f"starting /goal."
                         ),
                     ),
                 ],

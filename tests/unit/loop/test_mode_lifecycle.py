@@ -80,6 +80,28 @@ def test_goal_reset_removes_only_current_session():
 
 
 @pytest.mark.asyncio
+async def test_goal_activation_rejects_an_active_explicit_mode():
+    """A persistent session mode must be exited before another starts."""
+    mode = GoalMode()
+    active = SimpleNamespace(
+        name="mission",
+        is_active=lambda _ctx: True,
+    )
+    ctx = SimpleNamespace(
+        session_id="session-a",
+        workspace=SimpleNamespace(
+            plugins=SimpleNamespace(modes=[active, mode]),
+        ),
+    )
+
+    response = await mode.commands()[0].handler(ctx, "Fix the tests")
+
+    assert response is not None
+    assert "active mission mode" in response.content[0].text
+    assert mode.get_session("session-a") is None
+
+
+@pytest.mark.asyncio
 async def test_mission_turn_start_restores_persisted_session(tmp_path):
     """Mission state is active before stop-handler scope selection."""
     mode = MissionMode()

@@ -2930,6 +2930,31 @@
     "executeDefault": "ツールを実行"
   },
   "loop": {
-    "gotoSettings": "エージェント Loop 設定"
+    "gotoSettings": "エージェント Loop 設定",
+    "selectorTitle": "Loop モード",
+    "selectorHint": "エージェントの進め方を選択",
+    "selectorAria": "Loop モードを選択",
+    "builtInModes": "組み込み",
+    "customModes": "カスタムとプラグイン",
+    "starting": "開始中",
+    "active": "実行中",
+    "activePersistentDescription": "このモードは完了するか会話をリセットするまで有効です。",
+    "activeCustomDescription": "このカスタムモードは /mode off、/clear、/new のいずれかを使用するまで有効です。",
+    "loadError": "一部の Loop モードを読み込めませんでした。",
+    "retry": "再試行",
+    "modes": {
+      "default": {
+        "name": "デフォルト",
+        "description": "標準の制御されたエージェント Loop。"
+      },
+      "goal": {
+        "name": "目標",
+        "description": "具体的で検証可能な目標に向かって継続的に取り組みます。"
+      },
+      "mission": {
+        "name": "ミッション",
+        "description": "構造化された複数ステップのタスクを継続的に実行します。"
+      }
+    }
   }
 }

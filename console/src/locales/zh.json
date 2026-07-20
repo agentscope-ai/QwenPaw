@@ -3076,6 +3076,31 @@
       "resume": "继续",
       "stop": "停止"
     },
-    "gotoSettings": "智能体 Loop 设置"
+    "gotoSettings": "智能体 Loop 设置",
+    "selectorTitle": "Loop 模式",
+    "selectorHint": "选择智能体接下来的工作方式",
+    "selectorAria": "选择 Loop 模式",
+    "builtInModes": "内置",
+    "customModes": "自定义与插件",
+    "starting": "正在启动",
+    "active": "运行中",
+    "activePersistentDescription": "该模式会在当前会话中持续生效，直到任务结束或重新开始会话。",
+    "activeCustomDescription": "该自定义模式会持续生效，直到使用 /mode off、/clear 或 /new。",
+    "loadError": "部分 Loop 模式加载失败。",
+    "retry": "重试",
+    "modes": {
+      "default": {
+        "name": "默认",
+        "description": "标准的受控智能体 Loop。"
+      },
+      "goal": {
+        "name": "目标",
+        "description": "持续推进一个具体且可验证的目标。"
+      },
+      "mission": {
+        "name": "任务",
+        "description": "运行结构化、可持续的多步骤任务。"
+      }
+    }
   }
 }

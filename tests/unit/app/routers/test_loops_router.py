@@ -11,7 +11,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from qwenpaw.app.routers.loops import router
+from qwenpaw.app.agent_context import get_current_session_id
 from qwenpaw.config.config import CustomLoopModeConfig, GateInstanceConfig
+from qwenpaw.modes.custom_loop.mode import (
+    DeclarativeLoopMode,
+    LoopModeActivationStore,
+)
+from qwenpaw.modes.goal.goal_mode import GoalMode, GoalSession
 
 
 def _mode(mode_id: str = "quality") -> CustomLoopModeConfig:
@@ -41,7 +47,10 @@ def workspace() -> SimpleNamespace:
                 loop=SimpleNamespace(custom_modes=[]),
             ),
         ),
-        plugins=SimpleNamespace(slash_command_registry=registry),
+        plugins=SimpleNamespace(
+            slash_command_registry=registry,
+            modes=[],
+        ),
     )
 
 
@@ -74,6 +83,159 @@ def test_catalog_exposes_only_builtin_gates(client) -> None:
         "tool_call_budget",
         "text_response_retry",
         "completion_rubric",
+    }
+
+
+def test_loop_catalog_includes_enabled_custom_and_plugin_modes(
+    client,
+    workspace,
+) -> None:
+    """Chat discovery is workspace-local and excludes disabled modes."""
+    enabled = _mode()
+    disabled = _mode("disabled")
+    disabled.enabled = False
+    workspace.config.running.loop.custom_modes = [enabled, disabled]
+
+    class PluginMode:
+        name = "review"
+
+        @staticmethod
+        def commands():
+            from qwenpaw.runtime.slash_command_registry import CommandSpec
+
+            async def handler(_ctx, _args):
+                return None
+
+            return [
+                CommandSpec(
+                    name="review",
+                    handler=handler,
+                    help_text="Review the current work.",
+                    metadata={"loop_name": "Review"},
+                ),
+            ]
+
+        @staticmethod
+        def is_active(_ctx):
+            return False
+
+    workspace.plugins.modes = [PluginMode()]
+
+    response = client[0].get("/api/loops")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == [
+        "default",
+        "goal",
+        "mission",
+        "custom:quality",
+        "plugin:review",
+    ]
+    assert response.json()[-1]["name"] == "Review"
+
+
+def test_loop_status_reports_active_mode_and_restores_context(
+    client,
+    workspace,
+) -> None:
+    """Status inspection uses the requested session without leaking it."""
+
+    class PluginMode:
+        name = "review"
+
+        @staticmethod
+        def commands():
+            from qwenpaw.runtime.slash_command_registry import CommandSpec
+
+            async def handler(_ctx, _args):
+                return None
+
+            return [CommandSpec(name="review", handler=handler)]
+
+        @staticmethod
+        def is_active(ctx):
+            return (
+                ctx.session_id == "session-a"
+                and get_current_session_id() == "session-a"
+            )
+
+    workspace.plugins.modes = [PluginMode()]
+
+    response = client[0].get(
+        "/api/loops/status",
+        params={"session_id": "session-a"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "active"
+    assert response.json()["mode"]["id"] == "plugin:review"
+    assert get_current_session_id() is None
+
+
+def test_loop_status_treats_default_as_idle(client, workspace) -> None:
+    """Default is the absence of an explicit persistent mode."""
+
+    class DefaultMode:
+        name = "default"
+
+        @staticmethod
+        def is_active(_ctx):
+            return True
+
+    workspace.plugins.modes = [DefaultMode()]
+
+    response = client[0].get(
+        "/api/loops/status",
+        params={"session_id": "session-a"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"state": "idle", "mode": None}
+
+
+def test_loop_status_reports_goal_for_only_its_session(
+    client,
+    workspace,
+) -> None:
+    """Goal activity remains isolated by conversation session."""
+    goal_mode = GoalMode()
+    goal_mode.sessions["session-a"] = GoalSession(goal="Ship it")
+    workspace.plugins.modes = [goal_mode]
+
+    active = client[0].get(
+        "/api/loops/status",
+        params={"session_id": "session-a"},
+    )
+    idle = client[0].get(
+        "/api/loops/status",
+        params={"session_id": "session-b"},
+    )
+
+    assert active.json()["mode"]["id"] == "goal"
+    assert idle.json() == {"state": "idle", "mode": None}
+
+
+def test_loop_status_reports_custom_mode(client, workspace) -> None:
+    """Declarative custom activation is exposed with its original copy."""
+    config = _mode()
+    store = LoopModeActivationStore()
+    custom_mode = DeclarativeLoopMode(config, store)
+    store.activate("session-a", config.id)
+    workspace.config.running.loop.custom_modes = [config]
+    workspace.plugins.modes = [custom_mode]
+
+    response = client[0].get(
+        "/api/loops/status",
+        params={"session_id": "session-a"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == {
+        "id": "custom:quality",
+        "name": "Quality",
+        "slash_command": "quality",
+        "description": "",
+        "source": "custom",
     }
 
 

@@ -3057,6 +3057,31 @@
       "resume": "Resume",
       "stop": "Stop"
     },
-    "gotoSettings": "Agent Loop Settings"
+    "gotoSettings": "Agent Loop Settings",
+    "selectorTitle": "Loop mode",
+    "selectorHint": "Choose how the agent should continue",
+    "selectorAria": "Select loop mode",
+    "builtInModes": "Built-in",
+    "customModes": "Custom and plugins",
+    "starting": "Starting",
+    "active": "Active",
+    "activePersistentDescription": "This mode remains active for the conversation until it finishes or you start over.",
+    "activeCustomDescription": "This custom mode remains active until you use /mode off, /clear, or /new.",
+    "loadError": "Some loop modes could not be loaded.",
+    "retry": "Retry",
+    "modes": {
+      "default": {
+        "name": "Default",
+        "description": "The standard guarded agent loop."
+      },
+      "goal": {
+        "name": "Goal",
+        "description": "Work persistently toward a concrete, verifiable goal."
+      },
+      "mission": {
+        "name": "Mission",
+        "description": "Run a structured, persistent multi-step task."
+      }
+    }
   }
 }

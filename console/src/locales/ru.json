@@ -2945,6 +2945,31 @@
     "executeDefault": "Запустить инструмент"
   },
   "loop": {
-    "gotoSettings": "Настройки Loop агента"
+    "gotoSettings": "Настройки Loop агента",
+    "selectorTitle": "Режим Loop",
+    "selectorHint": "Выберите способ продолжения работы агента",
+    "selectorAria": "Выбрать режим Loop",
+    "builtInModes": "Встроенные",
+    "customModes": "Пользовательские и плагины",
+    "starting": "Запуск",
+    "active": "Активен",
+    "activePersistentDescription": "Режим действует в этом диалоге до завершения задачи или сброса диалога.",
+    "activeCustomDescription": "Пользовательский режим действует до команды /mode off, /clear или /new.",
+    "loadError": "Не удалось загрузить некоторые режимы Loop.",
+    "retry": "Повторить",
+    "modes": {
+      "default": {
+        "name": "По умолчанию",
+        "description": "Стандартный управляемый цикл агента."
+      },
+      "goal": {
+        "name": "Цель",
+        "description": "Последовательная работа над конкретной проверяемой целью."
+      },
+      "mission": {
+        "name": "Миссия",
+        "description": "Структурированная длительная многоэтапная задача."
+      }
+    }
   }
 }

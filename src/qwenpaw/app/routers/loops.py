@@ -4,61 +4,131 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from pydantic import BaseModel
 
 from ...config.config import CustomLoopModeConfig, save_agent_config
 from ...loop.catalog import get_gate_catalog
 from ...loop.compiler import compile_loop_mode
-from ..agent_context import get_agent_for_request
+from ..agent_context import get_agent_for_request, scoped_session_id
 from ..utils import schedule_agent_reload
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/loops", tags=["loops"])
 
-BUILTIN_LOOPS = [
-    {
-        "name": "default",
-        "slash_command": "",
-        "description": "The standard guarded agent loop.",
-        "source": "builtin",
-    },
-    {
-        "name": "goal",
-        "slash_command": "goal",
-        "description": "Set a goal and work until it is done.",
-        "source": "builtin",
-    },
-    {
-        "name": "mission",
-        "slash_command": "mission",
-        "description": "Run a persistent multi-step mission.",
-        "source": "builtin",
-    },
-]
+
+class LoopModeInfo(BaseModel):
+    """One loop mode available in the chat composer."""
+
+    id: str
+    name: str
+    slash_command: str
+    description: str
+    source: Literal["builtin", "custom", "plugin"]
 
 
-@router.get("")
-async def list_loops(request: Request) -> list[dict[str, Any]]:
+class LoopModeStatus(BaseModel):
+    """Active loop state for one conversation session."""
+
+    state: Literal["idle", "active"]
+    mode: LoopModeInfo | None = None
+
+
+BUILTIN_LOOPS = (
+    LoopModeInfo(
+        id="default",
+        name="default",
+        slash_command="",
+        description="The standard guarded agent loop.",
+        source="builtin",
+    ),
+    LoopModeInfo(
+        id="goal",
+        name="goal",
+        slash_command="goal",
+        description="Set a goal and work until it is done.",
+        source="builtin",
+    ),
+    LoopModeInfo(
+        id="mission",
+        name="mission",
+        slash_command="mission",
+        description="Run a persistent multi-step mission.",
+        source="builtin",
+    ),
+)
+
+
+@router.get("", response_model=list[LoopModeInfo])
+async def list_loops(request: Request) -> list[LoopModeInfo]:
     """List built-in, custom, and plugin-provided loops."""
-    result = [dict(item) for item in BUILTIN_LOOPS]
     workspace = await get_agent_for_request(request)
-    for mode in workspace.config.running.loop.custom_modes:
-        if not mode.enabled:
-            continue
-        result.append(
-            {
-                "name": mode.name,
-                "slash_command": mode.slash_command,
-                "description": mode.description,
-                "source": "custom",
-                "id": mode.id,
-            },
+    catalog, _ = _build_loop_catalog(workspace)
+    return catalog
+
+
+@router.get("/status", response_model=LoopModeStatus)
+async def get_loop_status(
+    request: Request,
+    chat_id: str | None = Query(default=None),
+    session_id: str | None = Query(default=None),
+) -> LoopModeStatus:
+    """Return the explicit loop mode active in one session."""
+    workspace = await get_agent_for_request(request)
+    session_state: dict[str, Any] | None = None
+    if chat_id:
+        chat = await workspace.chat_manager.get_chat(chat_id)
+        if chat is None and not session_id:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        if chat is not None:
+            session_id = chat.session_id
+            session_state = await workspace.session.get_session_state_dict(
+                chat.session_id,
+                chat.user_id,
+                chat.channel,
+            )
+    if not session_id:
+        return LoopModeStatus(state="idle")
+
+    catalog, runtime_modes = _build_loop_catalog(workspace)
+    by_id = {mode.id: mode for mode in catalog}
+    ctx = SimpleNamespace(
+        session_id=session_id,
+        session_state=session_state,
+        workspace=workspace,
+        agent_config=workspace.config,
+        agent=getattr(workspace, "agent", None),
+    )
+    active: list[LoopModeInfo] = []
+    with scoped_session_id(session_id):
+        for mode in getattr(workspace.plugins, "modes", []):
+            descriptor_id = runtime_modes.get(getattr(mode, "name", ""))
+            if descriptor_id is None or descriptor_id == "default":
+                continue
+            try:
+                if mode.is_active(ctx):
+                    descriptor = by_id.get(descriptor_id)
+                    if descriptor is not None:
+                        active.append(descriptor)
+            except Exception:
+                logger.warning(
+                    "Failed to inspect loop mode '%s'",
+                    getattr(mode, "name", "?"),
+                    exc_info=True,
+                )
+    if not active:
+        return LoopModeStatus(state="idle")
+    if len(active) > 1:
+        logger.warning(
+            "Multiple loop modes active for session '%s': %s",
+            session_id,
+            [mode.id for mode in active],
         )
-    result.extend(_list_plugin_loops())
-    return _deduplicate(result)
+    return LoopModeStatus(state="active", mode=active[0])
 
 
 @router.get("/gates/catalog")
@@ -201,45 +271,77 @@ def _unique_value(base: str, existing: set[str]) -> str:
     return candidate
 
 
-def _deduplicate(loops: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _deduplicate(loops: list[LoopModeInfo]) -> list[LoopModeInfo]:
     seen: set[str] = set()
-    result: list[dict[str, Any]] = []
+    result: list[LoopModeInfo] = []
     for loop in loops:
-        key = str(loop.get("slash_command") or loop["name"])
+        key = loop.slash_command or loop.id
         if key not in seen:
             seen.add(key)
             result.append(loop)
     return result
 
 
-def _list_plugin_loops() -> list[dict[str, Any]]:
-    """List loops registered by plugins."""
-    result: list[dict[str, Any]] = []
-    try:
-        from ...plugins.registry import PluginRegistry
+def _build_loop_catalog(
+    workspace: Any,
+) -> tuple[list[LoopModeInfo], dict[str, str]]:
+    """Build one workspace's catalog and runtime-name lookup."""
+    result = list(BUILTIN_LOOPS)
+    runtime_modes = {
+        "default": "default",
+        "goal": "goal",
+        "mission": "mission",
+    }
+    for mode in workspace.config.running.loop.custom_modes:
+        if not mode.enabled:
+            continue
+        descriptor_id = f"custom:{mode.id}"
+        result.append(
+            LoopModeInfo(
+                id=descriptor_id,
+                name=mode.name,
+                slash_command=mode.slash_command,
+                description=mode.description,
+                source="custom",
+            ),
+        )
+        runtime_modes[descriptor_id] = descriptor_id
 
-        manager = PluginRegistry().get_workspace_manager()
-        if manager is None:
-            return result
-        for workspace in getattr(manager, "workspaces", {}).values():
-            plugins = getattr(workspace, "plugins", None)
-            for registration in getattr(plugins, "stop_handlers", []):
-                metadata = getattr(registration, "metadata", {})
-                if metadata.get("loop_name"):
-                    result.append(
-                        {
-                            "name": metadata["loop_name"],
-                            "slash_command": metadata.get(
-                                "slash_command",
-                                metadata["loop_name"],
-                            ),
-                            "description": metadata.get("description", ""),
-                            "source": "plugin",
-                        },
-                    )
-    except Exception:
-        logger.warning("Failed to list plugin loops", exc_info=True)
-    return result
+    builtin_names = {"default", "goal", "mission"}
+    for mode in getattr(workspace.plugins, "modes", []):
+        runtime_name = getattr(mode, "name", "")
+        if (
+            not runtime_name
+            or runtime_name in builtin_names
+            or runtime_name.startswith("custom:")
+            or runtime_name == "custom-loop-control"
+        ):
+            continue
+        try:
+            commands = mode.commands()
+        except Exception:
+            logger.warning(
+                "Failed to inspect plugin loop mode '%s'",
+                runtime_name,
+                exc_info=True,
+            )
+            continue
+        if not commands:
+            continue
+        command = commands[0]
+        metadata = command.metadata or {}
+        descriptor_id = f"plugin:{runtime_name}"
+        result.append(
+            LoopModeInfo(
+                id=descriptor_id,
+                name=str(metadata.get("loop_name") or runtime_name),
+                slash_command=command.name,
+                description=command.help_text,
+                source="plugin",
+            ),
+        )
+        runtime_modes[runtime_name] = descriptor_id
+    return _deduplicate(result), runtime_modes
 
 
-__all__ = ["router"]
+__all__ = ["LoopModeInfo", "LoopModeStatus", "router"]

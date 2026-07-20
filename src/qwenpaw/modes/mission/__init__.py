@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Optional
 
 from agentscope.message import Msg, TextBlock
 
-from ..base import AgentMode
+from ..base import AgentMode, find_active_explicit_mode
 from ...runtime.hooks import HookBase, HookContext
 from ...runtime.slash_command_registry import CommandSpec
 
@@ -191,6 +191,12 @@ class MissionMode(AgentMode):
         if not task_text or len(task_text.strip()) < 5:
             return _info_msg(
                 format_help(self._default_max_iterations),
+            )
+
+        conflict = find_active_explicit_mode(ctx)
+        if conflict is not None:
+            return _info_msg(
+                f"End the active {conflict} mode before starting /mission.",
             )
 
         # --- start new mission ---

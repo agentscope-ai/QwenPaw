@@ -1505,6 +1505,31 @@
     }
   },
   "loop": {
-    "gotoSettings": "Cài đặt Loop Agent"
+    "gotoSettings": "Cài đặt Loop Agent",
+    "selectorTitle": "Chế độ Loop",
+    "selectorHint": "Chọn cách agent tiếp tục công việc",
+    "selectorAria": "Chọn chế độ Loop",
+    "builtInModes": "Tích hợp",
+    "customModes": "Tùy chỉnh và plugin",
+    "starting": "Đang bắt đầu",
+    "active": "Đang hoạt động",
+    "activePersistentDescription": "Chế độ này duy trì trong cuộc trò chuyện cho đến khi hoàn tất hoặc cuộc trò chuyện được đặt lại.",
+    "activeCustomDescription": "Chế độ tùy chỉnh này duy trì cho đến khi dùng /mode off, /clear hoặc /new.",
+    "loadError": "Không thể tải một số chế độ Loop.",
+    "retry": "Thử lại",
+    "modes": {
+      "default": {
+        "name": "Mặc định",
+        "description": "Loop agent được kiểm soát tiêu chuẩn."
+      },
+      "goal": {
+        "name": "Mục tiêu",
+        "description": "Liên tục hướng tới một mục tiêu cụ thể và có thể kiểm chứng."
+      },
+      "mission": {
+        "name": "Nhiệm vụ",
+        "description": "Chạy tác vụ nhiều bước có cấu trúc và liên tục."
+      }
+    }
   }
 }

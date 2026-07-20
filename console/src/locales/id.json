@@ -2310,6 +2310,31 @@
     }
   },
   "loop": {
-    "gotoSettings": "Pengaturan Loop Agen"
+    "gotoSettings": "Pengaturan Loop Agen",
+    "selectorTitle": "Mode Loop",
+    "selectorHint": "Pilih cara agen melanjutkan pekerjaan",
+    "selectorAria": "Pilih mode Loop",
+    "builtInModes": "Bawaan",
+    "customModes": "Kustom dan plugin",
+    "starting": "Memulai",
+    "active": "Aktif",
+    "activePersistentDescription": "Mode ini tetap aktif dalam percakapan hingga selesai atau percakapan diatur ulang.",
+    "activeCustomDescription": "Mode kustom ini tetap aktif hingga Anda menggunakan /mode off, /clear, atau /new.",
+    "loadError": "Beberapa mode Loop tidak dapat dimuat.",
+    "retry": "Coba lagi",
+    "modes": {
+      "default": {
+        "name": "Default",
+        "description": "Loop agen terkontrol standar."
+      },
+      "goal": {
+        "name": "Tujuan",
+        "description": "Bekerja secara berkelanjutan menuju tujuan yang konkret dan dapat diverifikasi."
+      },
+      "mission": {
+        "name": "Misi",
+        "description": "Jalankan tugas multi-langkah yang terstruktur dan berkelanjutan."
+      }
+    }
   }
 }

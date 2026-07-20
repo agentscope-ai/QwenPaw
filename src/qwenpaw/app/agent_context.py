@@ -4,7 +4,9 @@
 Provides utilities to get the correct agent instance for each request.
 """
 from contextvars import ContextVar
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 from typing import Optional, TYPE_CHECKING
 from fastapi import Request
 from .multi_agent_manager import MultiAgentManager
@@ -186,6 +188,16 @@ def get_current_agent_id() -> str:
 
 def set_current_session_id(session_id: str) -> None:
     _current_session_id.set(session_id)
+
+
+@contextmanager
+def scoped_session_id(session_id: str) -> Iterator[None]:
+    """Temporarily expose one session through the request context."""
+    token = _current_session_id.set(session_id)
+    try:
+        yield
+    finally:
+        _current_session_id.reset(token)
 
 
 def get_current_session_id() -> Optional[str]:

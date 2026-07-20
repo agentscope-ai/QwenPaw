@@ -2985,6 +2985,31 @@
     "executeDefault": "Executar ferramenta"
   },
   "loop": {
-    "gotoSettings": "Configurações de Loop do Agente"
+    "gotoSettings": "Configurações de Loop do Agente",
+    "selectorTitle": "Modo de Loop",
+    "selectorHint": "Escolha como o agente deve continuar",
+    "selectorAria": "Selecionar modo de Loop",
+    "builtInModes": "Integrados",
+    "customModes": "Personalizados e plugins",
+    "starting": "Iniciando",
+    "active": "Ativo",
+    "activePersistentDescription": "Este modo permanece ativo na conversa até terminar ou a conversa ser reiniciada.",
+    "activeCustomDescription": "Este modo personalizado permanece ativo até usar /mode off, /clear ou /new.",
+    "loadError": "Não foi possível carregar alguns modos de Loop.",
+    "retry": "Tentar novamente",
+    "modes": {
+      "default": {
+        "name": "Padrão",
+        "description": "O Loop de agente controlado padrão."
+      },
+      "goal": {
+        "name": "Objetivo",
+        "description": "Trabalhe continuamente em um objetivo concreto e verificável."
+      },
+      "mission": {
+        "name": "Missão",
+        "description": "Execute uma tarefa estruturada e persistente em várias etapas."
+      }
+    }
   }
 }
