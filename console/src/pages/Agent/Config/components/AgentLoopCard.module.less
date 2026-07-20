@@ -2,13 +2,78 @@
   overflow: hidden;
 
   :global(.ant-card-body) {
-    padding-top: 8px;
+    padding-top: 10px;
+  }
+
+  :global(.ant-tabs-nav) {
+    margin-bottom: 0;
+  }
+
+  :global(.ant-tabs-nav::before) {
+    border-bottom-color: var(--border-color, #e1e4df);
   }
 
   :global(.ant-tabs-nav-wrap) {
     overflow-x: auto;
     scrollbar-width: none;
   }
+
+  :global(.ant-tabs-nav-list) {
+    align-items: flex-end;
+    gap: 3px;
+  }
+
+  :global(.ant-tabs-tab) {
+    margin: 0;
+    padding: 9px 13px 10px;
+    border: 1px solid transparent;
+    border-bottom: 0;
+    border-radius: 9px 9px 0 0;
+    transition:
+      border-color 160ms ease,
+      background-color 160ms ease;
+  }
+
+  :global(.ant-tabs-tab:hover) {
+    background: var(--background-color-secondary, #f7f8f6);
+  }
+
+  :global(.ant-tabs-tab-active) {
+    border-color: var(--border-color, #dfe3dd);
+    background: var(--background-color-secondary, #f7f8f6);
+  }
+
+  :global(.ant-tabs-tab-active::after) {
+    position: absolute;
+    right: 0;
+    bottom: -1px;
+    left: 0;
+    height: 2px;
+    background: var(--background-color-secondary, #f7f8f6);
+    content: "";
+  }
+
+  :global(.ant-tabs-ink-bar) {
+    display: none;
+  }
+}
+
+.templateIntro {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 1px 2px 11px;
+}
+
+.templateIntro strong {
+  color: var(--text-color, rgba(0, 0, 0, 0.82));
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.templateIntro span {
+  color: var(--text-secondary, rgba(0, 0, 0, 0.48));
+  font-size: 11px;
 }
 
 .builtInTab,
@@ -26,14 +91,12 @@
 
 .customTab {
   position: relative;
-  padding: 3px 9px 3px 18px;
-  border-radius: 8px;
-  background: #e4ede7;
+  padding-left: 12px;
   color: #315c4b;
 
   &::before {
     position: absolute;
-    left: 8px;
+    left: 0;
     width: 6px;
     height: 6px;
     border-radius: 50%;
@@ -42,10 +105,11 @@
   }
 }
 
-.addModeButton {
-  margin-left: 8px;
-  border-color: #abc0b5;
-  background: #e4ede7;
+.addModeTab {
+  display: grid;
+  width: 22px;
+  height: 20px;
+  place-items: center;
   color: #315c4b;
 }
 
@@ -380,6 +444,12 @@
 }
 
 @media (max-width: 720px) {
+  .templateIntro {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
   .modeEditor {
     padding-right: 0;
     padding-left: 0;

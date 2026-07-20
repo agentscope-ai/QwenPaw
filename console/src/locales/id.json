@@ -1929,6 +1929,8 @@
     "loopMode": {
       "builtIn": "Bawaan",
       "builtInNote": "Pipeline terkunci · Nilai dapat diedit",
+      "templateSectionTitle": "Templat Loop",
+      "templateSectionDescription": "Pilih templat bawaan atau tambahkan milik Anda.",
       "defaultTab": "Default",
       "goalTab": "Tujuan",
       "missionTab": "Misi",

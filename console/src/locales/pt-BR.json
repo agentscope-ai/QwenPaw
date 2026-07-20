@@ -1764,6 +1764,8 @@
     "loopMode": {
       "builtIn": "Integrado",
       "builtInNote": "Pipeline bloqueado · Valores editáveis",
+      "templateSectionTitle": "Modelos de Loop",
+      "templateSectionDescription": "Escolha um modelo integrado ou adicione o seu.",
       "defaultTab": "Padrão",
       "goalTab": "Meta",
       "missionTab": "Missão",

@@ -1542,6 +1542,8 @@
     "loopMode": {
       "builtIn": "Встроенный",
       "builtInNote": "Порядок заблокирован · Значения доступны",
+      "templateSectionTitle": "Шаблоны Loop",
+      "templateSectionDescription": "Выберите встроенный шаблон или добавьте свой.",
       "defaultTab": "По умолчанию",
       "goalTab": "Цель",
       "missionTab": "Миссия",

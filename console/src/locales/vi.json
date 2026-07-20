@@ -831,6 +831,8 @@
     "loopMode": {
       "builtIn": "Tích hợp",
       "builtInNote": "Pipeline đã khóa · Có thể sửa giá trị",
+      "templateSectionTitle": "Mẫu Loop",
+      "templateSectionDescription": "Chọn mẫu tích hợp hoặc thêm mẫu của riêng bạn.",
       "defaultTab": "Mặc định",
       "goalTab": "Mục tiêu",
       "missionTab": "Nhiệm vụ",

@@ -1773,6 +1773,8 @@
     "loopMode": {
       "builtIn": "内置",
       "builtInNote": "流程已锁定 · 参数可编辑",
+      "templateSectionTitle": "Loop 模板",
+      "templateSectionDescription": "选择内置模板，或添加自己的模板。",
       "defaultTab": "默认",
       "goalTab": "目标",
       "missionTab": "任务",

@@ -1527,6 +1527,8 @@
     "loopMode": {
       "builtIn": "組み込み",
       "builtInNote": "パイプライン固定 · 値は編集可能",
+      "templateSectionTitle": "Loop テンプレート",
+      "templateSectionDescription": "組み込みテンプレートを選択するか、独自に追加します。",
       "defaultTab": "デフォルト",
       "goalTab": "ゴール",
       "missionTab": "ミッション",

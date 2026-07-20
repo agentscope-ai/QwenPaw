@@ -1365,30 +1365,53 @@ export function AgentLoopCard() {
         />
       ),
     })),
+    {
+      key: "add-mode",
+      disabled: customModes.length >= 20,
+      label: (
+        <span
+          className={loopStyles.addModeTab}
+          aria-label={t(
+            "agentConfig.loopMode.createModeAria",
+            "Create custom loop mode",
+          )}
+        >
+          <Plus size={15} />
+        </span>
+      ),
+      children: null,
+    },
   ];
+
+  const handleTabChange = (key: string) => {
+    if (key === "add-mode") {
+      setCreating(true);
+      return;
+    }
+    setActiveKey(key);
+  };
 
   return (
     <Card
       className={`${styles.formCard} ${loopStyles.loopCard}`}
       title={t("agentConfig.agentLoopTitle", "Agent Loop Settings")}
     >
+      <div className={loopStyles.templateIntro}>
+        <strong>
+          {t("agentConfig.loopMode.templateSectionTitle", "Loop templates")}
+        </strong>
+        <span>
+          {t(
+            "agentConfig.loopMode.templateSectionDescription",
+            "Choose a built-in template or add your own.",
+          )}
+        </span>
+      </div>
       <Tabs
         activeKey={activeKey}
-        onChange={setActiveKey}
+        onChange={handleTabChange}
         items={tabItems}
         size="small"
-        tabBarExtraContent={
-          <Button
-            className={loopStyles.addModeButton}
-            icon={<Plus size={15} />}
-            onClick={() => setCreating(true)}
-            disabled={customModes.length >= 20}
-            aria-label={t(
-              "agentConfig.loopMode.createModeAria",
-              "Create custom loop mode",
-            )}
-          />
-        }
       />
       <Modal
         title={t(

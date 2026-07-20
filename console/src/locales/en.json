@@ -1914,6 +1914,8 @@
     "loopMode": {
       "builtIn": "Built-in",
       "builtInNote": "Pipeline locked · Values editable",
+      "templateSectionTitle": "Loop templates",
+      "templateSectionDescription": "Choose a built-in template or add your own.",
       "defaultTab": "Default",
       "goalTab": "Goal",
       "missionTab": "Mission",
