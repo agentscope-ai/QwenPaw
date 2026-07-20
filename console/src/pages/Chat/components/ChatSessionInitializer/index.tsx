@@ -63,9 +63,7 @@ interface ChatSessionInitializerProps {
    * resolver can read current refs when this component re-renders, while a
    * captured string would keep restoring a stale conversation after New Chat.
    */
-  resolveChatId?: (
-    routeChatId: string | undefined,
-  ) => string | undefined;
+  resolveChatId?: (routeChatId: string | undefined) => string | undefined;
 }
 
 const ChatSessionInitializer: React.FC<ChatSessionInitializerProps> = ({

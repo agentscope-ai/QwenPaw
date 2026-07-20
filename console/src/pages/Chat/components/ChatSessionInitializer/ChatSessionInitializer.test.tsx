@@ -120,18 +120,14 @@ describe("ChatSessionInitializer", () => {
 
     renderWithProviders(
       <>
-        <ChatSessionInitializer
-          resolveChatId={() => "target-agent-chat"}
-        />
+        <ChatSessionInitializer resolveChatId={() => "target-agent-chat"} />
         <LocationProbe />
       </>,
       { initialEntries: ["/chat/previous-agent-chat"] },
     );
 
     await waitFor(() =>
-      expect(mockSetCurrentSessionId).toHaveBeenCalledWith(
-        "target-agent-chat",
-      ),
+      expect(mockSetCurrentSessionId).toHaveBeenCalledWith("target-agent-chat"),
     );
     expect(mockSetCurrentSessionId).not.toHaveBeenCalledWith(
       "previous-agent-chat",
