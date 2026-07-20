@@ -154,6 +154,7 @@ Currently supported cloud providers include:
 - Anthropic
 - Google Gemini
 - DeepSeek
+- AIOnly
 - Kimi
 - MiniMax
 - Zhipu

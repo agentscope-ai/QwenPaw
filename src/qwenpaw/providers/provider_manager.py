@@ -691,6 +691,180 @@ DEEPSEEK_MODELS: List[ModelInfo] = [
     ),
 ]
 
+AIONLY_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="kimi-k3",
+        name="Kimi K3",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+        max_input_length=256000,
+        max_tokens=262144,
+    ),
+    ModelInfo(
+        id="gpt-5.6-luna",
+        name="GPT-5.6 Luna",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=1050000,
+        max_tokens=128000,
+    ),
+    ModelInfo(
+        id="gpt-5.6-terra",
+        name="GPT-5.6 Terra",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=1050000,
+        max_tokens=128000,
+    ),
+    ModelInfo(
+        id="gpt-5.6-sol",
+        name="GPT-5.6 Sol",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=1050000,
+        max_tokens=128000,
+    ),
+    ModelInfo(
+        id="grok-4.5",
+        name="Grok 4.5",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=500000,
+        max_tokens=64000,
+    ),
+    ModelInfo(
+        id="claude-sonnet-5",
+        name="Claude Sonnet 5",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=1000000,
+        max_tokens=128000,
+    ),
+    ModelInfo(
+        id="grok-4.3",
+        name="Grok 4.3",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=1000000,
+        max_tokens=64000,
+    ),
+    ModelInfo(
+        id="kimi-k2.7-code",
+        name="Kimi K2.7 Code",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=262144,
+        max_tokens=262144,
+    ),
+    ModelInfo(
+        id="qwen3.7-plus",
+        name="Qwen3.7 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+        max_input_length=1000000,
+        max_tokens=65536,
+    ),
+    ModelInfo(
+        id="glm-5.2",
+        name="GLM-5.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=1000000,
+        max_tokens=128000,
+    ),
+    ModelInfo(
+        id="claude-fable-5",
+        name="Claude Fable 5",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=1000000,
+        max_tokens=128000,
+    ),
+    ModelInfo(
+        id="MiniMax-M3",
+        name="MiniMax M3",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=1048576,
+        max_tokens=131072,
+    ),
+    ModelInfo(
+        id="claude-opus-4-8",
+        name="Claude Opus 4.8",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=1000000,
+        max_tokens=128000,
+    ),
+    ModelInfo(
+        id="qwen3.7-max",
+        name="Qwen3.7 Max",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=1000000,
+        max_tokens=65536,
+    ),
+    ModelInfo(
+        id="gemini-3.5-flash",
+        name="Gemini 3.5 Flash",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+        max_input_length=1048576,
+        max_tokens=65536,
+    ),
+    ModelInfo(
+        id="kimi-k2.6",
+        name="Kimi K2.6",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+        max_input_length=262144,
+        max_tokens=262144,
+    ),
+    ModelInfo(
+        id="deepseek-v4-pro",
+        name="DeepSeek V4 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=1000000,
+        max_tokens=393216,
+    ),
+    ModelInfo(
+        id="deepseek-v4-flash",
+        name="DeepSeek V4 Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=1000000,
+        max_tokens=393216,
+    ),
+    ModelInfo(
+        id="gpt-5.5",
+        name="GPT-5.5",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        max_input_length=1050000,
+        max_tokens=128000,
+    ),
+]
+
 VOLCENGINE_MODELS: List[ModelInfo] = [
     ModelInfo(
         id="doubao-seed-2-0-code-preview-260215",
@@ -1174,6 +1348,20 @@ PROVIDER_DEEPSEEK = OpenAIProvider(
     freeze_url=True,
 )
 
+PROVIDER_AIONLY = OpenAIProvider(
+    id="aionly",
+    name="AIOnly",
+    base_url="https://api.aionly.com/v1",
+    api_key_prefix="sk-",
+    models=AIONLY_MODELS,
+    freeze_url=True,
+    support_model_discovery=True,
+    meta={
+        "is_free_tier": False,
+        "api_key_url": "https://api.aionly.com",
+    },
+)
+
 PROVIDER_ANTHROPIC = AnthropicProvider(
     id="anthropic",
     name="Anthropic",
@@ -1392,6 +1580,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_GEMINI)
         self._add_builtin(PROVIDER_DEEPSEEK)
+        self._add_builtin(PROVIDER_AIONLY)
         self._add_builtin(PROVIDER_KIMI_CN)
         self._add_builtin(PROVIDER_KIMI_INTL)
         self._add_builtin(PROVIDER_KIMI_CODINGPLAN)

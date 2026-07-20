@@ -32,6 +32,7 @@ describe("providerIcon", () => {
       "aliyun-codingplan-intl",
       "aliyun-tokenplan",
       "deepseek",
+      "aionly",
       "gemini",
       "azure-openai",
       "anthropic",
