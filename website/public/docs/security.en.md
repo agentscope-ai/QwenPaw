@@ -17,7 +17,7 @@ Security Architecture:
 │
 ├─ Sandbox — OS kernel-level execution isolation
 │  Confines shell commands to a restricted filesystem view using
-│  platform-native mechanisms (Seatbelt / bubblewrap / Landlock / AppContainer)
+│  platform-native mechanisms (Seatbelt / bubblewrap / Landlock / AppContainer / Restricted_token)
 │
 ├─ Skill Scanner — Pre-activation skill security scanning
 │  Scans for malicious code, hardcoded secrets, and security threats
@@ -373,26 +373,29 @@ Even if a command passes Tool Guard and File Guard checks, the sandbox ensures i
 
 QwenPaw automatically detects the best available sandbox backend on startup:
 
-| Platform | Backend                    | Mechanism                                          | Detection                                        |
-| -------- | -------------------------- | -------------------------------------------------- | ------------------------------------------------ |
-| macOS    | **Seatbelt**               | `sandbox-exec` with S-expression profiles          | `sandbox-exec` binary on PATH                    |
-| Linux    | **Bubblewrap** (preferred) | Mount namespaces + user namespaces + PID namespace | `bwrap` binary + user namespace support          |
-| Linux    | **Landlock** (fallback)    | Landlock LSM kernel module (5.13+)                 | Kernel version + LSM probe + ABI syscall         |
-| Windows  | **AppContainer**           | AppContainer profile + `icacls` ACL enforcement    | Windows 10+ (build 10240) + `icacls.exe` on PATH |
-| Any      | **None**                   | No isolation (passthrough)                         | Used when no backend is available                |
+| Platform | Backend                                      | Mechanism                                              | Detection                                        |
+| -------- | -------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------ |
+| macOS    | **Seatbelt**                                 | `sandbox-exec` with S-expression profiles              | `sandbox-exec` binary on PATH                    |
+| Linux    | **Bubblewrap** (preferred)                   | Mount namespaces + user namespaces + PID namespace     | `bwrap` binary + user namespace support          |
+| Linux    | **Landlock** (fallback)                      | Landlock LSM kernel module (5.13+)                     | Kernel version + LSM probe + ABI syscall         |
+| Windows  | **AppContainer** (`allow_read_all=False`)    | AppContainer profile + `icacls` ACL enforcement        | Windows 10+ (build 10240) + `icacls.exe` on PATH |
+| Windows  | **Restricted_token** (`allow_read_all=True`) | Dedicated user + restricted token + WFP firewall rules | Windows 10+ (build 10240) + administrator        |
+| Any      | **None**                                     | No isolation (passthrough)                             | Used when no backend is available                |
 
 **Probe priority on Linux**: bubblewrap > Landlock > None. If `bwrap` is installed and user namespaces work, bubblewrap is chosen. Otherwise falls back to Landlock if the kernel supports it.
 
+**Windows backend selection**: The backend is determined by the `allow_read_all` setting. When `allow_read_all=False` (deny-all model), AppContainer is used — only explicitly declared paths are readable. When `allow_read_all=True` (deny-list model, the default), Restricted_token is used — the entire filesystem is readable but writes are restricted to declared mounts via a restricted token with `CreateRestrictedToken` in Restricted_token mode.
+
 **Capability comparison**:
 
-| Capability               | Seatbelt (macOS)   | Bubblewrap (Linux)       | Landlock (Linux)     | AppContainer (Windows) |
-| ------------------------ | ------------------ | ------------------------ | -------------------- | ---------------------- |
-| Filesystem read control  | Yes                | Yes                      | Yes                  | Yes                    |
-| Filesystem write control | Yes                | Yes                      | Yes                  | Yes                    |
-| deny_paths invisible     | No (access denied) | Yes (not mounted)        | No (access denied)   | No (access denied)     |
-| PID namespace isolation  | No                 | Yes                      | No                   | No                     |
-| Minimal /dev             | Yes (allowlist)    | Yes (synthetic devtmpfs) | No                   | N/A                    |
-| Network control          | Yes (allow/deny)   | Planned                  | No (requires ABI v4) | Yes (allow/deny)       |
+| Capability               | Seatbelt (macOS)   | Bubblewrap (Linux)       | Landlock (Linux)     | AppContainer (Windows)      | Restricted_token (Windows) |
+| ------------------------ | ------------------ | ------------------------ | -------------------- | --------------------------- | -------------------------- |
+| Filesystem read control  | Yes                | Yes                      | Yes                  | Yes (deny-all + ACL grants) | Yes                        |
+| Filesystem write control | Yes                | Yes                      | Yes                  | Yes                         | Yes (restricted token)     |
+| deny_paths invisible     | No (access denied) | Yes (not mounted)        | No (access denied)   | No (access denied)          | No (access denied)         |
+| PID namespace isolation  | No                 | Yes                      | No                   | No                          | No                         |
+| Minimal /dev             | Yes (allowlist)    | Yes (synthetic devtmpfs) | No                   | N/A                         | N/A                        |
+| Network control          | Yes (allow/deny)   | Planned                  | No (requires ABI v4) | Yes (allow/deny)            | Yes (WFP firewall rules)   |
 
 ### Isolation model
 
@@ -433,12 +436,13 @@ Sandbox configuration is compiled automatically by the governance policy engine.
 
 When a sandboxed command attempts to access a path outside its allowed view, the OS kernel blocks the operation. QwenPaw detects these violations by matching stderr patterns:
 
-| Platform     | Detection patterns                                                                       |
-| ------------ | ---------------------------------------------------------------------------------------- |
-| Seatbelt     | `deny(N) file-read-data`, `Sandbox:`, `sandbox-exec:`, `Operation not permitted`         |
-| Bubblewrap   | `Permission denied`, `bwrap:`, `Operation not permitted`, `EACCES`                       |
-| Landlock     | `Permission denied`, `Operation not permitted`                                           |
-| AppContainer | `Access is denied`, `error 5`, `0x80070005`, `Permission denied`, `拒绝访问`, `权限不足` |
+| Platform         | Detection patterns                                                                       |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| Seatbelt         | `deny(N) file-read-data`, `Sandbox:`, `sandbox-exec:`, `Operation not permitted`         |
+| Bubblewrap       | `Permission denied`, `bwrap:`, `Operation not permitted`, `EACCES`                       |
+| Landlock         | `Permission denied`, `Operation not permitted`                                           |
+| AppContainer     | `Access is denied`, `error 5`, `0x80070005`, `Permission denied`, `拒绝访问`, `权限不足` |
+| Restricted_token | `Access is denied`, `error 5`, `0x80070005`, `Permission denied`, `拒绝访问`, `权限不足` |
 
 When a violation is detected:
 
@@ -450,9 +454,11 @@ When a violation is detected:
 
 - **Network isolation**: Not implemented in the current version. All sandboxed processes have full network access regardless of `network_allow` settings. Network namespace isolation (`--unshare-net` for bubblewrap) is planned.
 - **Resource limits**: `max_processes` and `max_memory_mb` fields exist in the config but are not enforced by any current backend.
-- **Windows AppContainer**: Requires administrator privileges for initial ACL setup. The AppContainer profile is preserved for reuse across invocations with the same configuration.
-- **Windows minimum version**: AppContainer requires **Windows 10 version 1507 (build 10240)** or later. Earlier Windows versions (Windows 7, 8, 8.1) do not support the AppContainer isolation mechanism and will fall back to `mode=none` (no isolation).
-- **Windows system directory ACL restrictions**: The `icacls` ACL setup cannot modify permissions on certain protected system directories such as `C:\Program Files`, `C:\Program Files (x86)`, `C:\Windows`, and `C:\Windows\System32`. These directories are protected by Windows Resource Protection (WRP) and TrustedInstaller ownership. However, this is typically not an issue because Windows 10+ already grants the built-in `ALL APPLICATION PACKAGES` SID (`S-1-15-2-1`) read and execute access to these paths by default, so AppContainer processes can read system binaries and libraries without explicit ACL grants.
+- **Windows AppContainer** (`allow_read_all=False`): Requires administrator privileges for initial ACL setup. The AppContainer profile is preserved for reuse across invocations with the same configuration.
+- **Windows AppContainer file deletion limitation** (`allow_read_all=False`): Sandboxed processes in AppContainer mode may be unable to delete files within the workspace. This does not affect `allow_read_all=True` (Restricted_token) mode. A solution is under investigation.
+- **Windows Restricted_token** (`allow_read_all=True`): Requires administrator privileges for local user creation and WFP firewall rule management. Uses dedicated local user accounts with `CreateRestrictedToken` in Restricted_token mode. The dedicated user and firewall rules are preserved for reuse.
+- **Windows minimum version**: Both Windows backends require **Windows 10 version 1507 (build 10240)** or later. Earlier Windows versions (Windows 7, 8, 8.1) do not support the isolation mechanisms and will fall back to `mode=none` (no isolation).
+- **Windows system directory ACL restrictions** (AppContainer only): The `icacls` ACL setup cannot modify permissions on certain protected system directories such as `C:\Program Files`, `C:\Program Files (x86)`, `C:\Windows`, and `C:\Windows\System32`. These directories are protected by Windows Resource Protection (WRP) and TrustedInstaller ownership.
 - **deny_paths for files (Bubblewrap)**: Individual files in `deny_paths` appear as empty (bound to `/dev/null`) rather than non-existent. Directory-level deny uses `--tmpfs` and is truly invisible.
 
 ### Troubleshooting
@@ -481,19 +487,26 @@ If user namespaces are disabled (Docker containers, some hardened kernels), Qwen
 
 **Windows: AppContainer ACL setup failed**
 
-AppContainer requires administrator privileges for `icacls` ACL operations. If you see warnings about failed ACL setup:
+AppContainer (`allow_read_all=False`) requires administrator privileges for `icacls` ACL operations. If you see warnings about failed ACL setup:
 
 1. Run QwenPaw as administrator (right-click → Run as administrator)
 2. Verify `icacls.exe` is on your PATH (ships with all Windows editions)
 3. Use `scripts/cleanup_windows_sandbox.py` to remove stale AppContainer profiles and ACLs
 
+**Windows: Restricted_token user provisioning failed**
+
+Restricted_token (`allow_read_all=True`) requires administrator privileges for creating the dedicated local user account and managing WFP firewall rules. If you see errors about user creation or firewall setup:
+
+1. Run QwenPaw as administrator (right-click → Run as administrator)
+2. Use `scripts/cleanup_windows_sandbox.py` to remove stale sandbox users and firewall rules
+
 **Windows: Minimum version not met**
 
-AppContainer requires Windows 10 (build 10240) or later. If you see `"AppContainer requires Windows 10+"` in the probe output, you are running an unsupported Windows version. Upgrade to Windows 10 or later to use sandbox isolation. On older systems, QwenPaw falls back to `mode=none` (no kernel isolation).
+Both Windows sandbox backends require Windows 10 (build 10240) or later. If you see `"AppContainer requires Windows 10+"` in the probe output, you are running an unsupported Windows version. Upgrade to Windows 10 or later to use sandbox isolation. On older systems, QwenPaw falls back to `mode=none` (no kernel isolation).
 
 **Windows: ACL grant fails on system directories (e.g. Program Files)**
 
-If you see `icacls` warnings for paths like `C:\Program Files` or `C:\Windows`, this is expected. These directories are owned by TrustedInstaller and protected by Windows Resource Protection — even administrators cannot modify their ACLs. The sandbox does not need explicit grants on these paths because Windows 10+ already provides read+execute access to all AppContainer processes via the built-in `ALL APPLICATION PACKAGES` ACE. If your workflow requires write access to a path under `Program Files`, consider using a different working directory or adding a writable mount pointing to a user-owned location.
+If you see `icacls` warnings for paths like `C:\Program Files` or `C:\Windows`, this is expected (AppContainer mode only). These directories are owned by TrustedInstaller and protected by Windows Resource Protection — even administrators cannot modify their ACLs.
 
 **Verifying sandbox is active**
 

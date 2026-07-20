@@ -2,7 +2,7 @@
 title: "QwenPaw Driver: A Unified Capability Access Layer"
 date: 2026-07-01
 author: QwenPaw Team
-tags: [architecture, driver, mcp, access-policy]
+tags: [CapabilityIntegration, ProtocolAdapters, AccessControl, MCP]
 excerpt: "Agent systems are evolving rapidly. Today's Agent no longer calls just a few built-in tools — it needs to interface with MCP Servers, remote Agents (A2A), ACP services, and potentially more protocols in the future."
 ---
 

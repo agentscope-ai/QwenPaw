@@ -54,6 +54,7 @@ interface VirtualRowData {
   handleEditStart: (sessionId: string, currentName: string) => void;
   handleDelete: (sessionId: string) => void;
   handlePinToggle: (sessionId: string) => void;
+  handleArchiveToggle: (sessionId: string) => void;
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
@@ -108,6 +109,7 @@ const VirtualRow = React.memo(function VirtualRow({
         chatStatus={session.status}
         generating={session.generating}
         pinned={session.pinned}
+        archived={session.archived}
         active={
           session.id === data.currentSessionId ||
           (!!data.currentSessionId && session.realId === data.currentSessionId)
@@ -119,6 +121,7 @@ const VirtualRow = React.memo(function VirtualRow({
         onEdit={data.handleEditStart}
         onDelete={data.handleDelete}
         onPin={data.handlePinToggle}
+        onArchive={data.handleArchiveToggle}
         onEditChange={data.handleEditChange}
         onEditSubmit={data.handleEditSubmit}
         onEditCancel={data.handleEditCancel}
@@ -184,6 +187,7 @@ export default function SidebarSessionList({
     handleEditStart,
     handleDelete,
     handlePinToggle,
+    handleArchiveToggle,
     handleEditChange,
     handleEditSubmit,
     handleEditCancel,
@@ -305,6 +309,7 @@ export default function SidebarSessionList({
       handleEditStart,
       handleDelete,
       handlePinToggle,
+      handleArchiveToggle,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
@@ -320,6 +325,7 @@ export default function SidebarSessionList({
       handleEditStart,
       handleDelete,
       handlePinToggle,
+      handleArchiveToggle,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,

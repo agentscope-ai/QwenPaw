@@ -24,4 +24,8 @@ describe("DEFAULT_FORM_VALUES", () => {
     expect(DEFAULT_FORM_VALUES.schedule.type).toBe("cron");
     expect(DEFAULT_FORM_VALUES.schedule.cron).toBe("0 9 * * *");
   });
+
+  it("delivers cron results by default", () => {
+    expect(DEFAULT_FORM_VALUES.dispatch.silent).toBe(false);
+  });
 });

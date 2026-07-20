@@ -23,6 +23,15 @@ import pytest
 from qwenpaw.app.channels.console.channel import ConsoleChannel
 
 
+class _FakeDumpEvent:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def model_dump(self, mode="json"):
+        del mode
+        return self._payload
+
+
 class TestConsoleChannelUnit:
     """
     Unit tests for ConsoleChannel.
@@ -67,6 +76,35 @@ class TestConsoleChannelUnit:
 
         assert ch.enabled is False
         assert ch.bot_prefix == "[TEST] "
+
+    def test_sse_headline_strip_covers_delta_fields(self):
+        """Raw SSE payload cleanup must hide streamed headline deltas."""
+        payload = {
+            "object": "response",
+            "delta": "<!-- ⟦ streamed headline should be hidden ⟧ -->",
+            "output": [
+                {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "visible\n"
+                                "<!-- ⟦ completed headline hidden too ⟧ -->"
+                            ),
+                        },
+                    ],
+                },
+            ],
+        }
+
+        data = ConsoleChannel._strip_event_headlines(
+            _FakeDumpEvent(payload),
+            "{}",
+        )
+
+        assert "streamed headline" not in data
+        assert "completed headline" not in data
+        assert "visible" in data
 
     @pytest.mark.asyncio
     async def test_send_prints_to_stdout(self, channel, capsys):

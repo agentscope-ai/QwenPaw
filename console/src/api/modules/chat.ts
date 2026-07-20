@@ -6,6 +6,7 @@ import type {
   ChatHistory,
   ChatDeleteResponse,
   ChatUpdateRequest,
+  BatchArchiveResult,
   Session,
 } from "../types";
 
@@ -54,10 +55,16 @@ export const chatApi = {
 
     return url;
   },
-  listChats: (params?: { user_id?: string; channel?: string }) => {
+  listChats: (params?: {
+    user_id?: string;
+    channel?: string;
+    archived?: boolean;
+  }) => {
     const searchParams = new URLSearchParams();
     if (params?.user_id) searchParams.append("user_id", params.user_id);
     if (params?.channel) searchParams.append("channel", params.channel);
+    if (params?.archived !== undefined)
+      searchParams.append("archived", String(params.archived));
     const query = searchParams.toString();
     return request<ChatSpec[]>(`/chats${query ? `?${query}` : ""}`);
   },
@@ -92,6 +99,28 @@ export const chatApi = {
         body: JSON.stringify(chatIds),
       },
     ),
+
+  archiveChat: (chatId: string) =>
+    request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}/archive`, {
+      method: "POST",
+    }),
+
+  unarchiveChat: (chatId: string) =>
+    request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}/unarchive`, {
+      method: "POST",
+    }),
+
+  batchArchiveChats: (chatIds: string[]) =>
+    request<BatchArchiveResult>("/chats/actions/batch-archive", {
+      method: "POST",
+      body: JSON.stringify({ chat_ids: chatIds }),
+    }),
+
+  batchUnarchiveChats: (chatIds: string[]) =>
+    request<BatchArchiveResult>("/chats/actions/batch-unarchive", {
+      method: "POST",
+      body: JSON.stringify({ chat_ids: chatIds }),
+    }),
 
   stopChat: (chatId: string) =>
     request<void>(`/console/chat/stop?chat_id=${encodeURIComponent(chatId)}`, {

@@ -26,6 +26,7 @@ export interface CronJobDispatch {
   channel?: string;
   target: CronJobTarget;
   mode?: "stream" | "final";
+  silent?: boolean;
   meta?: Record<string, unknown>;
 }
 

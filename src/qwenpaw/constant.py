@@ -86,6 +86,17 @@ class EnvVarLoader:
         return _get_env(env_var, default)
 
 
+CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV = (
+    "QWENPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY"
+)
+DEFAULT_CUSTOM_AGENT_STARTUP_CONCURRENCY = 5
+CUSTOM_AGENT_STARTUP_CONCURRENCY = EnvVarLoader.get_int(
+    CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV,
+    default=DEFAULT_CUSTOM_AGENT_STARTUP_CONCURRENCY,
+    min_value=1,
+)
+
+
 # WORKING_DIR priority:
 # 1. QWENPAW_WORKING_DIR / COPAW_WORKING_DIR env var is set → use it
 # 2. ~/.copaw exists (legacy installation) → use it as-is
@@ -118,6 +129,7 @@ PROJECT_NAME = "QwenPaw"
 # Message metadata tags shared across agent middleware and memory managers.
 QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
 AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY = "auto_memory_search_block_ids"
+EXTERNAL_USER_QUERY_MESSAGE_TAG = "external_user_query"
 AUTO_CONTINUE_MESSAGE_TAG = "auto_continue"
 LOOP_CONTINUATION_MESSAGE_TAG = "loop_continuation"
 # User-role messages the runtime injects to keep a turn going. They are NOT

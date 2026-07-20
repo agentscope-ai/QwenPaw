@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
 import ConsolePollService from "../../components/ConsolePollService";
+import { AgentStatusPollingController } from "../../components/AgentStatusPollingController";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
 import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
 import styles from "../index.module.less";
@@ -52,6 +53,7 @@ export default function MainLayout() {
         <Sidebar selectedKey={selectedKey} />
         <Content className="page-container">
           <ConsolePollService />
+          <AgentStatusPollingController />
           <Slot name="content.statusBar" kind="fill" />
           <div className="page-content">
             <ChunkErrorBoundary resetKey={currentPath}>

@@ -51,6 +51,20 @@ class StopHandler:
         """Read-only view of registered gates."""
         return list(self._gates)
 
+    def reset(self) -> None:
+        """Reset stateful gates without unregistering them."""
+        for gate in self._gates:
+            reset = getattr(gate, "reset", None)
+            if callable(reset):
+                try:
+                    reset()
+                except Exception:
+                    logger.warning(
+                        "StopGate '%s' reset raised",
+                        gate.name,
+                        exc_info=True,
+                    )
+
     async def __call__(
         self,
         ctx: Any,

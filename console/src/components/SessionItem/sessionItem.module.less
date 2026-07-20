@@ -56,7 +56,7 @@
       var(--color-fill-tertiary, rgba(43, 18, 0, 0.03))
     );
 
-    .actions {
+    .moreBtn {
       opacity: 1;
       pointer-events: auto;
     }
@@ -78,6 +78,13 @@
 
   &.editing .content {
     padding-right: 12px;
+  }
+
+  &.dropdownOpen {
+    .moreBtn {
+      opacity: 1;
+      pointer-events: auto;
+    }
   }
 }
 
@@ -374,13 +381,9 @@
   }
 }
 
-/* ── More button (sidebar only) ───────────────────────────────────────── */
+/* ── More button ─────────────────────────────────────────────────────── */
 
 .moreBtn {
-  position: absolute;
-  top: 50%;
-  right: 6px;
-  transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -393,10 +396,24 @@
   opacity: 0;
   pointer-events: none;
   transition: all 0.15s;
+  flex-shrink: 0;
 
   &:hover {
     background: var(--color-fill-secondary, rgba(43, 18, 0, 0.08));
     color: var(--colorText, rgba(26, 23, 22, 0.88));
+  }
+
+  .sidebar & {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    transform: translateY(-50%);
+  }
+
+  .drawer & {
+    position: absolute;
+    right: 12px;
+    top: 14px;
   }
 }
 

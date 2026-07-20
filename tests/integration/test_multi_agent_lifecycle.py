@@ -363,9 +363,19 @@ def test_multi_agent_reorder_and_delete_order_adjusts(
         assert b_id in all_ids
         assert c_id in all_ids
 
+        pinned_prefix_length = next(
+            (
+                index
+                for index, agent in enumerate(
+                    list_resp.json().get("agents", []),
+                )
+                if agent["id"] != "default" and not agent.get("pinned", False)
+            ),
+            len(all_ids),
+        )
         new_order = list(all_ids)
         new_order.remove(c_id)
-        new_order.insert(0, c_id)
+        new_order.insert(pinned_prefix_length, c_id)
 
         reorder_resp = app_server.api_request(
             "PUT",
@@ -380,10 +390,9 @@ def test_multi_agent_reorder_and_delete_order_adjusts(
             "/api/agents",
             timeout=_AGENT_HTTP_TIMEOUT,
         )
-        ids_reordered = [
-            a["id"] for a in list_after_reorder.json().get("agents", [])
-        ]
-        assert ids_reordered[0] == c_id
+        reordered_agents = list_after_reorder.json().get("agents", [])
+        ids_reordered = [agent["id"] for agent in reordered_agents]
+        assert ids_reordered == new_order
 
         del_resp = app_server.api_request(
             "DELETE",

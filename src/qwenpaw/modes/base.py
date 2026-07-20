@@ -65,6 +65,16 @@ class AgentMode:
     def prompt_contributors(self) -> list["PromptContributor"]:
         return []
 
+    def on_conversation_reset(
+        self,
+        workspace: object,
+    ) -> None:
+        """Called on /new and /clear to reset mode state.
+
+        Subclasses override to clear sessions, gate state,
+        or any mode-specific data. Default is no-op.
+        """
+
     def is_active(  # noqa: ARG002
         self,
         ctx: HookContext,  # pylint: disable=unused-argument

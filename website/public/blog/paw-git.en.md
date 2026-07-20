@@ -2,9 +2,14 @@
 title: "PawGit: Recoverable Agent Session State for QwenPaw"
 date: 2026-07-07
 author: QwenPaw Team
-tags: [pawgit, plugin, context-rot, agent-session]
+tags: [Plugin, SessionVersionControl, StateSnapshots, SessionRewind]
 cover: https://img.alicdn.com/imgextra/i2/O1CN01cdSRbU26gXIFiTRjL_!!6000000007691-2-tps-1254-1254.png
 excerpt: "In long sessions, Agents get dragged down by dirty context. PawGit adds checkpoints, timelines, and rewind for QwenPaw Agent session state—so you can return to a clean point without opening a new window and re-feeding your entire prompt."
+related:
+  heading: "Related Plugin: PawGit"
+  description: "Version control for QwenPaw sessions and memory, with state snapshots, DAG timelines, session rewind, and state reset."
+  linkText: "View and install PawGit →"
+  linkUrl: "https://platform.agentscope.io/plugins/pawgit"
 ---
 
 # PawGit: Recoverable Agent Session State for QwenPaw

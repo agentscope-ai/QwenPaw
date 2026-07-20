@@ -148,6 +148,12 @@ class DispatchSpec(BaseModel):
     channel: str = Field(default=DEFAULT_CHANNEL)
     target: DispatchTarget
     mode: Literal["stream", "final"] = Field(default="stream")
+    silent: bool = Field(
+        default=False,
+        description=(
+            "Run an agent task without delivering its events to the channel."
+        ),
+    )
     meta: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -210,6 +216,10 @@ class CronJobSpec(BaseModel):
         if self.task_type == "text":
             if not (self.text and self.text.strip()):
                 raise ValueError("task_type is text but text is empty")
+            if self.dispatch.silent:
+                raise ValueError(
+                    "silent delivery is only supported for agent tasks",
+                )
             self.request = None
         elif self.task_type == "agent":
             if self.request is None:

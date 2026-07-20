@@ -277,16 +277,27 @@ class CodingPage(BasePage):
             # No modal — already activated directly.
             pass
 
-        self.page.wait_for_url("**/coding", timeout=timeout)
+        # Entering via the toggle navigates to ``/coding/<sessionId>``
+        # (buildSessionPath in console/src/utils/sessionRoute.ts), so a
+        # ``**/coding`` glob never matches the session-suffixed URL. Assert
+        # the Exit toggle appears instead — a reliable signal the IDE shell
+        # mounted, and independent of whether a session id is appended.
+        expect(
+            self.page.locator(self.TOGGLE_EXIT).first
+        ).to_be_visible(timeout=timeout)
 
     def exit_coding_mode(self, timeout_ms: Optional[int] = None) -> None:
-        """Exit Coding Mode and wait until we're back on /chat."""
+        """Exit Coding Mode and wait until the Chat toggle returns."""
         timeout = timeout_ms or self.timeout
         if not self.is_in_coding_mode():
             logger.info("Not in Coding Mode; nothing to do")
             return
         self.click_exit_toggle()
-        self.page.wait_for_url("**/chat", timeout=timeout)
+        # Exiting navigates back to ``/chat/<sessionId>``; anchor on the
+        # Enter toggle reappearing rather than a ``**/chat`` glob.
+        expect(
+            self.page.locator(self.TOGGLE_ENTER).first
+        ).to_be_visible(timeout=timeout)
 
     # ========== Assertions ==========
 

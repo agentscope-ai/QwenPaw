@@ -172,6 +172,9 @@ def run_tui(
     project: str | None = None,
 ) -> None:
     """Build the transport and run the Textual app (blocking)."""
+    from .compat import apply_textual_compat
+
+    apply_textual_compat()
     transport, description = _build_transport(
         agent=agent,
         resume=resume,

@@ -97,7 +97,20 @@ Auto-Dream 会读取近期每日记忆，提取可合并的 digest 单元，更�
 
 - **位置**：`{working_dir}/resource/`
 - **默认支持后缀**：`md`、`txt`、`json`、`jsonl`、`csv`、`yaml`、`html`
+- **日期归属**：直接放在 `resource/` 下的文件归入当天；`resource/YYYY-MM-DD/`
+  下的文件归入指定日期，且可继续使用子目录
+- **输出**：生成或更新 `memory/YYYY-MM-DD/<note>.md`，frontmatter 中保留
+  `source_resource` 链接
 - **Inbox 行为**：只有实际修改记忆时，资源处理结果才会推送到 inbox
+
+```text
+resource/report.txt                    # 归入当天
+resource/2026-07-14/report.txt         # 归入 2026-07-14
+resource/2026-07-14/project/data.json  # 日期目录下可使用子目录
+```
+
+> Auto Resource 当前按 UTF-8 文本读取资源。PDF、Word、Excel、图片等二进制文件不在监听后缀中，
+> 不会被自动解析；请先转换为上述受支持的文本格式。`yml` 也不在默认白名单中，请使用 `yaml`。
 
 > 关于 Auto-Memory、Auto-Dream、Auto-Memory-Search 和 Proactive
 > 的完整工作流介绍，请参阅 [智能体记忆进化与主动交互](./memory-evolving-and-proactive)。以下仅补充技术实现细节与配置说明。
@@ -190,10 +203,10 @@ graph LR
 | `resource_dir`                  | `auto_resource` 监听的资源目录                                           | `"resource"`     |
 | `daily_dir`                     | 每日记忆目录                                                             | `"memory"`       |
 | `digest_dir`                    | dream/digest 记忆目录                                                    | `"digest"`       |
-| `enable_search_raw_log`         | 是否让搜索索引包含原始 session/resource JSONL 类数据                     | `false`          |
 | `summarize_when_compact`        | 是否在上下文压缩前将待保存回合提交给 Auto-Memory                         | `true`           |
 | `auto_memory_interval`          | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆 | `5`              |
-| `dream_cron`                    | Auto-Dream 任务的 Cron 表达式（空字符串表示禁用）                        | `"0 23 * * *"`   |
+| `dream_cron_enabled`            | 是否启用按 Cron 定时执行的 Auto-Dream 任务                               | `true`           |
+| `dream_cron`                    | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）                     | `"0 23 * * *"`   |
 | `rebuild_memory_index_on_start` | Agent 启动时是否清空并重建 ReMe 搜索索引                                 | `false`          |
 
 ### 自动记忆搜索配置
@@ -222,10 +235,15 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 | `enable_cache`     | 是否启用 Embedding 缓存                                                               | `true`   |
 | `use_dimensions`   | 是否在 API 请求中传递 dimensions 参数                                                 | `false`  |
 | `max_cache_size`   | Embedding 缓存最大条目数                                                              | `10000`  |
-| `max_input_length` | 单次 Embedding 最大输入长度                                                           | `8192`   |
+| `max_input_length` | 单次 Embedding 的近似字符预算                                                         | `8192`   |
 | `max_batch_size`   | Embedding 批处理最大数量                                                              | `10`     |
 
 > `use_dimensions` 用于某些 vLLM 模型不支持 dimensions 参数的情况，设为 `false` 可跳过该参数。
+
+从 ReMe 0.4.1.0 开始，Embedding 输入截断会为 token 密度更高的 CJK 和其他全角字符采用更保守的预算，
+并预留安全余量。这可以避免较长的中文记忆在 Ollama + bge-m3 等组合下超过模型上下文窗口并返回 HTTP 400。
+`max_input_length` 仍是近似字符预算，并非模型 tokenizer 计算出的严格 token 上限；如果所用模型的上下文窗口更小，
+仍应相应调低该值。
 
 向量检索只有在当前后端具备最低可运行配置时才会启用；这些条件与 AgentScope credential 要求保持一致：
 
@@ -239,13 +257,13 @@ Embedding 配置用于向量语义搜索，位于 `running.reme_light_memory_con
 
 嵌入式 ReMe 配置使用本地 file store：
 
-| 组件       | 行为                                                                                       |
-| ---------- | ------------------------------------------------------------------------------------------ |
-| File store | ReMe 本地文件存储，持久状态位于 `mem_metadata/`                                            |
-| 关键词索引 | 默认启用 BM25 关键词索引                                                                   |
-| 向量索引   | 仅当 `embedding_model_config` 满足当前 `backend` 的启用条件时启用                          |
-| 监听目录   | 默认监听 `daily_dir` 和 `digest_dir`；`enable_search_raw_log=true` 时也索引 `resource_dir` |
-| 监听后缀   | 默认索引 `md`；启用 raw-log search 后包含 `jsonl`                                          |
+| 组件       | 行为                                                              |
+| ---------- | ----------------------------------------------------------------- |
+| File store | ReMe 本地文件存储，持久状态位于 `mem_metadata/`                   |
+| 关键词索引 | 默认启用 BM25 关键词索引                                          |
+| 向量索引   | 仅当 `embedding_model_config` 满足当前 `backend` 的启用条件时启用 |
+| 监听目录   | `daily_dir` 和 `digest_dir`                                       |
+| 监听后缀   | `md`                                                              |
 
 ---
 

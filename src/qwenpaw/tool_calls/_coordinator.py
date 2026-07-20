@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Awaitable, Callable
@@ -14,7 +13,7 @@ from agentscope.tool import ToolChunk, ToolResponse
 
 from ._context import CancelReason, OffloadReason, ToolCallContext
 from ._ctxvars import reset_call_context, set_call_context
-from ._entry import ResultFinalizer, ToolCallEntry, ToolCallStatus
+from ._entry import ToolCallEntry, ToolCallStatus
 from ._hint import make_offload_hint_msg
 from ._hooks import ToolHookRegistry
 from ._stream import ToolStream, _SENTINEL as _STREAM_SENTINEL
@@ -23,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 CompletionHandler = Callable[[ToolCallEntry], Awaitable[None]]
 OffloadedHandler = Callable[[ToolCallEntry], Awaitable[None]]
+BackgroundResultProcessor = Callable[
+    [ToolResponse],
+    Awaitable[ToolResponse],
+]
 
 
 @dataclass
@@ -74,7 +77,7 @@ class ToolCoordinator:
         agent_id: str,
         root_session_id: str,
         deadline_override: float | None = None,
-        result_finalizer: ResultFinalizer | None = None,
+        background_result_processor: BackgroundResultProcessor | None = None,
     ) -> AsyncGenerator[Any, None]:
         entry = self._create_entry(
             tool_call,
@@ -82,7 +85,6 @@ class ToolCoordinator:
             agent_id,
             root_session_id,
             deadline_override,
-            result_finalizer,
         )
         ctx = entry.ctx
 
@@ -109,9 +111,14 @@ class ToolCoordinator:
                 elif event.type == "stream_closed":
                     break
                 elif event.type == "deadline_reached":
-                    self._handle_deadline_reached(ctx)
-                    terminal = "offload"
-                    break
+                    # TODO FIXME: offload is temporarily
+                    # disabled. cancel_event kills the
+                    # subprocess instead of backgrounding
+                    # it. See issue-offload-kills-subprocess.
+                    ctx.deadline = None
+                    # self._handle_deadline_reached(ctx)
+                    # terminal = "offload"
+                    # break
         finally:
             entry.stream.remove_subscriber(chunk_queue)
 
@@ -120,7 +127,7 @@ class ToolCoordinator:
             yield await self._finalize_completed(entry)
             return
 
-        yield await self._begin_offload(entry)
+        yield await self._begin_offload(entry, background_result_processor)
 
     @staticmethod
     def _handle_deadline_reached(ctx: ToolCallContext) -> None:
@@ -137,7 +144,6 @@ class ToolCoordinator:
         agent_id: str,
         root_session_id: str,
         deadline_override: float | None,
-        result_finalizer: ResultFinalizer | None,
     ) -> ToolCallEntry:
         loop = asyncio.get_running_loop()
         now = loop.time()
@@ -163,19 +169,19 @@ class ToolCoordinator:
                 session_id=session_id,
             ),
             final_response=ToolResponse(id=tool_call.id),
-            result_finalizer=result_finalizer,
         )
 
     async def _begin_offload(
         self,
         entry: ToolCallEntry,
+        background_result_processor: BackgroundResultProcessor | None,
     ) -> ToolResponse:
         ctx = entry.ctx
         entry.status = ToolCallStatus.OFFLOADED
         ctx.deadline = None
 
         asyncio.create_task(
-            self._supervise(entry),
+            self._supervise(entry, background_result_processor),
             name=f"toolcall-supervise-{ctx.tool_call_id}",
         )
 
@@ -578,7 +584,11 @@ class ToolCoordinator:
         finally:
             reset_call_context(token)
 
-    async def _supervise(self, entry: ToolCallEntry) -> None:
+    async def _supervise(
+        self,
+        entry: ToolCallEntry,
+        background_result_processor: BackgroundResultProcessor | None,
+    ) -> None:
         bg = entry.background_task
         if bg is None:
             return
@@ -610,6 +620,14 @@ class ToolCoordinator:
         await self._await_background_task(entry)
 
         await self._finalize_completed(entry)
+
+        if background_result_processor is not None:
+            try:
+                entry.final_response = await background_result_processor(
+                    entry.final_response,
+                )
+            except Exception:
+                logger.exception("background result processor failed")
 
         hint = make_offload_hint_msg(entry)
         async with self._hints_lock:
@@ -659,15 +677,6 @@ class ToolCoordinator:
                 id=entry.ctx.tool_call_id,
                 state=ToolResultState.ERROR,
             )
-        if entry.result_finalizer is not None and not entry.result_finalized:
-            finalized = entry.result_finalizer(
-                entry.final_response,
-                entry.ctx,
-            )
-            if inspect.isawaitable(finalized):
-                finalized = await finalized
-            entry.final_response = finalized
-            entry.result_finalized = True
         entry.status = ToolCallStatus.COMPLETED
         if entry.end_state is None:
             entry.end_state = (

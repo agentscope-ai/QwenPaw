@@ -20,12 +20,6 @@ from .file_io import _path_to_file_url, _resolve_file_path
 logger = logging.getLogger(__name__)
 
 
-def _has_visual_model_fallback() -> bool:
-    from ...providers.visual_model_service import get_visual_model_slot
-
-    return get_visual_model_slot() is not None
-
-
 def _media_data_block(url: str, modality: str) -> DataBlock:
     """Build a DataBlock from a URL, inferring ``media_type`` from the path.
 
@@ -352,10 +346,7 @@ async def view_image(image_path: str) -> ToolChunk:
     """
     # Determine whether we need a fallback hint
     fallback_hint: str | None = None
-    if (
-        not _check_multimodal_support("image")
-        and not _has_visual_model_fallback()
-    ):
+    if not _check_multimodal_support("image"):
         probe_result = await _probe_multimodal_if_needed("image")
         if probe_result is not True:
             fallback_hint = _get_multimodal_fallback_hint("image", image_path)
@@ -426,10 +417,7 @@ async def view_video(video_path: str) -> ToolChunk:
             A VideoBlock the model can inspect, or an error message.
     """
     fallback_hint: str | None = None
-    if (
-        not _check_multimodal_support("video")
-        and not _has_visual_model_fallback()
-    ):
+    if not _check_multimodal_support("video"):
         probe_result = await _probe_multimodal_if_needed("video")
         if probe_result is not True:
             fallback_hint = _get_multimodal_fallback_hint("video", video_path)

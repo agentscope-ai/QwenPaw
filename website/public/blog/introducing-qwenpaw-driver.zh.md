@@ -2,7 +2,7 @@
 title: "QwenPaw Driver：统一的外部能力接入层"
 date: 2026-07-01
 author: QwenPaw Team
-tags: [architecture, driver, mcp, access-policy]
+tags: [外部能力接入, 协议适配, 访问控制, MCP]
 excerpt: "Agent 系统正在快速演进。今天的 Agent 不再局限于调用几个内置工具——它需要对接 MCP Server、远程 Agent (A2A)、ACP 服务，以及未来更多的外部协议。"
 ---
 

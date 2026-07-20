@@ -231,6 +231,7 @@ def _build_spec_from_cli(
     timezone: str,
     enabled: bool,
     mode: str,
+    silent: bool,
     save_result_to_inbox: Optional[bool] = None,
     share_session: bool = True,
     timeout_seconds: int = 120,
@@ -252,6 +253,7 @@ def _build_spec_from_cli(
         "channel": channel,
         "target": {"user_id": target_user, "session_id": target_session},
         "mode": mode,
+        "silent": silent,
         "meta": {},
     }
     runtime = {
@@ -262,6 +264,10 @@ def _build_spec_from_cli(
         "tool_safety": tool_safety,
     }
     if task_type == "text":
+        if silent:
+            raise click.UsageError(
+                "--silent is only supported when task type is 'agent'",
+            )
         if not (text and text.strip()):
             raise click.UsageError(
                 "--text is required when task type is 'text'",
@@ -460,6 +466,14 @@ def _build_spec_from_cli(
     ),
 )
 @click.option(
+    "--silent/--no-silent",
+    default=False,
+    help=(
+        "Run an agent task without delivering its response to the channel. "
+        "Session, trace, and optional Inbox records are still preserved."
+    ),
+)
+@click.option(
     "--save-result-to-inbox/--no-save-result-to-inbox",
     default=None,
     help=(
@@ -527,6 +541,7 @@ def create_job(
     timezone: Optional[str],
     enabled: bool,
     mode: str,
+    silent: bool,
     save_result_to_inbox: Optional[bool],
     share_session: bool,
     timeout_seconds: int,
@@ -585,6 +600,7 @@ def create_job(
             timezone=timezone,
             enabled=enabled,
             mode=mode,
+            silent=silent,
             save_result_to_inbox=save_result_to_inbox,
             share_session=share_session,
             timeout_seconds=timeout_seconds,
@@ -615,6 +631,7 @@ def _resolve_update_spec(
     timezone: Optional[str],
     enabled: Optional[bool],
     mode: Optional[str],
+    silent: Optional[bool],
     save_result_to_inbox: Optional[bool],
     share_session: Optional[bool],
     timeout_seconds: Optional[int],
@@ -663,6 +680,11 @@ def _resolve_update_spec(
     t_name = name if name is not None else spec.get("name", "")
     t_enabled = enabled if enabled is not None else spec.get("enabled", True)
     t_mode = mode or spec.get("dispatch", {}).get("mode", "final")
+    t_silent = (
+        silent
+        if silent is not None
+        else spec.get("dispatch", {}).get("silent", False)
+    )
     t_save = (
         save_result_to_inbox
         if save_result_to_inbox is not None
@@ -715,6 +737,7 @@ def _resolve_update_spec(
         timezone=tz,
         enabled=t_enabled,
         mode=t_mode,
+        silent=t_silent,
         save_result_to_inbox=t_save,
         share_session=t_share,
         timeout_seconds=t_timeout,
@@ -833,6 +856,11 @@ def _resolve_update_spec(
     help="Delivery mode: 'stream' or 'final'.",
 )
 @click.option(
+    "--silent/--no-silent",
+    default=None,
+    help="Run an agent task without channel delivery.",
+)
+@click.option(
     "--save-result-to-inbox/--no-save-result-to-inbox",
     default=None,
     help="Save execution results to Inbox.",
@@ -888,6 +916,7 @@ def update_job(
     timezone: Optional[str],
     enabled: Optional[bool],
     mode: Optional[str],
+    silent: Optional[bool],
     save_result_to_inbox: Optional[bool],
     share_session: Optional[bool],
     timeout_seconds: Optional[int],
@@ -933,6 +962,7 @@ def update_job(
             timezone=timezone,
             enabled=enabled,
             mode=mode,
+            silent=silent,
             save_result_to_inbox=save_result_to_inbox,
             share_session=share_session,
             timeout_seconds=timeout_seconds,
