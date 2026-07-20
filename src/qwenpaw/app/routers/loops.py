@@ -34,7 +34,7 @@ class LoopModeInfo(BaseModel):
 class LoopModeStatus(BaseModel):
     """Active loop state for one conversation session."""
 
-    state: Literal["idle", "active"]
+    state: Literal["idle", "running", "awaiting_user"]
     mode: LoopModeInfo | None = None
 
 
@@ -80,12 +80,16 @@ async def get_loop_status(
     """Return the explicit loop mode active in one session."""
     workspace = await get_agent_for_request(request)
     session_state: dict[str, Any] | None = None
+    execution_phase: Literal["running", "awaiting_user"] = "awaiting_user"
     if chat_id:
         chat = await workspace.chat_manager.get_chat(chat_id)
         if chat is None and not session_id:
             raise HTTPException(status_code=404, detail="Chat not found")
         if chat is not None:
             session_id = chat.session_id
+            run_status = await workspace.task_tracker.get_status(chat.id)
+            if run_status == "running":
+                execution_phase = "running"
             session_state = await workspace.session.get_session_state_dict(
                 chat.session_id,
                 chat.user_id,
@@ -128,7 +132,7 @@ async def get_loop_status(
             session_id,
             [mode.id for mode in active],
         )
-    return LoopModeStatus(state="active", mode=active[0])
+    return LoopModeStatus(state=execution_phase, mode=active[0])
 
 
 @router.get("/gates/catalog")

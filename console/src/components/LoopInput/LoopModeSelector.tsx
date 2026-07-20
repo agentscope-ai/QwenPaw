@@ -3,6 +3,7 @@ import {
   ChevronDown,
   CircleDot,
   LoaderCircle,
+  MessageCircleQuestion,
   Rocket,
   Settings2,
   Sparkles,
@@ -73,17 +74,21 @@ export function LoopModeSelector() {
         : t("loop.activePersistentDescription");
     return (
       <Tooltip title={tooltip}>
-        <div className={styles.activeMode} aria-live="polite">
-          {sessionState === "starting" ? (
+        <div
+          className={styles.activeMode}
+          aria-live="polite"
+          data-state={sessionState}
+        >
+          {sessionState === "starting" && (
             <LoaderCircle className={styles.spin} size={14} />
-          ) : (
-            <ModeIcon mode={activeMode} />
+          )}
+          {sessionState === "running" && <ModeIcon mode={activeMode} />}
+          {sessionState === "awaiting_user" && (
+            <MessageCircleQuestion size={14} />
           )}
           <span>{modeName(activeMode, t)}</span>
           <span className={styles.activeState}>
-            {sessionState === "starting"
-              ? t("loop.starting")
-              : t("loop.active")}
+            {t(`loop.${sessionState}`)}
           </span>
         </div>
       </Tooltip>

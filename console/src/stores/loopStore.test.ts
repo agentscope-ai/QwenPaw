@@ -6,10 +6,11 @@ import { request } from "@/api/request";
 import {
   DEFAULT_LOOP_MODE,
   applyLoopModeCommand,
-  cancelPendingLoopSubmission,
+  beginLoopModeSubmission,
   fetchActiveLoopMode,
   fetchAvailableLoopModes,
-  prepareLoopModeSubmission,
+  markLoopModeRunning,
+  prepareLoopModeMessage,
   type LoopModeInfo,
   useLoopStore,
 } from "./loopStore";
@@ -82,21 +83,39 @@ describe("loopStore", () => {
     expect(useLoopStore.getState().availableModes).toEqual([DEFAULT_LOOP_MODE]);
   });
 
-  it("prefixes an explicitly selected mode and enters starting state", () => {
+  it("prepares a queued mode without entering starting state", () => {
     useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
     useLoopStore.getState().setSelectedMode("goal");
 
-    expect(prepareLoopModeSubmission("fix the tests")).toBe(
+    expect(prepareLoopModeMessage("fix the tests")).toBe("/goal fix the tests");
+    expect(useLoopStore.getState().sessionState).toBe("idle");
+    expect(useLoopStore.getState().activeMode).toBeNull();
+  });
+
+  it("keeps an awaiting mode unchanged while a reply is only queued", () => {
+    useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
+    useLoopStore.getState().setSessionMode(goal, "awaiting_user");
+
+    expect(prepareLoopModeMessage("continue")).toBe("continue");
+    expect(useLoopStore.getState().sessionState).toBe("awaiting_user");
+    expect(useLoopStore.getState().activeMode).toEqual(goal);
+  });
+
+  it("enters starting only when a selected mode is submitted", () => {
+    useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
+    useLoopStore.getState().setSelectedMode("goal");
+
+    expect(beginLoopModeSubmission("fix the tests")).toBe(
       "/goal fix the tests",
     );
     expect(useLoopStore.getState().sessionState).toBe("starting");
     expect(useLoopStore.getState().activeMode).toEqual(goal);
   });
 
-  it("recognizes a manually typed mode command without duplicating it", () => {
+  it("recognizes a manually submitted mode command without duplicating it", () => {
     useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
 
-    expect(prepareLoopModeSubmission("/goal fix the tests")).toBe(
+    expect(beginLoopModeSubmission("/goal fix the tests")).toBe(
       "/goal fix the tests",
     );
     expect(useLoopStore.getState().activeMode).toEqual(goal);
@@ -106,27 +125,28 @@ describe("loopStore", () => {
     useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
     useLoopStore.getState().setSelectedMode("goal");
 
-    expect(prepareLoopModeSubmission("/clear")).toBe("/clear");
+    expect(beginLoopModeSubmission("/clear")).toBe("/clear");
     expect(useLoopStore.getState().sessionState).toBe("idle");
   });
 
   it("does not prefix Default or messages in an active session", () => {
-    expect(prepareLoopModeSubmission("hello")).toBe("hello");
+    expect(beginLoopModeSubmission("hello")).toBe("hello");
     useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
-    useLoopStore.getState().setActiveMode(goal);
+    useLoopStore.getState().setSessionMode(goal, "awaiting_user");
     useLoopStore.getState().setSelectedMode("goal");
-    expect(prepareLoopModeSubmission("continue")).toBe("continue");
+    expect(beginLoopModeSubmission("continue")).toBe("continue");
+    expect(useLoopStore.getState().sessionState).toBe("starting");
   });
 
-  it("restores the selector when a pending activation is cancelled", () => {
+  it("moves from starting to running on the first event", () => {
     useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
     useLoopStore.getState().setSelectedMode("goal");
-    const text = prepareLoopModeSubmission("fix the tests");
+    beginLoopModeSubmission("fix the tests");
 
-    cancelPendingLoopSubmission(text);
+    markLoopModeRunning();
 
-    expect(useLoopStore.getState().sessionState).toBe("idle");
-    expect(useLoopStore.getState().selectedModeId).toBe("default");
+    expect(useLoopStore.getState().sessionState).toBe("running");
+    expect(useLoopStore.getState().activeMode).toEqual(goal);
   });
 
   it("uses an exact command boundary when avoiding duplicate prefixes", () => {
@@ -136,8 +156,11 @@ describe("loopStore", () => {
     expect(applyLoopModeCommand("/GOAL notes", goal)).toBe("/GOAL notes");
   });
 
-  it("restores the active mode from backend status", async () => {
-    mockRequest.mockResolvedValueOnce({ state: "active", mode: custom });
+  it("restores an awaiting mode from backend status", async () => {
+    mockRequest.mockResolvedValueOnce({
+      state: "awaiting_user",
+      mode: custom,
+    });
 
     await fetchActiveLoopMode({
       chatId: "chat-1",
@@ -148,9 +171,37 @@ describe("loopStore", () => {
       "/loops/status?chat_id=chat-1&session_id=session-1",
       { signal: undefined },
     );
-    expect(useLoopStore.getState().sessionState).toBe("active");
+    expect(useLoopStore.getState().sessionState).toBe("awaiting_user");
     expect(useLoopStore.getState().activeMode).toEqual(custom);
     expect(useLoopStore.getState().selectedModeId).toBe("default");
+  });
+
+  it("restores a running mode from backend status", async () => {
+    mockRequest.mockResolvedValueOnce({ state: "running", mode: goal });
+
+    await fetchActiveLoopMode({ sessionId: "session-1" });
+
+    expect(useLoopStore.getState().sessionState).toBe("running");
+    expect(useLoopStore.getState().activeMode).toEqual(goal);
+  });
+
+  it("ignores stale status after a new submission starts", async () => {
+    let resolveStatus: (value: unknown) => void = () => undefined;
+    mockRequest.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+    useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
+    useLoopStore.getState().setSelectedMode("goal");
+    const statusPromise = fetchActiveLoopMode({ sessionId: "session-1" });
+
+    beginLoopModeSubmission("fix the tests");
+    resolveStatus({ state: "awaiting_user", mode: custom });
+    await statusPromise;
+
+    expect(useLoopStore.getState().sessionState).toBe("starting");
+    expect(useLoopStore.getState().activeMode).toEqual(goal);
   });
 
   it("returns to Default when backend reports idle", async () => {

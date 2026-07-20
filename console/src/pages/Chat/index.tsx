@@ -27,10 +27,11 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import { useCodingMode } from "../../stores/codingModeStore";
 import {
-  cancelPendingLoopSubmission,
+  beginLoopModeSubmission,
   fetchActiveLoopMode,
   fetchAvailableLoopModes,
-  prepareLoopModeSubmission,
+  markLoopModeRunning,
+  prepareLoopModeMessage,
   useLoopStore,
 } from "../../stores/loopStore";
 import { LoopModeSelector } from "../../components/LoopInput";
@@ -1326,7 +1327,7 @@ export default function ChatPage() {
           ).currentSessionId = next.backendSessionId;
         }
         chatRef.current?.input.submit({
-          query: next.text,
+          query: beginLoopModeSubmission(next.text),
           fileList: buildFileList(next),
         });
       });
@@ -1745,10 +1746,8 @@ export default function ChatPage() {
       // The currently-sending item finished. Clear the marker so the next
       // Enter handler decision and lock acquisition see a clean state.
       useMessageQueueStore.getState().setCurrentSendingId(null);
-      void syncLoopModeStatus();
-    }
-
-    if (responseJustCompleted || itemsJustQueued) {
+      void syncLoopModeStatus().finally(scheduleNextSend);
+    } else if (itemsJustQueued) {
       scheduleNextSend();
     }
   }, [chatLoading, messageQueue, scheduleNextSend, syncLoopModeStatus]);
@@ -1800,7 +1799,7 @@ export default function ChatPage() {
         message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
         return;
       }
-      const queueText = prepareLoopModeSubmission(val);
+      const queueText = prepareLoopModeMessage(val);
       useMessageQueueStore.getState().enqueue(queueSessionId, {
         text: queueText,
         attachments:
@@ -1830,11 +1829,6 @@ export default function ChatPage() {
 
   const handleQueueRemove = useCallback(
     (id: string) => {
-      const item = useMessageQueueStore
-        .getState()
-        .getQueue(queueSessionId)
-        .find((entry) => entry.id === id);
-      if (item) cancelPendingLoopSubmission(item.text);
       useMessageQueueStore.getState().remove(queueSessionId, id);
     },
     [queueSessionId],
@@ -1870,7 +1864,7 @@ export default function ChatPage() {
         void withSendLock(queueSessionId, () => {
           useMessageQueueStore.getState().setCurrentSendingId(item.id);
           chatRef.current?.input.submit({
-            query: item.text,
+            query: beginLoopModeSubmission(item.text),
             fileList: buildFileList(item),
           });
         });
@@ -1880,10 +1874,6 @@ export default function ChatPage() {
   );
 
   const handleQueueClear = useCallback(() => {
-    useMessageQueueStore
-      .getState()
-      .getQueue(queueSessionId)
-      .forEach((item) => cancelPendingLoopSubmission(item.text));
     useMessageQueueStore.getState().clear(queueSessionId);
   }, [queueSessionId]);
 
@@ -1900,7 +1890,7 @@ export default function ChatPage() {
           useMessageQueueStore.getState().setCurrentSendingId(head.id);
           useMessageQueueStore.getState().remove(queueSessionId, head.id);
           chatRef.current?.input.submit({
-            query: head.text,
+            query: beginLoopModeSubmission(head.text),
             fileList: buildFileList(head),
           });
         });
@@ -1925,7 +1915,7 @@ export default function ChatPage() {
           useMessageQueueStore.getState().setCurrentSendingId(id);
           useMessageQueueStore.getState().remove(queueSessionId, id);
           chatRef.current?.input.submit({
-            query: target.text,
+            query: beginLoopModeSubmission(target.text),
             fileList: buildFileList(target),
           });
         });
@@ -1946,7 +1936,7 @@ export default function ChatPage() {
           useMessageQueueStore.getState().setCurrentSendingId(next.id);
           useMessageQueueStore.getState().remove(queueSessionId, next.id);
           chatRef.current?.input.submit({
-            query: next.text,
+            query: beginLoopModeSubmission(next.text),
             fileList: buildFileList(next),
           });
         });
@@ -2425,7 +2415,7 @@ export default function ChatPage() {
           message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
           return false;
         }
-        const queueText = prepareLoopModeSubmission(val);
+        const queueText = prepareLoopModeMessage(val);
         useMessageQueueStore.getState().enqueue(queueSessionId, {
           text: queueText,
           attachments:
@@ -2457,7 +2447,7 @@ export default function ChatPage() {
         .querySelector('[class*="sender"]')
         ?.querySelector("textarea") as HTMLTextAreaElement | null;
       if (textarea) {
-        const prepared = prepareLoopModeSubmission(textarea.value);
+        const prepared = beginLoopModeSubmission(textarea.value);
         if (prepared !== textarea.value) {
           setTextareaValue(textarea, prepared);
         }
@@ -2798,6 +2788,7 @@ export default function ChatPage() {
         fetch: customFetch,
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
+          markLoopModeRunning();
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
           if (payloadCompletesResponse(payload)) {

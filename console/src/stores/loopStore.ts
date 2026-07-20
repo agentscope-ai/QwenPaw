@@ -2,7 +2,11 @@ import { create } from "zustand";
 import { request } from "@/api/request";
 
 export type LoopModeSource = "builtin" | "custom" | "plugin";
-export type LoopSessionState = "idle" | "starting" | "active";
+export type LoopSessionState =
+  | "idle"
+  | "starting"
+  | "running"
+  | "awaiting_user";
 
 export interface LoopModeInfo {
   id: string;
@@ -13,7 +17,7 @@ export interface LoopModeInfo {
 }
 
 interface LoopModeStatusResponse {
-  state: "idle" | "active";
+  state: "idle" | "running" | "awaiting_user";
   mode: LoopModeInfo | null;
 }
 
@@ -38,7 +42,11 @@ interface LoopState {
   setSelectedMode: (modeId: string) => void;
   setAvailableModes: (modes: LoopModeInfo[]) => void;
   setStartingMode: (mode: LoopModeInfo) => void;
-  setActiveMode: (mode: LoopModeInfo | null) => void;
+  setRunningMode: () => void;
+  setSessionMode: (
+    mode: LoopModeInfo,
+    state: "running" | "awaiting_user",
+  ) => void;
   resetSessionMode: () => void;
   setCatalogLoading: (loading: boolean) => void;
   setCatalogError: (error: boolean) => void;
@@ -64,9 +72,14 @@ export const useLoopStore = create<LoopState>((set, get) => ({
   },
   setStartingMode: (mode) =>
     set({ sessionState: "starting", activeMode: mode }),
-  setActiveMode: (mode) =>
+  setRunningMode: () => {
+    if (get().sessionState === "starting" && get().activeMode) {
+      set({ sessionState: "running" });
+    }
+  },
+  setSessionMode: (mode, sessionState) =>
     set({
-      sessionState: mode ? "active" : "idle",
+      sessionState,
       activeMode: mode,
       selectedModeId: DEFAULT_LOOP_MODE.id,
     }),
@@ -127,7 +140,7 @@ export function findLoopModeForCommand(text: string): LoopModeInfo | null {
   );
 }
 
-export function prepareLoopModeSubmission(text: string): string {
+export function prepareLoopModeMessage(text: string): string {
   const state = useLoopStore.getState();
   if (state.sessionState !== "idle") return text;
   const selected = getSelectedLoopMode();
@@ -135,16 +148,29 @@ export function prepareLoopModeSubmission(text: string): string {
   if (!manual && text.trimStart().startsWith("/")) return text;
   const mode = manual ?? selected;
   if (!mode || mode.id === DEFAULT_LOOP_MODE.id) return text;
-  state.setStartingMode(mode);
   return applyLoopModeCommand(text, mode);
 }
 
-export function cancelPendingLoopSubmission(text: string): void {
+export function beginLoopModeSubmission(text: string): string {
   const state = useLoopStore.getState();
-  const mode = findLoopModeForCommand(text);
-  if (state.sessionState === "starting" && mode?.id === state.activeMode?.id) {
-    state.resetSessionMode();
+  const manual = findLoopModeForCommand(text);
+  if (!manual && text.trimStart().startsWith("/")) return text;
+  if (state.sessionState !== "idle" && state.activeMode) {
+    statusRequestId += 1;
+    state.setStartingMode(state.activeMode);
+    return text;
   }
+  const prepared = prepareLoopModeMessage(text);
+  const mode = findLoopModeForCommand(prepared);
+  if (mode && mode.id !== DEFAULT_LOOP_MODE.id) {
+    statusRequestId += 1;
+    state.setStartingMode(mode);
+  }
+  return prepared;
+}
+
+export function markLoopModeRunning(): void {
+  useLoopStore.getState().setRunningMode();
 }
 
 export async function fetchAvailableLoopModes(
@@ -198,9 +224,11 @@ export async function fetchActiveLoopMode({
       { signal },
     );
     if (requestId === statusRequestId) {
-      useLoopStore
-        .getState()
-        .setActiveMode(status?.state === "active" ? status.mode : null);
+      if (status.state === "idle") {
+        useLoopStore.getState().resetSessionMode();
+      } else if (status.mode) {
+        useLoopStore.getState().setSessionMode(status.mode, status.state);
+      }
     }
   } catch {
     // Preserve the last known state when synchronization is unavailable.

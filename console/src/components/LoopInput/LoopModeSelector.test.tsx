@@ -70,15 +70,31 @@ describe("LoopModeSelector", () => {
     expect(useLoopStore.getState().selectedModeId).toBe("custom:quality");
   });
 
-  it("replaces the selector with a read-only active indicator", () => {
-    useLoopStore.getState().setActiveMode(custom);
+  it("shows starting before the first response event", () => {
+    useLoopStore.getState().setStartingMode(custom);
 
     renderWithProviders(<LoopModeSelector />);
 
     expect(screen.getByText("Quality Review")).toBeInTheDocument();
-    expect(screen.getByText("loop.active")).toBeInTheDocument();
+    expect(screen.getByText("loop.starting")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "loop.selectorAria" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("shows running after the first response event", () => {
+    useLoopStore.getState().setSessionMode(custom, "running");
+
+    renderWithProviders(<LoopModeSelector />);
+
+    expect(screen.getByText("loop.running")).toBeInTheDocument();
+  });
+
+  it("shows that an active mode is waiting for the user", () => {
+    useLoopStore.getState().setSessionMode(custom, "awaiting_user");
+
+    renderWithProviders(<LoopModeSelector />);
+
+    expect(screen.getByText("loop.awaiting_user")).toBeInTheDocument();
   });
 });

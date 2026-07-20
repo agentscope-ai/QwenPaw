@@ -167,9 +167,64 @@ def test_loop_status_reports_active_mode_and_restores_context(
     )
 
     assert response.status_code == 200
-    assert response.json()["state"] == "active"
+    assert response.json()["state"] == "awaiting_user"
     assert response.json()["mode"]["id"] == "plugin:review"
     assert get_current_session_id() is None
+
+
+@pytest.mark.parametrize(
+    ("run_status", "expected_state"),
+    [("running", "running"), ("idle", "awaiting_user")],
+)
+def test_loop_status_reports_chat_execution_phase(
+    client,
+    workspace,
+    run_status,
+    expected_state,
+) -> None:
+    """Chat execution and persistent mode lifecycle remain distinct."""
+
+    class PluginMode:
+        name = "review"
+
+        @staticmethod
+        def commands():
+            from qwenpaw.runtime.slash_command_registry import CommandSpec
+
+            async def handler(_ctx, _args):
+                return None
+
+            return [CommandSpec(name="review", handler=handler)]
+
+        @staticmethod
+        def is_active(_ctx):
+            return True
+
+    chat = SimpleNamespace(
+        id="chat-a",
+        session_id="session-a",
+        user_id="user-a",
+        channel="console",
+    )
+    workspace.plugins.modes = [PluginMode()]
+    workspace.chat_manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=chat),
+    )
+    workspace.task_tracker = SimpleNamespace(
+        get_status=AsyncMock(return_value=run_status),
+    )
+    workspace.session = SimpleNamespace(
+        get_session_state_dict=AsyncMock(return_value={}),
+    )
+
+    response = client[0].get(
+        "/api/loops/status",
+        params={"chat_id": "chat-a"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["state"] == expected_state
+    assert response.json()["mode"]["id"] == "plugin:review"
 
 
 def test_loop_status_treats_default_as_idle(client, workspace) -> None:

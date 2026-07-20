@@ -43,9 +43,22 @@
 
 .activeMode {
   padding: 0 10px;
+  color: var(--ant-color-text);
+}
+
+.activeMode[data-state="starting"] {
+  border-color: color-mix(in srgb, var(--ant-color-primary) 28%, transparent);
+  background: color-mix(in srgb, var(--ant-color-primary-bg) 66%, transparent);
+}
+
+.activeMode[data-state="running"] {
   border-color: color-mix(in srgb, var(--ant-color-success) 32%, transparent);
   background: color-mix(in srgb, var(--ant-color-success-bg) 70%, transparent);
-  color: var(--ant-color-text);
+}
+
+.activeMode[data-state="awaiting_user"] {
+  border-color: color-mix(in srgb, var(--ant-color-warning) 24%, transparent);
+  background: color-mix(in srgb, var(--ant-color-warning-bg) 62%, transparent);
 }
 
 .activeState {
