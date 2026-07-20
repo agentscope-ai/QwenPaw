@@ -1633,6 +1633,7 @@ export function ChannelDrawer({
               name="show_tool_calls"
               label={t("channels.showToolCalls")}
               valuePropName="checked"
+              tooltip={t("channels.showToolCallsTooltip")}
             >
               <Switch />
             </Form.Item>
@@ -1649,6 +1650,7 @@ export function ChannelDrawer({
               name="show_tool_results"
               label={t("channels.showToolResults")}
               valuePropName="checked"
+              tooltip={t("channels.showToolResultsTooltip")}
             >
               <Switch />
             </Form.Item>
