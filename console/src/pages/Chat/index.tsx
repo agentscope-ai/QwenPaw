@@ -2033,7 +2033,7 @@ export default function ChatPage() {
 
   const handleNewCommand = useCallback(() => {
     const current = useTurnUsageStore.getState().snapshot;
-    const maxInputLength = current?.context_usage?.max_input_length ?? 128000;
+    const maxInputLength = current?.context_usage?.max_input_length ?? 131072;
     useTurnUsageStore.getState().setSnapshot({
       usage: null,
       context_usage: {
