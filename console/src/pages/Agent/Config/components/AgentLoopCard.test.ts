@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { GateInstanceConfig } from "@/api/types";
-import { buildCustomLoopMode, reorderCustomGates } from "./AgentLoopCard";
+import {
+  buildCustomLoopMode,
+  hasDuplicateLoopModeName,
+  reorderCustomGates,
+} from "./AgentLoopCard";
 
 describe("buildCustomLoopMode", () => {
   it("creates multiple custom modes with unique tab identity", () => {
@@ -53,5 +57,15 @@ describe("reorderCustomGates", () => {
       "one",
       "two",
     ]);
+  });
+});
+
+describe("hasDuplicateLoopModeName", () => {
+  it("ignores surrounding whitespace and letter case", () => {
+    const mode = buildCustomLoopMode([], "Research", "research", "safe", 1);
+
+    expect(hasDuplicateLoopModeName([mode], " research ")).toBe(true);
+    expect(hasDuplicateLoopModeName([mode], "Quality")).toBe(false);
+    expect(hasDuplicateLoopModeName([mode], "Research", 0)).toBe(false);
   });
 });

@@ -1972,6 +1972,7 @@
       "duplicate": "Duplikat",
       "delete": "Hapus",
       "displayName": "Nama tampilan",
+      "duplicateModeName": "Mode Loop dengan nama ini sudah ada.",
       "slashCommand": "Perintah slash",
       "description": "Deskripsi",
       "availableToAgent": "Tersedia untuk agen ini",

@@ -874,6 +874,7 @@
       "duplicate": "Nhân bản",
       "delete": "Xóa",
       "displayName": "Tên hiển thị",
+      "duplicateModeName": "Đã tồn tại chế độ Loop có tên này.",
       "slashCommand": "Lệnh slash",
       "description": "Mô tả",
       "availableToAgent": "Khả dụng cho agent này",

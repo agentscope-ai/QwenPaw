@@ -1957,6 +1957,7 @@
       "duplicate": "Duplicate",
       "delete": "Delete",
       "displayName": "Display name",
+      "duplicateModeName": "A loop mode with this name already exists.",
       "slashCommand": "Slash command",
       "description": "Description",
       "availableToAgent": "Available to this agent",

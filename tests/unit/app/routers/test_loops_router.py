@@ -116,3 +116,21 @@ def test_create_rejects_registered_command(client, workspace) -> None:
 
     assert response.status_code == 409
     save.assert_not_called()
+
+
+def test_create_rejects_duplicate_normalized_name(client, workspace) -> None:
+    """The persistence API rejects ambiguous display names."""
+    test_client, save, reload = client
+    workspace.config.running.loop.custom_modes = [_mode()]
+    duplicate = _mode("quality-copy")
+    duplicate.name = " quality "
+
+    response = test_client.post(
+        "/api/loops/custom",
+        json=duplicate.model_dump(),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Mode name exists"
+    save.assert_not_called()
+    reload.assert_not_called()

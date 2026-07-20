@@ -1585,6 +1585,7 @@
       "duplicate": "Дублировать",
       "delete": "Удалить",
       "displayName": "Отображаемое имя",
+      "duplicateModeName": "Режим Loop с таким именем уже существует.",
       "slashCommand": "Slash-команда",
       "description": "Описание",
       "availableToAgent": "Доступен этому агенту",

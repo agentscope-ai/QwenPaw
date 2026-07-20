@@ -1173,7 +1173,28 @@ function CustomModeEditor({
         <Form.Item
           name={["loop", "custom_modes", modeIndex, "name"]}
           label={t("agentConfig.loopMode.displayName", "Display name")}
-          rules={[{ required: true }]}
+          rules={[
+            { required: true, whitespace: true },
+            {
+              validator: (_, value: string) => {
+                const modes = form.getFieldValue([
+                  "loop",
+                  "custom_modes",
+                ]) as CustomLoopModeConfig[];
+                if (hasDuplicateLoopModeName(modes || [], value, modeIndex)) {
+                  return Promise.reject(
+                    new Error(
+                      t(
+                        "agentConfig.loopMode.duplicateModeName",
+                        "A loop mode with this name already exists.",
+                      ),
+                    ),
+                  );
+                }
+                return Promise.resolve();
+              },
+            },
+          ]}
         >
           <Input maxLength={80} />
         </Form.Item>
@@ -1313,6 +1334,19 @@ function uniqueValue(base: string, existing: Set<string>): string {
   return candidate;
 }
 
+export function hasDuplicateLoopModeName(
+  modes: CustomLoopModeConfig[],
+  name: string | undefined,
+  ignoredIndex = -1,
+): boolean {
+  const normalized = (name || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return modes.some(
+    (mode, index) =>
+      index !== ignoredIndex && mode.name.trim().toLowerCase() === normalized,
+  );
+}
+
 export function reorderCustomGates(
   gates: GateInstanceConfig[],
   from: number,
@@ -1337,6 +1371,7 @@ export function AgentLoopCard() {
   );
   const [newCommand, setNewCommand] = useState("new-mode");
   const [template, setTemplate] = useState("safe");
+  const duplicateNewName = hasDuplicateLoopModeName(customModes, newName);
 
   const setModes = (modes: CustomLoopModeConfig[]) =>
     form.setFieldValue(["loop", "custom_modes"], modes);
@@ -1479,14 +1514,25 @@ export function AgentLoopCard() {
         open={creating}
         onCancel={() => setCreating(false)}
         onOk={createMode}
-        okButtonProps={{ disabled: !newName.trim() || !newCommand.trim() }}
+        okButtonProps={{
+          disabled: !newName.trim() || !newCommand.trim() || duplicateNewName,
+        }}
       >
         <div className={loopStyles.createForm}>
           <label>{t("agentConfig.loopMode.displayName", "Display name")}</label>
           <Input
             value={newName}
+            status={duplicateNewName ? "error" : undefined}
             onChange={(event) => setNewName(event.target.value)}
           />
+          {duplicateNewName && (
+            <small className={loopStyles.fieldError}>
+              {t(
+                "agentConfig.loopMode.duplicateModeName",
+                "A loop mode with this name already exists.",
+              )}
+            </small>
+          )}
           <label>
             {t("agentConfig.loopMode.slashCommand", "Slash command")}
           </label>

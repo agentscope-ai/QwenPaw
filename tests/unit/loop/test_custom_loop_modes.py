@@ -74,6 +74,25 @@ def test_loop_config_accepts_multiple_custom_modes() -> None:
     ]
 
 
+def test_loop_config_rejects_duplicate_normalized_names() -> None:
+    """Display names stay unambiguous for user-facing mode pickers."""
+    with pytest.raises(
+        ValidationError,
+        match="Custom loop mode names must be unique",
+    ):
+        LoopConfig(
+            custom_modes=[
+                _mode(_gate("limit", "iteration")),
+                CustomLoopModeConfig(
+                    id="quality-copy",
+                    name=" quality ",
+                    slash_command="quality-copy",
+                    enabled=False,
+                ),
+            ],
+        )
+
+
 def test_loop_config_rejects_gate_outside_builtin_catalog() -> None:
     with pytest.raises(ValidationError, match="Unknown built-in gate type"):
         LoopConfig(

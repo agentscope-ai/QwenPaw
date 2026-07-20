@@ -1206,6 +1206,14 @@ class CustomLoopModeConfig(BaseModel):
         max_length=20,
     )
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_display_name(cls, value: Any) -> Any:
+        """Strip display names before length and uniqueness validation."""
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
     @model_validator(mode="after")
     def validate_pipeline(self) -> "CustomLoopModeConfig":
         """Reject ambiguous or unsafe pipeline shapes."""
@@ -1281,6 +1289,9 @@ class LoopConfig(BaseModel):
         commands = [mode.slash_command for mode in self.custom_modes]
         if len(commands) != len(set(commands)):
             raise ValueError("Custom loop slash commands must be unique")
+        names = [mode.name.lower() for mode in self.custom_modes]
+        if len(names) != len(set(names)):
+            raise ValueError("Custom loop mode names must be unique")
 
         from ..loop.catalog import get_gate_catalog
 

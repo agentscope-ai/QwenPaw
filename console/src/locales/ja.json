@@ -1570,6 +1570,7 @@
       "duplicate": "複製",
       "delete": "削除",
       "displayName": "表示名",
+      "duplicateModeName": "同じ名前の Loop モードが既に存在します。",
       "slashCommand": "スラッシュコマンド",
       "description": "説明",
       "availableToAgent": "このエージェントで使用可能",

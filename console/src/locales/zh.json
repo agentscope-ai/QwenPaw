@@ -1816,6 +1816,7 @@
       "duplicate": "复制",
       "delete": "删除",
       "displayName": "显示名称",
+      "duplicateModeName": "已存在同名的 Loop 模式。",
       "slashCommand": "斜杠命令",
       "description": "描述",
       "availableToAgent": "允许当前智能体使用",

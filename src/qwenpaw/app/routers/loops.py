@@ -163,6 +163,9 @@ def _validate_mode(
 
     if any(item.slash_command == mode.slash_command for item in other_modes):
         raise HTTPException(status_code=409, detail="Slash command exists")
+    normalized_name = mode.name.lower()
+    if any(item.name.lower() == normalized_name for item in other_modes):
+        raise HTTPException(status_code=409, detail="Mode name exists")
     registered = set(workspace.plugins.slash_command_registry.names())
     if ignored_mode is not None:
         registered.discard(ignored_mode.slash_command)

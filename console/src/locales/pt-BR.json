@@ -1807,6 +1807,7 @@
       "duplicate": "Duplicar",
       "delete": "Excluir",
       "displayName": "Nome de exibição",
+      "duplicateModeName": "Já existe um modo de Loop com este nome.",
       "slashCommand": "Comando com barra",
       "description": "Descrição",
       "availableToAgent": "Disponível para este agente",
