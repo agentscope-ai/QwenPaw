@@ -66,7 +66,7 @@ class StopHandler:
     def _reset_gates(self, method_name: str) -> None:
         """Call one reset method on every gate with fault isolation."""
         for gate in self._gates:
-            reset = getattr(gate, method_name)
+            reset = getattr(gate, method_name, None)
             if callable(reset):
                 try:
                     reset()

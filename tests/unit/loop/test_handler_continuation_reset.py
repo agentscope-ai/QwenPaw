@@ -2,7 +2,7 @@
 """Tests for StopHandler peer-gate reset on continuation."""
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 
@@ -161,3 +161,20 @@ async def test_gate_without_reset_method_skipped():
 
     result = await handler({})
     assert result.action == StopAction.INTERRUPT_AND_CONTINUE
+
+
+def test_reset_turn_skips_legacy_gate_without_reset_method():
+    """A legacy gate does not prevent later gates from resetting."""
+    handler = StopHandler()
+    peer = _ResettableGate("peer")
+
+    class _LegacyGate:
+        name = "legacy"
+        priority = 1
+
+    handler.register(cast(StopGate, _LegacyGate()))
+    handler.register(peer)
+
+    handler.reset_turn()
+
+    assert peer.reset_count == 1
