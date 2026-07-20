@@ -46,6 +46,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Context-overflow recovery must bypass Scroll's normal token trigger: the
+# provider has already established that the request is too large, even if the
+# local estimator says otherwise.  ContextConfig constrains the ratio to be
+# positive, so use the same negligible value as the manual /compact path.
+_CONTEXT_OVERFLOW_FORCE_TRIGGER_RATIO = 1e-6
+
 
 def _effective_artifact_retention_days(light_context_config: Any) -> int:
     """Return the independently configured tool-result artifact lifetime."""
@@ -452,6 +458,116 @@ class QwenPawAgent(CodingModeMixin, Agent):
         if formatter is None:
             return
         setattr(formatter, "_qwenpaw_force_strip_media", enabled)
+
+    @staticmethod
+    def _is_context_overflow_error(exc: Exception) -> bool:
+        """Return whether *exc* is a provider 400 for an oversized input.
+
+        A bare 400 is deliberately insufficient: malformed tool schemas,
+        unsupported parameters, and media errors must keep their existing
+        handling.  Prefer the structured status code when the SDK exposes it,
+        with the rendered exception as a compatibility fallback for gateways
+        that wrap the original response.
+        """
+        status = getattr(exc, "status_code", None)
+        if status is None:
+            response = getattr(exc, "response", None)
+            status = getattr(response, "status_code", None)
+
+        error_str = str(exc).lower()
+        if status != 400 and "error code: 400" not in error_str:
+            return False
+
+        overflow_markers = (
+            "range of input length",
+            "context length exceeded",
+            "context_length_exceeded",
+            "maximum context length",
+            "maximum context window",
+            "max input length",
+            "input length should be",
+            "input is too long",
+            "prompt is too long",
+            "prompt too long",
+            "too many input tokens",
+        )
+        return any(marker in error_str for marker in overflow_markers)
+
+    def _context_overflow_compact_config(self) -> Any:
+        """Clone ContextConfig with an effectively unconditional trigger."""
+        base = getattr(self, "context_config", None)
+        if base is None:
+            return None
+        try:
+            return base.model_copy(
+                update={
+                    "trigger_ratio": _CONTEXT_OVERFLOW_FORCE_TRIGGER_RATIO,
+                },
+            )
+        except Exception:
+            logger.warning(
+                "Could not clone context_config for context-overflow "
+                "recovery; skipping the recovery attempt.",
+                exc_info=True,
+            )
+            return None
+
+    async def _call_model(
+        self,
+        messages: list[Msg],
+        tools: list[dict],
+        tool_choice: Any = None,
+    ) -> Any:
+        """Call the model, recovering once from a provider input overflow.
+
+        The normal Scroll gate depends on an approximate local token count.
+        When the provider rejects the request as too large, force one Scroll
+        pass regardless of that estimate, rebuild the complete model input,
+        and retry exactly once.  The retry calls AgentScope directly, so a
+        second overflow propagates instead of entering a recovery loop.
+        """
+        try:
+            return await super()._call_model(
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+            )
+        except Exception as exc:
+            context_manager = getattr(self, "_context_manager", None)
+            if (
+                context_manager is None
+                or not hasattr(context_manager, "compress")
+                or not self._is_context_overflow_error(exc)
+            ):
+                raise
+
+            forced_config = self._context_overflow_compact_config()
+            if forced_config is None:
+                raise
+
+            before = len(getattr(self.state, "context", []) or [])
+            logger.warning(
+                "Model input exceeded the provider context limit; forcing "
+                "one Scroll compaction and retry.",
+            )
+            await context_manager.compress(self, forced_config)
+            after = len(getattr(self.state, "context", []) or [])
+
+            # The original `messages` list was prepared before compaction and
+            # can still reference evicted turns.  Always rebuild it from the
+            # updated agent state before retrying.
+            refreshed = await self._prepare_model_input()
+            logger.info(
+                "Context-overflow recovery rebuilt model input after Scroll "
+                "compaction (messages %d -> %d).",
+                before,
+                after,
+            )
+            return await super()._call_model(
+                messages=refreshed["messages"],
+                tools=refreshed.get("tools", []),
+                tool_choice=tool_choice,
+            )
 
     # pylint: disable=too-many-branches,too-many-statements
     async def _reasoning(
