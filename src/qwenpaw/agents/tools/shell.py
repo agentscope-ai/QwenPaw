@@ -26,6 +26,7 @@ from ...config.context import (
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 from ...sandbox import ExecutionResult
+from .tool_outcome import error_tool_chunk
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -218,7 +219,8 @@ def _extract_powershell_command(cmd: str) -> tuple[str | None, str]:
     return ps_exe, inner
 
 
-# pylint: disable=too-many-branches, too-many-statements
+# pylint: disable=too-many-branches, too-many-return-statements
+# pylint: disable=too-many-statements
 def _execute_subprocess_sync(
     cmd: str,
     cwd: str,
@@ -534,19 +536,13 @@ async def execute_shell_command(
     cmd = _collapse_embedded_newlines((command or "").strip())
 
     if _is_dangerous_self_kill(cmd):
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=(
-                        "Blocked: this command would terminate the "
-                        "QwenPaw process or its parent. "
-                        "Refusing to execute."
-                    ),
-                ),
-            ],
+        return error_tool_chunk(
+            "Blocked: this command would terminate the QwenPaw process "
+            "or its parent. Refusing to execute.",
+            code="SELF_TERMINATION_BLOCKED",
+            retryable=False,
+            same_args_retry_useful=False,
+            next_action="change_command",
         )
 
     if isinstance(timeout, str):
@@ -618,22 +614,36 @@ async def execute_shell_command(
             )
             if result.stderr:
                 response_text += f"\n[stderr]\n{result.stderr}"
-        else:
-            parts = [f"Command failed with exit code {result.exit_code}."]
-            if result.stdout:
-                parts.append(f"\n[stdout]\n{result.stdout}")
-            if result.stderr:
-                parts.append(f"\n[stderr]\n{result.stderr}")
-            response_text = "".join(parts)
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.SUCCESS,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=response_text,
-                ),
-            ],
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.SUCCESS,
+                content=[TextBlock(type="text", text=response_text)],
+            )
+
+        parts = [f"Command failed with exit code {result.exit_code}."]
+        if result.stdout:
+            parts.append(f"\n[stdout]\n{result.stdout}")
+        if result.stderr:
+            parts.append(f"\n[stderr]\n{result.stderr}")
+        response_text = "".join(parts)
+        timed_out = (
+            result.exit_code == -1
+            and "timeout" in (result.stderr or "").lower()
+        )
+        return error_tool_chunk(
+            response_text,
+            code="COMMAND_TIMEOUT" if timed_out else "NON_ZERO_EXIT",
+            retryable=timed_out,
+            same_args_retry_useful=False,
+            next_action=(
+                "increase_timeout_or_narrow_command"
+                if timed_out
+                else "inspect_stderr_and_change_command"
+            ),
+            metadata={
+                "exit_code": result.exit_code,
+                "timed_out": timed_out,
+            },
         )
 
     import logging as _logging
@@ -729,35 +739,39 @@ async def execute_shell_command(
                 response_text = "Command executed successfully (no output)."
             if stderr_str:
                 response_text += f"\n[stderr]\n{stderr_str}"
-        else:
-            response_parts = [f"Command failed with exit code {returncode}."]
-            if stdout_str:
-                response_parts.append(f"\n[stdout]\n{stdout_str}")
-            if stderr_str:
-                response_parts.append(f"\n[stderr]\n{stderr_str}")
-            response_text = "".join(response_parts)
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.SUCCESS,
+                content=[TextBlock(type="text", text=response_text)],
+            )
 
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.SUCCESS,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=response_text,
-                ),
-            ],
+        response_parts = [f"Command failed with exit code {returncode}."]
+        if stdout_str:
+            response_parts.append(f"\n[stdout]\n{stdout_str}")
+        if stderr_str:
+            response_parts.append(f"\n[stderr]\n{stderr_str}")
+        response_text = "".join(response_parts)
+        timed_out = returncode == -1
+        return error_tool_chunk(
+            response_text,
+            code="COMMAND_TIMEOUT" if timed_out else "NON_ZERO_EXIT",
+            retryable=timed_out,
+            same_args_retry_useful=False,
+            next_action=(
+                "increase_timeout_or_narrow_command"
+                if timed_out
+                else "inspect_stderr_and_change_command"
+            ),
+            metadata={"exit_code": returncode, "timed_out": timed_out},
         )
 
     except Exception as e:
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.SUCCESS,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: Shell command execution failed due to \n{e}",
-                ),
-            ],
+        return error_tool_chunk(
+            f"Error: Shell command execution failed due to\n{e}",
+            code="SHELL_EXECUTION_ERROR",
+            retryable=False,
+            same_args_retry_useful=False,
+            next_action="inspect_environment_or_change_command",
         )
 
 

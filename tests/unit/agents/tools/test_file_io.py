@@ -14,6 +14,7 @@ Covers:
 from unittest.mock import patch
 
 import pytest
+from agentscope.message import ToolResultState
 
 from qwenpaw.agents.tools.file_io import (
     _get_encoding_for_file,
@@ -232,6 +233,12 @@ class TestEditFile:
         f.write_text("hello world", encoding="utf-8")
         result = await edit_file(str(f), "missing", "replacement")
         assert "not found" in result.content[0].text
+        assert result.state == ToolResultState.ERROR
+        outcome = result.metadata["tool_outcome"]
+        assert outcome["code"] == "MATCH_NOT_FOUND"
+        assert outcome["same_args_retry_useful"] is False
+        assert result.metadata["changed"] is False
+        assert result.metadata["match_count"] == 0
 
     @pytest.mark.asyncio
     async def test_edit_nonexistent_file(self, tmp_path):

@@ -10,10 +10,11 @@ import re
 from pathlib import Path
 from typing import Any
 
-from agentscope.message import TextBlock
+from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolResponse
 
 from ...config.context import get_current_toolkit
+from .tool_outcome import TOOL_OUTCOME_METADATA_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ _STEP_REF_INLINE_PATTERN = re.compile(
 
 def _json_tool_response(payload: dict[str, Any]) -> ToolResponse:
     """Wrap a JSON-serialisable dict in a single-TextBlock ToolResponse."""
+    ok = payload.get("ok", True) is not False
     return ToolResponse(
         content=[
             TextBlock(
@@ -45,6 +47,7 @@ def _json_tool_response(payload: dict[str, Any]) -> ToolResponse:
                 text=json.dumps(payload, ensure_ascii=False),
             ),
         ],
+        state=(ToolResultState.SUCCESS if ok else ToolResultState.ERROR),
     )
 
 
@@ -92,7 +95,8 @@ def _is_error_text(text: str) -> bool:
 def _response_payload(response: ToolResponse) -> dict[str, Any]:
     """Convert a ToolResponse into a normalised result dict.
 
-    The ``ok`` field is inferred from:
+    The ``ok`` field is inferred from, in priority order:
+    - The ToolResponse execution state and structured outcome metadata.
     - JSON responses with an explicit ``ok`` field (``browser_use``,
       ``desktop_screenshot``).
     - Plain-text error prefixes (``Error:``, ``Command failed``).
@@ -104,6 +108,27 @@ def _response_payload(response: ToolResponse) -> dict[str, Any]:
     """
     text = _extract_text(response)
     content = list(response.content or [])
+    metadata = response.metadata if isinstance(response.metadata, dict) else {}
+    outcome = metadata.get(TOOL_OUTCOME_METADATA_KEY)
+    outcome = outcome if isinstance(outcome, dict) else {}
+    state = getattr(response.state, "value", response.state)
+    state = str(state or "").lower()
+
+    error_states = {
+        ToolResultState.ERROR.value,
+        ToolResultState.DENIED.value,
+        ToolResultState.INTERRUPTED.value,
+    }
+    if state in error_states:
+        payload = {
+            "ok": False,
+            "error": text or f"Tool ended with state={state}",
+            "state": state,
+            "_raw_blocks": content,
+        }
+        if outcome:
+            payload["outcome"] = outcome
+        return payload
 
     # Try JSON first — some tools return structured JSON with ``ok``.
     try:
@@ -478,7 +503,10 @@ def _build_batch_response(
         type="text",
         text=json.dumps(payload, ensure_ascii=False),
     )
-    return ToolResponse(content=[summary, *all_content_blocks])
+    return ToolResponse(
+        content=[summary, *all_content_blocks],
+        state=(ToolResultState.SUCCESS if all_ok else ToolResultState.ERROR),
+    )
 
 
 # --- Main entry point -----------------------------------------------------

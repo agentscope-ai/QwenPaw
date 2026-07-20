@@ -30,6 +30,7 @@ from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path
+from .tool_outcome import error_tool_chunk
 
 # ---------------------------------------------------------------------
 # Constants
@@ -59,6 +60,22 @@ def _make_response(text: str) -> ToolChunk:
         is_last=True,
         state=ToolResultState.SUCCESS,
         content=[TextBlock(type="text", text=text)],
+    )
+
+
+def _make_error(
+    text: str,
+    *,
+    code: str,
+    retryable: bool = False,
+    next_action: str,
+) -> ToolChunk:
+    return error_tool_chunk(
+        text,
+        code=code,
+        retryable=retryable,
+        same_args_retry_useful=False,
+        next_action=next_action,
     )
 
 
@@ -104,20 +121,26 @@ def _resolve_search_path(
     try:
         candidate_resolved = candidate.resolve()
     except OSError as exc:
-        return _make_response(
+        return _make_error(
             f"Error: cannot resolve path {candidate} — {exc}",
+            code="PATH_RESOLUTION_ERROR",
+            next_action="change_search_path",
         )
     root_resolved = root.resolve()
     try:
         candidate_resolved.relative_to(root_resolved)
     except ValueError:
-        return _make_response(
+        return _make_error(
             f"Error: path {path} is outside the project root "
             f"{root_resolved}.",
+            code="PATH_OUTSIDE_WORKSPACE",
+            next_action="use_path_inside_workspace",
         )
     if not candidate_resolved.exists():
-        return _make_response(
+        return _make_error(
             f"Error: path {candidate_resolved} does not exist.",
+            code="PATH_NOT_FOUND",
+            next_action="change_search_path",
         )
     return candidate_resolved
 
@@ -255,15 +278,25 @@ async def ast_search(  # pylint: disable=too-many-return-statements
             1000.
     """
     if not pattern:
-        return _make_response("Error: empty `pattern`.")
+        return _make_error(
+            "Error: empty `pattern`.",
+            code="MISSING_PATTERN",
+            next_action="provide_ast_pattern",
+        )
     if not language:
-        return _make_response("Error: missing `language`.")
+        return _make_error(
+            "Error: missing `language`.",
+            code="MISSING_LANGUAGE",
+            next_action="provide_source_language",
+        )
 
     binary = _ast_grep_binary()
     if binary is None:
-        return _make_response(
+        return _make_error(
             "Error: ast-grep CLI not found on PATH.  Install with "
             "`pip install ast-grep-cli` and retry.",
+            code="DEPENDENCY_MISSING",
+            next_action="install_ast_grep_or_use_grep_search",
         )
 
     max_matches = max(1, min(int(max_matches), _MAX_MATCHES_CAP))
@@ -293,25 +326,36 @@ async def ast_search(  # pylint: disable=too-many-return-statements
             fallback_secs=_AST_GREP_TIMEOUT + 5,
         )
     except (asyncio.TimeoutError, asyncio.CancelledError):
-        return _make_response(
+        return _make_error(
             f"Error: ast_search timed out after {_AST_GREP_TIMEOUT}s. "
             f"Try a narrower `path` or a more specific pattern.",
+            code="SEARCH_TIMEOUT",
+            retryable=True,
+            next_action="narrow_search_scope",
         )
 
     if returncode != 0:
         msg = (stderr or stdout or "unknown error").strip()
-        return _make_response(f"Error: ast-grep failed — {msg}")
+        return _make_error(
+            f"Error: ast-grep failed — {msg}",
+            code="AST_GREP_FAILED",
+            next_action="change_pattern_language_or_path",
+        )
 
     try:
         raw = json.loads(stdout) if stdout.strip() else []
     except json.JSONDecodeError as exc:
-        return _make_response(
+        return _make_error(
             f"Error: could not parse ast-grep output — {exc}",
+            code="INVALID_TOOL_OUTPUT",
+            next_action="use_grep_search_or_report_tool_error",
         )
 
     if not isinstance(raw, list):
-        return _make_response(
+        return _make_error(
             "Error: unexpected ast-grep output (expected a JSON list).",
+            code="INVALID_TOOL_OUTPUT",
+            next_action="use_grep_search_or_report_tool_error",
         )
 
     matches, truncated = _format_matches(raw, root, max_matches)

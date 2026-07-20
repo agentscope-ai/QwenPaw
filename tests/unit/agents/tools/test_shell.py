@@ -22,6 +22,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from agentscope.message import ToolResultState
 
 from qwenpaw.agents.tools.shell import (
     _collapse_embedded_newlines,
@@ -452,6 +453,10 @@ class TestExecuteShellCommand:
             result = await execute_shell_command("false")
             text = result.content[0].text
             assert "failed" in text.lower() or "error" in text.lower()
+            assert result.state == ToolResultState.ERROR
+            outcome = result.metadata["tool_outcome"]
+            assert outcome["code"] == "NON_ZERO_EXIT"
+            assert outcome["same_args_retry_useful"] is False
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")

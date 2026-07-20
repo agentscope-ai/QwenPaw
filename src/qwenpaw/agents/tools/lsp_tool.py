@@ -22,6 +22,7 @@ from ...constant import WORKING_DIR
 from . import _lsp_client as lsp_client
 from . import _lsp_servers as lsp_servers
 from .file_io import _resolve_file_path
+from .tool_outcome import error_tool_chunk
 
 # ---------------------------------------------------------------------
 # Constants
@@ -55,6 +56,22 @@ def _make_response(text: str) -> ToolChunk:
     )
 
 
+def _make_error(
+    text: str,
+    *,
+    code: str,
+    retryable: bool = False,
+    next_action: str,
+) -> ToolChunk:
+    return error_tool_chunk(
+        text,
+        code=code,
+        retryable=retryable,
+        same_args_retry_useful=False,
+        next_action=next_action,
+    )
+
+
 def _resolve_root() -> Path:
     workspace = get_current_workspace_dir()
     if workspace is not None:
@@ -68,28 +85,40 @@ def _resolve_file(
 ) -> "Path | ToolChunk":
     """Resolve ``file_path`` and ensure it lives inside ``root``."""
     if not file_path:
-        return _make_response("Error: missing `file_path`.")
+        return _make_error(
+            "Error: missing `file_path`.",
+            code="MISSING_FILE_PATH",
+            next_action="provide_file_path",
+        )
     candidate = Path(_resolve_file_path(file_path)).expanduser()
     try:
         resolved = candidate.resolve()
     except OSError as exc:
-        return _make_response(
+        return _make_error(
             f"Error: cannot resolve path {candidate} — {exc}",
+            code="PATH_RESOLUTION_ERROR",
+            next_action="change_file_path",
         )
     try:
         resolved.relative_to(root.resolve())
     except ValueError:
-        return _make_response(
+        return _make_error(
             f"Error: path {file_path} is outside the project root "
             f"{root.resolve()}.",
+            code="PATH_OUTSIDE_WORKSPACE",
+            next_action="use_path_inside_workspace",
         )
     if not resolved.exists():
-        return _make_response(
+        return _make_error(
             f"Error: path {resolved} does not exist.",
+            code="PATH_NOT_FOUND",
+            next_action="change_file_path",
         )
     if not resolved.is_file():
-        return _make_response(
+        return _make_error(
             f"Error: path {resolved} is not a regular file.",
+            code="PATH_NOT_FILE",
+            next_action="provide_regular_file_path",
         )
     return resolved
 
@@ -183,9 +212,11 @@ def make_lsp_tool(  # noqa: C901  pylint: disable=too-many-statements
     ) -> ToolChunk:
         # pylint: disable=too-many-return-statements,too-many-branches
         if operation not in _ALL_OPERATIONS:
-            return _make_response(
+            return _make_error(
                 f"Error: unknown operation `{operation}`. Valid: "
                 f"{sorted(_ALL_OPERATIONS)}.",
+                code="UNKNOWN_OPERATION",
+                next_action="choose_supported_operation",
             )
 
         root = _resolve_root()
@@ -194,12 +225,16 @@ def make_lsp_tool(  # noqa: C901  pylint: disable=too-many-statements
         # a language since workspace/symbol is server-scoped.
         if operation == "workspaceSymbol":
             if not query:
-                return _make_response(
+                return _make_error(
                     "Error: `query` is required for workspaceSymbol.",
+                    code="MISSING_QUERY",
+                    next_action="provide_symbol_query",
                 )
             if not frozen_available:
-                return _make_response(
+                return _make_error(
                     "Error: no LSP servers available in this workspace.",
+                    code="LSP_SERVER_UNAVAILABLE",
+                    next_action="use_grep_search_or_ast_search",
                 )
             # Prefer Python if discovered, otherwise the first language
             # in the registry order so the choice is deterministic.
@@ -216,26 +251,32 @@ def make_lsp_tool(  # noqa: C901  pylint: disable=too-many-statements
             target_file = resolved_or_err
             language_id = lsp_servers.language_for_file(target_file) or ""
             if not language_id:
-                return _make_response(
+                return _make_error(
                     f"Error: cannot infer language for {target_file.name}. "
                     "Fall back to grep_search / ast_search.",
+                    code="LANGUAGE_NOT_DETECTED",
+                    next_action="use_grep_search_or_ast_search",
                 )
             if language_id not in frozen_available:
                 supported = _format_languages(
                     list(frozen_available.keys()),
                 )
                 pretty = lsp_servers.display_name(language_id)
-                return _make_response(
+                return _make_error(
                     f"Error: LSP for {pretty} is not available in this "
                     f"workspace. Supported: {supported}. Use grep_search "
                     f"/ ast_search for {target_file.name}.",
+                    code="LSP_SERVER_UNAVAILABLE",
+                    next_action="use_grep_search_or_ast_search",
                 )
 
         if operation in _OPERATIONS_REQUIRING_POSITION:
             if line < 1 or character < 1:
-                return _make_response(
+                return _make_error(
                     "Error: `line` and `character` must be 1-based "
                     "integers >= 1.",
+                    code="INVALID_POSITION",
+                    next_action="provide_one_based_position",
                 )
 
         argv = frozen_available[language_id]
@@ -261,12 +302,19 @@ def make_lsp_tool(  # noqa: C901  pylint: disable=too-many-statements
                 fallback_secs=_REQUEST_TIMEOUT,
             )
         except (asyncio.TimeoutError, asyncio.CancelledError):
-            return _make_response(
+            return _make_error(
                 f"Error: LSP {operation} timed out after "
                 f"{_REQUEST_TIMEOUT}s.",
+                code="LSP_TIMEOUT",
+                retryable=True,
+                next_action="retry_once_or_use_search_fallback",
             )
         except lsp_client.LspError as exc:
-            return _make_response(f"Error: LSP {operation} failed — {exc}")
+            return _make_error(
+                f"Error: LSP {operation} failed — {exc}",
+                code="LSP_REQUEST_FAILED",
+                next_action="use_grep_search_or_ast_search",
+            )
 
         if result is None:
             return _make_response(f"No result for {operation}.")

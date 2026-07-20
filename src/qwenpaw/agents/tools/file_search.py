@@ -20,6 +20,7 @@ from ...constant import WORKING_DIR
 from ...config.context import get_current_workspace_dir
 from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path
+from .tool_outcome import error_tool_chunk
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -137,6 +138,22 @@ def _make_response(text: str) -> ToolChunk:
     )
 
 
+def _make_error(
+    text: str,
+    *,
+    code: str,
+    retryable: bool = False,
+    next_action: str,
+) -> ToolChunk:
+    return error_tool_chunk(
+        text,
+        code=code,
+        retryable=retryable,
+        same_args_retry_useful=False,
+        next_action=next_action,
+    )
+
+
 def _compile_search_pattern(
     pattern: str,
     is_regex: bool,
@@ -177,16 +194,22 @@ def _resolve_search_root(
     try:
         exists = search_root.exists()
     except OSError as e:
-        return _make_response(
+        return _make_error(
             f"Error: Cannot access path {search_root} — {e}",
+            code="PATH_ACCESS_ERROR",
+            next_action="check_path_and_permissions",
         )
     if not exists:
-        return _make_response(
+        return _make_error(
             f"Error: The path {search_root} does not exist.",
+            code="PATH_NOT_FOUND",
+            next_action="change_search_path",
         )
     if require_dir and not search_root.is_dir():
-        return _make_response(
+        return _make_error(
             f"Error: The path {search_root} is not a directory.",
+            code="PATH_NOT_DIRECTORY",
+            next_action="change_search_path",
         )
     return search_root
 
@@ -544,8 +567,11 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                         )
                         break
 
-        except OSError:
-            continue
+        except OSError as exc:
+            if single_file or not matches:
+                return matches, f"error: cannot read {file_path}: {exc}"
+            status = f"partial_error: cannot read {file_path}: {exc}"
+            break
 
         if status != "ok":
             break
@@ -557,10 +583,10 @@ def _walk_and_glob(
     search_root: Path,
     pattern: str,
     cancel: threading.Event,
-) -> tuple[list[str], bool]:
+) -> tuple[list[str], bool, str | None]:
     """Iterate ``search_root.glob(pattern)`` with cancellation support.
 
-    Returns ``(result_lines, truncated)``.
+    Returns ``(result_lines, truncated, error)``.
     """
     results: list[str] = []
     truncated = False
@@ -581,11 +607,11 @@ def _walk_and_glob(
             if len(results) >= _MAX_MATCHES:
                 truncated = True
                 break
-    except OSError:
-        pass
+    except OSError as exc:
+        return results, truncated, str(exc)
 
     results.sort()
-    return results, truncated
+    return results, truncated, None
 
 
 # ---------------------------------------------------------------------------
@@ -632,7 +658,11 @@ async def grep_search(
             path shown once per file and ``---`` between file groups.
     """
     if not pattern:
-        return _make_response("Error: No search `pattern` provided.")
+        return _make_error(
+            "Error: No search `pattern` provided.",
+            code="MISSING_PATTERN",
+            next_action="provide_search_pattern",
+        )
 
     root_or_err = _resolve_search_root(path)
     if isinstance(root_or_err, ToolChunk):
@@ -643,7 +673,11 @@ async def grep_search(
     try:
         regex = _compile_search_pattern(pattern, is_regex, flags)
     except re.error as e:
-        return _make_response(f"Error: Invalid regex pattern — {e}")
+        return _make_error(
+            f"Error: Invalid regex pattern — {e}",
+            code="INVALID_REGEX",
+            next_action="change_regex_pattern",
+        )
 
     cancel = threading.Event()
 
@@ -670,13 +704,20 @@ async def grep_search(
     except (asyncio.TimeoutError, asyncio.CancelledError):
         cancel.set()
         await asyncio.sleep(0.05)
-        return _make_response(
+        return _make_error(
             f"Error: Search timed out after {_GREP_TIMEOUT}s. "
             f"Try narrowing the search path or using a more specific pattern.",
+            code="SEARCH_TIMEOUT",
+            retryable=True,
+            next_action="narrow_search_scope",
         )
 
     if status.startswith("error:"):
-        result = f"Error: grep failed — {status}"
+        return _make_error(
+            f"Error: grep failed — {status}",
+            code="SEARCH_EXECUTION_ERROR",
+            next_action="check_path_and_search_parameters",
+        )
     elif status.startswith("truncated:"):
         # Even if no matches were appended (e.g., first match exceeded limit),
         # we should report truncation, not "No matches found"
@@ -701,6 +742,8 @@ async def grep_search(
                 f"\n\n(Partial results — search timed out after {_GREP_TIMEOUT}s. "
                 f"Try narrowing the search scope.)"
             )
+        elif status.startswith("partial_error:"):
+            result += f"\n\n(Partial results — {status})"
 
     return _make_response(result)
 
@@ -720,7 +763,11 @@ async def glob_search(
             Root directory to search from.  Defaults to WORKING_DIR.
     """
     if not pattern:
-        return _make_response("Error: No glob `pattern` provided.")
+        return _make_error(
+            "Error: No glob `pattern` provided.",
+            code="MISSING_PATTERN",
+            next_action="provide_glob_pattern",
+        )
 
     root_or_err = _resolve_search_root(path, require_dir=True)
     if isinstance(root_or_err, ToolChunk):
@@ -729,25 +776,35 @@ async def glob_search(
 
     cancel = threading.Event()
 
-    def _worker() -> tuple[list[str], bool]:
+    def _worker() -> tuple[list[str], bool, str | None]:
         try:
             return _walk_and_glob(search_root, pattern, cancel)
-        except Exception:
-            return [], False
+        except Exception as exc:
+            return [], False, str(exc)
 
     try:
         from ...tool_calls import cancellable_wait
 
-        results, truncated = await cancellable_wait(
+        results, truncated, error = await cancellable_wait(
             asyncio.to_thread(_worker),
             fallback_secs=_GLOB_TIMEOUT,
         )
     except (asyncio.TimeoutError, asyncio.CancelledError):
         cancel.set()
         await asyncio.sleep(0.05)
-        return _make_response(
+        return _make_error(
             f"Error: Glob search timed out after {_GLOB_TIMEOUT}s. "
             f"Try a more specific pattern or narrower search path.",
+            code="SEARCH_TIMEOUT",
+            retryable=True,
+            next_action="narrow_search_scope",
+        )
+
+    if error is not None:
+        return _make_error(
+            f"Error: Glob search failed — {error}",
+            code="SEARCH_EXECUTION_ERROR",
+            next_action="check_path_and_glob_pattern",
         )
 
     if not results:

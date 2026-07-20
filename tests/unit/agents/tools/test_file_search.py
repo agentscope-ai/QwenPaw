@@ -533,7 +533,7 @@ def test_walk_and_grep_empty_directory(temp_dir):
 
 
 def test_walk_and_grep_file_read_error(temp_dir):
-    """Test that unreadable files are skipped gracefully."""
+    """Test that an unreadable-only search is not reported as no match."""
     if os.name != "nt":
         f = temp_dir / "noperm.txt"
         f.write_text("secret\n")
@@ -547,7 +547,7 @@ def test_walk_and_grep_file_read_error(temp_dir):
                 FakeCancel(),
                 None,
             )
-            assert status == "ok"
+            assert status.startswith("error:")
             assert not matches
         finally:
             os.chmod(str(f), 0o644)

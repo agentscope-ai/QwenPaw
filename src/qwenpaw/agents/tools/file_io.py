@@ -22,6 +22,7 @@ from ...config.context import (
 )
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
+from .tool_outcome import error_tool_chunk
 
 
 def _path_to_file_url(path: str) -> str:
@@ -373,15 +374,13 @@ async def edit_file(
         )
 
     if old_text not in content:
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The text to replace was not found in {file_path}.",
-                ),
-            ],
+        return error_tool_chunk(
+            f"Error: The text to replace was not found in {file_path}.",
+            code="MATCH_NOT_FOUND",
+            retryable=False,
+            same_args_retry_useful=False,
+            next_action="re_read_file_or_change_old_text",
+            metadata={"changed": False, "match_count": 0},
         )
 
     new_content = content.replace(old_text, new_text)
@@ -390,10 +389,8 @@ async def edit_file(
         content=new_content,
     )
 
-    if write_response.content and len(write_response.content) > 0:
-        write_text = getattr(write_response.content[0], "text", "")
-        if write_text.startswith("Error:"):
-            return write_response
+    if write_response.state == ToolResultState.ERROR:
+        return write_response
 
     return ToolChunk(
         is_last=True,
