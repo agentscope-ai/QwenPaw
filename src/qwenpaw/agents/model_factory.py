@@ -710,6 +710,51 @@ def _is_block_dropped_by_formatter(
     return True
 
 
+def _reasoning_by_assistant_segment(
+    blocks: list[Any],
+    formatter: "FormatterBase",
+) -> list[str | None]:
+    """Align thinking content with emitted assistant wire messages.
+
+    OpenAI-family formatters flush the current assistant message before each
+    tool result. AgentScope can keep several reasoning/tool cycles in one
+    assistant ``Msg``, so each resulting wire segment must receive only the
+    thinking blocks that belong to that segment.
+    """
+
+    def _get(block: Any, key: str, default: Any = None) -> Any:
+        if isinstance(block, dict):
+            return block.get(key, default)
+        return getattr(block, key, default)
+
+    aligned: list[str | None] = []
+    reasoning_parts: list[str] = []
+    segment_survives = False
+
+    for block in blocks:
+        block_type = _get(block, "type")
+        if block_type == "thinking":
+            thinking = _get(block, "thinking", "")
+            if thinking:
+                reasoning_parts.append(thinking)
+            continue
+
+        if block_type == "tool_result":
+            if segment_survives:
+                aligned.append("\n".join(reasoning_parts) or None)
+            reasoning_parts = []
+            segment_survives = False
+            continue
+
+        if not _is_block_dropped_by_formatter(block, formatter):
+            segment_survives = True
+
+    if segment_survives:
+        aligned.append("\n".join(reasoning_parts) or None)
+
+    return aligned
+
+
 # pylint: disable=too-many-branches
 def _fixup_media_list(items: list) -> None:
     """Normalize media blocks in a list in-place.
@@ -931,7 +976,7 @@ def _create_file_block_support_formatter(
                 self,
             )
 
-            reasoning_contents = {}
+            has_reasoning = False
             extra_contents: dict[str, Any] = {}
             for msg in normalized_msgs:
                 if msg.role != "assistant":
@@ -940,8 +985,7 @@ def _create_file_block_support_formatter(
                     if _battr(block, "type") == "thinking":
                         thinking = _battr(block, "thinking", "")
                         if thinking:
-                            reasoning_contents[id(msg)] = thinking
-                        break
+                            has_reasoning = True
                 for block in msg.content or []:
                     btype = _battr(block, "type")
                     if btype in ("tool_use", "tool_call"):
@@ -996,7 +1040,7 @@ def _create_file_block_support_formatter(
                             tc["extra_content"] = ec
 
             if (
-                reasoning_contents
+                has_reasoning
                 and not is_anthropic_formatter
                 and not _is_response_formatter
                 and getattr(
@@ -1012,40 +1056,8 @@ def _create_file_block_support_formatter(
                     blocks = (
                         list(m.content) if isinstance(m.content, list) else []
                     )
-                    types = [_battr(b, "type") for b in blocks]
-                    # Drop prediction: a message is discarded when
-                    # *every* block is skipped by the base formatter
-                    # (thinking, hint, file, DataBlock with unsupported
-                    # media, unknown types).  See #5858.
-                    is_dropped_by_formatter = bool(blocks) and all(
-                        _is_block_dropped_by_formatter(b, self) for b in blocks
-                    )
-                    if is_dropped_by_formatter:
-                        continue
-                    # Split prediction: DashScope / OpenAI-family
-                    # formatters produce one assistant wire msg per
-                    # "segment" — where tool_result blocks act as
-                    # separators (they become role="tool" messages).
-                    # Each contiguous run of text/tool_call between
-                    # tool_results becomes one assistant message.
-                    non_thinking = [t for t in types if t != "thinking"]
-                    segments = 0
-                    in_segment = False
-                    for bt in non_thinking:
-                        if bt == "tool_result":
-                            in_segment = False
-                        else:
-                            if not in_segment:
-                                segments += 1
-                                in_segment = True
-                    # Within a segment, text+tool_call still counts as
-                    # one wire msg (content + tool_calls merged).  But
-                    # if a segment has text ONLY or tool_call ONLY,
-                    # that's also 1.  The only extra split is text that
-                    # follows tool_calls (rare in model output).
-                    wire_count = max(segments, 1)
                     aligned_reasoning.extend(
-                        [reasoning_contents.get(id(m))] * wire_count,
+                        _reasoning_by_assistant_segment(blocks, self),
                     )
 
                 out_assistant = [
