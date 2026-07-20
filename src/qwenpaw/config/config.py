@@ -723,7 +723,8 @@ class ReMeLightMemoryConfig(BaseModel):
         default="0 23 * * *",
         description=(
             "Cron expression for dream-based memory optimization job "
-            "(use dream_cron_enabled to enable/disable)"
+            "(use dream_cron_enabled to enable/disable). Scheduled runs "
+            "start after a random delay of 0 to 60 seconds."
         ),
     )
 
@@ -733,15 +734,6 @@ class ReMeLightMemoryConfig(BaseModel):
 
     embedding_model_config: EmbeddingModelConfig = Field(
         default_factory=EmbeddingModelConfig,
-    )
-
-    rebuild_memory_index_on_start: bool = Field(
-        default=False,
-        description=(
-            "Whether to clear and rebuild the memory search index when the"
-            " agent starts. Set to False to skip re-indexing and only monitor"
-            " new file changes."
-        ),
     )
 
 

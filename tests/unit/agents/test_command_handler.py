@@ -7,6 +7,7 @@ import pytest
 from agentscope.message import Msg, TextBlock
 
 from qwenpaw.agents.command_handler import CommandHandler
+from qwenpaw.agents.memory.dummy import NoopMemoryManager
 
 
 def _make_agent():
@@ -41,11 +42,11 @@ async def test_process_clear_returns_clear_history_metadata() -> None:
 @pytest.mark.asyncio
 async def test_clear_resets_stop_gates_and_pending_gate_state() -> None:
     agent = _make_agent()
-    agent._gate_pending_stop = object()
-    agent._gate_pending_continue = "continue"
-    stop_handler = MagicMock()
+    mode = MagicMock()
     ctx = SimpleNamespace(
-        workspace=SimpleNamespace(_stop_handler=stop_handler),
+        workspace=SimpleNamespace(
+            plugins=SimpleNamespace(modes=[mode]),
+        ),
         agent=agent,
     )
     handler = CommandHandler(
@@ -56,20 +57,16 @@ async def test_clear_resets_stop_gates_and_pending_gate_state() -> None:
 
     await handler.handle_command("/clear")
 
-    stop_handler.reset.assert_called_once_with()
-    assert agent._gate_pending_stop is None
-    assert agent._gate_pending_continue is None
+    mode.on_conversation_reset.assert_called_once_with(ctx)
 
 
 @pytest.mark.asyncio
 async def test_new_empty_resets_stop_gates() -> None:
     agent = _make_agent()
-    agent._gate_pending_stop = object()
-    agent._gate_pending_continue = "stale"
-    stop_handler = MagicMock()
+    mode = MagicMock()
     ctx = SimpleNamespace(
         workspace=SimpleNamespace(
-            _stop_handler=stop_handler,
+            plugins=SimpleNamespace(modes=[mode]),
         ),
         agent=agent,
     )
@@ -81,9 +78,7 @@ async def test_new_empty_resets_stop_gates() -> None:
 
     await handler.handle_command("/new")
 
-    stop_handler.reset.assert_called_once_with()
-    assert agent._gate_pending_stop is None
-    assert agent._gate_pending_continue is None
+    mode.on_conversation_reset.assert_called_once_with(ctx)
 
 
 @pytest.mark.asyncio
@@ -92,12 +87,10 @@ async def test_new_no_mem_mgr_resets_stop_gates() -> None:
     agent.state.context = [
         _msg("user", "hi"),
     ]
-    agent._gate_pending_stop = object()
-    agent._gate_pending_continue = "stale"
-    stop_handler = MagicMock()
+    mode = MagicMock()
     ctx = SimpleNamespace(
         workspace=SimpleNamespace(
-            _stop_handler=stop_handler,
+            plugins=SimpleNamespace(modes=[mode]),
         ),
         agent=agent,
     )
@@ -109,9 +102,7 @@ async def test_new_no_mem_mgr_resets_stop_gates() -> None:
 
     msg = await handler.handle_command("/new")
 
-    stop_handler.reset.assert_called_once_with()
-    assert agent._gate_pending_stop is None
-    assert agent._gate_pending_continue is None
+    mode.on_conversation_reset.assert_called_once_with(ctx)
     assert "Memory Manager Disabled" in msg.get_text_content()
 
 
@@ -205,6 +196,30 @@ async def test_reme_status_requires_memory_manager() -> None:
     msg = await handler.handle_command("/reme_status")
 
     assert "Memory Manager Disabled" in msg.get_text_content()
+
+
+@pytest.mark.asyncio
+async def test_reme_status_reports_disabled_for_noop_manager(tmp_path) -> None:
+    agent = _make_agent()
+    memory_manager = NoopMemoryManager(
+        working_dir=str(tmp_path),
+        agent_id="default",
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command("/reme_status")
+    text = msg.get_text_content()
+
+    assert handler.is_command("/reme_status")
+    assert "Memory Manager Disabled" in text
+    assert "memory_manager_backend" in text
+    assert "remelight" in text
+    assert "ReMe Status Unavailable" not in text
+    assert "Traceback" not in text
 
 
 @pytest.mark.asyncio

@@ -67,6 +67,8 @@ def test_openai_compatible_embedding_requires_api_key() -> None:
     )
 
     assert cfg["components"]["file_store"]["default"]["embedding_store"] == ""
+    assert "as_embedding" not in cfg["components"]
+    assert "embedding_store" not in cfg["components"]
 
 
 def test_openai_compatible_embedding_keeps_base_url_credential() -> None:
@@ -157,6 +159,8 @@ def test_gemini_embedding_without_api_key_is_disabled() -> None:
     )
 
     assert cfg["components"]["file_store"]["default"]["embedding_store"] == ""
+    assert "as_embedding" not in cfg["components"]
+    assert "embedding_store" not in cfg["components"]
 
 
 def test_ollama_embedding_maps_base_url_to_host() -> None:

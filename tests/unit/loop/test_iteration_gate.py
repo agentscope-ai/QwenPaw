@@ -39,10 +39,10 @@ async def test_check_increments(gate):
 
 @pytest.mark.asyncio
 async def test_reset_clears_counter(gate):
-    """reset() sets iteration back to 0."""
+    """reset_turn() sets iteration back to 0."""
     for _ in range(3):
         await gate.check({})
-    gate.reset()
+    gate.reset_turn()
     state = gate._state()
     assert state is not None
     assert state.iteration == 0
@@ -50,8 +50,8 @@ async def test_reset_clears_counter(gate):
 
 @pytest.mark.asyncio
 async def test_reset_preserves_max(gate):
-    """reset() keeps max_iterations unchanged."""
-    gate.reset()
+    """reset_turn() keeps max_iterations unchanged."""
+    gate.reset_turn()
     state = gate._state()
     assert state.max_iterations == 5
 
@@ -61,7 +61,7 @@ async def test_reset_allows_full_budget(gate):
     """After reset the full iteration budget is available."""
     for _ in range(3):
         await gate.check({})
-    gate.reset()
+    gate.reset_turn()
     for _ in range(4):
         result = await gate.check({})
         assert result.action == StopAction.BYPASS
@@ -70,9 +70,10 @@ async def test_reset_allows_full_budget(gate):
 
 
 def test_reset_when_inactive():
-    """reset() is a no-op when no session state."""
+    """reset_turn() activates a fresh session state."""
     g = IterationGate(max_iterations=5)
-    g.reset()
+    g.reset_turn()
+    assert g._state() is not None
 
 
 @pytest.fixture()
@@ -94,7 +95,7 @@ def gate_pair():
 
 @pytest.mark.asyncio
 async def test_reset_session_isolation(gate_pair):
-    """reset() only affects the current session."""
+    """reset_turn() only affects the current session."""
     g = gate_pair
     with patch(
         "qwenpaw.loop.gates.loop_gate._session_id",
@@ -114,7 +115,7 @@ async def test_reset_session_isolation(gate_pair):
         "qwenpaw.loop.gates.loop_gate._session_id",
         return_value="session-a",
     ):
-        g.reset()
+        g.reset_turn()
         assert g._state().iteration == 0
 
     with patch(
@@ -122,3 +123,19 @@ async def test_reset_session_isolation(gate_pair):
         return_value="session-b",
     ):
         assert g._state().iteration == 2
+
+
+def test_reset_session_removes_only_current_session(gate_pair):
+    """reset_session() removes only the current conversation state."""
+    with patch(
+        "qwenpaw.loop.gates.loop_gate._session_id",
+        return_value="session-a",
+    ):
+        gate_pair.reset_session()
+        assert gate_pair._state() is None
+
+    with patch(
+        "qwenpaw.loop.gates.loop_gate._session_id",
+        return_value="session-b",
+    ):
+        assert gate_pair._state() is not None

@@ -763,7 +763,8 @@ class PluginApi:  # pylint: disable=too-many-public-methods
 
         The mode is instantiated and registered into every workspace
         on startup, and into newly created workspaces via a
-        workspace_created hook.
+        workspace_created hook. Runtime lifecycle callbacks receive
+        the current ``HookContext``.
 
         Args:
             mode_cls: An ``AgentMode`` subclass with a unique

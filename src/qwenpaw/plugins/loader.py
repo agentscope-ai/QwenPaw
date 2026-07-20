@@ -158,14 +158,13 @@ class PluginLoader:
                 manifest_path = item / "plugin.json"
                 if not manifest_path.exists():
                     continue
-
                 try:
                     manifest = self._load_manifest(manifest_path)
                     discovered.append((manifest, item))
                     logger.info(f"Discovered plugin: {manifest.id}")
                 except Exception as e:
                     logger.error(
-                        f"Failed to load manifest from {manifest_path}: {e}",
+                        f"Failed to load manifest from {item}: {e}",
                         exc_info=True,
                     )
 
@@ -411,12 +410,16 @@ class PluginLoader:
             module.__path__ = [plugin_dir_str]
             spec.loader.exec_module(module)
 
-            if not hasattr(module, "plugin"):
+            plugin_def = getattr(module, "plugin", None)
+            if plugin_def is None:
+                # PawApp ('app'-type) modules export a PawApp instance named
+                # 'app' that implements the same register(api) contract.
+                plugin_def = getattr(module, "app", None)
+            if plugin_def is None:
                 raise AttributeError(
-                    "Plugin module must export 'plugin' object",
+                    "Plugin module must export a 'plugin' object "
+                    "(or a PawApp 'app' instance)",
                 )
-
-            plugin_def = module.plugin
 
             if manifest.qwenpaw_version is not None:
                 qv_dict = manifest.qwenpaw_version.model_dump()

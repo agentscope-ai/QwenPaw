@@ -82,11 +82,13 @@ class IterationGate(LoopGate):
             action=StopAction.BYPASS,
         )
 
-    def reset(self) -> None:
-        """Reset iteration counter for current session."""
+    def reset_turn(self) -> None:
+        """Prepare a fresh iteration counter for the current turn."""
         state = self._state()
-        if state is not None:
-            state.iteration = 0
+        if state is None:
+            self.activate()
+            return
+        state.iteration = 0
 
 
 __all__ = ["IterationGate"]

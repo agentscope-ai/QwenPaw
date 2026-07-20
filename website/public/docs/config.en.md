@@ -414,22 +414,24 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **ReMeLight Memory Configuration (`reme_light_memory_config` object):**
 
-| Field                           | Type        | Default          | Description                                                                                                        |
-| ------------------------------- | ----------- | ---------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `metadata_dir`                  | string      | `"mem_metadata"` | Subdirectory for ReMe persistent state                                                                             |
-| `session_dir`                   | string      | `"mem_session"`  | Subdirectory for ReMe source conversation logs used by auto-memory                                                 |
-| `mem_session_dir`               | string      | `"mem_agent"`    | Subdirectory for ReMe internal memory-agent sessions                                                               |
-| `resource_dir`                  | string      | `"resource"`     | Subdirectory for external assets                                                                                   |
-| `daily_dir`                     | string      | `"memory"`       | Subdirectory for daily memory                                                                                      |
-| `digest_dir`                    | string      | `"digest"`       | Subdirectory for digest memory                                                                                     |
-| `summarize_when_compact`        | bool        | `true`           | Whether to enable memory summarization during compaction                                                           |
-| `inbox_push_enabled`            | bool        | `true`           | Whether to push auto-memory, auto-dream, and auto-resource job results to the inbox                                |
-| `auto_memory_interval`          | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                   |
-| `dream_cron_enabled`            | bool        | `true`           | Whether to enable the scheduled dream-based memory optimization job                                                |
-| `dream_cron`                    | string      | `"0 23 * * *"`   | Valid 5-field cron expression for dream-based memory optimization (required when enabled)                          |
-| `auto_memory_search_config`     | object      | _(see below)_    | Auto memory search configuration                                                                                   |
-| `embedding_model_config`        | object      | _(see below)_    | Embedding model configuration                                                                                      |
-| `rebuild_memory_index_on_start` | bool        | `false`          | Whether to clear and rebuild the memory search index when the agent starts; otherwise only new changes are indexed |
+| Field                       | Type        | Default          | Description                                                                                                                                                                      |
+| --------------------------- | ----------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `metadata_dir`              | string      | `"mem_metadata"` | Subdirectory for ReMe persistent state                                                                                                                                           |
+| `session_dir`               | string      | `"mem_session"`  | Subdirectory for ReMe source conversation logs used by auto-memory                                                                                                               |
+| `mem_session_dir`           | string      | `"mem_agent"`    | Subdirectory for ReMe internal memory-agent sessions                                                                                                                             |
+| `resource_dir`              | string      | `"resource"`     | Subdirectory for external assets                                                                                                                                                 |
+| `daily_dir`                 | string      | `"memory"`       | Subdirectory for daily memory                                                                                                                                                    |
+| `digest_dir`                | string      | `"digest"`       | Subdirectory for digest memory                                                                                                                                                   |
+| `summarize_when_compact`    | bool        | `true`           | Whether to enable memory summarization during compaction                                                                                                                         |
+| `inbox_push_enabled`        | bool        | `true`           | Whether to push auto-memory, auto-dream, and auto-resource job results to the inbox                                                                                              |
+| `auto_memory_interval`      | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                                                                                 |
+| `dream_cron_enabled`        | bool        | `true`           | Whether to enable the scheduled dream-based memory optimization job                                                                                                              |
+| `dream_cron`                | string      | `"0 23 * * *"`   | Valid 5-field cron expression for dream-based memory optimization (required when enabled); scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls |
+| `auto_memory_search_config` | object      | _(see below)_    | Auto memory search configuration                                                                                                                                                 |
+| `embedding_model_config`    | object      | _(see below)_    | Embedding model configuration                                                                                                                                                    |
+
+> `rebuild_memory_index_on_start` is no longer supported. Rebuild an index only when needed from the Console or the
+> maintenance API described in [Rebuilding the Memory Search Index](./memory#rebuilding-the-memory-search-index).
 
 **Auto Memory Search Configuration (`reme_light_memory_config.auto_memory_search_config` object):**
 

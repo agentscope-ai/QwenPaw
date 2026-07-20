@@ -20,6 +20,12 @@ def test_reme_light_inbox_push_defaults_to_enabled():
     assert cfg.inbox_push_enabled is True
 
 
+def test_legacy_rebuild_on_start_setting_is_ignored():
+    cfg = ReMeLightMemoryConfig(rebuild_memory_index_on_start=True)
+
+    assert "rebuild_memory_index_on_start" not in cfg.model_dump()
+
+
 def test_dream_cron_is_enabled_by_default():
     cfg = ReMeLightMemoryConfig()
 

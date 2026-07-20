@@ -55,6 +55,36 @@ async def test_start_is_idempotent(manager: CronManager):
 
 
 @pytest.mark.asyncio
+async def test_scheduled_dream_waits_for_random_delay(
+    repo: InMemoryJobRepository,
+):
+    workspace = MagicMock()
+    workspace.memory_manager.dream = AsyncMock()
+    mgr = CronManager(
+        repo=repo,
+        workspace=workspace,
+        channel_manager=AsyncMock(),
+        agent_id="test-agent",
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.crons.manager.random.randint",
+            return_value=42,
+        ) as randint_mock,
+        patch(
+            "qwenpaw.app.crons.manager.asyncio.sleep",
+            new_callable=AsyncMock,
+        ) as sleep_mock,
+    ):
+        await mgr._dream_callback()
+
+    randint_mock.assert_called_once_with(0, 60)
+    sleep_mock.assert_awaited_once_with(42)
+    workspace.memory_manager.dream.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_start_loads_existing_jobs(repo: InMemoryJobRepository):
     spec = make_cron_job_spec(job_id="preloaded")
     await repo.upsert_job(spec)
