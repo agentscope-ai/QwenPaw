@@ -36,13 +36,29 @@ function hydrateTurnUsageFromMessages(
   const activeMax = useTurnUsageStore.getState().activeMaxInputLength;
   if (snap?.context_usage && typeof activeMax === "number" && activeMax > 0) {
     const estimatedTokens = snap.context_usage.estimated_tokens;
+    const updatedContext = {
+      estimated_tokens: estimatedTokens,
+      max_input_length: activeMax,
+      context_usage_ratio: Math.min((estimatedTokens / activeMax) * 100, 100),
+    };
+    // Keep the latest assistant card in sync with the store. Otherwise
+    // patchContextMaxInputLength early-returns on stale card.max and the
+    // ring stops updating after a config change + model switch.
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== ROLE_ASSISTANT) continue;
+      const card = (
+        msg.cards as
+          | Array<{ code?: string; data?: Record<string, unknown> }>
+          | undefined
+      )?.find((c) => c?.code === CARD_RESPONSE);
+      if (!card?.data?.context_usage) continue;
+      card.data.context_usage = updatedContext;
+      break;
+    }
     useTurnUsageStore.getState().setSnapshot({
       usage: snap.usage,
-      context_usage: {
-        estimated_tokens: estimatedTokens,
-        max_input_length: activeMax,
-        context_usage_ratio: Math.min((estimatedTokens / activeMax) * 100, 100),
-      },
+      context_usage: updatedContext,
     });
     return;
   }
