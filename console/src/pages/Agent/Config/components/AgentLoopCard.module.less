@@ -50,28 +50,58 @@
 }
 
 .modeEditor {
-  max-width: 820px;
+  max-width: 960px;
   margin: 0 auto;
-  padding: 16px 4px 12px;
+  padding: 10px 4px 12px;
 }
 
-.modeHeader,
 .customHeader {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
-.modeHeader h3 {
-  margin: 10px 0 5px;
-  font-size: 20px;
-  letter-spacing: -0.02em;
-}
-
-.modeHeader > p,
 .customHeader p {
   margin: 0 0 14px;
   color: var(--text-secondary, rgba(0, 0, 0, 0.55));
   font-size: 12px;
   line-height: 1.6;
+}
+
+.builtInIntro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 11px 13px;
+  border: 1px solid var(--border-color, #e4e7e2);
+  border-radius: 11px;
+  background: var(--background-color-secondary, #fafbf9);
+}
+
+.builtInIntroMain {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.builtInIntroMain p {
+  overflow: hidden;
+  margin: 0;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.58));
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.builtInNote {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.5));
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .builtInTag,
@@ -199,9 +229,39 @@
 }
 
 .gateDetails {
-  padding: 18px 20px 4px 82px;
+  padding: 18px 22px 5px 76px;
   border-top: 1px solid var(--border-color, #eceeea);
   background: var(--background-color-secondary, #fdfdfb);
+}
+
+.gateForm {
+  max-width: 760px;
+}
+
+.subsectionTitle {
+  margin: 2px 0 10px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.62));
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ruleList {
+  display: grid;
+  gap: 9px;
+  margin-bottom: 14px;
+}
+
+.ruleRow {
+  display: grid;
+  grid-template-columns: 90px 170px minmax(220px, 1fr) 32px;
+  align-items: start;
+  gap: 8px;
+}
+
+.ruleRow > :global(.ant-btn) {
+  margin-top: 30px;
 }
 
 .gateDetails :global(.ant-form-item:last-child) {
@@ -330,6 +390,20 @@
     gap: 0;
   }
 
+  .builtInIntro,
+  .builtInIntroMain {
+    align-items: flex-start;
+  }
+
+  .builtInIntro {
+    flex-direction: column;
+  }
+
+  .builtInIntroMain p {
+    overflow: visible;
+    white-space: normal;
+  }
+
   .customHeader,
   .pipelineToolbar {
     align-items: stretch;
@@ -350,6 +424,15 @@
   .gateDetails {
     padding-right: 13px;
     padding-left: 13px;
+  }
+
+  .ruleRow {
+    grid-template-columns: 1fr;
+  }
+
+  .ruleRow > :global(.ant-btn) {
+    justify-self: end;
+    margin-top: 0;
   }
 
   .gateActions > :nth-child(-n + 2) {
