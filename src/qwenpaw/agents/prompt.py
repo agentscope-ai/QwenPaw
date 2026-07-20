@@ -431,15 +431,18 @@ def _get_active_model_info():
 def get_active_model_supports_multimodal() -> bool:
     """Check if the current active model supports multimodal input.
 
-    Defaults to True when model info is unavailable so that
-    unknown models fail-open (sending an image to a text-only
-    model yields a recoverable API error, but stripping images
-    from a multimodal model silently breaks functionality).
+    Defaults to True when model info is unavailable or the
+    capability has not been probed yet, so that unknown models
+    fail-open (sending an image to a text-only model yields a
+    recoverable API error, but stripping images from a
+    multimodal model silently breaks functionality).
     """
     model_info, _ = _get_active_model_info()
     if model_info is None:
         return True
-    return bool(model_info.supports_multimodal)
+    if model_info.supports_image or model_info.supports_video:
+        return True
+    return model_info.supports_multimodal is not False
 
 
 def get_active_model_multimodal_raw() -> bool | None:

@@ -4,12 +4,16 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
 from agentscope.tool import Toolkit
 
 from qwenpaw.agents.tools.file_io import read_file
 from qwenpaw.agents.tools.shell import execute_shell_command
 from qwenpaw.governance import PolicyGuardedTool
-from qwenpaw.providers.openai_chat_model_compat import _sanitize_tool_schemas
+from qwenpaw.providers.openai_chat_model_compat import (
+    _expand_regex_shorthands,
+    _sanitize_tool_schemas,
+)
 
 
 def _type_null_paths(node: Any, path: tuple[str, ...] = ()) -> list[str]:
@@ -208,3 +212,75 @@ def test_sanitize_tool_schemas_removes_null_from_type_arrays() -> None:
         "multiple": {"type": ["integer", "number"]},
         "null_only": {"type": "object", "default": None},
     }
+
+
+# -- Pattern shorthand expansion (#6201) --
+
+
+@pytest.mark.parametrize(
+    ("input_pat", "expected"),
+    [
+        (r"^\d+$", r"^[0-9]+$"),
+        (r"\D+", r"[^0-9]+"),
+        (r"\w+", "[a-zA-Z0-9_]+"),
+        (r"\W", "[^a-zA-Z0-9_]"),
+        (r"\s+", r"[\t\n\r\f\v ]+"),
+        (r"\S", r"[^\t\n\r\f\v ]"),
+        (r"^\d{4}-\d{2}-\d{2}$", r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"),
+        (r"^[A-Z]{2,3}$", r"^[A-Z]{2,3}$"),
+        (r"(PMC)?\d+", r"(PMC)?[0-9]+"),
+    ],
+    ids=[
+        "d",
+        "D",
+        "w",
+        "W",
+        "s",
+        "S",
+        "multi",
+        "no-op",
+        "pubmed-pmc",
+    ],
+)
+def test_expand_regex_shorthands(
+    input_pat: str,
+    expected: str,
+) -> None:
+    assert _expand_regex_shorthands(input_pat) == expected
+
+
+def test_sanitize_tool_schemas_expands_pattern_shorthands() -> None:
+    """End-to-end: patterns in tool schemas are expanded (#6201)."""
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "demo",
+                "description": "demo",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "pmid": {
+                            "type": "string",
+                            "pattern": r"^\d+$",
+                        },
+                        "ids": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "pattern": r"\d+",
+                            },
+                        },
+                        "name": {"type": "string"},
+                    },
+                },
+            },
+        },
+    ]
+
+    sanitized = _sanitize_tool_schemas(tools)
+    props = sanitized[0]["function"]["parameters"]["properties"]
+
+    assert props["pmid"]["pattern"] == r"^[0-9]+$"
+    assert props["ids"]["items"]["pattern"] == "[0-9]+"
+    assert "pattern" not in props["name"]

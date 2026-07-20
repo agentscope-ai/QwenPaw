@@ -103,10 +103,11 @@ def get_memory_size_gb() -> float:
 
 
 def get_vram_size_gb() -> float:
-    """Return the largest CUDA GPU memory size in GB, or 0 when absent."""
-    if get_cuda_version() is None:
-        return 0.0
+    """Return the largest CUDA GPU memory size in GB, or 0 when absent.
 
+    The query below already fails on hosts without a working nvidia-smi,
+    so it needs no separate CUDA probe to guard it.
+    """
     output = _run_command(
         [
             "nvidia-smi",

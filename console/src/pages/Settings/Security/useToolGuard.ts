@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../../../api";
 import type {
   ToolGuardConfig,
@@ -22,6 +22,30 @@ export function useToolGuard() {
   >({});
   const [enabled, setEnabled] = useState(true);
   const [sandboxEnabled, setSandboxEnabled] = useState(false);
+  // Track the last *persisted* sandbox value so the save handler can
+  // skip the API call when nothing changed (avoids unnecessary 403s
+  // and partial-save side-effects).
+  const savedSandboxEnabledRef = useRef(false);
+  const [sandboxEffective, setSandboxEffective] = useState(true);
+  const [sandboxReason, setSandboxReason] = useState<string | null>(null);
+
+  // Wrapped setter: when the sandbox toggle changes, immediately re-fetch
+  // the effective status from the backend so the degradation warning
+  // (enabled but not effective due to non-admin) appears right away,
+  // rather than only after a full page reload.
+  const handleSandboxToggle = useCallback(async (val: boolean) => {
+    setSandboxEnabled(val);
+    try {
+      // Pass the proposed value so the backend computes effective/reason
+      // for the toggle target, not the current (unsaved) config value.
+      const sandbox = await api.getSandbox(val);
+      setSandboxEffective(sandbox.effective);
+      setSandboxReason(sandbox.reason);
+    } catch {
+      // Best-effort: if the fetch fails, keep the previous effective/reason.
+      // The save handler will surface any real errors.
+    }
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +66,9 @@ export function useToolGuard() {
       setAutoDenyRules(new Set(cfg.auto_denied_rules ?? []));
       setShellEvasionChecks(cfg.shell_evasion_checks ?? {});
       setSandboxEnabled(sandbox.enabled);
+      savedSandboxEnabledRef.current = sandbox.enabled;
+      setSandboxEffective(sandbox.effective);
+      setSandboxReason(sandbox.reason);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Failed to load security config";
@@ -161,7 +188,13 @@ export function useToolGuard() {
     enabled,
     setEnabled,
     sandboxEnabled,
-    setSandboxEnabled,
+    savedSandboxEnabled: savedSandboxEnabledRef.current,
+    markSandboxSaved: useCallback(() => {
+      savedSandboxEnabledRef.current = sandboxEnabled;
+    }, [sandboxEnabled]),
+    setSandboxEnabled: handleSandboxToggle,
+    sandboxEffective,
+    sandboxReason,
     mergedRules,
     shellEvasionChecks,
     toggleShellEvasionCheck,

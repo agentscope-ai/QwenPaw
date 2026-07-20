@@ -42,6 +42,15 @@ from qwenpaw.sandbox.windows_sandbox import (
 class TestProbeSandboxSupport:
     """Test probe_sandbox_support delegates to AppContainer probe."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_probe_cache(self):
+        """Clear lru_cache so each test starts fresh."""
+        from qwenpaw.sandbox.config import probe_sandbox_support
+
+        probe_sandbox_support.cache_clear()
+        yield
+        probe_sandbox_support.cache_clear()
+
     @patch("sys.platform", "win32")
     @patch("qwenpaw.sandbox.config._probe_windows_appcontainer")
     def test_windows_calls_appcontainer_probe(self, mock_probe):

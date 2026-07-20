@@ -52,4 +52,13 @@ export const agentsApi = {
         body: JSON.stringify({ enabled }),
       },
     ),
+
+  setAgentPinned: (agentId: string, pinned: boolean) =>
+    request<{ success: boolean; agent_id: string; pinned: boolean }>(
+      `/agents/${agentId}/pin`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ pinned }),
+      },
+    ),
 };

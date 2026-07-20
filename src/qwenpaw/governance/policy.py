@@ -239,6 +239,8 @@ _BUILTIN_ASK_SPECS: List[tuple[str, str]] = [
     ("Bash(sudo *)", "Privilege escalation, ASK"),
     ("Bash(gh repo delete *)", "Repository deletion, ASK"),
     ("Bash(gh api -X DELETE *)", "Destructive GitHub API calls, ASK"),
+    ("Bash(gh api --method DELETE *)", "Destructive GitHub API calls, ASK"),
+    ("Bash(gh api --method=DELETE *)", "Destructive GitHub API calls, ASK"),
 ]
 
 # (match, reason) pairs for builtin DENY rules — hard walls, never allowed.

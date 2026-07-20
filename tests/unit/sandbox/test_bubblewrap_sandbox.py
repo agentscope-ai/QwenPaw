@@ -226,6 +226,15 @@ class TestProbeLinuxBubblewrap:
 class TestProbeSandboxSupportLinuxBwrap:
     """Test that probe_sandbox_support on Linux tries bwrap first."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_probe_cache(self):
+        """Clear lru_cache so each test starts fresh."""
+        from qwenpaw.sandbox.config import probe_sandbox_support
+
+        probe_sandbox_support.cache_clear()
+        yield
+        probe_sandbox_support.cache_clear()
+
     @patch("sys.platform", "linux")
     @patch(
         "qwenpaw.sandbox.config._probe_linux_bubblewrap",

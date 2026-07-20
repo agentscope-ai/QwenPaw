@@ -1,15 +1,19 @@
 ---
 title: "QwenPaw 开发者日会合集"
-date: 2026-07-14
+date: 2026-07-17
 author: QwenPaw Team
 tags: [开发者日会, 会议纪要, 会议录屏]
 cover: /blog/qwenpaw-developer-day-collection-cover.png
 excerpt: "QwenPaw团队召开开发者日会，为每一位 QwenPaw 开发者与爱好者提供一份兼具理论深度与落地价值的完整技术交流档案。"
 ---
 
-最近更新 2026 年 7 月 14 日
+最近更新 2026 年 7 月 17 日
 
 ---
+
+**07-17 QwenPaw 开发者日会：AgentScope-Java 2.0 正式版详解 & AgentScope-Go 预透**
+
+会议链接：https://shanji.dingtalk.com/app/transcribes/76327569643336373839363436365f323034353035363233375f39
 
 **07-14 QwenPaw 开发者日会：QwenPaw 2.0 WorkSpace & Sandbox 模块详解**
 

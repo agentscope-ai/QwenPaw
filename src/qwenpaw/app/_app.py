@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from ..__version__ import __version__
 from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
 from ..config import load_config  # pylint: disable=no-name-in-module
-from ..config.utils import get_config_path
+from ..config.utils import get_config_path, read_last_api
 from ..constant import (
     CORS_ORIGINS,
     DOCS_ENABLED,
@@ -35,6 +35,7 @@ from ..utils.logging import (
     add_project_file_handler,
     setup_logger,
 )
+from ..utils.startup_display import AgentStartupDisplay
 from ..utils.system_info import summarize_python_environment
 from .auth import (
     AuthMiddleware,
@@ -494,6 +495,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     # via MultiAgentManager.get_agent() lazy-loading / event wait.
     # ================================================================
 
+    startup_display = AgentStartupDisplay(read_last_api()).start()
+
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
             # ---- Plugin System (phase 1: channel plugins) ----
@@ -529,8 +532,18 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             )
             logger.debug("Phase 1: channel plugins loaded")
 
-            # Start all configured agents (truly parallel now)
-            await workspace_registry.start_all_configured_agents()
+            def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
+                """Publish readiness after the core agent phase."""
+                core_elapsed = time.time() - startup_start_time
+                startup_display.mark_core_ready(core_elapsed)
+                app.state.startup_ready.set()
+
+            await workspace_registry.start_all_configured_agents(
+                on_core_ready=_mark_core_agents_ready,
+                startup_display=startup_display,
+            )
+            if app.state.startup_ready.is_set():
+                startup_display.mark_finalizing()
 
             provider_manager.start_local_model_resume(local_model_manager)
 
@@ -660,15 +673,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 "Background startup completed in "
                 f"{startup_elapsed:.3f} seconds",
             )
+            if app.state.startup_ready.is_set():
+                startup_display.complete(startup_elapsed)
 
-            # Print server URL again so it's visible after background logs
-            from ..config.utils import read_last_api
-            from ..utils.startup_display import print_ready_banner
-
-            api_info = read_last_api()
-            print_ready_banner(api_info, startup_elapsed)
-
-            app.state.startup_ready.set()
         except Exception:
             logger.error(
                 "Background startup encountered an error",
@@ -796,6 +803,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 logger.error(f"Error during sandbox cleanup: {e}")
 
         logger.info("Application shutdown complete")
+        startup_display.stop()
 
 
 app = FastAPI(

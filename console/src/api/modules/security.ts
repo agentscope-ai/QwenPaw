@@ -28,6 +28,12 @@ export interface SandboxSetting {
   enabled: boolean;
 }
 
+export interface SandboxStatusResponse {
+  enabled: boolean;
+  effective: boolean;
+  reason: string | null;
+}
+
 // ── File Guard types ──────────────────────────────────────────────
 
 export interface FileGuardResponse {
@@ -110,10 +116,15 @@ export const securityApi = {
 
   // ── Sandbox switch ───────────────────────────
 
-  getSandbox: () => request<SandboxSetting>("/config/security/sandbox"),
+  getSandbox: (enabled?: boolean) =>
+    request<SandboxStatusResponse>(
+      enabled !== undefined
+        ? `/config/security/sandbox?enabled=${enabled}`
+        : "/config/security/sandbox",
+    ),
 
   updateSandbox: (body: SandboxSetting) =>
-    request<SandboxSetting>("/config/security/sandbox", {
+    request<SandboxStatusResponse>("/config/security/sandbox", {
       method: "PUT",
       body: JSON.stringify(body),
     }),
