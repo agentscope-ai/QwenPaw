@@ -18,6 +18,7 @@ from qwenpaw.loop.gates.runner import _filter_by_scope
 from qwenpaw.modes.goal.goal_mode import GoalMode, GoalSession
 from qwenpaw.modes.mission import MissionMode
 from qwenpaw.modes.mission.gates import MissionGate
+from qwenpaw.runtime.runtime import Runtime
 
 
 def _registration(
@@ -78,7 +79,8 @@ def test_goal_reset_removes_only_current_session():
     assert "session-b" in mode._sessions
 
 
-def test_mission_turn_start_restores_persisted_session(tmp_path):
+@pytest.mark.asyncio
+async def test_mission_turn_start_restores_persisted_session(tmp_path):
     """Mission state is active before stop-handler scope selection."""
     mode = MissionMode()
     mode._gate = MissionGate()
@@ -94,8 +96,30 @@ def test_mission_turn_start_restores_persisted_session(tmp_path):
         "qwenpaw.loop.gates.loop_gate._session_id",
         return_value="mission-session",
     ):
-        mode.on_turn_start(ctx)
+        await mode.on_turn_start(ctx)
         assert mode._is_gate_active()
+
+
+@pytest.mark.asyncio
+async def test_runtime_awaits_mode_turn_start_callbacks():
+    """Runtime awaits each registered mode turn-start callback."""
+    calls = []
+
+    class _Mode:
+        name = "test"
+
+        async def on_turn_start(self, ctx):
+            calls.append(ctx)
+
+    workspace = SimpleNamespace(
+        plugins=SimpleNamespace(modes=[_Mode()]),
+    )
+    runtime = Runtime(workspace=workspace, app_services=None)
+    ctx = SimpleNamespace()
+
+    await runtime._start_modes(ctx)
+
+    assert calls == [ctx]
 
 
 @pytest.mark.asyncio

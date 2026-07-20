@@ -65,7 +65,7 @@ class AgentMode:
     def prompt_contributors(self) -> list["PromptContributor"]:
         return []
 
-    def on_turn_start(
+    async def on_turn_start(
         self,
         ctx: HookContext,  # noqa: ARG002
     ) -> None:

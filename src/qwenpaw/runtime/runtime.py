@@ -103,7 +103,7 @@ class Runtime:
                     app_services=self.app_services,
                 )
                 ctx.agent = await builder.build(ctx)
-                self._start_modes(ctx)
+                await self._start_modes(ctx)
 
                 # --- [phase 4] POST_AGENT_BUILD ---
                 await hooks.run(Phase.POST_AGENT_BUILD, ctx)
@@ -207,11 +207,11 @@ class Runtime:
 
     # ----------------------------------------------------------------- helpers
 
-    def _start_modes(self, ctx: HookContext) -> None:
+    async def _start_modes(self, ctx: HookContext) -> None:
         """Prepare every registered mode for the current user turn."""
         for mode in self.workspace.plugins.modes:
             try:
-                mode.on_turn_start(ctx)
+                await mode.on_turn_start(ctx)
             except Exception:
                 logger.warning(
                     "mode '%s' turn start raised",

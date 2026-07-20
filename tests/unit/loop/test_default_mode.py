@@ -89,11 +89,12 @@ def test_setup_registers_one_default_handler():
     assert registration.scope == "default"
 
 
-def test_turn_start_builds_configured_gates():
+@pytest.mark.asyncio
+async def test_turn_start_builds_configured_gates():
     """First turn builds gates from the current running config."""
     mode = DefaultMode()
 
-    mode.on_turn_start(_context(_running_config()))
+    await mode.on_turn_start(_context(_running_config()))
 
     assert len(mode.handler.gates) == 3
     assert _find_gate(mode, IterationGate)._state() is not None
@@ -104,7 +105,7 @@ async def test_next_turn_resets_iteration_and_doom_state():
     """A new turn resets current-session state without rebuilding gates."""
     mode = DefaultMode()
     ctx = _context(_running_config(max_iters=10))
-    mode.on_turn_start(ctx)
+    await mode.on_turn_start(ctx)
     iteration = _find_gate(mode, IterationGate)
     doom = _find_gate(mode, DoomLoopGate)
 
@@ -114,7 +115,7 @@ async def test_next_turn_resets_iteration_and_doom_state():
     assert iteration._state().iteration == 5
     assert len(doom._state().history) == 1
 
-    mode.on_turn_start(ctx)
+    await mode.on_turn_start(ctx)
 
     assert iteration._state().iteration == 0
     assert len(doom._state().history) == 0
@@ -125,26 +126,27 @@ async def test_next_turn_reactivates_exhausted_iteration_gate():
     """A terminated iteration gate is active again on the next turn."""
     mode = DefaultMode()
     ctx = _context(_running_config(max_iters=1))
-    mode.on_turn_start(ctx)
+    await mode.on_turn_start(ctx)
     iteration = _find_gate(mode, IterationGate)
 
     await iteration.check({})
     assert iteration._state() is None
 
-    mode.on_turn_start(ctx)
+    await mode.on_turn_start(ctx)
 
     assert iteration._state() is not None
     assert iteration._state().iteration == 0
 
 
-def test_config_change_rebuilds_without_duplicate_registration():
+@pytest.mark.asyncio
+async def test_config_change_rebuilds_without_duplicate_registration():
     """Hot-loaded config replaces gates on the existing handler."""
     workspace = _workspace()
     mode = DefaultMode()
     mode.setup(workspace)
-    mode.on_turn_start(_context(_running_config()))
+    await mode.on_turn_start(_context(_running_config()))
 
-    mode.on_turn_start(
+    await mode.on_turn_start(
         _context(
             _running_config(
                 doom_enabled=False,
@@ -157,14 +159,15 @@ def test_config_change_rebuilds_without_duplicate_registration():
     assert len(workspace.plugins.stop_handlers) == 1
 
 
-def test_conversation_reset_clears_session_and_pending_state():
+@pytest.mark.asyncio
+async def test_conversation_reset_clears_session_and_pending_state():
     """Full reset tears down current gates and deferred decisions."""
     agent = SimpleNamespace(
         _gate_pending_stop=object(),
         _gate_pending_continue="continue",
     )
     mode = DefaultMode()
-    mode.on_turn_start(_context(_running_config(), agent))
+    await mode.on_turn_start(_context(_running_config(), agent))
     iteration = _find_gate(mode, IterationGate)
 
     mode.on_conversation_reset(_context(_running_config(), agent))

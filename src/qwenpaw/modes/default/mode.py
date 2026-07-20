@@ -60,7 +60,7 @@ class DefaultMode(AgentMode):
             ),
         )
 
-    def on_turn_start(self, ctx: HookContext) -> None:
+    async def on_turn_start(self, ctx: HookContext) -> None:
         """Apply current config and prepare gates for a new user turn."""
         running_config = ctx.agent_config.running
         config_key = self._make_config_key(running_config)
