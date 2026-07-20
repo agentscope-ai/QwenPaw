@@ -28,7 +28,7 @@ def test_aionly_provider_configs() -> None:
     assert PROVIDER_AIONLY.base_url == "https://api.aionly.com/v1"
     assert PROVIDER_AIONLY.api_key_prefix == "sk-"
     assert PROVIDER_AIONLY.freeze_url is True
-    assert PROVIDER_AIONLY.support_model_discovery is True
+    assert PROVIDER_AIONLY.support_model_discovery is False
     assert PROVIDER_AIONLY.require_api_key is True
     assert PROVIDER_AIONLY.is_local is False
 
@@ -97,7 +97,7 @@ def test_aionly_registered_in_provider_manager(
     assert provider is not None
     assert isinstance(provider, OpenAIProvider)
     assert provider.base_url == "https://api.aionly.com/v1"
-    assert provider.support_model_discovery is True
+    assert provider.support_model_discovery is False
 
 
 @pytest.mark.asyncio

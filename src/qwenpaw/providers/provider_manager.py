@@ -698,7 +698,7 @@ AIONLY_MODELS: List[ModelInfo] = [
         supports_image=True,
         supports_video=True,
         probe_source="documentation",
-        max_input_length=256000,
+        max_input_length=1048576,
         max_tokens=262144,
     ),
     ModelInfo(
@@ -1355,7 +1355,6 @@ PROVIDER_AIONLY = OpenAIProvider(
     api_key_prefix="sk-",
     models=AIONLY_MODELS,
     freeze_url=True,
-    support_model_discovery=True,
     meta={
         "is_free_tier": False,
         "api_key_url": "https://api.aionly.com",
