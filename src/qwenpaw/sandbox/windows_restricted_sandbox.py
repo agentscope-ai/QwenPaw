@@ -3000,17 +3000,59 @@ def _remove_profile_dir_sync(username: str) -> bool:
     return not os.path.exists(profile_dir)
 
 
-def _run_icacls_sync(args: List[str]) -> bool:
-    """Runs icacls synchronously, returns True on success."""
-    result = _run_cmd_sync(["icacls"] + args, timeout=180)
+def _remaining_budget() -> float:
+    """Return remaining seconds until the shutdown ACL deadline.
+
+    Returns a large value if no deadline is set.
+    """
+    if not _SHUTDOWN_ACL_DEADLINE:
+        return 3600.0  # 1 hour default
+    remaining = _SHUTDOWN_ACL_DEADLINE - time.monotonic()
+    return max(0.0, remaining)
+
+
+def _run_icacls_sync(args: List[str], timeout: Optional[float] = None) -> bool:
+    """Runs icacls synchronously, returns True on success.
+
+    Args:
+        args: Arguments to pass to icacls (without the command itself).
+        timeout: Maximum seconds to wait.
+            If None, uses min(180, remaining_budget).
+    """
+    if timeout is None:
+        timeout = min(180.0, _remaining_budget())
+    if timeout <= 0:
+        return False
+    result = _run_cmd_sync(
+        ["icacls"] + args,
+        timeout=int(timeout),
+    )
     return result is not None and result.returncode == 0
 
 
-def _verify_acl_removed_sync(path: str, sid: str) -> bool:
-    """Verifies that a SID no longer appears in the DACL of a path."""
+def _verify_acl_removed_sync(
+    path: str,
+    sid: str,
+    timeout: Optional[float] = None,
+) -> bool:
+    """Verifies that a SID no longer appears in the DACL of a path.
+
+    Args:
+        path: Filesystem path to check.
+        sid: Security identifier to look for.
+        timeout: Maximum seconds to wait.
+            If None, uses min(180, remaining_budget).
+    """
     if not os.path.exists(path):
         return True
-    result = _run_cmd_sync(["icacls", path], timeout=180)
+    if timeout is None:
+        timeout = min(180.0, _remaining_budget())
+    if timeout <= 0:
+        return False
+    result = _run_cmd_sync(
+        ["icacls", path],
+        timeout=int(timeout),
+    )
     if result is None:
         return False
     output = result.stdout.decode("utf-8", errors="replace")
@@ -3067,10 +3109,31 @@ def _remove_acl_with_verify_sync(path: str, sid: str) -> bool:
     ]
 
     for attempt, strategy in enumerate(strategies, 1):
+        # Respect the shutdown time budget: abort early if deadline exceeded.
+        if (
+            _SHUTDOWN_ACL_DEADLINE
+            and time.monotonic() > _SHUTDOWN_ACL_DEADLINE
+        ):
+            logger.warning(
+                "ACL cleanup timeout reached; skipping remaining ACL "
+                "removal for %s (will retry on next admin startup)",
+                path,
+            )
+            return False
+
         strategy()
 
         if attempt > 1:
-            time.sleep(1)
+            # Respect remaining budget before sleeping between strategies
+            remaining = _remaining_budget()
+            if remaining <= 0:
+                logger.warning(
+                    "ACL cleanup budget exhausted between strategies; "
+                    "skipping remaining attempts for %s",
+                    path,
+                )
+                return False
+            time.sleep(min(1.0, remaining))
 
         if _verify_acl_removed_sync(path, sid):
             return True
@@ -3112,6 +3175,13 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
+# Maximum seconds the atexit shutdown_cleanup is allowed to spend on ACL
+# removal before giving up.  Prevents blocking process exit indefinitely when
+# icacls consistently fails (e.g. SID belongs to a deleted sandbox user).
+_SHUTDOWN_ACL_DEADLINE: float = 0.0
+_SHUTDOWN_ACL_TIMEOUT_SECONDS: float = 10.0
+
+
 def shutdown_cleanup() -> None:
     """Destroys sandbox instances owned by this process or orphaned.
 
@@ -3131,6 +3201,20 @@ def shutdown_cleanup() -> None:
 
     Safe to call multiple times (idempotent after first call).
     """
+    global _SHUTDOWN_ACL_DEADLINE
+
+    # Skip cleanup when not running as admin: the sandbox was never
+    # activated this session (non-admin = sandbox disabled at runtime),
+    # and non-admin processes cannot modify admin-created ACLs anyway.
+    # Attempting cleanup would just block process exit with futile retries.
+    from ..utils.platform import is_windows_admin
+
+    if not is_windows_admin():
+        return
+
+    # Set a time budget so cleanup doesn't block process exit indefinitely.
+    _SHUTDOWN_ACL_DEADLINE = time.monotonic() + _SHUTDOWN_ACL_TIMEOUT_SECONDS
+
     sb_dir = _sandboxes_dir(_sandbox_state_dir)
     if not sb_dir.exists() or not list(sb_dir.glob("*.json")):
         return

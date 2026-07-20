@@ -1405,6 +1405,10 @@ class AgentProfileRef(BaseModel):
         default=True,
         description="Whether agent is enabled (controls instance loading)",
     )
+    pinned: bool = Field(
+        default=False,
+        description="Whether agent is pinned in agent selectors",
+    )
 
 
 class PlanConfig(BaseModel):

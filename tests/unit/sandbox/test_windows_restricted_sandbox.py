@@ -30,7 +30,10 @@ from qwenpaw.sandbox.windows_restricted_sandbox import (
     _make_env_block,
     _make_random_cap_sid_string,
     _random_password,
+    _remaining_budget,
+    _run_icacls_sync,
     _sandboxes_dir,
+    _verify_acl_removed_sync,
 )
 from qwenpaw.sandbox.windows_sandbox import (
     _is_cmd_exe,
@@ -1084,3 +1087,111 @@ class TestWindowsRestrictedSandboxStop:
 
         assert released == [mock_instance]
         assert sandbox._instance is None
+
+
+# ============================================================================
+# Shutdown budget enforcement (M3 fix)
+# ============================================================================
+
+
+class TestShutdownBudget:
+    """Test that shutdown deadline is properly enforced in ACL cleanup."""
+
+    def test_remaining_budget_no_deadline_returns_large_value(self):
+        """When no deadline is set, _remaining_budget returns 3600s."""
+        import qwenpaw.sandbox.windows_restricted_sandbox as wrs
+
+        old_deadline = wrs._SHUTDOWN_ACL_DEADLINE
+        try:
+            wrs._SHUTDOWN_ACL_DEADLINE = 0.0
+            assert _remaining_budget() == 3600.0
+        finally:
+            wrs._SHUTDOWN_ACL_DEADLINE = old_deadline
+
+    def test_remaining_budget_with_active_deadline(self):
+        """When deadline is in the future, returns positive remaining."""
+        import time
+
+        import qwenpaw.sandbox.windows_restricted_sandbox as wrs
+
+        old_deadline = wrs._SHUTDOWN_ACL_DEADLINE
+        try:
+            wrs._SHUTDOWN_ACL_DEADLINE = time.monotonic() + 5.0
+            budget = _remaining_budget()
+            assert 4.0 < budget <= 5.0
+        finally:
+            wrs._SHUTDOWN_ACL_DEADLINE = old_deadline
+
+    def test_remaining_budget_expired_returns_zero(self):
+        """When deadline has passed, returns 0.0."""
+        import time
+
+        import qwenpaw.sandbox.windows_restricted_sandbox as wrs
+
+        old_deadline = wrs._SHUTDOWN_ACL_DEADLINE
+        try:
+            wrs._SHUTDOWN_ACL_DEADLINE = time.monotonic() - 1.0
+            assert _remaining_budget() == 0.0
+        finally:
+            wrs._SHUTDOWN_ACL_DEADLINE = old_deadline
+
+    def test_run_icacls_sync_returns_false_when_budget_exhausted(self):
+        """_run_icacls_sync must return False when budget is 0."""
+        import qwenpaw.sandbox.windows_restricted_sandbox as wrs
+
+        old_deadline = wrs._SHUTDOWN_ACL_DEADLINE
+        try:
+            # Set deadline in the past so budget is exhausted
+            wrs._SHUTDOWN_ACL_DEADLINE = 0.001
+            import time
+
+            time.sleep(0.01)  # ensure deadline has passed
+            result = _run_icacls_sync(["C:\\fake_path"])
+            assert result is False
+        finally:
+            wrs._SHUTDOWN_ACL_DEADLINE = old_deadline
+
+    def test_run_icacls_sync_uses_min_of_180_and_budget(self):
+        """_run_icacls_sync caps timeout at min(180, remaining_budget)."""
+        import time
+
+        import qwenpaw.sandbox.windows_restricted_sandbox as wrs
+
+        old_deadline = wrs._SHUTDOWN_ACL_DEADLINE
+        captured_timeouts = []
+
+        def fake_run_cmd(args, timeout=30):
+            captured_timeouts.append(timeout)
+            return MagicMock(returncode=0, stdout=b"")
+
+        try:
+            # Set deadline 2 seconds in the future
+            wrs._SHUTDOWN_ACL_DEADLINE = time.monotonic() + 2.0
+            with patch(
+                "qwenpaw.sandbox.windows_restricted_sandbox._run_cmd_sync",
+                side_effect=fake_run_cmd,
+            ):
+                _run_icacls_sync(["C:\\fake_path"])
+
+            # Timeout should be capped at ~2 seconds, not 180
+            assert len(captured_timeouts) == 1
+            assert captured_timeouts[0] <= 2
+        finally:
+            wrs._SHUTDOWN_ACL_DEADLINE = old_deadline
+
+    def test_verify_acl_removed_returns_false_when_budget_exhausted(self):
+        """_verify_acl_removed_sync must return False when budget is 0."""
+        import time
+
+        import qwenpaw.sandbox.windows_restricted_sandbox as wrs
+
+        old_deadline = wrs._SHUTDOWN_ACL_DEADLINE
+        try:
+            wrs._SHUTDOWN_ACL_DEADLINE = 0.001
+            time.sleep(0.01)
+            # Path must exist for the check to proceed
+            with patch("os.path.exists", return_value=True):
+                result = _verify_acl_removed_sync("C:\\fake", "S-1-2-3")
+            assert result is False
+        finally:
+            wrs._SHUTDOWN_ACL_DEADLINE = old_deadline

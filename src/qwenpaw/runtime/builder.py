@@ -220,7 +220,11 @@ class AgentBuilder:
 
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
-        model, _formatter = self.build_model(agent_config)
+        model_slot_override = getattr(ctx.request, "model_slot_override", None)
+        model, _formatter = self.build_model(
+            agent_config,
+            model_slot_override=model_slot_override,
+        )
 
         # Built once and shared: the agent's native offloader, and (when
         # ``offload_dialog`` is on) scroll's optional dialog archive.
@@ -371,12 +375,17 @@ class AgentBuilder:
 
         return build_default_prompt_manager().build_sync(prompt_ctx)
 
-    def build_model(self, agent_config: Any) -> tuple[Any, Any]:
+    def build_model(
+        self,
+        agent_config: Any,
+        model_slot_override: Any = None,
+    ) -> tuple[Any, Any]:
         """Create model and formatter using the factory method."""
         from ..agents.model_factory import create_model_and_formatter
 
         model, formatter = create_model_and_formatter(
             agent_id=agent_config.id,
+            model_slot_override=model_slot_override,
         )
         if formatter is not None:
             innermost = model

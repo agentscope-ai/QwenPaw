@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 AUTO_MEMORY_TURN_STATE_TTL_SECONDS = 24 * 60 * 60
 MAX_QUERY_CHARS = 50
 SUMMARY_WORKER_CLOSE_TIMEOUT_SECONDS = 5.0
+MAX_SUMMARY_TASK_HISTORY = 100
+SUMMARY_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 
 class BaseMemoryManager(ABC):
@@ -389,6 +391,8 @@ class BaseMemoryManager(ABC):
                 info["status"] = "failed"
                 info["error"] = str(e)
                 logger.error(f"Summary task {task_id} failed: {e}")
+            finally:
+                self._prune_summary_task_info()
 
     async def _shutdown_summarize_worker(
         self,
@@ -445,7 +449,6 @@ class BaseMemoryManager(ABC):
 
         self._summary_task_info[task_id] = {
             "task_id": task_id,
-            "task": self._worker_task,  # Reference to the worker task
             "start_time": datetime.now(),
             "status": "pending",
             "result": None,
@@ -454,6 +457,16 @@ class BaseMemoryManager(ABC):
 
         # Enqueue for serial execution
         self._task_queue.put_nowait((task_id, messages, kwargs))
+
+    def _prune_summary_task_info(self) -> None:
+        """Keep active tasks and only the latest terminal task history."""
+        terminal_ids = [
+            task_id
+            for task_id, info in self._summary_task_info.items()
+            if info["status"] in SUMMARY_TERMINAL_STATUSES
+        ]
+        for task_id in terminal_ids[:-MAX_SUMMARY_TASK_HISTORY]:
+            self._summary_task_info.pop(task_id, None)
 
     def _update_task_statuses(self) -> None:
         """Update status for pending/running tasks if worker was cancelled."""
@@ -476,6 +489,7 @@ class BaseMemoryManager(ABC):
                         info["status"] = "failed"
                         info["error"] = str(exc)
                         logger.error(f"Summary task {task_id} failed: {exc}")
+        self._prune_summary_task_info()
 
     def list_summarize_status(self) -> list[dict]:
         """Return status of all summary tasks as list of dicts.
