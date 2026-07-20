@@ -646,10 +646,11 @@ _MEDIA_BLOCK_TYPES = ("image", "audio", "video")
 # message survives formatting.
 _SURVIVOR_BLOCK_TYPES = frozenset({"text", "tool_use", "tool_call"})
 
-# Block types the base formatter silently skips.  A message consisting
-# entirely of these (plus any ``DataBlock`` with unsupported media)
-# will be discarded.  Used by ``_is_block_dropped_by_formatter``
-# to predict which assistant messages vanish from the formatted output.
+# Block types that do not contribute content to an assistant wire message.
+# Thinking and file blocks are skipped, while a hint becomes a separate user
+# message. A source segment consisting entirely of these (plus any
+# ``DataBlock`` with unsupported media) emits no assistant message. Used by
+# ``_is_block_dropped_by_formatter`` to predict assistant-message survival.
 #
 # ``file`` is kept for completeness but is effectively dead code:
 # ``_fixup_media_list`` converts file blocks to ``TextBlock`` before
@@ -661,18 +662,17 @@ def _is_block_dropped_by_formatter(
     block: Any,
     formatter: "FormatterBase",
 ) -> bool:
-    """Predict whether the base formatter silently skips *block*.
+    """Predict whether *block* is absent from assistant wire content.
 
     The base ``OpenAIChatFormatter.format()`` only adds a block to
     ``content_blocks`` (text, DataBlock with supported media) or
-    ``tool_calls`` (ToolCallBlock).  Everything else — ThinkingBlock,
-    HintBlock, unknown types, and DataBlock with unsupported media — is
-    skipped.  If **all** blocks in an assistant message are skipped, the
-    message itself is discarded (see ``_openai_formatter.py:360``).
+    ``tool_calls`` (ToolCallBlock). ThinkingBlock, unknown types, and
+    unsupported DataBlock values are skipped. HintBlock is emitted as a
+    separate user message, so it does not keep an assistant segment alive.
 
     This function returns ``True`` when a block is predicted to be
-    skipped, enabling ``aligned_reasoning`` to correctly predict message
-    drops and stay in sync with the formatted output.  #5858
+    absent from assistant content, enabling ``aligned_reasoning`` to predict
+    message drops and stay in sync with the formatted output.  #5858
     """
     btype = (
         block.get("type")
@@ -717,9 +717,9 @@ def _reasoning_by_assistant_segment(
     """Align thinking content with emitted assistant wire messages.
 
     OpenAI-family formatters flush the current assistant message before each
-    tool result. AgentScope can keep several reasoning/tool cycles in one
-    assistant ``Msg``, so each resulting wire segment must receive only the
-    thinking blocks that belong to that segment.
+    tool result or hint. AgentScope can keep several reasoning/tool cycles in
+    one assistant ``Msg``, so each resulting wire segment must receive only
+    the thinking blocks that belong to that segment.
     """
 
     def _get(block: Any, key: str, default: Any = None) -> Any:
@@ -739,7 +739,7 @@ def _reasoning_by_assistant_segment(
                 reasoning_parts.append(thinking)
             continue
 
-        if block_type == "tool_result":
+        if block_type in ("tool_result", "hint"):
             if segment_survives:
                 aligned.append("\n".join(reasoning_parts) or None)
             reasoning_parts = []

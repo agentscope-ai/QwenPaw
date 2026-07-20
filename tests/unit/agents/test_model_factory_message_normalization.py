@@ -9,6 +9,7 @@ import pytest
 from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import (
     DataBlock,
+    HintBlock,
     Msg,
     TextBlock,
     ThinkingBlock,
@@ -309,6 +310,35 @@ async def test_openai_formatter_aligns_reasoning_with_split_segments() -> None:
             ),
             ThinkingBlock(thinking="second reasoning"),
             TextBlock(text="done"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert [item.get("reasoning_content") for item in assistant_messages] == [
+        "first reasoning",
+        "second reasoning",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_aligns_reasoning_across_hint() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(relay_reasoning_content=True)
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="first reasoning"),
+            TextBlock(text="before hint"),
+            HintBlock(hint="continue"),
+            ThinkingBlock(thinking="second reasoning"),
+            TextBlock(text="after hint"),
         ],
     )
 
