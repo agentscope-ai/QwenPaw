@@ -91,6 +91,7 @@ import {
   INTERNAL_QUEUE_REQUEST_ID_PARAM,
   shouldRestoreQueuedInputAfterError,
 } from "./queueRequestLifecycle";
+import { createSecureRandomHex } from "./secureRandom";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -279,9 +280,7 @@ function isSkillAvailableInConsole(skill: SkillSpec): boolean {
 }
 
 function createChatStreamSnapshotTabId() {
-  return `chat-tab-${Date.now().toString(36)}-${Math.random()
-    .toString(36)
-    .slice(2)}`;
+  return `chat-tab-${Date.now().toString(36)}-${createSecureRandomHex()}`;
 }
 
 function isChatStreamSnapshotPayload(

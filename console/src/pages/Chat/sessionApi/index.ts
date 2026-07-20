@@ -11,6 +11,7 @@ import api, {
 } from "../../../api";
 import { toDisplayUrl } from "../utils";
 import { extractTurnUsageFromOutputMessages } from "../turnUsage";
+import { createSecureRandomHex } from "../secureRandom";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -89,7 +90,7 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
 // ---------------------------------------------------------------------------
 
 function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+  return `${Date.now()}-${createSecureRandomHex(8)}`;
 }
 
 /** Parse metadata.timestamp string (e.g. "2026-05-27 10:44:53.362") to unix seconds. */
@@ -946,9 +947,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return existing.id;
     }
 
-    const localId = `${Date.now()}-${Math.random()
-      .toString(36)
-      .substring(2, 9)}`;
+    const localId = `${Date.now()}-${createSecureRandomHex(8)}`;
     const extended = this.createEmptySession(localId);
     extended.name = name || DEFAULT_SESSION_NAME;
     this.sessionList.unshift(extended);
