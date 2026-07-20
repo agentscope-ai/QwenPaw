@@ -315,6 +315,18 @@ class CheckpointRepository:
                 blobs.add(path)
         return blobs
 
+    def list_tree_paths(self, commit: str, *prefixes: str) -> list[str]:
+        """List blob paths below one or more checkpoint tree prefixes."""
+        output = self.run_git(
+            "ls-tree",
+            "-r",
+            "--name-only",
+            commit,
+            "--",
+            *prefixes,
+        )
+        return sorted({line for line in output.splitlines() if line})
+
     def workspace_path(self, rel: str) -> Path:
         target = Path(os.path.abspath(self.workspace_dir / rel))
         if not target.is_relative_to(self.workspace_dir):
@@ -344,6 +356,71 @@ class CheckpointRepository:
                 f"Failed to delete file {rel}: {exc}",
             ) from exc
         return False
+
+    def same_workspace_content(self, rel: str, expected: bytes) -> bool:
+        """Return whether a workspace file exactly matches *expected*."""
+        target = self.workspace_path(rel)
+        try:
+            if (
+                target.is_symlink()
+                or not target.is_file()
+                or target.stat().st_size != len(expected)
+            ):
+                return False
+            view = memoryview(expected)
+            offset = 0
+            with target.open("rb") as stream:
+                while chunk := stream.read(1024 * 1024):
+                    end = offset + len(chunk)
+                    if chunk != view[offset:end]:
+                        return False
+                    offset = end
+            return offset == len(expected)
+        except OSError:
+            return False
+
+    def plan_tree_restore(
+        self,
+        commit: str,
+        paths: set[str],
+    ) -> tuple[list[str], list[str]]:
+        """Return paths that restoring from *commit* would write/delete."""
+        restored: list[str] = []
+        deleted: list[str] = []
+        blob_paths = self.tree_blob_paths(commit, paths)
+        for rel in sorted(paths):
+            if rel not in blob_paths:
+                target = self.workspace_path(rel)
+                if target.exists() or target.is_symlink():
+                    deleted.append(rel)
+                continue
+            blob = self.read_blob(commit, rel)
+            if not self.same_workspace_content(rel, blob):
+                restored.append(rel)
+        return restored, deleted
+
+    def restore_tree_paths(
+        self,
+        commit: str,
+        paths: set[str],
+    ) -> tuple[list[str], list[str]]:
+        """Restore selected workspace paths from a checkpoint tree."""
+        restored: list[str] = []
+        deleted: list[str] = []
+        blob_paths = self.tree_blob_paths(commit, paths)
+        for rel in sorted(paths - blob_paths, reverse=True):
+            if self.delete_workspace_path(rel):
+                deleted.append(rel)
+        for rel in sorted(blob_paths):
+            blob = self.read_blob(commit, rel)
+            if self.same_workspace_content(rel, blob):
+                continue
+            target = self.workspace_path(rel)
+            if target.is_dir() and not target.is_symlink():
+                self.delete_workspace_path(rel)
+            self.restore_paths({rel: blob})
+            restored.append(rel)
+        return restored, sorted(deleted)
 
     def restore_paths(self, blobs: dict[str, bytes]) -> None:
         for rel, content in blobs.items():

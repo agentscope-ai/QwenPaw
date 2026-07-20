@@ -21,6 +21,7 @@ from qwenpaw.checkpoints.policy import (
 from qwenpaw.checkpoints.restore import MemoryRestorer
 from qwenpaw.checkpoints.models import CheckpointError, RestoreResult
 from qwenpaw.checkpoints.render import render_restore
+from qwenpaw.checkpoints.repository import CheckpointRepository
 from qwenpaw.checkpoints.restore import RestoreService
 
 pytestmark = pytest.mark.skipif(
@@ -536,6 +537,20 @@ async def test_restore_rejects_checkpoint_from_another_session(
         )
 
 
+def test_long_numeric_target_is_not_treated_as_timeline_index(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+
+    with pytest.raises(CheckpointError, match="this session"):
+        engine.resolve_target(
+            "123456789012",
+            SESSION_ID,
+            USER_ID,
+            CHANNEL,
+        )
+
+
 @pytest.mark.asyncio
 async def test_memory_restore_fails_when_workspace_does_not_quiesce(
     tmp_path: Path,
@@ -549,9 +564,7 @@ async def test_memory_restore_fails_when_workspace_does_not_quiesce(
         task_tracker = BusyTasks()
 
     restorer = MemoryRestorer(
-        workspace_dir=tmp_path,
-        git_runner=lambda *_args: "",
-        read_blob=lambda *_args: b"",
+        repository=CheckpointRepository(tmp_path),
         workspace=Workspace(),
         quiesce_timeout=0.01,
     )

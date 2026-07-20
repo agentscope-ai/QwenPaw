@@ -96,6 +96,20 @@ def _engine(workspace: _Workspace):
     return RUNTIME.get_for_workspace(workspace)
 
 
+def test_config_fields_are_validated_lazily(tmp_path: Path) -> None:
+    engine = CheckpointService(tmp_path)
+    config = engine.repository.config_file
+    text = config.read_text(encoding="utf-8")
+    config.write_text(
+        text.replace("gc_keep_count = 20", 'gc_keep_count = "invalid"'),
+        encoding="utf-8",
+    )
+
+    assert engine.auto_enabled is False
+    with pytest.raises(CheckpointError, match="gc.gc_keep_count"):
+        _ = engine.gc_keep_count
+
+
 @pytest.mark.asyncio
 async def test_auto_command_reports_toggles_and_validates_args(
     workspace: _Workspace,

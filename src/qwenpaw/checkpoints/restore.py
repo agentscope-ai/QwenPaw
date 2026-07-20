@@ -6,8 +6,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import shutil
-import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -15,7 +13,12 @@ from typing import TYPE_CHECKING
 
 from .policy import is_qwenpaw_state_path
 from .policy import session_file_path, session_key
-from .models import CheckpointError, RestorePlan, RestoreResult
+from .models import (
+    CheckpointEntry,
+    CheckpointError,
+    RestorePlan,
+    RestoreResult,
+)
 
 if TYPE_CHECKING:
     from .service import CheckpointService
@@ -73,22 +76,13 @@ class RestoreService:
                 "Usage: /checkpoint restore <N | snap_name | sha> "
                 "[--dry-run | --confirm]",
             )
-        async with self.service.maintenance_lock:
-            if not dry_run:
-                self.service.query_gate.clear()
-            try:
-                async with self.service.lock:
-                    return await asyncio.to_thread(
-                        self._restore_sync,
-                        target,
-                        session_id,
-                        user_id,
-                        channel,
-                        dry_run,
-                    )
-            finally:
-                if not dry_run:
-                    self.service.query_gate.set()
+        return await self._run_restore(
+            target=target,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            dry_run=dry_run,
+        )
 
     async def restore_with_memory(
         self,
@@ -105,91 +99,13 @@ class RestoreService:
                 "Usage: /checkpoint restore <target> --include-memory "
                 "--confirm",
             )
-        service = self.service
-        conv_rel = self._conversation_rel(
+        return await self._run_restore(
+            target=target,
             session_id=session_id,
             user_id=user_id,
             channel=channel,
-        )
-        skey = session_key(
-            channel=channel,
-            user_id=user_id,
-            session_id=session_id,
-        )
-        memory = self._memory_restorer()
-        entry = None
-        previous_head = None
-        pre_ref = None
-        pre_commit = None
-        mem_restored: list[str] = []
-        mem_deleted: list[str] = []
-        async with service.maintenance_lock:
-            if not dry_run:
-                service.query_gate.clear()
-            try:
-                async with service.lock:
-                    entry = service.resolve_target(
-                        target,
-                        session_id,
-                        user_id,
-                        channel,
-                    )
-                    previous_head = service.session_head(skey)
-                    conv_blob = service.repository.read_blob(
-                        entry.commit,
-                        conv_rel,
-                    )
-                    mem_restored, mem_deleted = memory.plan(entry.commit)
-                    plan = RestorePlan(
-                        target=target,
-                        commit=entry.commit,
-                        conversation_path=conv_rel,
-                        restore_paths=tuple(mem_restored),
-                        delete_paths=tuple(mem_deleted),
-                        include_memory=True,
-                    )
-                    if dry_run:
-                        return self._result_from_plan(plan, dry_run=True)
-
-                    # Memory and conversation validation complete before the
-                    # safety checkpoint becomes visible in the timeline.
-                    pre_snapshot = await asyncio.to_thread(
-                        service.create_snapshot_unlocked,
-                        "pre-restore",
-                        session_id,
-                        user_id,
-                        channel,
-                        None,
-                        f"Before memory restore to {target}",
-                        None,
-                    )
-                    pre_ref = pre_snapshot.ref
-                    pre_commit = pre_snapshot.commit
-                    service.repository.restore_paths({conv_rel: conv_blob})
-
-                mem_restored, mem_deleted = await memory.apply(entry.commit)
-                async with service.lock:
-                    service.repository.set_session_head(skey, entry.commit)
-            except Exception as exc:
-                if pre_commit:
-                    await self._rollback_failed_restore(
-                        exc,
-                        pre_commit,
-                        paths={conv_rel},
-                        include_memory=memory.mutation_started,
-                        session_key_str=skey,
-                        previous_head=previous_head,
-                    )
-                raise
-            finally:
-                if not dry_run:
-                    service.query_gate.set()
-
-        assert entry is not None
-        return self._result_from_plan(
-            plan,
-            dry_run=False,
-            pre_restore_ref=pre_ref,
+            include_memory=True,
+            dry_run=dry_run,
         )
 
     async def restore_with_files(
@@ -214,6 +130,30 @@ class RestoreService:
                 "Applying workspace-file restore requires an explicit "
                 "`--files` selection.",
             )
+        return await self._run_restore(
+            target=target,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            include_memory=include_memory,
+            include_files=True,
+            selected_files=selected_files,
+            dry_run=dry_run,
+        )
+
+    async def _run_restore(
+        self,
+        *,
+        target: str,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        include_memory: bool = False,
+        include_files: bool = False,
+        selected_files: tuple[str, ...] | None = None,
+        dry_run: bool = False,
+    ) -> RestoreResult:
+        """Run one validated restore transaction."""
         service = self.service
         conv_rel = self._conversation_rel(
             session_id=session_id,
@@ -225,7 +165,7 @@ class RestoreService:
             user_id=user_id,
             session_id=session_id,
         )
-        memory = self._memory_restorer()
+        memory = self._memory_restorer() if include_memory else None
         entry = None
         previous_head = None
         touched: set[str] = set()
@@ -236,38 +176,35 @@ class RestoreService:
                 service.query_gate.clear()
             try:
                 async with service.lock:
-                    entry = service.resolve_target(
-                        target,
-                        session_id,
-                        user_id,
-                        channel,
-                    )
-                    previous_head = service.session_head(skey)
-                    current_tree = service.repository.write_workspace_tree()
-                    touched = self._file_restore_candidates(
-                        target_commit=entry.commit,
-                        current_tree=current_tree,
-                        conv_rel=conv_rel,
-                        selected_files=selected_files,
-                    )
-                    plan = self._build_file_plan(
+                    (
+                        entry,
+                        previous_head,
+                        plan,
+                        conv_blob,
+                        touched,
+                    ) = await asyncio.to_thread(
+                        self._prepare_restore,
                         target=target,
-                        commit=entry.commit,
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                        session_key_str=skey,
                         conversation_path=conv_rel,
-                        touched=touched,
                         include_memory=include_memory,
+                        include_files=include_files,
+                        selected_files=selected_files,
                         memory=memory,
-                    )
-                    conv_blob = service.repository.read_blob(
-                        entry.commit,
-                        conv_rel,
                     )
 
                     if dry_run:
                         return self._result_from_plan(plan, dry_run=True)
 
-                    # No persistent safety state is created until the entire
-                    # restore plan and every user-selected path are valid.
+                    if include_files:
+                        description = f"Before file restore to {target}"
+                    elif include_memory:
+                        description = f"Before memory restore to {target}"
+                    else:
+                        description = f"Before restore to {target}"
                     pre_snapshot = await asyncio.to_thread(
                         service.create_snapshot_unlocked,
                         "pre-restore",
@@ -275,19 +212,20 @@ class RestoreService:
                         user_id,
                         channel,
                         None,
-                        f"Before file restore to {target}",
+                        description,
                         None,
                     )
                     pre_ref = pre_snapshot.ref
                     pre_commit = pre_snapshot.commit
                     service.repository.restore_paths({conv_rel: conv_blob})
 
-                    self._restore_paths_to_commit_sync(
-                        entry.commit,
-                        touched,
-                    )
+                    if include_files:
+                        self.repository.restore_tree_paths(
+                            entry.commit,
+                            touched,
+                        )
 
-                if include_memory:
+                if memory is not None:
                     await memory.apply(entry.commit)
                 async with service.lock:
                     service.repository.set_session_head(skey, entry.commit)
@@ -298,7 +236,7 @@ class RestoreService:
                         pre_commit,
                         paths={conv_rel, *touched},
                         include_memory=(
-                            include_memory and memory.mutation_started
+                            memory is not None and memory.mutation_started
                         ),
                         session_key_str=skey,
                         previous_head=previous_head,
@@ -315,7 +253,52 @@ class RestoreService:
             pre_restore_ref=pre_ref,
         )
 
-    def _build_file_plan(
+    def _prepare_restore(
+        self,
+        *,
+        target: str,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        session_key_str: str,
+        conversation_path: str,
+        include_memory: bool,
+        include_files: bool,
+        selected_files: tuple[str, ...] | None,
+        memory: "MemoryRestorer | None",
+    ) -> tuple[CheckpointEntry, str | None, RestorePlan, bytes, set[str]]:
+        entry = self.service.resolve_target(
+            target,
+            session_id,
+            user_id,
+            channel,
+        )
+        previous_head = self.service.session_head(session_key_str)
+        touched: set[str] = set()
+        if include_files:
+            current_tree = self.repository.write_workspace_tree()
+            touched = self._file_restore_candidates(
+                target_commit=entry.commit,
+                current_tree=current_tree,
+                conv_rel=conversation_path,
+                selected_files=selected_files,
+            )
+        plan = self._build_plan(
+            target=target,
+            commit=entry.commit,
+            conversation_path=conversation_path,
+            touched=touched,
+            include_memory=include_memory,
+            include_files=include_files,
+            memory=memory,
+        )
+        conversation = self.repository.read_blob(
+            entry.commit,
+            conversation_path,
+        )
+        return entry, previous_head, plan, conversation, touched
+
+    def _build_plan(
         self,
         *,
         target: str,
@@ -323,25 +306,29 @@ class RestoreService:
         conversation_path: str,
         touched: set[str],
         include_memory: bool,
-        memory: "MemoryRestorer",
+        include_files: bool,
+        memory: "MemoryRestorer | None",
     ) -> RestorePlan:
-        restore_paths, delete_paths = self._plan_paths_to_commit_sync(
-            commit,
-            touched,
-        )
-        if include_memory:
+        restored: list[str] = []
+        deleted: list[str] = []
+        if include_files:
+            restored, deleted = self.repository.plan_tree_restore(
+                commit,
+                touched,
+            )
+        if memory is not None:
             memory_restore, memory_delete = memory.plan(commit)
-            restore_paths.extend(memory_restore)
-            delete_paths.extend(memory_delete)
+            restored.extend(memory_restore)
+            deleted.extend(memory_delete)
         return RestorePlan(
             target=target,
             commit=commit,
             conversation_path=conversation_path,
-            restore_paths=tuple(restore_paths),
-            delete_paths=tuple(delete_paths),
-            file_paths=tuple(sorted(touched)),
+            restore_paths=tuple(restored),
+            delete_paths=tuple(deleted),
+            file_paths=tuple(sorted(touched)) if include_files else (),
             include_memory=include_memory,
-            include_files=True,
+            include_files=include_files,
         )
 
     @staticmethod
@@ -420,83 +407,6 @@ class RestoreService:
             )
         return normalized
 
-    def _plan_paths_to_commit_sync(
-        self,
-        commit: str,
-        paths: set[str],
-    ) -> tuple[list[str], list[str]]:
-        restored: list[str] = []
-        deleted: list[str] = []
-        blob_paths = self.service.repository.tree_blob_paths(commit, paths)
-        for rel in sorted(paths):
-            if rel not in blob_paths:
-                target = self.service.repository.workspace_path(rel)
-                if target.exists() or target.is_symlink():
-                    deleted.append(rel)
-                continue
-            blob = self.service.repository.read_blob(commit, rel)
-            if not self._same_workspace_content(rel, blob):
-                restored.append(rel)
-        return restored, deleted
-
-    def _restore_sync(
-        self,
-        target: str,
-        session_id: str,
-        user_id: str,
-        channel: str,
-        dry_run: bool,
-    ) -> RestoreResult:
-        service = self.service
-        entry = service.resolve_target(target, session_id, user_id, channel)
-        rel = self._conversation_rel(
-            session_id=session_id,
-            user_id=user_id,
-            channel=channel,
-        )
-        blob = service.repository.read_blob(entry.commit, rel)
-        pre_ref = None
-        if not dry_run:
-            key = session_key(
-                channel=channel,
-                user_id=user_id,
-                session_id=session_id,
-            )
-            previous_head = service.session_head(key)
-            pre_snapshot = service.create_snapshot_unlocked(
-                "pre-restore",
-                session_id,
-                user_id,
-                channel,
-                None,
-                f"Before restore to {target}",
-                None,
-            )
-            pre_ref = pre_snapshot.ref
-            pre_commit = pre_snapshot.commit
-            try:
-                service.repository.restore_paths({rel: blob})
-                service.repository.set_session_head(key, entry.commit)
-            except Exception:
-                try:
-                    self._restore_paths_to_commit_sync(pre_commit, {rel})
-                    if previous_head:
-                        service.repository.set_session_head(key, previous_head)
-                except Exception as rollback_exc:
-                    raise CheckpointError(
-                        "Conversation restore failed and rollback also "
-                        "failed; "
-                        f"inspect safety checkpoint {pre_ref}.",
-                    ) from rollback_exc
-                raise
-        return RestoreResult(
-            target=target,
-            commit=entry.commit,
-            restored_paths=(rel,),
-            pre_restore_ref=pre_ref,
-            dry_run=dry_run,
-        )
-
     def _conversation_rel(
         self,
         *,
@@ -524,50 +434,6 @@ class RestoreService:
             return False
         return True
 
-    def _restore_paths_to_commit_sync(
-        self,
-        commit: str,
-        paths: set[str],
-    ) -> tuple[list[str], list[str]]:
-        restored: list[str] = []
-        deleted: list[str] = []
-        blob_paths = self.service.repository.tree_blob_paths(commit, paths)
-        for rel in sorted(paths):
-            if rel not in blob_paths:
-                if self.service.repository.delete_workspace_path(rel):
-                    deleted.append(rel)
-                continue
-            blob = self.service.repository.read_blob(commit, rel)
-            if self._same_workspace_content(rel, blob):
-                continue
-            target = self.service.repository.workspace_path(rel)
-            if target.is_dir() and not target.is_symlink():
-                self.service.repository.delete_workspace_path(rel)
-            self.service.repository.restore_paths({rel: blob})
-            restored.append(rel)
-        return restored, deleted
-
-    def _same_workspace_content(self, rel: str, expected: bytes) -> bool:
-        target = self.service.repository.workspace_path(rel)
-        try:
-            if (
-                target.is_symlink()
-                or not target.is_file()
-                or target.stat().st_size != len(expected)
-            ):
-                return False
-            view = memoryview(expected)
-            offset = 0
-            with target.open("rb") as stream:
-                while chunk := stream.read(1024 * 1024):
-                    end = offset + len(chunk)
-                    if chunk != view[offset:end]:
-                        return False
-                    offset = end
-            return offset == len(expected)
-        except OSError:
-            return False
-
     async def _rollback_failed_restore(
         self,
         original: BaseException,
@@ -581,7 +447,7 @@ class RestoreService:
         try:
             async with self.service.lock:
                 await asyncio.to_thread(
-                    self._restore_paths_to_commit_sync,
+                    self.repository.restore_tree_paths,
                     pre_commit,
                     paths,
                 )
@@ -605,9 +471,7 @@ class RestoreService:
 
     def _memory_restorer(self) -> MemoryRestorer:
         return MemoryRestorer(
-            workspace_dir=self.service.workspace_dir,
-            git_runner=self.service.repository.run_git,
-            read_blob=self.service.repository.read_blob,
+            repository=self.repository,
             workspace=self.service.workspace,
             quiesce_timeout=self.service.memory_quiesce_timeout,
         )
@@ -619,15 +483,12 @@ class MemoryRestorer:
     def __init__(
         self,
         *,
-        workspace_dir: Path,
-        git_runner,
-        read_blob,
+        repository,
         workspace=None,
         quiesce_timeout: float = 30.0,
     ) -> None:
-        self.workspace_dir = workspace_dir
-        self.git_runner = git_runner
-        self.read_blob = read_blob
+        self.repository = repository
+        self.workspace_dir = repository.workspace_dir
         self.workspace = workspace
         self.quiesce_timeout = quiesce_timeout
         self.mutation_started = False
@@ -638,8 +499,8 @@ class MemoryRestorer:
         current_paths = self._current_memory_paths()
         would_restore: list[str] = []
         for rel in target_paths:
-            content = self.read_blob(commit, rel)
-            if not self._same_content(self._target_path(rel), content):
+            content = self.repository.read_blob(commit, rel)
+            if not self.repository.same_workspace_content(rel, content):
                 would_restore.append(rel)
         would_delete = sorted(current_paths - set(target_paths))
         return would_restore, would_delete
@@ -673,44 +534,21 @@ class MemoryRestorer:
 
     def _restore_sync(self, commit: str) -> tuple[list[str], list[str]]:
         target_paths = self._checkpoint_paths(commit)
-        target_path_set = set(target_paths)
         current_paths = self._current_memory_paths()
-        restored: list[str] = []
-        deleted: list[str] = []
-
-        for rel in sorted(current_paths - target_path_set):
-            target = self._target_path(rel)
-            try:
-                target.unlink()
-            except FileNotFoundError:
-                continue
-            except OSError as exc:
-                raise CheckpointError(
-                    f"Failed to delete memory file {rel}: {exc}",
-                ) from exc
-            deleted.append(rel)
-
-        for rel in target_paths:
-            blob = self.read_blob(commit, rel)
-            target = self._target_path(rel)
-            if self._same_content(target, blob):
-                continue
-            if target.is_dir() and not target.is_symlink():
-                shutil.rmtree(target)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            self._atomic_write_bytes(target, blob)
-            restored.append(rel)
-
+        restored, deleted = self.repository.restore_tree_paths(
+            commit,
+            current_paths | set(target_paths),
+        )
         self._remove_empty_memory_dirs()
         return restored, deleted
 
     def _checkpoint_paths(self, commit: str) -> list[str]:
         """List checkpoint memory files without loading their contents."""
-        paths = [
-            *self._list_tree_paths(commit, "MEMORY.md"),
-            *self._list_tree_paths(commit, "memory/"),
-        ]
-        return sorted(set(paths))
+        return self.repository.list_tree_paths(
+            commit,
+            "MEMORY.md",
+            "memory/",
+        )
 
     def _current_memory_paths(self) -> set[str]:
         paths: set[str] = set()
@@ -737,42 +575,6 @@ class MemoryRestorer:
                     )
         return paths
 
-    @staticmethod
-    def _same_content(path: Path, expected: bytes) -> bool:
-        try:
-            if (
-                path.is_symlink()
-                or not path.is_file()
-                or path.stat().st_size != len(expected)
-            ):
-                return False
-            view = memoryview(expected)
-            offset = 0
-            with path.open("rb") as stream:
-                while chunk := stream.read(1024 * 1024):
-                    end = offset + len(chunk)
-                    if chunk != view[offset:end]:
-                        return False
-                    offset = end
-            return offset == len(expected)
-        except OSError:
-            return False
-
-    def _target_path(self, rel: str) -> Path:
-        target = Path(os.path.abspath(self.workspace_dir / rel))
-        if not target.is_relative_to(self.workspace_dir):
-            raise CheckpointError(
-                f"Refusing to restore memory outside workspace: {rel}",
-            )
-        parent = target.parent
-        while parent != self.workspace_dir:
-            if parent.is_symlink():
-                raise CheckpointError(
-                    f"Refusing to follow memory symlink for path: {rel}",
-                )
-            parent = parent.parent
-        return target
-
     def _remove_empty_memory_dirs(self) -> None:
         memory_dir = self.workspace_dir / "memory"
         if not memory_dir.is_dir():
@@ -783,39 +585,6 @@ class MemoryRestorer:
                 path.rmdir()
             except OSError:
                 pass
-
-    def _list_tree_paths(self, commit: str, prefix: str) -> list[str]:
-        output = self.git_runner(
-            "ls-tree",
-            "-r",
-            "--name-only",
-            commit,
-            "--",
-            prefix,
-        )
-        return [line for line in output.splitlines() if line.strip()]
-
-    @staticmethod
-    def _atomic_write_bytes(target: Path, content: bytes) -> None:
-        temp_path: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                dir=target.parent,
-                prefix=f".{target.name}.mem-",
-                suffix=".tmp",
-                delete=False,
-            ) as tf:
-                tf.write(content)
-                tf.flush()
-                os.fsync(tf.fileno())
-                temp_path = Path(tf.name)
-            os.replace(temp_path, target)
-        except OSError as exc:
-            if temp_path is not None:
-                temp_path.unlink(missing_ok=True)
-            raise CheckpointError(
-                f"Failed to restore memory file {target.name}: {exc}",
-            ) from exc
 
     async def _quiesce_workspace(self) -> list[Callable[[], None]]:
         resume_callbacks: list[Callable[[], None]] = []

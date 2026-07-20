@@ -73,6 +73,7 @@ class CheckpointService:
         self.query_gate.set()
         self.lock = asyncio.Lock()
         self.maintenance_lock = asyncio.Lock()
+        self._restores = RestoreService(self)
 
     @property
     def workspace_dir(self) -> Path:
@@ -219,7 +220,7 @@ class CheckpointService:
         query: str | None = None,
     ) -> str:
         """Create one automatic checkpoint and return its ref."""
-        result = await self.make_snapshot_result(
+        return await self.make_snapshot(
             kind="auto",
             session_id=session_id,
             user_id=user_id,
@@ -227,7 +228,6 @@ class CheckpointService:
             message=message,
             query=query,
         )
-        return result.ref
 
     async def make_snapshot(
         self,
@@ -268,7 +268,7 @@ class CheckpointService:
             raise ValueError(f"Unsupported checkpoint kind: {kind}")
         async with self.maintenance_lock:
             async with self.lock:
-                return await asyncio.to_thread(
+                result = await asyncio.to_thread(
                     self.create_snapshot_unlocked,
                     kind,
                     session_id,
@@ -278,6 +278,7 @@ class CheckpointService:
                     message,
                     query,
                 )
+        return result
 
     def create_snapshot_unlocked(
         self,
@@ -442,14 +443,10 @@ class CheckpointService:
                 records_by_key.setdefault(record_key, []).append(record)
         heads: dict[str, str | None] = {}
         for record_key, key_records in records_by_key.items():
-            stored = self.repository.get_session_head(record_key)
-            if stored and any(item.commit == stored for item in key_records):
-                heads[record_key] = stored
-            else:
-                heads[record_key] = max(
-                    key_records,
-                    key=lambda item: item.timestamp_ms,
-                ).commit
+            heads[record_key] = self._head_for_records(
+                record_key,
+                key_records,
+            )
         entries = [
             self._entry_from_record(
                 record,
@@ -465,11 +462,6 @@ class CheckpointService:
             reverse=True,
         )
         return entries[: max(1, limit)]
-
-    def _list_refs(self) -> list[tuple[str, str]]:
-        return [
-            (record.ref, record.commit) for record in self._list_ref_records()
-        ]
 
     def _list_ref_records(self) -> list[_RefRecord]:
         """Read checkpoint refs and commit metadata in one Git process."""
@@ -511,33 +503,27 @@ class CheckpointService:
         return records
 
     def session_head(self, key: str) -> str | None:
-        stored = self.repository.get_session_head(key)
-        if stored:
-            return stored
-        refs = [
-            item
-            for item in self._list_refs()
-            if ref_session_key(item[0]) == key
+        records = [
+            record
+            for record in self._list_ref_records()
+            if ref_session_key(record.ref) == key
         ]
-        return self._session_head_from_refs(key, refs)
+        return self._head_for_records(key, records)
 
-    def _session_head_from_refs(
+    def _head_for_records(
         self,
         key: str,
-        refs: list[tuple[str, str]],
+        records: list[_RefRecord],
     ) -> str | None:
-        session_refs = [
-            item for item in refs if ref_session_key(item[0]) == key
-        ]
-        if not session_refs:
+        if not records:
             return None
         stored = self.repository.get_session_head(key)
-        if stored and any(commit == stored for _, commit in session_refs):
+        if stored and any(record.commit == stored for record in records):
             return stored
         return max(
-            session_refs,
-            key=lambda item: self._entry_timestamp(item[0], item[1]),
-        )[1]
+            records,
+            key=lambda record: record.timestamp_ms,
+        ).commit
 
     async def delete_sessions(
         self,
@@ -693,7 +679,7 @@ class CheckpointService:
         dry_run: bool = False,
     ) -> RestoreResult:
         """Restore the current conversation session to a checkpoint."""
-        return await RestoreService(self).restore(
+        return await self._restores.restore(
             target=target,
             session_id=session_id,
             user_id=user_id,
@@ -713,7 +699,7 @@ class CheckpointService:
         dry_run: bool = False,
     ) -> RestoreResult:
         """Restore conversation + MEMORY.md + memory/ to a checkpoint."""
-        return await RestoreService(self).restore_with_memory(
+        return await self._restores.restore_with_memory(
             target=target,
             session_id=session_id,
             user_id=user_id,
@@ -735,7 +721,7 @@ class CheckpointService:
         dry_run: bool = False,
     ) -> RestoreResult:
         """Restore conversation + query-touched files to a checkpoint."""
-        return await RestoreService(self).restore_with_files(
+        return await self._restores.restore_with_files(
             target=target,
             session_id=session_id,
             user_id=user_id,
@@ -754,6 +740,7 @@ class CheckpointService:
     ) -> CheckpointEntry:
         target = target.strip()
         index_target = target[1:] if target.startswith("#") else target
+        explicit_index = target.startswith("#")
         timeline = self._timeline_sync(
             session_id,
             user_id,
@@ -766,7 +753,9 @@ class CheckpointService:
             user_id=user_id,
             session_id=session_id,
         )
-        if index_target.isdigit():
+        if index_target.isdigit() and (
+            explicit_index or len(index_target) < 7
+        ):
             index = int(index_target)
             if 1 <= index <= len(timeline):
                 return timeline[index - 1]
@@ -781,7 +770,9 @@ class CheckpointService:
                 return entry
             if len(target) >= 7 and entry.commit.startswith(target):
                 return entry
-        if index_target.isdigit():
+        if index_target.isdigit() and (
+            explicit_index or len(index_target) < 7
+        ):
             raise CheckpointError(f"Timeline index out of range: {target}")
         raise CheckpointError(
             f"Unknown restore target for this session: {target}",
@@ -843,64 +834,65 @@ class CheckpointService:
             session_id=session_id,
         )
         records = self._list_ref_records()
-        refs = [(record.ref, record.commit) for record in records]
-        timestamps = {
-            (record.ref, record.commit): record.timestamp_ms
-            for record in records
-        }
         now_ms = int(time.time() * 1000)
         keep_cutoff_ms = now_ms - keep_days * 86_400_000
         pre_cutoff_ms = now_ms - pre_restore_days * 86_400_000
 
         head_commits = {
-            ref_key: self._session_head_from_refs(ref_key, refs)
+            ref_key: self._head_for_records(
+                ref_key,
+                [
+                    record
+                    for record in records
+                    if ref_session_key(record.ref) == ref_key
+                ],
+            )
             for ref_key in {
-                ref_session_key(ref) for ref, _ in refs if ref_session_key(ref)
+                ref_session_key(record.ref)
+                for record in records
+                if ref_session_key(record.ref)
             }
         }
 
-        auto_refs = [
-            item
-            for item in refs
-            if item[0].startswith("refs/auto/")
-            and (all_sessions or ref_session_key(item[0]) == key)
+        auto_records = [
+            record
+            for record in records
+            if record.ref.startswith("refs/auto/")
+            and (all_sessions or ref_session_key(record.ref) == key)
         ]
-        auto_refs.sort(
-            key=lambda item: self._entry_timestamp(item[0], item[1]),
-            reverse=True,
-        )
-        kept_auto = {ref for ref, _ in auto_refs[:keep_count]}
+        auto_records.sort(key=lambda record: record.timestamp_ms, reverse=True)
+        kept_auto = {record.ref for record in auto_records[:keep_count]}
         delete_refs: list[str] = []
         keep_refs: list[str] = []
-        for ref, commit in auto_refs:
-            ts = timestamps[(ref, commit)]
+        for record in auto_records:
+            ref = record.ref
             # Never delete a session HEAD checkpoint.
-            if head_commits.get(ref_session_key(ref)) == commit:
+            if head_commits.get(ref_session_key(ref)) == record.commit:
                 keep_refs.append(ref)
             elif compact:
                 delete_refs.append(ref)
-            elif ref in kept_auto or ts >= keep_cutoff_ms:
+            elif ref in kept_auto or record.timestamp_ms >= keep_cutoff_ms:
                 keep_refs.append(ref)
             else:
                 delete_refs.append(ref)
 
-        pre_refs = [
-            item
-            for item in refs
-            if item[0].startswith("refs/pre-restore/")
-            and (all_sessions or ref_session_key(item[0]) == key)
+        pre_records = [
+            record
+            for record in records
+            if record.ref.startswith("refs/pre-restore/")
+            and (all_sessions or ref_session_key(record.ref) == key)
         ]
-        for ref, commit in pre_refs:
-            ts = timestamps[(ref, commit)]
-            if head_commits.get(ref_session_key(ref)) == commit:
+        for record in pre_records:
+            ref = record.ref
+            if head_commits.get(ref_session_key(ref)) == record.commit:
                 keep_refs.append(ref)
-            elif ts < pre_cutoff_ms:
+            elif record.timestamp_ms < pre_cutoff_ms:
                 delete_refs.append(ref)
             else:
                 keep_refs.append(ref)
 
         if not dry_run and delete_refs:
-            commits_by_ref = dict(refs)
+            commits_by_ref = {record.ref: record.commit for record in records}
             commands = "".join(
                 f"delete {ref} {commits_by_ref[ref]}\n" for ref in delete_refs
             )

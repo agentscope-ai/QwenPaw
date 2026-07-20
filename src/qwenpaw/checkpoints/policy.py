@@ -94,6 +94,7 @@ QWENPAW_RUNTIME_STATE_FILES = frozenset(
 QWENPAW_RUNTIME_STATE_DIRS = (
     ".qwenpaw/",
     ".scroll/",
+    ".pawgit/",
     "active_skills/",
     "backup/",
     "browser/",
