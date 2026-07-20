@@ -9,6 +9,7 @@ import {
   LlmRateLimiterCard,
   ToolExecutionLevelCard,
   AgentLoopCard,
+  MultimodalFallbackCard,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -196,6 +197,21 @@ function AgentConfigPage() {
         ),
       });
     }
+
+    // Add Multimodal Fallback tab
+    baseTabs.push({
+      key: "multimodalFallback",
+      label: (
+        <span className={styles.tabLabel}>
+          {t("agentConfig.multimodalFallbackTitle")}
+        </span>
+      ),
+      children: (
+        <div className={styles.tabContent}>
+          <MultimodalFallbackCard />
+        </div>
+      ),
+    });
 
     // Add Tool Execution Level tab
     baseTabs.push({

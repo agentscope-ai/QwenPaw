@@ -75,6 +75,15 @@ export interface AutoTitleConfig {
   timeout_seconds: number;
 }
 
+export interface MultimodalFallbackConfig {
+  enabled: boolean;
+  vision_provider: string;
+  vision_model: string;
+  max_image_descriptions: number;
+  description_max_tokens: number;
+  system_prompt: string;
+}
+
 export interface ADBPGMemoryConfig {
   rest_base_url: string;
   rest_api_key: string;
@@ -136,4 +145,5 @@ export interface AgentsRunningConfig {
   reme_light_memory_config: ReMeLightMemoryConfig;
   approval_level?: string;
   auto_title_config: AutoTitleConfig;
+  multimodal_fallback?: MultimodalFallbackConfig | null;
 }

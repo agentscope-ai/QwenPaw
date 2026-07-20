@@ -11,10 +11,11 @@ as constructor parameters and does not build them internally.
 
 from __future__ import annotations
 
+import copy
 import logging
 import uuid
 from pathlib import Path
-from typing import Any, Literal, Optional, TYPE_CHECKING
+from typing import Any, List, Literal, Optional, TYPE_CHECKING
 
 from agentscope.agent import Agent, ReActConfig
 from agentscope.event import (
@@ -415,6 +416,68 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return
         setattr(formatter, "_qwenpaw_force_strip_media", enabled)
 
+    async def _try_vision_fallback(self) -> tuple[int, List[Msg]]:
+        """Attempt to describe images in context via a vision model.
+
+        When enabled, extracts image blocks from a *deep-copied* copy of the
+        conversation context, calls a vision-capable model to generate text
+        descriptions, and replaces the image blocks with TextBlocks
+        containing the descriptions.  The original ``self.state.context`` is
+        intentionally left untouched so that the chat UI keeps showing the
+        original image blocks instead of the injected description text.
+
+        Returns:
+            A tuple of (number of images described, context copy with image
+            blocks replaced by descriptions).  If fallback is disabled,
+            config is missing, or an error occurs, returns ``(0, [])``.
+        """
+        from .utils.vision_fallback import describe_images_in_messages
+
+        running = getattr(self._agent_config, "running", None)
+        fb = getattr(running, "multimodal_fallback", None)
+        if fb is None or not fb.enabled:
+            return 0, []
+
+        session_id = (self._request_context or {}).get("session_id")
+
+        # Work on a deep copy: model input becomes text descriptions, but the
+        # persisted conversation history (and UI) keeps the original media.
+        context_copy = copy.deepcopy(self.state.context)
+
+        try:
+            described = await describe_images_in_messages(
+                context_copy,
+                vision_provider_id=fb.vision_provider,
+                vision_model=fb.vision_model,
+                max_images=fb.max_image_descriptions,
+                max_tokens=fb.description_max_tokens,
+                system_prompt=fb.system_prompt,
+                session_id=session_id,
+            )
+            return described, context_copy
+        except Exception as exc:
+            logger.warning(
+                "Vision fallback failed, will fall back to media stripping: "
+                "%s",
+                exc,
+                exc_info=True,
+            )
+            return 0, []
+
+    async def _call_base_reasoning(
+        self,
+        tool_choice: Literal["auto", "none", "required"] | None = None,
+    ):
+        """Yield events from the base agentscope reasoning implementation.
+
+        This thin wrapper exists so that ``_reasoning`` can be unit-tested
+        with a lightweight stub: the stub provides its own implementation of
+        this method, avoiding the ``super()`` type-check that would otherwise
+        require a full QwenPawAgent instance.
+        """
+        async for evt in super()._reasoning(tool_choice=tool_choice):
+            yield evt
+
     # pylint: disable=too-many-branches,too-many-statements
     async def _reasoning(
         self,
@@ -460,7 +523,25 @@ class QwenPawAgent(CodingModeMixin, Agent):
             not _supports_multimodal_for_current_model()
             or self._model_rejects_media()
         )
+        context_with_descriptions: List[Msg] | None = None
         if should_strip:
+            # ── Vision fallback: describe images before stripping ──
+            # This returns a deep-copied context where image blocks have been
+            # replaced by text descriptions.  We temporarily swap it in only
+            # for the model call and restore the original (image-preserving)
+            # context afterwards, so the chat UI / persisted history is not
+            # polluted by the injected description text.
+            (
+                described,
+                context_with_descriptions,
+            ) = await self._try_vision_fallback()
+            if described > 0:
+                logger.info(
+                    "Vision fallback: described %d image(s) via "
+                    "vision model.",
+                    described,
+                )
+
             if self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(True)
             else:
@@ -473,48 +554,72 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
 
         # ── Model call with passive retry on media error ──
-        final_msg: Msg | None = None
+        # Use the description-augmented context for the model only.  We must
+        # still merge any assistant/tool messages produced by the call back
+        # into the original (image-preserving) context before restoring it;
+        # otherwise the assistant reply is lost and the outer loop sees an
+        # incomplete history, which can cause repeated thinking iterations.
+        original_context = self.state.context
+        original_context_len = len(original_context)
+        if context_with_descriptions:
+            self.state.context = context_with_descriptions
         try:
-            async for evt in super()._reasoning(tool_choice=tool_choice):
-                if isinstance(evt, Msg):
-                    final_msg = evt
-                else:
-                    yield evt
-        except Exception as e:
-            if not self._is_bad_request_or_media_error(e):
-                raise
-
-            model_key = self._get_model_key()
-            if model_key:
-                get_capability_cache().learn(
-                    model_key,
-                    "rejects_media",
-                    True,
-                )
-            logger.warning(
-                "_reasoning failed with media error (%s); "
-                "stripping media and retrying.",
-                e,
-            )
-            if self._uses_request_time_media_normalization():
-                self._set_formatter_media_strip(True)
-            else:
-                self._strip_media_blocks_from_memory()
-
+            final_msg: Msg | None = None
             try:
-                async for evt in super()._reasoning(
+                async for evt in self._call_base_reasoning(
                     tool_choice=tool_choice,
                 ):
                     if isinstance(evt, Msg):
                         final_msg = evt
                     else:
                         yield evt
-            finally:
+            except Exception as e:
+                if not self._is_bad_request_or_media_error(e):
+                    raise
+
+                model_key = self._get_model_key()
+                if model_key:
+                    get_capability_cache().learn(
+                        model_key,
+                        "rejects_media",
+                        True,
+                    )
+                logger.warning(
+                    "_reasoning failed with media error (%s); "
+                    "stripping media and retrying.",
+                    e,
+                )
                 if self._uses_request_time_media_normalization():
+                    self._set_formatter_media_strip(True)
+                else:
+                    self._strip_media_blocks_from_memory()
+
+                try:
+                    async for evt in self._call_base_reasoning(
+                        tool_choice=tool_choice,
+                    ):
+                        if isinstance(evt, Msg):
+                            final_msg = evt
+                        else:
+                            yield evt
+                finally:
+                    if self._uses_request_time_media_normalization():
+                        self._set_formatter_media_strip(False)
+            else:
+                if (
+                    should_strip
+                    and self._uses_request_time_media_normalization()
+                ):
                     self._set_formatter_media_strip(False)
-        else:
-            if should_strip and self._uses_request_time_media_normalization():
-                self._set_formatter_media_strip(False)
+        finally:
+            if context_with_descriptions:
+                # Preserve assistant/tool messages generated during the call
+                # in the real conversation history while keeping images as
+                # images for the UI / persistence layer.
+                original_context.extend(
+                    context_with_descriptions[original_context_len:],
+                )
+            self.state.context = original_context
 
         # ── Stop Hook: run every iteration ──
         stop_result = await self._run_stop_handlers(final_msg)
