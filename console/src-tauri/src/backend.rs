@@ -17,11 +17,12 @@ mod events;
 
 /// Path of the desktop-only graceful shutdown endpoint on the backend.
 const DESKTOP_SHUTDOWN_PATH: &str = "/api/desktop/shutdown";
-/// Upper bound for the graceful shutdown HTTP request.
-const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
-/// Brief delay after a successful shutdown request so the HTTP response can
-/// flush before we let the sidecar finish its own lifespan shutdown.
-const GRACEFUL_SHUTDOWN_SETTLE: Duration = Duration::from_millis(300);
+/// Upper bound for the shutdown HTTP request. The endpoint just flips
+/// uvicorn's `should_exit` and returns immediately, so the request is
+/// milliseconds in the happy path; this is only a fallback so a wedged
+/// backend never blocks quit. uvicorn's own `timeout_graceful_shutdown`
+/// bounds the sidecar's internal drain independently.
+const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
 
 /// Shared sidecar process state managed by Tauri.
@@ -113,11 +114,16 @@ impl BackendState {
         if let Some(port) = port {
             match request_graceful_shutdown(port).await {
                 Ok(()) => {
-                    // The sidecar (tauri-plugin-shell CommandChild) has no
-                    // kill-on-drop, so dropping `child` here does NOT terminate
-                    // the process. It keeps running to complete its own lifespan
-                    // shutdown (which flushes memory/index) even after the Tauri
-                    // shell exits. It then exits on its own.
+                    // Fire-and-forget: dropping `child` does NOT kill the
+                    // sidecar. tauri-plugin-shell 2.3.5 has no `impl Drop`
+                    // on `CommandChild`, spawns without a Job Object, and
+                    // its `RunEvent::Exit` handler only kills children in
+                    // `shell.children` (populated by the IPC `execute`
+                    // command; our Rust-side `command.spawn()` is not in
+                    // that map). The sidecar therefore keeps running past
+                    // Tauri exit and completes its own lifespan shutdown
+                    // (memory/index flush) on its own timeline, bounded by
+                    // uvicorn's `timeout_graceful_shutdown`.
                     log::info!("[backend] graceful shutdown requested pid={pid}");
                     return;
                 }
@@ -158,7 +164,6 @@ async fn request_graceful_shutdown(port: u16) -> Result<(), String> {
         return Err(format!("shutdown endpoint returned HTTP {status}"));
     }
 
-    tokio::time::sleep(GRACEFUL_SHUTDOWN_SETTLE).await;
     Ok(())
 }
 
