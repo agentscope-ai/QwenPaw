@@ -1870,6 +1870,8 @@
       "createModeAria": "创建自定义 Loop 模式",
       "createModeTitle": "创建自定义 Loop 模式",
       "startingTemplate": "初始模板",
+      "startingPipeline": "初始 Gate 流程",
+      "blankPipelineHint": "从空流程开始，稍后添加 Gate",
       "safeTemplate": "安全运行",
       "researchTemplate": "预算研究",
       "qualityTemplate": "质量优先",

@@ -1861,6 +1861,8 @@
       "createModeAria": "Criar modo de Loop personalizado",
       "createModeTitle": "Criar modo de Loop personalizado",
       "startingTemplate": "Modelo inicial",
+      "startingPipeline": "Pipeline inicial",
+      "blankPipelineHint": "Comece vazio e adicione gates depois",
       "safeTemplate": "Execução segura",
       "researchTemplate": "Pesquisa com orçamento",
       "qualityTemplate": "Qualidade primeiro",

@@ -2,11 +2,11 @@
   overflow: hidden;
 
   :global(.ant-card-body) {
-    padding-top: 10px;
+    padding: 14px 18px 20px;
   }
 
   :global(.ant-tabs-nav) {
-    margin-bottom: 0;
+    margin: 0 -2px;
   }
 
   :global(.ant-tabs-nav::before) {
@@ -25,7 +25,7 @@
 
   :global(.ant-tabs-tab) {
     margin: 0;
-    padding: 9px 13px 10px;
+    padding: 8px 13px 9px;
     border: 1px solid transparent;
     border-bottom: 0;
     border-radius: 9px 9px 0 0;
@@ -35,12 +35,12 @@
   }
 
   :global(.ant-tabs-tab:hover) {
-    background: var(--background-color-secondary, #f7f8f6);
+    background: var(--background-color-secondary, #f5f7f4);
   }
 
   :global(.ant-tabs-tab-active) {
     border-color: var(--border-color, #dfe3dd);
-    background: var(--background-color-secondary, #f7f8f6);
+    background: var(--background-color, #fff);
   }
 
   :global(.ant-tabs-tab-active::after) {
@@ -49,7 +49,7 @@
     bottom: -1px;
     left: 0;
     height: 2px;
-    background: var(--background-color-secondary, #f7f8f6);
+    background: var(--background-color, #fff);
     content: "";
   }
 
@@ -62,7 +62,7 @@
   display: flex;
   align-items: baseline;
   gap: 9px;
-  margin: 1px 2px 11px;
+  margin: 0 2px 8px;
 }
 
 .templateIntro strong {
@@ -105,22 +105,26 @@
   }
 }
 
+:global(.ant-tabs-tab-active) .customTab {
+  color: #274c3d;
+  font-weight: 650;
+}
+
 .addModeTab {
   display: grid;
-  width: 22px;
-  height: 20px;
+  width: 24px;
+  height: 22px;
   place-items: center;
+  border: 1px solid #cbd8d0;
+  border-radius: 7px;
+  background: #f2f6f3;
   color: #315c4b;
 }
 
 .modeEditor {
-  max-width: 960px;
+  width: min(100%, 1080px);
   margin: 0;
-  padding: 10px 4px 12px;
-}
-
-.customHeader {
-  margin-bottom: 20px;
+  padding: 16px 2px 12px;
 }
 
 .customHeader p {
@@ -135,7 +139,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
   padding: 11px 13px;
   border: 1px solid var(--border-color, #e4e7e2);
   border-radius: 11px;
@@ -187,6 +191,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  margin-bottom: 18px;
 }
 
 .customHeader p {
@@ -221,7 +226,7 @@
 }
 
 .settingsPanel {
-  padding: 18px 20px 3px;
+  padding: 16px 18px 1px;
   border: 1px solid var(--border-color, #e1e3df);
   border-radius: 13px;
   background: var(--background-color-secondary, #fdfdfb);
@@ -229,21 +234,29 @@
 
 .gateList {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .gateCard {
   overflow: hidden;
-  margin-bottom: 10px;
+  margin-bottom: 0;
   border: 1px solid var(--border-color, #e1e3df);
-  border-radius: 13px;
+  border-radius: 12px;
   background: var(--background-color, #fff);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.gateCard:hover {
+  border-color: #cfd7d1;
+  box-shadow: 0 5px 16px rgba(45, 64, 53, 0.045);
 }
 
 .gateSummary {
   display: grid;
   width: 100%;
-  min-height: 66px;
+  min-height: 62px;
   grid-template-columns: 28px 34px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
@@ -373,7 +386,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin: 6px 0 12px;
+  margin: 4px 0 10px;
 }
 
 .pipelineToolbar > div {
@@ -391,7 +404,7 @@
 }
 
 .emptyPipeline {
-  padding: 38px 18px;
+  padding: 34px 18px;
   border: 1px dashed var(--border-color, #d4d8d2);
   border-radius: 13px;
   color: var(--text-secondary, rgba(0, 0, 0, 0.5));
@@ -456,15 +469,48 @@
 
 .createForm {
   display: grid;
-  gap: 9px;
-  padding-top: 8px;
+  gap: 8px;
+  padding: 6px 2px 2px;
 }
 
 .createForm label {
-  margin-top: 4px;
+  margin-top: 6px;
   color: var(--text-secondary, rgba(0, 0, 0, 0.65));
   font-size: 12px;
   font-weight: 600;
+}
+
+.templatePreview {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 12px 13px;
+  border: 1px solid var(--border-color, #e1e5df);
+  border-radius: 10px;
+  background: var(--background-color-secondary, #f7f9f6);
+}
+
+.templatePreview > span {
+  color: var(--text-secondary, rgba(0, 0, 0, 0.58));
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.templatePreview > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.templatePreview small {
+  padding: 4px 8px;
+  border: 1px solid #d8e1db;
+  border-radius: 999px;
+  background: var(--background-color, #fff);
+  color: #40584b;
+  font-size: 10px;
 }
 
 @media (max-width: 720px) {

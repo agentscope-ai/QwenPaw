@@ -928,6 +928,8 @@
       "createModeAria": "Tạo chế độ Loop tùy chỉnh",
       "createModeTitle": "Tạo chế độ Loop tùy chỉnh",
       "startingTemplate": "Mẫu khởi đầu",
+      "startingPipeline": "Pipeline khởi đầu",
+      "blankPipelineHint": "Bắt đầu trống và thêm gate sau",
       "safeTemplate": "Chạy an toàn",
       "researchTemplate": "Nghiên cứu có ngân sách",
       "qualityTemplate": "Ưu tiên chất lượng",

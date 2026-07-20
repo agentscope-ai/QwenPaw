@@ -2011,6 +2011,8 @@
       "createModeAria": "Create custom loop mode",
       "createModeTitle": "Create custom loop mode",
       "startingTemplate": "Starting template",
+      "startingPipeline": "Starting pipeline",
+      "blankPipelineHint": "Start empty and add gates later",
       "safeTemplate": "Safe run",
       "researchTemplate": "Budgeted research",
       "qualityTemplate": "Quality first",

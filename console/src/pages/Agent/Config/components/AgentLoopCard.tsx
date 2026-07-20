@@ -1343,8 +1343,8 @@ export function AgentLoopCard() {
   const createMode = () => {
     const mode = buildCustomLoopMode(
       customModes,
-      newName,
-      newCommand,
+      newName.trim(),
+      newCommand.trim(),
       template,
       Date.now(),
       t(
@@ -1471,6 +1471,7 @@ export function AgentLoopCard() {
         size="small"
       />
       <Modal
+        width={520}
         title={t(
           "agentConfig.loopMode.createModeTitle",
           "Create custom loop mode",
@@ -1532,6 +1533,30 @@ export function AgentLoopCard() {
               },
             ]}
           />
+          <div className={loopStyles.templatePreview} aria-live="polite">
+            <span>
+              {t("agentConfig.loopMode.startingPipeline", "Starting pipeline")}
+            </span>
+            <div>
+              {TEMPLATES[template].length ? (
+                TEMPLATES[template].map((type) => {
+                  const definition = gateDefinition(type);
+                  return (
+                    <small key={type}>
+                      {t(definition.titleKey, definition.title)}
+                    </small>
+                  );
+                })
+              ) : (
+                <small>
+                  {t(
+                    "agentConfig.loopMode.blankPipelineHint",
+                    "Start empty and add gates later",
+                  )}
+                </small>
+              )}
+            </div>
+          </div>
         </div>
       </Modal>
     </Card>

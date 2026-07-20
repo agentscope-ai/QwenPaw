@@ -1624,6 +1624,8 @@
       "createModeAria": "カスタム Loop モードを作成",
       "createModeTitle": "カスタム Loop モードを作成",
       "startingTemplate": "開始テンプレート",
+      "startingPipeline": "開始パイプライン",
+      "blankPipelineHint": "空の状態から始め、後でゲートを追加",
       "safeTemplate": "安全な実行",
       "researchTemplate": "予算付き調査",
       "qualityTemplate": "品質優先",

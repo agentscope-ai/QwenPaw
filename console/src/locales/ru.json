@@ -1639,6 +1639,8 @@
       "createModeAria": "Создать режим Loop",
       "createModeTitle": "Создать пользовательский режим Loop",
       "startingTemplate": "Начальный шаблон",
+      "startingPipeline": "Начальный конвейер",
+      "blankPipelineHint": "Начните с пустого режима и добавьте гейты позже",
       "safeTemplate": "Безопасный запуск",
       "researchTemplate": "Исследование с бюджетом",
       "qualityTemplate": "Приоритет качества",

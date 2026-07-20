@@ -2026,6 +2026,8 @@
       "createModeAria": "Buat mode Loop kustom",
       "createModeTitle": "Buat mode Loop kustom",
       "startingTemplate": "Templat awal",
+      "startingPipeline": "Pipeline awal",
+      "blankPipelineHint": "Mulai kosong dan tambahkan gate nanti",
       "safeTemplate": "Jalankan aman",
       "researchTemplate": "Riset beranggaran",
       "qualityTemplate": "Utamakan kualitas",
