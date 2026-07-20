@@ -442,9 +442,10 @@
     "copyNameLabel": "Nome do novo agente",
     "copyOptionsLabel": "Conteudo a copiar",
     "copyOptionAgentJson": "agent.json",
-    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT.md",
+    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT / BOOTSTRAP.md",
     "copyOptionSkills": "skills/ + manifest",
     "copyOptionJobs": "jobs.json",
+    "copyOptionJobsHint": "Copia definicoes de tarefas agendadas, sem historico de execucao",
     "copySuccess": "Configuracao do agente copiada com sucesso",
     "copyFailed": "Falha ao copiar a configuracao do agente"
   },

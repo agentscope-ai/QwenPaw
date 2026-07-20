@@ -562,9 +562,10 @@
     "copyNameLabel": "New agent name",
     "copyOptionsLabel": "Copy content",
     "copyOptionAgentJson": "agent.json",
-    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT.md",
+    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT / BOOTSTRAP.md",
     "copyOptionSkills": "skills/ + manifest",
     "copyOptionJobs": "jobs.json",
+    "copyOptionJobsHint": "Copies scheduled job definitions, not run history",
     "copySuccess": "Agent configuration copied successfully",
     "copyFailed": "Failed to copy agent configuration"
   },

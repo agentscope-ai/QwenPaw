@@ -109,12 +109,18 @@ class CopyAgentRequest(BaseModel):
 
     name: str | None = None
     copy_agent_json: bool = True
-    copy_md_files: bool = False
+    copy_md_files: bool = True
     copy_skills: bool = False
     copy_jobs: bool = False
 
 
-_COPYABLE_MD_FILES = ("AGENTS.md", "SOUL.md", "PROFILE.md", "HEARTBEAT.md")
+_COPYABLE_MD_FILES = (
+    "AGENTS.md",
+    "SOUL.md",
+    "PROFILE.md",
+    "HEARTBEAT.md",
+    "BOOTSTRAP.md",
+)
 
 
 def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
@@ -481,6 +487,87 @@ async def create_agent(
     return agent_ref
 
 
+def _build_copied_agent_config(
+    *,
+    source_config: AgentProfileConfig,
+    request: CopyAgentRequest,
+    new_id: str,
+    new_name: str,
+    workspace_dir: Path,
+    language: str,
+) -> AgentProfileConfig:
+    """Build the new agent config for a copy operation."""
+    from ...config.config import (
+        ChannelConfig,
+        MCPConfig,
+        HeartbeatConfig,
+        ToolsConfig,
+    )
+
+    if request.copy_agent_json:
+        agent_config = source_config.model_copy(deep=True)
+        agent_config.id = new_id
+        agent_config.name = new_name
+        agent_config.workspace_dir = str(workspace_dir)
+        # Avoid sharing channel credentials / routing with the source agent.
+        agent_config.channels = ChannelConfig()
+        return agent_config
+
+    active_model = None
+    try:
+        from ...providers import ProviderManager
+
+        global_model = ProviderManager.get_instance().get_active_model()
+        if global_model and global_model.provider_id:
+            active_model = global_model
+    except Exception:
+        pass
+
+    return AgentProfileConfig(
+        id=new_id,
+        name=new_name,
+        description="",
+        workspace_dir=str(workspace_dir),
+        language=language,
+        channels=ChannelConfig(),
+        mcp=MCPConfig(),
+        heartbeat=HeartbeatConfig(),
+        tools=ToolsConfig(),
+        active_model=active_model,
+    )
+
+
+def _copy_selected_workspace_files(
+    *,
+    request: CopyAgentRequest,
+    source_workspace: Path,
+    workspace_dir: Path,
+) -> None:
+    """Copy selected whitelist files from source workspace to the new one."""
+    if not source_workspace.is_dir():
+        return
+
+    if request.copy_md_files:
+        for md_name in _COPYABLE_MD_FILES:
+            src = source_workspace / md_name
+            if src.is_file():
+                shutil.copy2(src, workspace_dir / md_name)
+
+    if request.copy_skills:
+        src_skills = get_workspace_skills_dir(source_workspace)
+        dst_skills = get_workspace_skills_dir(workspace_dir)
+        if src_skills.is_dir():
+            shutil.copytree(src_skills, dst_skills, dirs_exist_ok=True)
+        src_manifest = source_workspace / "skill.json"
+        if src_manifest.is_file():
+            shutil.copy2(src_manifest, workspace_dir / "skill.json")
+
+    if request.copy_jobs:
+        src_jobs = source_workspace / "jobs.json"
+        if src_jobs.is_file():
+            shutil.copy2(src_jobs, workspace_dir / "jobs.json")
+
+
 @router.post(
     "/{agentId}/copy",
     response_model=AgentProfileRef,
@@ -494,6 +581,7 @@ async def create_agent(
 async def copy_agent(
     agentId: str = PathParam(...),
     request: CopyAgentRequest = Body(...),
+    http_request: Request = None,
 ) -> AgentProfileRef:
     """Copy selected agent config files into a newly created agent."""
     config = load_config()
@@ -512,7 +600,6 @@ async def copy_agent(
     source_workspace = Path(
         config.agents.profiles[agentId].workspace_dir,
     ).expanduser()
-    source_workspace_exists = source_workspace.is_dir()
 
     existing_ids = set(config.agents.profiles.keys())
     new_id = _generate_unique_id(existing_ids)
@@ -524,57 +611,25 @@ async def copy_agent(
         source_config.language or config.agents.language or "en",
     )
 
-    if request.copy_agent_json:
-        agent_config = source_config.model_copy(deep=True)
-        agent_config.id = new_id
-        agent_config.name = new_name
-        agent_config.workspace_dir = str(workspace_dir)
-    else:
-        from ...config.config import (
-            ChannelConfig,
-            MCPConfig,
-            HeartbeatConfig,
-            ToolsConfig,
-        )
-
-        agent_config = AgentProfileConfig(
-            id=new_id,
-            name=new_name,
-            description="",
-            workspace_dir=str(workspace_dir),
-            language=language,
-            channels=ChannelConfig(),
-            mcp=MCPConfig(),
-            heartbeat=HeartbeatConfig(),
-            tools=ToolsConfig(),
-            active_model=None,
-        )
+    agent_config = _build_copied_agent_config(
+        source_config=source_config,
+        request=request,
+        new_id=new_id,
+        new_name=new_name,
+        workspace_dir=workspace_dir,
+        language=language,
+    )
 
     _initialize_agent_workspace(
         workspace_dir,
         skill_names=[],
         language=language,
     )
-
-    if request.copy_md_files and source_workspace_exists:
-        for md_name in _COPYABLE_MD_FILES:
-            src = source_workspace / md_name
-            if src.is_file():
-                shutil.copy2(src, workspace_dir / md_name)
-
-    if request.copy_skills and source_workspace_exists:
-        src_skills = get_workspace_skills_dir(source_workspace)
-        dst_skills = get_workspace_skills_dir(workspace_dir)
-        if src_skills.is_dir():
-            shutil.copytree(src_skills, dst_skills, dirs_exist_ok=True)
-        src_manifest = source_workspace / "skill.json"
-        if src_manifest.is_file():
-            shutil.copy2(src_manifest, workspace_dir / "skill.json")
-
-    if request.copy_jobs and source_workspace_exists:
-        src_jobs = source_workspace / "jobs.json"
-        if src_jobs.is_file():
-            shutil.copy2(src_jobs, workspace_dir / "jobs.json")
+    _copy_selected_workspace_files(
+        request=request,
+        source_workspace=source_workspace,
+        workspace_dir=workspace_dir,
+    )
 
     agent_ref = AgentProfileRef(
         id=new_id,
@@ -598,6 +653,10 @@ async def copy_agent(
         request.copy_skills,
         request.copy_jobs,
     )
+
+    if http_request is not None:
+        manager = _get_multi_agent_manager(http_request)
+        manager.schedule_agent_startup(new_id)
 
     return agent_ref
 

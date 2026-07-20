@@ -500,9 +500,10 @@
     "copyNameLabel": "Tên agent mới",
     "copyOptionsLabel": "Nội dung sao chép",
     "copyOptionAgentJson": "agent.json",
-    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT.md",
+    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT / BOOTSTRAP.md",
     "copyOptionSkills": "skills/ + manifest",
     "copyOptionJobs": "jobs.json",
+    "copyOptionJobsHint": "Sao chép định nghĩa công việc định kỳ, không gồm lịch sử chạy",
     "copySuccess": "Sao chép cấu hình agent thành công",
     "copyFailed": "Sao chép cấu hình agent thất bại"
   },

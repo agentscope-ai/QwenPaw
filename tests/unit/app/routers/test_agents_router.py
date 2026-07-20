@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
 """Unit tests for ``qwenpaw.app.routers.agents``.
 
-Covers the 5 highest-value flows:
+Covers the highest-value flows:
 
 - ``GET /agents`` — list all agents
 - ``GET /agents/{id}`` — fetch single agent, 404 on missing
 - ``PUT /agents/order`` — reject duplicate or mismatched IDs (400)
 - ``DELETE /agents/{id}`` — refuse to delete ``default`` (400)
 - ``DELETE /agents/{id}`` — happy path with manager.stop_agent
+- ``POST /agents/{id}/copy`` — selective config copy without assets
 """
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,7 +23,12 @@ from fastapi.testclient import TestClient
 from qwenpaw.exceptions import AppBaseException
 from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.routers.agents import router as agents_router
-from qwenpaw.config.config import AgentProfileConfig, AgentProfileRef
+from qwenpaw.config.config import (
+    AgentProfileConfig,
+    AgentProfileRef,
+    ChannelConfig,
+    DingTalkConfig,
+)
 
 
 def _ref(agent_id: str, *, enabled: bool = True) -> AgentProfileRef:
@@ -338,3 +345,211 @@ def test_delete_rejects_agent_during_startup(
 
     assert response.status_code == 409
     manager_mock.stop_agent.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# POST /agents/{id}/copy
+# ---------------------------------------------------------------------------
+
+
+def _seed_source_workspace(workspace: Path) -> None:
+    """Create config/asset files used by copy tests."""
+    workspace.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "AGENTS.md",
+        "SOUL.md",
+        "PROFILE.md",
+        "HEARTBEAT.md",
+        "BOOTSTRAP.md",
+    ):
+        (workspace / name).write_text(
+            f"# {name}\nfrom-source\n",
+            encoding="utf-8",
+        )
+
+    skills_dir = workspace / "skills" / "demo"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text("# demo\n", encoding="utf-8")
+    (workspace / "skill.json").write_text(
+        '{"version": 1, "skills": {"demo": {"enabled": true}}}',
+        encoding="utf-8",
+    )
+    (workspace / "jobs.json").write_text(
+        '{"version": 1, "jobs": [{"id": "j1"}]}',
+        encoding="utf-8",
+    )
+
+    sessions_dir = workspace / "sessions"
+    sessions_dir.mkdir()
+    (sessions_dir / "s1.json").write_text("{}", encoding="utf-8")
+    (workspace / "chats.json").write_text(
+        '{"version": 1, "chats": [{"id": "c1"}]}',
+        encoding="utf-8",
+    )
+
+
+def test_copy_agent_defaults_reset_channels_and_schedules_startup(
+    client,
+    fake_config,
+    manager_mock,
+    tmp_path,
+    monkeypatch,
+):
+    source_ws = tmp_path / "source"
+    _seed_source_workspace(source_ws)
+    fake_config.agents.profiles["bot"] = _ref("bot")
+    fake_config.agents.profiles["bot"].workspace_dir = str(source_ws)
+    fake_config.agents.language = "en"
+
+    source_cfg = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        description="src",
+        workspace_dir=str(source_ws),
+        language="en",
+        channels=ChannelConfig(
+            dingtalk=DingTalkConfig(
+                enabled=True,
+                client_id="cid",
+                client_secret="secret",
+            ),
+        ),
+    )
+
+    working_dir = tmp_path / "working"
+    working_dir.mkdir()
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.WORKING_DIR",
+        working_dir,
+    )
+
+    saved = {}
+
+    def fake_save_agent_config(agent_id, agent_config):
+        saved["id"] = agent_id
+        saved["config"] = agent_config
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=source_cfg,
+        ),
+        patch("qwenpaw.app.routers.agents.save_config"),
+        patch(
+            "qwenpaw.app.routers.agents.save_agent_config",
+            side_effect=fake_save_agent_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents._initialize_agent_workspace",
+        ) as init_mock,
+        patch(
+            "qwenpaw.app.routers.agents._generate_unique_id",
+            return_value="copied1",
+        ),
+    ):
+        response = client.post("/api/agents/bot/copy", json={})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["id"] == "copied1"
+
+    assert saved["id"] == "copied1"
+    assert saved["config"].name == "Bot Copy"
+    assert saved["config"].channels.dingtalk.enabled is False
+    assert saved["config"].channels.dingtalk.client_secret == ""
+
+    new_ws = Path(body["workspace_dir"])
+    assert (
+        (new_ws / "BOOTSTRAP.md")
+        .read_text(encoding="utf-8")
+        .startswith(
+            "# BOOTSTRAP.md",
+        )
+    )
+    assert (new_ws / "AGENTS.md").exists()
+    assert not (new_ws / "skills").exists()
+    assert not (new_ws / "jobs.json").exists()
+    assert not (new_ws / "sessions").exists()
+    assert not (new_ws / "chats.json").exists()
+
+    init_mock.assert_called_once()
+    manager_mock.schedule_agent_startup.assert_called_once_with("copied1")
+    assert "copied1" in fake_config.agents.profiles
+
+
+def test_copy_agent_copies_skills_and_jobs_when_requested(
+    client,
+    fake_config,
+    manager_mock,
+    tmp_path,
+    monkeypatch,
+):
+    source_ws = tmp_path / "source"
+    _seed_source_workspace(source_ws)
+    fake_config.agents.profiles["bot"].workspace_dir = str(source_ws)
+    fake_config.agents.language = "en"
+
+    source_cfg = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        workspace_dir=str(source_ws),
+        language="en",
+    )
+
+    working_dir = tmp_path / "working"
+    working_dir.mkdir()
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.WORKING_DIR",
+        working_dir,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=source_cfg,
+        ),
+        patch("qwenpaw.app.routers.agents.save_config"),
+        patch("qwenpaw.app.routers.agents.save_agent_config"),
+        patch("qwenpaw.app.routers.agents._initialize_agent_workspace"),
+        patch(
+            "qwenpaw.app.routers.agents._generate_unique_id",
+            return_value="copied2",
+        ),
+    ):
+        response = client.post(
+            "/api/agents/bot/copy",
+            json={
+                "copy_agent_json": True,
+                "copy_md_files": False,
+                "copy_skills": True,
+                "copy_jobs": True,
+            },
+        )
+
+    assert response.status_code == 201
+    new_ws = Path(response.json()["workspace_dir"])
+    assert (new_ws / "skills" / "demo" / "SKILL.md").exists()
+    assert (new_ws / "skill.json").exists()
+    assert (new_ws / "jobs.json").exists()
+    assert not (new_ws / "AGENTS.md").exists()
+    assert not (new_ws / "sessions").exists()
+    assert not (new_ws / "chats.json").exists()
+    manager_mock.schedule_agent_startup.assert_called_once_with("copied2")
+
+
+def test_copy_agent_returns_404_when_missing(client, fake_config):
+    with patch(
+        "qwenpaw.app.routers.agents.load_config",
+        return_value=fake_config,
+    ):
+        response = client.post("/api/agents/ghost/copy", json={})
+
+    assert response.status_code == 404

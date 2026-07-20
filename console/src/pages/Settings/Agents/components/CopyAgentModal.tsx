@@ -18,7 +18,7 @@ type CopyOptions = Required<Omit<CopyAgentRequest, "name">>;
 
 const DEFAULT_OPTIONS: CopyOptions = {
   copy_agent_json: true,
-  copy_md_files: false,
+  copy_md_files: true,
   copy_skills: false,
   copy_jobs: false,
 };
@@ -122,6 +122,9 @@ export function CopyAgentModal({
             >
               {t("agent.copyOptionJobs")}
             </Checkbox>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {t("agent.copyOptionJobsHint")}
+            </Text>
           </Space>
         </div>
       </Space>

@@ -393,9 +393,10 @@
     "copyNameLabel": "Nama agen baru",
     "copyOptionsLabel": "Konten yang disalin",
     "copyOptionAgentJson": "agent.json",
-    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT.md",
+    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT / BOOTSTRAP.md",
     "copyOptionSkills": "skills/ + manifest",
     "copyOptionJobs": "jobs.json",
+    "copyOptionJobsHint": "Menyalin definisi tugas terjadwal, bukan riwayat eksekusi",
     "copySuccess": "Konfigurasi agen berhasil disalin",
     "copyFailed": "Gagal menyalin konfigurasi agen"
   },

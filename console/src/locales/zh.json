@@ -345,9 +345,10 @@
     "copyNameLabel": "新智能体名称",
     "copyOptionsLabel": "复制内容",
     "copyOptionAgentJson": "agent.json",
-    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT.md",
+    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT / BOOTSTRAP.md",
     "copyOptionSkills": "skills/ + manifest",
     "copyOptionJobs": "jobs.json",
+    "copyOptionJobsHint": "仅复制定时任务定义，不包含执行历史",
     "copySuccess": "智能体配置复制成功",
     "copyFailed": "智能体配置复制失败"
   },

@@ -198,9 +198,10 @@
     "copyNameLabel": "新しいエージェント名",
     "copyOptionsLabel": "コピー内容",
     "copyOptionAgentJson": "agent.json",
-    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT.md",
+    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT / BOOTSTRAP.md",
     "copyOptionSkills": "skills/ + manifest",
     "copyOptionJobs": "jobs.json",
+    "copyOptionJobsHint": "スケジュールされたジョブ定義のみをコピーし、実行履歴は含みません",
     "copySuccess": "エージェント設定のコピーに成功しました",
     "copyFailed": "エージェント設定のコピーに失敗しました"
   },

@@ -198,9 +198,10 @@
     "copyNameLabel": "Имя нового агента",
     "copyOptionsLabel": "Что копировать",
     "copyOptionAgentJson": "agent.json",
-    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT.md",
+    "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT / BOOTSTRAP.md",
     "copyOptionSkills": "skills/ + manifest",
     "copyOptionJobs": "jobs.json",
+    "copyOptionJobsHint": "Копирует определения заданий, без истории выполнения",
     "copySuccess": "Конфигурация агента успешно скопирована",
     "copyFailed": "Не удалось скопировать конфигурацию агента"
   },
