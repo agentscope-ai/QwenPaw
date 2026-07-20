@@ -10,7 +10,24 @@ import pytest
 from agentscope.event import EventType
 
 from qwenpaw.runtime.envelope import Envelope
-from qwenpaw.schemas import MessageType, RunStatus
+from qwenpaw.schemas import ContentType, MessageType, RunStatus, TextContent
+
+
+class _SyntheticEnvelope(Envelope):
+    """Envelope with one raw output for testing the public boundary."""
+
+    async def _translate_event_raw(
+        self,
+        event: Any,
+    ) -> AsyncGenerator[Any, None]:
+        del event
+        output = TextContent(
+            type=ContentType.TEXT,
+            text="synthetic",
+            delta=True,
+            index=0,
+        )
+        yield self._tag_seq(output)
 
 
 def _event(event_type: EventType, **fields: Any) -> SimpleNamespace:
@@ -44,6 +61,20 @@ def _assert_no_metadata(value: Any) -> None:
     elif isinstance(value, list):
         for nested in value:
             _assert_no_metadata(nested)
+
+
+@pytest.mark.asyncio
+async def test_translate_event_decorates_raw_outputs_by_default():
+    envelope = _SyntheticEnvelope()
+    event = _event(
+        EventType.TEXT_BLOCK_DELTA,
+        metadata={"route": "node-a"},
+    )
+
+    [payload] = await _translate(envelope, event)
+
+    assert payload["sequence_number"] == 1
+    assert payload["metadata"] == {"route": "node-a"}
 
 
 @pytest.mark.asyncio
