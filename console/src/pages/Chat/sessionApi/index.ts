@@ -755,8 +755,16 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   /**
    * Called when a temporary timestamp session id is resolved to a real backend
    * UUID. Consumers (e.g. Chat/index.tsx) can register here to update the URL.
+   *
+   * The third argument carries the agent that owned the temp id at the time
+   * triggerResolve was called. When an Agent switch happens between POST
+   * acceptance and resolution, this lets consumers migrate the input queue
+   * under the original agent's scope instead of the (now-active) destination
+   * agent. Older consumers that only read (tempId, realId) keep working.
    */
-  onSessionIdResolved: ((tempId: string, realId: string) => void) | null = null;
+  onSessionIdResolved:
+    | ((tempId: string, realId: string, agentId?: string) => void)
+    | null = null;
 
   /**
    * Called after a session is removed. Consumers can register here to clear
@@ -1370,8 +1378,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   /**
    * After fetching the latest session list, try to resolve a local timestamp
    * session to its real backend UUID and notify listeners.
+   *
+   * `resolutionAgentId` is the agent that owned the tempId when triggerResolve
+   * was called. It is forwarded to onSessionIdResolved so consumers can
+   * migrate scoped state (e.g. input queue storage) under the original agent
+   * even after an Agent switch has re-scoped this singleton.
    */
-  private resolveAndNotify(tempId: string): void {
+  private resolveAndNotify(tempId: string, resolutionAgentId?: string): void {
     const { list, realId } = resolveRealId(this.sessionList, tempId);
     this.sessionList = list;
     if (realId) {
@@ -1384,11 +1397,50 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         savePendingUserMessage(realId, cached);
         clearPendingUserMessage(tempId);
       }
-      this.onSessionIdResolved?.(tempId, realId);
+      this.onSessionIdResolved?.(tempId, realId, resolutionAgentId);
     }
   }
 
-  private scheduleResolveAndNotify(tempId: string): Promise<void> | null {
+  /**
+   * Resolve a local timestamp tempId using a direct listChats call scoped to
+   * `resolutionAgentId`. This is independent of the singleton's currently
+   * active agent, so resolution continues to work even after the user switches
+   * to a different agent. Returns the matching ChatSpec if found, else null.
+   *
+   * We avoid mutating this.sessionList here because the list belongs to the
+   * currently active agent; merging an external-agent list would corrupt it.
+   */
+  private async resolveRealIdViaAgentList(
+    tempId: string,
+    resolutionAgentId: string,
+  ): Promise<ChatSpec | null> {
+    try {
+      const chats = await api.listChats(
+        { archived: false },
+        { agentId: resolutionAgentId },
+      );
+      if (!Array.isArray(chats)) return null;
+      // Match the same way applyChatsToSessionList / resolveRealId do:
+      //   1) backend chat whose session_id matches the temp id
+      //   2) backend chat whose id matches the temp id (defensive — the
+      //      local timestamp is never a backend UUID, but a backend UUID
+      //      equal to the temp id is still a successful resolve)
+      // Skip entries whose own id is a local timestamp — those would never
+      // be the real backend UUID.
+      const match =
+        chats.find(
+          (c) => c && c.session_id === tempId && !isLocalTimestamp(c.id),
+        ) ?? chats.find((c) => c && c.id === tempId);
+      return match ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private scheduleResolveAndNotify(
+    tempId: string,
+    resolutionAgentId?: string,
+  ): Promise<void> | null {
     if (!tempId || this.realIdResolutionTasks.has(tempId)) {
       return this.resolvePromise;
     }
@@ -1403,12 +1455,43 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           attempt < REAL_ID_RESOLVE_RETRY_COUNT;
           attempt++
         ) {
+          // Resolve via the agent-scoped listChats path in two cases:
+          //  - scopeVersion mismatch (Agent switched mid-resolution)
+          //  - resolutionAgentId is set but differs from the currently
+          //    active agent (triggerResolve was called AFTER an Agent
+          //    switch — the singleton's listChats would be scoped to the
+          //    wrong agent and never find this tempId)
+          const scopeSwitched = scopeVersion !== this.sessionScopeVersion;
+          const agentMismatch =
+            !!resolutionAgentId &&
+            !!this.activeAgentId &&
+            resolutionAgentId !== this.activeAgentId;
+          if (scopeSwitched || agentMismatch) {
+            if (resolutionAgentId) {
+              const matched = await this.resolveRealIdViaAgentList(
+                tempId,
+                resolutionAgentId,
+              );
+              if (matched) {
+                this.applyResolvedRealId(tempId, matched.id, resolutionAgentId);
+                return;
+              }
+            }
+            await new Promise((resolve) =>
+              setTimeout(resolve, REAL_ID_RESOLVE_RETRY_DELAY_MS),
+            );
+            continue;
+          }
           // Force a fresh listChats request on every attempt: a response from
           // before POST completion cannot contain the newly-created backend id.
           this.sessionListRequest = null;
           await this.getSessionList();
-          if (scopeVersion !== this.sessionScopeVersion) return;
-          this.resolveAndNotify(tempId);
+          if (scopeVersion !== this.sessionScopeVersion) {
+            // Detected switch after getSessionList — retry via the
+            // agent-scoped path on the next loop iteration.
+            continue;
+          }
+          this.resolveAndNotify(tempId, resolutionAgentId);
           if (this.getRealIdForSession(tempId)) return;
 
           await new Promise((resolve) =>
@@ -1427,15 +1510,49 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   /**
+   * Apply a resolved realId to the matching session (if still present) and
+   * fire onSessionIdResolved. Called when resolution happens outside the
+   * active-agent scope (e.g. after an Agent switch).
+   *
+   * We only patch the session entry when the tempId is still in the current
+   * list — otherwise the Chat page restores the chat by realId on the next
+   * route change and no in-memory patch is needed.
+   */
+  private applyResolvedRealId(
+    tempId: string,
+    realId: string,
+    resolutionAgentId?: string,
+  ): void {
+    const session = this.findSession(tempId);
+    if (session && !(session as ExtendedSession).realId) {
+      (session as ExtendedSession).realId = realId;
+      this._prevReturnedList = null;
+    }
+    const cached = loadPendingUserMessage(tempId);
+    if (cached) {
+      savePendingUserMessage(realId, cached);
+      clearPendingUserMessage(tempId);
+    }
+    this.onSessionIdResolved?.(tempId, realId, resolutionAgentId);
+  }
+
+  /**
    * Trigger ID resolution for a local timestamp session.
    * Called by customFetch after POST succeeds (the backend has created the
    * chat at that point). Fire-and-forget — runs concurrently with SSE.
+   *
+   * `agentId` is the agent that owned the tempId at the time of the POST
+   * (captured by the caller before any Agent switch). When provided,
+   * resolution survives an Agent switch: if the singleton has been
+   * re-scoped by the time the retry loop runs, it falls back to an
+   * agent-scoped listChats call using this id instead of giving up.
    */
-  triggerResolve(tempId: string): void {
+  triggerResolve(tempId: string, agentId?: string): void {
     if (!isLocalTimestamp(tempId)) return;
     const existing = this.findSession(tempId);
-    if (!existing || existing.realId) return; // already resolved
-    const promise = this.scheduleResolveAndNotify(tempId);
+    if (existing?.realId) return; // already resolved
+    const resolutionAgentId = agentId ?? this.activeAgentId;
+    const promise = this.scheduleResolveAndNotify(tempId, resolutionAgentId);
     if (promise) this.resolvePromise = promise;
   }
 

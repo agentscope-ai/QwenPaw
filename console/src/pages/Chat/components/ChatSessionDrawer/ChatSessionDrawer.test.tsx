@@ -284,11 +284,10 @@ describe("ChatSessionDrawer", () => {
   });
 
   it("delete clears the message queue for both local id and backend id", async () => {
-    const { useMessageQueueStore } = await import("@/stores/messageQueueStore");
-    useMessageQueueStore.getState().enqueue("s1", { text: "local" });
-    useMessageQueueStore.getState().enqueue("uuid-1", { text: "backend" });
-    expect(useMessageQueueStore.getState().getQueue("s1")).toHaveLength(1);
-    expect(useMessageQueueStore.getState().getQueue("uuid-1")).toHaveLength(1);
+    const localQueueKey = "qwenpaw:message-queue:s1";
+    const backendQueueKey = "qwenpaw:message-queue:uuid-1";
+    localStorage.setItem(localQueueKey, "local");
+    localStorage.setItem(backendQueueKey, "backend");
 
     withSession({ realId: "uuid-1" });
     const user = userEvent.setup();
@@ -299,8 +298,8 @@ describe("ChatSessionDrawer", () => {
     await user.click(screen.getByTestId("delete-btn"));
 
     await waitFor(() => {
-      expect(useMessageQueueStore.getState().getQueue("s1")).toEqual([]);
-      expect(useMessageQueueStore.getState().getQueue("uuid-1")).toEqual([]);
+      expect(localStorage.getItem(localQueueKey)).toBeNull();
+      expect(localStorage.getItem(backendQueueKey)).toBeNull();
     });
   });
 

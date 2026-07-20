@@ -1,4 +1,7 @@
 const INPUT_QUEUE_STORAGE_PREFIX = "agentscope-runtime-webui-input-queue";
+const INPUT_QUEUE_MUTATION_LOCK_PREFIX =
+  "agentscope-runtime-webui-input-queue-mutate";
+const LEGACY_MESSAGE_QUEUE_STORAGE_PREFIX = "qwenpaw:message-queue:";
 
 interface InputQueueStateSnapshot {
   items?: unknown[];
@@ -7,14 +10,6 @@ interface InputQueueStateSnapshot {
   ownerUpdatedAt?: number;
   command?: unknown;
   updatedAt?: number;
-}
-
-interface StoredInputQueueItem {
-  id?: string;
-  data?: {
-    qwenpaw_queue_request_id?: unknown;
-    biz_params?: { __qwenpaw_queue_request_id?: unknown };
-  };
 }
 
 function getInputQueueStorageKey(sessionId: string) {
@@ -44,16 +39,27 @@ function mergeQueueItems(
   toItems: unknown[] | undefined,
 ) {
   const merged: unknown[] = [];
-  const seen = new Set<string>();
+  const itemIndexById = new Map<string, number>();
 
-  for (const item of [
-    ...(Array.isArray(fromItems) ? fromItems : []),
-    ...(Array.isArray(toItems) ? toItems : []),
-  ]) {
+  for (const item of Array.isArray(fromItems) ? fromItems : []) {
     const itemId = getQueueItemIdentity(item);
     if (itemId) {
-      if (seen.has(itemId)) continue;
-      seen.add(itemId);
+      itemIndexById.set(itemId, merged.length);
+    }
+    merged.push(item);
+  }
+
+  for (const item of Array.isArray(toItems) ? toItems : []) {
+    const itemId = getQueueItemIdentity(item);
+    const existingIndex = itemId ? itemIndexById.get(itemId) : undefined;
+    if (existingIndex !== undefined) {
+      // The destination can already contain an edited/retried copy of the same
+      // SDK item. Keep its newer data while preserving the item's FIFO slot.
+      merged[existingIndex] = item;
+      continue;
+    }
+    if (itemId) {
+      itemIndexById.set(itemId, merged.length);
     }
     merged.push(item);
   }
@@ -96,41 +102,18 @@ export function clearStoredInputQueue(sessionId: string | undefined) {
   }
 }
 
-export function removeStoredInputQueueItem(
-  sessionId: string,
-  acceptedRequestId: string,
-) {
+export function clearLegacyStoredMessageQueue(sessionId: string | undefined) {
+  if (!sessionId) return;
+  const key = `${LEGACY_MESSAGE_QUEUE_STORAGE_PREFIX}${sessionId}`;
   try {
-    const key = getInputQueueStorageKey(sessionId);
-    const oldValue = localStorage.getItem(key);
-    const state = parseQueueState(oldValue);
-    const items = Array.isArray(state.items) ? state.items : [];
-    const acceptedIndex = items.findIndex((item) => {
-      const data = (item as StoredInputQueueItem)?.data;
-      return (
-        data?.qwenpaw_queue_request_id === acceptedRequestId ||
-        data?.biz_params?.__qwenpaw_queue_request_id === acceptedRequestId
-      );
-    });
-    if (acceptedIndex < 0) return false;
-
-    const nextState: InputQueueStateSnapshot = {
-      ...state,
-      items: items.filter((_, index) => index !== acceptedIndex),
-      updatedAt: Date.now(),
-    };
-    const nextValue = shouldRemoveQueueState(nextState)
-      ? null
-      : JSON.stringify(nextState);
-    if (nextValue) {
-      localStorage.setItem(key, nextValue);
-    } else {
-      localStorage.removeItem(key);
-    }
-    notifyQueueStorageChange(key, oldValue, nextValue);
-    return true;
+    localStorage.removeItem(key);
   } catch {
-    return false;
+    // Local storage can be unavailable in some browser modes.
+  }
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // Session storage can be unavailable in some browser modes.
   }
 }
 
@@ -154,46 +137,82 @@ function notifyQueueStorageChange(
   }
 }
 
-export function migrateInputQueueStorage(
+type QueueLocks = {
+  request: <T>(
+    name: string,
+    options: { mode: "exclusive" },
+    callback: () => T | Promise<T>,
+  ) => Promise<T>;
+};
+
+function getQueueLocks() {
+  return typeof navigator === "undefined"
+    ? undefined
+    : (navigator as typeof navigator & { locks?: QueueLocks }).locks;
+}
+
+async function withQueueMutationLocks<T>(
+  queueSessionIds: string[],
+  callback: () => T | Promise<T>,
+): Promise<T> {
+  const locks = getQueueLocks();
+  if (!locks?.request) return callback();
+
+  const lockNames = Array.from(new Set(queueSessionIds))
+    .map((sessionId) => `${INPUT_QUEUE_MUTATION_LOCK_PREFIX}:${sessionId}`)
+    .sort();
+
+  const acquire = (index: number): Promise<T> => {
+    if (index >= lockNames.length) return Promise.resolve(callback());
+    return locks.request(lockNames[index], { mode: "exclusive" }, () =>
+      acquire(index + 1),
+    );
+  };
+
+  return acquire(0);
+}
+
+export async function migrateInputQueueStorage(
   fromQueueSessionId: string | undefined,
   toQueueSessionId: string | undefined,
 ) {
   if (!fromQueueSessionId || !toQueueSessionId) return;
   if (fromQueueSessionId === toQueueSessionId) return;
 
-  const fromKey = getInputQueueStorageKey(fromQueueSessionId);
-  const toKey = getInputQueueStorageKey(toQueueSessionId);
   try {
-    const fromRawState = localStorage.getItem(fromKey);
-    if (!fromRawState) return;
+    await withQueueMutationLocks([fromQueueSessionId, toQueueSessionId], () => {
+      const fromKey = getInputQueueStorageKey(fromQueueSessionId);
+      const toKey = getInputQueueStorageKey(toQueueSessionId);
+      const fromRawState = localStorage.getItem(fromKey);
+      if (!fromRawState) return;
 
-    const toRawState = localStorage.getItem(toKey);
-    const fromState = parseQueueState(fromRawState);
-    const toState = parseQueueState(toRawState);
-    const now = Date.now();
-    const mergedState: InputQueueStateSnapshot = {
-      ...fromState,
-      ...toState,
-      items: mergeQueueItems(fromState.items, toState.items),
-      paused: !!fromState.paused || !!toState.paused,
-      ownerTabId: toState.ownerTabId || fromState.ownerTabId,
-      ownerUpdatedAt: toState.ownerUpdatedAt ?? fromState.ownerUpdatedAt,
-      command: toState.command ?? fromState.command,
-      updatedAt: now,
-    };
-    const nextRawState = shouldRemoveQueueState(mergedState)
-      ? null
-      : JSON.stringify(mergedState);
+      const toRawState = localStorage.getItem(toKey);
+      const fromState = parseQueueState(fromRawState);
+      const toState = parseQueueState(toRawState);
+      const mergedState: InputQueueStateSnapshot = {
+        ...fromState,
+        ...toState,
+        items: mergeQueueItems(fromState.items, toState.items),
+        paused: !!fromState.paused || !!toState.paused,
+        ownerTabId: toState.ownerTabId || fromState.ownerTabId,
+        ownerUpdatedAt: toState.ownerUpdatedAt ?? fromState.ownerUpdatedAt,
+        command: toState.command ?? fromState.command,
+        updatedAt: Date.now(),
+      };
+      const nextRawState = shouldRemoveQueueState(mergedState)
+        ? null
+        : JSON.stringify(mergedState);
 
-    localStorage.removeItem(fromKey);
-    if (nextRawState) {
-      localStorage.setItem(toKey, nextRawState);
-    } else {
-      localStorage.removeItem(toKey);
-    }
+      localStorage.removeItem(fromKey);
+      if (nextRawState) {
+        localStorage.setItem(toKey, nextRawState);
+      } else {
+        localStorage.removeItem(toKey);
+      }
 
-    notifyQueueStorageChange(fromKey, fromRawState, null);
-    notifyQueueStorageChange(toKey, toRawState, nextRawState);
+      notifyQueueStorageChange(fromKey, fromRawState, null);
+      notifyQueueStorageChange(toKey, toRawState, nextRawState);
+    });
   } catch {
     // Local storage can be unavailable in some browser modes.
   }

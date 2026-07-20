@@ -27,7 +27,7 @@ import SessionItem from "../../../../components/SessionItem";
 import { getChannelLabel } from "../../../Control/Channels/components";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
-import { useMessageQueueStore } from "../../../../stores/messageQueueStore";
+import { clearLegacyStoredMessageQueue } from "../../inputQueueStorage";
 import {
   buildSessionPath,
   getSessionIdFromPath,
@@ -457,9 +457,10 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       // linger in storage or get sent after deletion. The queue may be keyed
       // by the local id or the resolved backend id, so clear both. Also notify
       // the chat page (when mounted) to abort any in-flight background send.
-      const mq = useMessageQueueStore.getState();
-      mq.clear(sessionId);
-      if (backendId && backendId !== sessionId) mq.clear(backendId);
+      clearLegacyStoredMessageQueue(sessionId);
+      if (backendId && backendId !== sessionId) {
+        clearLegacyStoredMessageQueue(backendId);
+      }
       sessionApi.onSessionRemoved?.(backendId ?? sessionId);
 
       // Fetch the updated session list after deletion

@@ -31,3 +31,4 @@ reports/logs/
 reports/screenshots/
 reports/videos/
 tests/reports/
+.docs/
