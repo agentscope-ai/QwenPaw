@@ -508,16 +508,73 @@ function MissionModeTab() {
           "Continue until mission stories pass or the limit is reached.",
         )}
       >
+        <p className={loopStyles.readOnlyCopy}>
+          {t(
+            "agentConfig.loopMode.missionProgressReadOnly",
+            "Completion is controlled by the built-in Mission story status.",
+          )}
+        </p>
+      </LockedGateCard>
+      <div className={loopStyles.settingsHeader}>
+        <strong>
+          {t("agentConfig.loopMode.missionDefaults", "Mission defaults")}
+        </strong>
+        <small>
+          {t(
+            "agentConfig.loopMode.missionDefaultsDescription",
+            "Applied when a new Mission does not provide an override.",
+          )}
+        </small>
+      </div>
+      <div className={loopStyles.settingsPanel}>
+        <div className={loopStyles.fieldGrid}>
+          <Form.Item
+            name={["loop", "mission", "max_iterations"]}
+            label={t(
+              "agentConfig.loopMode.defaultMaxMissionIterations",
+              "Default maximum execution rounds",
+            )}
+            tooltip={t(
+              "agentConfig.loopMode.defaultMaxMissionIterationsTooltip",
+              "Used when /mission does not specify --max-iterations.",
+            )}
+          >
+            <InputNumber min={1} max={100} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item
+            name={["loop", "mission", "max_retries_per_story"]}
+            label={t(
+              "agentConfig.loopMode.maxRetriesPerStory",
+              "Maximum retries per Story",
+            )}
+            tooltip={t(
+              "agentConfig.loopMode.maxRetriesPerStoryTooltip",
+              "Worker retries after a failed or partial Verifier result.",
+            )}
+          >
+            <InputNumber min={0} max={10} style={{ width: "100%" }} />
+          </Form.Item>
+        </div>
         <Form.Item
-          name={["loop", "mission", "max_iterations"]}
+          name={["loop", "mission", "default_verify_command"]}
           label={t(
-            "agentConfig.loopMode.defaultMissionIterations",
-            "Default mission iterations",
+            "agentConfig.loopMode.defaultVerifyCommand",
+            "Default verification command",
+          )}
+          tooltip={t(
+            "agentConfig.loopMode.defaultVerifyCommandTooltip",
+            "Executed by the Verifier unless /mission supplies --verify.",
           )}
         >
-          <InputNumber min={1} max={100} style={{ width: 220 }} />
+          <Input
+            allowClear
+            placeholder={t(
+              "agentConfig.loopMode.defaultVerifyCommandPlaceholder",
+              "For example: npm test",
+            )}
+          />
         </Form.Item>
-      </LockedGateCard>
+      </div>
     </div>
   );
 }

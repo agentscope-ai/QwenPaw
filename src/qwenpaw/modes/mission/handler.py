@@ -38,6 +38,7 @@ _MAX_MAX_ITERATIONS = 100
 def parse_mission_args(
     raw_args: str,
     default_max_iterations: int = _DEFAULT_MAX_ITERATIONS,
+    default_verify_command: str = "",
 ) -> dict[str, Any]:
     """Parse ``[task text] [--verify CMD] [--max-iterations N]``.
 
@@ -46,7 +47,7 @@ def parse_mission_args(
     """
     args: dict[str, Any] = {
         "task_text": "",
-        "verify_commands": "",
+        "verify_commands": default_verify_command,
         "max_iterations": default_max_iterations,
     }
 
@@ -198,6 +199,7 @@ async def start_mission(
     session_id: str,
     verify_commands: str,
     max_iterations: int,
+    max_retries_per_story: int = 3,
 ) -> tuple[str, Path]:
     """Create state files and return (prompt, loop_dir).
 
@@ -225,6 +227,7 @@ async def start_mission(
         "current_phase": "prd_generation",
         "session_id": session_id,
         "verify_commands": verify_commands,
+        "max_retries_per_story": max_retries_per_story,
     }
     write_loop_config(loop_dir, loop_config)
 
@@ -241,6 +244,7 @@ async def start_mission(
         agent_id=agent_id,
         max_iterations=max_iterations,
         verify_commands=verify_commands,
+        max_retries_per_story=max_retries_per_story,
         git_context=git_ctx,
         workspace_dir=str(workspace_dir),
     )

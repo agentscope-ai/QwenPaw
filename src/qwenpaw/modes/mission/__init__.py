@@ -38,6 +38,8 @@ class MissionMode(AgentMode):
     def __init__(self) -> None:
         self._gate: MissionGate | None = None
         self._default_max_iterations = 20
+        self._max_retries_per_story = 3
+        self._default_verify_command = ""
 
     # ── commands ──
 
@@ -84,6 +86,12 @@ class MissionMode(AgentMode):
         super().setup(workspace)
         self._default_max_iterations = (
             workspace.config.running.loop.mission.max_iterations
+        )
+        self._max_retries_per_story = (
+            workspace.config.running.loop.mission.max_retries_per_story
+        )
+        self._default_verify_command = (
+            workspace.config.running.loop.mission.default_verify_command
         )
 
         from .gates import MissionGate as _MG
@@ -156,6 +164,7 @@ class MissionMode(AgentMode):
         parsed = parse_mission_args(
             args or "",
             default_max_iterations=self._default_max_iterations,
+            default_verify_command=self._default_verify_command,
         )
         task_text = parsed["task_text"]
 
@@ -196,6 +205,7 @@ class MissionMode(AgentMode):
             session_id=session_id,
             verify_commands=parsed["verify_commands"],
             max_iterations=parsed["max_iterations"],
+            max_retries_per_story=self._max_retries_per_story,
         )
 
         if self._gate is not None:

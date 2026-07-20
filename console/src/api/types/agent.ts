@@ -140,6 +140,8 @@ export interface GoalLoopModeConfig {
 
 export interface MissionLoopModeConfig {
   max_iterations: number;
+  max_retries_per_story: number;
+  default_verify_command: string;
 }
 
 export interface LoopConfig {

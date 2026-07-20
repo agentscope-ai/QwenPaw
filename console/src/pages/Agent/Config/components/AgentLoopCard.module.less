@@ -115,7 +115,7 @@
 
 .modeEditor {
   max-width: 960px;
-  margin: 0 auto;
+  margin: 0;
   padding: 10px 4px 12px;
 }
 
@@ -201,6 +201,30 @@
   font-weight: 650;
   letter-spacing: 0.07em;
   text-transform: uppercase;
+}
+
+.settingsHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 22px 0 10px;
+}
+
+.settingsHeader strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.settingsHeader small {
+  color: var(--text-secondary, rgba(0, 0, 0, 0.5));
+  font-size: 11px;
+}
+
+.settingsPanel {
+  padding: 18px 20px 3px;
+  border: 1px solid var(--border-color, #e1e3df);
+  border-radius: 13px;
+  background: var(--background-color-secondary, #fdfdfb);
 }
 
 .gateList {
@@ -448,6 +472,17 @@
     align-items: flex-start;
     flex-direction: column;
     gap: 2px;
+  }
+
+  .settingsHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .settingsPanel {
+    padding-right: 14px;
+    padding-left: 14px;
   }
 
   .modeEditor {

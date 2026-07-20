@@ -1239,6 +1239,8 @@ class MissionLoopModeConfig(BaseModel):
     """Editable values for the fixed built-in Mission pipeline."""
 
     max_iterations: int = Field(default=20, ge=1, le=100)
+    max_retries_per_story: int = Field(default=3, ge=0, le=10)
+    default_verify_command: str = Field(default="", max_length=2000)
 
 
 class LoopConfig(BaseModel):

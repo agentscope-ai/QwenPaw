@@ -434,7 +434,8 @@ verifier prompt.**
   report progress, go to Step 1 for the next priority batch.
 - **Some failed (FAIL/PARTIAL)** → retry the failures: compose a
   new worker prompt with the verifier's failure details, re-dispatch
-  worker → verifier.  Max 3 retries per story, then ask the user.
+  worker → verifier.  Max {max_retries_per_story} retries per story,
+  then ask the user.
 - **All stories in prd.json passed** → summarise and congratulate.
 
 **You MUST continue the loop — do NOT stop between batches.**
@@ -837,6 +838,7 @@ def build_master_prompt(
     agent_id: str,
     max_iterations: int = 20,
     verify_commands: str = "",
+    max_retries_per_story: int = 3,
     prd_path: str = "",
     progress_path: str = "",
     git_context: dict | None = None,
@@ -871,6 +873,7 @@ def build_master_prompt(
         workspace_dir=workspace_dir,
         agent_id=agent_id,
         max_iterations=max_iterations,
+        max_retries_per_story=max_retries_per_story,
         verify_commands=verify_commands,
         worker_prompt_template=worker_tpl,
         verifier_prompt_template=verifier_tpl,
