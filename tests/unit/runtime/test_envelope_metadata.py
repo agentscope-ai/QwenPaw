@@ -9,14 +9,15 @@ from typing import Any, AsyncGenerator
 import pytest
 from agentscope.event import EventType
 
-from qwenpaw.runtime.envelope import Envelope
+from qwenpaw.runtime.envelope import Envelope, _propagate_event_metadata
 from qwenpaw.schemas import ContentType, MessageType, RunStatus, TextContent
 
 
 class _SyntheticEnvelope(Envelope):
-    """Envelope with one raw output for testing the public boundary."""
+    """Envelope with one output for testing metadata propagation."""
 
-    async def _translate_event_raw(
+    @_propagate_event_metadata
+    async def translate_event(
         self,
         event: Any,
     ) -> AsyncGenerator[Any, None]:
@@ -64,7 +65,7 @@ def _assert_no_metadata(value: Any) -> None:
 
 
 @pytest.mark.asyncio
-async def test_translate_event_decorates_raw_outputs_by_default():
+async def test_event_metadata_decorator_applies_to_outputs_by_default():
     envelope = _SyntheticEnvelope()
     event = _event(
         EventType.TEXT_BLOCK_DELTA,
