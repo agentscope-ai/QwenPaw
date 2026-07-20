@@ -591,7 +591,10 @@ def _is_pid_running(
                 **probe_kwargs,
             )
         except (OSError, subprocess.SubprocessError):
-            return False
+            # A failed probe says nothing about the PID. Callers read False as
+            # a confirmed exit, so a timed-out or unavailable tasklist must not
+            # short-circuit the kill escalation in shutdown_process_sync().
+            return True
         return str(pid) in output
 
     try:

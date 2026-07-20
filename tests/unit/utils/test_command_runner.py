@@ -740,11 +740,14 @@ def test_is_pid_running_tasklist_probe_is_bounded_and_hidden(
     assert captured["creationflags"] == 0x08000000
 
 
-def test_is_pid_running_returns_false_when_tasklist_times_out(
+def test_is_pid_running_assumes_alive_when_tasklist_times_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_check_output(args: list[str], **_kwargs: object) -> str:
-        raise subprocess.TimeoutExpired(cmd=args, timeout=5.0)
+        raise subprocess.TimeoutExpired(
+            cmd=args,
+            timeout=command_runner._PID_PROBE_TIMEOUT,
+        )
 
     monkeypatch.setattr(
         command_runner.subprocess,
@@ -752,10 +755,11 @@ def test_is_pid_running_returns_false_when_tasklist_times_out(
         fake_check_output,
     )
 
-    assert command_runner._is_pid_running(4321, "nt") is False
+    # False means "confirmed gone"; a timed-out probe confirms nothing.
+    assert command_runner._is_pid_running(4321, "nt") is True
 
 
-def test_is_pid_running_returns_false_when_tasklist_unavailable(
+def test_is_pid_running_assumes_alive_when_tasklist_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_check_output(_args: list[str], **_kwargs: object) -> str:
@@ -767,7 +771,80 @@ def test_is_pid_running_returns_false_when_tasklist_unavailable(
         fake_check_output,
     )
 
+    assert command_runner._is_pid_running(4321, "nt") is True
+
+
+def test_is_pid_running_reports_gone_when_tasklist_finds_no_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "check_output",
+        lambda *args, **kwargs: (
+            "INFO: No tasks are running which match the specified criteria.\n"
+        ),
+    )
+
+    # Only a successful invocation may confirm the PID is absent.
     assert command_runner._is_pid_running(4321, "nt") is False
+
+
+def test_shutdown_process_sync_escalates_when_pid_probe_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signals: list[int] = []
+
+    class _FakeProcess:
+        def __init__(self) -> None:
+            self.pid = 4321
+            self.stdout = None
+            self.returncode: int | None = None
+
+        def terminate(self) -> None:
+            signals.append(15)
+
+        def kill(self) -> None:
+            signals.append(9)
+
+        def is_alive(self) -> bool:
+            return True
+
+        def join(self, timeout: float | None = None) -> None:
+            del timeout
+
+    def fake_check_output(args: list[str], **_kwargs: object) -> str:
+        raise subprocess.TimeoutExpired(
+            cmd=args,
+            timeout=command_runner._PID_PROBE_TIMEOUT,
+        )
+
+    monkeypatch.setattr(
+        command_runner.subprocess,
+        "check_output",
+        fake_check_output,
+    )
+    monkeypatch.setattr(command_runner.time, "sleep", lambda _seconds: None)
+
+    managed = ManagedProcess(
+        _FakeProcess(),
+        command=["demo"],
+        owns_process_group=False,
+        creation_mode="asyncio",
+    )
+    managed.platform_name = "nt"
+
+    result = shutdown_process_sync(
+        managed,
+        graceful_timeout=0.2,
+        kill_timeout=0.2,
+    )
+
+    # A wedged probe must never be reported as a graceful exit.
+    assert result.exited is False
+    assert result.terminated_gracefully is False
+    assert result.killed is True
+    assert result.timed_out is True
+    assert signals == [15, 9]
 
 
 def test_is_pid_running_uses_os_kill_on_posix(
