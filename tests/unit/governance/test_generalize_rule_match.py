@@ -421,7 +421,7 @@ class TestNonGeneralizableTypes:
         "tool_name,target",
         [
             ("Browser", "https://example.com/a"),  # network
-            ("GetTokenUsage", ""),  # internal, empty target
+            ("GetCurrentTime", ""),  # internal, empty target
             ("ListAgents", ""),  # internal
             ("Frobnicate", "x"),  # unknown tool -> type "unknown"
         ],

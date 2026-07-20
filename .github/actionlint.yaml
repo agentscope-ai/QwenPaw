@@ -1,0 +1,15 @@
+self-hosted-runner:
+  labels: []
+config-variables:
+  - tauri_updater_pubkey
+  - tauri_updater_endpoints
+  - oss_bucket
+  - oss_public_base_url
+  - review_model
+paths:
+  # Legacy build-windows / build-macos jobs are intentionally parked with
+  # `if: ${{ false }}` after the switch to Tauri (#5734). The packaging
+  # code is kept in place but not run, so ignore the constant-condition hint.
+  .github/workflows/desktop-release.yml:
+    ignore:
+      - 'constant expression "false" in condition. remove the if: section'

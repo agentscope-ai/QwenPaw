@@ -58,6 +58,13 @@ class ModelInfo(BaseModel):
         description="Maximum input context window size (tokens). "
         "Controls when context compaction is triggered.",
     )
+    max_input_length_configured: bool = Field(
+        default=False,
+        description=(
+            "Whether max_input_length was explicitly configured. This keeps "
+            "an intentional 131072-token override distinct from the default."
+        ),
+    )
     generate_kwargs: Dict[str, Any] = Field(
         default_factory=dict,
         description="Per-model generation parameters that override "
@@ -462,6 +469,7 @@ class Provider(ProviderInfo, ABC):
                     and config["max_input_length"] is not None
                 ):
                     model.max_input_length = int(config["max_input_length"])
+                    model.max_input_length_configured = True
                 if (
                     "relay_reasoning" in config
                     and config["relay_reasoning"] is not None
@@ -562,6 +570,11 @@ class Provider(ProviderInfo, ABC):
             model_id,
             configured=(
                 model_info.max_input_length if model_info is not None else None
+            ),
+            configured_is_explicit=(
+                getattr(model_info, "max_input_length_configured", False)
+                if model_info is not None
+                else False
             ),
             use_catalog=self._context_catalog_enabled(),
         )

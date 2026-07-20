@@ -19,8 +19,8 @@ Think of QwenPaw as a small operating system for agents. The "kernel" is [AgentS
     </marker>
   </defs>
   <!-- Title -->
-  <text x="450" y="30" text-anchor="middle" font-size="16" font-weight="700" fill="currentColor">QwenPaw Agent OS — one picture</text>
-  <text x="450" y="49" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">Runtime on top · Workspace ‖ Drivers below · built on the AgentScope foundation</text>
+  <text x="450" y="30" text-anchor="middle" font-size="16" font-weight="700" fill="currentColor">Agent OS Foundation</text>
+  <text x="450" y="49" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">Runtime on top · Workspace ‖ Drivers below · built on the AgentScope infrastructure</text>
   <!-- Surfaces strip -->
   <rect x="20" y="60" width="860" height="40" rx="9" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.18"/>
   <text x="34" y="84" font-size="10" letter-spacing="1.2" font-weight="700" fill="currentColor" fill-opacity="0.7">SURFACES</text>
@@ -39,7 +39,7 @@ Think of QwenPaw as a small operating system for agents. The "kernel" is [AgentS
   <g>
     <rect x="40" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="136" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Request router</text><text x="136" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">to the addressed agent</text>
     <rect x="249" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="345" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Runtime lifecycle</text><text x="345" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">hook stages · modes</text>
-    <rect x="458" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="554" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Agent — ReAct loop</text><text x="554" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">context strategy · per request</text>
+    <rect x="458" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="554" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Agent — ReAct loop</text><text x="554" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">loop engineering · context strategy</text>
     <rect x="667" y="164" width="193" height="54" rx="7" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-opacity="0.55"/><text x="763" y="188" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Harness adapters</text><text x="763" y="205" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">external agents · ACP</text>
   </g>
   <line x1="450" y1="232" x2="450" y2="246" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.4" marker-end="url(#qpMapArrow)"/>
@@ -54,8 +54,9 @@ Think of QwenPaw as a small operating system for agents. The "kernel" is [AgentS
   <!-- memory lane -->
   <rect x="44" y="330" width="102" height="140" rx="7" fill="#2fb26b" fill-opacity="0.07" stroke="#2fb26b" stroke-opacity="0.4"/>
   <text x="95" y="348" text-anchor="middle" font-size="11" font-weight="700" fill="#2fb26b">memory</text>
-  <rect x="52" y="358" width="86" height="42" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="384" text-anchor="middle" font-size="10" fill="currentColor">Recall / write</text>
-  <rect x="52" y="408" width="86" height="42" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="434" text-anchor="middle" font-size="10" fill="currentColor">Markdown files</text>
+  <rect x="52" y="356" width="86" height="34" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="377" text-anchor="middle" font-size="10" fill="currentColor">Recall / write</text>
+  <rect x="52" y="394" width="86" height="34" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="415" text-anchor="middle" font-size="10" fill="currentColor">Scroll</text>
+  <rect x="52" y="432" width="86" height="34" rx="6" fill="#2fb26b" fill-opacity="0.1" stroke="#2fb26b" stroke-opacity="0.5"/><text x="95" y="453" text-anchor="middle" font-size="10" fill="currentColor">Markdown files</text>
   <!-- skills lane -->
   <rect x="154" y="330" width="102" height="140" rx="7" fill="#e0a021" fill-opacity="0.07" stroke="#e0a021" stroke-opacity="0.4"/>
   <text x="205" y="348" text-anchor="middle" font-size="11" font-weight="700" fill="#e0a021">skills</text>
@@ -85,7 +86,7 @@ Think of QwenPaw as a small operating system for agents. The "kernel" is [AgentS
   <rect x="44" y="514" width="12" height="12" rx="3" fill="#f0921f"/>
   <text x="62" y="524" font-size="11" font-weight="700" fill="#f0921f">SANDBOX · execution base</text>
   <text x="250" y="524" font-size="9.5" fill="currentColor" fill-opacity="0.6">a fresh sandbox per tool call, destroyed after</text>
-  <text x="365" y="548" text-anchor="middle" font-size="10.5" fill="currentColor">Native OS isolation — macOS seatbelt · Linux bubblewrap/landlock · Windows AppContainer · or none</text>
+  <text x="365" y="548" text-anchor="middle" font-size="10.5" fill="currentColor">Native OS isolation — macOS seatbelt · Linux bubblewrap/landlock · Windows AppContainer/Write Restricted Token · or none</text>
   <!-- Drivers column -->
   <rect x="722" y="248" width="158" height="336" rx="10" fill="#eb5545" fill-opacity="0.05" stroke="#eb5545" stroke-opacity="0.45"/>
   <rect x="734" y="266" width="12" height="12" rx="3" fill="#eb5545"/>
@@ -99,7 +100,7 @@ Think of QwenPaw as a small operating system for agents. The "kernel" is [AgentS
   <line x1="450" y1="584" x2="450" y2="596" stroke="currentColor" stroke-opacity="0.4" stroke-width="1.4" marker-end="url(#qpMapArrow)"/>
   <!-- Foundation -->
   <rect x="20" y="596" width="860" height="48" rx="10" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/>
-  <text x="450" y="618" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">FOUNDATION · AgentScope 2.0</text>
+  <text x="450" y="618" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">INFRASTRUCTURE · AgentScope 2.0</text>
   <text x="450" y="634" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.62">agent loop · session · event stream · tool layer — used in-process as a library</text>
   <!-- Legend -->
   <text x="20" y="669" font-size="10" font-weight="700" fill="currentColor" fill-opacity="0.7">Legend</text>
@@ -191,56 +192,60 @@ The on-disk layout is transparent: configuration is plain JSON, memory is Markdo
 
 The runtime turns one incoming request into a stream of UI events. It runs as a fixed **lifecycle with hook points between stages**, so features can attach behavior without changing the core loop. A request is routed to the addressed agent's workspace, where the agent is **assembled for that request**, run, and streamed back.
 
-<svg viewBox="0 0 820 600" width="100%" role="img" aria-label="The request lifecycle: hook stages interleaved with fixed steps for command dispatch, agent assembly, and execution, with error and cleanup handlers always running." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 820 254" width="100%" role="img" aria-label="The request lifecycle: hook stages interleaved with fixed steps for command dispatch, agent assembly, and execution; cleanup always runs." xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
     <marker id="qpFlowArrow" markerWidth="9" markerHeight="9" refX="5.5" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L6,3 L0,6 Z" fill="#ff9d4d"/>
     </marker>
   </defs>
   <!-- legend -->
-  <rect x="556" y="20" width="20" height="14" rx="3" fill="#ff9d4d" fill-opacity="0.14" stroke="#ff9d4d" stroke-opacity="0.55"/>
-  <text x="582" y="31" font-size="10.5" fill="currentColor" fill-opacity="0.7">hook stage</text>
-  <rect x="664" y="20" width="20" height="14" rx="3" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/>
-  <text x="690" y="31" font-size="10.5" fill="currentColor" fill-opacity="0.7">fixed step</text>
-  <!-- short flow arrows, one in each gap between consecutive boxes -->
+  <rect x="556" y="8" width="20" height="14" rx="3" fill="#ff9d4d" fill-opacity="0.14" stroke="#ff9d4d" stroke-opacity="0.55"/>
+  <text x="582" y="19" font-size="10.5" fill="currentColor" fill-opacity="0.7">hook stage</text>
+  <rect x="664" y="8" width="20" height="14" rx="3" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/>
+  <text x="690" y="19" font-size="10.5" fill="currentColor" fill-opacity="0.7">fixed step</text>
+  <!-- ═══ ROW 1: DISPATCH ═══ -->
   <g stroke="#ff9d4d" stroke-width="1.4">
-    <line x1="250" y1="75" x2="250" y2="91" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="121" x2="250" y2="137" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="167" x2="250" y2="183" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="213" x2="250" y2="229" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="259" x2="250" y2="275" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="305" x2="250" y2="321" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="351" x2="250" y2="367" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="397" x2="250" y2="413" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="459" x2="250" y2="475" marker-end="url(#qpFlowArrow)"/>
-    <line x1="250" y1="505" x2="250" y2="521" marker-end="url(#qpFlowArrow)"/>
+    <line x1="238" y1="53" x2="254" y2="53" marker-end="url(#qpFlowArrow)"/>
+    <line x1="402" y1="53" x2="418" y2="53" marker-end="url(#qpFlowArrow)"/>
+    <line x1="566" y1="53" x2="582" y2="53" marker-end="url(#qpFlowArrow)"/>
   </g>
-  <!-- rows -->
-  <g font-size="12">
-    <!-- input -->
-    <rect x="90" y="44" width="320" height="30" rx="15" fill="#ff9d4d" fill-opacity="0.18" stroke="#ff9d4d" stroke-opacity="0.6"/><text x="250" y="63" text-anchor="middle" font-weight="600" fill="currentColor">Incoming request (from a channel or schedule)</text>
-    <rect x="90" y="92" width="320" height="28" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="250" y="110" text-anchor="middle" fill="currentColor">Before dispatch</text>
-    <rect x="90" y="138" width="320" height="28" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="250" y="156" text-anchor="middle" fill="currentColor">Command dispatch</text>
-    <text x="424" y="156" font-size="10.5" fill="currentColor" fill-opacity="0.6">/command → reply &amp; skip the agent</text>
-    <rect x="90" y="184" width="320" height="28" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="250" y="202" text-anchor="middle" fill="currentColor">After dispatch</text>
-    <rect x="90" y="230" width="320" height="28" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="250" y="248" text-anchor="middle" fill="currentColor">Before build</text>
-    <text x="424" y="248" font-size="10.5" fill="currentColor" fill-opacity="0.6">load session · media · request context</text>
-    <rect x="90" y="276" width="320" height="28" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="250" y="294" text-anchor="middle" fill="currentColor" font-weight="600">Assemble the agent</text>
-    <text x="424" y="290" font-size="10.5" fill="currentColor" fill-opacity="0.6">model · tools · prompt</text>
-    <text x="424" y="303" font-size="10.5" fill="currentColor" fill-opacity="0.6">memory · context strategy · policy</text>
-    <rect x="90" y="322" width="320" height="28" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="250" y="340" text-anchor="middle" fill="currentColor">After build</text>
-    <text x="424" y="340" font-size="10.5" fill="currentColor" fill-opacity="0.6">inject active-mode context</text>
-    <rect x="90" y="368" width="320" height="28" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="250" y="386" text-anchor="middle" fill="currentColor">Before execute</text>
-    <text x="424" y="386" font-size="10.5" fill="currentColor" fill-opacity="0.6">bootstrap · prompt refresh</text>
-    <rect x="90" y="414" width="320" height="44" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="250" y="432" text-anchor="middle" fill="currentColor" font-weight="600">Run the agent</text><text x="250" y="448" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.65">ReAct loop, bounded by a max-iterations limit</text>
-    <rect x="90" y="476" width="320" height="28" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="250" y="494" text-anchor="middle" fill="currentColor">After response</text>
-    <text x="424" y="494" font-size="10.5" fill="currentColor" fill-opacity="0.6">save session · scheduled-job writeback</text>
-    <rect x="90" y="522" width="320" height="30" rx="15" fill="#ff9d4d" fill-opacity="0.18" stroke="#ff9d4d" stroke-opacity="0.6"/><text x="250" y="541" text-anchor="middle" font-weight="600" fill="currentColor">Stream the response out</text>
+  <rect x="90" y="38" width="148" height="30" rx="15" fill="#ff9d4d" fill-opacity="0.18" stroke="#ff9d4d" stroke-opacity="0.6"/><text x="164" y="57" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">Incoming request</text>
+  <rect x="254" y="38" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="328" y="57" text-anchor="middle" font-size="11" fill="currentColor">Before dispatch</text>
+  <rect x="418" y="38" width="148" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="492" y="57" text-anchor="middle" font-size="11" fill="currentColor">Command dispatch</text>
+  <rect x="582" y="38" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="656" y="57" text-anchor="middle" font-size="11" fill="currentColor">After dispatch</text>
+  <text x="164" y="82" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">from channel / schedule</text>
+  <text x="492" y="82" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">/command → reply &amp; skip</text>
+  <!-- connector row 1→2 -->
+  <path d="M730,68 v22 H90 v8" fill="none" stroke="#ff9d4d" stroke-width="1.4" marker-end="url(#qpFlowArrow)"/>
+  <!-- ═══ ROW 2: BUILD ═══ -->
+  <g stroke="#ff9d4d" stroke-width="1.4">
+    <line x1="238" y1="113" x2="254" y2="113" marker-end="url(#qpFlowArrow)"/>
+    <line x1="402" y1="113" x2="418" y2="113" marker-end="url(#qpFlowArrow)"/>
+    <line x1="566" y1="113" x2="582" y2="113" marker-end="url(#qpFlowArrow)"/>
   </g>
-  <!-- error / cleanup bracket -->
-  <path d="M70,92 q-14,0 -14,14 v384 q0,14 14,14" fill="none" stroke="currentColor" stroke-opacity="0.35" stroke-width="1.5"/>
-  <text x="30" y="298" font-size="11" fill="currentColor" fill-opacity="0.7" transform="rotate(-90 30 298)" text-anchor="middle">On error · cleanup (always run)</text>
-  <text x="250" y="576" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">Cleanup always runs: cancel the reply, close connectors, reset request state.</text>
+  <rect x="90" y="98" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="164" y="117" text-anchor="middle" font-size="11" fill="currentColor">Before build</text>
+  <rect x="254" y="98" width="148" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="328" y="117" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">Assemble the agent</text>
+  <rect x="418" y="98" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="492" y="117" text-anchor="middle" font-size="11" fill="currentColor">After build</text>
+  <rect x="582" y="98" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="656" y="117" text-anchor="middle" font-size="11" fill="currentColor">Before execute</text>
+  <text x="164" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">session · media · context</text>
+  <text x="328" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">model · tools · prompt</text>
+  <text x="328" y="153" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">memory · context strategy · policy</text>
+  <text x="492" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">inject mode context</text>
+  <text x="656" y="142" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">bootstrap · prompt refresh</text>
+  <!-- connector row 2→3 -->
+  <path d="M730,128 v30 H90 v10" fill="none" stroke="#ff9d4d" stroke-width="1.4" marker-end="url(#qpFlowArrow)"/>
+  <!-- ═══ ROW 3: EXECUTE ═══ -->
+  <g stroke="#ff9d4d" stroke-width="1.4">
+    <line x1="290" y1="183" x2="310" y2="183" marker-end="url(#qpFlowArrow)"/>
+    <line x1="458" y1="183" x2="478" y2="183" marker-end="url(#qpFlowArrow)"/>
+  </g>
+  <rect x="90" y="168" width="200" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="190" y="187" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">Run the agent</text>
+  <rect x="310" y="168" width="148" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.1" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="384" y="187" text-anchor="middle" font-size="11" fill="currentColor">After response</text>
+  <rect x="478" y="168" width="200" height="30" rx="15" fill="#ff9d4d" fill-opacity="0.18" stroke="#ff9d4d" stroke-opacity="0.6"/><text x="578" y="187" text-anchor="middle" font-size="11" font-weight="600" fill="currentColor">Stream the response out</text>
+  <text x="190" y="212" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">ReAct loop · max-iterations</text>
+  <text x="384" y="212" text-anchor="middle" font-size="9" fill="currentColor" fill-opacity="0.55">save session · job writeback</text>
+  <!-- bottom note -->
+  <text x="410" y="244" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.55">Cleanup always runs: cancel the reply, close connectors, reset request state.</text>
 </svg>
 
 ### Hooks, modes, and assembling the agent
@@ -384,7 +389,7 @@ Every tool call and every external action passes through a layered trust spine b
   <line x1="683" y1="226" x2="683" y2="252" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpSecArrow)"/>
   <rect x="560" y="256" width="246" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="683" y="275" text-anchor="middle" font-size="12" fill="currentColor">Tool guard — content screening</text><text x="683" y="289" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.65">path · pattern · shell-evasion checks</text>
   <line x1="683" y1="296" x2="683" y2="320" stroke="#ff9d4d" stroke-width="1.5" marker-end="url(#qpSecArrow)"/>
-  <rect x="560" y="324" width="246" height="44" rx="8" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.55"/><text x="683" y="343" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Execute in native OS sandbox</text><text x="683" y="358" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.7">seatbelt · bubblewrap · landlock · appcontainer · none</text>
+  <rect x="560" y="324" width="246" height="56" rx="8" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.55"/><text x="683" y="341" text-anchor="middle" font-size="12" font-weight="600" fill="currentColor">Execute in native OS sandbox</text><text x="683" y="356" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.7">seatbelt · bubblewrap · landlock</text><text x="683" y="370" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.7">appcontainer · write restricted token · none</text>
   <!-- side: skill scanner + secrets -->
   <rect x="40" y="256" width="280" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="180" y="275" text-anchor="middle" font-size="11.5" fill="currentColor">Skill scanner — gates skill installs</text><text x="180" y="289" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">static analysis before code can run</text>
   <rect x="40" y="324" width="280" height="40" rx="8" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.3"/><text x="180" y="343" text-anchor="middle" font-size="11.5" fill="currentColor">Encrypted credential store</text><text x="180" y="357" text-anchor="middle" font-size="9.5" fill="currentColor" fill-opacity="0.6">provider keys &amp; connector secrets at rest</text>

@@ -8,6 +8,7 @@ export interface ModelInfo {
   is_free?: boolean;
   max_tokens: number;
   max_input_length: number;
+  max_input_length_configured?: boolean;
   generate_kwargs: Record<string, unknown>;
   relay_reasoning: boolean;
   thinking_enabled: boolean | null;
@@ -93,6 +94,7 @@ export interface ModelSlotConfig {
 
 export interface ActiveModelsInfo {
   active_llm?: ModelSlotConfig;
+  effective_max_input_length?: number | null;
 }
 
 export type ActiveModelScope = "effective" | "global" | "agent";

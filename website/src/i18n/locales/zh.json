@@ -9,17 +9,30 @@
     "github": "GitHub",
     "githubComingSoon": "Coming Soon",
     "lang": "ENG",
-    "agentscopeTeam": "AgentScope"
+    "platform": "Platform",
+    "platformTitle": "AgentScope 体验平台",
+    "agentscopeTeam": "AgentScope",
+    "communityBenefits": "社区福利",
+    "communityBenefitsNew": "NEW",
+    "benefit1Title": "百炼新客免费 1 亿 token",
+    "benefit1Desc": "点击查询我的免费额度",
+    "benefit2Title": "无门槛 Token 满返补贴",
+    "benefit2Desc": "个企同享新老同享，最高 200 元",
+    "benefit3Title": "最高 100 万元等额 Token",
+    "benefit3Desc": "OPC 创新助力，补贴权益升级",
+    "benefit4Title": "高校学生创新补贴",
+    "benefit4Desc": "50 元模型通兑，分享赢 iphone17"
   },
   "hero": {
     "titleleft": "欢迎使用你的",
     "titleright": "专业AI助手",
     "slogan": "懂你所需，伴你左右",
-    "sub": "{{version}} 四大方面能力升级：",
-    "sub1": "为 QwenPaw 量身定制的小模型、安全机制、多智能体协同、以及记忆管理",
+    "sub": "{{version}} 五大方面能力升级：",
+    "sub1": "为 QwenPaw 量身定制的 Agent OS, TUI, 循环工程, 滚动上下文, 新版 ReMe",
     "releaseNote": "QwenPaw {{version}}版本全新发布",
     "cta": "查看文档",
-    "quickStart": "快速开始"
+    "quickStart": "快速开始",
+    "quickTry": "快速体验"
   },
   "follow": {
     "title": "关注我们",
@@ -51,26 +64,21 @@
     "sub": "记忆与个性化由你掌控。",
     "learnMore": "了解更多",
     "cards": {
-      "skills": {
-        "title": "安全机制",
-        "desc": "QwenPaw 1.0 构建了工具守卫、文件防护与技能扫描器三层防御体系，覆盖运行时拦截、访问控制与安装审计，全方位守护智能体的操作安全边界。"
+      "agentOs": {
+        "title": "Agent OS",
+        "desc": "QwenPaw 2.0 以类操作系统的 Harness 架构连接模型与应用，将 Agent 从独立应用升级为开放的智能基座。未来还将持续推出面向不同场景的 QwenPaw 小程序与轻量应用。"
       },
-      "control": {
-        "title": "多智能体",
-        "desc": " QwenPaw 1.0 支持在同一实例内并发运行多个隔离的智能体工作区，各自独立配置与记忆，并可通过异步协作机制共同完成复杂的多角色任务。"
+      "tui": {
+        "title": "终端交互",
+        "desc": "基于 Textual 打造全屏终端聊天体验，支持流式输出、工具调用渲染与会话管理，并与控制台及各频道共享会话和记忆。"
       },
-      "apps": {
-        "title": "QwenPaw 定制模型",
-        "desc": "QwenPaw 1.0 推出专为本地场景定制的 QwenPaw-Flash 系列小模型，支持一键部署、数据不出设备，针对文档处理、记忆更新、信息检索等高频任务进行了专项优化。",
-        "learnMoreHref": "https://www.modelscope.cn/organization/AgentScope"
+      "scrollContext": {
+        "title": "滚动上下文",
+        "desc": "每轮对话实时写入 SQLite。窗口满时通过索引驱逐腾出空间，不摘要、不丢弃原文；历史内容可随时按需回溯，确保上下文信息完整保留。"
       },
-      "memory": {
-        "title": "记忆",
-        "desc": "上下文与工具结果可压缩；经验与偏好可沉淀复用，记忆与个性化由你掌控。"
-      },
-      "toolkit": {
-        "title": "工具体系",
-        "desc": "十余内置工具与技能，支持热加载；自由接入 MCP、扩展自定义技能，能力随需加长。"
+      "loopEngineering": {
+        "title": "循环工程",
+        "desc": "Agent 执行逻辑从硬编码走向可编排：当前可通过插件接口灵活组合流程，未来还将以 “Oh-My-Paw” 官方插件持续提供更多循环控制方案，让同一个 Agent 按场景切换行为模式。"
       }
     }
   },
@@ -266,7 +274,12 @@
     "sessionCount": "共 {{count}} 场开发者日会",
     "backToList": "返回博客列表",
     "notFound": "文章未找到",
-    "empty": "暂无博客文章"
+    "empty": "暂无博客文章",
+    "views": "{{count}} 次阅读",
+    "viewsLabel": "阅读量",
+    "likes": "{{count}}",
+    "like": "点赞",
+    "unlike": "取消点赞"
   },
   "docs": {
     "intro": "项目介绍",

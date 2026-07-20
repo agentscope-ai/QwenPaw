@@ -24,11 +24,20 @@ export interface ToolResultPruningConfig {
 
 export type ContextStrategy = "native" | "scroll";
 
+export interface ScrollConfig {
+  db_filename: string;
+  repl_timeout_s: number;
+  history_retention_days: number;
+  allow_unsandboxed: boolean;
+  offload_dialog: boolean;
+}
+
 export interface LightContextConfig {
   strategy: ContextStrategy;
   dialog_path: string;
   token_count_estimate_divisor: number;
   context_compact_config: ContextCompactConfig;
+  scroll_config: ScrollConfig;
   tool_result_pruning_config: ToolResultPruningConfig;
 }
 
@@ -52,12 +61,12 @@ export interface EmbeddingModelConfig {
 
 export interface ReMeLightMemoryConfig {
   summarize_when_compact: boolean;
-  auto_memory_interval: number | null;
+  inbox_push_enabled: boolean;
+  auto_memory_interval: number;
+  dream_cron_enabled: boolean;
   dream_cron: string;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
-  rebuild_memory_index_on_start: boolean;
-  enable_search_raw_log: boolean;
 }
 
 export interface AutoTitleConfig {

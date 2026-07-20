@@ -17,9 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .builder import AgentBuilder
 from .envelope import Envelope
@@ -27,7 +25,6 @@ from .executor import AgentExecutor
 from .hooks import HookAction, HookContext
 from .message_convert import _get_last_user_text, _request_input_to_msgs
 from .phases import Phase
-from ..config import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +103,7 @@ class Runtime:
                     app_services=self.app_services,
                 )
                 ctx.agent = await builder.build(ctx)
+                await self._start_modes(ctx)
 
                 # --- [phase 4] POST_AGENT_BUILD ---
                 await hooks.run(Phase.POST_AGENT_BUILD, ctx)
@@ -124,7 +122,6 @@ class Runtime:
                 # --- [fixed 3] execute agent ---
                 async for ev in envelope.emit_response_created():
                     yield ev
-                Runtime._inject_current_time(ctx.input_msgs)
                 executor = AgentExecutor(ctx.agent, envelope)
                 logger.debug(
                     "Agent input: %s",
@@ -209,6 +206,18 @@ class Runtime:
             await hooks.run(Phase.FINALLY, ctx)
 
     # ----------------------------------------------------------------- helpers
+
+    async def _start_modes(self, ctx: HookContext) -> None:
+        """Prepare every registered mode for the current user turn."""
+        for mode in self.workspace.plugins.modes:
+            try:
+                await mode.on_turn_start(ctx)
+            except Exception:
+                logger.warning(
+                    "mode '%s' turn start raised",
+                    getattr(mode, "name", "?"),
+                    exc_info=True,
+                )
 
     async def _try_save_on_cancel(self, ctx: HookContext) -> None:
         """Best-effort session save on cancellation.
@@ -453,65 +462,6 @@ class Runtime:
         if not getattr(request, "user_id", None):
             request.user_id = request.session_id
         return request
-
-    @staticmethod
-    def _inject_current_time(msgs: list[Any]) -> None:
-        """Prepend current time to the last user message's first text block.
-
-        Operates in-place on *msgs* (a list of agentscope ``Msg`` objects)
-        so that only model-facing input receives the timestamp — slash
-        commands, lifecycle hooks, and short-circuit paths see raw text.
-
-        If the last user message has no text block (media-only input),
-        a text block with the timestamp alone is inserted.
-        """
-        try:
-            user_tz_name = load_config().user_timezone or "UTC"
-            now = datetime.now(ZoneInfo(user_tz_name))
-        except (ZoneInfoNotFoundError, KeyError, ValueError):
-            logger.warning(
-                "Invalid timezone %r, falling back to UTC",
-                user_tz_name,
-            )
-            user_tz_name = "UTC"
-            now = datetime.now(timezone.utc)
-
-        prefix = (
-            f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S')} "
-            f"{user_tz_name} ({now.strftime('%A')})\n\n"
-        )
-
-        # Walk backwards to find the last user message
-        for msg in reversed(msgs):
-            if getattr(msg, "role", None) != "user":
-                continue
-            # A content block may be an agentscope ``TextBlock`` object
-            # (``.type`` / ``.text``) or a plain dict, depending on the
-            # agentscope version — handle both.
-            content: list[Any] = getattr(msg, "content", None) or []
-            for block in content:
-                if isinstance(block, dict):
-                    if block.get("type") == "text":
-                        text = block.get("text", "")
-                        if not text.startswith("Current time:"):
-                            block["text"] = prefix + text
-                        return
-                elif getattr(block, "type", None) == "text":
-                    text = getattr(block, "text", "")
-                    if not text.startswith("Current time:"):
-                        block.text = prefix + text
-                    return
-            # No text block (media-only) — insert one matching the
-            # existing blocks' representation (agentscope objects vs
-            # plain dicts) so the content list stays homogeneous and
-            # ``get_text_content`` keeps working.
-            if content and not isinstance(content[0], dict):
-                from agentscope.message import TextBlock
-
-                content.insert(0, TextBlock(type="text", text=prefix))
-            else:
-                content.insert(0, {"type": "text", "text": prefix})
-            return
 
     def _build_context(self, request: Any) -> HookContext:
         workspace_dir = getattr(self.workspace, "workspace_dir", None)

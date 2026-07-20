@@ -38,6 +38,13 @@ pytestmark = pytest.mark.skipif(
 class TestProbeSandboxSupport:
     """Test probe_sandbox_support() for each platform."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_probe_cache(self):
+        """Clear lru_cache so each test starts fresh."""
+        probe_sandbox_support.cache_clear()
+        yield
+        probe_sandbox_support.cache_clear()
+
     @patch("sys.platform", "darwin")
     @patch("shutil.which", return_value="/usr/bin/sandbox-exec")
     def test_darwin_delegates_to_seatbelt(self, mock_which):
@@ -337,15 +344,19 @@ class TestLinuxSandboxRuleCompilation:
 
 
 # ============================================================================
-# Governance: sandbox_available=False → SANDBOX_FALLBACK escalates to ASK
+# Governance: sandbox_available=False when the platform cannot sandbox
 # ============================================================================
 
 
 class TestGovernanceSandboxUnavailable:
-    """Test SANDBOX_FALLBACK escalates to ASK when sandbox unavailable."""
+    """Probe degradation: sandbox_available is False when unsupported.
+
+    (A shell SANDBOX_FALLBACK then runs unsandboxed via ALLOW in
+    ``assert_policy``; that behavior is covered in test_policy.py.)
+    """
 
     def test_sandbox_fallback_becomes_ask(self):
-        """When sandbox is unavailable, SANDBOX_FALLBACK should become ASK."""
+        """When the platform cannot sandbox, ``sandbox_available`` is False."""
         cap = SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,

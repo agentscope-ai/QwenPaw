@@ -19,6 +19,8 @@ _OPENAI_COMPAT_EMBEDDING_BACKENDS = {
     "dashscope_multimodal",
 }
 
+_MAX_FILE_BYTES = 10 * 1024 * 1024
+
 
 def build_reme_app_config(
     *,
@@ -28,7 +30,7 @@ def build_reme_app_config(
 ) -> dict[str, Any]:
     """Build ReMe ``Application`` kwargs for embedded QwenPaw usage."""
     reme_config = agent_config.running.reme_light_memory_config
-    cfg = _base_config(reme_config.enable_search_raw_log)
+    cfg = _base_config()
     _apply_embedding_config(
         cfg,
         reme_config.embedding_model_config,
@@ -45,22 +47,27 @@ def build_reme_app_config(
             "language": agent_config.language,
             "timezone": user_timezone or "Asia/Shanghai",
             "enable_logo": False,
-            "log_to_console": False,
+            "log_to_console": True,
         },
     )
 
     return cfg
 
 
-def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
+def _base_config() -> dict[str, Any]:
     """Return the ReMe config shape used by QwenPaw."""
-    watch_dirs, watch_suffixes = _index_watch_rules(enable_search_raw_log)
+    # Raw conversation-log lookup belongs to the scroll context strategy's
+    # recall_history(op="search") tool. Keep ReMe search scoped to distilled
+    # memory Markdown so the two systems do not duplicate indexes or duties.
+    watch_dirs = ["daily_dir", "digest_dir"]
+    watch_suffixes = ["md"]
 
     return {
         "service": {"backend": "http"},
         "jobs": {
             "index_update_loop": {
                 "backend": "background",
+                "max_file_bytes": _MAX_FILE_BYTES,
                 "watch_dirs": watch_dirs,
                 "watch_suffixes": watch_suffixes,
                 "steps": [
@@ -80,6 +87,7 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
             },
             "resource_watch_loop": {
                 "backend": "background",
+                "max_file_bytes": _MAX_FILE_BYTES,
                 "watch_dirs": ["resource_dir"],
                 "watch_suffixes": [
                     "md",
@@ -121,8 +129,18 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
                 "parameters": {"type": "object", "properties": {}},
                 "steps": [{"backend": "version_step"}],
             },
+            "status": {
+                "backend": "base",
+                "description": (
+                    "report memory estimates for stateful data components "
+                    "and process RSS"
+                ),
+                "parameters": {"type": "object", "properties": {}},
+                "steps": [{"backend": "status_step"}],
+            },
             "reindex": {
                 "backend": "base",
+                "max_file_bytes": _MAX_FILE_BYTES,
                 "description": (
                     "wipe the file store and rebuild it from the existing "
                     "files"
@@ -540,15 +558,6 @@ def _base_config(enable_search_raw_log: bool = False) -> dict[str, Any]:
     }
 
 
-def _index_watch_rules(
-    enable_search_raw_log: bool,
-) -> tuple[list[str], list[str]]:
-    """Return directories/suffixes indexed by ReMe search jobs."""
-    if enable_search_raw_log:
-        return ["daily_dir", "digest_dir", "resource_dir"], ["md", "jsonl"]
-    return ["daily_dir", "digest_dir"], ["md"]
-
-
 def _base_components() -> dict[str, Any]:
     return {
         "tokenizer": {"default": {"backend": "regex"}},
@@ -636,9 +645,13 @@ def _apply_embedding_config(
 ) -> None:
     """Map QwenPaw embedding config into ReMe component config."""
     components = cfg["components"]
-    embedding_store_name = (
-        "default" if _is_embedding_enabled(embedding_config) else ""
-    )
+    if not _is_embedding_enabled(embedding_config):
+        # Keep the explicit empty value: LocalFileStore otherwise defaults to
+        # looking up embedding_store:default even when the component is absent.
+        components["file_store"]["default"]["embedding_store"] = ""
+        components.pop("embedding_store", None)
+        components.pop("as_embedding", None)
+        return
 
     components["as_embedding"]["default"].update(
         {
@@ -648,6 +661,10 @@ def _apply_embedding_config(
             "credential": _embedding_credential(embedding_config),
         },
     )
+    if embedding_config.backend == "openai":
+        components["as_embedding"]["default"][
+            "pass_dimensions"
+        ] = embedding_config.use_dimensions
     components["embedding_store"]["default"].update(
         {
             "enable_cache": embedding_config.enable_cache,
@@ -656,9 +673,7 @@ def _apply_embedding_config(
             "max_batch_size": embedding_config.max_batch_size,
         },
     )
-    components["file_store"]["default"][
-        "embedding_store"
-    ] = embedding_store_name
+    components["file_store"]["default"]["embedding_store"] = "default"
 
 
 def _is_embedding_enabled(embedding_config: EmbeddingModelConfig) -> bool:

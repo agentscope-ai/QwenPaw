@@ -67,16 +67,22 @@ def create_agent(app_server, agent_id: str) -> None:
         },
     )
     assert resp.status_code == 201, app_server.logs_tail()
+    assert wait_for_agent_startup(app_server, agent_id) == "running"
 
 
 def delete_agent_quietly(app_server, agent_id: str) -> None:
-    try:
-        app_server.api_request(
-            "DELETE",
-            f"/api/agents/{agent_id}",
-        )
-    except Exception:
-        pass
+    deadline = time.time() + 30.0
+    while time.time() < deadline:
+        try:
+            response = app_server.api_request(
+                "DELETE",
+                f"/api/agents/{agent_id}",
+            )
+            if response.status_code != 409:
+                return
+        except Exception:
+            return
+        time.sleep(0.1)
 
 
 def toggle_agent(app_server, agent_id: str, enabled: bool):
@@ -85,6 +91,34 @@ def toggle_agent(app_server, agent_id: str, enabled: bool):
         "PATCH",
         f"/api/agents/{agent_id}/toggle",
         json={"enabled": enabled},
+    )
+
+
+def wait_for_agent_startup(
+    app_server,
+    agent_id: str,
+    *,
+    timeout: float = 30.0,
+) -> str:
+    """Wait for an agent to leave the pending and starting states."""
+    deadline = time.time() + timeout
+    last_status = "missing"
+    while time.time() < deadline:
+        response = app_server.api_request("GET", "/api/agents")
+        if response.status_code == 200:
+            agents = response.json().get("agents", [])
+            agent = next(
+                (item for item in agents if item.get("id") == agent_id),
+                None,
+            )
+            if agent is not None:
+                last_status = agent.get("startup_status", "missing")
+                if last_status not in {"pending", "starting"}:
+                    return last_status
+        time.sleep(0.1)
+    raise AssertionError(
+        f"Agent '{agent_id}' did not finish startup; "
+        f"last status: {last_status}",
     )
 
 
@@ -363,7 +397,7 @@ class MockLLMHandler(BaseHTTPRequestHandler):
     Behaviour matrix (checked in order):
       1. ``server.force_error`` is True  → 422
       2. Request has ``tools`` AND no ``role=tool`` message
-         → stream a tool_call for ``get_token_usage``
+         → stream a tool_call for ``get_current_time``
       3. Request has a ``role=tool`` message (round 2)
          → stream text summarising the tool result
       4. Otherwise → stream ``MOCK_LLM_RESPONSE``
@@ -512,7 +546,7 @@ class MockLLMHandler(BaseHTTPRequestHandler):
         tool_name = getattr(
             self.server,
             "tool_call_name",
-            "get_token_usage",
+            "get_current_time",
         )
         tool_args = getattr(self.server, "tool_call_arguments", "{}")
 

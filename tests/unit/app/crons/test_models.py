@@ -106,3 +106,40 @@ def test_cron_job_spec_text_rejects_empty_text():
                 target=DispatchTarget(user_id="u1", session_id="console:u1"),
             ),
         )
+
+
+def test_dispatch_silent_defaults_to_false():
+    dispatch = DispatchSpec(
+        target=DispatchTarget(user_id="u1", session_id="console:u1"),
+    )
+
+    assert dispatch.silent is False
+
+
+def test_cron_job_spec_agent_accepts_silent_delivery():
+    payload = make_cron_job_spec().model_dump(mode="json")
+    payload["dispatch"]["silent"] = True
+
+    spec = CronJobSpec.model_validate(payload)
+
+    assert spec.dispatch.silent is True
+
+
+def test_cron_job_spec_text_rejects_silent_delivery():
+    with pytest.raises(
+        ValidationError,
+        match="silent delivery is only supported for agent tasks",
+    ):
+        CronJobSpec(
+            name="Silent text",
+            schedule=ScheduleSpec(type="cron", cron="0 9 * * mon"),
+            task_type="text",
+            text="Hello",
+            dispatch=DispatchSpec(
+                target=DispatchTarget(
+                    user_id="u1",
+                    session_id="console:u1",
+                ),
+                silent=True,
+            ),
+        )

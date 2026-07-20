@@ -202,6 +202,87 @@ class TestTokenUsageBuffer:
         assert entry["prompt_tokens"] == 300
         assert entry["call_count"] == 3
 
+    @pytest.mark.asyncio
+    async def test_stop_does_not_wipe_history_when_seed_interrupted(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A stop() that races cache seeding must not clobber the file."""
+        path = tmp_path / "test.json"
+        existing = {
+            "2026-04-24": {
+                "openai:gpt-4": {
+                    "provider_id": "openai",
+                    "model_name": "gpt-4",
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "call_count": 1,
+                },
+            },
+        }
+        path.write_text(json.dumps(existing), encoding="utf-8")
+
+        seeding = asyncio.Event()
+
+        async def _never_returns(_path):
+            # Park the consumer inside the seed so stop() runs while
+            # ``_disk_cache`` is still the initial empty dict.
+            seeding.set()
+            await asyncio.Event().wait()
+            return {}
+
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.buffer.load_data",
+            _never_returns,
+        )
+
+        buffer = TokenUsageBuffer(path, flush_interval=3600)
+        buffer.start()
+        await asyncio.wait_for(seeding.wait(), timeout=1)
+        await buffer.stop()
+
+        assert json.loads(path.read_text(encoding="utf-8")) == existing
+
+    @pytest.mark.asyncio
+    async def test_stop_flushes_after_seed_completes(self, tmp_path):
+        """Normal shutdown still merges new events into stored history."""
+        path = tmp_path / "test.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "2026-04-23": {
+                        "openai:gpt-4": {
+                            "provider_id": "openai",
+                            "model_name": "gpt-4",
+                            "prompt_tokens": 7,
+                            "completion_tokens": 3,
+                            "call_count": 1,
+                        },
+                    },
+                },
+            ),
+            encoding="utf-8",
+        )
+
+        buffer = TokenUsageBuffer(path, flush_interval=3600)
+        buffer.start()
+        buffer.enqueue(
+            _UsageEvent(
+                provider_id="openai",
+                model_name="gpt-4",
+                prompt_tokens=100,
+                completion_tokens=50,
+                date_str="2026-04-24",
+                now_iso="2026-04-24T10:00:00+00:00",
+            ),
+        )
+        await buffer.stop()
+
+        written = json.loads(path.read_text(encoding="utf-8"))
+        assert written["2026-04-23"]["openai:gpt-4"]["prompt_tokens"] == 7
+        assert written["2026-04-24"]["openai:gpt-4"]["prompt_tokens"] == 100
+
 
 # =============================================================================
 # Test Pydantic Models

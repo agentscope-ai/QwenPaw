@@ -110,6 +110,14 @@ Watched suffixes are:
 md, txt, json, jsonl, csv, yaml, html
 ```
 
+Files can be placed directly in the `resource_dir` root, in which case QwenPaw's configured timezone determines the
+current date, or under `resource_dir/YYYY-MM-DD/`, in which case the path supplies the date. Additional subdirectories
+may follow the date directory. For added and modified resources, ReMe reads the content as UTF-8 text and asks the
+memory agent to create or update a daily note. Deleting a resource also deletes its corresponding source-linked note.
+
+Binary files such as PDF, Word, Excel, and images are not parsed automatically. The `yml` suffix is not in the default
+allowlist either; convert these inputs to one of the supported text formats first.
+
 Each change item may contain `path` or `file_path` and a `change` value such as `added`, `modified`, or `deleted`. The ReMe step interprets changed resource files into daily notes. QwenPaw pushes an `Auto-resource result` inbox event only when the job reports a real modification.
 
 ---
@@ -119,7 +127,8 @@ Each change item may contain `path` or `file_path` and a `change` value such as 
 Auto Dream is exposed in QwenPaw through:
 
 - `/dream [hint]`, handled by `CommandHandler._process_dream()`;
-- the scheduler configured by `dream_cron`, default `0 23 * * *`;
+- the scheduler configured by `dream_cron` when `dream_cron_enabled` is true,
+  default `0 23 * * *`; scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls;
 - `ReMeLightMemoryManager.dream(date="", hint="")`.
 
 QwenPaw runs the ReMe job named `auto_dream` with `needs_llm=True`, so the embedded ReMe app refreshes its LLM component from the active QwenPaw model before the job runs.
@@ -237,10 +246,9 @@ The command warning is accurate: proactive mode may read historical session memo
 
 The embedded ReMe app starts an `index_update_loop` background job. Search indexing watches:
 
-| Config                          | Indexed directories                       | Suffixes      |
-| ------------------------------- | ----------------------------------------- | ------------- |
-| `enable_search_raw_log = false` | `daily_dir`, `digest_dir`                 | `md`          |
-| `enable_search_raw_log = true`  | `daily_dir`, `digest_dir`, `resource_dir` | `md`, `jsonl` |
+| Indexed directories       | Suffixes |
+| ------------------------- | -------- |
+| `daily_dir`, `digest_dir` | `md`     |
 
 The QwenPaw `memory_search` tool runs ReMe's `search` job with `query`, `limit`, and `min_score`. The job is configured as hybrid workspace search with vector recall, BM25 keyword recall, RRF fusion, and wikilink expansion. The storage backend in QwenPaw's embedded ReMe config is local.
 

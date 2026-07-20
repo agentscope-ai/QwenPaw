@@ -31,7 +31,7 @@ from .browser_control import browser_use
 from .web_search import web_search, web_fetch
 from .desktop_screenshot import desktop_screenshot
 from .view_media import view_image, view_video
-from .get_current_time import set_user_timezone
+from .get_current_time import get_current_time, set_user_timezone
 from .get_token_usage import get_token_usage
 from .agent_management import (
     list_agents,
@@ -74,6 +74,7 @@ __all__ = [
     "browser_use",
     "web_search",
     "web_fetch",
+    "get_current_time",
     "set_user_timezone",
     "get_token_usage",
     "delegate_external_agent",

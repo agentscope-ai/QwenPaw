@@ -17,6 +17,8 @@ import {
 import { MermaidBlock } from "@/components/MermaidBlock";
 import { ImageZoom } from "@/components/ImageZoom";
 import { trackBlogPostView } from "@/lib/analytics";
+import { BlogEngagement } from "@/components/BlogEngagement";
+import { BlogRelatedCard } from "@/components/BlogRelatedCard";
 
 /** Turn plain "Meeting link: https://…" lines into markdown links for session lists. */
 function linkifySessionUrls(body: string): string {
@@ -240,7 +242,12 @@ export default function BlogPost() {
                 : t("blog.readTime", { minutes: readMinutes })}
             </span>
           </p>
+          {slug ? <BlogEngagement slug={slug} /> : null}
         </header>
+
+        {frontmatter.related ? (
+          <BlogRelatedCard related={frontmatter.related} />
+        ) : null}
 
         <div
           className={`docs-content blog-content${

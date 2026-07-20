@@ -93,6 +93,7 @@ _AGENT_SPECS: list[dict[str, Any]] = [
             "trusted": True,
             "tool_parse_mode": "call_detail",
         },
+        "approval_level": "OFF",
     },
     {
         "agent_id": BUILTIN_EXECUTOR_AGENT_ID,
@@ -113,6 +114,7 @@ _AGENT_SPECS: list[dict[str, Any]] = [
         "extra_tools": {
             **_DISABLED_AGENT_TOOLS,
         },
+        "approval_level": "OFF",
     },
     {
         "agent_id": BUILTIN_VERIFIER_AGENT_ID,
@@ -133,5 +135,6 @@ _AGENT_SPECS: list[dict[str, Any]] = [
         "extra_tools": {
             **_DISABLED_AGENT_TOOLS,
         },
+        "approval_level": "OFF",
     },
 ]

@@ -22,6 +22,10 @@ function SecurityPage() {
     config,
     enabled,
     setEnabled,
+    sandboxEnabled,
+    setSandboxEnabled,
+    sandboxEffective,
+    sandboxReason,
     toolOptions,
     saving,
     handleSave,
@@ -103,6 +107,10 @@ function SecurityPage() {
                   config={config}
                   enabled={enabled}
                   setEnabled={setEnabled}
+                  sandboxEnabled={sandboxEnabled}
+                  setSandboxEnabled={setSandboxEnabled}
+                  sandboxEffective={sandboxEffective}
+                  sandboxReason={sandboxReason}
                   toolOptions={toolOptions}
                   mergedRules={mergedRules}
                   toggleRule={toggleRule}

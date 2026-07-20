@@ -355,15 +355,22 @@ export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
     savingRef.current = true;
     setSaving(true);
     try {
-      await providerApi.setActiveLlm({
+      const updated = await providerApi.setActiveLlm({
         ...buildModelSlotRequest(providerId, modelId),
       });
-      setActiveModels({
-        active_llm: { provider_id: providerId, model: modelId },
-      });
+      setActiveModels(
+        updated?.active_llm
+          ? updated
+          : {
+              ...updated,
+              active_llm: { provider_id: providerId, model: modelId },
+            },
+      );
       window.dispatchEvent(
         new CustomEvent("model-switched", {
-          detail: { maxInputLength: targetModel?.max_input_length },
+          detail: {
+            maxInputLength: updated?.effective_max_input_length ?? null,
+          },
         }),
       );
     } catch (err) {
@@ -383,27 +390,28 @@ export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
       savingRef.current = true;
       setSaving(true);
       try {
-        await providerApi.setActiveLlm({
+        const updated = await providerApi.setActiveLlm({
           ...buildModelSlotRequest(
             oauthModal.providerId,
             oauthModal.pendingModelId,
           ),
         });
-        setActiveModels({
-          active_llm: {
-            provider_id: oauthModal.providerId,
-            model: oauthModal.pendingModelId,
-          },
-        });
-        const oauthProvider = eligibleProviders.find(
-          (p) => p.id === oauthModal.providerId,
-        );
-        const oauthModel = oauthProvider?.models.find(
-          (m) => m.id === oauthModal.pendingModelId,
+        setActiveModels(
+          updated?.active_llm
+            ? updated
+            : {
+                ...updated,
+                active_llm: {
+                  provider_id: oauthModal.providerId,
+                  model: oauthModal.pendingModelId,
+                },
+              },
         );
         window.dispatchEvent(
           new CustomEvent("model-switched", {
-            detail: { maxInputLength: oauthModel?.max_input_length },
+            detail: {
+              maxInputLength: updated?.effective_max_input_length ?? null,
+            },
           }),
         );
       } catch (err) {

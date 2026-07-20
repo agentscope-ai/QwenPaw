@@ -74,6 +74,24 @@ describe("securityApi", () => {
     expect(result).toEqual(rules);
   });
 
+  it("getSandbox calls GET /config/security/sandbox", async () => {
+    vi.mocked(request).mockResolvedValue({ enabled: true });
+    const result = await securityApi.getSandbox();
+    expect(request).toHaveBeenCalledWith("/config/security/sandbox");
+    expect(result).toEqual({ enabled: true });
+  });
+
+  it("updateSandbox sends PUT with enabled body", async () => {
+    const body = { enabled: false };
+    vi.mocked(request).mockResolvedValue(body);
+    const result = await securityApi.updateSandbox(body);
+    expect(request).toHaveBeenCalledWith("/config/security/sandbox", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+    expect(result).toEqual(body);
+  });
+
   it("updateFileGuard sends PUT with body", async () => {
     const body = { enabled: true, paths: ["/secret"] };
     vi.mocked(request).mockResolvedValue({ enabled: true, paths: ["/secret"] });

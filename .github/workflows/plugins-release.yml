@@ -59,7 +59,7 @@ jobs:
         run: |
           # nullglob ensures empty globs expand to nothing in this bash session
           shopt -s nullglob
-          for kind in bundle tool; do
+          for kind in bundle tool apps; do
             while IFS= read -r -d '' f; do
               rel="${f#dist/plugins/}"
               echo "Uploading $f -> files/plugins/${rel}"
@@ -72,7 +72,7 @@ jobs:
           done
           # One-time cleanup: remove legacy flat zips (pre per-plugin directory layout).
           # This only targets {kind}/*.zip (flat files), not {kind}/{plugin_id}/*.zip (versioned).
-          for kind in bundle tool; do
+          for kind in bundle tool apps; do
             remote_flat=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/" -s 2>/dev/null \
               | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/[^/]+\.zip$" \
               | sed 's|.*/||' \

@@ -29,7 +29,6 @@ here we focus on the HTTP router contract + governance approval branch.
 from __future__ import annotations
 
 import json
-import sys
 import threading
 import time
 from http.server import HTTPServer
@@ -424,21 +423,28 @@ def test_session_level_approval_off_short_circuits_governance(
 # E class — happy path (shell sleep observation window) (6 tests)
 # ================================================================== #
 
-_SHELL_SLEEP_SECS = 6
+# Wide enough that the RUNNING state stays observable across poll
+# cycles even on slow/loaded Windows CI runners (avoids an
+# intermittent race where the tool-call window slips between polls).
+_SHELL_SLEEP_SECS = 10
 
 
 def _portable_sleep_cmd(seconds: int) -> str:
-    """Return a shell command that blocks for ~``seconds``, per-platform.
+    """Return a shell command that blocks for exactly ``seconds``.
 
-    The app subprocess runs on the same host as the test process, so
-    ``sys.platform`` reflects the shell that ``execute_shell_command``
-    will use.  On Windows ``cmd.exe`` has no ``sleep`` builtin, so we use
-    ``ping`` (``-n K`` sends K packets ~1s apart; K = seconds + 1 to get
-    roughly ``seconds`` of wall time).  On POSIX we use ``sleep``.
+    Uses ``python -c "import time; time.sleep(N)"`` on every platform.
+
+    Why not ``sleep`` / ``ping``:
+      - Windows ``cmd.exe`` has no ``sleep`` builtin.
+      - ``ping -n K 127.0.0.1`` does NOT take ~K seconds: pinging the
+        loopback returns each packet in <1ms, so the command finishes in
+        milliseconds and the tool-call observation window collapses
+        (test_offload_while_running then races and 404s).
+      - The app subprocess runs under a Python interpreter, so ``python``
+        is guaranteed on PATH inside ``execute_shell_command``; a
+        ``time.sleep`` blocks precisely on all platforms.
     """
-    if sys.platform.startswith("win"):
-        return f"ping -n {seconds + 1} 127.0.0.1"
-    return f"sleep {seconds}"
+    return f'python -c "import time; time.sleep({seconds})"'
 
 
 def _submit_shell_sleep_task(  # pylint: disable=redefined-outer-name
@@ -491,7 +497,7 @@ def _submit_shell_sleep_task(  # pylint: disable=redefined-outer-name
     return submit_resp.json()["task_id"], session_id
 
 
-def _poll_for_entry(app_server, session_id, timeout=15.0):
+def _poll_for_entry(app_server, session_id, timeout=20.0):
     """Poll list_calls until at least one entry appears; return it."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -502,7 +508,7 @@ def _poll_for_entry(app_server, session_id, timeout=15.0):
         )
         if resp.status_code == 200 and resp.json()["total"] > 0:
             return resp.json()["items"][0]
-        time.sleep(0.3)
+        time.sleep(0.15)
     return None
 
 
@@ -772,14 +778,24 @@ def test_offload_while_running(
     """POST .../offload → 202 while tool is running.
 
     Test purpose:
-      - Verify the offload endpoint transitions a running tool call
-        to OFFLOADED state and returns 202.
+      - Verify the offload endpoint accepts a running tool call and
+        returns 202/accepted.
 
     Test flow:
       1. Submit shell sleep task.
       2. Poll for entry.
       3. POST offload → 202.
-      4. GET detail → status should be 'offloaded'.
+      4. GET detail → 200; status is 'running' or 'offloaded'.
+
+    Note:
+      The OFFLOADED state transition is temporarily disabled by
+      upstream PR #6058 ("temporarily disable broken offload
+      mechanism"): the deadline_reached branch in
+      tool_calls/_coordinator.py is commented out, so a running tool
+      stays 'running' instead of moving to 'offloaded'. The POST
+      endpoint still returns 202/accepted, so we keep that happy-path
+      coverage and accept both statuses until upstream re-enables the
+      mechanism.
 
     API endpoints:
       - POST /api/tool-calls/{session_id}/{tool_call_id}/offload
@@ -815,7 +831,12 @@ def test_offload_while_running(
             timeout=_HTTP_TIMEOUT,
         )
         assert detail_resp.status_code == 200, app_server.logs_tail()
-        assert detail_resp.json()["status"] == "offloaded", detail_resp.json()
+        # offload transition temporarily disabled upstream (#6058):
+        # tool stays 'running'; becomes 'offloaded' once re-enabled.
+        assert detail_resp.json()["status"] in (
+            "running",
+            "offloaded",
+        ), detail_resp.json()
     finally:
         srv, _ = mock_llm
         srv.force_tool_call = False

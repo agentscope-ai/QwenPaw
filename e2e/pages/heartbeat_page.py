@@ -47,8 +47,12 @@ class HeartbeatPage(BasePage):
     ENABLED_SWITCH = '#enabled'
     ENABLED_LABEL = '.ant-form-item:has-text("Enable"), .ant-form-item:has-text("启用"), .qwenpaw-form-item:has-text("启用"), .qwenpaw-form-item:has-text("开启")'
 
-    # Interval configuration
-    INTERVAL_INPUT = 'input[id*="interval"], input[type="number"], input.qwenpaw-input-number-input'
+    # Interval configuration.
+    # v2.0.0 (PR #5557) added a sibling `#timeoutSeconds` InputNumber to the
+    # same page, so the previous broad selector matched two elements and
+    # Playwright strict-mode `.fill()` failed. Anchor on `#everyNumber` —
+    # the id emitted by the frontend Form.Item name="everyNumber".
+    INTERVAL_INPUT = 'input#everyNumber'
     INTERVAL_UNIT_SELECT = '.qwenpaw-select:has(#everyUnit), .ant-select:has(#everyUnit), .ant-select:has-text("seconds"), .ant-select:has-text("minutes"), .ant-select:has-text("hours"), .qwenpaw-select:has-text("秒"), .qwenpaw-select:has-text("分钟"), .qwenpaw-select:has-text("小时")'
 
     # Scheduled time

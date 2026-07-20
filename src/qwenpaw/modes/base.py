@@ -65,6 +65,22 @@ class AgentMode:
     def prompt_contributors(self) -> list["PromptContributor"]:
         return []
 
+    async def on_turn_start(
+        self,
+        ctx: HookContext,  # noqa: ARG002
+    ) -> None:
+        """Prepare mode-owned state for a new user turn."""
+
+    def on_conversation_reset(
+        self,
+        ctx: HookContext,  # noqa: ARG002
+    ) -> None:
+        """Called on /new and /clear to reset mode state.
+
+        Subclasses override to clear sessions, gate state,
+        or any mode-specific data. Default is no-op.
+        """
+
     def is_active(  # noqa: ARG002
         self,
         ctx: HookContext,  # pylint: disable=unused-argument

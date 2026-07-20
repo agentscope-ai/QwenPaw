@@ -60,6 +60,24 @@ async def get_provider_manager(request: Request) -> ProviderManager:
     return request.app.state.provider_manager
 
 
+def _active_models_info(
+    manager: ProviderManager,
+    active_llm: ModelSlotConfig | None,
+) -> ActiveModelsInfo:
+    """Build active-model metadata using the runtime context resolver."""
+    effective_max_input_length = None
+    if active_llm and active_llm.provider_id and active_llm.model:
+        provider = manager.get_provider(active_llm.provider_id)
+        if provider is not None:
+            effective_max_input_length = provider.get_context_size(
+                active_llm.model,
+            )
+    return ActiveModelsInfo(
+        active_llm=active_llm,
+        effective_max_input_length=effective_max_input_length,
+    )
+
+
 class ProviderConfigRequest(BaseModel):
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
@@ -913,7 +931,7 @@ async def get_active_models(
     - agent: a specific agent's configured model only
     """
     if scope == "global":
-        return ActiveModelsInfo(active_llm=manager.get_active_model())
+        return _active_models_info(manager, manager.get_active_model())
 
     if scope == "agent":
         if not agent_id:
@@ -921,8 +939,9 @@ async def get_active_models(
                 status_code=400,
                 detail="agent_id is required when scope is 'agent'",
             )
-        return ActiveModelsInfo(
-            active_llm=await _load_agent_model(request, agent_id),
+        return _active_models_info(
+            manager,
+            await _load_agent_model(request, agent_id),
         )
 
     try:
@@ -950,7 +969,7 @@ async def get_active_models(
                 session_id,
                 active_model,
             )
-            return ActiveModelsInfo(active_llm=active_model)
+            return _active_models_info(manager, active_model)
     except (
         HTTPException,
         OSError,
@@ -966,7 +985,7 @@ async def get_active_models(
 
     global_model = manager.get_active_model()
     logger.info("Returning global model: %s", global_model)
-    return ActiveModelsInfo(active_llm=global_model)
+    return _active_models_info(manager, global_model)
 
 
 @router.put(
@@ -1012,7 +1031,7 @@ async def set_active_model(
         except Exception:
             pass
 
-        return ActiveModelsInfo(active_llm=manager.get_active_model())
+        return _active_models_info(manager, manager.get_active_model())
 
     if not body.agent_id:
         raise HTTPException(
@@ -1092,8 +1111,9 @@ async def set_active_model(
 
     manager.maybe_probe_multimodal(body.provider_id, body.model)
 
-    return ActiveModelsInfo(
-        active_llm=ModelSlotConfig(
+    return _active_models_info(
+        manager,
+        ModelSlotConfig(
             provider_id=body.provider_id,
             model=body.model,
         ),

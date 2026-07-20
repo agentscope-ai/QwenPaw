@@ -6,8 +6,12 @@ existing agent configs continue to work, but the implementation delegates to
 ReMe's application/job framework.
 """
 
+import asyncio
+import base64
+import hashlib
 import logging
-from contextlib import suppress
+import os
+import re
 from typing import Any, TYPE_CHECKING
 
 from agentscope.message import Msg, TextBlock
@@ -28,11 +32,65 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+os.environ.setdefault("REME_DISABLE_LOGURU", "true")
+
 NO_MEMORY_RESULTS = "(no memory results)"
 INBOX_RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "auto_resource"}
 INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 INBOX_EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
 MAX_INBOX_BODY_CHARS = 4000
+_REME_SESSION_ID_PREFIX = "qpsid_"
+_REME_SESSION_ID_B64_PREFIX = f"{_REME_SESSION_ID_PREFIX}b64_"
+_REME_SESSION_ID_HASH_PREFIX = f"{_REME_SESSION_ID_PREFIX}sha256_"
+_MAX_REME_SESSION_ID_CHARS = 240
+_WINDOWS_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_WINDOWS_RESERVED_FILENAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+
+
+def _to_reme_session_id(session_id: str) -> str:
+    """Return a stable Windows-safe session ID for ReMe file storage.
+
+    ReMe 0.4 uses ``session_id`` as a filename component. QwenPaw channel
+    IDs deliberately contain separators such as ``telegram:123``, which are
+    valid logical identifiers but invalid Windows filenames. Keep ordinary
+    IDs unchanged for compatibility and encode only unsafe IDs. IDs beginning
+    with our encoding namespace are encoded as well, making the mapping
+    unambiguous for existing user-provided IDs.
+    """
+    filename_stem = session_id.split(".", 1)[0].upper()
+    is_safe = (
+        bool(session_id)
+        and session_id == session_id.strip()
+        and session_id not in {".", ".."}
+        and not session_id.endswith(".")
+        and not _WINDOWS_INVALID_FILENAME_CHARS.search(session_id)
+        and filename_stem not in _WINDOWS_RESERVED_FILENAMES
+        and not session_id.startswith(_REME_SESSION_ID_PREFIX)
+        and len(session_id) <= _MAX_REME_SESSION_ID_CHARS
+    )
+    if is_safe:
+        return session_id
+
+    encoded = (
+        base64.urlsafe_b64encode(session_id.encode("utf-8"))
+        .decode(
+            "ascii",
+        )
+        .rstrip("=")
+    )
+    encoded_session_id = f"{_REME_SESSION_ID_B64_PREFIX}{encoded}"
+    if len(encoded_session_id) <= _MAX_REME_SESSION_ID_CHARS:
+        return encoded_session_id
+
+    digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+    return f"{_REME_SESSION_ID_HASH_PREFIX}{digest}"
 
 
 def _tool_chunk(text: str, *, ok: bool = True) -> ToolChunk:
@@ -55,6 +113,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     def __init__(self, working_dir: str, agent_id: str):
         super().__init__(working_dir=working_dir, agent_id=agent_id)
         self._reme: "ReMe | None" = None
+        self._reindex_lock = asyncio.Lock()
         logger.info(
             "ReMeLightMemoryManager init: agent_id=%s working_dir=%s",
             agent_id,
@@ -97,15 +156,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             logger.exception("ReMe start failed")
             return
 
-        agent_config = load_agent_config(self.agent_id)
-        cfg = agent_config.running.reme_light_memory_config
-        if cfg.rebuild_memory_index_on_start:
-            await self._run_reme_job("reindex")
-            logger.info(
-                "Memory index rebuilt on start for agent '%s'",
-                self.agent_id,
-            )
-
     async def close(self) -> bool:
         """Close ReMe and cleanup background summary worker state."""
         logger.info(
@@ -113,11 +163,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             self.agent_id,
         )
 
-        worker = self._worker_task
-        if worker is not None and not worker.done():
-            worker.cancel()
-            with suppress(BaseException):
-                await worker
+        worker_stopped = await self._shutdown_summarize_worker()
 
         if self._reme is not None:
             try:
@@ -127,7 +173,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 return False
 
         self._reme = None
-        return True
+        return worker_stopped
 
     def get_memory_prompt(self) -> str:
         """Return memory guidance for system prompt injection."""
@@ -228,6 +274,15 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         kwargs: dict[str, Any],
     ) -> bool:
         if name not in INBOX_RESULT_JOB_NAMES:
+            return False
+        memory_config = self.get_memory_config()
+        if not memory_config.inbox_push_enabled:
+            logger.info(
+                "ReMe job result inbox push disabled: "
+                "agent_id=%s job_name=%s",
+                self.agent_id,
+                name,
+            )
             return False
         response_metadata = getattr(response, "metadata", None)
         if isinstance(response_metadata, dict) and response_metadata.get(
@@ -377,11 +432,21 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not messages:
             return ""
 
+        session_id = str(kwargs.get("session_id") or "")
+        if not session_id:
+            logger.warning(
+                "ReMe summarize skipped; session_id is empty: "
+                "agent_id=%s messages=%s",
+                self.agent_id,
+                len(messages),
+            )
+            return ""
+
         response = await self._run_reme_job(
             "auto_memory",
             needs_llm=True,
             messages=[msg.model_dump(mode="json") for msg in messages],
-            session_id=str(kwargs.get("session_id") or ""),
+            session_id=_to_reme_session_id(session_id),
             memory_hint=str(kwargs.get("memory_hint") or ""),
         )
         if response is None:
@@ -470,3 +535,14 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
         if response is not None and not response.success:
             raise RuntimeError(str(response.answer))
+
+    async def reme_status(self) -> "Response | None":
+        """Return embedded ReMe component memory estimates and process RSS."""
+        return await self._run_reme_job("status")
+
+    async def rebuild_index(self) -> "Response | None":
+        """Clear and rebuild the ReMe search index on explicit request."""
+        if self._reindex_lock.locked():
+            raise RuntimeError("Memory index rebuild is already running")
+        async with self._reindex_lock:
+            return await self._run_reme_job("reindex")

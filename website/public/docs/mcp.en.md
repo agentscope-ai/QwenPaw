@@ -233,6 +233,7 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
 | Image Analysis     | `view_image`              | Load image into context for model analysis                                    |
 | File Transfer      | `send_file_to_user`       | Send file to user, auto-detects file type                                     |
 | Memory Search      | `memory_search`           | Semantic search in MEMORY.md for past information                             |
+| Time               | `get_current_time`        | Get current time and timezone                                                 |
 | Time               | `set_user_timezone`       | Set user timezone preference                                                  |
 | Statistics         | `get_token_usage`         | Query LLM token usage statistics                                              |
 
@@ -381,6 +382,7 @@ The browser tool supports connecting to a running Chrome browser via Chrome DevT
 
 **Time Tools**
 
+- `get_current_time`: Get current time in format `YYYY-MM-DD HH:MM:SS Timezone (Day)`
 - `set_user_timezone`: Set user timezone preference
   - `timezone_name`: IANA timezone name, e.g. "Asia/Shanghai", "America/New_York", "UTC"
 

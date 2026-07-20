@@ -27,6 +27,7 @@ export {
   default as BrowserUseCard,
   BROWSER_TOOL_NAMES,
 } from "./BrowserUseCard";
+export { default as GetCurrentTimeCard } from "./GetCurrentTimeCard";
 export { default as SetTimezoneCard } from "./SetTimezoneCard";
 export { default as TokenUsageCard } from "./TokenUsageCard";
 export { default as MemorySearchCard } from "./MemorySearchCard";
@@ -51,6 +52,7 @@ import ViewVideoCard from "./ViewVideoCard";
 import DesktopScreenshotCard from "./DesktopScreenshotCard";
 import SendFileCard from "./SendFileCard";
 import BrowserUseCard from "./BrowserUseCard";
+import GetCurrentTimeCard from "./GetCurrentTimeCard";
 import SetTimezoneCard from "./SetTimezoneCard";
 import TokenUsageCard from "./TokenUsageCard";
 import MemorySearchCard from "./MemorySearchCard";
@@ -104,6 +106,7 @@ export const BUILTIN_CARD_REGISTRY: Record<string, BuiltinCardComponent> = {
   scroll: BrowserUseCard,
 
   // Time
+  get_current_time: GetCurrentTimeCard,
   set_user_timezone: SetTimezoneCard,
 
   // Token usage

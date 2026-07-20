@@ -11,16 +11,18 @@ Test structure aligns with test_linux_sandbox.py:
     6. Container reuse (Windows-specific)
     7. Factory (create_sandbox routing)
     8. AppContainer profile creation / deletion lifecycle
-    9. NTFS junction creation / removal
-    10. WindowsSandbox.execute() — success / violation / timeout
-    11. Cleanup script idempotency
+    9. WindowsSandbox.execute() — success / violation / timeout
+    10. WindowsSandbox rejects allow_read_all=True
 """
 
 import asyncio
+import json
 import os
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from qwenpaw.sandbox import MountSpec, SandboxConfig, SandboxMode
 from qwenpaw.sandbox.windows_sandbox import (
@@ -28,9 +30,7 @@ from qwenpaw.sandbox.windows_sandbox import (
     WindowsSandbox,
     _compute_acl_fingerprint,
     _compute_network_capabilities,
-    _create_workspace_junction,
     _find_reusable_container,
-    _load_container_metadata,
     _save_container_metadata,
 )
 
@@ -41,6 +41,15 @@ from qwenpaw.sandbox.windows_sandbox import (
 
 class TestProbeSandboxSupport:
     """Test probe_sandbox_support delegates to AppContainer probe."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_probe_cache(self):
+        """Clear lru_cache so each test starts fresh."""
+        from qwenpaw.sandbox.config import probe_sandbox_support
+
+        probe_sandbox_support.cache_clear()
+        yield
+        probe_sandbox_support.cache_clear()
 
     @patch("sys.platform", "win32")
     @patch("qwenpaw.sandbox.config._probe_windows_appcontainer")
@@ -202,7 +211,7 @@ class TestACLCommandGeneration:
         mock_isdir,
         mock_icacls,
     ):
-        """Read-only mount gets RX with inheritance break."""
+        """Read-only mount gets RX grant (simple additive, no break)."""
 
         async def fake_icacls(args):
             return True, ""
@@ -226,17 +235,16 @@ class TestACLCommandGeneration:
 
         asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
 
-        # _break_and_set_acl produces 3 calls: /inheritance:d, /remove, /grant
         all_calls = mock_icacls.call_args_list
         mount_calls = [
             call[0][0]
             for call in all_calls
-            if len(call[0][0]) > 0 and call[0][0][0] == r"C:\readonly_dir"
+            if len(call[0][0]) > 0
+            and call[0][0][0] == r"C:\readonly_dir"
+            and "/grant" in call[0][0]
         ]
-        assert len(mount_calls) == 3
-        assert "/inheritance:d" in mount_calls[0]
-        assert "/remove" in mount_calls[1]
-        assert "(RX)" in mount_calls[2][2]
+        assert len(mount_calls) == 1
+        assert "(RX)" in mount_calls[0][2]
 
     @patch("qwenpaw.sandbox.windows_sandbox._run_icacls")
     @patch("os.path.isdir", return_value=True)
@@ -275,42 +283,6 @@ class TestACLCommandGeneration:
         ]
         assert len(deny_calls) == 1
         assert r"C:\Users\testuser\.ssh" in deny_calls[0]
-
-    @patch("qwenpaw.sandbox.windows_sandbox._run_icacls")
-    @patch("os.path.isdir", return_value=True)
-    @patch("os.path.exists", return_value=True)
-    @patch.dict(
-        os.environ,
-        {"SystemDrive": "C:", "USERPROFILE": r"C:\Users\testuser"},
-    )
-    def test_allow_read_all_grants_system_drive(
-        self,
-        mock_exists,
-        mock_isdir,
-        mock_icacls,
-    ):
-        """allow_read_all=True grants RX on C:\\, C:\\Users, USERPROFILE."""
-
-        async def fake_icacls(args):
-            return True, ""
-
-        mock_icacls.side_effect = fake_icacls
-
-        config = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
-            workspace_dir=r"C:\Users\testuser\project",
-            allow_read_all=True,
-        )
-
-        from qwenpaw.sandbox.windows_sandbox import _apply_all_acls
-
-        asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
-
-        all_calls = mock_icacls.call_args_list
-        all_paths = [call[0][0][0] for call in all_calls]
-        assert "C:\\" in all_paths
-        assert r"C:\Users" in all_paths
-        assert r"C:\Users\testuser" in all_paths
 
     @patch("qwenpaw.sandbox.windows_sandbox._run_icacls")
     @patch("os.path.isdir", return_value=True)
@@ -372,7 +344,7 @@ class TestACLCommandGeneration:
             workspace_dir=r"C:\project",
             mounts=[MountSpec(path=r"C:\data", writable=False)],
             deny_paths=[r"C:\Users\testuser\.ssh"],
-            allow_read_all=True,
+            allow_read_all=False,
         )
 
         from qwenpaw.sandbox.windows_sandbox import _apply_all_acls
@@ -380,12 +352,9 @@ class TestACLCommandGeneration:
         manifest = asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
 
         assert "grant_paths" in manifest
-        assert "inheritance_broken_paths" in manifest
+        assert "deny_paths" in manifest
         assert r"C:\project" in manifest["grant_paths"]
-        assert "C:\\" in manifest["grant_paths"]
-        assert r"C:\data" in manifest["inheritance_broken_paths"]
-        broken = manifest["inheritance_broken_paths"]
-        assert r"C:\Users\testuser\.ssh" in broken
+        assert r"C:\Users\testuser\.ssh" in manifest["deny_paths"]
 
 
 # ============================================================================
@@ -461,7 +430,8 @@ class TestNetworkCapabilities:
 class TestSandboxReuse:
     """Test container metadata persistence and reuse logic."""
 
-    def test_save_and_load_metadata(self):
+    def test_save_metadata(self):
+        """_save_container_metadata creates a JSON file with correct data."""
         with tempfile.TemporaryDirectory() as tmp:
             state_dir = Path(tmp)
 
@@ -469,18 +439,20 @@ class TestSandboxReuse:
                 state_dir,
                 "qwenpaw_test123",
                 "S-1-15-2-12345",
-                "abcdef1234567890",
                 r"C:\project",
-                r"C:\Users\foo\.qwenpaw\junctions\abc",
             )
 
-            loaded = _load_container_metadata(state_dir)
-            assert len(loaded) == 1
-            assert loaded[0]["container_name"] == "qwenpaw_test123"
-            assert loaded[0]["sid"] == "S-1-15-2-12345"
-            assert loaded[0]["acl_fingerprint"] == "abcdef1234567890"
+            containers_dir = state_dir / "containers"
+            meta_file = containers_dir / "qwenpaw_test123.json"
+            assert meta_file.exists()
 
-    def test_save_and_load_metadata_with_acl_manifest(self):
+            loaded = json.loads(meta_file.read_text(encoding="utf-8"))
+            assert loaded["container_name"] == "qwenpaw_test123"
+            assert loaded["sid"] == "S-1-15-2-12345"
+            assert loaded["workspace_dir"] == r"C:\project"
+
+    def test_save_metadata_with_acl_manifest(self):
+        """_save_container_metadata stores acl_manifest when provided."""
         with tempfile.TemporaryDirectory() as tmp:
             state_dir = Path(tmp)
 
@@ -500,83 +472,64 @@ class TestSandboxReuse:
                 state_dir,
                 "qwenpaw_test456",
                 "S-1-15-2-67890",
-                "fedcba0987654321",
                 r"C:\project",
-                r"C:\Users\testuser\.qwenpaw\junctions\abc",
                 acl_manifest,
             )
 
-            loaded = _load_container_metadata(state_dir)
-            assert len(loaded) == 1
-            assert "acl_manifest" in loaded[0]
-            manifest = loaded[0]["acl_manifest"]
+            containers_dir = state_dir / "containers"
+            meta_file = containers_dir / "qwenpaw_test456.json"
+            loaded = json.loads(meta_file.read_text(encoding="utf-8"))
+
+            assert "acl_manifest" in loaded
+            manifest = loaded["acl_manifest"]
             assert manifest["grant_paths"] == acl_manifest["grant_paths"]
             assert (
                 manifest["inheritance_broken_paths"]
                 == acl_manifest["inheritance_broken_paths"]
             )
 
-    @patch(
-        "qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid",
-        return_value="S-1-15-2-12345",
-    )
-    def test_find_reusable_container_match(self, mock_get_sid):
-        with tempfile.TemporaryDirectory() as tmp:
-            state_dir = Path(tmp)
+    @patch("qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid")
+    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    def test_find_reusable_container_exists(
+        self,
+        mock_userenv_fn,
+        mock_get_sid,
+    ):
+        """_find_reusable_container returns SID when profile exists."""
+        mock_userenv = MagicMock()
+        # GetAppContainerFolderPath returns 0 (success)
+        mock_userenv.GetAppContainerFolderPath.return_value = 0
+        mock_userenv_fn.return_value = mock_userenv
 
-            _save_container_metadata(
-                state_dir,
-                "qwenpaw_test123",
-                "S-1-15-2-12345",
-                "abcdef1234567890",
-                r"C:\project",
-                r"C:\Users\foo\.qwenpaw\junctions\abc",
-            )
+        mock_get_sid.return_value = "S-1-15-2-12345"
 
-            result = _find_reusable_container(state_dir, "abcdef1234567890")
-            assert result is not None
-            assert result["container_name"] == "qwenpaw_test123"
+        # Need to patch ctypes.windll.ole32.CoTaskMemFree
+        with patch("ctypes.windll", create=True) as mock_windll:
+            mock_windll.ole32.CoTaskMemFree = MagicMock()
+            result = _find_reusable_container("qwenpaw_test123")
 
-    @patch(
-        "qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid",
-        return_value="S-1-15-2-12345",
-    )
-    def test_find_reusable_container_no_match(self, mock_get_sid):
-        with tempfile.TemporaryDirectory() as tmp:
-            state_dir = Path(tmp)
+        assert result == "S-1-15-2-12345"
 
-            _save_container_metadata(
-                state_dir,
-                "qwenpaw_test123",
-                "S-1-15-2-12345",
-                "abcdef1234567890",
-                r"C:\project",
-                "",
-            )
+    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    def test_find_reusable_container_not_exists(self, mock_userenv_fn):
+        """_find_reusable_container returns None when profile doesn't exist."""
+        mock_userenv = MagicMock()
+        # GetAppContainerFolderPath returns non-zero (failure)
+        mock_userenv.GetAppContainerFolderPath.return_value = -1
+        mock_userenv_fn.return_value = mock_userenv
 
-            result = _find_reusable_container(state_dir, "different_fp")
-            assert result is None
+        result = _find_reusable_container("qwenpaw_nonexistent")
+        assert result is None
 
-    @patch(
-        "qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid",
-        return_value=None,
-    )
-    def test_find_reusable_container_stale(self, mock_get_sid):
-        """Container profile deleted externally → not reused."""
-        with tempfile.TemporaryDirectory() as tmp:
-            state_dir = Path(tmp)
+    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    def test_find_reusable_container_oserror(self, mock_userenv_fn):
+        """_find_reusable_container returns None on OSError."""
+        mock_userenv = MagicMock()
+        mock_userenv.GetAppContainerFolderPath.side_effect = OSError("fail")
+        mock_userenv_fn.return_value = mock_userenv
 
-            _save_container_metadata(
-                state_dir,
-                "qwenpaw_stale",
-                "S-1-15-2-99999",
-                "abcdef1234567890",
-                r"C:\project",
-                "",
-            )
-
-            result = _find_reusable_container(state_dir, "abcdef1234567890")
-            assert result is None
+        result = _find_reusable_container("qwenpaw_broken")
+        assert result is None
 
     def test_fingerprint_deterministic(self):
         """Same config produces same fingerprint; different config differs."""
@@ -610,17 +563,34 @@ class TestSandboxReuse:
 
 
 class TestFactoryAppContainer:
-    """Test that create_sandbox correctly routes to WindowsSandbox."""
+    """Test that create_sandbox routes to the right sandbox backend."""
 
-    def test_create_sandbox_appcontainer(self):
+    def test_create_sandbox_appcontainer_allow_read_all_false(self):
+        """allow_read_all=False routes to WindowsSandbox."""
         from qwenpaw.sandbox import create_sandbox
 
         config = SandboxConfig(
             mode=SandboxMode.APPCONTAINER,
             workspace_dir=r"C:\Users\foo\project",
+            allow_read_all=False,
         )
         sandbox = create_sandbox(config)
         assert isinstance(sandbox, WindowsSandbox)
+
+    def test_create_sandbox_appcontainer_allow_read_all_true(self):
+        """allow_read_all=True routes to WindowsRestrictedSandbox."""
+        from qwenpaw.sandbox import create_sandbox
+        from qwenpaw.sandbox.windows_restricted_sandbox import (
+            WindowsRestrictedSandbox,
+        )
+
+        config = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\Users\foo\project",
+            allow_read_all=True,
+        )
+        sandbox = create_sandbox(config)
+        assert isinstance(sandbox, WindowsRestrictedSandbox)
 
 
 # ============================================================================
@@ -677,8 +647,8 @@ class TestAppContainerProfileLifecycle:
     ):
         """HRESULT 0x800700B7 (already exists) → derives SID instead."""
         mock_userenv = MagicMock()
-        # _HRESULT_ERROR_ALREADY_EXISTS = -2147023649
-        mock_userenv.CreateAppContainerProfile.return_value = -2147023649
+        # _HRESULT_ERROR_ALREADY_EXISTS = 0x800700B7 (signed: -2147024713)
+        mock_userenv.CreateAppContainerProfile.return_value = -2147024713
         mock_userenv_fn.return_value = mock_userenv
 
         mock_get_sid.return_value = "S-1-15-2-999-888-777"
@@ -706,12 +676,11 @@ class TestAppContainerProfileLifecycle:
     ):
         """Already exists but cannot derive SID → raises OSError."""
         mock_userenv = MagicMock()
-        mock_userenv.CreateAppContainerProfile.return_value = -2147023649
+        # _HRESULT_ERROR_ALREADY_EXISTS = 0x800700B7 (signed: -2147024713)
+        mock_userenv.CreateAppContainerProfile.return_value = -2147024713
         mock_userenv_fn.return_value = mock_userenv
 
         mock_get_sid.return_value = None
-
-        import pytest
 
         from qwenpaw.sandbox.windows_sandbox import (
             _create_appcontainer_profile,
@@ -735,8 +704,6 @@ class TestAppContainerProfileLifecycle:
         mock_userenv = MagicMock()
         mock_userenv.CreateAppContainerProfile.return_value = -2147024891
         mock_userenv_fn.return_value = mock_userenv
-
-        import pytest
 
         from qwenpaw.sandbox.windows_sandbox import (
             _create_appcontainer_profile,
@@ -790,81 +757,6 @@ class TestAppContainerProfileLifecycle:
 
 
 # ============================================================================
-# NTFS junction creation / removal
-# ============================================================================
-
-
-class TestNTFSJunction:
-    """Test NTFS junction creation and fallback behavior."""
-
-    def test_create_junction_new(self):
-        """Creates a junction when none exists."""
-        with tempfile.TemporaryDirectory() as tmp:
-            state_dir = Path(tmp)
-            workspace = str(state_dir / "workspace")
-            os.makedirs(workspace)
-
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=0)
-                result = _create_workspace_junction(workspace, state_dir)
-
-            # Should be under state_dir/junctions/<hash>
-            assert "junctions" in result
-            mock_run.assert_called_once()
-            cmd_args = mock_run.call_args[0][0]
-            assert "mklink" in cmd_args
-            assert "/J" in cmd_args
-
-    def test_create_junction_existing_correct_target(self):
-        """Reuses existing junction if it points to the correct target."""
-        with tempfile.TemporaryDirectory() as tmp:
-            state_dir = Path(tmp)
-            workspace = str(state_dir / "workspace")
-            os.makedirs(workspace)
-
-            # Pre-create the junction directory (simulate existing junction)
-            import hashlib
-
-            ws_hash = hashlib.sha256(workspace.encode()).hexdigest()[:12]
-            junction_dir = state_dir / "junctions"
-            junction_dir.mkdir(parents=True)
-            junction_path = junction_dir / ws_hash
-            # Create as a directory (like a real junction)
-            junction_path.mkdir()
-
-            # Mock os.readlink to return the workspace path (simulates a
-            # correctly-targeted junction without an actual NTFS junction)
-            with (
-                patch("os.readlink", return_value=workspace),
-                patch("subprocess.run") as mock_run,
-            ):
-                result = _create_workspace_junction(workspace, state_dir)
-
-            mock_run.assert_not_called()
-            assert result == str(junction_path)
-
-    def test_create_junction_failure_falls_back(self):
-        """Falls back to workspace_dir if mklink fails."""
-        import subprocess
-
-        with tempfile.TemporaryDirectory() as tmp:
-            state_dir = Path(tmp)
-            workspace = str(state_dir / "workspace")
-            os.makedirs(workspace)
-
-            with patch("subprocess.run") as mock_run:
-                mock_run.side_effect = subprocess.CalledProcessError(
-                    1,
-                    "cmd",
-                    stderr=b"error",
-                )
-                result = _create_workspace_junction(workspace, state_dir)
-
-            # Falls back to workspace path
-            assert result == workspace
-
-
-# ============================================================================
 # WindowsSandbox.execute() — success / violation / timeout
 # ============================================================================
 
@@ -876,13 +768,13 @@ class TestWindowsSandboxExecute:
         defaults = {
             "mode": SandboxMode.APPCONTAINER,
             "workspace_dir": r"C:\project",
+            "allow_read_all": False,
         }
         defaults.update(kwargs)
         config = SandboxConfig(**defaults)
         sandbox = WindowsSandbox(config)
         sandbox._container_sid = "S-1-15-2-12345"
         sandbox._container_name = "qwenpaw_test"
-        sandbox._junction_path = None
         return sandbox
 
     @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
@@ -1011,3 +903,32 @@ class TestWindowsSandboxExecute:
         result = asyncio.run(sandbox.execute("dir C:\\secret"))
 
         assert result.sandbox_violation is not None
+
+
+# ============================================================================
+# WindowsSandbox rejects allow_read_all=True
+# ============================================================================
+
+
+class TestWindowsSandboxRejectsAllowReadAll:
+    """Test that WindowsSandbox refuses allow_read_all=True configs."""
+
+    def test_raises_value_error(self):
+        """WindowsSandbox.__init__ raises ValueError if allow_read_all=True."""
+        config = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\project",
+            allow_read_all=True,
+        )
+        with pytest.raises(ValueError, match="allow_read_all=True"):
+            WindowsSandbox(config)
+
+    def test_accepts_allow_read_all_false(self):
+        """WindowsSandbox.__init__ succeeds with allow_read_all=False."""
+        config = SandboxConfig(
+            mode=SandboxMode.APPCONTAINER,
+            workspace_dir=r"C:\project",
+            allow_read_all=False,
+        )
+        sandbox = WindowsSandbox(config)
+        assert sandbox.config is config

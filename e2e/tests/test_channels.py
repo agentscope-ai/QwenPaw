@@ -76,9 +76,14 @@ class TestChannelListAndFilter:
         assert channels_page.page.locator(channels_page.FILTER_BUILTIN_BTN).first.is_visible(), "Built-in filter button not shown"
         assert channels_page.page.locator(channels_page.FILTER_CUSTOM_BTN).first.is_visible(), "Custom filter button not shown"
 
-        log_test_step("3. Default All view shows >= 15 channel cards")
+        log_test_step("3. Default All view shows the full channel roster")
+        # v2.0.0 (PR #5504) split the page into Enabled + Available sections;
+        # `get_channel_card_count` counts the union of both. The frontend
+        # `builtinOrder` in useChannels.ts lists 13 built-in channels; the
+        # exact count varies by build (e.g. matrix/sip may be gated), so we
+        # assert the roster is populated rather than a tight upper bound.
         all_count = channels_page.get_channel_card_count()
-        assert all_count >= 15, f"Not enough channel cards: {all_count} < 15"
+        assert all_count >= 10, f"Not enough channel cards: {all_count} < 10"
         logger.info(f"All view channel count: {all_count}")
 
         log_test_step("4. Verify Built-in tags on several built-in channels")

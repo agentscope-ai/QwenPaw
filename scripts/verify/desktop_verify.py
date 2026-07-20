@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Desktop release verification script.
 
-Drives a running QwenPaw desktop backend (any of the four packaging flavours:
-legacy-win / legacy-mac / tauri-win / tauri-mac) end-to-end:
+Drives a running QwenPaw desktop backend (either Tauri packaging flavour:
+tauri-win / tauri-mac) end-to-end:
 
 1. ``GET /api/version`` — health + version match.
 2. ``GET /``           — frontend HTML served.
@@ -22,8 +22,6 @@ legacy-win / legacy-mac / tauri-win / tauri-mac) end-to-end:
    send message via input box -> receive bubble back with correct answer.
 
 UI flavours:
-- ``--ui-mode legacy``         Playwright + headless Chromium, points at
-                               ``http://127.0.0.1:<port>/`` (Legacy Win/Mac).
 - ``--ui-mode tauri-macos``    Playwright + headless WebKit (same engine as
                                the Tauri webview on macOS).
 - ``--ui-mode tauri-windows``  Playwright + headless Chromium (same engine
@@ -651,7 +649,7 @@ class PlaywrightDriver(UIDriver):
                 pass
 
 
-UI_MODES = ("legacy", "tauri-macos", "tauri-windows")
+UI_MODES = ("tauri-macos", "tauri-windows")
 
 
 def make_driver(
@@ -661,8 +659,6 @@ def make_driver(
     cdp_url: str = "",
 ) -> UIDriver:
     """Build a concrete ``UIDriver`` for the requested mode."""
-    if ui_mode == "legacy":
-        return PlaywrightDriver("chromium", screenshot_dir, headless)
     if ui_mode == "tauri-macos":
         return PlaywrightDriver("webkit", screenshot_dir, headless)
     if ui_mode == "tauri-windows":
@@ -797,9 +793,9 @@ def main() -> int:
     parser.add_argument(
         "--ui-mode",
         choices=UI_MODES,
-        default="legacy",
-        help="UI driver flavour. 'legacy' uses Playwright + Chromium; "
-        "'tauri-macos' / 'tauri-windows' use platform webdrivers.",
+        required=True,
+        help="UI driver flavour. 'tauri-macos' uses Playwright + WebKit; "
+        "'tauri-windows' uses Playwright + Chromium over CDP.",
     )
     parser.add_argument(
         "--api-key",
