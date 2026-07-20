@@ -12,6 +12,7 @@ registered into the universal ``StopHandler``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Optional
 
@@ -103,19 +104,25 @@ class MissionMode(AgentMode):
                     priority=0,
                     name="mission-stop-handler",
                     scope="mission",
+                    is_active=self._is_gate_active,
                 ),
             )
 
+    async def on_turn_start(self, ctx: HookContext) -> None:
+        """Restore persisted mission state before handler scope selection."""
+        if self._gate is not None:
+            await asyncio.to_thread(self._gate.restore, ctx)
+
     def on_conversation_reset(
         self,
-        workspace: object,  # noqa: ARG002
+        ctx: HookContext,  # noqa: ARG002
     ) -> None:
         """Clear active mission gate state."""
         if self._gate is not None:
-            self._gate.deactivate()
+            self._gate.reset_session()
 
     def is_active(self, ctx: HookContext) -> bool:
-        return bool(
+        return self._is_gate_active() or bool(
             (ctx.session_state or {}).get(
                 "mission_active",
             ),

@@ -46,22 +46,35 @@ class StopHandler:
         """Remove all gates matching *name*."""
         self._gates = [g for g in self._gates if g.name != name]
 
+    def replace(self, gates: list[StopGate]) -> None:
+        """Replace all gates while preserving this handler registration."""
+        self._gates = sorted(gates, key=lambda gate: gate.priority)
+
     @property
     def gates(self) -> list[StopGate]:
         """Read-only view of registered gates."""
         return list(self._gates)
 
-    def reset(self) -> None:
-        """Reset stateful gates without unregistering them."""
+    def reset_turn(self) -> None:
+        """Reset turn-local state without ending mode sessions."""
+        self._reset_gates("reset_turn")
+
+    def reset_session(self) -> None:
+        """Remove current-session state from all gates."""
+        self._reset_gates("reset_session")
+
+    def _reset_gates(self, method_name: str) -> None:
+        """Call one reset method on every gate with fault isolation."""
         for gate in self._gates:
-            reset = getattr(gate, "reset", None)
+            reset = getattr(gate, method_name, None)
             if callable(reset):
                 try:
                     reset()
                 except Exception:
                     logger.warning(
-                        "StopGate '%s' reset raised",
+                        "StopGate '%s' %s raised",
                         gate.name,
+                        method_name,
                         exc_info=True,
                     )
 
@@ -152,7 +165,7 @@ class StopHandler:
             return
         for gate in self._gates:
             if gate is not continue_gate:
-                gate.reset()
+                gate.reset_turn()
 
 
 __all__ = ["StopHandler"]
