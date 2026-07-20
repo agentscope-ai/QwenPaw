@@ -36,7 +36,6 @@ class MissionMode(AgentMode):
 
     def __init__(self) -> None:
         self._gate: MissionGate | None = None
-        self._default_max_iterations = 20
 
     # ── commands ──
 
@@ -81,9 +80,6 @@ class MissionMode(AgentMode):
     def setup(self, workspace: object) -> None:
         """Register MissionGate in a separate handler."""
         super().setup(workspace)
-        self._default_max_iterations = (
-            workspace.config.running.loop.mission.max_iterations
-        )
 
         from .gates import MissionGate as _MG
         from ...loop.gates import (
@@ -152,10 +148,7 @@ class MissionMode(AgentMode):
             start_mission,
         )
 
-        parsed = parse_mission_args(
-            args or "",
-            default_max_iterations=self._default_max_iterations,
-        )
+        parsed = parse_mission_args(args or "")
         task_text = parsed["task_text"]
 
         # --- info sub-commands ---
@@ -179,9 +172,7 @@ class MissionMode(AgentMode):
 
         # --- help / empty ---
         if not task_text or len(task_text.strip()) < 5:
-            return _info_msg(
-                format_help(self._default_max_iterations),
-            )
+            return _info_msg(format_help())
 
         # --- start new mission ---
         workspace_dir = getattr(ctx, "workspace_dir")

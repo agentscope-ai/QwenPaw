@@ -1164,83 +1164,6 @@ class RubricGateConfig(BaseModel):
     )
 
 
-class GateInstanceConfig(BaseModel):
-    """One built-in gate configured in a custom loop mode."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str = Field(
-        min_length=1,
-        max_length=64,
-        pattern=r"^[a-z0-9][a-z0-9_-]*$",
-    )
-    type: str = Field(
-        min_length=1,
-        max_length=64,
-        pattern=r"^[a-z0-9][a-z0-9_]*$",
-    )
-    enabled: bool = True
-    params: Dict[str, Any] = Field(default_factory=dict)
-
-
-class CustomLoopModeConfig(BaseModel):
-    """A saved custom loop mode made from built-in gates."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str = Field(
-        min_length=1,
-        max_length=64,
-        pattern=r"^[a-z0-9][a-z0-9_-]*$",
-    )
-    name: str = Field(min_length=1, max_length=80)
-    description: str = Field(default="", max_length=500)
-    slash_command: str = Field(
-        min_length=1,
-        max_length=64,
-        pattern=r"^[a-z0-9][a-z0-9_-]*$",
-    )
-    enabled: bool = False
-    gates: List[GateInstanceConfig] = Field(
-        default_factory=list,
-        max_length=20,
-    )
-
-    @model_validator(mode="after")
-    def validate_pipeline(self) -> "CustomLoopModeConfig":
-        """Reject ambiguous or unsafe pipeline shapes."""
-        gate_ids = [gate.id for gate in self.gates]
-        if len(gate_ids) != len(set(gate_ids)):
-            raise ValueError("Gate instance IDs must be unique")
-
-        gate_types = [gate.type for gate in self.gates if gate.enabled]
-        if len(gate_types) != len(set(gate_types)):
-            raise ValueError("Gate types cannot be repeated")
-        if {
-            "completion_rubric",
-            "text_response_retry",
-        }.issubset(gate_types):
-            raise ValueError(
-                "Completion rubric conflicts with text response retry",
-            )
-        if self.enabled and not gate_types:
-            raise ValueError("Enabled custom modes require an enabled gate")
-        return self
-
-
-class GoalLoopModeConfig(BaseModel):
-    """Editable values for the fixed built-in Goal pipeline."""
-
-    max_iterations: int = Field(default=20, ge=1, le=500)
-    max_tokens: int = Field(default=300_000, ge=1)
-
-
-class MissionLoopModeConfig(BaseModel):
-    """Editable values for the fixed built-in Mission pipeline."""
-
-    max_iterations: int = Field(default=20, ge=1, le=100)
-
-
 class LoopConfig(BaseModel):
     """Loop engineering configuration."""
 
@@ -1256,37 +1179,6 @@ class LoopConfig(BaseModel):
         default_factory=RubricGateConfig,
         description="Completion check settings",
     )
-    goal: GoalLoopModeConfig = Field(
-        default_factory=GoalLoopModeConfig,
-        description="Fixed Goal mode gate values",
-    )
-    mission: MissionLoopModeConfig = Field(
-        default_factory=MissionLoopModeConfig,
-        description="Fixed Mission mode gate values",
-    )
-    custom_modes: List[CustomLoopModeConfig] = Field(
-        default_factory=list,
-        max_length=20,
-        description="User-defined loop modes built from built-in gates",
-    )
-
-    @model_validator(mode="after")
-    def validate_custom_modes(self) -> "LoopConfig":
-        """Keep custom mode identity and commands unambiguous."""
-        mode_ids = [mode.id for mode in self.custom_modes]
-        if len(mode_ids) != len(set(mode_ids)):
-            raise ValueError("Custom loop mode IDs must be unique")
-        commands = [mode.slash_command for mode in self.custom_modes]
-        if len(commands) != len(set(commands)):
-            raise ValueError("Custom loop slash commands must be unique")
-
-        from ..loop.catalog import get_gate_catalog
-
-        catalog = get_gate_catalog()
-        for mode in self.custom_modes:
-            for gate in mode.gates:
-                catalog.validate_params(gate.type, gate.params)
-        return self
 
 
 class AgentsRunningConfig(BaseModel):

@@ -23,7 +23,7 @@ import pytest
 from qwenpaw.providers import provider_manager as _provider_manager_module
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def capture_qwenpaw_logs(monkeypatch: pytest.MonkeyPatch) -> None:
     """Let caplog see qwenpaw records despite the app logger handler."""
     monkeypatch.setattr(logging.getLogger("qwenpaw"), "propagate", True)

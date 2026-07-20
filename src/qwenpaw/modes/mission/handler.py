@@ -37,7 +37,6 @@ _MAX_MAX_ITERATIONS = 100
 
 def parse_mission_args(
     raw_args: str,
-    default_max_iterations: int = _DEFAULT_MAX_ITERATIONS,
 ) -> dict[str, Any]:
     """Parse ``[task text] [--verify CMD] [--max-iterations N]``.
 
@@ -47,7 +46,7 @@ def parse_mission_args(
     args: dict[str, Any] = {
         "task_text": "",
         "verify_commands": "",
-        "max_iterations": default_max_iterations,
+        "max_iterations": _DEFAULT_MAX_ITERATIONS,
     }
 
     tokens = raw_args.split()
@@ -152,9 +151,7 @@ def format_list(workspace_dir: Path) -> str:
     return "\n".join(lines)
 
 
-def format_help(
-    default_max_iterations: int = _DEFAULT_MAX_ITERATIONS,
-) -> str:
+def format_help() -> str:
     """Return help text for ``/mission`` without args."""
     return (
         "**Mission Mode**\n\n"
@@ -166,7 +163,7 @@ def format_help(
         "- `--verify <cmd>` \u2014 verification command\n"
         f"- `--max-iterations <n>` \u2014 "
         f"({_MIN_MAX_ITERATIONS}-{_MAX_MAX_ITERATIONS}, "
-        f"default {default_max_iterations})\n\n"
+        f"default {_DEFAULT_MAX_ITERATIONS})\n\n"
         "Task must be at least 5 characters."
     )
 

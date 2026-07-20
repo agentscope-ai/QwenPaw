@@ -89,7 +89,6 @@ class GoalMode(AgentMode):
 
     def __init__(self) -> None:
         self._sessions: dict[str, GoalSession] = {}
-        self._default_max_iterations = DEFAULT_MAX_ITERATIONS
         self._default_max_tokens = DEFAULT_MAX_TOKENS
         self._handler: StopHandler | None = None
 
@@ -223,10 +222,6 @@ class GoalMode(AgentMode):
         """Register gates into the goal-scoped handler."""
         super().setup(workspace)
 
-        goal_config = workspace.config.running.loop.goal
-        self._default_max_iterations = goal_config.max_iterations
-        self._default_max_tokens = goal_config.max_tokens
-
         handler = StopHandler()
         self._handler = handler
         workspace.plugins.stop_handlers.append(
@@ -245,12 +240,7 @@ class GoalMode(AgentMode):
         doom_gate = create_doom_loop_gate(workspace)
         if doom_gate is not None:
             handler.register(doom_gate)
-        handler.register(
-            GoalTurnGate(
-                self,
-                max_iterations=self._default_max_iterations,
-            ),
-        )
+        handler.register(GoalTurnGate(self))
         handler.register(GoalBudgetGate(self))
         handler.register(RubricGate(self, rubric))
 
@@ -298,11 +288,7 @@ class GoalMode(AgentMode):
         session_key = self._current_session_key(
             ctx,
         )
-        session = GoalSession(
-            goal=goal_text,
-            max_iterations=self._default_max_iterations,
-            max_tokens=self._default_max_tokens,
-        )
+        session = GoalSession(goal=goal_text)
         self._sessions[session_key] = session
 
         logger.info(
