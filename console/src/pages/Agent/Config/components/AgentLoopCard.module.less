@@ -399,8 +399,11 @@
   color: var(--text-secondary, rgba(0, 0, 0, 0.45));
 }
 
-.addGateSelect {
-  width: 190px;
+.addGateButton {
+  width: 34px;
+  height: 34px;
+  border-style: dashed;
+  color: #315c4b;
 }
 
 .emptyPipeline {
@@ -411,49 +414,11 @@
   text-align: center;
 }
 
-.criteriaList {
-  display: grid;
-  gap: 9px;
-  margin-bottom: 16px;
-}
-
-.fieldLabel {
+.editorHint {
+  margin: -2px 0 14px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.45));
   font-size: 12px;
-  font-weight: 600;
-}
-
-.criterionRow {
-  display: grid;
-  grid-template-columns: 24px minmax(180px, 1fr) 72px 84px 32px;
-  align-items: center;
-  gap: 8px;
-}
-
-.criterionRow > span {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border-radius: 7px;
-  background: #e4ede7;
-  color: #315c4b;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.inlineControl {
-  display: grid;
-  justify-items: start;
-  gap: 3px;
-}
-
-.inlineControl small {
-  color: var(--text-secondary, rgba(0, 0, 0, 0.5));
-  font-size: 9px;
-}
-
-.inlineControl :global(.ant-input-number) {
-  width: 78px;
+  line-height: 1.55;
 }
 
 .toolLimitList {
@@ -567,8 +532,8 @@
     flex-direction: column;
   }
 
-  .addGateSelect {
-    width: 100%;
+  .addGateButton {
+    align-self: flex-start;
   }
 
   .gateSummary {
@@ -594,19 +559,6 @@
 
   .gateActions > :nth-child(-n + 2) {
     display: none;
-  }
-
-  .criterionRow {
-    grid-template-columns: 24px minmax(0, 1fr) 32px;
-  }
-
-  .criterionRow .inlineControl {
-    grid-column: 2;
-  }
-
-  .criterionRow > button {
-    grid-column: 3;
-    grid-row: 1;
   }
 
   .toolLimitRow {

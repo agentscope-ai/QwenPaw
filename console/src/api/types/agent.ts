@@ -114,7 +114,7 @@ export type CustomGateType =
   | "token_budget"
   | "timeout"
   | "tool_call_budget"
-  | "text_response_retry"
+  | "qualitative_rubric"
   | "completion_rubric";
 
 export interface GateInstanceConfig {
@@ -141,6 +141,7 @@ export interface GoalLoopModeConfig {
 export interface MissionLoopModeConfig {
   max_iterations: number;
   max_retries_per_story: number;
+  default_verification_instructions: string;
   default_verify_command: string;
 }
 

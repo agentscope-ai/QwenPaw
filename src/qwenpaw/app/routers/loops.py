@@ -222,7 +222,7 @@ async def duplicate_custom_mode(
     request: Request,
     mode_id: str,
 ) -> CustomLoopModeConfig:
-    """Create a disabled copy with unique identity and command."""
+    """Create an available copy with unique identity and command."""
     workspace = await get_agent_for_request(request)
     modes = list(workspace.config.running.loop.custom_modes)
     source = modes[_find_mode(modes, mode_id)]
@@ -233,7 +233,7 @@ async def duplicate_custom_mode(
         f"{source.slash_command}-copy",
         {item.slash_command for item in modes},
     )
-    copy.enabled = False
+    copy.enabled = any(gate.enabled for gate in copy.gates)
     modes.append(copy)
     _persist_modes(request, workspace, modes)
     return copy

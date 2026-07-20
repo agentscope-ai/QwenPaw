@@ -10,6 +10,7 @@ import {
   Tabs,
   Tag,
   Modal,
+  Dropdown,
 } from "@agentscope-ai/design";
 import {
   Plus,
@@ -25,11 +26,12 @@ import {
   Wallet,
   Lock,
   GripVertical,
-  Clock3,
   Wrench,
   ListChecks,
   Copy,
   Sparkles,
+  Terminal,
+  Clock3,
 } from "lucide-react";
 import {
   DndContext,
@@ -556,21 +558,42 @@ function MissionModeTab() {
           </Form.Item>
         </div>
         <Form.Item
+          name={["loop", "mission", "default_verification_instructions"]}
+          label={t(
+            "agentConfig.loopMode.defaultVerificationInstructions",
+            "Verification guidance (optional)",
+          )}
+          extra={t(
+            "agentConfig.loopMode.defaultVerificationInstructionsHelp",
+            "Natural-language guidance applied to every Mission verifier.",
+          )}
+        >
+          <Input.TextArea
+            autoSize={{ minRows: 3, maxRows: 6 }}
+            maxLength={4000}
+            placeholder={t(
+              "agentConfig.loopMode.defaultVerificationInstructionsPlaceholder",
+              "For example: Check Windows path handling and inspect the rendered UI.",
+            )}
+          />
+        </Form.Item>
+        <Form.Item
           name={["loop", "mission", "default_verify_command"]}
           label={t(
             "agentConfig.loopMode.defaultVerifyCommand",
-            "Default verification command",
+            "Default test command (optional)",
           )}
-          tooltip={t(
-            "agentConfig.loopMode.defaultVerifyCommandTooltip",
-            "Executed by the Verifier unless /mission supplies --verify.",
+          extra={t(
+            "agentConfig.loopMode.defaultVerifyCommandHelp",
+            "The verifier attempts this through normal tools and permissions. /mission --verify overrides it.",
           )}
         >
           <Input
             allowClear
+            prefix={<Terminal size={14} />}
             placeholder={t(
               "agentConfig.loopMode.defaultVerifyCommandPlaceholder",
-              "For example: npm test",
+              "For example: pytest -q",
             )}
           />
         </Form.Item>
@@ -587,6 +610,7 @@ type GateDefinition = {
   descriptionKey: string;
   icon: React.ReactNode;
   defaults: Record<string, unknown>;
+  exclusiveGroup?: string;
 };
 
 function PerToolLimits({
@@ -682,7 +706,22 @@ const GATE_DEFINITIONS: GateDefinition[] = [
     description: "Detect repeated tool calls and change strategy.",
     descriptionKey: "agentConfig.loopMode.doomGateDescription",
     icon: <Shield size={15} />,
-    defaults: { window_size: 3, similarity_threshold: 1 },
+    defaults: {
+      window_size: 3,
+      similarity_threshold: 1,
+      stages: [
+        {
+          after: 3,
+          action: "modify_prompt",
+          prompt: "Change strategy instead of repeating the same action.",
+        },
+        {
+          after: 5,
+          action: "stop",
+          prompt: "Stopped after repeated actions did not make progress.",
+        },
+      ],
+    },
   },
   {
     type: "token_budget",
@@ -695,9 +734,9 @@ const GATE_DEFINITIONS: GateDefinition[] = [
   },
   {
     type: "timeout",
-    title: "Time limit",
+    title: "Loop time limit",
     titleKey: "agentConfig.loopMode.timeoutGateTitle",
-    description: "Stop at a loop boundary after elapsed time.",
+    description: "Stop at the next loop boundary after elapsed time.",
     descriptionKey: "agentConfig.loopMode.timeoutGateDescription",
     icon: <Clock3 size={15} />,
     defaults: { max_seconds: 1800 },
@@ -712,39 +751,35 @@ const GATE_DEFINITIONS: GateDefinition[] = [
     defaults: { max_calls: 30, per_tool: {} },
   },
   {
-    type: "text_response_retry",
-    title: "Early-stop retry",
-    titleKey: "agentConfig.loopMode.retryGateTitle",
-    description: "Prompt the agent to verify before ending.",
-    descriptionKey: "agentConfig.loopMode.retryGateDescription",
+    type: "qualitative_rubric",
+    title: "Qualitative rubric",
+    titleKey: "agentConfig.loopMode.qualitativeRubricTitle",
+    description: "Revise against a natural-language rubric before ending.",
+    descriptionKey: "agentConfig.loopMode.qualitativeRubricDescription",
     icon: <CheckCircle size={15} />,
     defaults: {
-      prompt: "Verify the task before stopping. Continue if work remains.",
-      max_interventions: 1,
+      rubric: "Every explicit user requirement must be addressed.",
+      max_evaluations: 1,
     },
+    exclusiveGroup: "completion_rubric",
   },
   {
     type: "completion_rubric",
     title: "Completion rubric",
-    titleKey: "agentConfig.loopMode.rubricGateTitle",
-    description: "Evaluate explicit criteria and revise when needed.",
-    descriptionKey: "agentConfig.loopMode.rubricGateDescription",
+    titleKey: "agentConfig.loopMode.completionRubricTitle",
+    description: "Ask the active agent for a completion signal.",
+    descriptionKey: "agentConfig.loopMode.completionRubricDescription",
     icon: <ListChecks size={15} />,
     defaults: {
-      criteria: [
-        {
-          id: "complete-request",
-          description: "Every explicit requirement is addressed.",
-          required: true,
-          weight: 1,
-        },
-      ],
-      pass_threshold: 1,
-      max_revisions: 2,
-      evaluate_when: "text_response",
+      prompt:
+        "Mark the task complete only when every explicit user requirement has been addressed.",
+      completion_signal: "COMPLETED",
+      continuation_prompt:
+        "Address the remaining work, then verify completion again.",
+      max_evaluations: 3,
       include_last_tool_results: 5,
-      on_grader_error: "stop",
     },
+    exclusiveGroup: "completion_rubric",
   },
 ];
 
@@ -762,6 +797,7 @@ function GateParamsEditor({
   type: CustomGateType;
 }) {
   const { t } = useTranslation();
+  const form = Form.useFormInstance();
   const base = [
     "loop",
     "custom_modes",
@@ -770,6 +806,11 @@ function GateParamsEditor({
     gateIndex,
     "params",
   ];
+  const stages =
+    (Form.useWatch([...base, "stages"], {
+      form,
+      preserve: true,
+    }) as Array<{ after?: number }> | undefined) || [];
   if (type === "iteration") {
     return (
       <Form.Item
@@ -782,23 +823,121 @@ function GateParamsEditor({
   }
   if (type === "doom_loop") {
     return (
-      <div className={loopStyles.fieldGrid}>
-        <Form.Item
-          name={[...base, "window_size"]}
-          label={t("agentConfig.loopMode.historyWindow", "History window")}
-        >
-          <InputNumber min={2} max={20} style={{ width: "100%" }} />
-        </Form.Item>
-        <Form.Item
-          name={[...base, "similarity_threshold"]}
-          label={t(
-            "agentConfig.loopMode.similarityThreshold",
-            "Similarity threshold",
+      <>
+        <div className={loopStyles.fieldGrid}>
+          <Form.Item
+            name={[...base, "window_size"]}
+            label={t("agentConfig.loopMode.historyWindow", "History window")}
+          >
+            <InputNumber min={2} max={20} style={{ width: "100%" }} />
+          </Form.Item>
+          <Form.Item
+            name={[...base, "similarity_threshold"]}
+            label={t(
+              "agentConfig.loopMode.similarityThreshold",
+              "Similarity threshold",
+            )}
+          >
+            <InputNumber
+              min={0}
+              max={1}
+              step={0.05}
+              style={{ width: "100%" }}
+            />
+          </Form.Item>
+        </div>
+        <div className={loopStyles.subsectionTitle}>
+          {t("agentConfig.doomLoopStages", "Intervention Rules")}
+        </div>
+        <Form.List name={[...base, "stages"]}>
+          {(fields, { add, remove }) => (
+            <div className={loopStyles.ruleList}>
+              {fields.map(({ key, name, ...rest }) => (
+                <div key={key} className={loopStyles.ruleRow}>
+                  <Form.Item
+                    {...rest}
+                    name={[name, "after"]}
+                    label={
+                      name === 0
+                        ? t("agentConfig.doomLoopAfter", "After")
+                        : undefined
+                    }
+                    rules={[{ required: true }]}
+                  >
+                    <InputNumber min={1} style={{ width: "100%" }} />
+                  </Form.Item>
+                  <Form.Item
+                    {...rest}
+                    name={[name, "action"]}
+                    label={
+                      name === 0
+                        ? t("agentConfig.doomLoopAction", "Action")
+                        : undefined
+                    }
+                    rules={[{ required: true }]}
+                  >
+                    <Select
+                      options={[
+                        {
+                          value: "modify_prompt",
+                          label: t(
+                            "agentConfig.doomLoopWarnAction",
+                            "Send Reminder",
+                          ),
+                        },
+                        {
+                          value: "stop",
+                          label: t(
+                            "agentConfig.doomLoopStopAction",
+                            "Stop Loop",
+                          ),
+                        },
+                      ]}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    {...rest}
+                    name={[name, "prompt"]}
+                    label={
+                      name === 0
+                        ? t("agentConfig.doomLoopPrompt", "Message")
+                        : undefined
+                    }
+                  >
+                    <Input.TextArea autoSize={{ minRows: 1, maxRows: 3 }} />
+                  </Form.Item>
+                  <Button
+                    type="text"
+                    danger
+                    icon={<Trash2 size={14} />}
+                    aria-label={t(
+                      "agentConfig.loopMode.removeRule",
+                      "Remove rule",
+                    )}
+                    onClick={() => remove(name)}
+                  />
+                </div>
+              ))}
+              <Button
+                type="dashed"
+                icon={<Plus size={14} />}
+                onClick={() =>
+                  add({
+                    after:
+                      stages.length === 0
+                        ? 3
+                        : (stages[stages.length - 1]?.after ?? 0) + 1,
+                    action: "modify_prompt",
+                    prompt: "",
+                  })
+                }
+              >
+                {t("agentConfig.doomLoopAddStage", "Add Rule")}
+              </Button>
+            </div>
           )}
-        >
-          <InputNumber min={0} max={1} step={0.05} style={{ width: "100%" }} />
-        </Form.Item>
-      </div>
+        </Form.List>
+      </>
     );
   }
   if (type === "token_budget") {
@@ -807,13 +946,27 @@ function GateParamsEditor({
         <div className={loopStyles.fieldGrid}>
           <Form.Item
             name={[...base, "max_total_tokens"]}
-            label={t("agentConfig.loopMode.totalTokens", "Total tokens")}
+            label={t(
+              "agentConfig.loopMode.totalTokens",
+              "Maximum total tokens",
+            )}
+            tooltip={t(
+              "agentConfig.loopMode.totalTokensHelp",
+              "Maximum combined input and output tokens used by this turn.",
+            )}
           >
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
           <Form.Item
             name={[...base, "max_prompt_tokens"]}
-            label={t("agentConfig.loopMode.promptTokens", "Prompt tokens")}
+            label={t(
+              "agentConfig.loopMode.promptTokens",
+              "Maximum input tokens",
+            )}
+            tooltip={t(
+              "agentConfig.loopMode.promptTokensHelp",
+              "Includes system instructions, conversation context, tool schemas, and tool results.",
+            )}
           >
             <InputNumber min={1} style={{ width: "100%" }} />
           </Form.Item>
@@ -822,7 +975,11 @@ function GateParamsEditor({
           name={[...base, "max_completion_tokens"]}
           label={t(
             "agentConfig.loopMode.completionTokens",
-            "Completion tokens",
+            "Maximum output tokens",
+          )}
+          tooltip={t(
+            "agentConfig.loopMode.completionTokensHelp",
+            "Maximum tokens generated by the model during this turn.",
           )}
         >
           <InputNumber min={1} style={{ width: "100%" }} />
@@ -835,6 +992,10 @@ function GateParamsEditor({
       <Form.Item
         name={[...base, "max_seconds"]}
         label={t("agentConfig.loopMode.maxSeconds", "Maximum seconds")}
+        tooltip={t(
+          "agentConfig.loopMode.maxSecondsHelp",
+          "Elapsed time is checked after the current model response or tool call completes. Running work is not interrupted.",
+        )}
       >
         <InputNumber min={1} max={86400} style={{ width: "100%" }} />
       </Form.Item>
@@ -858,20 +1019,27 @@ function GateParamsEditor({
       </>
     );
   }
-  if (type === "text_response_retry") {
+  if (type === "qualitative_rubric") {
     return (
       <>
         <Form.Item
-          name={[...base, "max_interventions"]}
-          label={t("agentConfig.loopMode.maxRetries", "Maximum retries")}
+          name={[...base, "max_evaluations"]}
+          label={t(
+            "agentConfig.loopMode.maxEvaluations",
+            "Maximum evaluation rounds",
+          )}
         >
           <InputNumber min={1} max={10} style={{ width: "100%" }} />
         </Form.Item>
         <Form.Item
-          name={[...base, "prompt"]}
+          name={[...base, "rubric"]}
           label={t(
-            "agentConfig.loopMode.retryInstruction",
-            "Retry instruction",
+            "agentConfig.loopMode.qualitativeRubric",
+            "Qualitative rubric",
+          )}
+          extra={t(
+            "agentConfig.loopMode.qualitativeRubricHelp",
+            "The agent revises against this rubric without producing a numeric score.",
           )}
         >
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />
@@ -881,18 +1049,41 @@ function GateParamsEditor({
   }
   return (
     <>
+      <Form.Item
+        name={[...base, "prompt"]}
+        label={t(
+          "agentConfig.loopMode.completionPrompt",
+          "Completion check prompt",
+        )}
+        extra={t(
+          "agentConfig.loopMode.completionPromptHelp",
+          "Describe when the result is complete. QwenPaw adds the exact output instruction.",
+        )}
+      >
+        <Input.TextArea autoSize={{ minRows: 3, maxRows: 7 }} />
+      </Form.Item>
       <div className={loopStyles.fieldGrid}>
         <Form.Item
-          name={[...base, "pass_threshold"]}
-          label={t("agentConfig.loopMode.passThreshold", "Pass threshold")}
+          name={[...base, "completion_signal"]}
+          label={t(
+            "agentConfig.loopMode.completionSignal",
+            "Completion signal",
+          )}
+          tooltip={t(
+            "agentConfig.loopMode.completionSignalHelp",
+            "Only an exact, case-insensitive match after trimming whitespace ends the loop.",
+          )}
         >
-          <InputNumber min={0} max={1} step={0.05} style={{ width: "100%" }} />
+          <Input maxLength={64} />
         </Form.Item>
         <Form.Item
-          name={[...base, "max_revisions"]}
-          label={t("agentConfig.loopMode.maxRevisions", "Maximum revisions")}
+          name={[...base, "max_evaluations"]}
+          label={t(
+            "agentConfig.loopMode.maxEvaluations",
+            "Maximum evaluation rounds",
+          )}
         >
-          <InputNumber min={0} max={10} style={{ width: "100%" }} />
+          <InputNumber min={1} max={10} style={{ width: "100%" }} />
         </Form.Item>
         <Form.Item
           name={[...base, "include_last_tool_results"]}
@@ -900,94 +1091,33 @@ function GateParamsEditor({
             "agentConfig.loopMode.evidenceToolResults",
             "Tool results as evidence",
           )}
+          tooltip={t(
+            "agentConfig.loopMode.evidenceToolResultsHelp",
+            "How many recent observable tool results the agent may use when scoring completion.",
+          )}
         >
           <InputNumber min={0} max={20} style={{ width: "100%" }} />
         </Form.Item>
-        <Form.Item
-          name={[...base, "on_grader_error"]}
-          label={t("agentConfig.loopMode.graderError", "Grader error")}
-        >
-          <Select
-            options={[
-              {
-                value: "stop",
-                label: t("agentConfig.loopMode.stopSafely", "Stop safely"),
-              },
-              {
-                value: "continue_once",
-                label: t(
-                  "agentConfig.loopMode.verifyOnceMore",
-                  "Verify once more",
-                ),
-              },
-            ]}
-          />
-        </Form.Item>
       </div>
-      <Form.List name={[...base, "criteria"]}>
-        {(fields, { add, remove }) => (
-          <div className={loopStyles.criteriaList}>
-            <span className={loopStyles.fieldLabel}>
-              {t(
-                "agentConfig.loopMode.completionCriteria",
-                "Completion criteria",
-              )}
-            </span>
-            {fields.map((field, index) => (
-              <div className={loopStyles.criterionRow} key={field.key}>
-                <span>{index + 1}</span>
-                <Form.Item name={[field.name, "id"]} hidden>
-                  <Input />
-                </Form.Item>
-                <Form.Item name={[field.name, "description"]} noStyle>
-                  <Input
-                    placeholder={t(
-                      "agentConfig.loopMode.criterionPlaceholder",
-                      "Describe observable completion",
-                    )}
-                  />
-                </Form.Item>
-                <label className={loopStyles.inlineControl}>
-                  <small>
-                    {t("agentConfig.loopMode.required", "Required")}
-                  </small>
-                  <Form.Item
-                    name={[field.name, "required"]}
-                    valuePropName="checked"
-                    noStyle
-                  >
-                    <Switch size="small" />
-                  </Form.Item>
-                </label>
-                <label className={loopStyles.inlineControl}>
-                  <small>{t("agentConfig.loopMode.weight", "Weight")}</small>
-                  <Form.Item name={[field.name, "weight"]} noStyle>
-                    <InputNumber min={0.1} max={100} step={0.1} />
-                  </Form.Item>
-                </label>
-                <Button
-                  type="text"
-                  icon={<Trash2 size={14} />}
-                  onClick={() => remove(field.name)}
-                />
-              </div>
-            ))}
-            <Button
-              icon={<Plus size={14} />}
-              onClick={() =>
-                add({
-                  id: `criterion-${fields.length + 1}`,
-                  description: "",
-                  required: true,
-                  weight: 1,
-                })
-              }
-            >
-              {t("agentConfig.loopMode.addCriterion", "Add criterion")}
-            </Button>
-          </div>
+      <Form.Item
+        name={[...base, "continuation_prompt"]}
+        label={t(
+          "agentConfig.loopMode.continuationPrompt",
+          "Continue prompt when incomplete",
         )}
-      </Form.List>
+        extra={t(
+          "agentConfig.loopMode.continuationPromptHelp",
+          "Injected when the evaluation does not exactly match the completion signal.",
+        )}
+      >
+        <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />
+      </Form.Item>
+      <p className={loopStyles.editorHint}>
+        {t(
+          "agentConfig.loopMode.completionRubricHelp",
+          "The current agent evaluates its own result in an extra iteration. Any other output is treated as incomplete.",
+        )}
+      </p>
     </>
   );
 }
@@ -1087,25 +1217,31 @@ function CustomModeEditor({
   const { t } = useTranslation();
   const form = Form.useFormInstance();
   const gates =
-    (Form.useWatch(
-      ["loop", "custom_modes", modeIndex, "gates"],
+    (Form.useWatch(["loop", "custom_modes", modeIndex, "gates"], {
       form,
-    ) as GateInstanceConfig[]) || [];
+      preserve: true,
+    }) as GateInstanceConfig[]) || [];
   const sensors = useSensors(useSensor(PointerSensor));
   const path = ["loop", "custom_modes", modeIndex, "gates"];
-  const updateGates = (next: GateInstanceConfig[]) =>
+  const updateGates = (next: GateInstanceConfig[]) => {
     form.setFieldValue(path, next);
+    form.setFieldValue(
+      ["loop", "custom_modes", modeIndex, "enabled"],
+      next.some((gate) => gate.enabled),
+    );
+  };
   const usedTypes = new Set(gates.map((gate) => gate.type));
+  const claimedGroups = new Set(
+    gates
+      .map((gate) => gateDefinition(gate.type).exclusiveGroup)
+      .filter((group): group is string => Boolean(group)),
+  );
   const available = GATE_DEFINITIONS.filter(
     (definition) =>
       !usedTypes.has(definition.type) &&
       !(
-        definition.type === "completion_rubric" &&
-        usedTypes.has("text_response_retry")
-      ) &&
-      !(
-        definition.type === "text_response_retry" &&
-        usedTypes.has("completion_rubric")
+        definition.exclusiveGroup &&
+        claimedGroups.has(definition.exclusiveGroup)
       ),
   );
 
@@ -1129,9 +1265,6 @@ function CustomModeEditor({
   const removeGate = (index: number) => {
     const next = gates.filter((_, itemIndex) => itemIndex !== index);
     updateGates(next);
-    if (!next.length) {
-      form.setFieldValue(["loop", "custom_modes", modeIndex, "enabled"], false);
-    }
   };
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return;
@@ -1212,17 +1345,6 @@ function CustomModeEditor({
       >
         <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} maxLength={500} />
       </Form.Item>
-      <Form.Item
-        name={["loop", "custom_modes", modeIndex, "enabled"]}
-        label={t(
-          "agentConfig.loopMode.availableToAgent",
-          "Available to this agent",
-        )}
-        valuePropName="checked"
-      >
-        <Switch disabled={!gates.length} />
-      </Form.Item>
-
       <div className={loopStyles.pipelineToolbar}>
         <div>
           <strong>
@@ -1235,16 +1357,26 @@ function CustomModeEditor({
             )}
           </small>
         </div>
-        <Select<CustomGateType>
-          placeholder={t("agentConfig.loopMode.addGate", "Add gate")}
-          className={loopStyles.addGateSelect}
-          options={available.map((definition) => ({
-            value: definition.type,
-            label: t(definition.titleKey, definition.title),
-          }))}
-          onChange={addGate}
+        <Dropdown
+          trigger={["click"]}
           disabled={!available.length}
-        />
+          menu={{
+            items: available.map((definition) => ({
+              key: definition.type,
+              icon: definition.icon,
+              label: t(definition.titleKey, definition.title),
+            })),
+            onClick: ({ key }: { key: string }) =>
+              addGate(key as CustomGateType),
+          }}
+        >
+          <Button
+            className={loopStyles.addGateButton}
+            icon={<Plus size={16} />}
+            aria-label={t("agentConfig.loopMode.addGate", "Add gate")}
+            title={t("agentConfig.loopMode.addGate", "Add gate")}
+          />
+        </Dropdown>
       </div>
       {!gates.length ? (
         <div className={loopStyles.emptyPipeline}>
@@ -1279,7 +1411,7 @@ function CustomModeEditor({
 }
 
 const TEMPLATES: Record<string, CustomGateType[]> = {
-  safe: ["iteration", "token_budget", "doom_loop", "text_response_retry"],
+  safe: ["iteration", "token_budget", "doom_loop", "qualitative_rubric"],
   research: ["iteration", "timeout", "tool_call_budget", "doom_loop"],
   quality: ["iteration", "token_budget", "doom_loop", "completion_rubric"],
   blank: [],
@@ -1362,8 +1494,10 @@ export function AgentLoopCard() {
   const { t } = useTranslation();
   const form = Form.useFormInstance();
   const customModes =
-    (Form.useWatch(["loop", "custom_modes"], form) as CustomLoopModeConfig[]) ||
-    [];
+    (Form.useWatch(["loop", "custom_modes"], {
+      form,
+      preserve: true,
+    }) as CustomLoopModeConfig[]) || [];
   const [activeKey, setActiveKey] = useState("default");
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState(() =>
@@ -1405,7 +1539,7 @@ export function AgentLoopCard() {
         baseCommand,
         new Set(customModes.map((mode) => mode.slash_command)),
       ),
-      enabled: false,
+      enabled: source.gates.some((gate) => gate.enabled),
     };
     setModes([...customModes, copy]);
     setActiveKey(`custom:${copy.id}`);

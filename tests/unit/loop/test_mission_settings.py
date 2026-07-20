@@ -22,6 +22,7 @@ def test_mission_config_defaults_and_bounds() -> None:
 
     assert config.max_iterations == 20
     assert config.max_retries_per_story == 3
+    assert config.default_verification_instructions == ""
     assert config.default_verify_command == ""
 
     with pytest.raises(ValidationError):
@@ -59,6 +60,21 @@ def test_master_prompt_uses_configured_story_retry_limit() -> None:
     assert "Max 3 retries per story" not in prompt
 
 
+def test_master_prompt_includes_verification_instructions() -> None:
+    """Verifier receives natural-language guidance separately from commands."""
+    prompt = build_master_prompt(
+        loop_dir="/tmp/mission",
+        agent_id="agent",
+        verification_instructions=(
+            "Check Windows path handling and inspect the rendered UI."
+        ),
+        verify_commands="pytest -q",
+    )
+
+    assert "Check Windows path handling" in prompt
+    assert "**Verify command**: pytest -q" in prompt
+
+
 @pytest.mark.asyncio
 async def test_start_mission_persists_editable_defaults(tmp_path) -> None:
     """New missions persist settings used by the existing workflow."""
@@ -78,6 +94,7 @@ async def test_start_mission_persists_editable_defaults(tmp_path) -> None:
             agent_id="agent",
             session_id="session",
             verify_commands="pytest -q",
+            verification_instructions="Check accessibility manually.",
             max_iterations=14,
             max_retries_per_story=5,
         )
@@ -86,3 +103,6 @@ async def test_start_mission_persists_editable_defaults(tmp_path) -> None:
     assert config["max_iterations"] == 14
     assert config["max_retries_per_story"] == 5
     assert config["verify_commands"] == "pytest -q"
+    assert config["verification_instructions"] == (
+        "Check accessibility manually."
+    )

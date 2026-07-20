@@ -16,7 +16,16 @@ from qwenpaw.config.config import (
 )
 from qwenpaw.loop.catalog import get_gate_catalog
 from qwenpaw.loop.compiler import compile_loop_mode
-from qwenpaw.loop.gates import CompletionRubricGate, StopAction
+from qwenpaw.constant import (
+    LOOP_CONTINUATION_MESSAGE_TAG,
+    QWENPAW_MESSAGE_TAG_KEY,
+    RUBRIC_EVALUATION_MESSAGE_TAG,
+)
+from qwenpaw.loop.gates import (
+    CompletionRubricGate,
+    QualitativeRubricGate,
+    StopAction,
+)
 from qwenpaw.loop.gates.limits import (
     TimeoutGate,
     TokenBudgetGate,
@@ -63,7 +72,7 @@ def test_loop_config_accepts_multiple_custom_modes() -> None:
                 name="Research",
                 slash_command="research",
                 enabled=True,
-                gates=[_gate("timeout", "timeout")],
+                gates=[_gate("tools", "tool_call_budget")],
             ),
         ],
     )
@@ -115,20 +124,12 @@ def test_loop_config_rejects_gate_outside_builtin_catalog() -> None:
 
 
 def test_custom_mode_rejects_conflicting_completion_gates() -> None:
-    with pytest.raises(ValidationError, match="conflicts"):
+    with pytest.raises(ValidationError, match="exclusive group"):
         _mode(
-            _gate("retry", "text_response_retry"),
+            _gate("qualitative", "qualitative_rubric"),
             _gate(
                 "rubric",
                 "completion_rubric",
-                {
-                    "criteria": [
-                        {
-                            "id": "done",
-                            "description": "The request is complete",
-                        },
-                    ],
-                },
             ),
         )
 
@@ -136,12 +137,12 @@ def test_custom_mode_rejects_conflicting_completion_gates() -> None:
 def test_compiler_preserves_pipeline_order() -> None:
     handler = compile_loop_mode(
         _mode(
-            _gate("time", "timeout", {"max_seconds": 60}),
+            _gate("tools", "tool_call_budget", {"max_calls": 5}),
             _gate("limit", "iteration", {"max_iterations": 10}),
         ),
     )
 
-    assert [gate.name for gate in handler.gates] == ["time", "limit"]
+    assert [gate.name for gate in handler.gates] == ["tools", "limit"]
     assert [gate.priority for gate in handler.gates] == [0, 10]
 
 
@@ -173,21 +174,16 @@ def test_catalog_contains_only_seven_builtin_gates() -> None:
         "token_budget",
         "timeout",
         "tool_call_budget",
-        "text_response_retry",
+        "qualitative_rubric",
         "completion_rubric",
     }
+    groups = {entry["type"]: entry["exclusive_group"] for entry in entries}
+    assert groups["qualitative_rubric"] == "completion_rubric"
+    assert groups["completion_rubric"] == "completion_rubric"
+    assert groups["iteration"] is None
 
 
-class _FakeModel:
-    def __init__(self, content: dict) -> None:
-        self.content = content
-
-    async def generate_structured_output(self, **kwargs):  # noqa: ANN003
-        del kwargs
-        return SimpleNamespace(content=self.content)
-
-
-def _rubric_context(content: dict) -> dict:
+def _rubric_context() -> tuple[dict, Msg]:
     state = SimpleNamespace(
         context=[
             Msg(
@@ -197,89 +193,156 @@ def _rubric_context(content: dict) -> dict:
             ),
         ],
     )
-    agent = SimpleNamespace(model=_FakeModel(content), state=state)
+    agent = SimpleNamespace(state=state)
     final = Msg(
         name="assistant",
         role="assistant",
         content=[TextBlock(type="text", text="Completed")],
     )
-    return {
-        "agent": agent,
-        "final_msg": final,
-        "has_tool_calls": False,
-        "iteration": 1,
-    }
+    return (
+        {
+            "agent": agent,
+            "final_msg": final,
+            "has_tool_calls": False,
+            "iteration": 1,
+        },
+        final,
+    )
 
 
 @pytest.mark.asyncio
-async def test_completion_rubric_passes_required_criterion() -> None:
-    gate = CompletionRubricGate(
-        criteria=[
-            {
-                "id": "done",
-                "description": "The request is complete",
-                "required": True,
-                "weight": 1.0,
-            },
-        ],
+async def test_qualitative_rubric_only_revises_text_responses() -> None:
+    gate = QualitativeRubricGate(
+        rubric="Check every explicit requirement.",
+        max_evaluations=1,
     )
     gate.reset_turn()
+    context, _candidate = _rubric_context()
 
-    result = await gate.check(
-        _rubric_context(
-            {
-                "criteria": [
-                    {
-                        "id": "done",
-                        "passed": True,
-                        "score": 1.0,
-                        "evidence": ["Completed"],
-                        "feedback": "",
-                    },
-                ],
-            },
-        ),
+    context["has_tool_calls"] = True
+    tool_result = await gate.check(context)
+    context["has_tool_calls"] = False
+    revision = await gate.check(context)
+    finished = await gate.check(context)
+    still_finished = await gate.check(context)
+
+    assert tool_result.action == StopAction.BYPASS
+    assert revision.action == StopAction.INTERRUPT_AND_CONTINUE
+    assert gate.build_continuation() == "Check every explicit requirement."
+    assert finished.action == StopAction.BYPASS
+    assert still_finished.action == StopAction.BYPASS
+
+
+@pytest.mark.asyncio
+async def test_completion_rubric_accepts_configured_signal() -> None:
+    gate = CompletionRubricGate(
+        prompt="The request is complete.",
+        completion_signal="DONE",
     )
+    gate.reset_turn()
+    context, candidate = _rubric_context()
 
+    request = await gate.check(context)
+    context["final_msg"] = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            TextBlock(
+                type="text",
+                text="  done \n",
+            ),
+        ],
+    )
+    result = await gate.check(context)
+
+    assert request.action == StopAction.INTERRUPT_AND_CONTINUE
     assert result.action == StopAction.TERMINATE
+    assert result.final_message is candidate
     assert "passed" in result.reason
 
 
 @pytest.mark.asyncio
 async def test_completion_rubric_requests_bounded_revision() -> None:
     gate = CompletionRubricGate(
-        criteria=[
-            {
-                "id": "done",
-                "description": "The request is complete",
-                "required": True,
-                "weight": 1.0,
-            },
-        ],
-        max_revisions=1,
+        prompt="The request is complete.",
+        continuation_prompt="Keep working, then check again.",
+        max_evaluations=2,
     )
     gate.reset_turn()
-    context = _rubric_context(
-        {
-            "criteria": [
-                {
-                    "id": "done",
-                    "passed": False,
-                    "score": 0.2,
-                    "evidence": [],
-                    "feedback": "Run verification",
-                },
-            ],
-        },
+    context, _candidate = _rubric_context()
+
+    await gate.check(context)
+    context["final_msg"] = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            TextBlock(
+                type="text",
+                text="NOT COMPLETED",
+            ),
+        ],
     )
+    revision = await gate.check(context)
+    assert gate.build_continuation() == "Keep working, then check again."
+    context["final_msg"] = Msg(
+        name="assistant",
+        role="assistant",
+        content=[TextBlock(type="text", text="Revised")],
+    )
+    await gate.check(context)
+    context["final_msg"] = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            TextBlock(
+                type="text",
+                text="Task is still incomplete",
+            ),
+        ],
+    )
+    stopped = await gate.check(context)
 
-    first = await gate.check(context)
-    second = await gate.check(context)
+    assert revision.action == StopAction.INTERRUPT_AND_CONTINUE
+    assert stopped.action == StopAction.TERMINATE
+    assert "2 evaluations" in stopped.reason
 
-    assert first.action == StopAction.INTERRUPT_AND_CONTINUE
-    assert "Run verification" in gate.build_continuation()
-    assert second.action == StopAction.TERMINATE
-    assert "1 revisions" in second.reason
+
+@pytest.mark.asyncio
+async def test_completion_rubric_uses_latest_external_user_goal() -> None:
+    context, _candidate = _rubric_context()
+    context["agent"].state.context.extend(
+        [
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(type="text", text="Continue internally")],
+                metadata={
+                    QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
+                },
+            ),
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(type="text", text="Evaluate internally")],
+                metadata={
+                    QWENPAW_MESSAGE_TAG_KEY: RUBRIC_EVALUATION_MESSAGE_TAG,
+                },
+            ),
+        ],
+    )
+    gate = CompletionRubricGate(
+        prompt="Only explicit requirements are required.",
+        completion_signal="READY",
+    )
+    gate.reset_turn()
+
+    await gate.check(context)
+    prompt = gate.build_continuation()
+
+    assert '"user_goal": "Finish the task"' in prompt
+    assert "Continue internally" not in prompt
+    assert "Do not invent unstated requirements" in prompt
+    assert "READY" in prompt
 
 
 @pytest.mark.asyncio
@@ -403,7 +466,7 @@ def test_loader_registers_multiple_enabled_modes() -> None:
         name="Research",
         slash_command="research",
         enabled=True,
-        gates=[_gate("time", "timeout")],
+        gates=[_gate("tools", "tool_call_budget")],
     )
     disabled = CustomLoopModeConfig(
         id="draft",
@@ -455,20 +518,23 @@ async def test_token_budget_accumulates_each_iteration(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_timeout_gate_uses_monotonic_boundary(monkeypatch) -> None:
-    values = iter([14.0, 16.0])
+async def test_timeout_gate_stops_only_when_boundary_is_checked(
+    monkeypatch,
+) -> None:
+    values = iter([15.0, 16.0])
     monkeypatch.setattr(
         "qwenpaw.loop.gates.limits.time",
         SimpleNamespace(monotonic=lambda: next(values)),
     )
-    gate = TimeoutGate(max_seconds=5)
-    gate.activate(SimpleNamespace(started_at=10.0))
+    gate = TimeoutGate(max_seconds=2)
+    gate.activate(SimpleNamespace(started_at=14.0))
 
-    before = await gate.check({})
-    after = await gate.check({})
+    before_limit = await gate.check({"iteration": 1})
+    at_next_boundary = await gate.check({"iteration": 2})
 
-    assert before.action == StopAction.BYPASS
-    assert after.action == StopAction.TERMINATE
+    assert before_limit.action == StopAction.BYPASS
+    assert at_next_boundary.action == StopAction.TERMINATE
+    assert "Loop time limit" in at_next_boundary.reason
 
 
 @pytest.mark.asyncio

@@ -82,7 +82,7 @@ def test_catalog_exposes_only_builtin_gates(client) -> None:
         "token_budget",
         "timeout",
         "tool_call_budget",
-        "text_response_retry",
+        "qualitative_rubric",
         "completion_rubric",
     }
 
@@ -347,6 +347,19 @@ def test_create_custom_mode_persists_and_schedules_reload(client) -> None:
     assert response.status_code == 201, response.text
     save.assert_called_once()
     reload.assert_called_once()
+
+
+def test_duplicate_custom_mode_is_available_immediately(
+    client,
+    workspace,
+) -> None:
+    """Copies with active gates remain available to the current agent."""
+    workspace.config.running.loop.custom_modes = [_mode()]
+
+    response = client[0].post("/api/loops/custom/quality/duplicate")
+
+    assert response.status_code == 201, response.text
+    assert response.json()["enabled"] is True
 
 
 def test_create_rejects_unknown_gate_even_when_disabled(client) -> None:

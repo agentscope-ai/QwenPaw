@@ -1,62 +1,50 @@
 # -*- coding: utf-8 -*-
-"""Structured completion rubric gate."""
+"""Agent-native completion rubric gate."""
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from agentscope.message import Msg, TextBlock
-from pydantic import BaseModel, Field
-
+from ...constant import (
+    QWENPAW_MESSAGE_TAG_KEY,
+    RUBRIC_EVALUATION_MESSAGE_TAG,
+    SYNTHETIC_USER_MESSAGE_TAGS,
+)
 from .base import StopAction, StopHandlerResult
 from .loop_gate import LoopGate
 
 
-class RubricCriterionResult(BaseModel):
-    """One structured evaluator result."""
-
-    id: str
-    passed: bool
-    score: float = Field(ge=0.0, le=1.0)
-    evidence: list[str] = Field(default_factory=list)
-    feedback: str = ""
-
-
-class CompletionRubricResult(BaseModel):
-    """Structured result returned by the evaluator model."""
-
-    criteria: list[RubricCriterionResult]
-    feedback: str = ""
-
-
 @dataclass
-class _CompletionState:
-    """Per-turn completion evaluation state."""
+class _CompletionRubricState:
+    """Per-turn candidate and evaluation state."""
 
-    revisions: int = 0
-    grader_errors: int = 0
+    phase: Literal["candidate", "evaluation"] = "candidate"
+    evaluations: int = 0
+    candidate: Any = None
     continuation: str = ""
 
 
 class CompletionRubricGate(LoopGate):
-    """Evaluate completion criteria and request bounded revisions."""
+    """Ask the active agent for a configurable completion signal."""
 
     def __init__(
         self,
         *,
-        criteria: list[dict[str, Any]],
-        pass_threshold: float = 1.0,
-        max_revisions: int = 2,
+        prompt: str,
+        completion_signal: str = "COMPLETED",
+        continuation_prompt: str = (
+            "Address the remaining work, then verify completion again."
+        ),
+        max_evaluations: int = 3,
         include_last_tool_results: int = 5,
-        on_grader_error: Literal["stop", "continue_once"] = "stop",
     ) -> None:
         super().__init__()
-        self._criteria = criteria
-        self._pass_threshold = pass_threshold
-        self._max_revisions = max_revisions
+        self._prompt = prompt
+        self._completion_signal = completion_signal.strip()
+        self._continuation_prompt = continuation_prompt
+        self._max_evaluations = max_evaluations
         self._evidence_limit = include_last_tool_results
-        self._on_grader_error = on_grader_error
 
     @property
     def name(self) -> str:
@@ -67,149 +55,92 @@ class CompletionRubricGate(LoopGate):
         return 90
 
     def reset_turn(self) -> None:
-        """Reset revisions for a new user turn."""
-        self.activate(_CompletionState())
+        """Start a fresh candidate/evaluation cycle."""
+        self.activate(_CompletionRubricState())
 
     async def check(self, ctx: Any) -> StopHandlerResult:
-        """Evaluate text-only completion candidates."""
+        """Request or consume an agent-native completion evaluation."""
         if ctx.get("has_tool_calls") or ctx.get("final_msg") is None:
             return StopHandlerResult(action=StopAction.BYPASS)
 
         state = self._state()
         if state is None:
-            state = _CompletionState()
+            state = _CompletionRubricState()
             self.activate(state)
 
-        try:
-            result = await self._evaluate(ctx)
-        except Exception as exc:  # noqa: BLE001
-            return self._handle_grader_error(state, exc)
+        if state.phase == "evaluation":
+            return self._consume_evaluation(state, ctx.get("final_msg"))
 
-        passed, score, feedback = self._score(result)
-        if passed:
+        state.candidate = ctx.get("final_msg")
+        state.phase = "evaluation"
+        state.evaluations += 1
+        state.continuation = self._evaluation_prompt(ctx.get("agent"))
+        return StopHandlerResult(
+            action=StopAction.INTERRUPT_AND_CONTINUE,
+            reason="completion rubric requested agent evaluation",
+            reset_peers=True,
+            continuation_metadata={
+                QWENPAW_MESSAGE_TAG_KEY: RUBRIC_EVALUATION_MESSAGE_TAG,
+            },
+        )
+
+    def build_continuation(self) -> str:
+        """Return the current evaluation or revision instruction."""
+        state = self._state()
+        return state.continuation if state is not None else ""
+
+    def _consume_evaluation(
+        self,
+        state: _CompletionRubricState,
+        message: Any,
+    ) -> StopHandlerResult:
+        """Compare the Agent output with the configured completion signal."""
+        output = self._message_text(message).strip().casefold()
+        signal = self._completion_signal.casefold()
+        if output == signal:
             return StopHandlerResult(
                 action=StopAction.TERMINATE,
-                reason=f"Completion rubric passed ({score:.0%})",
+                reason="Completion rubric passed",
+                final_message=state.candidate,
             )
 
-        if state.revisions >= self._max_revisions:
+        if state.evaluations >= self._max_evaluations:
             return StopHandlerResult(
                 action=StopAction.TERMINATE,
                 reason=(
                     f"Completion rubric stopped after "
-                    f"{self._max_revisions} revisions: {feedback}"
+                    f"{state.evaluations} evaluations"
                 ),
+                final_message=state.candidate,
             )
 
-        state.revisions += 1
-        state.continuation = (
-            f"The completion check found remaining work. "
-            f"Address only these unmet criteria, then verify again:\n"
-            f"{feedback}"
-        )
+        state.phase = "candidate"
+        state.continuation = self._continuation_prompt
         return StopHandlerResult(
             action=StopAction.INTERRUPT_AND_CONTINUE,
-            reason=f"Completion rubric requested revision {state.revisions}",
+            reason=(
+                f"completion rubric requested revision after evaluation "
+                f"{state.evaluations}"
+            ),
             reset_peers=True,
         )
 
-    def build_continuation(self) -> str:
-        """Return the latest bounded evaluator feedback."""
-        state = self._state()
-        return state.continuation if state is not None else ""
-
-    async def _evaluate(self, ctx: Any) -> CompletionRubricResult:
-        """Call the current model through its structured-output API."""
-        agent = ctx.get("agent")
-        model = getattr(agent, "model", None)
-        if model is None:
-            raise RuntimeError("Agent model is unavailable for evaluation")
-
-        final_text = self._message_text(ctx.get("final_msg"))
-        evidence = self._tool_evidence(agent)
-        goal = self._user_goal(agent)
+    def _evaluation_prompt(self, agent: Any) -> str:
+        """Build the completion check request for the active agent."""
         payload = {
-            "user_goal": goal,
-            "criteria": self._criteria,
-            "candidate_response": final_text,
-            "observable_tool_evidence": evidence,
+            "user_goal": self._user_goal(agent),
+            "rubric_prompt": self._prompt,
+            "observable_tool_evidence": self._tool_evidence(agent),
         }
-        system_text = (
-            "Evaluate only the supplied completion criteria. Use observable "
-            "evidence, not claims of completion. Return one result per "
-            "criterion. Do not include hidden reasoning."
-        )
-        user_text = (
-            f"Evaluate this completion candidate:\n{json.dumps(payload)}"
-        )
-        response = await model.generate_structured_output(
-            messages=[
-                Msg(
-                    name="system",
-                    role="system",
-                    content=[TextBlock(type="text", text=system_text)],
-                ),
-                Msg(
-                    name="user",
-                    role="user",
-                    content=[TextBlock(type="text", text=user_text)],
-                ),
-            ],
-            structured_model=CompletionRubricResult,
-        )
-        return CompletionRubricResult.model_validate(response.content)
-
-    def _score(
-        self,
-        result: CompletionRubricResult,
-    ) -> tuple[bool, float, str]:
-        """Apply required and weighted criterion semantics."""
-        by_id = {item.id: item for item in result.criteria}
-        weighted_score = 0.0
-        total_weight = 0.0
-        unmet: list[str] = []
-        required_failed = False
-        for criterion in self._criteria:
-            criterion_id = str(criterion["id"])
-            item = by_id.get(criterion_id)
-            weight = float(criterion.get("weight", 1.0))
-            total_weight += weight
-            if item is not None:
-                weighted_score += item.score * weight
-            if item is None or not item.passed:
-                if criterion.get("required", True):
-                    required_failed = True
-                detail = item.feedback if item is not None else "Not evaluated"
-                unmet.append(f"- {criterion['description']}: {detail}")
-
-        score = weighted_score / total_weight if total_weight else 0.0
-        passed = not required_failed and score >= self._pass_threshold
-        feedback = "\n".join(unmet) or result.feedback
-        return passed, score, feedback
-
-    def _handle_grader_error(
-        self,
-        state: _CompletionState,
-        exc: Exception,
-    ) -> StopHandlerResult:
-        """Apply the configured fail-closed grader error policy."""
-        if (
-            self._on_grader_error == "continue_once"
-            and not state.grader_errors
-        ):
-            state.grader_errors += 1
-            state.continuation = (
-                "The completion evaluator was unavailable. Verify the "
-                "deliverable once more before stopping."
-            )
-            return StopHandlerResult(
-                action=StopAction.INTERRUPT_AND_CONTINUE,
-                reason=f"Completion evaluator error: {exc}",
-                reset_peers=True,
-            )
-        return StopHandlerResult(
-            action=StopAction.TERMINATE,
-            reason=f"Completion evaluator error: {exc}",
+        return (
+            f"Evaluate your latest candidate using the supplied rubric. "
+            f"Do not invent unstated requirements. If the candidate passes, "
+            f"reply with exactly this completion signal and nothing else: "
+            f"{self._completion_signal}\n"
+            f"If it does not pass, return anything except the completion "
+            f"signal. Do not call tools or continue the task during this "
+            f"evaluation step.\n"
+            f"{json.dumps(payload, ensure_ascii=False)}"
         )
 
     @staticmethod
@@ -225,18 +156,21 @@ class CompletionRubricGate(LoopGate):
                 if isinstance(block, dict)
                 else getattr(block, "type", None)
             )
-            if block_type == "text":
-                text = (
-                    block.get("text", "")
-                    if isinstance(block, dict)
-                    else getattr(block, "text", "")
-                )
-                if text:
-                    texts.append(str(text))
+            if block_type != "text":
+                continue
+            text = (
+                block.get("text", "")
+                if isinstance(block, dict)
+                else getattr(block, "text", "")
+            )
+            if text:
+                texts.append(str(text))
         return "\n".join(texts)
 
     def _tool_evidence(self, agent: Any) -> list[str]:
         """Collect recent observable tool result text."""
+        if self._evidence_limit == 0:
+            return []
         evidence: list[str] = []
         context = getattr(getattr(agent, "state", None), "context", [])
         for message in reversed(context):
@@ -255,10 +189,15 @@ class CompletionRubricGate(LoopGate):
         return evidence
 
     def _user_goal(self, agent: Any) -> str:
-        """Find the latest non-empty user message in agent context."""
+        """Find the latest external user request in agent context."""
         context = getattr(getattr(agent, "state", None), "context", [])
         for message in reversed(context):
             if getattr(message, "role", None) != "user":
+                continue
+            metadata = getattr(message, "metadata", None) or {}
+            if metadata.get(QWENPAW_MESSAGE_TAG_KEY) in (
+                SYNTHETIC_USER_MESSAGE_TAGS
+            ):
                 continue
             text = self._message_text(message)
             if text:
@@ -266,8 +205,4 @@ class CompletionRubricGate(LoopGate):
         return ""
 
 
-__all__ = [
-    "CompletionRubricGate",
-    "CompletionRubricResult",
-    "RubricCriterionResult",
-]
+__all__ = ["CompletionRubricGate"]

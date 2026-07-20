@@ -18,13 +18,9 @@ def compile_loop_mode(
         gate_catalog.validate_params(gate.type, gate.params)
 
     enabled = [gate for gate in config.gates if gate.enabled]
-    types = {gate.type for gate in enabled}
-    for gate_type in types:
-        conflicts = set(gate_catalog.conflicts(gate_type))
-        overlap = conflicts.intersection(types)
-        if overlap:
-            names = ", ".join(sorted(overlap))
-            raise ValueError(f"Gate '{gate_type}' conflicts with {names}")
+    gate_catalog.validate_exclusive_groups(
+        [gate.type for gate in enabled],
+    )
 
     configured: list[ConfiguredGate] = []
     for index, gate_config in enumerate(enabled):

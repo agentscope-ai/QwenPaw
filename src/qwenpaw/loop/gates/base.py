@@ -39,6 +39,8 @@ class StopHandlerResult:
     continuation_message: str = ""
     reason: str = ""
     reset_peers: bool = False
+    continuation_metadata: dict[str, Any] | None = None
+    final_message: Any = None
 
 
 @dataclass

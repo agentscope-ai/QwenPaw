@@ -13,7 +13,7 @@ from .gates.completion import CompletionRubricGate
 from .gates.doom_loop import DoomLoopGate
 from .gates.iteration import IterationGate
 from .gates.limits import TimeoutGate, TokenBudgetGate, ToolCallBudgetGate
-from .gates.rubric import StandaloneRubricGate
+from .gates.rubric import QualitativeRubricGate
 
 
 class _Params(BaseModel):
@@ -60,7 +60,7 @@ class TokenBudgetParams(_Params):
 
 
 class TimeoutParams(_Params):
-    """Wall-clock boundary parameters."""
+    """Elapsed time limit checked only at loop boundaries."""
 
     max_seconds: float = Field(default=1800.0, ge=1.0, le=86400.0)
 
@@ -83,49 +83,52 @@ class ToolCallBudgetParams(_Params):
         return self
 
 
-class TextResponseRetryParams(_Params):
-    """Text-only response retry parameters."""
+class QualitativeRubricParams(_Params):
+    """Natural-language rubric parameters."""
 
-    prompt: str = Field(
+    rubric: str = Field(
         default=("Verify the task before stopping. Continue if work remains."),
         min_length=1,
         max_length=8192,
     )
-    max_interventions: int = Field(default=1, ge=1, le=10)
-
-
-class RubricCriterionParams(_Params):
-    """One completion rubric criterion."""
-
-    id: str = Field(
-        min_length=1,
-        max_length=64,
-        pattern=r"^[a-z0-9][a-z0-9_-]*$",
-    )
-    description: str = Field(min_length=1, max_length=1000)
-    required: bool = True
-    weight: float = Field(default=1.0, gt=0.0, le=100.0)
+    max_evaluations: int = Field(default=1, ge=1, le=10)
 
 
 class CompletionRubricParams(_Params):
-    """Structured completion evaluator parameters."""
+    """Agent-native binary completion rubric parameters."""
 
-    criteria: list[RubricCriterionParams] = Field(
+    prompt: str = Field(
+        default=(
+            "Mark the task complete only when every explicit user "
+            "requirement has been addressed."
+        ),
         min_length=1,
-        max_length=20,
+        max_length=8192,
     )
-    pass_threshold: float = Field(default=1.0, ge=0.0, le=1.0)
-    max_revisions: int = Field(default=2, ge=0, le=10)
-    evaluate_when: Literal["text_response"] = "text_response"
+    completion_signal: str = Field(
+        default="COMPLETED",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[^\r\n]+$",
+    )
+    continuation_prompt: str = Field(
+        default=("Address the remaining work, then verify completion again."),
+        min_length=1,
+        max_length=8192,
+    )
+    max_evaluations: int = Field(default=3, ge=1, le=10)
     include_last_tool_results: int = Field(default=5, ge=0, le=20)
-    on_grader_error: Literal["stop", "continue_once"] = "stop"
 
     @model_validator(mode="after")
-    def unique_criteria(self) -> "CompletionRubricParams":
-        """Require stable unique criterion IDs."""
-        ids = [criterion.id for criterion in self.criteria]
-        if len(ids) != len(set(ids)):
-            raise ValueError("Rubric criterion IDs must be unique")
+    def normalize_text(self) -> "CompletionRubricParams":
+        """Strip configured text and reject blank completion signals."""
+        self.prompt = self.prompt.strip()
+        self.completion_signal = self.completion_signal.strip()
+        self.continuation_prompt = self.continuation_prompt.strip()
+        if not self.prompt or not self.completion_signal:
+            raise ValueError("Completion rubric text cannot be blank")
+        if not self.continuation_prompt:
+            raise ValueError("Continuation prompt cannot be blank")
         return self
 
 
@@ -140,7 +143,7 @@ class GateCatalogEntry:
     params_model: Type[BaseModel]
     factory: Callable[[BaseModel], StopGate]
     cost: Literal["none", "model_call"] = "none"
-    conflicts_with: tuple[str, ...] = ()
+    exclusive_group: str | None = None
 
     def describe(self) -> dict[str, Any]:
         """Return stable frontend metadata and JSON Schema."""
@@ -151,7 +154,7 @@ class GateCatalogEntry:
             "category": self.category,
             "schema": self.params_model.model_json_schema(),
             "cost": self.cost,
-            "conflicts_with": list(self.conflicts_with),
+            "exclusive_group": self.exclusive_group,
         }
 
 
@@ -176,9 +179,20 @@ class GateCatalog:
         validated = entry.params_model.model_validate(params)
         return entry.factory(validated)
 
-    def conflicts(self, gate_type: str) -> tuple[str, ...]:
-        """Return incompatible gate types."""
-        return self._entry(gate_type).conflicts_with
+    def validate_exclusive_groups(self, gate_types: list[str]) -> None:
+        """Reject multiple enabled gates claiming one exclusive group."""
+        claimed: dict[str, str] = {}
+        for gate_type in gate_types:
+            group = self._entry(gate_type).exclusive_group
+            if group is None:
+                continue
+            owner = claimed.get(group)
+            if owner is not None:
+                raise ValueError(
+                    f"Gates '{owner}' and '{gate_type}' both claim "
+                    f"exclusive group '{group}'",
+                )
+            claimed[group] = gate_type
 
     def _entry(self, gate_type: str) -> GateCatalogEntry:
         try:
@@ -191,13 +205,6 @@ class GateCatalog:
 
 def _dump(params: BaseModel) -> dict[str, Any]:
     return params.model_dump()
-
-
-def _completion_gate(params: BaseModel) -> StopGate:
-    """Construct the evaluator without UI-only trigger metadata."""
-    values = params.model_dump()
-    values.pop("evaluate_when", None)
-    return CompletionRubricGate(**values)
 
 
 def _entries() -> list[GateCatalogEntry]:
@@ -229,8 +236,8 @@ def _entries() -> list[GateCatalogEntry]:
         ),
         GateCatalogEntry(
             type="timeout",
-            title="Time limit",
-            description="Stop at a loop boundary after elapsed time.",
+            title="Loop time limit",
+            description=("Stop at the next loop boundary after elapsed time."),
             category="limits",
             params_model=TimeoutParams,
             factory=lambda params: TimeoutGate(**_dump(params)),
@@ -244,23 +251,23 @@ def _entries() -> list[GateCatalogEntry]:
             factory=lambda params: ToolCallBudgetGate(**_dump(params)),
         ),
         GateCatalogEntry(
-            type="text_response_retry",
-            title="Early-stop retry",
-            description="Prompt the agent to verify before ending.",
-            category="behavior",
-            params_model=TextResponseRetryParams,
-            factory=lambda params: StandaloneRubricGate(**_dump(params)),
-            conflicts_with=("completion_rubric",),
+            type="qualitative_rubric",
+            title="Qualitative rubric",
+            description="Apply a natural-language rubric before ending.",
+            category="quality",
+            params_model=QualitativeRubricParams,
+            factory=lambda params: QualitativeRubricGate(**_dump(params)),
+            exclusive_group="completion_rubric",
         ),
         GateCatalogEntry(
             type="completion_rubric",
             title="Completion rubric",
-            description="Evaluate explicit completion criteria.",
+            description="Ask the active agent for a completion signal.",
             category="quality",
             params_model=CompletionRubricParams,
-            factory=_completion_gate,
+            factory=lambda params: CompletionRubricGate(**_dump(params)),
             cost="model_call",
-            conflicts_with=("text_response_retry",),
+            exclusive_group="completion_rubric",
         ),
     ]
 
@@ -279,9 +286,9 @@ __all__ = [
     "GateCatalog",
     "GateCatalogEntry",
     "IterationParams",
-    "TextResponseRetryParams",
-    "TimeoutParams",
+    "QualitativeRubricParams",
     "TokenBudgetParams",
+    "TimeoutParams",
     "ToolCallBudgetParams",
     "get_gate_catalog",
 ]

@@ -27,6 +27,9 @@ describe("buildCustomLoopMode", () => {
       "doom_loop",
       "completion_rubric",
     ]);
+    expect(
+      second.gates[second.gates.length - 1]?.params.max_evaluations,
+    ).toBe(3);
   });
 
   it("keeps blank modes disabled until a gate is added", () => {
@@ -35,13 +38,33 @@ describe("buildCustomLoopMode", () => {
     expect(mode.enabled).toBe(false);
     expect(mode.gates).toEqual([]);
   });
+
+  it("limits qualitative rubric completion evaluations", () => {
+    const mode = buildCustomLoopMode([], "Safe", "safe", "safe", 1);
+    const rubric = mode.gates.find(
+      (gate) => gate.type === "qualitative_rubric",
+    );
+
+    expect(rubric?.params.max_evaluations).toBe(1);
+  });
+
+  it("includes a boundary-only time limit in the research template", () => {
+    const mode = buildCustomLoopMode([], "Research", "research", "research", 1);
+
+    expect(mode.gates.map((gate) => gate.type)).toEqual([
+      "iteration",
+      "timeout",
+      "tool_call_budget",
+      "doom_loop",
+    ]);
+  });
 });
 
 describe("reorderCustomGates", () => {
   it("uses the visible pipeline order as the source of truth", () => {
     const gates = [
       { id: "one", type: "iteration" },
-      { id: "two", type: "timeout" },
+      { id: "two", type: "tool_call_budget" },
       { id: "three", type: "doom_loop" },
     ].map(
       (gate) =>

@@ -39,6 +39,7 @@ class MissionMode(AgentMode):
         self._gate: MissionGate | None = None
         self._default_max_iterations = 20
         self._max_retries_per_story = 3
+        self._default_verification_instructions = ""
         self._default_verify_command = ""
 
     # ── commands ──
@@ -84,15 +85,13 @@ class MissionMode(AgentMode):
     def setup(self, workspace: object) -> None:
         """Register MissionGate in a separate handler."""
         super().setup(workspace)
-        self._default_max_iterations = (
-            workspace.config.running.loop.mission.max_iterations
+        mission_config = workspace.config.running.loop.mission
+        self._default_max_iterations = mission_config.max_iterations
+        self._max_retries_per_story = mission_config.max_retries_per_story
+        self._default_verification_instructions = (
+            mission_config.default_verification_instructions
         )
-        self._max_retries_per_story = (
-            workspace.config.running.loop.mission.max_retries_per_story
-        )
-        self._default_verify_command = (
-            workspace.config.running.loop.mission.default_verify_command
-        )
+        self._default_verify_command = mission_config.default_verify_command
 
         from .gates import MissionGate as _MG
         from ...loop.gates import (
@@ -220,6 +219,9 @@ class MissionMode(AgentMode):
             agent_id=agent_id,
             session_id=session_id,
             verify_commands=parsed["verify_commands"],
+            verification_instructions=(
+                self._default_verification_instructions
+            ),
             max_iterations=parsed["max_iterations"],
             max_retries_per_story=self._max_retries_per_story,
         )

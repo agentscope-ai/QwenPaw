@@ -283,7 +283,11 @@ describe("useAgentConfig", () => {
           id: "rubric-1",
           type: "completion_rubric" as const,
           enabled: true,
-          params: { pass_threshold: 0.8 },
+          params: {
+            prompt: "Every explicit requirement is complete.",
+            completion_signal: "DONE",
+            continuation_prompt: "Continue working.",
+          },
         },
       ],
     };

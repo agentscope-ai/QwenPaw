@@ -720,6 +720,7 @@ not sufficient.  Clean up after yourself.
   ```
 - **Files changed by the worker** (from progress.txt)
 - **Acceptance criteria** from the story
+- **Additional verification instructions**: {verification_instructions}
 - **Verify command**: {verify_commands}
 
 ## Verification Strategy
@@ -812,8 +813,11 @@ def build_verifier_prompt(
     *,
     loop_dir: str,
     verify_commands: str = "",
+    verification_instructions: str = "",
 ) -> str:
     """Render the verifier prompt template."""
+    if not verification_instructions:
+        verification_instructions = "(none specified)"
     if not verify_commands:
         verify_commands = "(none specified — rely on acceptance criteria)"
         verify_step = ""
@@ -822,6 +826,7 @@ def build_verifier_prompt(
 
     return VERIFIER_PROMPT_TEMPLATE.format(
         loop_dir=loop_dir,
+        verification_instructions=verification_instructions,
         verify_commands=verify_commands,
         verify_step=verify_step,
     )
@@ -838,6 +843,7 @@ def build_master_prompt(
     agent_id: str,
     max_iterations: int = 20,
     verify_commands: str = "",
+    verification_instructions: str = "",
     max_retries_per_story: int = 3,
     prd_path: str = "",
     progress_path: str = "",
@@ -866,6 +872,7 @@ def build_master_prompt(
     verifier_tpl = build_verifier_prompt(
         loop_dir=loop_dir,
         verify_commands=verify_commands,
+        verification_instructions=verification_instructions,
     )
 
     return MASTER_PROMPT.format(

@@ -1224,13 +1224,9 @@ class CustomLoopModeConfig(BaseModel):
         gate_types = [gate.type for gate in self.gates if gate.enabled]
         if len(gate_types) != len(set(gate_types)):
             raise ValueError("Gate types cannot be repeated")
-        if {
-            "completion_rubric",
-            "text_response_retry",
-        }.issubset(gate_types):
-            raise ValueError(
-                "Completion rubric conflicts with text response retry",
-            )
+        from ..loop.catalog import get_gate_catalog
+
+        get_gate_catalog().validate_exclusive_groups(gate_types)
         if self.enabled and not gate_types:
             raise ValueError("Enabled custom modes require an enabled gate")
         return self
@@ -1248,6 +1244,10 @@ class MissionLoopModeConfig(BaseModel):
 
     max_iterations: int = Field(default=20, ge=1, le=100)
     max_retries_per_story: int = Field(default=3, ge=0, le=10)
+    default_verification_instructions: str = Field(
+        default="",
+        max_length=4000,
+    )
     default_verify_command: str = Field(default="", max_length=2000)
 
 

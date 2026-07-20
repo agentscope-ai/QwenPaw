@@ -25,7 +25,7 @@ from .limits import TimeoutGate, TokenBudgetGate, ToolCallBudgetGate
 from .runner import run_stop_handlers
 from .loop_gate import LoopGate
 from .rubric import (
-    StandaloneRubricGate,
+    QualitativeRubricGate,
     DefaultRubric,
     GoalStatusRubric,
     RubricEvaluation,
@@ -38,7 +38,7 @@ __all__ = [
     "BudgetGate",
     "CompletionRubricGate",
     "ConfiguredGate",
-    "StandaloneRubricGate",
+    "QualitativeRubricGate",
     "DefaultRubric",
     "DoomLoopGate",
     "FileLoopGate",

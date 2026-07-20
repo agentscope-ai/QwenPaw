@@ -13,7 +13,7 @@ from qwenpaw.loop.gates.base import (
     StopHandlerRegistration,
 )
 from qwenpaw.loop.gates.handler import StopHandler
-from qwenpaw.loop.gates.rubric import StandaloneRubricGate
+from qwenpaw.loop.gates.rubric import QualitativeRubricGate
 from qwenpaw.loop.gates.runner import _filter_by_scope
 from qwenpaw.modes.goal.goal_mode import GoalMode, GoalSession
 from qwenpaw.modes.mission import MissionMode
@@ -189,11 +189,11 @@ async def test_runtime_awaits_mode_turn_start_callbacks():
 
 
 @pytest.mark.asyncio
-async def test_standalone_rubric_state_is_session_isolated():
+async def test_qualitative_rubric_state_is_session_isolated():
     """Resetting one rubric session leaves another session untouched."""
-    gate = StandaloneRubricGate(
-        prompt="continue",
-        max_interventions=1,
+    gate = QualitativeRubricGate(
+        rubric="continue",
+        max_evaluations=1,
     )
 
     with patch(

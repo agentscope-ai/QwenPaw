@@ -9,7 +9,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Callable, Optional, cast
 
 from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
@@ -77,12 +77,18 @@ def _get_acp_service() -> Any:
     # ``qwenpaw.agents.acp.__getattr__`` lazy-loader; pylint can't see them.
     from ..acp import get_acp_service, init_acp_service
 
+    get_service = cast(Callable[[str], Any], get_acp_service)
+    init_service = cast(
+        Callable[[str, ACPConfig], Any],
+        init_acp_service,
+    )
+
     agent_id = get_current_agent_id()
     agent_config = load_agent_config(agent_id)
     acp_config = agent_config.acp or ACPConfig()
-    service = get_acp_service(agent_id)
+    service = get_service(agent_id)
     if service is None or getattr(service, "config", None) != acp_config:
-        service = init_acp_service(agent_id, acp_config)
+        service = init_service(agent_id, acp_config)
     return service
 
 

@@ -199,6 +199,7 @@ async def start_mission(
     session_id: str,
     verify_commands: str,
     max_iterations: int,
+    verification_instructions: str = "",
     max_retries_per_story: int = 3,
 ) -> tuple[str, Path]:
     """Create state files and return (prompt, loop_dir).
@@ -227,6 +228,7 @@ async def start_mission(
         "current_phase": "prd_generation",
         "session_id": session_id,
         "verify_commands": verify_commands,
+        "verification_instructions": verification_instructions,
         "max_retries_per_story": max_retries_per_story,
     }
     write_loop_config(loop_dir, loop_config)
@@ -244,6 +246,7 @@ async def start_mission(
         agent_id=agent_id,
         max_iterations=max_iterations,
         verify_commands=verify_commands,
+        verification_instructions=verification_instructions,
         max_retries_per_story=max_retries_per_story,
         git_context=git_ctx,
         workspace_dir=str(workspace_dir),
