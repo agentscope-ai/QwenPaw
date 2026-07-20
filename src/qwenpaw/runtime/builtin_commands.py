@@ -357,6 +357,7 @@ async def _save_agent_state(
     proxy.data = {"state": state.model_dump(mode="json")}
     if scroll_block is not None:
         proxy.data["scroll"] = scroll_block
+    proxy.data["mode_state"] = getattr(ctx, "mode_state", {})
     await session.save_session_state(
         session_id=ctx.session_id,
         user_id=user_id or ctx.session_id,
@@ -410,6 +411,9 @@ def _make_conversation_adapter(name: str) -> CommandSpec:
         if state is None:
             return None
         existing_scroll = payload.get("scroll")
+        mode_state = payload.get("mode_state")
+        if isinstance(mode_state, dict):
+            ctx.mode_state = dict(mode_state)
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
         ws_dir = str(getattr(workspace, "workspace_dir", "")) or None

@@ -208,7 +208,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Write the rolling compaction summary."""
         self._state.summary = value or ""
 
-    def _reset_modes(
+    async def _reset_modes(
         self,
     ) -> None:
         """Reset mode-owned state on /new or /clear."""
@@ -224,7 +224,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             [],
         ):
             try:
-                mode.on_conversation_reset(ctx)
+                await mode.on_conversation_reset(ctx)
             except Exception:  # noqa: BLE001
                 logger.warning(
                     "mode '%s' reset raised",
@@ -564,7 +564,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     async def _process_new(self, messages: list[Msg], _args: str = "") -> Msg:
         """Process /new command."""
-        self._reset_modes()
+        await self._reset_modes()
         if not messages:
             self._set_summary("")
             return await self._make_system_msg(
@@ -605,7 +605,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Process /clear command."""
         await self._persist_and_clear()
         self._set_summary("")
-        self._reset_modes()
+        await self._reset_modes()
         return await self._make_system_msg(
             "**History Cleared!**\n\n"
             "- Compressed summary reset\n"

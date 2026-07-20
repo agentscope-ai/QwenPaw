@@ -63,6 +63,20 @@ BUILTIN_LOOPS = (
 )
 
 
+def _session_context_state(
+    saved_state: dict[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return the agent payload and its persisted mode_state."""
+    agent_state = saved_state or {}
+    nested_agent = agent_state.get("agent")
+    if isinstance(nested_agent, dict):
+        agent_state = nested_agent
+    mode_state = agent_state.get("mode_state")
+    if not isinstance(mode_state, dict):
+        mode_state = {}
+    return agent_state, mode_state
+
+
 @router.get("", response_model=list[LoopModeInfo])
 async def list_loops(request: Request) -> list[LoopModeInfo]:
     """List built-in, custom, and plugin-provided loops."""
@@ -100,9 +114,11 @@ async def get_loop_status(
 
     catalog, runtime_modes = _build_loop_catalog(workspace)
     by_id = {mode.id: mode for mode in catalog}
+    agent_state, mode_state = _session_context_state(session_state)
     ctx = SimpleNamespace(
         session_id=session_id,
-        session_state=session_state,
+        session_state=agent_state,
+        mode_state=mode_state,
         workspace=workspace,
         agent_config=workspace.config,
         agent=getattr(workspace, "agent", None),

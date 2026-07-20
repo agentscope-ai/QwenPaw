@@ -144,7 +144,7 @@ class GoalMode(AgentMode):
         if key is not None:
             self._sessions.pop(key, None)
 
-    def on_conversation_reset(
+    async def on_conversation_reset(
         self,
         ctx: HookContext,
     ) -> None:

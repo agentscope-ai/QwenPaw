@@ -69,7 +69,7 @@ class DefaultMode(AgentMode):
             self._config_key = config_key
         self._handler.reset_turn()
 
-    def on_conversation_reset(self, ctx: HookContext) -> None:
+    async def on_conversation_reset(self, ctx: HookContext) -> None:
         """Clear current-session gates and deferred agent decisions."""
         self._handler.reset_session()
         clear_pending_gate_state(ctx.agent)

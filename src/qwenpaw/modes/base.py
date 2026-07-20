@@ -71,7 +71,7 @@ class AgentMode:
     ) -> None:
         """Prepare mode-owned state for a new user turn."""
 
-    def on_conversation_reset(
+    async def on_conversation_reset(
         self,
         ctx: HookContext,  # noqa: ARG002
     ) -> None:

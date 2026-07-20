@@ -125,19 +125,29 @@ class MissionMode(AgentMode):
         if self._gate is not None:
             await asyncio.to_thread(self._gate.restore, ctx)
 
-    def on_conversation_reset(
+    async def on_conversation_reset(
         self,
-        ctx: HookContext,  # noqa: ARG002
+        ctx: HookContext,
     ) -> None:
         """Clear active mission gate state."""
         if self._gate is not None:
             self._gate.reset_session()
+        ctx.mode_state.pop(self.name, None)
+
+    async def sync_persistent_state(self, ctx: HookContext) -> None:
+        """Refresh the persisted view from the current MissionGate."""
+        snapshot = None
+        if self._gate is not None:
+            snapshot = await self._gate.persistence_snapshot()
+        if snapshot is None:
+            ctx.mode_state.pop(self.name, None)
+        else:
+            ctx.mode_state[self.name] = snapshot
 
     def is_active(self, ctx: HookContext) -> bool:
+        saved = ctx.mode_state.get(self.name, {})
         return self._is_gate_active() or bool(
-            (ctx.session_state or {}).get(
-                "mission_active",
-            ),
+            isinstance(saved, dict) and saved.get("active"),
         )
 
     # ── command handler ──
@@ -216,6 +226,11 @@ class MissionMode(AgentMode):
 
         if self._gate is not None:
             self._gate.activate_for_mission(loop_dir)
+        ctx.mode_state[self.name] = {
+            "active": True,
+            "loop_dir": str(loop_dir),
+            "phase": "prd_generation",
+        }
 
         _rewrite_user_msg(ctx, prompt)
         logger.info(

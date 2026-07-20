@@ -18,6 +18,7 @@ from qwenpaw.modes.custom_loop.mode import (
     LoopModeActivationStore,
 )
 from qwenpaw.modes.goal.goal_mode import GoalMode, GoalSession
+from qwenpaw.modes.mission import MissionMode
 
 
 def _mode(mode_id: str = "quality") -> CustomLoopModeConfig:
@@ -268,6 +269,47 @@ def test_loop_status_reports_goal_for_only_its_session(
 
     assert active.json()["mode"]["id"] == "goal"
     assert idle.json() == {"state": "idle", "mode": None}
+
+
+def test_loop_status_restores_stage_one_mission(client, workspace) -> None:
+    """Persisted Mission Stage 1 remains visible after mode reload."""
+    chat = SimpleNamespace(
+        id="chat-a",
+        session_id="session-a",
+        user_id="user-a",
+        channel="console",
+    )
+    workspace.plugins.modes = [MissionMode()]
+    workspace.chat_manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=chat),
+    )
+    workspace.task_tracker = SimpleNamespace(
+        get_status=AsyncMock(return_value="idle"),
+    )
+    workspace.session = SimpleNamespace(
+        get_session_state_dict=AsyncMock(
+            return_value={
+                "agent": {
+                    "mode_state": {
+                        "mission": {
+                            "active": True,
+                            "loop_dir": "/tmp/mission-stage-one",
+                            "phase": "prd_generation",
+                        },
+                    },
+                },
+            },
+        ),
+    )
+
+    response = client[0].get(
+        "/api/loops/status",
+        params={"chat_id": "chat-a"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "awaiting_user"
+    assert response.json()["mode"]["id"] == "mission"
 
 
 def test_loop_status_reports_custom_mode(client, workspace) -> None:

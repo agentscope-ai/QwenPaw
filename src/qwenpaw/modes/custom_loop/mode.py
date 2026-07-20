@@ -114,12 +114,12 @@ class DeclarativeLoopMode(AgentMode):
         """Return whether this mode owns the current session."""
         return self._activation_store.current(ctx.session_id) == self.config.id
 
-    def on_turn_start(self, ctx: HookContext) -> None:
+    async def on_turn_start(self, ctx: HookContext) -> None:
         """Reset gates only when this mode is active."""
         if self.is_active(ctx):
             self._handler.reset_turn()
 
-    def on_conversation_reset(self, ctx: HookContext) -> None:
+    async def on_conversation_reset(self, ctx: HookContext) -> None:
         """Clear this mode's current-session state."""
         self._handler.reset_session()
 
@@ -175,7 +175,7 @@ class CustomLoopController(AgentMode):
             ),
         ]
 
-    def on_conversation_reset(self, ctx: HookContext) -> None:
+    async def on_conversation_reset(self, ctx: HookContext) -> None:
         """Clear current custom activation on conversation reset."""
         self._activation_store.deactivate(ctx.session_id)
 

@@ -102,7 +102,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         self._governor = governor
         self._gate_pending_stop = None
-        self._gate_pending_continue = None
 
         self.memory_manager = memory_manager
 

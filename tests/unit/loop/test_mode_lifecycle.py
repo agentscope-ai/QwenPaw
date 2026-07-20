@@ -18,6 +18,7 @@ from qwenpaw.loop.gates.runner import _filter_by_scope
 from qwenpaw.modes.goal.goal_mode import GoalMode, GoalSession
 from qwenpaw.modes.mission import MissionMode
 from qwenpaw.modes.mission.gates import MissionGate
+from qwenpaw.modes.mission.state import write_loop_config
 from qwenpaw.runtime.runtime import Runtime
 
 
@@ -66,14 +67,15 @@ def test_unscoped_plugin_handler_is_always_selected():
     assert selected == [plugin, goal]
 
 
-def test_goal_reset_removes_only_current_session():
+@pytest.mark.asyncio
+async def test_goal_reset_removes_only_current_session():
     """Conversation reset does not clear another goal conversation."""
     mode = GoalMode()
     mode._sessions["session-a"] = GoalSession(goal="first")
     mode._sessions["session-b"] = GoalSession(goal="second")
     ctx = SimpleNamespace(session_id="session-a")
 
-    mode.on_conversation_reset(ctx)
+    await mode.on_conversation_reset(ctx)
 
     assert "session-a" not in mode._sessions
     assert "session-b" in mode._sessions
@@ -107,10 +109,12 @@ async def test_mission_turn_start_restores_persisted_session(tmp_path):
     mode = MissionMode()
     mode._gate = MissionGate()
     ctx = SimpleNamespace(
-        session_state={
-            "mission_active": True,
-            "mission_loop_dir": str(tmp_path),
-            "mission_phase": "execution",
+        mode_state={
+            "mission": {
+                "active": True,
+                "loop_dir": str(tmp_path),
+                "phase": "execution",
+            },
         },
     )
 
@@ -120,6 +124,46 @@ async def test_mission_turn_start_restores_persisted_session(tmp_path):
     ):
         await mode.on_turn_start(ctx)
         assert mode._is_gate_active()
+
+
+@pytest.mark.asyncio
+async def test_mission_state_uses_session_lifecycle_and_reset(tmp_path):
+    """Stage 1 phase persists and reset clears the same mode_state."""
+    write_loop_config(
+        tmp_path,
+        {"current_phase": "prd_generation"},
+    )
+    mode = MissionMode()
+    mode._gate = MissionGate()
+    ctx = SimpleNamespace(mode_state={})
+
+    with patch(
+        "qwenpaw.loop.gates.loop_gate._session_id",
+        return_value="mission-session",
+    ):
+        mode._gate.activate_for_mission(tmp_path)
+        await mode.sync_persistent_state(ctx)
+
+        assert ctx.mode_state == {
+            "mission": {
+                "active": True,
+                "loop_dir": str(tmp_path),
+                "phase": "prd_generation",
+            },
+        }
+
+        write_loop_config(
+            tmp_path,
+            {"current_phase": "execution_confirmed"},
+        )
+        await mode.sync_persistent_state(ctx)
+
+        assert ctx.mode_state["mission"]["phase"] == "execution_confirmed"
+
+        await mode.on_conversation_reset(ctx)
+
+        assert ctx.mode_state == {}
+        assert not mode._is_gate_active()
 
 
 @pytest.mark.asyncio
