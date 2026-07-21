@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Modal, Select } from "@agentscope-ai/design";
+import { Button, Modal, Select, Switch } from "@agentscope-ai/design";
 import { SaveOutlined, UndoOutlined } from "@ant-design/icons";
 import { Spin } from "antd";
 import { useTranslation } from "react-i18next";
@@ -45,6 +45,7 @@ export function SessionModelOverridesModal({
   const { message } = useAppMessage();
   const [data, setData] = useState<SessionModelOverridesInfo | null>(null);
   const [loading, setLoading] = useState(false);
+  const [featureSaving, setFeatureSaving] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, DraftSlot>>({});
 
@@ -214,6 +215,29 @@ export function SessionModelOverridesModal({
     });
   };
 
+  const handleFeatureToggle = async (enabled: boolean) => {
+    setFeatureSaving(true);
+    try {
+      await api.setSessionModelOverridesEnabled(enabled);
+      message.success(
+        t(
+          enabled
+            ? "models.sessionModelFeatureEnabled"
+            : "models.sessionModelFeatureDisabled",
+        ),
+      );
+      await loadData();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.sessionModelFeatureSaveFailed");
+      message.error(errMsg);
+    } finally {
+      setFeatureSaving(false);
+    }
+  };
+
   const renderSession = (
     agent: AgentSessionModelsInfo,
     session: SessionModelInfo,
@@ -222,6 +246,7 @@ export function SessionModelOverridesModal({
     const models = getModels(draft.providerId);
     const canSave = !!draft.dirty && !!draft.providerId && !!draft.model;
     const key = sessionKey(agent.agent_id, session.session_id);
+    const featureEnabled = data?.enabled ?? false;
 
     return (
       <div key={session.id} className={styles.sessionModelRow}>
@@ -252,6 +277,7 @@ export function SessionModelOverridesModal({
         <div className={styles.sessionModelControls}>
           <Select
             className={styles.sessionModelProviderSelect}
+            disabled={!featureEnabled}
             placeholder={t("models.selectProvider")}
             value={draft.providerId}
             onChange={(providerId) =>
@@ -272,7 +298,7 @@ export function SessionModelOverridesModal({
                 ? t("models.selectModel")
                 : t("models.addModelFirst")
             }
-            disabled={models.length === 0}
+            disabled={!featureEnabled || models.length === 0}
             showSearch
             optionFilterProp="label"
             value={draft.model}
@@ -287,7 +313,7 @@ export function SessionModelOverridesModal({
           <Button
             type="primary"
             icon={<SaveOutlined />}
-            disabled={!canSave}
+            disabled={!featureEnabled || !canSave}
             loading={savingKey === key}
             onClick={() => handleSave(agent, session)}
           >
@@ -295,7 +321,7 @@ export function SessionModelOverridesModal({
           </Button>
           <Button
             icon={<UndoOutlined />}
-            disabled={session.model_source !== "session"}
+            disabled={!featureEnabled || session.model_source !== "session"}
             loading={savingKey === key}
             onClick={() => handleReset(agent, session)}
           >
@@ -317,6 +343,22 @@ export function SessionModelOverridesModal({
       className={styles.sessionModelOverridesModal}
     >
       <div className={styles.sessionModelModal}>
+        <div className={styles.sessionModelFeatureToggle}>
+          <div>
+            <div className={styles.sessionModelFeatureTitle}>
+              {t("models.sessionModelFeatureLabel")}
+            </div>
+            <div className={styles.sessionModelFeatureDescription}>
+              {t("models.sessionModelFeatureDescription")}
+            </div>
+          </div>
+          <Switch
+            checked={data?.enabled ?? false}
+            loading={featureSaving}
+            disabled={loading || !data}
+            onChange={handleFeatureToggle}
+          />
+        </div>
         <div className={styles.sessionModelToolbar}>
           <p className={styles.sessionModelDescription}>
             {t("models.sessionModelDescription")}

@@ -62,6 +62,7 @@ class ActiveModelsInfo(BaseModel):
 
     active_llm: ModelSlotConfig | None
     effective_max_input_length: int | None = None
+    session_model_overrides_enabled: bool = False
 
 
 class ACPAgentConfig(BaseModel):
@@ -1545,6 +1546,13 @@ class AgentsConfig(BaseModel):
         },
         description="Agent profile references (ID and workspace path only)",
     )
+    session_model_overrides_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable per-session model overrides. When disabled, model "
+            "selection keeps the original per-agent behavior."
+        ),
+    )
 
     # Legacy fields for backward compatibility (deprecated)
     # These fields MUST have default values (not None) to support downgrade
@@ -2559,6 +2567,16 @@ def _model_slot_is_set(slot: ModelSlotConfig | None) -> bool:
     return bool(slot and slot.provider_id and slot.model)
 
 
+def session_model_overrides_enabled() -> bool:
+    """Return whether per-session model selection is globally enabled."""
+    try:
+        from .utils import load_config
+
+        return load_config().agents.session_model_overrides_enabled
+    except Exception:
+        return False
+
+
 def resolve_effective_model_slot(
     *,
     agent_config: AgentProfileConfig | None = None,
@@ -2568,7 +2586,7 @@ def resolve_effective_model_slot(
     """Resolve the model slot for a request.
 
     Resolution order is:
-    1. current session override stored on the agent profile
+    1. current session override stored on the agent profile, when enabled
     2. agent-level ``active_model``
     3. global provider manager active model
 
@@ -2582,7 +2600,7 @@ def resolve_effective_model_slot(
             agent_config = None
 
     if agent_config is not None:
-        if session_id:
+        if session_id and session_model_overrides_enabled():
             overrides = (
                 getattr(
                     agent_config,

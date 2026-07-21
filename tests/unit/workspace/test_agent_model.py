@@ -21,6 +21,13 @@ from qwenpaw.constant import (
     LLM_MAX_RETRIES,
 )
 from qwenpaw.config.config import ModelSlotConfig
+from qwenpaw.config.utils import load_config, save_config
+
+
+def _set_session_models_enabled(enabled: bool = True) -> None:
+    config = load_config()
+    config.agents.session_model_overrides_enabled = enabled
+    save_config(config)
 
 
 @pytest.fixture
@@ -128,6 +135,7 @@ def test_effective_model_resolution_prefers_session_then_agent(
     mock_agent_workspace,
 ):  # pylint: disable=redefined-outer-name,unused-argument
     """Test session overrides take precedence over agent defaults."""
+    _set_session_models_enabled()
     agent_config = load_agent_config("test_agent")
     agent_config.active_model = ModelSlotConfig(
         provider_id="openai",
@@ -158,12 +166,35 @@ def test_effective_model_resolution_prefers_session_then_agent(
     assert model_slot == ModelSlotConfig(provider_id="openai", model="gpt-4")
 
 
+def test_effective_model_resolution_ignores_session_when_disabled(
+    mock_agent_workspace,
+):  # pylint: disable=redefined-outer-name,unused-argument
+    """The opt-in defaults off and preserves original agent behavior."""
+    agent_config = load_agent_config("test_agent")
+    agent_config.active_model = ModelSlotConfig(
+        provider_id="openai",
+        model="gpt-4",
+    )
+    agent_config.session_model_overrides[
+        "console:session-1"
+    ] = ModelSlotConfig(provider_id="anthropic", model="claude-sonnet")
+
+    model_slot, source = resolve_effective_model_slot(
+        agent_config=agent_config,
+        session_id="console:session-1",
+    )
+
+    assert source == "agent"
+    assert model_slot == ModelSlotConfig(provider_id="openai", model="gpt-4")
+
+
 @pytest.mark.asyncio
 async def test_model_command_switches_current_session_only(
     mock_agent_workspace,
     monkeypatch,
 ):  # pylint: disable=redefined-outer-name,unused-argument
     """Test /model writes a session override instead of agent active_model."""
+    _set_session_models_enabled()
     from qwenpaw.runtime.commands.control.base import ControlContext
     from qwenpaw.runtime.commands.control.model_handler import (
         ModelCommandHandler,
@@ -215,11 +246,59 @@ async def test_model_command_switches_current_session_only(
 
 
 @pytest.mark.asyncio
+async def test_model_command_switches_agent_when_session_models_disabled(
+    mock_agent_workspace,
+    monkeypatch,
+):  # pylint: disable=redefined-outer-name,unused-argument
+    """Test /model retains the original Agent-wide behavior by default."""
+    from qwenpaw.runtime.commands.control.base import ControlContext
+    from qwenpaw.runtime.commands.control.model_handler import (
+        ModelCommandHandler,
+    )
+
+    agent_config = load_agent_config("test_agent")
+    agent_config.active_model = ModelSlotConfig(
+        provider_id="openai",
+        model="gpt-4",
+    )
+    save_agent_config("test_agent", agent_config)
+
+    async def _validate_model(self, provider_id, model_id):
+        return True, ""
+
+    monkeypatch.setattr(
+        ModelCommandHandler,
+        "_validate_model",
+        _validate_model,
+    )
+    context = ControlContext(
+        workspace=SimpleNamespace(config=load_agent_config("test_agent")),
+        payload=None,
+        channel=None,
+        session_id="console:session-1",
+        user_id="user-1",
+        agent_id="test_agent",
+        args={"_raw_args": "anthropic:claude-sonnet"},
+    )
+
+    result = await ModelCommandHandler().handle(context)
+
+    assert "Model Switched" in result
+    reloaded = load_agent_config("test_agent")
+    assert reloaded.active_model == ModelSlotConfig(
+        provider_id="anthropic",
+        model="claude-sonnet",
+    )
+    assert reloaded.session_model_overrides == {}
+
+
+@pytest.mark.asyncio
 async def test_active_model_endpoint_prefers_session_override(
     mock_agent_workspace,
     monkeypatch,
 ):  # pylint: disable=redefined-outer-name,unused-argument
     """Test active model API prefers session overrides."""
+    _set_session_models_enabled()
     from qwenpaw.app.routers import providers as providers_router
 
     agent_config = load_agent_config("test_agent")
@@ -241,6 +320,9 @@ async def test_active_model_endpoint_prefers_session_override(
     class _Manager:
         def get_active_model(self):
             return ModelSlotConfig(provider_id="global", model="default")
+
+        def get_provider(self, _provider_id):
+            return None
 
     monkeypatch.setattr(
         providers_router,
@@ -268,6 +350,7 @@ async def test_active_model_endpoint_writes_session_override_only(
     monkeypatch,
 ):  # pylint: disable=redefined-outer-name,unused-argument
     """Test active model API session scope does not modify agent default."""
+    _set_session_models_enabled()
     from qwenpaw.app.routers import providers as providers_router
 
     agent_config = load_agent_config("test_agent")
@@ -283,6 +366,9 @@ async def test_active_model_endpoint_writes_session_override_only(
     class _Provider:
         def has_model(self, model_id):
             return model_id == "claude-3-5-sonnet-20241022"
+
+        def get_context_size(self, _model_id):
+            return 128 * 1024
 
     class _Manager:
         def get_provider(self, provider_id):
@@ -321,6 +407,7 @@ async def test_active_model_endpoint_writes_session_override_only(
         provider_id="anthropic",
         model="claude-3-5-sonnet-20241022",
     )
+    assert result.session_model_overrides_enabled is True
     assert reloaded.active_model == ModelSlotConfig(
         provider_id="openai",
         model="gpt-4",
@@ -331,6 +418,55 @@ async def test_active_model_endpoint_writes_session_override_only(
             model="claude-3-5-sonnet-20241022",
         )
     )
+
+
+@pytest.mark.asyncio
+async def test_active_model_endpoint_rejects_session_scope_when_disabled(
+    mock_agent_workspace,
+):  # pylint: disable=redefined-outer-name,unused-argument
+    """Session writes cannot bypass the disabled feature flag."""
+    from fastapi import HTTPException
+    from qwenpaw.app.routers import providers as providers_router
+
+    with pytest.raises(HTTPException) as exc_info:
+        await providers_router.set_active_model(
+            request=SimpleNamespace(),
+            manager=SimpleNamespace(),
+            body=providers_router.ModelSlotRequest(
+                provider_id="anthropic",
+                model="claude-sonnet",
+                scope="session",
+                agent_id="test_agent",
+                session_id="console:session-1",
+            ),
+        )
+
+    assert exc_info.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_session_model_feature_endpoint_persists_toggle(
+    mock_agent_workspace,
+    monkeypatch,
+):  # pylint: disable=redefined-outer-name,unused-argument
+    """The WebUI feature toggle is persisted in root config."""
+    from qwenpaw.app.routers import providers as providers_router
+
+    reloads = []
+    monkeypatch.setattr(
+        providers_router,
+        "schedule_agent_reload",
+        lambda _request, agent_id: reloads.append(agent_id),
+    )
+
+    result = await providers_router.set_session_model_overrides_enabled(
+        request=SimpleNamespace(),
+        body=providers_router.SessionModelFeatureRequest(enabled=True),
+    )
+
+    assert result.enabled is True
+    assert load_config().agents.session_model_overrides_enabled is True
+    assert reloads == ["test_agent"]
 
 
 def test_agent_model_config_persists_across_reloads(

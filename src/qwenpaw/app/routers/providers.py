@@ -23,8 +23,11 @@ from qwenpaw.exceptions import (
 from ..agent_context import get_agent_for_request
 from ..utils import schedule_agent_reload
 from ...config.config import load_agent_config, save_agent_config
-from ...config.config import resolve_effective_model_slot
-from ...config.utils import load_config
+from ...config.config import (
+    resolve_effective_model_slot,
+    session_model_overrides_enabled,
+)
+from ...config.utils import load_config, save_config
 from ...providers.provider import ProviderInfo, ModelInfo
 from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
@@ -75,6 +78,9 @@ def _active_models_info(
     return ActiveModelsInfo(
         active_llm=active_llm,
         effective_max_input_length=effective_max_input_length,
+        session_model_overrides_enabled=(
+            session_model_overrides_enabled()
+        ),
     )
 
 
@@ -131,6 +137,14 @@ class SessionModelOverrideRequest(BaseModel):
     model: str = Field(..., description="Model identifier")
 
 
+class SessionModelFeatureRequest(BaseModel):
+    enabled: bool = Field(..., description="Enable per-session models")
+
+
+class SessionModelFeatureResponse(BaseModel):
+    enabled: bool
+
+
 class SessionModelInfo(BaseModel):
     id: str = Field(..., description="Chat UUID")
     name: str = Field(..., description="Chat display name")
@@ -164,6 +178,7 @@ class AgentSessionModelsInfo(BaseModel):
 
 
 class SessionModelOverridesInfo(BaseModel):
+    enabled: bool = False
     agents: list[AgentSessionModelsInfo] = Field(default_factory=list)
 
 
@@ -382,7 +397,30 @@ async def list_session_model_overrides(
                 agent_id,
                 exc_info=True,
             )
-    return SessionModelOverridesInfo(agents=agents)
+    return SessionModelOverridesInfo(
+        enabled=config.agents.session_model_overrides_enabled,
+        agents=agents,
+    )
+
+
+@router.put(
+    "/session-overrides",
+    response_model=SessionModelFeatureResponse,
+    summary="Enable or disable per-session model overrides",
+)
+async def set_session_model_overrides_enabled(
+    request: Request,
+    body: SessionModelFeatureRequest = Body(...),
+) -> SessionModelFeatureResponse:
+    """Toggle per-session models while preserving existing overrides."""
+    config = load_config()
+    config.agents.session_model_overrides_enabled = body.enabled
+    save_config(config)
+
+    for agent_id in _ordered_agent_ids(config):
+        schedule_agent_reload(request, agent_id)
+
+    return SessionModelFeatureResponse(enabled=body.enabled)
 
 
 @router.put(
@@ -398,6 +436,11 @@ async def set_session_model_override_endpoint(
     manager: ProviderManager = Depends(get_provider_manager),
 ) -> SessionModelMutationResponse:
     """Set the model override used by one agent session."""
+    if not session_model_overrides_enabled():
+        raise HTTPException(
+            status_code=409,
+            detail="Per-session model overrides are disabled",
+        )
     _validate_model_slot(manager, body.provider_id, body.model)
 
     try:
@@ -1039,6 +1082,12 @@ async def set_active_model(
             detail=f"agent_id is required when scope is '{body.scope}'",
         )
 
+    if body.scope == "session" and not session_model_overrides_enabled():
+        raise HTTPException(
+            status_code=409,
+            detail="Per-session model overrides are disabled",
+        )
+
     _validate_model_slot(manager, body.provider_id, body.model)
 
     if body.scope == "session":
@@ -1076,7 +1125,7 @@ async def set_active_model(
             ) from exc
 
         manager.maybe_probe_multimodal(body.provider_id, body.model)
-        return ActiveModelsInfo(active_llm=slot)
+        return _active_models_info(manager, slot)
 
     try:
         workspace = await get_agent_for_request(

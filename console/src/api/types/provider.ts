@@ -95,6 +95,7 @@ export interface ModelSlotConfig {
 export interface ActiveModelsInfo {
   active_llm?: ModelSlotConfig;
   effective_max_input_length?: number | null;
+  session_model_overrides_enabled?: boolean;
 }
 
 export type ActiveModelScope = "effective" | "global" | "agent";
@@ -141,7 +142,12 @@ export interface AgentSessionModelsInfo {
 }
 
 export interface SessionModelOverridesInfo {
+  enabled: boolean;
   agents: AgentSessionModelsInfo[];
+}
+
+export interface SessionModelFeatureResponse {
+  enabled: boolean;
 }
 
 export interface SessionModelOverrideRequest {

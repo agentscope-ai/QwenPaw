@@ -75,6 +75,9 @@ export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
   const { selectedAgent } = useAgentStore();
   const { message } = useAppMessage();
   const normalizedSessionId = sessionId || undefined;
+  const useSessionModelScope = Boolean(
+    normalizedSessionId && activeModels?.session_model_overrides_enabled,
+  );
 
   const getActiveModelRequest = useCallback((): GetActiveModelsRequest => {
     return {
@@ -88,11 +91,11 @@ export default function ModelSelector({ sessionId }: ModelSelectorProps = {}) {
     (providerId: string, modelId: string): ModelSlotRequest => ({
       provider_id: providerId,
       model: modelId,
-      scope: normalizedSessionId ? "session" : "agent",
+      scope: useSessionModelScope ? "session" : "agent",
       agent_id: selectedAgent,
-      ...(normalizedSessionId ? { session_id: normalizedSessionId } : {}),
+      ...(useSessionModelScope ? { session_id: normalizedSessionId } : {}),
     }),
-    [selectedAgent, normalizedSessionId],
+    [selectedAgent, normalizedSessionId, useSessionModelScope],
   );
 
   const [showMoreFree, setShowMoreFree] = useState(false);

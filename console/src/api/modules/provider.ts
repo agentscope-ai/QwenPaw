@@ -24,6 +24,7 @@ import type {
   SessionModelOverrideRequest,
   SessionModelMutationResponse,
   SessionModelResetAllResponse,
+  SessionModelFeatureResponse,
 } from "../types";
 
 function buildActiveModelQuery(params?: GetActiveModelsRequest): string {
@@ -85,6 +86,12 @@ export const providerApi = {
 
   getSessionModelOverrides: () =>
     request<SessionModelOverridesInfo>("/models/session-overrides"),
+
+  setSessionModelOverridesEnabled: (enabled: boolean) =>
+    request<SessionModelFeatureResponse>("/models/session-overrides", {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
 
   setSessionModelOverride: (
     agentId: string,

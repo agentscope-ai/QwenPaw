@@ -92,6 +92,7 @@ const mockProvider = {
 
 const mockActiveModels = {
   active_llm: { provider_id: "openai", model: "gpt-4" },
+  session_model_overrides_enabled: false,
 };
 
 function setupDefaultMocks() {
@@ -185,6 +186,10 @@ describe("ModelSelector", () => {
   });
 
   it("clicking a model writes a session override when sessionId is provided", async () => {
+    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
+      ...mockActiveModels,
+      session_model_overrides_enabled: true,
+    });
     const user = userEvent.setup();
     renderWithProviders(<ModelSelector sessionId="console:session-1" />);
     await screen.findAllByText("GPT-4");
@@ -199,6 +204,22 @@ describe("ModelSelector", () => {
       scope: "session",
       agent_id: "default",
       session_id: "console:session-1",
+    });
+  });
+
+  it("keeps agent scope when per-session models are disabled", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector sessionId="console:session-1" />);
+    await screen.findAllByText("GPT-4");
+
+    await user.click(screen.getAllByText("GPT-4")[0]);
+    await user.click(await screen.findByText("GPT-3.5 Turbo"));
+
+    expect(providerApi.setActiveLlm).toHaveBeenCalledWith({
+      provider_id: "openai",
+      model: "gpt-3.5-turbo",
+      scope: "agent",
+      agent_id: "default",
     });
   });
 

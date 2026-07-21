@@ -75,6 +75,14 @@ describe("providerApi", () => {
     expect(request).toHaveBeenCalledWith("/models/session-overrides");
   });
 
+  it("setSessionModelOverridesEnabled sends a PUT request", async () => {
+    await providerApi.setSessionModelOverridesEnabled(true);
+    expect(request).toHaveBeenCalledWith("/models/session-overrides", {
+      method: "PUT",
+      body: JSON.stringify({ enabled: true }),
+    });
+  });
+
   it("setSessionModelOverride encodes ids and sends PUT", async () => {
     const body = { provider_id: "openai", model: "gpt-4o" };
     await providerApi.setSessionModelOverride(
