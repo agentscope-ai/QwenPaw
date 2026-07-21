@@ -130,6 +130,37 @@ def test_rekey_session_preserves_seq_and_deduplicates(store: HistoryStore):
     assert duplicate not in {row["seq"] for row in rows}
 
 
+def test_delete_session_removes_only_target_and_keeps_fts_in_sync(
+    store: HistoryStore,
+):
+    store.append(
+        session_id="deleted",
+        dedup_key="gone",
+        entry=_entry("uniquedeletedtoken"),
+    )
+    store.append(
+        session_id="retained",
+        dedup_key="kept",
+        entry=_entry("uniqueretainedtoken"),
+    )
+
+    assert store.delete_session("deleted") == 1
+    assert store.count("deleted") == 0
+    assert store.count("retained") == 1
+    assert store.delete_session("deleted") == 0
+    if store._fts:
+        gone = store._conn.execute(
+            "SELECT rowid FROM conversation_history_fts WHERE "
+            "conversation_history_fts MATCH 'uniquedeletedtoken'",
+        ).fetchall()
+        kept = store._conn.execute(
+            "SELECT rowid FROM conversation_history_fts WHERE "
+            "conversation_history_fts MATCH 'uniqueretainedtoken'",
+        ).fetchall()
+        assert gone == []
+        assert len(kept) == 1
+
+
 def test_null_dedup_key_is_never_deduped(store: HistoryStore):
     store.append(session_id="s", dedup_key=None, entry=_entry("x"))
     store.append(session_id="s", dedup_key=None, entry=_entry("x"))

@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """Chat management API."""
 from __future__ import annotations
+import asyncio
 import logging
+from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -67,6 +69,102 @@ async def get_session(
     """
     workspace = await get_workspace(request)
     return workspace.session
+
+
+def _history_db_path(workspace) -> Path:
+    """Return the configured scroll history path for one workspace."""
+    filename = "history.db"
+    try:
+        filename = (
+            workspace.config.running.light_context_config.scroll_config
+        ).db_filename
+    except (AttributeError, TypeError):
+        pass
+    return Path(workspace.workspace_dir) / filename
+
+
+def _delete_history_sessions(db_path: Path, session_ids: set[str]) -> int:
+    """Synchronously remove sessions from an existing scroll database."""
+    if not db_path.is_file() or not session_ids:
+        return 0
+
+    from ...agents.context.scroll.history import HistoryStore
+
+    history = HistoryStore(db_path)
+    try:
+        return sum(history.delete_session(sid) for sid in session_ids)
+    finally:
+        history.close()
+
+
+async def _delete_chat_data(
+    chat_ids: list[str],
+    *,
+    mgr: ChatManager,
+    session: SafeJSONSession,
+    workspace,
+) -> bool:
+    """Delete chat specs and their unreferenced live persistence."""
+
+    async def cleanup(selected: list[ChatSpec], retained: list[ChatSpec]):
+        running = [
+            chat.id
+            for chat in selected
+            if await workspace.task_tracker.get_status(chat.id) == "running"
+        ]
+        if running:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Chat is currently in progress, stop it before deleting"
+                ),
+            )
+
+        retained_state_keys = {
+            (chat.session_id, chat.user_id, chat.channel) for chat in retained
+        }
+        state_keys = {
+            (chat.session_id, chat.user_id, chat.channel) for chat in selected
+        } - retained_state_keys
+        retained_legacy_keys = {
+            (chat.session_id, chat.user_id) for chat in retained
+        }
+
+        retained_session_ids = {chat.session_id for chat in retained}
+        history_session_ids = {
+            chat.session_id for chat in selected
+        } - retained_session_ids
+
+        for session_id, user_id, channel in state_keys:
+            await session.delete_session_state(
+                session_id,
+                user_id,
+                channel,
+                delete_legacy=(
+                    session_id,
+                    user_id,
+                )
+                not in retained_legacy_keys,
+            )
+        await asyncio.to_thread(
+            _delete_history_sessions,
+            _history_db_path(workspace),
+            history_session_ids,
+        )
+
+    try:
+        return await mgr.delete_chats(
+            chat_ids=chat_ids,
+            before_delete=cleanup,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to delete persisted chat data")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to delete persisted chat data",
+        ) from exc
 
 
 @router.get("", response_model=list[ChatSpec])
@@ -135,8 +233,10 @@ async def create_chat(
 async def batch_delete_chats(
     chat_ids: list[str],
     mgr: ChatManager = Depends(get_chat_manager),
+    session: SafeJSONSession = Depends(get_session),
+    workspace=Depends(get_workspace),
 ):
-    """Delete chats by chat IDs.
+    """Delete chats and their unreferenced persisted state by chat IDs.
 
     Args:
         chat_ids: List of chat IDs
@@ -145,7 +245,12 @@ async def batch_delete_chats(
         True if deleted, False if failed
 
     """
-    deleted = await mgr.delete_chats(chat_ids=chat_ids)
+    deleted = await _delete_chat_data(
+        chat_ids,
+        mgr=mgr,
+        session=session,
+        workspace=workspace,
+    )
     return {"deleted": deleted}
 
 
@@ -344,11 +449,10 @@ async def update_chat(
 async def delete_chat(
     chat_id: str,
     mgr: ChatManager = Depends(get_chat_manager),
+    session: SafeJSONSession = Depends(get_session),
+    workspace=Depends(get_workspace),
 ):
-    """Delete a chat by UUID.
-
-    Note: This only deletes the chat spec (UUID mapping).
-    JSONSession state is NOT deleted.
+    """Delete a chat and its unreferenced persisted state by UUID.
 
     Args:
         chat_id: Chat UUID
@@ -360,7 +464,12 @@ async def delete_chat(
     Raises:
         HTTPException: If chat not found (404)
     """
-    deleted = await mgr.delete_chats(chat_ids=[chat_id])
+    deleted = await _delete_chat_data(
+        [chat_id],
+        mgr=mgr,
+        session=session,
+        workspace=workspace,
+    )
     if not deleted:
         raise HTTPException(
             status_code=404,

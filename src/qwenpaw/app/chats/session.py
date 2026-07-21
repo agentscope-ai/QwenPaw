@@ -443,3 +443,61 @@ class SafeJSONSession:
                 f"because it does not exist"
             ),
         )
+
+    async def delete_session_state(
+        self,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+        *,
+        delete_legacy: bool = True,
+    ) -> bool:
+        """Delete the live JSON state for one conversation.
+
+        Channel-scoped state used to live directly under ``save_dir``. The
+        read path migrates that legacy file into the channel directory, so a
+        deletion normally removes both locations or the legacy copy could
+        resurrect the session on the next read.
+
+        Returns ``True`` when at least one file was removed.
+        """
+        if not session_id:
+            raise ValueError("session_id must not be None or empty")
+
+        safe_sid = sanitize_filename(session_id)
+        safe_uid = sanitize_filename(user_id) if user_id else ""
+        if safe_uid and safe_uid == safe_sid:
+            safe_uid = ""
+        filename = (
+            f"{safe_uid}_{safe_sid}.json" if safe_uid else f"{safe_sid}.json"
+        )
+
+        legacy_path = os.path.join(self.save_dir, filename)
+        paths = [legacy_path] if delete_legacy else []
+        if channel:
+            paths.insert(
+                0,
+                os.path.join(
+                    self.save_dir,
+                    sanitize_filename(channel),
+                    filename,
+                ),
+            )
+
+        removed = False
+        for path in dict.fromkeys(paths):
+            async with self._get_write_lock(path):
+                try:
+                    await asyncio.to_thread(os.remove, path)
+                    removed = True
+                except FileNotFoundError:
+                    pass
+        if removed:
+            logger.info(
+                "Deleted session state for session_id=%s, user_id=%s, "
+                "channel=%s",
+                session_id,
+                user_id,
+                channel,
+            )
+        return removed

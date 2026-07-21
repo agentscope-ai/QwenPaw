@@ -472,12 +472,9 @@ def test_no_notice_when_fts_available(ms: MemorySpace):
 
 def test_expand_returns_full_turns_in_span(ms: MemorySpace):
     rows = ms.expand(1, 99)
-    # Globally-unique seq spans every session/agent, so expand is unscoped.
-    assert {r["content"] for r in rows} == {
-        "tanks rolled in",
-        "tanks regrouped later",
-        "tanks of another agent",
-    }
+    # Rows from other sessions/agents may be interleaved numerically, but an
+    # eviction span belongs only to the current conversation lineage.
+    assert [r["content"] for r in rows] == ["tanks rolled in"]
 
 
 def test_recall_tool_is_agent_scoped_by_default(history_db: Path, tmp_path):

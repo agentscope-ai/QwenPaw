@@ -21,6 +21,7 @@ from ..channels.schema import DEFAULT_CHANNEL
 logger = logging.getLogger(__name__)
 
 MAX_BATCH_SIZE = 500
+DeleteCleanup = Callable[[list[ChatSpec], list[ChatSpec]], Awaitable[None]]
 
 
 class ChatManager:
@@ -226,10 +227,19 @@ class ChatManager:
         """Refresh updated_at without rewriting other chat fields."""
         return await self.patch_chat(chat_id, ChatUpdate())
 
-    async def delete_chats(self, chat_ids: list[str]) -> bool:
-        """Delete a chat spec.
+    async def delete_chats(
+        self,
+        chat_ids: list[str],
+        *,
+        before_delete: DeleteCleanup | None = None,
+    ) -> bool:
+        """Delete chat specs from the repository.
 
-        Note: This only deletes the spec. Redis session state is NOT deleted.
+        The HTTP API owns deletion of the corresponding session/history data
+        because those stores are workspace services outside this repository.
+        Its cleanup callback runs under the same lock as the registry delete,
+        preventing a newly-created alias from appearing between the reference
+        check and physical cleanup.
 
         Args:
             chat_ids: List of chat IDs
@@ -238,6 +248,16 @@ class ChatManager:
             True if deleted, False if not found
         """
         async with self._lock:
+            all_chats = await self._repo.list_chats()
+            requested = set(chat_ids)
+            selected = [chat for chat in all_chats if chat.id in requested]
+            if not selected:
+                return False
+            if before_delete is not None:
+                retained = [
+                    chat for chat in all_chats if chat.id not in requested
+                ]
+                await before_delete(selected, retained)
             deleted = await self._repo.delete_chats(chat_ids)
 
             if deleted:

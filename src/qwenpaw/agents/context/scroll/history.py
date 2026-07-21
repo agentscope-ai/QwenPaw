@@ -507,6 +507,42 @@ class HistoryStore:
                 (target_id, source_id),
             )
             return (int(cur.rowcount), len(duplicates))
+    def delete_session(self, session_id: str) -> int:
+        """Delete every durable row owned by one conversation.
+
+        Chat deletion is a user-visible data deletion operation, so retention
+        alone is not sufficient: rows for the deleted ``session_id`` must stop
+        appearing in cross-session recall immediately. Keep the external-
+        content FTS table in sync before removing the source rows.
+
+        Returns the number of deleted conversation rows. As with
+        :meth:`purge`, freed SQLite pages are reusable but the file is not
+        vacuumed inline.
+        """
+        if not session_id:
+            return 0
+        with self._lock, self._conn:
+            doomed = self._conn.execute(
+                "SELECT seq, content FROM conversation_history "
+                "WHERE session_id = ?",
+                (session_id,),
+            ).fetchall()
+            if not doomed:
+                return 0
+            if self._fts:
+                for row in doomed:
+                    self._conn.execute(
+                        "INSERT INTO conversation_history_fts"
+                        "(conversation_history_fts, rowid, content) "
+                        "VALUES('delete', ?, ?)",
+                        (row["seq"], row["content"] or ""),
+                    )
+            self._conn.execute(
+                "DELETE FROM conversation_history WHERE session_id = ?",
+                (session_id,),
+            )
+        return len(doomed)
+
     @staticmethod
     def _purge_where(
         before: str,

@@ -285,15 +285,25 @@ class MemorySpace:
     def expand(self, lo: int, hi: int) -> list[dict]:
         """Full durable turns in the seq span ``[lo, hi]``, oldest first.
 
-        ``seq`` is a globally-unique address (one autoincrement across every
-        session and agent), so a span needs no scope filter. This is the
-        primary way to re-read the evicted turns the index points you at.
+        ``seq`` is a globally-unique address, but rows from concurrently active
+        conversations can be interleaved inside a multi-row span.  The
+        eviction index belongs to this MemorySpace's conversation, so expand
+        must retain that session/agent lineage instead of returning every row
+        numerically between its endpoints.
         """
+        where = ["seq BETWEEN ? AND ?"]
+        params: list = [int(lo), int(hi)]
+        if self._session_id:
+            where.append("session_id = ?")
+            params.append(self._session_id)
+        if self._agent_id:
+            where.append("agent_id = ?")
+            params.append(self._agent_id)
         return self._select(
             "SELECT seq, kind, role, name, content, headline, metadata "
             "FROM hist.conversation_history "
-            "WHERE seq BETWEEN ? AND ? ORDER BY seq",
-            (int(lo), int(hi)),
+            "WHERE " + " AND ".join(where) + " ORDER BY seq",
+            tuple(params),
         )
 
     def recall_tool(

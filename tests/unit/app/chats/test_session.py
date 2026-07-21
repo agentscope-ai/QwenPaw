@@ -319,6 +319,64 @@ async def test_get_session_state_dict_recovers_from_corruption(
 
 
 # ---------------------------------------------------------------------------
+# delete_session_state
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_session_state_removes_channel_and_legacy_files(
+    session,
+    tmp_path: Path,
+):
+    channel_dir = tmp_path / "console"
+    channel_dir.mkdir()
+    channel_path = channel_dir / "u_console--sid.json"
+    legacy_path = tmp_path / "u_console--sid.json"
+    channel_path.write_text("{}", encoding="utf-8")
+    legacy_path.write_text("{}", encoding="utf-8")
+
+    deleted = await session.delete_session_state(
+        "console:sid",
+        "u",
+        "console",
+    )
+
+    assert deleted is True
+    assert not channel_path.exists()
+    assert not legacy_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_session_state_missing_is_idempotent(session):
+    assert (
+        await session.delete_session_state("missing", "u", "console") is False
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_session_state_can_preserve_legacy_file(
+    session,
+    tmp_path: Path,
+):
+    channel_dir = tmp_path / "console"
+    channel_dir.mkdir()
+    channel_path = channel_dir / "u_console--sid.json"
+    legacy_path = tmp_path / "u_console--sid.json"
+    channel_path.write_text("{}", encoding="utf-8")
+    legacy_path.write_text("{}", encoding="utf-8")
+
+    await session.delete_session_state(
+        "console:sid",
+        "u",
+        "console",
+        delete_legacy=False,
+    )
+
+    assert not channel_path.exists()
+    assert legacy_path.exists()
+
+
+# ---------------------------------------------------------------------------
 # Channel sub-directory + cross-channel migration
 # ---------------------------------------------------------------------------
 
