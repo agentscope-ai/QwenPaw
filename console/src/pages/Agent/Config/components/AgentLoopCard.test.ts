@@ -27,9 +27,9 @@ describe("buildCustomLoopMode", () => {
       "doom_loop",
       "completion_rubric",
     ]);
-    expect(
-      second.gates[second.gates.length - 1]?.params.max_evaluations,
-    ).toBe(3);
+    expect(second.gates[second.gates.length - 1]?.params.max_evaluations).toBe(
+      3,
+    );
   });
 
   it("keeps blank modes disabled until a gate is added", () => {
