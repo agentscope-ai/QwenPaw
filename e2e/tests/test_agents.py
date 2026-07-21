@@ -838,30 +838,44 @@ class TestAgentDragReorder:
         logger.info(f"Order before drag: {before_order}")
 
         log_test_step("Find the drag handle")
-        drag_handle = first_row.locator(".drag-handle, [class*='drag-handle'], .anticon-menu, svg[data-icon='menu']").first
+        # @dnd-kit renders the handle as <button class="dragHandleButton_xxx">
+        # containing <span class="anticon anticon-menu">. CSS-module class is
+        # hashed, so target the anticon-menu span and its parent button.
+        handle_icon = first_row.locator("span.anticon-menu").first
+        if handle_icon.count() == 0:
+            pytest.skip(
+                "Drag handle (anticon-menu) not found; "
+                "page may not support drag reorder"
+            )
+        # Click the parent <button> for stability, then drag via the icon.
+        drag_button = handle_icon.locator("xpath=ancestor::button[1]").first
 
-        if drag_handle.count() == 0:
-            drag_handle = first_row.locator("button[class*='drag'], [class*='sortable-handle']").first
-
-        if drag_handle.count() == 0:
-            pytest.skip("Drag handle not found; this page may not support drag reordering")
-
-        log_test_step("Drag handle found; starting drag operation")
-        drag_handle.hover()
-        time.sleep(0.5)
-
-        page.mouse.down()
-        time.sleep(0.3)
+        log_test_step(
+            "Drag handle found; starting pointer-based drag "
+            "(@dnd-kit PointerSensor)"
+        )
+        # @dnd-kit PointerSensor requires pointer events with a >6px
+        # movement (activationConstraint.distance). Use element-level
+        # pointer ops, not page.mouse.
+        handle_box = drag_button.bounding_box()
+        assert handle_box is not None, "Could not read drag handle position"
+        start_x = handle_box["x"] + handle_box["width"] / 2
+        start_y = handle_box["y"] + handle_box["height"] / 2
 
         second_row_center = second_row.bounding_box()
-        assert second_row_center is not None, "Could not read the position of the second row"
-
+        assert second_row_center is not None, \
+            "Could not read the position of the second row"
         target_y = second_row_center["y"] + second_row_center["height"] / 2
         target_x = second_row_center["x"] + second_row_center["width"] / 2
 
-        page.mouse.move(target_x, target_y, steps=10)
+        # Small initial movement to exceed the 6px activation threshold,
+        # then full travel.
+        page.mouse.move(start_x, start_y)
+        page.mouse.down()
+        page.mouse.move(start_x + 10, start_y + 10, steps=2)
+        time.sleep(0.2)
+        page.mouse.move(target_x, target_y, steps=15)
         time.sleep(0.5)
-
         page.mouse.up()
         time.sleep(2)
 

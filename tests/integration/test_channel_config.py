@@ -21,7 +21,18 @@ from helpers import default_http_timeout
 
 _CHANNEL_HTTP_TIMEOUT = default_http_timeout(15.0)
 
-_EXPECTED_BUILTIN_TYPES = {
+# CoPaw's channel registry (``registry._load_builtin_channels``) is designed
+# to skip any channel whose third-party SDK fails to import (e.g. ``feishu``
+# when ``lark-oapi`` is unavailable on macOS runners). Only ``console`` is
+# hard-required (``_REQUIRED_CHANNEL_KEYS = frozenset({"console"})``). Tests
+# must therefore NOT assert the full hard-coded set as mandatory — only the
+# guaranteed-required subset.
+_REQUIRED_BUILTIN_TYPES = {"console"}
+
+# Known built-in channel keys declared in ``registry._BUILTIN_SPECS``.
+# Used only as a sanity upper-bound (the API must return a subset of
+# these), never as a hard equality / containment assertion.
+_KNOWN_BUILTIN_TYPES = {
     "console",
     "discord",
     "dingtalk",
@@ -33,6 +44,7 @@ _EXPECTED_BUILTIN_TYPES = {
     "matrix",
     "mattermost",
     "mqtt",
+    "slack",
     "onebot",
     "imessage",
     "voice",
@@ -69,10 +81,19 @@ def test_channel_types_returns_all_builtin(app_server) -> None:
     )
     assert resp.status_code == 200, app_server.logs_tail()
     types = resp.json()
-    assert isinstance(types, list)
+    assert isinstance(types, list), f"expected list, got {type(types)!r}"
+    assert types, "channel types list must not be empty"
     type_set = set(types)
-    missing = _EXPECTED_BUILTIN_TYPES - type_set
-    assert not missing, f"missing builtin types: {missing}"
+
+    # Hard-required channel must always be present.
+    missing_required = _REQUIRED_BUILTIN_TYPES - type_set
+    assert (
+        not missing_required
+    ), f"missing required built-in types: {missing_required}"
+
+    # No unknown / non-built-in keys should leak into the response.
+    unknown = type_set - _KNOWN_BUILTIN_TYPES
+    assert not unknown, f"unexpected types: {unknown}"
 
 
 @pytest.mark.integration

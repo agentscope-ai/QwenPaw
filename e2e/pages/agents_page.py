@@ -57,12 +57,23 @@ class AgentsPage(BasePage):
 
     # Action buttons
     CREATE_AGENT_BTN = 'button:has-text("创建智能体"), button:has-text("Create Agent"), .qwenpaw-btn-primary'
-    # Inline action buttons in a table row (3 icon buttons: edit, toggle, delete)
-    # Locate via Ant Design icon class names (anticon-edit / anticon-delete), fallback to nth-child
-    EDIT_BTN = 'button:has(.anticon-edit), .qwenpaw-space-item:nth-child(1) button'
-    TOGGLE_BTN = '.qwenpaw-space-item:nth-child(2) button'
-    DELETE_BTN = 'button.qwenpaw-btn-dangerous, button:has(.anticon-delete)'
-    ENABLE_TOGGLE = '.qwenpaw-space-item:nth-child(2) button'
+    # Inline action buttons in a table row (4 icon buttons in this order):
+    #   1. Pin   2. Edit   3. Toggle (enable/disable)   4. Delete
+    # Locate via Ant Design icon class names (robust to reorderings), with
+    # nth-child fallbacks that reflect the CURRENT 4-button layout.
+    PIN_BTN = 'button:has(.anticon-pushpin), .qwenpaw-space-item:nth-child(1) button'
+    EDIT_BTN = 'button:has(.anticon-edit), .qwenpaw-space-item:nth-child(2) button'
+    TOGGLE_BTN = (
+        'button:has(.anticon-eye), '
+        'button:has(.anticon-eye-invisible), '
+        '.qwenpaw-space-item:nth-child(3) button'
+    )
+    DELETE_BTN = (
+        'button.qwenpaw-btn-dangerous, '
+        'button:has(.anticon-delete), '
+        '.qwenpaw-space-item:nth-child(4) button'
+    )
+    ENABLE_TOGGLE = TOGGLE_BTN
     REFRESH_BTN = 'button:has(.anticon-reload), button:has(.spark-icon-spark-refresh-line)'
 
     # Create/edit form
@@ -546,6 +557,9 @@ class AgentsPage(BasePage):
         """
         Toggle agent status via API.
 
+        Backend endpoint PATCH /api/agents/{id}/toggle only accepts PATCH
+        (returns 405 Method Not Allowed for POST).
+
         Args:
             api_context: API request context.
             agent_id: Agent ID.
@@ -554,5 +568,11 @@ class AgentsPage(BasePage):
         Returns:
             Toggle result.
         """
-        from utils.helpers import api_post
-        return api_post(api_context, f"/api/agents/{agent_id}/toggle", {"enabled": enabled})
+        response = api_context.patch(
+            f"/api/agents/{agent_id}/toggle",
+            data={"enabled": str(enabled).lower()},
+        )
+        assert response.ok, (
+            f"API toggle failed: {response.status} {response.status_text}"
+        )
+        return response.json()
