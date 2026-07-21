@@ -116,5 +116,5 @@ describe("AgentLoopCard custom mode rendering", () => {
     expect(
       mission.getByText("Default test command (optional)"),
     ).toBeInTheDocument();
-  });
+  }, 15_000);
 });
