@@ -776,15 +776,14 @@ const GATE_DEFINITIONS: GateDefinition[] = [
     type: "completion_rubric",
     title: "Completion signal check",
     titleKey: "agentConfig.loopMode.completionRubricTitle",
-    description: "Check text responses without tool calls for a completion signal.",
+    description:
+      "Check text responses without tool calls for a completion signal.",
     descriptionKey: "agentConfig.loopMode.completionRubricDescription",
     icon: <ListChecks size={15} />,
     defaults: {
       prompt:
-        "Mark the task complete only when every explicit user requirement has been addressed.",
+        "Treat the task as complete only when every explicit user requirement has been addressed. If any requirement remains, the task is incomplete and work must continue until it is addressed.",
       completion_signal: "COMPLETED",
-      continuation_prompt:
-        "Address the remaining work, then verify completion again.",
       max_evaluations: 3,
     },
     exclusiveGroup: "completion_rubric",
@@ -1094,23 +1093,10 @@ function GateParamsEditor({
           <InputNumber min={1} max={10} style={{ width: "100%" }} />
         </Form.Item>
       </div>
-      <Form.Item
-        name={[...base, "continuation_prompt"]}
-        label={t(
-          "agentConfig.loopMode.continuationPrompt",
-          "Continue prompt when incomplete",
-        )}
-        extra={t(
-          "agentConfig.loopMode.continuationPromptHelp",
-          "Injected when the evaluation does not exactly match the completion signal.",
-        )}
-      >
-        <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />
-      </Form.Item>
       <p className={loopStyles.editorHint}>
         {t(
           "agentConfig.loopMode.completionRubricHelp",
-          "Triggered only for text responses without tool calls. The current agent evaluates its result in an extra iteration; any output other than the completion signal is incomplete.",
+          "Triggered after text responses without tool calls. The agent outputs the completion signal when done; otherwise it keeps working until the maximum evaluation rounds is reached.",
         )}
       </p>
     </>

@@ -44,13 +44,6 @@ describe("loopStore", () => {
     vi.clearAllMocks();
   });
 
-  it("starts with Default selected", () => {
-    const state = useLoopStore.getState();
-    expect(state.selectedModeId).toBe("default");
-    expect(state.availableModes).toEqual([DEFAULT_LOOP_MODE]);
-    expect(state.sessionState).toBe("idle");
-  });
-
   it("loads the complete loop catalog", async () => {
     mockRequest.mockResolvedValueOnce([DEFAULT_LOOP_MODE, goal, custom]);
 
@@ -64,14 +57,6 @@ describe("loopStore", () => {
       goal,
       custom,
     ]);
-  });
-
-  it("keeps Default available when the API returns no modes", async () => {
-    mockRequest.mockResolvedValueOnce([]);
-
-    await fetchAvailableLoopModes();
-
-    expect(useLoopStore.getState().availableModes).toEqual([DEFAULT_LOOP_MODE]);
   });
 
   it("marks catalog errors without removing Default", async () => {

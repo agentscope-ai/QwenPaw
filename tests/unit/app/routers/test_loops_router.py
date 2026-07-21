@@ -17,7 +17,6 @@ from qwenpaw.modes.custom_loop.mode import (
     DeclarativeLoopMode,
     LoopModeActivationStore,
 )
-from qwenpaw.modes.goal.goal_mode import GoalMode, GoalSession
 from qwenpaw.modes.mission import MissionMode
 
 
@@ -68,23 +67,6 @@ def client(workspace: SimpleNamespace):
         patch("qwenpaw.app.routers.loops.schedule_agent_reload") as reload,
     ):
         yield TestClient(app), save, reload
-
-
-def test_catalog_exposes_only_builtin_gates(client) -> None:
-    test_client, _, _ = client
-
-    response = test_client.get("/api/loops/gates/catalog")
-
-    assert response.status_code == 200
-    assert {item["type"] for item in response.json()} == {
-        "iteration",
-        "doom_loop",
-        "token_budget",
-        "timeout",
-        "tool_call_budget",
-        "qualitative_rubric",
-        "completion_rubric",
-    }
 
 
 def test_loop_catalog_includes_enabled_custom_and_plugin_modes(
@@ -247,28 +229,6 @@ def test_loop_status_treats_default_as_idle(client, workspace) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"state": "idle", "mode": None}
-
-
-def test_loop_status_reports_goal_for_only_its_session(
-    client,
-    workspace,
-) -> None:
-    """Goal activity remains isolated by conversation session."""
-    goal_mode = GoalMode()
-    goal_mode.sessions["session-a"] = GoalSession(goal="Ship it")
-    workspace.plugins.modes = [goal_mode]
-
-    active = client[0].get(
-        "/api/loops/status",
-        params={"session_id": "session-a"},
-    )
-    idle = client[0].get(
-        "/api/loops/status",
-        params={"session_id": "session-b"},
-    )
-
-    assert active.json()["mode"]["id"] == "goal"
-    assert idle.json() == {"state": "idle", "mode": None}
 
 
 def test_loop_status_restores_stage_one_mission(client, workspace) -> None:

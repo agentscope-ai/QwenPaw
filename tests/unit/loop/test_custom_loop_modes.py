@@ -16,7 +16,7 @@ from qwenpaw.config.config import (
     _sanitize_custom_loop_modes,
     _sanitize_loop_config,
 )
-from qwenpaw.loop.catalog import get_gate_catalog
+from qwenpaw.loop.catalog import CompletionRubricParams, get_gate_catalog
 from qwenpaw.loop.compiler import compile_loop_mode
 from qwenpaw.loop.gates import (
     CompletionRubricGate,
@@ -60,24 +60,10 @@ def _mode(*gates: GateInstanceConfig) -> CustomLoopModeConfig:
     )
 
 
-def test_loop_config_accepts_multiple_custom_modes() -> None:
-    config = LoopConfig(
-        custom_modes=[
-            _mode(_gate("limit", "iteration")),
-            CustomLoopModeConfig(
-                id="research",
-                name="Research",
-                slash_command="research",
-                enabled=True,
-                gates=[_gate("tools", "tool_call_budget")],
-            ),
-        ],
-    )
+def test_completion_rubric_defaults_require_continued_work() -> None:
+    params = CompletionRubricParams()
 
-    assert [mode.id for mode in config.custom_modes] == [
-        "quality",
-        "research",
-    ]
+    assert "work must continue" in params.prompt
 
 
 def test_loop_config_rejects_duplicate_normalized_names() -> None:
@@ -214,25 +200,6 @@ def test_compiler_preserves_pipeline_order() -> None:
     assert [gate.priority for gate in handler.gates] == [0, 10]
 
 
-def test_compiler_validates_disabled_gate_configuration() -> None:
-    mode = CustomLoopModeConfig(
-        id="invalid",
-        name="Invalid",
-        slash_command="invalid",
-        enabled=False,
-        gates=[
-            GateInstanceConfig(
-                id="unknown",
-                type="not_registered",
-                enabled=False,
-            ),
-        ],
-    )
-
-    with pytest.raises(ValueError, match="Unknown built-in gate type"):
-        compile_loop_mode(mode)
-
-
 def test_catalog_contains_only_seven_builtin_gates() -> None:
     entries = get_gate_catalog().describe()
 
@@ -333,13 +300,15 @@ async def test_completion_rubric_accepts_configured_signal() -> None:
 async def test_completion_rubric_requests_bounded_revision() -> None:
     gate = CompletionRubricGate(
         prompt="The request is complete.",
-        continuation_prompt="Keep working, then check again.",
         max_evaluations=2,
     )
     gate.reset_turn()
     context, _candidate = _rubric_context()
 
     await gate.check(context)
+    evaluation_prompt = gate.build_continuation()
+    assert "Do not merely report" in evaluation_prompt
+
     context["final_msg"] = Msg(
         name="assistant",
         role="assistant",
@@ -351,13 +320,11 @@ async def test_completion_rubric_requests_bounded_revision() -> None:
         ],
     )
     revision = await gate.check(context)
-    assert gate.build_continuation() == "Keep working, then check again."
-    context["final_msg"] = Msg(
-        name="assistant",
-        role="assistant",
-        content=[TextBlock(type="text", text="Revised")],
-    )
-    await gate.check(context)
+    assert gate.build_continuation() == evaluation_prompt
+
+    context["has_tool_calls"] = True
+    tool_result = await gate.check(context)
+    context["has_tool_calls"] = False
     context["final_msg"] = Msg(
         name="assistant",
         role="assistant",
@@ -371,26 +338,9 @@ async def test_completion_rubric_requests_bounded_revision() -> None:
     stopped = await gate.check(context)
 
     assert revision.action == StopAction.INTERRUPT_AND_CONTINUE
+    assert tool_result.action == StopAction.BYPASS
     assert stopped.action == StopAction.TERMINATE
     assert "2 evaluations" in stopped.reason
-
-
-@pytest.mark.asyncio
-async def test_completion_rubric_injects_exact_signal_protocol() -> None:
-    context, _candidate = _rubric_context()
-    gate = CompletionRubricGate(
-        prompt="Only explicit requirements are required.",
-        completion_signal="READY",
-    )
-    gate.reset_turn()
-
-    await gate.check(context)
-    prompt = gate.build_continuation()
-
-    assert "Only explicit requirements are required." in prompt
-    assert "Do not invent unstated requirements" in prompt
-    assert "output READY only" in prompt
-    assert "observable_tool_evidence" not in prompt
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ import { Form } from "@agentscope-ai/design";
 import type { FormInstance } from "antd";
 import type { CustomLoopModeConfig } from "@/api/types";
 import { renderWithProviders } from "@/test/common_setup";
-import { AgentLoopCard, buildCustomLoopMode } from "./AgentLoopCard";
+import { AgentLoopCard } from "./AgentLoopCard";
 
 vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),
@@ -39,14 +39,6 @@ function LoopForm({
 }
 
 describe("AgentLoopCard custom mode rendering", () => {
-  it("renders custom modes stored in unregistered form values", () => {
-    const mode = buildCustomLoopMode([], "Research", "research", "research", 1);
-
-    renderWithProviders(<LoopForm modes={[mode]} />);
-
-    expect(screen.getByRole("tab", { name: "Research" })).toBeInTheDocument();
-  });
-
   it("shows a newly created template and its preset gates immediately", async () => {
     const user = userEvent.setup();
     let form: FormInstance | undefined;

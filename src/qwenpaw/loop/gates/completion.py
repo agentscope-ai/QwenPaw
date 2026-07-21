@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from ...constant import (
     QWENPAW_MESSAGE_TAG_KEY,
@@ -17,7 +17,6 @@ from .loop_gate import LoopGate
 class _CompletionRubricState:
     """Per-turn candidate and evaluation state."""
 
-    phase: Literal["candidate", "evaluation"] = "candidate"
     evaluations: int = 0
     candidate: Any = None
     continuation: str = ""
@@ -31,15 +30,11 @@ class CompletionRubricGate(LoopGate):
         *,
         prompt: str,
         completion_signal: str = "COMPLETED",
-        continuation_prompt: str = (
-            "Address the remaining work, then verify completion again."
-        ),
         max_evaluations: int = 3,
     ) -> None:
         super().__init__()
         self._prompt = prompt
         self._completion_signal = completion_signal.strip()
-        self._continuation_prompt = continuation_prompt
         self._max_evaluations = max_evaluations
 
     @property
@@ -64,42 +59,29 @@ class CompletionRubricGate(LoopGate):
             state = _CompletionRubricState()
             self.activate(state)
 
-        if state.phase == "evaluation":
-            return self._consume_evaluation(state, ctx.get("final_msg"))
-
-        state.candidate = ctx.get("final_msg")
-        state.phase = "evaluation"
-        state.evaluations += 1
-        state.continuation = self._evaluation_prompt()
-        return StopHandlerResult(
-            action=StopAction.INTERRUPT_AND_CONTINUE,
-            reason="completion rubric requested agent evaluation",
-            reset_peers=True,
-            continuation_metadata={
-                QWENPAW_MESSAGE_TAG_KEY: RUBRIC_EVALUATION_MESSAGE_TAG,
-            },
-        )
+        return self._evaluate_response(state, ctx.get("final_msg"))
 
     def build_continuation(self) -> str:
         """Return the current evaluation or revision instruction."""
         state = self._state()
         return state.continuation if state is not None else ""
 
-    def _consume_evaluation(
+    def _evaluate_response(
         self,
         state: _CompletionRubricState,
         message: Any,
     ) -> StopHandlerResult:
-        """Compare the Agent output with the configured completion signal."""
+        """Stop on the signal or request another completion pass."""
         output = self._message_text(message).strip().casefold()
         signal = self._completion_signal.casefold()
-        if output == signal:
+        if state.candidate is not None and output == signal:
             return StopHandlerResult(
                 action=StopAction.TERMINATE,
                 reason="Completion rubric passed",
                 final_message=state.candidate,
             )
 
+        state.candidate = message
         if state.evaluations >= self._max_evaluations:
             return StopHandlerResult(
                 action=StopAction.TERMINATE,
@@ -110,15 +92,18 @@ class CompletionRubricGate(LoopGate):
                 final_message=state.candidate,
             )
 
-        state.phase = "candidate"
-        state.continuation = self._continuation_prompt
+        state.evaluations += 1
+        state.continuation = self._evaluation_prompt()
         return StopHandlerResult(
             action=StopAction.INTERRUPT_AND_CONTINUE,
             reason=(
-                f"completion rubric requested revision after evaluation "
+                f"completion rubric requested evaluation "
                 f"{state.evaluations}"
             ),
             reset_peers=True,
+            continuation_metadata={
+                QWENPAW_MESSAGE_TAG_KEY: RUBRIC_EVALUATION_MESSAGE_TAG,
+            },
         )
 
     def _evaluation_prompt(self) -> str:
@@ -128,9 +113,8 @@ class CompletionRubricGate(LoopGate):
             f"{self._prompt}\n"
             f"Do not invent unstated requirements. If the candidate is "
             f"complete, output {self._completion_signal} only, with no other "
-            f"text. If it is incomplete, output anything except that exact "
-            f"completion signal. Do not call tools or continue the task "
-            f"during this evaluation step."
+            f"text. If it is incomplete, continue working on every unmet "
+            f"requirement. Do not merely report that the task is incomplete."
         )
 
     @staticmethod

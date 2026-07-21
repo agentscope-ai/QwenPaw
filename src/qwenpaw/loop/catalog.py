@@ -99,8 +99,10 @@ class CompletionRubricParams(_Params):
 
     prompt: str = Field(
         default=(
-            "Mark the task complete only when every explicit user "
-            "requirement has been addressed."
+            "Treat the task as complete only when every explicit user "
+            "requirement has been addressed. If any requirement remains, "
+            "the task is incomplete and work must continue until it is "
+            "addressed."
         ),
         min_length=1,
         max_length=8192,
@@ -111,11 +113,6 @@ class CompletionRubricParams(_Params):
         max_length=64,
         pattern=r"^[^\r\n]+$",
     )
-    continuation_prompt: str = Field(
-        default=("Address the remaining work, then verify completion again."),
-        min_length=1,
-        max_length=8192,
-    )
     max_evaluations: int = Field(default=3, ge=1, le=10)
 
     @model_validator(mode="after")
@@ -123,11 +120,8 @@ class CompletionRubricParams(_Params):
         """Strip configured text and reject blank completion signals."""
         self.prompt = self.prompt.strip()
         self.completion_signal = self.completion_signal.strip()
-        self.continuation_prompt = self.continuation_prompt.strip()
         if not self.prompt or not self.completion_signal:
             raise ValueError("Completion rubric text cannot be blank")
-        if not self.continuation_prompt:
-            raise ValueError("Continuation prompt cannot be blank")
         return self
 
 

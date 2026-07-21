@@ -286,7 +286,6 @@ describe("useAgentConfig", () => {
           params: {
             prompt: "Every explicit requirement is complete.",
             completion_signal: "DONE",
-            continuation_prompt: "Continue working.",
           },
         },
       ],
