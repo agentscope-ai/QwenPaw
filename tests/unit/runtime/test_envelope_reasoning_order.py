@@ -64,19 +64,25 @@ def test_reasoning_interleaves_between_iteration_texts() -> None:
         # iteration 1 answer
         _FakeEvent(EventType.TEXT_BLOCK_START, block_id="b1"),
         _FakeEvent(
-            EventType.TEXT_BLOCK_DELTA, block_id="b1", delta="answer-1"
+            EventType.TEXT_BLOCK_DELTA,
+            block_id="b1",
+            delta="answer-1",
         ),
         _FakeEvent(EventType.TEXT_BLOCK_END, block_id="b1"),
         # iteration 2 begins with a reasoning block
         _FakeEvent(EventType.THINKING_BLOCK_START, block_id="t1"),
         _FakeEvent(
-            EventType.THINKING_BLOCK_DELTA, block_id="t1", delta="think"
+            EventType.THINKING_BLOCK_DELTA,
+            block_id="t1",
+            delta="think",
         ),
         _FakeEvent(EventType.THINKING_BLOCK_END, block_id="t1"),
         # iteration 2 answer
         _FakeEvent(EventType.TEXT_BLOCK_START, block_id="b2"),
         _FakeEvent(
-            EventType.TEXT_BLOCK_DELTA, block_id="b2", delta="answer-2"
+            EventType.TEXT_BLOCK_DELTA,
+            block_id="b2",
+            delta="answer-2",
         ),
         _FakeEvent(EventType.TEXT_BLOCK_END, block_id="b2"),
     ]
@@ -106,12 +112,16 @@ def test_reasoning_before_any_text_does_not_emit_empty_message() -> None:
     events = [
         _FakeEvent(EventType.THINKING_BLOCK_START, block_id="t1"),
         _FakeEvent(
-            EventType.THINKING_BLOCK_DELTA, block_id="t1", delta="think"
+            EventType.THINKING_BLOCK_DELTA,
+            block_id="t1",
+            delta="think",
         ),
         _FakeEvent(EventType.THINKING_BLOCK_END, block_id="t1"),
         _FakeEvent(EventType.TEXT_BLOCK_START, block_id="b1"),
         _FakeEvent(
-            EventType.TEXT_BLOCK_DELTA, block_id="b1", delta="answer"
+            EventType.TEXT_BLOCK_DELTA,
+            block_id="b1",
+            delta="answer",
         ),
         _FakeEvent(EventType.TEXT_BLOCK_END, block_id="b1"),
     ]
@@ -133,17 +143,23 @@ def test_delta_only_reasoning_also_rotates_pending_text() -> None:
     events = [
         _FakeEvent(EventType.TEXT_BLOCK_START, block_id="b1"),
         _FakeEvent(
-            EventType.TEXT_BLOCK_DELTA, block_id="b1", delta="answer-1"
+            EventType.TEXT_BLOCK_DELTA,
+            block_id="b1",
+            delta="answer-1",
         ),
         _FakeEvent(EventType.TEXT_BLOCK_END, block_id="b1"),
         # reasoning arrives as DELTA only (no START event)
         _FakeEvent(
-            EventType.THINKING_BLOCK_DELTA, block_id="t1", delta="think"
+            EventType.THINKING_BLOCK_DELTA,
+            block_id="t1",
+            delta="think",
         ),
         _FakeEvent(EventType.THINKING_BLOCK_END, block_id="t1"),
         _FakeEvent(EventType.TEXT_BLOCK_START, block_id="b2"),
         _FakeEvent(
-            EventType.TEXT_BLOCK_DELTA, block_id="b2", delta="answer-2"
+            EventType.TEXT_BLOCK_DELTA,
+            block_id="b2",
+            delta="answer-2",
         ),
         _FakeEvent(EventType.TEXT_BLOCK_END, block_id="b2"),
     ]

@@ -281,7 +281,7 @@ class Envelope:
             # bubbles pile up below the answer instead of interleaving.
             if self._should_finalize_text_message():
                 async for obj in self._finalize_text_message():
-                    yield obj
+                    yield _EventMetadataExcludedOutput(obj)
             block_id = event.block_id
             r_msg_id = _gen_msg_id()
             r_envelope = Message(
@@ -310,7 +310,7 @@ class Envelope:
                 # iteration, so finalize the pending text message first.
                 if self._should_finalize_text_message():
                     async for obj in self._finalize_text_message():
-                        yield obj
+                        yield _EventMetadataExcludedOutput(obj)
                 r_msg_id = _gen_msg_id()
                 r_envelope = Message(
                     id=r_msg_id,
