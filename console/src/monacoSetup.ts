@@ -24,6 +24,9 @@ import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 
 self.MonacoEnvironment = {
+  // Merge instead of overwrite so any MonacoEnvironment fields set elsewhere
+  // (e.g. a future CSP / Trusted Types policy) are preserved.
+  ...self.MonacoEnvironment,
   getWorker(_workerId: string, label: string) {
     switch (label) {
       case "json":
