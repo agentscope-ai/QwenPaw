@@ -1,0 +1,279 @@
+# Reusable "prepare" half of the desktop release: build the Tauri desktop
+# packages (Windows + macOS), run the install/launch/chat UI verification,
+# and upload the installers + updater sidecars as run artifacts.
+#
+# This workflow performs NO publishing. It is called by release.yml during the
+# prepare phase (pinned to the release commit via `ref`), and can also be run
+# standalone via workflow_dispatch to validate a packaging change.
+#
+# The matching publish half lives in desktop-publish.yml.
+
+name: Desktop Build (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref/SHA to build (pins the build to the release commit)"
+        type: string
+        required: false
+        default: ""
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref/SHA to build (default: this workflow's ref)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build-tauri-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: console/src-tauri
+
+      - name: Install NSIS
+        uses: negrutiu/nsis-install@v2
+
+      - name: Clean dist directory
+        shell: pwsh
+        run: |
+          if (Test-Path dist) {
+            Remove-Item -Recurse -Force dist
+          }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+
+      - name: Build Tauri Windows package
+        shell: pwsh
+        env:
+          # Authenticate the python-build-standalone release lookup in
+          # stage_python_runtime.py to avoid anonymous API rate limits.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
+        run: ./scripts/pack-tauri/build_win_pyinstaller.ps1
+
+      - name: Stage Tauri Windows installer and updater assets
+        shell: pwsh
+        run: |
+          python scripts/pack-tauri/generate_update_manifest.py stage `
+            --bundle-dir console/src-tauri/target/release/bundle/nsis `
+            --pattern '*-setup.exe' `
+            --target windows-x86_64 `
+            --output "dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe" `
+            --pubkey-config console/src-tauri/tauri.version.conf.json
+
+      - name: Verify desktop (Tauri Windows)
+        timeout-minutes: 10
+        uses: ./.github/actions/verify-tauri-windows
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+
+      - name: Stop desktop server (Tauri Windows)
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          # Kill the Tauri shell and its sidecar subprocess by name.
+          Get-Process -Name "qwenpaw-desktop" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+          Get-Process -Name "qwenpaw-desktop" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          Get-Process -Name "qwenpaw-backend" -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          exit 0
+
+      - name: Upload desktop verify logs (Tauri Windows)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-verify-logs-tauri-windows-${{ steps.version.outputs.version }}
+          path: |
+            ${{ runner.temp }}/qwenpaw-desktop-stdout.log
+            ${{ runner.temp }}/qwenpaw-desktop-stderr.log
+            ~/AppData/Local/com.qwenpaw.desktop/logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload verify screenshots (Tauri Windows)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-verify-screenshots-tauri-windows-${{ steps.version.outputs.version }}
+          path: ${{ runner.temp }}/verify-screenshots/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload Tauri Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QwenPaw-Desktop-Tauri-Windows-${{ steps.version.outputs.version }}
+          path: dist/QwenPaw-Tauri-*-Windows-setup.exe
+
+      - name: Upload Tauri Windows updater metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-updater-meta-windows
+          path: |
+            dist/QwenPaw-Tauri-*-Windows-setup.exe.sig
+            dist/tauri-windows-x86_64-updater.json
+
+  build-tauri-macos:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        env:
+          PIP_NO_CACHE_DIR: "1"
+        with:
+          python-version: "3.11"
+
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: console/src-tauri
+
+      - name: Clean dist directory
+        run: rm -rf dist && mkdir -p dist
+
+      - name: Build Tauri macOS package
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          # Authenticate the python-build-standalone release lookup in
+          # stage_python_runtime.py to avoid anonymous API rate limits.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
+        run: |
+          chmod +x scripts/pack-tauri/build_macos_pyinstaller.sh
+          bash scripts/pack-tauri/build_macos_pyinstaller.sh
+
+      - name: Verify desktop (Tauri macOS)
+        timeout-minutes: 10
+        uses: ./.github/actions/verify-tauri-macos
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+
+      - name: Stop desktop server (Tauri macOS)
+        if: always()
+        run: |
+          # Kill the Tauri shell and its sidecar subprocess.
+          pkill -f "QwenPaw Desktop" 2>/dev/null || true
+          pkill -f "qwenpaw-backend" 2>/dev/null || true
+          sleep 2
+          pkill -9 -f "QwenPaw Desktop" 2>/dev/null || true
+          pkill -9 -f "qwenpaw-backend" 2>/dev/null || true
+          # Best-effort: kill anything sitting on the detected port.
+          if [ -n "${BASE_URL:-}" ]; then
+            PORT="${BASE_URL##*:}"
+            lsof -ti:"$PORT" | xargs kill 2>/dev/null || true
+          fi
+          rm -rf dist/verify-tauri
+
+      - name: Upload desktop verify logs (Tauri macOS)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-verify-logs-tauri-macos-${{ steps.version.outputs.version }}
+          path: |
+            ${{ runner.temp }}/qwenpaw-desktop-stdout.log
+            ${{ runner.temp }}/qwenpaw-desktop-stderr.log
+            ~/Library/Logs/com.qwenpaw.desktop/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload verify screenshots (Tauri macOS)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-verify-screenshots-tauri-macos-${{ steps.version.outputs.version }}
+          path: ${{ runner.temp }}/verify-screenshots/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload Tauri macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QwenPaw-Desktop-Tauri-macOS-${{ steps.version.outputs.version }}
+          path: dist/QwenPaw-Tauri-*-macOS.zip
+
+      - name: Upload Tauri macOS updater metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-updater-meta-macos
+          path: |
+            dist/QwenPaw-Tauri-*-macOS.app.tar.gz
+            dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig
+            dist/tauri-darwin-*-updater.json
