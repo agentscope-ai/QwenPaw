@@ -239,7 +239,9 @@ class ChatManager:
         because those stores are workspace services outside this repository.
         Its cleanup callback runs under the same lock as the registry delete,
         preventing a newly-created alias from appearing between the reference
-        check and physical cleanup.
+        check and physical cleanup. This deliberately holds the lock across
+        persistence I/O: deletes are rare, and alias safety takes precedence
+        over concurrent chat CRUD latency.
 
         Args:
             chat_ids: List of chat IDs

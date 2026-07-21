@@ -90,7 +90,10 @@ def _delete_history_sessions(db_path: Path, session_ids: set[str]) -> int:
 
     from ...agents.context.scroll.history import HistoryStore
 
-    history = HistoryStore(db_path)
+    # A delete request must never quarantine/recreate a database that an
+    # active agent may still have open. Surface corruption to the caller and
+    # leave recovery to the owning Scroll lifecycle.
+    history = HistoryStore(db_path, quarantine_on_corruption=False)
     try:
         return sum(history.delete_session(sid) for sid in session_ids)
     finally:
@@ -107,6 +110,8 @@ async def _delete_chat_data(
     """Delete chat specs and their unreferenced live persistence."""
 
     async def cleanup(selected: list[ChatSpec], retained: list[ChatSpec]):
+        # Best-effort guard: task startup does not share the chat-manager lock,
+        # so closing this TOCTOU window requires tracker-side coordination.
         running = [
             chat.id
             for chat in selected

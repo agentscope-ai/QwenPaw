@@ -451,3 +451,15 @@ def test_corrupt_db_is_quarantined_and_recreated(tmp_path: Path):
         assert store.count("s") == 1
     finally:
         store.close()
+
+
+def test_corrupt_db_can_fail_without_quarantine(tmp_path: Path):
+    db = tmp_path / "history.db"
+    original = b"this is not a sqlite database" * 50
+    db.write_bytes(original)
+
+    with pytest.raises(sqlite3.DatabaseError):
+        HistoryStore(db, quarantine_on_corruption=False)
+
+    assert db.read_bytes() == original
+    assert not list(tmp_path.glob("history.db.corrupt-*"))

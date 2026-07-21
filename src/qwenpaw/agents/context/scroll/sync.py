@@ -440,13 +440,11 @@ def _rekey_synthetic_manifest_session(
     prior: dict | None,
     canonical_id: str | None,
     *,
-    manifest_matches: bool,
     dry_run: bool,
 ) -> bool:
-    """Rekey an unchanged file previously imported under ``sync:*``."""
+    """Rekey rows previously imported under a synthetic session id."""
     if not (
-        manifest_matches
-        and not dry_run
+        not dry_run
         and canonical_id
         and prior
         and prior.get("session_id") != canonical_id
@@ -532,13 +530,11 @@ def sync_sessions_to_history(
             history,
             prior,
             canonical_id,
-            manifest_matches=manifest_matches,
             dry_run=dry_run,
         ):
             dirty = True
         canonical_matches = bool(
-            not canonical_id
-            or (prior and prior.get("session_id") == canonical_id),
+            prior and prior.get("session_id") == canonical_id,
         )
         should_skip = False
         if manifest_matches and canonical_matches:

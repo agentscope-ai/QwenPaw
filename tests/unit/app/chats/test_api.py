@@ -2,6 +2,7 @@
 """Unit tests for destructive chat deletion across persistence layers."""
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,7 +11,7 @@ from fastapi import HTTPException
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.types import LogEntry
-from qwenpaw.app.chats.api import _delete_chat_data
+from qwenpaw.app.chats.api import _delete_chat_data, _delete_history_sessions
 from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.repo import JsonChatRepository
@@ -172,3 +173,15 @@ async def test_delete_running_chat_is_rejected(tmp_path: Path):
 
     assert exc_info.value.status_code == 409
     assert await manager.get_chat(spec.id) is not None
+
+
+def test_delete_history_does_not_quarantine_corrupt_database(tmp_path: Path):
+    db = tmp_path / "history.db"
+    original = b"this is not a sqlite database" * 50
+    db.write_bytes(original)
+
+    with pytest.raises(sqlite3.DatabaseError):
+        _delete_history_sessions(db, {"console:broken"})
+
+    assert db.read_bytes() == original
+    assert not list(tmp_path.glob("history.db.corrupt-*"))

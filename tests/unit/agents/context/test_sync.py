@@ -300,6 +300,91 @@ def test_existing_synthetic_manifest_is_rekeyed_without_changing_seq(
     )
 
 
+def test_changed_synthetic_manifest_is_rekeyed_before_resync(
+    store,
+    tmp_path: Path,
+):
+    sessions = tmp_path / "sessions"
+    rel_name = "console/default_changed-session.json"
+    messages = _sample_msgs()
+    path = _write_session_1x(
+        sessions / "console",
+        "default_changed-session.json",
+        messages,
+    )
+    first = sync_mod._sync_file(
+        store,
+        path,
+        rel_name,
+        agent_id=None,
+        dry_run=False,
+        session_id="sync:default_changed-session",
+    )
+    sync_mod._save_manifest(
+        sessions / MANIFEST_NAME,
+        {
+            "version": 1,
+            "files": {
+                rel_name: {
+                    "sha256": sync_mod._sha256(path),
+                    "session_id": "sync:default_changed-session",
+                    "messages": first.messages,
+                    "aged_out": first.aged_out,
+                    "rows_processed": first.rows_processed,
+                    "rows_inserted": first.rows_inserted,
+                },
+            },
+        },
+    )
+    original_seqs = {
+        row["seq"]
+        for row in store._conn.execute(
+            "SELECT seq FROM conversation_history "
+            "WHERE session_id='sync:default_changed-session'",
+        )
+    }
+
+    messages.append(
+        Msg(
+            name="u",
+            role="user",
+            content=[TextBlock(type="text", text="new message")],
+        ),
+    )
+    _write_session_1x(
+        sessions / "console",
+        "default_changed-session.json",
+        messages,
+    )
+    chats = _write_chats(
+        tmp_path / "chats.json",
+        [
+            {
+                "session_id": "changed-session",
+                "user_id": "default",
+                "channel": "console",
+            },
+        ],
+    )
+
+    second = sync_sessions_to_history(
+        history=store,
+        sessions_dir=sessions,
+        chats_path=chats,
+    )
+
+    assert second.rows_inserted == 1
+    assert store.count("sync:default_changed-session") == 0
+    canonical_seqs = {
+        row["seq"]
+        for row in store._conn.execute(
+            "SELECT seq FROM conversation_history "
+            "WHERE session_id='changed-session'",
+        )
+    }
+    assert original_seqs < canonical_seqs
+
+
 def test_ambiguous_chat_filename_is_reported_as_orphan(
     store,
     tmp_path: Path,

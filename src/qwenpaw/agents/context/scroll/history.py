@@ -66,7 +66,12 @@ class HistoryStore:
     # per process when it's missing, so a long-lived server doesn't log-spam.
     _fts_unavailable_warned = False
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        quarantine_on_corruption: bool = True,
+    ) -> None:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         # Serializes the single connection across threads: ``compress`` writes
@@ -86,6 +91,12 @@ class HistoryStore:
         try:
             self._open_and_init()
         except sqlite3.DatabaseError as exc:
+            if not quarantine_on_corruption:
+                try:
+                    self._conn.close()
+                except (AttributeError, sqlite3.Error):
+                    pass
+                raise
             # A corrupt / unreadable DB (truncated file, stale WAL trio, bad
             # page) would crash every task at startup. Quarantine the bad file
             # and recreate fresh, degrading "broken memory" to "lost history".
