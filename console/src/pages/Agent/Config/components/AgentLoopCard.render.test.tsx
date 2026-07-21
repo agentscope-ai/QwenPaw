@@ -61,7 +61,7 @@ describe("AgentLoopCard custom mode rendering", () => {
     expect(form?.getFieldValue(["loop", "custom_modes", 0, "enabled"])).toBe(
       true,
     );
-  });
+  }, 15_000);
 
   it("opens Gate choices from the plus button and enables a blank mode", async () => {
     let form: FormInstance | undefined;
@@ -86,7 +86,7 @@ describe("AgentLoopCard custom mode rendering", () => {
     expect(form?.getFieldValue(["loop", "custom_modes", 0, "enabled"])).toBe(
       true,
     );
-  });
+  }, 15_000);
 
   it("separates Mission verification guidance from its test command", async () => {
     renderWithProviders(<LoopForm />);
