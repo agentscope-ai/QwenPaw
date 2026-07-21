@@ -48,6 +48,7 @@ _KNOWN_CONTEXT_WINDOWS: tuple[tuple[str, int], ...] = (
     ("qwen-flash", 1_000_000),
     ("qwen-turbo-latest", 1_000_000),
     ("qwen-turbo", 131_072),  # stable alias: snapshot windows vary
+    ("qwen3.8-max-preview", 1_000_000),
     ("qwen3.7-max", 1_000_000),
     ("qwen3.7-plus", 1_000_000),
     ("qwen3.6-plus", 1_000_000),

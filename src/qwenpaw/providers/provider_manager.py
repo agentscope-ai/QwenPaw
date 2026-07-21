@@ -133,6 +133,14 @@ MIMO_TOKENPLAN_MODELS: List[ModelInfo] = [
 
 ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
     ModelInfo(
+        id="qwen3.8-max-preview",
+        name="Qwen3.8 Max Preview",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        max_tokens=65_536,
+    ),
+    ModelInfo(
         id="qwen3.7-plus",
         name="Qwen3.7 Plus",
         supports_image=True,

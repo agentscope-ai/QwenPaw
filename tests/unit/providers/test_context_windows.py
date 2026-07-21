@@ -26,6 +26,7 @@ from qwenpaw.providers.provider import ModelInfo, Provider
     [
         # Qwen family, including the specific over the generic.
         ("qwen-long", 10_000_000),
+        ("qwen3.8-max-preview", 1_000_000),
         ("qwen3.7-max", 1_000_000),
         ("qwen3.7-plus-2026-01-01", 1_000_000),
         ("qwen3.6-plus", 1_000_000),
