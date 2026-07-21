@@ -13,14 +13,11 @@ from qwenpaw.config.config import (
     CustomLoopModeConfig,
     GateInstanceConfig,
     LoopConfig,
+    _sanitize_custom_loop_modes,
+    _sanitize_loop_config,
 )
 from qwenpaw.loop.catalog import get_gate_catalog
 from qwenpaw.loop.compiler import compile_loop_mode
-from qwenpaw.constant import (
-    LOOP_CONTINUATION_MESSAGE_TAG,
-    QWENPAW_MESSAGE_TAG_KEY,
-    RUBRIC_EVALUATION_MESSAGE_TAG,
-)
 from qwenpaw.loop.gates import (
     CompletionRubricGate,
     QualitativeRubricGate,
@@ -121,6 +118,77 @@ def test_loop_config_rejects_gate_outside_builtin_catalog() -> None:
                 ),
             ],
         )
+
+
+def test_invalid_saved_custom_modes_do_not_block_loop_config(caplog) -> None:
+    """Stale optional modes are skipped while valid Loop data still loads."""
+    valid = _mode(_gate("limit", "iteration")).model_dump()
+    stale_retry = {
+        **valid,
+        "id": "stale-retry",
+        "name": "Stale retry",
+        "slash_command": "stale-retry",
+        "gates": [
+            {
+                "id": "retry",
+                "type": "text_response_retry",
+                "enabled": True,
+                "params": {"max_interventions": 1},
+            },
+        ],
+    }
+    stale_completion = {
+        **valid,
+        "id": "stale-completion",
+        "name": "Stale completion",
+        "slash_command": "stale-completion",
+        "gates": [
+            {
+                "id": "completion",
+                "type": "completion_rubric",
+                "enabled": True,
+                "params": {"criteria": []},
+            },
+        ],
+    }
+    data = {
+        "running": {
+            "loop": {
+                "custom_modes": [
+                    valid,
+                    stale_retry,
+                    stale_completion,
+                ],
+            },
+        },
+    }
+
+    _sanitize_custom_loop_modes(data, "default")
+    loop = LoopConfig.model_validate(data["running"]["loop"])
+
+    assert [mode.id for mode in loop.custom_modes] == ["quality"]
+    assert "text_response_retry" in caplog.text
+    assert "criteria" in caplog.text
+
+
+def test_invalid_builtin_loop_data_falls_back_to_defaults(caplog) -> None:
+    """Invalid built-in Loop values must not block the Agent profile."""
+    data = {
+        "running": {
+            "loop": {
+                "iteration": {
+                    "enabled": True,
+                    "max_iterations": 0,
+                },
+            },
+        },
+    }
+
+    _sanitize_loop_config(data, "default")
+    loop = LoopConfig.model_validate(data["running"]["loop"])
+
+    assert loop == LoopConfig()
+    assert "using defaults" in caplog.text
 
 
 def test_custom_mode_rejects_conflicting_completion_gates() -> None:
@@ -308,28 +376,8 @@ async def test_completion_rubric_requests_bounded_revision() -> None:
 
 
 @pytest.mark.asyncio
-async def test_completion_rubric_uses_latest_external_user_goal() -> None:
+async def test_completion_rubric_injects_exact_signal_protocol() -> None:
     context, _candidate = _rubric_context()
-    context["agent"].state.context.extend(
-        [
-            Msg(
-                name="user",
-                role="user",
-                content=[TextBlock(type="text", text="Continue internally")],
-                metadata={
-                    QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
-                },
-            ),
-            Msg(
-                name="user",
-                role="user",
-                content=[TextBlock(type="text", text="Evaluate internally")],
-                metadata={
-                    QWENPAW_MESSAGE_TAG_KEY: RUBRIC_EVALUATION_MESSAGE_TAG,
-                },
-            ),
-        ],
-    )
     gate = CompletionRubricGate(
         prompt="Only explicit requirements are required.",
         completion_signal="READY",
@@ -339,10 +387,10 @@ async def test_completion_rubric_uses_latest_external_user_goal() -> None:
     await gate.check(context)
     prompt = gate.build_continuation()
 
-    assert '"user_goal": "Finish the task"' in prompt
-    assert "Continue internally" not in prompt
+    assert "Only explicit requirements are required." in prompt
     assert "Do not invent unstated requirements" in prompt
-    assert "READY" in prompt
+    assert "output READY only" in prompt
+    assert "observable_tool_evidence" not in prompt
 
 
 @pytest.mark.asyncio

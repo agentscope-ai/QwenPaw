@@ -63,6 +63,27 @@ def test_startup_display_prints_final_banner_without_tty() -> None:
     print_banner.assert_called_once_with(None, 2.0)
 
 
+def test_startup_display_renders_core_failure() -> None:
+    output = StringIO()
+    console = Console(
+        file=output,
+        force_terminal=True,
+        color_system=None,
+        width=100,
+    )
+    display = AgentStartupDisplay(console=console).start()
+
+    try:
+        display.mark_failed("Default agent failed to start")
+        display.stop()
+        console.print(display._renderable())
+        rendered = output.getvalue()
+        assert "Default agent failed to start" in rendered
+        assert "× QwenPaw" in rendered
+    finally:
+        display.stop()
+
+
 def test_startup_display_preserves_file_logging(tmp_path) -> None:
     terminal_output = StringIO()
     console = Console(

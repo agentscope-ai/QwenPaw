@@ -447,11 +447,17 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 startup_display.mark_core_ready(core_elapsed)
                 app.state.startup_ready.set()
 
-            await workspace_registry.start_all_configured_agents(
-                on_core_ready=_mark_core_agents_ready,
-                startup_display=startup_display,
+            startup_results = (
+                await workspace_registry.start_all_configured_agents(
+                    on_core_ready=_mark_core_agents_ready,
+                    startup_display=startup_display,
+                )
             )
-            if app.state.startup_ready.is_set():
+            if startup_results.get("default") is False:
+                startup_display.mark_failed(
+                    "Default agent failed to start",
+                )
+            elif app.state.startup_ready.is_set():
                 startup_display.mark_finalizing()
 
             provider_manager.start_local_model_resume(local_model_manager)

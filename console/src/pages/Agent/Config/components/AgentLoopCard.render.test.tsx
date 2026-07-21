@@ -63,7 +63,9 @@ describe("AgentLoopCard custom mode rendering", () => {
     expect(editor.getByText("Iteration limit")).toBeInTheDocument();
     expect(editor.getByText("Token budget")).toBeInTheDocument();
     expect(editor.getByText("Repetition protection")).toBeInTheDocument();
-    expect(editor.getByText("Qualitative rubric")).toBeInTheDocument();
+    expect(
+      editor.getByText("Qualitative completion check"),
+    ).toBeInTheDocument();
     expect(
       editor.queryByText("Available to this agent"),
     ).not.toBeInTheDocument();

@@ -117,7 +117,6 @@ class CompletionRubricParams(_Params):
         max_length=8192,
     )
     max_evaluations: int = Field(default=3, ge=1, le=10)
-    include_last_tool_results: int = Field(default=5, ge=0, le=20)
 
     @model_validator(mode="after")
     def normalize_text(self) -> "CompletionRubricParams":
@@ -252,8 +251,11 @@ def _entries() -> list[GateCatalogEntry]:
         ),
         GateCatalogEntry(
             type="qualitative_rubric",
-            title="Qualitative rubric",
-            description="Apply a natural-language rubric before ending.",
+            title="Qualitative completion check",
+            description=(
+                "Check text responses without tool calls using "
+                "natural-language criteria."
+            ),
             category="quality",
             params_model=QualitativeRubricParams,
             factory=lambda params: QualitativeRubricGate(**_dump(params)),
@@ -261,8 +263,11 @@ def _entries() -> list[GateCatalogEntry]:
         ),
         GateCatalogEntry(
             type="completion_rubric",
-            title="Completion rubric",
-            description="Ask the active agent for a completion signal.",
+            title="Completion signal check",
+            description=(
+                "Check text responses without tool calls for a completion "
+                "signal."
+            ),
             category="quality",
             params_model=CompletionRubricParams,
             factory=lambda params: CompletionRubricGate(**_dump(params)),

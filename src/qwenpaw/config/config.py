@@ -1302,6 +1302,111 @@ class LoopConfig(BaseModel):
         return self
 
 
+def _sanitize_custom_loop_modes(
+    data: Dict[str, Any],
+    agent_id: str,
+) -> None:
+    """Skip invalid saved custom modes before profile validation.
+
+    Custom Loop Modes are optional extensions. One stale or malformed mode
+    must not make the entire Agent profile unavailable.
+    """
+    running = data.get("running")
+    if not isinstance(running, dict):
+        return
+    loop = running.get("loop")
+    if not isinstance(loop, dict):
+        return
+    raw_modes = loop.get("custom_modes")
+    if raw_modes is None:
+        return
+    if not isinstance(raw_modes, list):
+        logger.warning(
+            "Agent '%s' custom Loop Modes were ignored: expected a list",
+            agent_id,
+        )
+        loop["custom_modes"] = []
+        return
+
+    from ..loop.catalog import get_gate_catalog
+
+    catalog = get_gate_catalog()
+    valid_modes: List[Dict[str, Any]] = []
+    mode_ids: Set[str] = set()
+    commands: Set[str] = set()
+    names: Set[str] = set()
+    for index, raw_mode in enumerate(raw_modes):
+        if len(valid_modes) >= 20:
+            logger.warning(
+                "Agent '%s' custom Loop Mode at index %d was skipped: "
+                "the maximum of 20 valid modes was reached",
+                agent_id,
+                index,
+            )
+            continue
+        try:
+            mode = CustomLoopModeConfig.model_validate(raw_mode)
+            for gate in mode.gates:
+                catalog.validate_params(gate.type, gate.params)
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "Agent '%s' custom Loop Mode at index %d was skipped: %s",
+                agent_id,
+                index,
+                exc,
+            )
+            continue
+
+        normalized_name = mode.name.casefold()
+        if (
+            mode.id in mode_ids
+            or mode.slash_command in commands
+            or normalized_name in names
+        ):
+            logger.warning(
+                "Agent '%s' duplicate custom Loop Mode '%s' was skipped",
+                agent_id,
+                mode.id,
+            )
+            continue
+        mode_ids.add(mode.id)
+        commands.add(mode.slash_command)
+        names.add(normalized_name)
+        valid_modes.append(mode.model_dump(exclude_none=True))
+
+    loop["custom_modes"] = valid_modes
+
+
+def _sanitize_loop_config(
+    data: Dict[str, Any],
+    agent_id: str,
+) -> None:
+    """Keep invalid optional Loop data from blocking Agent startup."""
+    running = data.get("running")
+    if not isinstance(running, dict) or "loop" not in running:
+        return
+    if not isinstance(running["loop"], dict):
+        logger.warning(
+            "Agent '%s' Loop configuration was invalid; using defaults",
+            agent_id,
+        )
+        running["loop"] = LoopConfig().model_dump(exclude_none=True)
+        return
+
+    _sanitize_custom_loop_modes(data, agent_id)
+    try:
+        validated = LoopConfig.model_validate(running["loop"])
+    except (TypeError, ValueError) as exc:
+        logger.warning(
+            "Agent '%s' Loop configuration was invalid; using defaults: %s",
+            agent_id,
+            exc,
+        )
+        running["loop"] = LoopConfig().model_dump(exclude_none=True)
+        return
+    running["loop"] = validated.model_dump(exclude_none=True)
+
+
 class AgentsRunningConfig(BaseModel):
     """Agent runtime behavior configuration."""
 
@@ -2616,6 +2721,7 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         from .utils import sanitize_mcp_clients
 
         sanitize_mcp_clients(data, agent_id)
+        _sanitize_loop_config(data, agent_id)
 
         agent_config = AgentProfileConfig(**data)
 

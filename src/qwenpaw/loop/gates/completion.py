@@ -2,14 +2,12 @@
 """Agent-native completion rubric gate."""
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from ...constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     RUBRIC_EVALUATION_MESSAGE_TAG,
-    SYNTHETIC_USER_MESSAGE_TAGS,
 )
 from .base import StopAction, StopHandlerResult
 from .loop_gate import LoopGate
@@ -37,14 +35,12 @@ class CompletionRubricGate(LoopGate):
             "Address the remaining work, then verify completion again."
         ),
         max_evaluations: int = 3,
-        include_last_tool_results: int = 5,
     ) -> None:
         super().__init__()
         self._prompt = prompt
         self._completion_signal = completion_signal.strip()
         self._continuation_prompt = continuation_prompt
         self._max_evaluations = max_evaluations
-        self._evidence_limit = include_last_tool_results
 
     @property
     def name(self) -> str:
@@ -74,7 +70,7 @@ class CompletionRubricGate(LoopGate):
         state.candidate = ctx.get("final_msg")
         state.phase = "evaluation"
         state.evaluations += 1
-        state.continuation = self._evaluation_prompt(ctx.get("agent"))
+        state.continuation = self._evaluation_prompt()
         return StopHandlerResult(
             action=StopAction.INTERRUPT_AND_CONTINUE,
             reason="completion rubric requested agent evaluation",
@@ -125,22 +121,16 @@ class CompletionRubricGate(LoopGate):
             reset_peers=True,
         )
 
-    def _evaluation_prompt(self, agent: Any) -> str:
+    def _evaluation_prompt(self) -> str:
         """Build the completion check request for the active agent."""
-        payload = {
-            "user_goal": self._user_goal(agent),
-            "rubric_prompt": self._prompt,
-            "observable_tool_evidence": self._tool_evidence(agent),
-        }
         return (
-            f"Evaluate your latest candidate using the supplied rubric. "
-            f"Do not invent unstated requirements. If the candidate passes, "
-            f"reply with exactly this completion signal and nothing else: "
-            f"{self._completion_signal}\n"
-            f"If it does not pass, return anything except the completion "
-            f"signal. Do not call tools or continue the task during this "
-            f"evaluation step.\n"
-            f"{json.dumps(payload, ensure_ascii=False)}"
+            f"Evaluate your latest candidate against this completion rubric:\n"
+            f"{self._prompt}\n"
+            f"Do not invent unstated requirements. If the candidate is "
+            f"complete, output {self._completion_signal} only, with no other "
+            f"text. If it is incomplete, output anything except that exact "
+            f"completion signal. Do not call tools or continue the task "
+            f"during this evaluation step."
         )
 
     @staticmethod
@@ -166,43 +156,6 @@ class CompletionRubricGate(LoopGate):
             if text:
                 texts.append(str(text))
         return "\n".join(texts)
-
-    def _tool_evidence(self, agent: Any) -> list[str]:
-        """Collect recent observable tool result text."""
-        if self._evidence_limit == 0:
-            return []
-        evidence: list[str] = []
-        context = getattr(getattr(agent, "state", None), "context", [])
-        for message in reversed(context):
-            content = getattr(message, "content", None)
-            for block in content if isinstance(content, list) else []:
-                block_type = (
-                    block.get("type")
-                    if isinstance(block, dict)
-                    else getattr(block, "type", None)
-                )
-                if block_type not in ("tool_result", "tool_output"):
-                    continue
-                evidence.append(str(block)[:2000])
-                if len(evidence) >= self._evidence_limit:
-                    return evidence
-        return evidence
-
-    def _user_goal(self, agent: Any) -> str:
-        """Find the latest external user request in agent context."""
-        context = getattr(getattr(agent, "state", None), "context", [])
-        for message in reversed(context):
-            if getattr(message, "role", None) != "user":
-                continue
-            metadata = getattr(message, "metadata", None) or {}
-            if metadata.get(QWENPAW_MESSAGE_TAG_KEY) in (
-                SYNTHETIC_USER_MESSAGE_TAGS
-            ):
-                continue
-            text = self._message_text(message)
-            if text:
-                return text
-        return ""
 
 
 __all__ = ["CompletionRubricGate"]

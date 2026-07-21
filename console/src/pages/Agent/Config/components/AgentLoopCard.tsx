@@ -263,16 +263,19 @@ function RubricSection() {
       >
         {t(
           "agentConfig.rubricDesc",
-          "Some LLMs may stop with a text-only response without calling any tool, causing the agent to end prematurely. Enable this to re-prompt the agent and improve task completion.",
+          "When the agent produces a text response without tool calls, apply natural-language completion criteria and ask it to continue when work remains.",
         )}
       </p>
       <Form.Item
         name={["loop", "rubric", "enabled"]}
-        label={t("agentConfig.rubricEnabled", "Enable Completion Check")}
+        label={t(
+          "agentConfig.rubricEnabled",
+          "Enable qualitative completion check",
+        )}
         valuePropName="checked"
         tooltip={t(
           "agentConfig.rubricEnabledTooltip",
-          "Re-prompt the agent when it produces a text-only response without tool calls",
+          "Triggered only when the agent produces a text response without tool calls.",
         )}
       >
         <Switch />
@@ -281,7 +284,10 @@ function RubricSection() {
         <>
           <Form.Item
             name={["loop", "rubric", "prompt"]}
-            label={t("agentConfig.rubricPrompt", "Re-prompt Message")}
+            label={t(
+              "agentConfig.rubricPrompt",
+              "Natural-language completion criteria",
+            )}
             tooltip={t(
               "agentConfig.rubricPromptTooltip",
               "The prompt injected when the agent outputs text without tool calls",
@@ -300,11 +306,11 @@ function RubricSection() {
             name={["loop", "rubric", "max_interventions"]}
             label={t(
               "agentConfig.rubricMaxInterventions",
-              "Max Interventions per Turn",
+              "Maximum evaluation rounds",
             )}
             tooltip={t(
               "agentConfig.rubricMaxInterventionsTooltip",
-              "Maximum times to re-prompt per turn. Prevents infinite re-prompting if the LLM keeps producing text-only responses.",
+              "Maximum completion checks for text responses without tool calls during one turn.",
             )}
           >
             <InputNumber min={1} max={10} style={{ width: 200 }} />
@@ -409,10 +415,13 @@ function DefaultModeTab() {
       </LockedGateCard>
       <LockedGateCard
         icon={<CheckCircle size={15} />}
-        title={t("agentConfig.loopMode.retryTitle", "Early-stop retry")}
+        title={t(
+          "agentConfig.loopMode.retryTitle",
+          "Qualitative completion check",
+        )}
         description={t(
           "agentConfig.loopMode.retryDescription",
-          "Verify text-only completion before stopping.",
+          "Triggered when the agent produces a text response without tool calls.",
         )}
       >
         <RubricSection />
@@ -752,9 +761,9 @@ const GATE_DEFINITIONS: GateDefinition[] = [
   },
   {
     type: "qualitative_rubric",
-    title: "Qualitative rubric",
+    title: "Qualitative completion check",
     titleKey: "agentConfig.loopMode.qualitativeRubricTitle",
-    description: "Revise against a natural-language rubric before ending.",
+    description: "Check text responses without tool calls before ending.",
     descriptionKey: "agentConfig.loopMode.qualitativeRubricDescription",
     icon: <CheckCircle size={15} />,
     defaults: {
@@ -765,9 +774,9 @@ const GATE_DEFINITIONS: GateDefinition[] = [
   },
   {
     type: "completion_rubric",
-    title: "Completion rubric",
+    title: "Completion signal check",
     titleKey: "agentConfig.loopMode.completionRubricTitle",
-    description: "Ask the active agent for a completion signal.",
+    description: "Check text responses without tool calls for a completion signal.",
     descriptionKey: "agentConfig.loopMode.completionRubricDescription",
     icon: <ListChecks size={15} />,
     defaults: {
@@ -777,7 +786,6 @@ const GATE_DEFINITIONS: GateDefinition[] = [
       continuation_prompt:
         "Address the remaining work, then verify completion again.",
       max_evaluations: 3,
-      include_last_tool_results: 5,
     },
     exclusiveGroup: "completion_rubric",
   },
@@ -1035,11 +1043,11 @@ function GateParamsEditor({
           name={[...base, "rubric"]}
           label={t(
             "agentConfig.loopMode.qualitativeRubric",
-            "Qualitative rubric",
+            "Natural-language completion criteria",
           )}
           extra={t(
             "agentConfig.loopMode.qualitativeRubricHelp",
-            "The agent revises against this rubric without producing a numeric score.",
+            "Triggered only for text responses without tool calls. The agent continues when work remains.",
           )}
         >
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} />
@@ -1057,7 +1065,7 @@ function GateParamsEditor({
         )}
         extra={t(
           "agentConfig.loopMode.completionPromptHelp",
-          "Describe when the result is complete. QwenPaw adds the exact output instruction.",
+          "Describe when the result is complete. QwenPaw automatically injects the completion-signal output instruction.",
         )}
       >
         <Input.TextArea autoSize={{ minRows: 3, maxRows: 7 }} />
@@ -1071,7 +1079,7 @@ function GateParamsEditor({
           )}
           tooltip={t(
             "agentConfig.loopMode.completionSignalHelp",
-            "Only an exact, case-insensitive match after trimming whitespace ends the loop.",
+            "QwenPaw injects this signal into the check prompt and instructs the agent to output only it. Matching is exact after trimming whitespace and ignoring case.",
           )}
         >
           <Input maxLength={64} />
@@ -1084,19 +1092,6 @@ function GateParamsEditor({
           )}
         >
           <InputNumber min={1} max={10} style={{ width: "100%" }} />
-        </Form.Item>
-        <Form.Item
-          name={[...base, "include_last_tool_results"]}
-          label={t(
-            "agentConfig.loopMode.evidenceToolResults",
-            "Tool results as evidence",
-          )}
-          tooltip={t(
-            "agentConfig.loopMode.evidenceToolResultsHelp",
-            "How many recent observable tool results the agent may use when scoring completion.",
-          )}
-        >
-          <InputNumber min={0} max={20} style={{ width: "100%" }} />
         </Form.Item>
       </div>
       <Form.Item
@@ -1115,7 +1110,7 @@ function GateParamsEditor({
       <p className={loopStyles.editorHint}>
         {t(
           "agentConfig.loopMode.completionRubricHelp",
-          "The current agent evaluates its own result in an extra iteration. Any other output is treated as incomplete.",
+          "Triggered only for text responses without tool calls. The current agent evaluates its result in an extra iteration; any output other than the completion signal is incomplete.",
         )}
       </p>
     </>

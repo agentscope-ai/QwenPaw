@@ -18,8 +18,6 @@ from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from agentscope.agent import Agent, ReActConfig
 from agentscope.event import (
-    ModelCallEndEvent,
-    ModelCallStartEvent,
     TextBlockDeltaEvent,
     TextBlockEndEvent,
     TextBlockStartEvent,
@@ -34,7 +32,6 @@ from ..constant import (
     LOOP_CONTINUATION_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
     QWENPAW_MESSAGE_TAG_KEY,
-    RUBRIC_EVALUATION_MESSAGE_TAG,
     WORKING_DIR,
 )
 from ..loop.gates import StopAction, StopHandlerResult
@@ -455,10 +452,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
             return
 
-        rubric_evaluation = self._is_rubric_evaluation_turn()
-        if rubric_evaluation:
-            tool_choice = "none"
-
         # ── Proactive media stripping ──
         from .model_factory import _supports_multimodal_for_current_model
 
@@ -484,10 +477,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
             async for evt in super()._reasoning(tool_choice=tool_choice):
                 if isinstance(evt, Msg):
                     final_msg = evt
-                elif not rubric_evaluation or isinstance(
-                    evt,
-                    (ModelCallStartEvent, ModelCallEndEvent),
-                ):
+                else:
                     yield evt
         except Exception as e:
             if not self._is_bad_request_or_media_error(e):
@@ -516,10 +506,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 ):
                     if isinstance(evt, Msg):
                         final_msg = evt
-                    elif not rubric_evaluation or isinstance(
-                        evt,
-                        (ModelCallStartEvent, ModelCallEndEvent),
-                    ):
+                    else:
                         yield evt
             finally:
                 if self._uses_request_time_media_normalization():
@@ -527,21 +514,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
         else:
             if should_strip and self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(False)
-
-        if rubric_evaluation and final_msg is not None:
-            metadata = dict(getattr(final_msg, "metadata", None) or {})
-            metadata[QWENPAW_MESSAGE_TAG_KEY] = RUBRIC_EVALUATION_MESSAGE_TAG
-            final_msg.metadata = metadata
-            last_context = self._get_last_msg()
-            if last_context is not None:
-                last_context.metadata = dict(
-                    getattr(last_context, "metadata", None) or {},
-                    **{
-                        QWENPAW_MESSAGE_TAG_KEY: (
-                            RUBRIC_EVALUATION_MESSAGE_TAG
-                        ),
-                    },
-                )
 
         # ── Stop Hook: run every iteration ──
         stop_result = await self._run_stop_handlers(final_msg)
@@ -585,19 +557,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
             return  # outer loop continues
 
         yield stop_result.final_message or final_msg
-
-    def _is_rubric_evaluation_turn(self) -> bool:
-        """Return whether the latest input requests rubric evaluation."""
-        context = getattr(self.state, "context", [])
-        if not context:
-            return False
-        message = context[-1]
-        metadata = getattr(message, "metadata", None) or {}
-        return (
-            getattr(message, "role", None) == "user"
-            and metadata.get(QWENPAW_MESSAGE_TAG_KEY)
-            == RUBRIC_EVALUATION_MESSAGE_TAG
-        )
 
     @staticmethod
     def _is_content_safety_error(exc: Exception) -> bool:
