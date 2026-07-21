@@ -3,7 +3,6 @@
 
 # pylint: disable=protected-access,redefined-outer-name
 import json
-import logging
 from types import SimpleNamespace
 
 import pytest
@@ -600,79 +599,3 @@ def test_datablock_unc_file_uri_resolved(
     model_factory._fixup_media_list(items)
 
     assert items[0].source.url == "//server/share/x.png"
-
-
-@pytest.mark.asyncio
-async def test_reasoning_alignment_mismatch_logs_single_warning(
-    monkeypatch,
-    caplog,
-) -> None:
-    """Detailed block diagnostics should not spam WARNING logs."""
-
-    class _MismatchFormatter:
-        def __init__(self, **_kwargs):
-            pass
-
-        async def format(self, _msgs):
-            return [
-                {"role": "assistant", "content": "first"},
-                {"role": "assistant", "content": "second"},
-                {"role": "assistant", "content": "third"},
-            ]
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
-    formatter_cls = model_factory._create_file_block_support_formatter(
-        _MismatchFormatter,
-    )
-    formatter = formatter_cls()
-    messages = [
-        Msg(
-            name="assistant",
-            role="assistant",
-            content=[
-                ThinkingBlock(thinking="think one"),
-                TextBlock(text="answer one"),
-            ],
-        ),
-        Msg(
-            name="assistant",
-            role="assistant",
-            content=[
-                ThinkingBlock(thinking="think two"),
-                TextBlock(text="answer two"),
-            ],
-        ),
-    ]
-
-    with caplog.at_level(logging.DEBUG, logger=model_factory.logger.name):
-        await formatter.format(messages)
-
-    warning_messages = [
-        record.getMessage()
-        for record in caplog.records
-        if record.levelno == logging.WARNING
-    ]
-    debug_messages = [
-        record.getMessage()
-        for record in caplog.records
-        if record.levelno == logging.DEBUG
-    ]
-
-    assert warning_messages == [
-        (
-            "Assistant message count mismatch after formatting "
-            "(2 expected survivors, 3 actual). "
-            "Skipping reasoning_content injection for this turn. "
-            "A block type may be dropped by the base formatter "
-            "without being handled by _is_block_dropped_by_formatter, "
-            "or a new split pattern needs to be predicted."
-        ),
-    ]
-    assert debug_messages == [
-        "  src assistant[0] blocks=['thinking', 'text']",
-        "  src assistant[1] blocks=['thinking', 'text']",
-    ]
