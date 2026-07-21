@@ -12,7 +12,7 @@ QwenPaw organizes memory into three complementary systems, loosely mirroring hum
 
 | System              | What it is                                                                                                                               | Documented in                   |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| **Working memory**  | The live prompt window. Older turns evict into an expandable index plus a pointer-backed task-state summary; raw turns remain durable.    | [Context Management](./context) |
+| **Working memory**  | The live prompt window. Older turns evict into an expandable index plus a pointer-backed task-state summary; raw turns remain durable.   | [Context Management](./context) |
 | **Episodic memory** | A durable, verbatim record of every turn across sessions, recalled on demand via `recall_history` (or the `recall_history_python` REPL). | [Context Management](./context) |
 | **Semantic memory** | Distilled facts, preferences, and knowledge; ReMe consolidates daily notes into `digest/`, searched by `memory_search`.                  | [Long-term Memory](./memory)    |
 
