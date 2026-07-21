@@ -36,6 +36,8 @@ from .continuation_summary import (
     ContinuationSummary,
     build_update_prompt,
     parse_plain_markdown,
+    redact_secrets,
+    validate_summary_quality,
 )
 from .eviction_index import EvictionIndex, Leaf
 from .history import HistoryStore
@@ -55,6 +57,7 @@ _PRE_TRIM_TARGET_RATIO = 0.75
 _OUTPUT_RESERVE_RATIO = 0.05
 _MAX_OUTPUT_RESERVE_TOKENS = 4096
 _MIN_EMERGENCY_PREVIEW_BYTES = 1024
+_SUMMARY_REBASE_INTERVAL = 8
 
 
 class ScrollContextManager:
@@ -116,6 +119,7 @@ class ScrollContextManager:
         self._index = EvictionIndex(session_id=session_id, agent_id=agent_id)
         self._continuation_summary: ContinuationSummary | None = None
         self._summary_update_failed = False
+        self._summary_update_count = 0
         # What the most recent compress() actually did — /compact reads this
         # to report honestly (an in-place fold changes no message count, so
         # the reply can't infer it from a before/after len()). Transient, not
@@ -568,7 +572,7 @@ class ScrollContextManager:
     @staticmethod
     def _bounded_summary_text(value: Any, limit: int) -> str:
         """Return a compact head/tail preview without losing both endpoints."""
-        text = " ".join(str(value or "").split())
+        text = redact_secrets(" ".join(str(value or "").split()))
         if len(text) <= limit:
             return text
         half = max(1, (limit - 25) // 2)
@@ -656,6 +660,51 @@ class ScrollContextManager:
             return rendered
         return self._bounded_summary_text(rendered, max_chars)
 
+    def _summary_rebase_context(
+        self,
+        summary: ContinuationSummary,
+        *,
+        max_chars: int,
+    ) -> str:
+        """Read bounded durable evidence cited by the current summary."""
+        rows = self._history.read_summary_evidence(summary.seq_spans())
+        chunks: list[str] = []
+        for row in rows:
+            pointer = f"[seq:{row['seq']}]"
+            kind = str(row.get("kind") or "unknown")
+            chunks.append(
+                f"{pointer} role={row.get('role')!r} kind={kind!r} "
+                f"name={row.get('name')!r}",
+            )
+            preview_limit = 600 if kind == "tool_result" else 2000
+            preview = self._bounded_summary_text(
+                row.get("content"),
+                preview_limit,
+            )
+            if preview:
+                chunks.append(f"  text={preview!r}")
+            headline = self._bounded_summary_text(row.get("headline"), 2000)
+            if headline:
+                chunks.append(f"  headline={headline!r}")
+            if row.get("tool_call_id"):
+                chunks.append(
+                    f"  tool_call_id={row['tool_call_id']!r} "
+                    f"state={row.get('tool_state')!r}",
+                )
+            metadata = row.get("metadata")
+            if isinstance(metadata, str) and metadata:
+                try:
+                    metadata = json.loads(metadata)
+                except (TypeError, ValueError):
+                    metadata = {}
+            pointers = self._summary_metadata_pointers(metadata)
+            if pointers:
+                chunks.append(f"  recovery={' '.join(pointers)}")
+        rendered = "\n".join(chunks)
+        if len(rendered) <= max_chars:
+            return rendered
+        return self._bounded_summary_text(rendered, max_chars)
+
     @staticmethod
     def _response_text(response: Any) -> str:
         parts: list[str] = []
@@ -716,7 +765,7 @@ class ScrollContextManager:
         agent: Any,
         middle: list[Msg],
     ) -> None:
-        """Update summary; preserve the last valid value on failure."""
+        """Update, validate, and at most once retry the plain summary."""
         new_span = self._evicted_span(middle)
         if new_span is None or not callable(getattr(agent, "model", None)):
             return
@@ -735,40 +784,108 @@ class ScrollContextManager:
         )
         output_tokens = max(256, min(4000, context_size // 4))
         input_chars = max(4000, min(80_000, context_size * 2))
-        prompt = build_update_prompt(
-            previous=previous,
-            archived_context=self._summary_archived_context(
-                middle,
-                max_chars=input_chars,
-            ),
-            covered_seq=covered,
+        rebase_due = bool(
+            previous is not None
+            and (self._summary_update_count + 1) % _SUMMARY_REBASE_INTERVAL
+            == 0,
         )
-        try:
-            plain_text = await self._generate_plain_summary(
-                agent,
-                prompt,
-                max_tokens=output_tokens,
+        previous_spans = previous.seq_spans() if previous is not None else ()
+        # A rebase must not pretend that a head/tail sample proves hundreds of
+        # omitted rows. Defer it until the cited evidence is small enough to
+        # read faithfully within the bounded summary input.
+        source_backed_rebase = bool(
+            rebase_due
+            and previous_spans
+            and sum(hi - lo + 1 for lo, hi in previous_spans) <= 20,
+        )
+        new_context = self._summary_archived_context(
+            middle,
+            max_chars=(
+                input_chars // 2 if source_backed_rebase else input_chars
+            ),
+        )
+        if source_backed_rebase and previous is not None:
+            durable_context = self._summary_rebase_context(
+                previous,
+                max_chars=input_chars // 2,
             )
-            if len(plain_text) > 16_000:
-                raise ValueError("plain Markdown summary exceeds hard limit")
-            updated = parse_plain_markdown(
-                plain_text,
+            archived_context = (
+                "Durable evidence cited by the previous summary:\n"
+                f"{durable_context}\n\nNewly archived context:\n{new_context}"
+            )
+            self.last_compress["summary_rebased"] = 1
+        else:
+            archived_context = new_context
+
+        evidence_text = archived_context
+        if not source_backed_rebase and previous is not None:
+            evidence_text = previous.render() + "\n" + evidence_text
+        repair_issues: tuple[str, ...] = ()
+        updated: ContinuationSummary | None = None
+        failure: Exception | None = None
+        for attempt in range(2):
+            prompt = build_update_prompt(
+                previous=previous,
+                archived_context=archived_context,
                 covered_seq=covered,
+                repair_issues=repair_issues,
+                source_backed_rebase=source_backed_rebase,
             )
-            if updated is None:
-                raise ValueError("empty or malformed plain Markdown summary")
-        except (
-            Exception
-        ):  # noqa: BLE001 - summary failure cannot block eviction
+            try:
+                plain_text = await self._generate_plain_summary(
+                    agent,
+                    prompt,
+                    max_tokens=output_tokens,
+                )
+                if len(plain_text) > 16_000:
+                    raise ValueError(
+                        "plain Markdown summary exceeds hard limit",
+                    )
+                candidate = parse_plain_markdown(
+                    plain_text,
+                    covered_seq=covered,
+                )
+                if candidate is None:
+                    raise ValueError(
+                        "empty or malformed plain Markdown summary",
+                    )
+                endpoints = {
+                    endpoint
+                    for lo, hi in candidate.seq_spans()
+                    for endpoint in (lo, hi)
+                }
+                issues = validate_summary_quality(
+                    candidate,
+                    evidence_text=evidence_text,
+                    existing_seqs=self._history.existing_seqs(endpoints),
+                )
+                if issues:
+                    raise ValueError("; ".join(issues))
+                updated = candidate
+                break
+            except Exception as exc:  # noqa: BLE001 - retry is best-effort
+                failure = exc
+                repair_issues = (str(exc) or type(exc).__name__,)
+                if attempt == 0:
+                    self.last_compress["summary_retries"] = 1
+
+        if updated is None:
             self._summary_update_failed = True
             logger.warning(
-                "scroll: continuation summary update failed; preserving the "
-                "previous valid summary",
-                exc_info=True,
+                "scroll: continuation summary update failed after retry; "
+                "preserving the previous valid summary",
+                exc_info=(
+                    type(failure),
+                    failure,
+                    failure.__traceback__,
+                )
+                if failure is not None
+                else None,
             )
             return
         self._continuation_summary = updated
         self._summary_update_failed = False
+        self._summary_update_count += 1
 
     async def _live_tokens(self, agent: Any) -> int:
         """Token count of the live context as the model would receive it."""
@@ -1398,6 +1515,7 @@ class ScrollContextManager:
                 else None
             ),
             "summary_update_failed": self._summary_update_failed,
+            "summary_update_count": self._summary_update_count,
         }
 
     def load_state(self, data: Any) -> None:
@@ -1429,6 +1547,13 @@ class ScrollContextManager:
         self._summary_update_failed = bool(
             data.get("summary_update_failed", False),
         )
+        try:
+            self._summary_update_count = max(
+                0,
+                int(data.get("summary_update_count", 0) or 0),
+            )
+        except (TypeError, ValueError):
+            self._summary_update_count = 0
 
     def purge_old(self, retention_days: int, *, dry_run: bool = False) -> int:
         """Drop durable history older than ``retention_days`` (0 = keep

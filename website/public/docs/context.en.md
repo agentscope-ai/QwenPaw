@@ -104,7 +104,10 @@ Headlines label individual milestones; the continuation summary maintains the la
 - **Local parsing and deterministic rendering**: code parses the Markdown into JSON-safe internal state and renders the six sections itself. Missing citations receive the real covered seq range supplied by code.
 - **Bounded evidence**: complete tool outputs are excluded from the summary prompt. It receives limited previews plus real `seq`, `tool_call_id`, artifact, and file pointers.
 - **Incremental update**: the previous valid summary and newly evicted span are supplied together, so obsolete state can be removed rather than accumulated as a log.
-- **Failure-safe**: empty or malformed output, provider errors, and parsing failures retain the previous summary. If one exists, it is marked stale; an empty result never overwrites valid state.
+- **Deterministic quality guard**: code validates the exact section order and status, checks that cited seq endpoints exist and artifact/file pointers came from supplied evidence, rejects invented opaque identifiers and likely secrets, and enforces the output limit. This does not use a separate LLM judge.
+- **One conditional retry**: invalid output is regenerated once with concise validation feedback. A second failure retains the previous summary and marks it stale; an empty result never overwrites valid state.
+- **Source-backed rebase**: every eighth successful update replaces the normal incremental input with the summary's cited durable rows plus the new eviction when those spans total at most 20 rows. Broader spans defer rebase rather than pretending that a lossy sample proves omitted evidence. Rebase is the update for that cycle, not an additional model call.
+- **Secret-safe previews**: likely credential values are removed from bounded evidence before the summary model sees it; summaries keep only non-sensitive state and durable pointers.
 - **Background-only semantics**: the injected prefix says the summary is background, not an active instruction, and that the current live user request always has priority.
 
 ### Live Context Layout

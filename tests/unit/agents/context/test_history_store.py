@@ -39,6 +39,33 @@ def test_append_assigns_increasing_seq_and_counts(store: HistoryStore):
     assert store.count("other") == 0
 
 
+def test_summary_evidence_reads_bounded_span_endpoints(store: HistoryStore):
+    seqs = [
+        store.append(
+            session_id="s",
+            dedup_key=f"m{i}",
+            entry=_entry(f"row-{i}"),
+        )
+        for i in range(8)
+    ]
+
+    assert store.existing_seqs({seqs[0], seqs[-1], 9999}) == {
+        seqs[0],
+        seqs[-1],
+    }
+    rows = store.read_summary_evidence(
+        ((seqs[0], seqs[-1]),),
+        per_span=4,
+    )
+
+    assert [row["seq"] for row in rows] == [
+        seqs[0],
+        seqs[1],
+        seqs[-2],
+        seqs[-1],
+    ]
+
+
 def test_append_is_idempotent_on_session_dedup_key(store: HistoryStore):
     """A second append of the same (session, dedup_key) is a no-op that
     returns the existing seq — the resume/migration safety net."""
