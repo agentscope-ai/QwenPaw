@@ -26,6 +26,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
+import { externalLinkMarkdownComponents } from "@/components/Markdown/externalLinkComponents";
 import { ApprovalCard as GlobalApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { commandsApi } from "../../api/modules/commands";
@@ -69,7 +70,12 @@ const resolveInitialTab = (): TabKey => {
 
 const renderMarkdownText = (text: string, className: string) => (
   <div className={className}>
-    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={externalLinkMarkdownComponents}
+    >
+      {text}
+    </ReactMarkdown>
   </div>
 );
 
