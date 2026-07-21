@@ -1423,8 +1423,13 @@ export function buildCustomLoopMode(
   const slashCommand = uniqueValue(
     baseCommand,
     new Set(existing.map((mode) => mode.slash_command)),
+    64,
   );
-  const id = uniqueValue(baseCommand, new Set(existing.map((mode) => mode.id)));
+  const id = uniqueValue(
+    baseCommand,
+    new Set(existing.map((mode) => mode.id)),
+    64,
+  );
   return {
     id,
     name,
@@ -1437,14 +1442,24 @@ export function buildCustomLoopMode(
   };
 }
 
-function uniqueValue(base: string, existing: Set<string>): string {
-  let candidate = base;
+function uniqueValue(
+  base: string,
+  existing: Set<string>,
+  maxLength: number,
+  normalize: (value: string) => string = (value) => value,
+): string {
+  let candidate = base.slice(0, maxLength);
   let suffix = 2;
-  while (existing.has(candidate)) {
-    candidate = `${base}-${suffix}`;
+  while (existing.has(normalize(candidate))) {
+    const suffixText = `-${suffix}`;
+    candidate = `${base.slice(0, maxLength - suffixText.length)}${suffixText}`;
     suffix += 1;
   }
   return candidate;
+}
+
+function normalizeLoopModeName(name: string | undefined): string {
+  return (name || "").trim().toUpperCase().toLowerCase();
 }
 
 export function hasDuplicateLoopModeName(
@@ -1452,11 +1467,11 @@ export function hasDuplicateLoopModeName(
   name: string | undefined,
   ignoredIndex = -1,
 ): boolean {
-  const normalized = (name || "").trim().toLowerCase();
+  const normalized = normalizeLoopModeName(name);
   if (!normalized) return false;
   return modes.some(
     (mode, index) =>
-      index !== ignoredIndex && mode.name.trim().toLowerCase() === normalized,
+      index !== ignoredIndex && normalizeLoopModeName(mode.name) === normalized,
   );
 }
 
@@ -1512,13 +1527,19 @@ export function AgentLoopCard() {
     const baseCommand = `${source.slash_command}-copy`;
     const copy: CustomLoopModeConfig = {
       ...structuredClone(source),
-      id: uniqueValue(baseId, new Set(customModes.map((mode) => mode.id))),
-      name: t("agentConfig.loopMode.copyName", "{{name}} Copy", {
-        name: source.name,
-      }),
+      id: uniqueValue(baseId, new Set(customModes.map((mode) => mode.id)), 64),
+      name: uniqueValue(
+        t("agentConfig.loopMode.copyName", "{{name}} Copy", {
+          name: source.name,
+        }),
+        new Set(customModes.map((mode) => normalizeLoopModeName(mode.name))),
+        80,
+        normalizeLoopModeName,
+      ),
       slash_command: uniqueValue(
         baseCommand,
         new Set(customModes.map((mode) => mode.slash_command)),
+        64,
       ),
       enabled: source.gates.some((gate) => gate.enabled),
     };
@@ -1636,6 +1657,7 @@ export function AgentLoopCard() {
         <div className={loopStyles.createForm}>
           <label>{t("agentConfig.loopMode.displayName", "Display name")}</label>
           <Input
+            maxLength={80}
             value={newName}
             status={duplicateNewName ? "error" : undefined}
             onChange={(event) => setNewName(event.target.value)}
@@ -1652,6 +1674,7 @@ export function AgentLoopCard() {
             {t("agentConfig.loopMode.slashCommand", "Slash command")}
           </label>
           <Input
+            maxLength={64}
             prefix="/"
             value={newCommand}
             onChange={(event) =>

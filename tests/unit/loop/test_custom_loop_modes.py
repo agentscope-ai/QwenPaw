@@ -85,6 +85,28 @@ def test_loop_config_rejects_duplicate_normalized_names() -> None:
         )
 
 
+def test_loop_config_rejects_unicode_casefold_names() -> None:
+    """Save validation and reload sanitization use one normalization."""
+    with pytest.raises(
+        ValidationError,
+        match="Custom loop mode names must be unique",
+    ):
+        LoopConfig(
+            custom_modes=[
+                CustomLoopModeConfig(
+                    id="street",
+                    name="Straße",
+                    slash_command="street",
+                ),
+                CustomLoopModeConfig(
+                    id="street-copy",
+                    name="STRASSE",
+                    slash_command="street-copy",
+                ),
+            ],
+        )
+
+
 def test_loop_config_rejects_gate_outside_builtin_catalog() -> None:
     with pytest.raises(ValidationError, match="Unknown built-in gate type"):
         LoopConfig(

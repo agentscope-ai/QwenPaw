@@ -31,6 +31,11 @@ LOG_FILE_BASENAME = f"{LOG_NAMESPACE}.log"
 LOG_FILE_PATH = WORKING_DIR / LOG_FILE_BASENAME
 
 
+def sanitize_log_value(value: object) -> str:
+    """Escape line breaks in untrusted values before structured logging."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
+
 def _enable_windows_ansi() -> None:
     """Enable ANSI escape code support on Windows 10+."""
     if platform.system() != "Windows":

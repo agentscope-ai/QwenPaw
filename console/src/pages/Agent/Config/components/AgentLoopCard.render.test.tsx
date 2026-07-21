@@ -1,6 +1,5 @@
 import { useEffect } from "react";
-import { screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Form } from "@agentscope-ai/design";
@@ -40,17 +39,15 @@ function LoopForm({
 
 describe("AgentLoopCard custom mode rendering", () => {
   it("shows a newly created template and its preset gates immediately", async () => {
-    const user = userEvent.setup();
     let form: FormInstance | undefined;
     renderWithProviders(<LoopForm onForm={(next) => (form = next)} />);
 
-    await user.click(screen.getByLabelText("Create custom loop mode"));
-    await user.click(screen.getByRole("button", { name: "OK" }));
+    fireEvent.click(screen.getByLabelText("Create custom loop mode"));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
-    expect(screen.getByRole("tab", { name: "New Loop Mode" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(
+      await screen.findByRole("tab", { name: "New Loop Mode" }),
+    ).toHaveAttribute("aria-selected", "true");
     const editor = within(screen.getByRole("tabpanel"));
     expect(editor.getByText("Iteration limit")).toBeInTheDocument();
     expect(editor.getByText("Token budget")).toBeInTheDocument();
@@ -67,22 +64,23 @@ describe("AgentLoopCard custom mode rendering", () => {
   });
 
   it("opens Gate choices from the plus button and enables a blank mode", async () => {
-    const user = userEvent.setup();
     let form: FormInstance | undefined;
     renderWithProviders(<LoopForm onForm={(next) => (form = next)} />);
 
-    await user.click(screen.getByLabelText("Create custom loop mode"));
-    await user.click(screen.getByRole("combobox"));
-    await user.click(screen.getByText("Blank pipeline"));
-    await user.click(screen.getByRole("button", { name: "OK" }));
+    fireEvent.click(screen.getByLabelText("Create custom loop mode"));
+    fireEvent.mouseDown(screen.getByRole("combobox"));
+    fireEvent.click(await screen.findByText("Blank pipeline"));
+    fireEvent.click(screen.getByRole("button", { name: "OK" }));
 
-    const editor = within(screen.getByRole("tabpanel"));
+    const editor = within(await screen.findByRole("tabpanel"));
     expect(form?.getFieldValue(["loop", "custom_modes", 0, "enabled"])).toBe(
       false,
     );
 
-    await user.click(editor.getByRole("button", { name: "Add gate" }));
-    await user.click(screen.getByRole("menuitem", { name: "Iteration limit" }));
+    fireEvent.click(editor.getByRole("button", { name: "Add gate" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Iteration limit" }),
+    );
 
     expect(editor.getByText("Iteration limit")).toBeInTheDocument();
     expect(form?.getFieldValue(["loop", "custom_modes", 0, "enabled"])).toBe(
@@ -91,10 +89,9 @@ describe("AgentLoopCard custom mode rendering", () => {
   });
 
   it("separates Mission verification guidance from its test command", async () => {
-    const user = userEvent.setup();
     renderWithProviders(<LoopForm />);
 
-    await user.click(screen.getByRole("tab", { name: "Mission" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Mission" }));
 
     const mission = within(screen.getByRole("tabpanel"));
     expect(

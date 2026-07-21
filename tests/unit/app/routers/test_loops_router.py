@@ -322,6 +322,30 @@ def test_duplicate_custom_mode_is_available_immediately(
     assert response.json()["enabled"] is True
 
 
+def test_duplicate_custom_mode_keeps_fields_within_limits(
+    client,
+    workspace,
+) -> None:
+    """Boundary-length source values produce a valid persisted copy."""
+    source = CustomLoopModeConfig(
+        id="a" * 64,
+        name="N" * 80,
+        slash_command="b" * 64,
+        enabled=False,
+    )
+    workspace.config.running.loop.custom_modes = [source]
+
+    response = client[0].post(
+        f"/api/loops/custom/{source.id}/duplicate",
+    )
+
+    assert response.status_code == 201, response.text
+    duplicate = CustomLoopModeConfig.model_validate(response.json())
+    assert len(duplicate.id) <= 64
+    assert len(duplicate.name) <= 80
+    assert len(duplicate.slash_command) <= 64
+
+
 def test_create_rejects_unknown_gate_even_when_disabled(client) -> None:
     test_client, save, reload = client
     payload = _mode().model_dump()
@@ -356,6 +380,26 @@ def test_create_rejects_duplicate_normalized_name(client, workspace) -> None:
     workspace.config.running.loop.custom_modes = [_mode()]
     duplicate = _mode("quality-copy")
     duplicate.name = " quality "
+
+    response = test_client.post(
+        "/api/loops/custom",
+        json=duplicate.model_dump(),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Mode name exists"
+    save.assert_not_called()
+    reload.assert_not_called()
+
+
+def test_create_rejects_unicode_casefold_name(client, workspace) -> None:
+    """Save-time uniqueness matches reload-time Unicode normalization."""
+    test_client, save, reload = client
+    existing = _mode()
+    existing.name = "Straße"
+    workspace.config.running.loop.custom_modes = [existing]
+    duplicate = _mode("quality-copy")
+    duplicate.name = "STRASSE"
 
     response = test_client.post(
         "/api/loops/custom",

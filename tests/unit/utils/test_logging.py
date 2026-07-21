@@ -14,10 +14,16 @@ from qwenpaw.utils.logging import (
     ColorFormatter,
     SuppressPathAccessLogFilter,
     add_project_file_handler,
+    sanitize_log_value,
     setup_logger,
     LOG_NAMESPACE,
     _LEVEL_MAP,
 )
+
+
+def test_sanitize_log_value_escapes_line_breaks() -> None:
+    """Untrusted values cannot inject additional log records."""
+    assert sanitize_log_value("first\r\nsecond") == "first\\r\\nsecond"
 
 
 class TestLevelMap:

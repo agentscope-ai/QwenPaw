@@ -35,6 +35,8 @@ from ..constant import (
     LLM_RATE_LIMIT_PAUSE,
     WORKING_DIR,
 )
+from ..utils.atomic_io import write_json_atomic
+from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -1232,6 +1234,11 @@ class CustomLoopModeConfig(BaseModel):
         return self
 
 
+def normalize_custom_loop_mode_name(name: str) -> str:
+    """Return the canonical value used for custom mode name uniqueness."""
+    return name.strip().casefold()
+
+
 class GoalLoopModeConfig(BaseModel):
     """Editable values for the fixed built-in Goal pipeline."""
 
@@ -1289,7 +1296,10 @@ class LoopConfig(BaseModel):
         commands = [mode.slash_command for mode in self.custom_modes]
         if len(commands) != len(set(commands)):
             raise ValueError("Custom loop slash commands must be unique")
-        names = [mode.name.lower() for mode in self.custom_modes]
+        names = [
+            normalize_custom_loop_mode_name(mode.name)
+            for mode in self.custom_modes
+        ]
         if len(names) != len(set(names)):
             raise ValueError("Custom loop mode names must be unique")
 
@@ -1323,7 +1333,7 @@ def _sanitize_custom_loop_modes(
     if not isinstance(raw_modes, list):
         logger.warning(
             "Agent '%s' custom Loop Modes were ignored: expected a list",
-            agent_id,
+            sanitize_log_value(agent_id),
         )
         loop["custom_modes"] = []
         return
@@ -1340,7 +1350,7 @@ def _sanitize_custom_loop_modes(
             logger.warning(
                 "Agent '%s' custom Loop Mode at index %d was skipped: "
                 "the maximum of 20 valid modes was reached",
-                agent_id,
+                sanitize_log_value(agent_id),
                 index,
             )
             continue
@@ -1351,13 +1361,13 @@ def _sanitize_custom_loop_modes(
         except (TypeError, ValueError) as exc:
             logger.warning(
                 "Agent '%s' custom Loop Mode at index %d was skipped: %s",
-                agent_id,
+                sanitize_log_value(agent_id),
                 index,
-                exc,
+                sanitize_log_value(exc),
             )
             continue
 
-        normalized_name = mode.name.casefold()
+        normalized_name = normalize_custom_loop_mode_name(mode.name)
         if (
             mode.id in mode_ids
             or mode.slash_command in commands
@@ -1365,8 +1375,8 @@ def _sanitize_custom_loop_modes(
         ):
             logger.warning(
                 "Agent '%s' duplicate custom Loop Mode '%s' was skipped",
-                agent_id,
-                mode.id,
+                sanitize_log_value(agent_id),
+                sanitize_log_value(mode.id),
             )
             continue
         mode_ids.add(mode.id)
@@ -1388,7 +1398,7 @@ def _sanitize_loop_config(
     if not isinstance(running["loop"], dict):
         logger.warning(
             "Agent '%s' Loop configuration was invalid; using defaults",
-            agent_id,
+            sanitize_log_value(agent_id),
         )
         running["loop"] = LoopConfig().model_dump(exclude_none=True)
         return
@@ -1399,8 +1409,8 @@ def _sanitize_loop_config(
     except (TypeError, ValueError) as exc:
         logger.warning(
             "Agent '%s' Loop configuration was invalid; using defaults: %s",
-            agent_id,
-            exc,
+            sanitize_log_value(agent_id),
+            sanitize_log_value(exc),
         )
         running["loop"] = LoopConfig().model_dump(exclude_none=True)
         return
@@ -2760,22 +2770,13 @@ def save_agent_config(
 
     agent_ref = config.agents.profiles[agent_id]
     workspace_dir = Path(agent_ref.workspace_dir).expanduser()
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-
     agent_config_path = workspace_dir / "agent.json"
-
-    with open(agent_config_path, "w", encoding="utf-8") as f:
-        json.dump(
-            agent_config.model_dump(exclude_none=True),
-            f,
-            ensure_ascii=False,
-            indent=2,
-        )
-
-    # Invalidate cache after saving
     with _agent_config_lock:
-        if agent_id in _agent_config_cache:
-            del _agent_config_cache[agent_id]
+        write_json_atomic(
+            agent_config_path,
+            agent_config.model_dump(exclude_none=True),
+        )
+        _agent_config_cache.pop(agent_id, None)
 
 
 def migrate_legacy_config_to_multi_agent() -> bool:

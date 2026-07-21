@@ -185,7 +185,8 @@ class MissionMode(AgentMode):
                 "session_id",
                 "",
             )
-            text = format_status(
+            text = await asyncio.to_thread(
+                format_status,
                 workspace_dir,
                 session_id,
             )
@@ -193,7 +194,7 @@ class MissionMode(AgentMode):
 
         if task_text.strip().lower() == "list":
             workspace_dir = getattr(ctx, "workspace_dir")
-            text = format_list(workspace_dir)
+            text = await asyncio.to_thread(format_list, workspace_dir)
             return _info_msg(text)
 
         # --- help / empty ---

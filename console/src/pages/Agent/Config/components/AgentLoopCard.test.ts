@@ -31,6 +31,17 @@ describe("buildCustomLoopMode", () => {
       3,
     );
   });
+
+  it("keeps generated identity within backend limits", () => {
+    const command = "a".repeat(64);
+    const first = buildCustomLoopMode([], "N".repeat(80), command, "safe", 1);
+    const second = buildCustomLoopMode([first], "Copy", command, "safe", 2);
+
+    expect(second.id.length).toBeLessThanOrEqual(64);
+    expect(second.slash_command.length).toBeLessThanOrEqual(64);
+    expect(second.id.endsWith("-2")).toBe(true);
+    expect(second.slash_command.endsWith("-2")).toBe(true);
+  });
 });
 
 describe("reorderCustomGates", () => {
@@ -63,5 +74,11 @@ describe("hasDuplicateLoopModeName", () => {
     expect(hasDuplicateLoopModeName([mode], " research ")).toBe(true);
     expect(hasDuplicateLoopModeName([mode], "Quality")).toBe(false);
     expect(hasDuplicateLoopModeName([mode], "Research", 0)).toBe(false);
+  });
+
+  it("matches common Unicode casefold collisions", () => {
+    const mode = buildCustomLoopMode([], "Straße", "street", "safe", 1);
+
+    expect(hasDuplicateLoopModeName([mode], "STRASSE")).toBe(true);
   });
 });

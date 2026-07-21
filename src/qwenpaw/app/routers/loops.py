@@ -2,17 +2,23 @@
 """Loop discovery, catalog, and custom mode persistence APIs."""
 from __future__ import annotations
 
+import asyncio
 import logging
-from copy import deepcopy
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel
 
-from ...config.config import CustomLoopModeConfig, save_agent_config
+from ...config.config import (
+    CustomLoopModeConfig,
+    normalize_custom_loop_mode_name,
+    save_agent_config,
+)
 from ...loop.catalog import get_gate_catalog
 from ...loop.compiler import compile_loop_mode
+from ...utils.logging import sanitize_log_value
 from ..agent_context import get_agent_for_request, scoped_session_id
 from ..utils import schedule_agent_reload
 
@@ -145,7 +151,7 @@ async def get_loop_status(
     if len(active) > 1:
         logger.warning(
             "Multiple loop modes active for session '%s': %s",
-            session_id,
+            sanitize_log_value(session_id),
             [mode.id for mode in active],
         )
     return LoopModeStatus(state=execution_phase, mode=active[0])
@@ -180,7 +186,7 @@ async def create_custom_mode(
         raise HTTPException(status_code=409, detail="Mode ID already exists")
     _validate_mode(mode, workspace, modes)
     modes.append(mode)
-    _persist_modes(request, workspace, modes)
+    await _persist_modes(request, workspace, modes)
     return mode
 
 
@@ -199,7 +205,7 @@ async def update_custom_mode(
     others = [item for item in modes if item.id != mode_id]
     _validate_mode(mode, workspace, others, ignored_mode=modes[index])
     modes[index] = mode
-    _persist_modes(request, workspace, modes)
+    await _persist_modes(request, workspace, modes)
     return mode
 
 
@@ -210,7 +216,7 @@ async def delete_custom_mode(request: Request, mode_id: str) -> None:
     modes = list(workspace.config.running.loop.custom_modes)
     index = _find_mode(modes, mode_id)
     modes.pop(index)
-    _persist_modes(request, workspace, modes)
+    await _persist_modes(request, workspace, modes)
 
 
 @router.post(
@@ -226,16 +232,28 @@ async def duplicate_custom_mode(
     workspace = await get_agent_for_request(request)
     modes = list(workspace.config.running.loop.custom_modes)
     source = modes[_find_mode(modes, mode_id)]
-    copy = deepcopy(source)
-    copy.id = _unique_value(f"{source.id}-copy", {item.id for item in modes})
-    copy.name = f"{source.name} Copy"
-    copy.slash_command = _unique_value(
+    payload = source.model_dump()
+    payload["id"] = _unique_value(
+        f"{source.id}-copy",
+        {item.id for item in modes},
+        max_length=64,
+    )
+    payload["name"] = _unique_value(
+        f"{source.name} Copy",
+        {normalize_custom_loop_mode_name(item.name) for item in modes},
+        max_length=80,
+        normalize=normalize_custom_loop_mode_name,
+    )
+    payload["slash_command"] = _unique_value(
         f"{source.slash_command}-copy",
         {item.slash_command for item in modes},
+        max_length=64,
     )
-    copy.enabled = any(gate.enabled for gate in copy.gates)
+    payload["enabled"] = any(gate.enabled for gate in source.gates)
+    copy = CustomLoopModeConfig.model_validate(payload)
+    _validate_mode(copy, workspace, modes)
     modes.append(copy)
-    _persist_modes(request, workspace, modes)
+    await _persist_modes(request, workspace, modes)
     return copy
 
 
@@ -253,8 +271,11 @@ def _validate_mode(
 
     if any(item.slash_command == mode.slash_command for item in other_modes):
         raise HTTPException(status_code=409, detail="Slash command exists")
-    normalized_name = mode.name.lower()
-    if any(item.name.lower() == normalized_name for item in other_modes):
+    normalized_name = normalize_custom_loop_mode_name(mode.name)
+    if any(
+        normalize_custom_loop_mode_name(item.name) == normalized_name
+        for item in other_modes
+    ):
         raise HTTPException(status_code=409, detail="Mode name exists")
     registered = set(workspace.plugins.slash_command_registry.names())
     if ignored_mode is not None:
@@ -263,7 +284,7 @@ def _validate_mode(
         raise HTTPException(status_code=409, detail="Slash command exists")
 
 
-def _persist_modes(
+async def _persist_modes(
     request: Request,
     workspace: Any,
     modes: list[CustomLoopModeConfig],
@@ -271,7 +292,7 @@ def _persist_modes(
     """Persist modes and schedule a safe workspace reload."""
     config = workspace.config
     config.running.loop.custom_modes = modes
-    save_agent_config(workspace.agent_id, config)
+    await asyncio.to_thread(save_agent_config, workspace.agent_id, config)
     schedule_agent_reload(request, workspace.agent_id)
 
 
@@ -282,11 +303,19 @@ def _find_mode(modes: list[CustomLoopModeConfig], mode_id: str) -> int:
     raise HTTPException(status_code=404, detail="Custom mode not found")
 
 
-def _unique_value(base: str, existing: set[str]) -> str:
-    candidate = base
+def _unique_value(
+    base: str,
+    existing: set[str],
+    *,
+    max_length: int,
+    normalize: Callable[[str], str] | None = None,
+) -> str:
+    normalize_value = normalize or (lambda value: value)
+    candidate = base[:max_length]
     suffix = 2
-    while candidate in existing:
-        candidate = f"{base}-{suffix}"
+    while normalize_value(candidate) in existing:
+        suffix_text = f"-{suffix}"
+        candidate = f"{base[: max_length - len(suffix_text)]}{suffix_text}"
         suffix += 1
     return candidate
 
