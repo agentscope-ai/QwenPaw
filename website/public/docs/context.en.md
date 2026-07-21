@@ -30,7 +30,7 @@ flowchart LR
     C -->|Yes| E[Protect the active turn + recent tail]
     E --> F[Evict finished middle turns]
     F --> G[Add seq span to eviction index]
-    G --> H[Rebuild live context with one index message]
+    G --> H[Rebuild live context with the eviction index]
     H --> I{Still over the pressure target?}
     I -->|Yes| J[Fold completed live tool results to exact recall stubs]
     I -->|No| K[Keep rebuilt live context]
@@ -41,7 +41,7 @@ Key properties:
 
 - **Durable first**: `ScrollContextManager` persists live turns to `{working_dir}/history.db` before any eviction.
 - **Active turn protected**: the latest user request and its in-progress tool chain are never evicted mid-task, so a compression that fires in the middle of a long tool run cannot make the model lose (and answer past) the current request.
-- **No summary bottleneck**: evicted content is represented by an `EvictionIndex`, not by a generated summary.
+- **No compaction-time summary bottleneck**: evicted content is represented by an `EvictionIndex`; useful task-state milestones are captured as optional headlines during normal assistant turns.
 - **Recallable raw history**: each index line carries a `seq` span. The agent can call `recall_history(op="expand", lo, hi)` to read the full original rows (or `ms.expand(lo, hi)` in the `recall_history_python` REPL).
 - **Cross-session memory**: history rows include `session_id` and `agent_id`, so recall can search this agent's past sessions and, when explicitly widened, other agents in the same workspace.
 - **Fallback-safe**: if scroll cannot be wired or its recall tools cannot run safely, QwenPaw falls back to native context management instead of evicting history that cannot be recalled.
@@ -65,36 +65,36 @@ Index tiers roll up only when they reach their 10-block capacity; pressure does 
 | `kind`                                          | `model_turn`, `context_msg`, or `tool_result`.                              |
 | `role`, `name`, `content`                       | Role/tool metadata and flattened searchable text.                           |
 | `tool_call_id`, `tool_input`, `tool_state`      | Tool-call linkage and arguments/results state.                              |
-| `headline`                                      | Optional model-written milestone line used as an eviction-index leaf.       |
+| `headline`                                      | Optional model-written task-state milestone used as an index leaf.          |
 | `blocks`, `metadata`, `created_at`, `dedup_key` | Full serialized blocks, metadata, timestamp, and idempotency key.           |
 
 If SQLite FTS5 is available, QwenPaw also keeps a `conversation_history_fts` index over `content`. Without FTS5, recall search degrades to a slower `LIKE` scan.
 
 ## Working Memory
 
-**Working memory** is the live prompt window — what the model can attend to right now. When it fills, scroll keeps it within budget by evicting older turns into a compact, expandable index instead of summarizing them away. Each entry in that index is a one-line **headline** the model wrote on the turn it came from. The sections below cover those headlines first, then how the live window is rebuilt, and how the eviction index is structured.
+**Working memory** is the live prompt window — what the model can attend to right now. When it fills, scroll keeps it within budget by evicting older turns into a compact, expandable index instead of summarizing them away. A useful turn may supply a one-line **headline** for that index. The sections below cover those headlines first, then how the live window is rebuilt, and how the eviction index is structured.
 
 ### Headlines
 
-Scroll's defining choice is that it **does not compress context by asking the model to summarize**. Instead, the model marks its own milestones: at the end of a turn that matters — one that settles a fact or value, makes or revises a decision, reaches a result, completes a step, or hits a dead-end — it writes a single milestone line, as a trailing HTML comment wrapped in a pair of **rare bracket characters, `⟦ … ⟧`**:
+Scroll's defining choice is that it **does not compress context by asking the model to summarize**. Instead, after a turn that establishes a durable task-state change, the model may append one hidden headline after all tool calls have completed:
 
 ```text
-<!-- ⟦ chose PostgreSQL over MySQL for JSONB support ⟧ -->
+⟦ database migration | decided: use PostgreSQL for JSONB; MySQL superseded ⟧
 ```
 
-- **How it's captured**: scroll pulls that line into the turn's `headline` column (assistant turns only) and removes the comment from what's rendered to chat — so it stays invisible to the user but verbatim in the stored row.
-- **What it's for**: the headline is the key information that survives once context is compressed and the raw turn is evicted from the live window — kept in context instead of a model-written summary. That stored headline is exactly what becomes the turn's `seq · ⟦ … ⟧` leaf in the eviction index below.
+- **Shape**: `task | status: current effective state; next: concrete action`. The task name should stay stable; `next` is omitted when unknown or completed. Revised decisions name both the final choice and the superseded choice.
+- **How it's captured**: Scroll extracts the `⟦ … ⟧` line into the assistant turn's `headline` column and removes it from chat display. It remains verbatim in durable history.
+- **What it's for**: the headline is a compact semantic checkpoint and navigation label, not the source of truth. Once the raw turn leaves the live window, it becomes the turn's `seq · ⟦ … ⟧` leaf in the eviction index; exact details remain recallable from `history.db`.
+- **It is optional at turn time**: routine turns, tentative thoughts, and turns without a durable task-state change emit no headline. When such a span is later evicted, it remains a `seq lo–hi · (no milestone)` entry: semantically unlabeled, but exactly recallable by that seq range. Compaction does not make an extra model call to backfill it.
 
 ### Live Context Layout
 
 After eviction, the live context is rebuilt as:
 
 ```text
-Eviction index (a placeholder message named "memory")
-  One synthetic message scroll injects to stand in for all the evicted turns
-  (not a real conversation turn). It carries the whole eviction index: a
-  [context compressed] header, then tiered headlines + seq spans, plus how to
-  recall the originals. Detailed in the section "Eviction Index" below.
+Eviction index (a synthetic placeholder message named "memory")
+  A [context compressed] header, tiered headlines + seq spans, and instructions
+  for recalling the original turns. Detailed in "Eviction Index" below.
 
 Recent tail — always including the active turn
   The newest turns selected by AgentScope's pairing-safe split, plus the
@@ -144,7 +144,7 @@ Re-expand a span with the recall_history tool: recall_history(op="expand", lo, h
 </system-info>
 ```
 
-Each `⟦ … ⟧` leaf in the index is the model-written headline from the previous section. The model should not answer from a headline alone. A headline is only a pointer; the full evidence comes from `recall_history` (`expand` / `search`) or another recall helper.
+Each `⟦ … ⟧` leaf in the index is a model-written task-state headline. The model should not answer from a headline alone. A headline is a checkpoint and pointer; the full evidence comes from `recall_history` (`expand` / `search`) or another recall helper.
 
 ## Episodic Memory
 

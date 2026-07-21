@@ -12,9 +12,9 @@ from ..types import LogEntry
 
 # The model echoes a milestone as a fenced single line: ``⟦ text ⟧`` (rare
 # brackets U+27E6 / U+27E7, chosen to almost never collide with code, markdown,
-# or diff hunks). The fence is normally wrapped in an HTML comment
-# (``<!-- ⟦ … ⟧ -->``) so it stays invisible in the rendered chat; the optional
-# wrapper is tolerated here.
+# or diff hunks). Older prompts wrapped the fence in an HTML comment, so the
+# parser keeps accepting that legacy form even though new prompts use only the
+# plain fence.
 #
 # Qwen routinely substitutes the visually-identical white square brackets
 # U+301A/U+301B (``〚 〛``) for the intended U+27E6/U+27E7 (``⟦ ⟧``). Accept both
@@ -28,7 +28,14 @@ _HEADLINE_RE = re.compile(
     rf"[ \t]*(?:-->)?[ \t]*$",
     re.MULTILINE,
 )
-_HEADLINE_MAX = 200  # chars — a headline is an index entry, not a paragraph
+# Display cleanup is deliberately more tolerant than index extraction. If a
+# model starts a final headline but mixes it with provider tool-protocol tokens
+# or never closes the fence, hide that trailing protocol line without treating
+# it as a valid index entry (issue #6240).
+_TRAILING_HEADLINE_RE = re.compile(
+    rf"(?:<!--[ \t]*{_OPEN}|(?:^|\n)[ \t]*{_OPEN})[^\r\n]*\Z",
+)
+_HEADLINE_MAX = 2000  # safety ceiling; prompts still ask for concise headlines
 
 
 def _dump(block: Any) -> dict:
@@ -101,14 +108,7 @@ def _state_value(state: Any) -> str | None:
 
 
 def extract_headline(text: str | None) -> str | None:
-    """The turn's durable index line: the model's own ``⟦ … ⟧`` fence, or None.
-
-    Headlines are *milestone* markers the model emits deliberately — most turns
-    carry none. A turn with no fence does not become a leaf of the eviction
-    index; it stays durably stored and recallable by ``seq`` range or
-    ``ms.search``, just not listed in the map. There is intentionally no
-    extractive fallback.
-    """
+    """Return a valid ``⟦ … ⟧`` headline, otherwise ``None``."""
     if text:
         m = _HEADLINE_RE.search(text)
         if m and m.group(1).strip():
@@ -117,18 +117,20 @@ def extract_headline(text: str | None) -> str | None:
 
 
 def strip_headline(text: str | None) -> str | None:
-    """Remove the headline line for display, keeping it in context/index.
+    """Remove Scroll's headline protocol line for display.
 
-    Deletes exactly the line :func:`extract_headline` matched (same first
-    match, by span) — so a line is hidden iff it became the index entry. The
-    headline stays verbatim in the live context and persisted row; this only
-    cleans the text rendered to channels/console, where ``<!-- … -->`` shows.
+    Complete fences remain extractable by :func:`extract_headline`. A malformed
+    trailing fence is also removed from display but is intentionally not
+    indexed. The live context and persisted row keep the original text; this
+    function only cleans channel/console output.
     """
     if not text:
         return text
     m = _HEADLINE_RE.search(text)
     if not m or not m.group(1).strip():
-        return text
+        m = _TRAILING_HEADLINE_RE.search(text)
+        if not m:
+            return text
     start, end = m.span()  # one line: ``.`` never crosses a newline
     cleaned = text[:start] + text[end:]
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)  # collapse blank line left

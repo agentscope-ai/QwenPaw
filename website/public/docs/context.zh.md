@@ -30,7 +30,7 @@ flowchart LR
     C -->|是| E[保护当前活动轮次 + 最近尾部]
     E --> F[驱逐已完成的中间历史]
     F --> G[把 seq 区间加入驱逐索引]
-    G --> H[用一条索引消息重建实时上下文]
+    G --> H[用驱逐索引重建实时上下文]
     H --> I{仍超出压力目标?}
     I -->|是| J[把已完成的实时工具结果折叠为精确 recall 指针]
     I -->|否| K[保留重建后的实时上下文]
@@ -41,7 +41,7 @@ flowchart LR
 
 - **先持久化**：`ScrollContextManager` 在任何驱逐前，都会先把实时上下文写入 `{working_dir}/history.db`。
 - **保护当前活动轮次**：最新的用户请求及其进行中的工具链绝不会在任务中途被驱逐——即使压缩恰好在一个长工具任务中间触发，模型也不会丢失（进而答非所问）当前请求。
-- **不依赖摘要**：被驱逐的内容由 `EvictionIndex` 表示，而不是由 LLM 生成一段压缩摘要。
+- **没有压缩时摘要瓶颈**：被驱逐的内容由 `EvictionIndex` 表示；有价值的任务状态里程碑由 assistant 在正常回复中写成可选 headline。
 - **可回溯原文**：索引中的每一行都带 `seq` 区间。Agent 可以调用 `recall_history(op="expand", lo, hi)` 读取完整原始记录（或在 `recall_history_python` REPL 中用 `ms.expand(lo, hi)`）。
 - **跨会话历史**：历史行包含 `session_id` 和 `agent_id`，默认可检索当前 Agent 的所有历史会话；显式放宽时也能查询同一工作区内其他 Agent 的历史。
 - **安全降级**：如果 scroll 无法构建，或 recall 工具无法安全运行，QwenPaw 会退回 native 上下文管理，避免把历史驱逐到无法读取的位置。
@@ -65,35 +65,36 @@ flowchart LR
 | `kind`                                          | `model_turn`、`context_msg` 或 `tool_result`。          |
 | `role`, `name`, `content`                       | 角色/工具元数据以及可搜索的扁平文本。                   |
 | `tool_call_id`, `tool_input`, `tool_state`      | 工具调用关联、参数和结果状态。                          |
-| `headline`                                      | 模型主动写入的里程碑标题，用作驱逐索引叶子。            |
+| `headline`                                      | 模型写入的可选任务状态里程碑，用作驱逐索引叶子。        |
 | `blocks`, `metadata`, `created_at`, `dedup_key` | 完整序列化块、元数据、时间戳和幂等键。                  |
 
 如果当前 SQLite 支持 FTS5，QwenPaw 会维护 `conversation_history_fts` 全文索引；否则 `ms.search` 会降级为较慢的 `LIKE` 扫描。
 
 ## 工作记忆（Working Memory）
 
-**工作记忆** 就是实时的提示词窗口——模型此刻能看到的内容。窗口写满时，scroll 把较早的轮次驱逐成一份紧凑、可展开的索引，而不是总结后丢弃，从而把窗口控制在预算内；索引的每个条目，就是模型在那一轮写下的一行 **headline（里程碑标题）**。下面先讲 headline 怎么来，再讲实时窗口如何重建、驱逐索引如何分层。
+**工作记忆** 就是实时的提示词窗口——模型此刻能看到的内容。窗口写满时，scroll 把较早的轮次驱逐成一份紧凑、可展开的索引，而不是总结后丢弃，从而把窗口控制在预算内；有价值的轮次可以为索引提供一行 **headline（里程碑标题）**。下面先讲 headline 怎么来，再讲实时窗口如何重建、驱逐索引如何分层。
 
 ### Headlines（里程碑标题）
 
-scroll 的核心设计是：**不靠模型生成摘要来压缩上下文**。取而代之，模型自己标记里程碑——在每一轮有价值的回答结束时（确立了某个事实或数值、做出或修改了决定、得到结果、完成步骤、或撞上不值得重蹈的死胡同），写下一行简短的里程碑标题。它以行尾、单独一行的 HTML 注释给出，并用一对 **稀有字符 `⟦ … ⟧`** 包裹：
+scroll 的核心设计是：**不靠模型生成摘要来压缩上下文**。取而代之，当一轮回复确立了持久的任务状态变化时，模型可以在所有工具调用完成后追加一行隐藏 headline：
 
 ```text
-<!-- ⟦ 决定用 PostgreSQL 替换 MySQL（需要 JSONB 支持） ⟧ -->
+⟦ 数据库迁移｜已决定：因 JSONB 采用 PostgreSQL，MySQL 已废弃 ⟧
 ```
 
-- **怎么被收录**：scroll 把这一行抽进该轮的 `headline` 字段（仅模型 / assistant 轮次），并把这条注释从渲染给聊天界面的内容里删掉——所以它对用户不可见，但在持久行里原样保留。
-- **作用**：当上下文被压缩、原始轮次被驱逐出实时窗口后，这条 headline 正是仍然保留在上下文里的关键信息——用它，而不是用模型写的摘要。被存下的 headline 之后会成为下面驱逐索引里该轮的 `seq · ⟦ … ⟧` 叶子。
+- **结构**：`任务｜状态：当前有效进展；下一步：具体动作`。任务名要稳定；下一步未知或任务已完成时省略。决定发生变化时，同时写清最终选择与已废弃的旧选择。
+- **怎么被收录**：Scroll 把 `⟦ … ⟧` 一行抽进 assistant 轮次的 `headline` 字段，并从聊天界面隐藏；持久历史仍原样保留。
+- **作用**：headline 是紧凑的语义检查点和导航标签，不是真相来源。原始轮次被驱逐后，它会成为该轮的 `seq · ⟦ … ⟧` 索引叶子；精确细节仍从 `history.db` recall。
+- **它在回复时是可选的**：普通确认、暂定想法或没有持久任务状态变化的轮次不生成 headline。这类区段之后被驱逐时保留为 `seq lo–hi · (no milestone)`；它没有语义标签，但原始内容仍可按该 seq 区间精确召回。压缩阶段不会为它额外调用模型补写。
 
 ### 实时上下文结构
 
 发生驱逐后，实时上下文会被重建为：
 
 ```text
-驱逐索引（名为 "memory" 的占位消息）
-  scroll 注入的一条合成消息（不是真实对话轮次），代表所有被驱逐的轮次，
-  装着整份驱逐索引：以 [context compressed] 开头，后面是分层的 headline
-  与 seq 区间，以及如何用 recall 取回原文的说明。详见下文「驱逐索引」。
+驱逐索引（名为 "memory" 的合成占位消息，不是真实对话轮次）
+  以 [context compressed] 开头，后面是分层的 headline、seq 区间，
+  以及如何 recall 原文的说明。详见下文「驱逐索引」。
 
 最近尾部——始终包含当前活动轮次
   由 AgentScope 的配对安全切分逻辑选出的最新轮次，外加「活动轮次」：
@@ -142,7 +143,7 @@ Re-expand a span with the recall_history tool: recall_history(op="expand", lo, h
 </system-info>
 ```
 
-索引里每个 `⟦ … ⟧` 叶子，就是上一节那条由模型写下的 headline。模型不应该只凭 headline 回答：headline 只是指针；真正证据应来自 `recall_history`（`expand` / `search`）或其他 recall helper 返回的完整内容。
+索引里每个 `⟦ … ⟧` 叶子，都是模型写下的任务状态 headline。模型不应该只凭 headline 回答：headline 是检查点和指针；真正证据应来自 `recall_history`（`expand` / `search`）或其他 recall helper 返回的完整内容。
 
 ## 情景记忆（Episodic Memory）
 

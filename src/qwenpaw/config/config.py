@@ -924,31 +924,6 @@ class ScrollContextConfig(BaseModel):
         ),
     )
 
-    summarize_unheadlined_evictions: bool = Field(
-        default=True,
-        description=(
-            "When an evicted span carries NO model headline, generate a "
-            "one-line summary of it (via the active model) to use as its "
-            "eviction-index entry instead of a bare ``(no milestone)`` line. "
-            "Keeps the index readable for legacy 1.x conversations (whose "
-            "turns predate headlines) and for tool-heavy spans the model "
-            "never headlined. The full turns stay recallable either way; "
-            "this only affects the descriptive label. Best-effort — a "
-            "model/timeout failure falls back to ``(no milestone)`` and never "
-            "blocks eviction. Costs one extra model call per such eviction."
-        ),
-    )
-
-    summarize_eviction_timeout_seconds: int = Field(
-        default=20,
-        ge=1,
-        description=(
-            "Per-eviction timeout for the un-headlined-span summary call "
-            "above. On timeout the span keeps a ``(no milestone)`` label; "
-            "eviction itself is never delayed beyond this."
-        ),
-    )
-
 
 class LightContextConfig(BaseModel):
     """Light context manager configuration."""
