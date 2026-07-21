@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 # stub and is never folded (or counted as reclaimable) again.
 _FOLD_MARK = "[scroll folded]"
 _RECALL_FOLD_MARK = "[scroll recall folded]"
+_PRE_TRIM_TARGET_RATIO = 0.75
 
 
 class ScrollContextManager:
@@ -109,6 +110,8 @@ class ScrollContextManager:
         # checkpointed.
         self.last_compress: dict[str, int] = {
             "evicted": 0,
+            "pre_folded": 0,
+            "live_folded": 0,
             "folded": 0,
         }
         # Warn once per overflow episode, not once per reasoning step.
@@ -271,17 +274,20 @@ class ScrollContextManager:
     ) -> None:
         """Evict the middle into the index; fold tool results under pressure.
 
-        A single pressure pipeline — step 5 engages while the context still
-        overflows the TRIGGER, so "nothing evictable" (a single-request
-        session whose active turn IS the whole context) is just step 4 running
-        empty, not a special case:
+        A graduated pressure pipeline. Recoverable outputs from completed
+        turns are the cheapest content to remove, so automatic compression
+        tries those before evicting dialogue. The active turn remains intact
+        until the existing post-eviction pressure valve:
 
         1. persist     — every live turn is now durable.
         2. trigger     — under the token threshold? nothing to do.
-        3. split       — evictable middle | recent tail (+ active turn).
-        4. add_eviction— fold the middle (if any) into the index as a new
+        3. pre-fold    — on automatic pressure, fold completed-turn tool
+                         results toward the 75% health target. If the context
+                         falls to the trigger or below, stop without eviction.
+        4. split       — evictable middle | recent tail (+ active turn).
+        5. add_eviction— fold the middle (if any) into the index as a new
                          Tier 0 block, rebuild context = [index] + tail.
-        5. fold        — still under real pressure after finished turns are
+        6. live-fold   — still under real pressure after finished turns are
                          evicted: replace profitable
                          old tool results with recovery pointers until the
                          pressure target is met. The newest stays verbatim.
@@ -289,6 +295,8 @@ class ScrollContextManager:
         cfg = context_config or agent.context_config
         self.last_compress = {
             "evicted": 0,
+            "pre_folded": 0,
+            "live_folded": 0,
             "folded": 0,
         }
         hard_limit = int(agent.model.context_size)
@@ -348,6 +356,42 @@ class ScrollContextManager:
             self._overflow_warned = False
             log_timings("below_trigger")
             return
+
+        # 3) Before evicting dialogue, reclaim recoverable tool output from
+        #    completed turns. This runs only for normal automatic pressure:
+        #    manual /compact deliberately lowers trigger_ratio to request an
+        #    eviction now, and must not be intercepted by this lighter pass.
+        #    The 75% target provides hysteresis below the default 80% trigger;
+        #    if no more safe candidates exist, anything at or below the trigger
+        #    is still healthy enough to continue without eviction.
+        base_cfg = getattr(agent, "context_config", cfg)
+        base_trigger_ratio = float(
+            getattr(base_cfg, "trigger_ratio", cfg.trigger_ratio),
+        )
+        is_forced_compaction = float(cfg.trigger_ratio) < base_trigger_ratio
+        if (
+            not is_forced_compaction
+            and float(cfg.trigger_ratio) > _PRE_TRIM_TARGET_RATIO
+        ):
+            pre_folded, tokens = await self._fold_tool_results_under_pressure(
+                agent,
+                tokens=tokens,
+                target=_PRE_TRIM_TARGET_RATIO * agent.model.context_size,
+                include_active=False,
+            )
+            mark("pre_fold_tool_results")
+            if pre_folded:
+                self.last_compress["pre_folded"] = pre_folded
+                self.last_compress["folded"] += pre_folded
+                logger.info(
+                    "scroll: pre-folded %d completed tool result(s)",
+                    pre_folded,
+                )
+                if tokens <= trigger:
+                    self._overflow_warned = False
+                    log_timings("pre_trimmed_below_trigger")
+                    return
+
         if len(agent.state.context) <= 1:
             if tokens > hard_limit:
                 log_timings("single_message_unfit")
@@ -358,7 +402,7 @@ class ScrollContextManager:
             log_timings("single_message")
             return
 
-        # 3) Pairing-safe split; keep the recent tail, evict the middle.
+        # 4) Pairing-safe split; keep the recent tail, evict the middle.
         requested_reserve = cfg.reserve_ratio * agent.model.context_size
         # Keep a useful recent raw tail without letting a million-token model
         # reserve an excessive 100k-token suffix. Mirrors the bounded recent
@@ -426,7 +470,7 @@ class ScrollContextManager:
             await self._offload_dialog(middle)
             mark("offload_dialog")
 
-            # 4) Fold the evicted middle into the index as a new Tier 0
+            # 5) Fold the evicted middle into the index as a new Tier 0
             #    block.
             self._index_evicted(middle)
             mark("index_evicted")
@@ -437,7 +481,7 @@ class ScrollContextManager:
             tokens = await self._live_tokens(agent)
             mark("live_tokens")
 
-        # 5) Pressure-driven microcompaction. Do not clear live tool results
+        # 6) Pressure-driven microcompaction. Do not clear live tool results
         #    merely because Scroll ran: eviction may already have relieved the
         #    pressure. If it did not, replace recoverable results one at a time
         #    (older completed turns before the active turn, then largest byte
@@ -451,10 +495,12 @@ class ScrollContextManager:
                 agent,
                 tokens=tokens,
                 target=pressure_threshold,
+                include_active=True,
             )
             mark("fold_tool_results")
             if folded:
-                self.last_compress["folded"] = folded
+                self.last_compress["live_folded"] = folded
+                self.last_compress["folded"] += folded
                 logger.info(
                     "scroll: pressure-folded %d live tool result(s)",
                     folded,
@@ -496,14 +542,18 @@ class ScrollContextManager:
     def _tool_result_fold_candidates(
         self,
         agent: Any,
+        *,
+        include_active: bool,
     ) -> list[tuple[bool, int, int, Any, str]]:
         """Return profitable fold candidates ordered by recovery priority.
 
-        Results outside the active turn are less relevant and fold first.
-        Within that group, prefer the largest byte saving, then the older
-        result. The newest result in the entire live context is never a
-        candidate. A fixed size threshold is deliberately absent: a result is
-        eligible only when its pointer is actually smaller than its output.
+        When ``include_active`` is false, only completed-turn results are
+        returned. Otherwise results outside the active turn are still less
+        relevant and sort first. Within either group, prefer the largest byte
+        saving, then the older result. The newest result in the entire live
+        context is never a candidate. A fixed size threshold is deliberately
+        absent: a result is eligible only when its pointer is actually smaller
+        than its output.
         """
         results: list[tuple[Any, Any]] = []
         active_messages = {id(msg) for msg in self._active_turn_tail(agent)}
@@ -525,6 +575,9 @@ class ScrollContextManager:
 
         candidates: list[tuple[bool, int, int, Any, str]] = []
         for ordinal, (msg, block) in enumerate(results[:-1]):
+            is_active = id(msg) in active_messages
+            if is_active and not include_active:
+                continue
             if self._is_folded_stub(block):
                 continue
             existing_output = (
@@ -556,7 +609,7 @@ class ScrollContextManager:
             if savings <= 0:
                 continue
             candidates.append(
-                (id(msg) in active_messages, -savings, ordinal, block, text),
+                (is_active, -savings, ordinal, block, text),
             )
 
         candidates.sort(key=lambda item: item[:3])
@@ -568,9 +621,13 @@ class ScrollContextManager:
         *,
         tokens: int,
         target: float,
+        include_active: bool,
     ) -> tuple[int, int]:
         """Fold profitable live results until ``tokens`` reaches ``target``."""
-        candidates = self._tool_result_fold_candidates(agent)
+        candidates = self._tool_result_fold_candidates(
+            agent,
+            include_active=include_active,
+        )
         folded = 0
         for _, _, _, block, text in candidates:
             output = [TextBlock(type="text", text=text)]

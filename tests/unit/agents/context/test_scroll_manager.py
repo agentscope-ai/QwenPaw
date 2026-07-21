@@ -633,6 +633,122 @@ def _multi_tool_turn(n: int = 3, *, padding: int = 0) -> Msg:
     return Msg(name="a", role="assistant", content=blocks)
 
 
+def _completed_tool_turn(tcid: str, *, padding: int = 5000) -> Msg:
+    """A finished historical turn with one recoverable tool result."""
+    return assistant_with_tool(tcid, f"RESULT-{tcid}" + "x" * padding)
+
+
+class _RealisticScrollConfig:
+    trigger_ratio = 0.8
+    reserve_ratio = 0.1
+
+
+@pytest.mark.parametrize("after_trim", [730, 770])
+async def test_pretrim_avoids_eviction_at_or_below_trigger(
+    store: HistoryStore,
+    after_trim: int,
+):
+    """Automatic pressure first reclaims completed-turn tool output.
+
+    Reaching the 75% target is desirable, but exhausting safe candidates in
+    the 75-80% band is also healthy: Scroll must stop without evicting turns.
+    The newest result in the whole live context remains verbatim.
+    """
+    older = _completed_tool_turn("old")
+    newest = _completed_tool_turn("new")
+    ctx = [
+        user("older request"),
+        older,
+        user("newer completed request"),
+        newest,
+        user("current request"),
+    ]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=[900, after_trim])
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (ctx[:4], ctx[4:])
+
+    await mgr.compress(agent)
+
+    assert older.content[2].output[0].text.startswith("[scroll folded]")
+    assert newest.content[2].output[0].text.startswith("RESULT-new")
+    durable = store._conn.execute(
+        "SELECT content FROM conversation_history "
+        "WHERE kind='tool_result' AND tool_call_id='old'",
+    ).fetchone()
+    assert durable["content"].startswith("RESULT-old")
+    assert "[scroll folded]" not in durable["content"]
+    assert agent.state.context == ctx
+    assert mgr._index.is_empty
+    assert mgr.last_compress == {
+        "evicted": 0,
+        "pre_folded": 1,
+        "live_folded": 0,
+        "folded": 1,
+    }
+    assert agent.model.calls == 2
+
+
+async def test_pretrim_insufficient_then_continues_to_eviction(
+    store: HistoryStore,
+):
+    """Pre-trimming is a first stage, not a replacement for eviction."""
+    older = _completed_tool_turn("old")
+    newest = _completed_tool_turn("new")
+    current = user("current request")
+    ctx = [
+        user("older request"),
+        older,
+        user("newer completed request"),
+        newest,
+        current,
+    ]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=[900, 810, 300])
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (ctx[:4], ctx[4:])
+
+    await mgr.compress(agent)
+
+    assert older.content[2].output[0].text.startswith("[scroll folded]")
+    assert newest.content[2].output[0].text.startswith("RESULT-new")
+    assert not mgr._index.is_empty
+    assert agent.state.context[-1].id == current.id
+    assert mgr.last_compress == {
+        "evicted": 4,
+        "pre_folded": 1,
+        "live_folded": 0,
+        "folded": 1,
+    }
+    assert agent.model.calls == 3
+
+
+async def test_manual_compact_skips_pretrim_and_performs_eviction(
+    store: HistoryStore,
+):
+    """The explicit /compact command requests archival, not a light trim."""
+
+    class _ManualConfig:
+        trigger_ratio = 1e-6
+        reserve_ratio = 0.1
+
+    older = _completed_tool_turn("old")
+    newest = _completed_tool_turn("new")
+    current = user("current request")
+    ctx = [user("old"), older, user("newer"), newest, current]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=[900, 300])
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (ctx[:4], ctx[4:])
+
+    await mgr.compress(agent, _ManualConfig())
+
+    assert older.content[2].output[0].text.startswith("RESULT-old")
+    assert mgr.last_compress["pre_folded"] == 0
+    assert mgr.last_compress["evicted"] == 4
+    assert agent.state.context[-1].id == current.id
+
+
 async def test_fold_not_triggered_between_reserve_and_trigger(
     store: HistoryStore,
 ):
@@ -666,6 +782,7 @@ async def test_fold_not_triggered_between_reserve_and_trigger(
     for block in turn.content:
         if getattr(block, "type", None) == "tool_result":
             assert block.output[0].text.startswith("RESULT-")
+    assert mgr.last_compress["pre_folded"] == 0
 
 
 async def test_compress_replaces_old_preview_with_tool_call_pointer(
