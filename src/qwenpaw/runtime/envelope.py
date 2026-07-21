@@ -12,8 +12,10 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict
+from functools import wraps
+from typing import Any, AsyncGenerator, Callable, Dict
 
 from .message_convert import _media_type_to_block_type
 
@@ -22,6 +24,60 @@ logger = logging.getLogger(__name__)
 
 def _gen_msg_id() -> str:
     return "msg_" + uuid.uuid4().hex
+
+
+@dataclass(frozen=True)
+class _EventMetadataExcludedOutput:
+    """An output that must not inherit metadata from the current event."""
+
+    output: Any
+
+
+def _with_event_metadata(obj: Any, event: Any) -> Any:
+    """Return a real-time output carrying its source event metadata.
+
+    Envelope state objects are reused when a message is completed and later
+    embedded in ``AgentResponse.output``. Attach metadata to a shallow output
+    copy so event-scoped extension data cannot leak into those durable
+    objects. Empty metadata follows the exact legacy path.
+    """
+    event_metadata = getattr(event, "metadata", None)
+    if not isinstance(event_metadata, dict) or not event_metadata:
+        return obj
+
+    output_metadata = dict(event_metadata)
+    host_metadata = getattr(obj, "metadata", None)
+    if isinstance(host_metadata, dict):
+        # Host-owned metadata wins on conflicts with extension metadata.
+        output_metadata.update(host_metadata)
+
+    return obj.model_copy(
+        update={"metadata": output_metadata},
+        deep=False,
+    )
+
+
+_EventTranslator = Callable[[Any, Any], AsyncGenerator[Any, None]]
+
+
+def _propagate_event_metadata(
+    translator: _EventTranslator,
+) -> _EventTranslator:
+    """Decorate event outputs with metadata from their source event."""
+
+    @wraps(translator)
+    async def wrapped(
+        envelope: Any,
+        event: Any,
+    ) -> AsyncGenerator[Any, None]:
+        async for output in translator(envelope, event):
+            if isinstance(output, _EventMetadataExcludedOutput):
+                yield output.output
+                continue
+
+            yield _with_event_metadata(output, event)
+
+    return wrapped
 
 
 class Envelope:
@@ -135,13 +191,12 @@ class Envelope:
 
     # pylint: disable=too-many-return-statements
     # pylint: disable=too-many-branches,too-many-statements
+    @_propagate_event_metadata
     async def translate_event(  # noqa: C901, PLR0912, PLR0915
         self,
         event: Any,
     ) -> AsyncGenerator[Any, None]:
-        """Translate one agentscope ``EventType`` event
-        into 0..N envelope objects.
-        """
+        """Translate an AgentScope event into real-time Host objects."""
         from agentscope.event import EventType
         from ..schemas import (
             ContentType,
@@ -295,7 +350,7 @@ class Envelope:
             # P0-5: finalize current text message if needed
             if self._should_finalize_text_message():
                 async for obj in self._finalize_text_message():
-                    yield obj
+                    yield _EventMetadataExcludedOutput(obj)
 
             call_id = event.tool_call_id
             msg_id = _gen_msg_id()
