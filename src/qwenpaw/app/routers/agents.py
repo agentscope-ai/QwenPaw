@@ -8,6 +8,7 @@ import json
 import logging
 import shutil
 from pathlib import Path
+from typing import Literal
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel, field_validator
@@ -108,7 +109,7 @@ class CopyAgentRequest(BaseModel):
     """Request model for copying an existing agent's configuration files."""
 
     name: str | None = None
-    copy_agent_json: bool = True
+    copy_agent_json: Literal[True] = True
     copy_md_files: bool = True
     copy_skills: bool = False
     copy_jobs: bool = False
@@ -490,51 +491,19 @@ async def create_agent(
 def _build_copied_agent_config(
     *,
     source_config: AgentProfileConfig,
-    request: CopyAgentRequest,
     new_id: str,
     new_name: str,
     workspace_dir: Path,
-    language: str,
 ) -> AgentProfileConfig:
-    """Build the new agent config for a copy operation."""
-    from ...config.config import (
-        ChannelConfig,
-        MCPConfig,
-        HeartbeatConfig,
-        ToolsConfig,
-    )
+    """Derive a new agent config from the parsed source profile."""
+    from ...config.config import ChannelConfig
 
-    if request.copy_agent_json:
-        agent_config = source_config.model_copy(deep=True)
-        agent_config.id = new_id
-        agent_config.name = new_name
-        agent_config.workspace_dir = str(workspace_dir)
-        # Avoid sharing channel credentials / routing with the source agent.
-        agent_config.channels = ChannelConfig()
-        return agent_config
-
-    active_model = None
-    try:
-        from ...providers import ProviderManager
-
-        global_model = ProviderManager.get_instance().get_active_model()
-        if global_model and global_model.provider_id:
-            active_model = global_model
-    except Exception:
-        pass
-
-    return AgentProfileConfig(
-        id=new_id,
-        name=new_name,
-        description="",
-        workspace_dir=str(workspace_dir),
-        language=language,
-        channels=ChannelConfig(),
-        mcp=MCPConfig(),
-        heartbeat=HeartbeatConfig(),
-        tools=ToolsConfig(),
-        active_model=active_model,
-    )
+    agent_config = source_config.model_copy(deep=True)
+    agent_config.id = new_id
+    agent_config.name = new_name
+    agent_config.workspace_dir = str(workspace_dir)
+    agent_config.channels = ChannelConfig()
+    return agent_config
 
 
 def _copy_selected_workspace_files(
@@ -557,6 +526,8 @@ def _copy_selected_workspace_files(
         src_skills = get_workspace_skills_dir(source_workspace)
         dst_skills = get_workspace_skills_dir(workspace_dir)
         if src_skills.is_dir():
+            # Destination skills/ is created empty by
+            # _initialize_agent_workspace, so dirs_exist_ok is required.
             shutil.copytree(src_skills, dst_skills, dirs_exist_ok=True)
         src_manifest = source_workspace / "skill.json"
         if src_manifest.is_file():
@@ -613,11 +584,9 @@ async def copy_agent(
 
     agent_config = _build_copied_agent_config(
         source_config=source_config,
-        request=request,
         new_id=new_id,
         new_name=new_name,
         workspace_dir=workspace_dir,
-        language=language,
     )
 
     _initialize_agent_workspace(

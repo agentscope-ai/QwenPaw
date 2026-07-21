@@ -41,4 +41,24 @@ describe("AgentTable", () => {
       screen.getByRole("button", { name: "agent.unpinAgent" }),
     ).toBeInTheDocument();
   });
+
+  it("keeps Copy enabled for default agent with template tooltip", () => {
+    renderWithProviders(
+      <AgentTable
+        agents={[agent("default", true), agent("custom", false)]}
+        loading={false}
+        reordering={false}
+        onEdit={vi.fn()}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onPin={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    const defaultCopy = screen.getByTitle("agent.copyDefaultTooltip");
+    expect(defaultCopy).toBeEnabled();
+    expect(screen.getByTitle("agent.copyTooltip")).toBeEnabled();
+  });
 });

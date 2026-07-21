@@ -496,14 +496,16 @@
       "waitUntilStarted": "Có thể thao tác sau khi khởi động xong"
     },
     "copyTooltip": "Sao chép cấu hình agent",
+    "copyDefaultTooltip": "Sao chép dùng agent mặc định làm mẫu",
     "copyTitle": "Sao chép cấu hình Agent",
     "copyNameLabel": "Tên agent mới",
     "copyOptionsLabel": "Nội dung sao chép",
-    "copyOptionAgentJson": "agent.json",
+    "copyOptionAgentJson": "agent.json (bắt buộc)",
+    "copyOptionAgentJsonHint": "Luôn sao chép cấu hình nguồn đã phân tích và đặt lại ID, tên, workspace cùng channels. Đây không phải bản sao từng byte của agent.json trên đĩa.",
     "copyOptionMdFiles": "AGENTS / SOUL / PROFILE / HEARTBEAT / BOOTSTRAP.md",
     "copyOptionSkills": "skills/ + manifest",
     "copyOptionJobs": "jobs.json",
-    "copyOptionJobsHint": "Sao chép định nghĩa công việc định kỳ, không gồm lịch sử chạy",
+    "copyOptionJobsHint": "Chỉ sao chép định nghĩa công việc, không gồm lịch sử. Agent mới sẽ chạy theo lịch ngay sau khi tạo.",
     "copySuccess": "Sao chép cấu hình agent thành công",
     "copyFailed": "Sao chép cấu hình agent thất bại"
   },

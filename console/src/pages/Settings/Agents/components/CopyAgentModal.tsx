@@ -48,6 +48,7 @@ export function CopyAgentModal({
     await onOk({
       name: trimmed || undefined,
       ...options,
+      copy_agent_json: true,
     });
   };
 
@@ -78,17 +79,22 @@ export function CopyAgentModal({
             {t("agent.copyOptionsLabel")}
           </Text>
           <Space direction="vertical">
-            <Checkbox
-              checked={options.copy_agent_json}
-              onChange={(e) =>
-                setOptions((prev) => ({
-                  ...prev,
-                  copy_agent_json: e.target.checked,
-                }))
-              }
-            >
-              {t("agent.copyOptionAgentJson")}
-            </Checkbox>
+            <div>
+              <Checkbox checked disabled>
+                {t("agent.copyOptionAgentJson")}
+              </Checkbox>
+              <Text
+                type="secondary"
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  marginLeft: 24,
+                  marginTop: 4,
+                }}
+              >
+                {t("agent.copyOptionAgentJsonHint")}
+              </Text>
+            </div>
             <Checkbox
               checked={options.copy_md_files}
               onChange={(e) =>
@@ -111,20 +117,30 @@ export function CopyAgentModal({
             >
               {t("agent.copyOptionSkills")}
             </Checkbox>
-            <Checkbox
-              checked={options.copy_jobs}
-              onChange={(e) =>
-                setOptions((prev) => ({
-                  ...prev,
-                  copy_jobs: e.target.checked,
-                }))
-              }
-            >
-              {t("agent.copyOptionJobs")}
-            </Checkbox>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {t("agent.copyOptionJobsHint")}
-            </Text>
+            <div>
+              <Checkbox
+                checked={options.copy_jobs}
+                onChange={(e) =>
+                  setOptions((prev) => ({
+                    ...prev,
+                    copy_jobs: e.target.checked,
+                  }))
+                }
+              >
+                {t("agent.copyOptionJobs")}
+              </Checkbox>
+              <Text
+                type="secondary"
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  marginLeft: 24,
+                  marginTop: 4,
+                }}
+              >
+                {t("agent.copyOptionJobsHint")}
+              </Text>
+            </div>
           </Space>
         </div>
       </Space>

@@ -98,9 +98,11 @@ export default function AgentsPage() {
       setCopyModalVisible(false);
       setCopyingAgent(null);
       await loadAgents();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to copy agent:", error);
-      message.error(error.message || t("agent.copyFailed"));
+      message.error(
+        error instanceof Error ? error.message : t("agent.copyFailed"),
+      );
     } finally {
       setCopying(false);
     }

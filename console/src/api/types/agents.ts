@@ -58,7 +58,7 @@ export interface CreateAgentRequest {
 
 export interface CopyAgentRequest {
   name?: string;
-  copy_agent_json?: boolean;
+  copy_agent_json?: true;
   copy_md_files?: boolean;
   copy_skills?: boolean;
   copy_jobs?: boolean;

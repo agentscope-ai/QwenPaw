@@ -215,7 +215,11 @@ export function AgentTable({
               icon={<CopyOutlined />}
               onClick={() => onCopy(record)}
               style={iconStyle}
-              title={t("agent.copyTooltip")}
+              title={
+                record.id === "default"
+                  ? t("agent.copyDefaultTooltip")
+                  : t("agent.copyTooltip")
+              }
             />
             <Popconfirm
               title={

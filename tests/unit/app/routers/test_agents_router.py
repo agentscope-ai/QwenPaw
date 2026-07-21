@@ -22,12 +22,21 @@ from fastapi.testclient import TestClient
 
 from qwenpaw.exceptions import AppBaseException
 from qwenpaw.app.agent_startup import AgentStartupStatus
-from qwenpaw.app.routers.agents import router as agents_router
+from qwenpaw.app.routers.agents import (
+    CopyAgentRequest,
+    copy_agent,
+    router as agents_router,
+)
 from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
     ChannelConfig,
     DingTalkConfig,
+    HeartbeatConfig,
+    MCPConfig,
+    ModelSlotConfig,
+    ToolsConfig,
+    BuiltinToolConfig,
 )
 
 
@@ -468,7 +477,7 @@ def test_copy_agent_defaults_reset_channels_and_schedules_startup(
     source_cfg = AgentProfileConfig(
         id="bot",
         name="Bot",
-        description="src",
+        description="src-desc",
         workspace_dir=str(source_ws),
         language="en",
         channels=ChannelConfig(
@@ -477,6 +486,21 @@ def test_copy_agent_defaults_reset_channels_and_schedules_startup(
                 client_id="cid",
                 client_secret="secret",
             ),
+        ),
+        mcp=MCPConfig(migration_version=3),
+        heartbeat=HeartbeatConfig(enabled=True, every="10m"),
+        tools=ToolsConfig(
+            builtin_tools={
+                "read_file": BuiltinToolConfig(
+                    name="read_file",
+                    enabled=False,
+                    description="copied-tool",
+                ),
+            },
+        ),
+        active_model=ModelSlotConfig(
+            provider_id="openai",
+            model="gpt-test",
         ),
     )
 
@@ -522,9 +546,23 @@ def test_copy_agent_defaults_reset_channels_and_schedules_startup(
     assert body["id"] == "copied1"
 
     assert saved["id"] == "copied1"
+    assert saved["config"].id == "copied1"
     assert saved["config"].name == "Bot Copy"
+    assert saved["config"].description == "src-desc"
+    assert saved["config"].mcp.migration_version == 3
+    assert saved["config"].heartbeat.enabled is True
+    assert saved["config"].heartbeat.every == "10m"
+    assert saved["config"].tools.builtin_tools["read_file"].enabled is False
+    assert (
+        saved["config"].tools.builtin_tools["read_file"].description
+        == "copied-tool"
+    )
+    assert saved["config"].active_model is not None
+    assert saved["config"].active_model.provider_id == "openai"
+    assert saved["config"].active_model.model == "gpt-test"
     assert saved["config"].channels.dingtalk.enabled is False
     assert saved["config"].channels.dingtalk.client_secret == ""
+    assert saved["config"].workspace_dir == body["workspace_dir"]
 
     new_ws = Path(body["workspace_dir"])
     assert (
@@ -617,3 +655,73 @@ def test_copy_agent_returns_404_when_missing(client, fake_config):
         response = client.post("/api/agents/ghost/copy", json={})
 
     assert response.status_code == 404
+
+
+def test_copy_agent_rejects_copy_agent_json_false(client, fake_config):
+    with patch(
+        "qwenpaw.app.routers.agents.load_config",
+        return_value=fake_config,
+    ):
+        response = client.post(
+            "/api/agents/bot/copy",
+            json={"copy_agent_json": False},
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_copy_agent_skips_startup_without_http_request(
+    fake_config,
+    manager_mock,
+    tmp_path,
+    monkeypatch,
+):
+    source_ws = tmp_path / "source"
+    _seed_source_workspace(source_ws)
+    fake_config.agents.profiles["bot"].workspace_dir = str(source_ws)
+    fake_config.agents.language = "en"
+
+    source_cfg = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        workspace_dir=str(source_ws),
+        language="en",
+    )
+
+    working_dir = tmp_path / "working"
+    working_dir.mkdir()
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.WORKING_DIR",
+        working_dir,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=source_cfg,
+        ),
+        patch("qwenpaw.app.routers.agents.save_config"),
+        patch("qwenpaw.app.routers.agents.save_agent_config"),
+        patch("qwenpaw.app.routers.agents._initialize_agent_workspace"),
+        patch(
+            "qwenpaw.app.routers.agents._generate_unique_id",
+            return_value="copied3",
+        ),
+        patch(
+            "qwenpaw.app.routers.agents._get_multi_agent_manager",
+        ) as get_manager,
+    ):
+        result = await copy_agent(
+            agentId="bot",
+            request=CopyAgentRequest(),
+            http_request=None,
+        )
+
+    assert result.id == "copied3"
+    get_manager.assert_not_called()
+    manager_mock.schedule_agent_startup.assert_not_called()
