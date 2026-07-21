@@ -657,6 +657,56 @@ def _generate_subagent_session_id() -> str:
     return f"sub-{str(uuid4())[:8]}"
 
 
+def _json_safe_channel_meta(value: Any) -> Any:
+    """Keep channel routing metadata safe to include in an HTTP payload."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        safe: dict[str, Any] = {}
+        for key, raw_value in value.items():
+            safe_value = _json_safe_channel_meta(raw_value)
+            if safe_value is not None:
+                safe[str(key)] = safe_value
+        return safe
+    if isinstance(value, (list, tuple)):
+        safe_list = []
+        for raw_value in value:
+            safe_value = _json_safe_channel_meta(raw_value)
+            if safe_value is not None:
+                safe_list.append(safe_value)
+        return safe_list
+    return None
+
+
+def _build_spawn_request_context(current_agent_id: str) -> dict[str, Any]:
+    """Build approval routing metadata without changing child identity."""
+    from ...app.agent_context import (
+        get_current_approval_route,
+        get_current_channel,
+        get_current_root_session_id,
+        get_current_session_id,
+        get_current_user_id,
+    )
+
+    inherited = get_current_approval_route() or {}
+    context: dict[str, Any] = {
+        "root_session_id": (
+            inherited.get("root_session_id")
+            or get_current_root_session_id()
+            or get_current_session_id()
+            or ""
+        ),
+        "root_agent_id": current_agent_id,
+        "user_id": inherited.get("user_id") or get_current_user_id() or "",
+        "channel": inherited.get("channel") or get_current_channel() or "",
+        "_spawn_subagent": True,
+    }
+    safe_meta = _json_safe_channel_meta(inherited.get("channel_meta") or {})
+    if isinstance(safe_meta, dict) and safe_meta:
+        context["channel_meta"] = safe_meta
+    return context
+
+
 @tool_descriptor(async_execution=True)
 async def spawn_subagent(
     task: str,
@@ -714,6 +764,7 @@ async def spawn_subagent(
             timeout=timeout,
         )
 
+    request_context = _build_spawn_request_context(current_agent_id)
     request_payload = {
         "session_id": subagent_session_id,
         "input": [
@@ -722,7 +773,7 @@ async def spawn_subagent(
                 "content": [{"type": "text", "text": task}],
             },
         ],
-        "request_context": {},
+        "request_context": request_context,
     }
 
     if background:
@@ -869,7 +920,7 @@ async def _spawn_forked_subagent(
     worktree_path = fork_result.get("worktree_path", "")
     worktree_branch = fork_result.get("worktree_branch", "")
 
-    request_context: dict = {}
+    request_context = _build_spawn_request_context(current_agent_id)
     if worktree_path:
         request_context["fork_project_dir"] = worktree_path
 

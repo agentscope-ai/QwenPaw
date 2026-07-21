@@ -41,6 +41,11 @@ _current_channel: ContextVar[Optional[str]] = ContextVar(
     default=None,
 )
 
+_current_approval_route: ContextVar[Optional[dict]] = ContextVar(
+    "current_approval_route",
+    default=None,
+)
+
 
 async def get_agent_for_request(
     request: Request,
@@ -228,3 +233,13 @@ def set_current_channel(channel: Optional[str]) -> None:
 def get_current_channel() -> Optional[str]:
     """Get current channel from context."""
     return _current_channel.get()
+
+
+def set_current_approval_route(route: Optional[dict]) -> None:
+    """Set routing metadata used only for spawned-child approvals."""
+    _current_approval_route.set(route)
+
+
+def get_current_approval_route() -> Optional[dict]:
+    """Return routing metadata used only for spawned-child approvals."""
+    return _current_approval_route.get()

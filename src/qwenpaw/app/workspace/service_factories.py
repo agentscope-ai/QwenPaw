@@ -144,6 +144,9 @@ async def create_channel_service(ws: "Workspace", _):
     ws._service_manager.services["channel_manager"] = cm
 
     cm.set_workspace(ws)
+    from ..approvals import get_approval_service
+
+    get_approval_service().set_channel_manager(cm, agent_id=ws.agent_id)
 
     agent_language = getattr(ws._config, "language", "zh") or "zh"
     for ch in cm.channels:
