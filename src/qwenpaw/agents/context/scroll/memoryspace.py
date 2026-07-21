@@ -871,7 +871,13 @@ class MemorySpace:
         seen: set[Path] = set()
         for raw_path, info in self._raw_saved_tool_refs(content, metadata):
             path = self._resolve_saved_tool_path(raw_path, root)
-            if path is None or path in seen or not path.is_file():
+            if path is None or path in seen:
+                continue
+            try:
+                if not path.is_file():
+                    continue
+            except OSError:
+                # is_file() may raise ENAMETOOLONG / EACCES on oversized paths
                 continue
             seen.add(path)
             refs.append((path, info))

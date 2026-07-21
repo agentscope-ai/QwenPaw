@@ -1,6 +1,10 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./i18n";
+// Configure Monaco to load from the local bundle instead of the CDN so the
+// Coding page works offline (issue #6261). Side-effect import, must run before
+// any Monaco editor mounts.
+import "./monacoSetup";
 import { installHostExternals } from "./plugins/hostExternals";
 import { installHostSdk } from "./plugins/hostSdk/install";
 import { registerHostModulesDynamic } from "./plugins/dynamicModuleRegistry";

@@ -9,10 +9,13 @@ import pytest
 from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import (
     DataBlock,
+    HintBlock,
     Msg,
     TextBlock,
+    ThinkingBlock,
     ToolCallBlock,
     ToolResultBlock,
+    ToolResultState,
     URLSource,
 )
 
@@ -28,6 +31,7 @@ except ImportError:
 
 from qwenpaw.agents import model_factory
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
+from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
 
 
 def _data_block(media_type: str, url: str) -> DataBlock:
@@ -277,6 +281,131 @@ def test_original_messages_not_modified_by_formatter_prep() -> None:
 
     assert original.to_dict() == original_dict
     assert original.content[1].type == "data"
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_aligns_reasoning_with_split_segments() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(relay_reasoning_content=True)
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="first reasoning"),
+            ToolCallBlock(id="call_1", name="first", input="{}"),
+            ToolCallBlock(id="call_2", name="second", input="{}"),
+            ToolResultBlock(
+                id="call_1",
+                name="first",
+                output=[TextBlock(text="first result")],
+                state=ToolResultState.SUCCESS,
+            ),
+            ToolResultBlock(
+                id="call_2",
+                name="second",
+                output=[TextBlock(text="second result")],
+                state=ToolResultState.SUCCESS,
+            ),
+            ThinkingBlock(thinking="second reasoning"),
+            TextBlock(text="done"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert [item.get("reasoning_content") for item in assistant_messages] == [
+        "first reasoning",
+        "second reasoning",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_aligns_reasoning_across_hint() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(relay_reasoning_content=True)
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="first reasoning"),
+            TextBlock(text="before hint"),
+            HintBlock(hint="continue"),
+            ThinkingBlock(thinking="second reasoning"),
+            TextBlock(text="after hint"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert [item.get("reasoning_content") for item in assistant_messages] == [
+        "first reasoning",
+        "second reasoning",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_does_not_carry_reasoning_forward() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(relay_reasoning_content=True)
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="tool reasoning"),
+            ToolCallBlock(id="call_1", name="tool", input="{}"),
+            ToolResultBlock(
+                id="call_1",
+                name="tool",
+                output=[TextBlock(text="result")],
+                state=ToolResultState.SUCCESS,
+            ),
+            TextBlock(text="done"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert assistant_messages[0]["reasoning_content"] == "tool reasoning"
+    assert "reasoning_content" not in assistant_messages[1]
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_respects_disabled_reasoning_relay() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(relay_reasoning_content=False)
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="private reasoning"),
+            TextBlock(text="answer"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert assistant_messages
+    assert all("reasoning_content" not in item for item in assistant_messages)
 
 
 # -----------------------------------------------------------------------------

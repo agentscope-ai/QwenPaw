@@ -282,7 +282,7 @@ class AgentBuilder:
 
         running_config = agent_config.running
 
-        from ..loop.react_gates import (
+        from ..modes.default import (
             resolve_max_iterations,
         )
 
@@ -307,14 +307,6 @@ class AgentBuilder:
             effective_skills=effective_skills,
             governor=governor,
         )
-
-        # Register default ReAct gates (StopHandler).
-        if workspace is not None:
-            from ..loop.react_gates import (
-                register_react_gates,
-            )
-
-            register_react_gates(workspace, running_config)
 
         # Load session state if SessionLoadHook populated it.
         if ctx.session_state:

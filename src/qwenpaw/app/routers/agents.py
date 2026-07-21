@@ -501,6 +501,57 @@ async def update_agent(
     return agent_config
 
 
+@router.post(
+    "/{agentId}/memory/reindex",
+    summary="Rebuild agent memory index",
+    description="Clear and rebuild the ReMe search index for an agent",
+)
+async def rebuild_agent_memory_index(
+    agentId: str = PathParam(...),
+    request: Request = None,
+) -> dict[str, str]:
+    """Run the expensive ReMe reindex job as an explicit maintenance task."""
+    config = load_config()
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    agent_config = load_agent_config(agentId)
+    if agent_config.running.memory_manager_backend != "remelight":
+        raise HTTPException(
+            status_code=400,
+            detail="Memory index rebuild is only supported by ReMe Light",
+        )
+
+    manager = _get_multi_agent_manager(request)
+    workspace = await manager.get_agent(agentId)
+    memory_manager = workspace.memory_manager
+    if memory_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Memory manager is not available",
+        )
+
+    try:
+        response = await memory_manager.rebuild_index()
+    except RuntimeError as exc:
+        if str(exc) == "Memory index rebuild is already running":
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise
+
+    if response is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ReMe is not started or the reindex job failed",
+        )
+    if not response.success:
+        raise HTTPException(status_code=500, detail=str(response.answer))
+
+    return {"status": "completed"}
+
+
 @router.delete(
     "/{agentId}",
     summary="Delete agent",
