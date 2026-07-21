@@ -3,7 +3,7 @@ import json
 import logging
 import platform
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from typing import List, Optional, Union
 from urllib.parse import unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -420,6 +420,19 @@ def clean_display_text(text: str, role: str) -> str:
     return strip_injected_skill_block(strip_headline(text) or "", role)
 
 
+def _timestamp_to_user_timezone(value: str, user_tz: tzinfo) -> str:
+    """Convert an AgentScope timestamp to the configured user timezone."""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+
+    # AgentScope creates naive timestamps with ``datetime.now()``. Python's
+    # astimezone() therefore applies the backend process timezone before
+    # converting them; timezone-aware values retain their encoded offset.
+    return parsed.astimezone(user_tz).isoformat()
+
+
 # pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
 def agentscope_msg_to_message(
     messages: Union[Msg, List[Msg]],
@@ -458,11 +471,7 @@ def agentscope_msg_to_message(
 
         ts_value = msg.timestamp
         if ts_value:
-            try:
-                dt_obj = datetime.strptime(ts_value, "%Y-%m-%d %H:%M:%S.%f")
-                ts_value = dt_obj.replace(tzinfo=user_tz).isoformat()
-            except ValueError:
-                pass
+            ts_value = _timestamp_to_user_timezone(ts_value, user_tz)
 
         metadata = {
             "original_id": msg.id,

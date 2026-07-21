@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+from types import SimpleNamespace
+from zoneinfo import ZoneInfo
+
 from agentscope.message import Msg
 
 from qwenpaw.app.chats.utils import (
@@ -136,6 +140,65 @@ def test_msg_to_message_hides_headline_in_history_path():
     rendered = "".join(c.text for c in message.content)
     assert "⟦" not in rendered and "shipped" not in rendered
     assert "all set" in rendered
+
+
+def test_msg_to_message_converts_naive_process_local_timestamp(monkeypatch):
+    timestamp = "2026-01-02 03:04:05.123456"
+    local_dt = datetime.fromisoformat(timestamp).astimezone()
+    if local_dt.utcoffset() == timedelta(0):
+        user_tz_name = "Asia/Shanghai"
+    else:
+        user_tz_name = "UTC"
+    user_tz = ZoneInfo(user_tz_name)
+    monkeypatch.setattr(
+        "qwenpaw.app.chats.utils.load_config",
+        lambda: SimpleNamespace(user_timezone=user_tz_name),
+    )
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": "done"}],
+        created_at=timestamp,
+    )
+
+    [message] = agentscope_msg_to_message(msg)
+
+    expected = local_dt.astimezone(user_tz).isoformat()
+    assert message.metadata["timestamp"] == expected
+
+
+def test_msg_to_message_converts_aware_timestamp_to_user_timezone(monkeypatch):
+    monkeypatch.setattr(
+        "qwenpaw.app.chats.utils.load_config",
+        lambda: SimpleNamespace(user_timezone="Asia/Shanghai"),
+    )
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": "done"}],
+        created_at="2026-07-21T07:00:00+00:00",
+    )
+
+    [message] = agentscope_msg_to_message(msg)
+
+    assert message.metadata["timestamp"] == "2026-07-21T15:00:00+08:00"
+
+
+def test_msg_to_message_preserves_invalid_timestamp(monkeypatch):
+    monkeypatch.setattr(
+        "qwenpaw.app.chats.utils.load_config",
+        lambda: SimpleNamespace(user_timezone="Asia/Shanghai"),
+    )
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": "done"}],
+        created_at="not-a-timestamp",
+    )
+
+    [message] = agentscope_msg_to_message(msg)
+
+    assert message.metadata["timestamp"] == "not-a-timestamp"
 
 
 # ---------------------------------------------------------------------------
