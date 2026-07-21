@@ -88,12 +88,28 @@ describe("AgentLoopCard custom mode rendering", () => {
     );
   }, 15_000);
 
-  it("separates Mission verification guidance from its test command", async () => {
+  it("renders Mission defaults as three separate gates", async () => {
     renderWithProviders(<LoopForm />);
 
     fireEvent.click(screen.getByRole("tab", { name: "Mission" }));
 
     const mission = within(screen.getByRole("tabpanel"));
+    expect(
+      mission.getByRole("button", { name: /Mission iteration limit/ }),
+    ).toBeInTheDocument();
+    expect(
+      mission.getByRole("button", { name: /Worker attempts/ }),
+    ).toBeInTheDocument();
+    const verificationGate = mission.getByRole("button", {
+      name: /Mission verification policy/,
+    });
+    expect(verificationGate).toBeInTheDocument();
+    expect(
+      mission.queryByText("Verification guidance (optional)"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(verificationGate);
+
     expect(
       mission.getByText("Verification guidance (optional)"),
     ).toBeInTheDocument();

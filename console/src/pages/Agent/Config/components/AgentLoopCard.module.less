@@ -1,3 +1,19 @@
+.loopCard,
+.createForm {
+  --loop-accent: #ff7f16;
+  --loop-accent-strong: #c65300;
+  --loop-accent-soft: rgba(255, 127, 22, 0.08);
+  --loop-accent-border: rgba(255, 127, 22, 0.32);
+  --loop-surface: #fff;
+  --loop-surface-subtle: #f9f8f4;
+  --loop-border: #eae8e7;
+  --loop-border-hover: #f0b07b;
+  --loop-text: rgba(26, 23, 22, 0.88);
+  --loop-text-secondary: rgba(26, 23, 22, 0.58);
+  --loop-text-tertiary: rgba(26, 23, 22, 0.42);
+  --loop-shadow: 0 5px 16px rgba(43, 18, 0, 0.06);
+}
+
 .loopCard {
   overflow: hidden;
 
@@ -10,7 +26,7 @@
   }
 
   :global(.ant-tabs-nav::before) {
-    border-bottom-color: var(--border-color, #e1e4df);
+    border-bottom-color: var(--loop-border);
   }
 
   :global(.ant-tabs-nav-wrap) {
@@ -25,7 +41,7 @@
 
   :global(.ant-tabs-tab) {
     margin: 0;
-    padding: 8px 13px 9px;
+    padding: 10px 20px 11px;
     border: 1px solid transparent;
     border-bottom: 0;
     border-radius: 9px 9px 0 0;
@@ -35,12 +51,12 @@
   }
 
   :global(.ant-tabs-tab:hover) {
-    background: var(--background-color-secondary, #f5f7f4);
+    background: var(--loop-accent-soft);
   }
 
   :global(.ant-tabs-tab-active) {
-    border-color: var(--border-color, #dfe3dd);
-    background: var(--background-color, #fff);
+    border-color: var(--loop-border);
+    background: var(--loop-surface);
   }
 
   :global(.ant-tabs-tab-active::after) {
@@ -49,7 +65,7 @@
     bottom: -1px;
     left: 0;
     height: 2px;
-    background: var(--background-color, #fff);
+    background: var(--loop-surface);
     content: "";
   }
 
@@ -66,13 +82,13 @@
 }
 
 .templateIntro strong {
-  color: var(--text-color, rgba(0, 0, 0, 0.82));
+  color: var(--loop-text);
   font-size: 12px;
   font-weight: 650;
 }
 
 .templateIntro span {
-  color: var(--text-secondary, rgba(0, 0, 0, 0.48));
+  color: var(--loop-text-secondary);
   font-size: 11px;
 }
 
@@ -85,14 +101,20 @@
   gap: 6px;
 }
 
+.builtInTab,
+.customTab {
+  min-height: 22px;
+  justify-content: center;
+}
+
 .builtInTab {
-  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  color: var(--loop-text-secondary);
 }
 
 .customTab {
   position: relative;
   padding-left: 12px;
-  color: #315c4b;
+  color: var(--loop-accent-strong);
 
   &::before {
     position: absolute;
@@ -100,13 +122,13 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #5f8d76;
+    background: var(--loop-accent);
     content: "";
   }
 }
 
 :global(.ant-tabs-tab-active) .customTab {
-  color: #274c3d;
+  color: var(--loop-accent-strong);
   font-weight: 650;
 }
 
@@ -115,21 +137,22 @@
   width: 24px;
   height: 22px;
   place-items: center;
-  border: 1px solid #cbd8d0;
+  border: 1px solid var(--loop-accent-border);
   border-radius: 7px;
-  background: #f2f6f3;
-  color: #315c4b;
+  background: var(--loop-accent-soft);
+  color: var(--loop-accent-strong);
 }
 
 .modeEditor {
   width: min(100%, 1080px);
   margin: 0;
   padding: 16px 2px 12px;
+  color: var(--loop-text);
 }
 
 .customHeader p {
   margin: 0 0 14px;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  color: var(--loop-text-secondary);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -141,9 +164,9 @@
   gap: 14px;
   margin-bottom: 16px;
   padding: 11px 13px;
-  border: 1px solid var(--border-color, #e4e7e2);
+  border: 1px solid var(--loop-border);
   border-radius: 11px;
-  background: var(--background-color-secondary, #fafbf9);
+  background: var(--loop-surface-subtle);
 }
 
 .builtInIntroMain {
@@ -156,7 +179,7 @@
 .builtInIntroMain p {
   overflow: hidden;
   margin: 0;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.58));
+  color: var(--loop-text-secondary);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -167,7 +190,7 @@
   flex: none;
   align-items: center;
   gap: 6px;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.5));
+  color: var(--loop-text-secondary);
   font-size: 10px;
   white-space: nowrap;
 }
@@ -181,9 +204,9 @@
 }
 
 .customTag {
-  border-color: #bdcec5;
-  background: #e4ede7;
-  color: #315c4b;
+  border-color: var(--loop-accent-border);
+  background: var(--loop-accent-soft);
+  color: var(--loop-accent-strong);
 }
 
 .customHeader {
@@ -201,35 +224,11 @@
 
 .pipelineHeader {
   margin-bottom: 10px;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  color: var(--loop-text-secondary);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-}
-
-.settingsHeader {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 22px 0 10px;
-}
-
-.settingsHeader strong {
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.settingsHeader small {
-  color: var(--text-secondary, rgba(0, 0, 0, 0.5));
-  font-size: 11px;
-}
-
-.settingsPanel {
-  padding: 16px 18px 1px;
-  border: 1px solid var(--border-color, #e1e3df);
-  border-radius: 13px;
-  background: var(--background-color-secondary, #fdfdfb);
 }
 
 .gateList {
@@ -240,17 +239,18 @@
 .gateCard {
   overflow: hidden;
   margin-bottom: 0;
-  border: 1px solid var(--border-color, #e1e3df);
+  border: 1px solid var(--loop-border);
   border-radius: 12px;
-  background: var(--background-color, #fff);
+  background: var(--loop-surface);
+  color: var(--loop-text);
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease;
 }
 
 .gateCard:hover {
-  border-color: #cfd7d1;
-  box-shadow: 0 5px 16px rgba(45, 64, 53, 0.045);
+  border-color: var(--loop-border-hover);
+  box-shadow: var(--loop-shadow);
 }
 
 .gateSummary {
@@ -276,7 +276,7 @@
   place-items: center;
   border: 0;
   background: transparent;
-  color: var(--text-quaternary, rgba(0, 0, 0, 0.3));
+  color: var(--loop-text-tertiary);
 }
 
 .dragHandle {
@@ -289,8 +289,8 @@
   height: 34px;
   place-items: center;
   border-radius: 9px;
-  background: #f0f2ee;
-  color: #4c5a52;
+  background: var(--loop-accent-soft);
+  color: var(--loop-accent-strong);
 }
 
 .gateCopy {
@@ -313,7 +313,7 @@
 
 .gateCopy small {
   overflow: hidden;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.5));
+  color: var(--loop-text-secondary);
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -331,8 +331,8 @@
 
 .gateDetails {
   padding: 18px 22px 5px 76px;
-  border-top: 1px solid var(--border-color, #eceeea);
-  background: var(--background-color-secondary, #fdfdfb);
+  border-top: 1px solid var(--loop-border);
+  background: var(--loop-surface-subtle);
 }
 
 .gateForm {
@@ -341,7 +341,7 @@
 
 .subsectionTitle {
   margin: 2px 0 10px;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.62));
+  color: var(--loop-text-secondary);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.05em;
@@ -371,7 +371,7 @@
 
 .readOnlyCopy {
   margin: 0 0 16px;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  color: var(--loop-text-secondary);
   font-size: 12px;
 }
 
@@ -396,27 +396,27 @@
 }
 
 .pipelineToolbar small {
-  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  color: var(--loop-text-tertiary);
 }
 
 .addGateButton {
   width: 34px;
   height: 34px;
   border-style: dashed;
-  color: #315c4b;
+  color: var(--loop-accent-strong);
 }
 
 .emptyPipeline {
   padding: 34px 18px;
-  border: 1px dashed var(--border-color, #d4d8d2);
+  border: 1px dashed var(--loop-border);
   border-radius: 13px;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.5));
+  color: var(--loop-text-secondary);
   text-align: center;
 }
 
 .editorHint {
   margin: -2px 0 14px;
-  color: var(--text-tertiary, rgba(0, 0, 0, 0.45));
+  color: var(--loop-text-tertiary);
   font-size: 12px;
   line-height: 1.55;
 }
@@ -440,7 +440,7 @@
 
 .createForm label {
   margin-top: 6px;
-  color: var(--text-secondary, rgba(0, 0, 0, 0.65));
+  color: var(--loop-text-secondary);
   font-size: 12px;
   font-weight: 600;
 }
@@ -456,13 +456,13 @@
   gap: 8px;
   margin-top: 6px;
   padding: 12px 13px;
-  border: 1px solid var(--border-color, #e1e5df);
+  border: 1px solid var(--loop-border);
   border-radius: 10px;
-  background: var(--background-color-secondary, #f7f9f6);
+  background: var(--loop-surface-subtle);
 }
 
 .templatePreview > span {
-  color: var(--text-secondary, rgba(0, 0, 0, 0.58));
+  color: var(--loop-text-secondary);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.04em;
@@ -477,11 +477,29 @@
 
 .templatePreview small {
   padding: 4px 8px;
-  border: 1px solid #d8e1db;
+  border: 1px solid var(--loop-accent-border);
   border-radius: 999px;
-  background: var(--background-color, #fff);
-  color: #40584b;
+  background: var(--loop-surface);
+  color: var(--loop-accent-strong);
   font-size: 10px;
+}
+
+:global(.dark-mode) {
+  .loopCard,
+  .createForm {
+    --loop-accent: #ff7f16;
+    --loop-accent-strong: #ff9d4d;
+    --loop-accent-soft: rgba(255, 127, 22, 0.14);
+    --loop-accent-border: rgba(255, 127, 22, 0.42);
+    --loop-surface: #1f1f1f;
+    --loop-surface-subtle: #262626;
+    --loop-border: rgba(255, 255, 255, 0.1);
+    --loop-border-hover: rgba(255, 127, 22, 0.5);
+    --loop-text: rgba(255, 255, 255, 0.85);
+    --loop-text-secondary: rgba(255, 255, 255, 0.58);
+    --loop-text-tertiary: rgba(255, 255, 255, 0.38);
+    --loop-shadow: 0 5px 18px rgba(0, 0, 0, 0.28);
+  }
 }
 
 @media (max-width: 720px) {
@@ -489,17 +507,6 @@
     align-items: flex-start;
     flex-direction: column;
     gap: 2px;
-  }
-
-  .settingsHeader {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .settingsPanel {
-    padding-right: 14px;
-    padding-left: 14px;
   }
 
   .modeEditor {

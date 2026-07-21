@@ -526,46 +526,64 @@ function MissionModeTab() {
           )}
         </p>
       </LockedGateCard>
-      <div className={loopStyles.settingsHeader}>
-        <strong>
-          {t("agentConfig.loopMode.missionDefaults", "Mission defaults")}
-        </strong>
-        <small>
-          {t(
-            "agentConfig.loopMode.missionDefaultsDescription",
-            "Applied when a new Mission does not provide an override.",
+      <LockedGateCard
+        icon={<Gauge size={15} />}
+        title={t(
+          "agentConfig.loopMode.missionIterationTitle",
+          "Mission iteration limit",
+        )}
+        description={t(
+          "agentConfig.loopMode.missionIterationDescription",
+          "Set the default execution limit for new Missions.",
+        )}
+      >
+        <Form.Item
+          name={["loop", "mission", "max_iterations"]}
+          label={t(
+            "agentConfig.loopMode.defaultMaxMissionIterations",
+            "Default maximum execution rounds",
           )}
-        </small>
-      </div>
-      <div className={loopStyles.settingsPanel}>
-        <div className={loopStyles.fieldGrid}>
-          <Form.Item
-            name={["loop", "mission", "max_iterations"]}
-            label={t(
-              "agentConfig.loopMode.defaultMaxMissionIterations",
-              "Default maximum execution rounds",
-            )}
-            tooltip={t(
-              "agentConfig.loopMode.defaultMaxMissionIterationsTooltip",
-              "Used when /mission does not specify --max-iterations.",
-            )}
-          >
-            <InputNumber min={1} max={100} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item
-            name={["loop", "mission", "max_retries_per_story"]}
-            label={t(
-              "agentConfig.loopMode.maxRetriesPerStory",
-              "Maximum retries per Story",
-            )}
-            tooltip={t(
-              "agentConfig.loopMode.maxRetriesPerStoryTooltip",
-              "Worker retries after a failed or partial Verifier result.",
-            )}
-          >
-            <InputNumber min={0} max={10} style={{ width: "100%" }} />
-          </Form.Item>
-        </div>
+          tooltip={t(
+            "agentConfig.loopMode.defaultMaxMissionIterationsTooltip",
+            "Used when /mission does not specify --max-iterations.",
+          )}
+        >
+          <InputNumber min={1} max={100} style={{ width: 220 }} />
+        </Form.Item>
+      </LockedGateCard>
+      <LockedGateCard
+        icon={<Wrench size={15} />}
+        title={t("agentConfig.loopMode.workerAttemptsTitle", "Worker attempts")}
+        description={t(
+          "agentConfig.loopMode.workerAttemptsDescription",
+          "Limit Worker retries after a Story fails verification.",
+        )}
+      >
+        <Form.Item
+          name={["loop", "mission", "max_retries_per_story"]}
+          label={t(
+            "agentConfig.loopMode.maxRetriesPerStory",
+            "Maximum retries per Story",
+          )}
+          tooltip={t(
+            "agentConfig.loopMode.maxRetriesPerStoryTooltip",
+            "Worker retries after a failed or partial Verifier result.",
+          )}
+        >
+          <InputNumber min={0} max={10} style={{ width: 220 }} />
+        </Form.Item>
+      </LockedGateCard>
+      <LockedGateCard
+        icon={<ListChecks size={15} />}
+        title={t(
+          "agentConfig.loopMode.missionVerificationTitle",
+          "Mission verification policy",
+        )}
+        description={t(
+          "agentConfig.loopMode.missionVerificationDescription",
+          "Define the default verification guidance and test command.",
+        )}
+      >
         <Form.Item
           name={["loop", "mission", "default_verification_instructions"]}
           label={t(
@@ -606,7 +624,7 @@ function MissionModeTab() {
             )}
           />
         </Form.Item>
-      </div>
+      </LockedGateCard>
     </div>
   );
 }
