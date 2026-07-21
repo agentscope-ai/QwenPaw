@@ -55,7 +55,12 @@ A full run is ~60–75 min, dominated by the desktop Tauri builds.
      gh release create v2.0.0-beta.8 --draft --prerelease \
        --target main --title "v2.0.0-beta.8" --notes "..."
      ```
-   - The tag should correspond to `src/qwenpaw/__version__.py`.
+   - The tag should correspond to `src/qwenpaw/__version__.py` (`resolve`
+     validates this with `packaging` normalization and fails on a mismatch, e.g.
+     tag `v2.0.1-beta.1` must match version `2.0.1b1`).
+   - Prefer pinning the draft to a commit (`--target <sha>`). If you use
+     `--target main`, avoid merging to `main` between creating the draft and
+     running the workflow, otherwise the build uses the newer `main` HEAD.
 2. **Run the workflow**: Actions → **Release (unified)** → *Run workflow* on
    `main`. Leave `tag` empty to auto-detect the single draft (or set it
    explicitly); leave `dry_run` **unchecked**.
@@ -115,3 +120,7 @@ draft→published flip **without** touching production: PyPI upload, Docker push
 and OSS upload become no-ops, while the desktop build/verify, the draft flip and
 the duty issue still run for real. On a fork this only affects the fork's own
 release page.
+
+Note: the desktop build's install → launch → chat UI verification still runs
+under `dry_run` and needs the `QWENPAW_DASHSCOPE_API_KEY` secret — `dry_run` only
+skips the resolve-stage fail-fast check, not the verification itself.

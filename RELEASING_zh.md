@@ -48,7 +48,10 @@ QwenPaw 一个版本会发布四种产物——**PyPI** wheel、**Docker** 镜�
      gh release create v2.0.0-beta.8 --draft --prerelease \
        --target main --title "v2.0.0-beta.8" --notes "..."
      ```
-   - tag 应与 `src/qwenpaw/__version__.py` 对应。
+   - tag 应与 `src/qwenpaw/__version__.py` 对应（`resolve` 会用 `packaging` 归一化校验，
+     不一致直接 fail；如 tag `v2.0.1-beta.1` 须匹配版本 `2.0.1b1`）。
+   - 建议建草稿时用 `--target <sha>` 钉住 commit。若用 `--target main`，则建草稿到运行
+     workflow 之间**不要**再往 main 合入，否则构建的是更新后的 main HEAD。
 2. **运行 workflow**：Actions → **Release (unified)** → *Run workflow*，选 `main`。
    `tag` 留空可自动识别唯一草稿（也可显式填）；`dry_run` **不勾**。
 3. **观察**：成功后 release 翻成 *published*、资产齐全，并开出一个 Release Duty
@@ -100,3 +103,7 @@ Release **点 Publish**（或 `gh release create ...`），会在 `release: publ
 运行 **Release (unified)** 时勾 `dry_run: true`，可在**不触及生产**的前提下验证门禁与
 草稿→published 翻牌：PyPI 上传、Docker 推送、OSS 上传都变成 no-op，而桌面构建/验证、
 草稿翻牌、duty issue 仍会真实执行。（在 fork 上这些只影响 fork 自己的 release 页面。）
+
+注意：桌面构建的 装 → 启 → 问答 UI 验证在 `dry_run` 下**仍会真跑**，需要
+`QWENPAW_DASHSCOPE_API_KEY` secret——`dry_run` 只跳过 resolve 阶段的 fail-fast 检查，
+不跳过验证本身。
