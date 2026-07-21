@@ -7,6 +7,7 @@ import pytest
 from agentscope.message import Msg, TextBlock
 
 from qwenpaw.agents.command_handler import CommandHandler
+from qwenpaw.agents.memory.dummy import NoopMemoryManager
 
 
 def _make_agent():
@@ -212,6 +213,30 @@ async def test_reme_status_requires_memory_manager() -> None:
     msg = await handler.handle_command("/reme_status")
 
     assert "Memory Manager Disabled" in msg.get_text_content()
+
+
+@pytest.mark.asyncio
+async def test_reme_status_reports_disabled_for_noop_manager(tmp_path) -> None:
+    agent = _make_agent()
+    memory_manager = NoopMemoryManager(
+        working_dir=str(tmp_path),
+        agent_id="default",
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command("/reme_status")
+    text = msg.get_text_content()
+
+    assert handler.is_command("/reme_status")
+    assert "Memory Manager Disabled" in text
+    assert "memory_manager_backend" in text
+    assert "remelight" in text
+    assert "ReMe Status Unavailable" not in text
+    assert "Traceback" not in text
 
 
 @pytest.mark.asyncio

@@ -72,7 +72,11 @@
   "bot_prefix": "[BOT]",
   "client_id": "你的 Client ID",
   "client_secret": "你的 Client Secret",
-  "filter_tool_messages": false
+  "show_tool_calls": true,
+  "show_tool_results": true,
+  "show_thinking": true,
+  "tool_call_max_length": 200,
+  "tool_result_max_length": 500
 }
 ```
 
@@ -90,7 +94,7 @@
 
 > **提示：**
 >
-> - 若希望隐藏工具执行详情，可设置 `filter_tool_messages: true`。
+> - 工具调用和结果可以分别控制是否显示；最大长度设置为 `0` 时不截断。
 > - AI Card 模式：将 `message_type` 设为 `card`，并填写 `card_template_id`；`card_template_key` 必须与钉钉模板变量名完全一致。
 > - 群聊场景建议显式配置 `robot_code`；留空时 QwenPaw 会回退使用 `client_id`。
 
@@ -1667,17 +1671,20 @@ https://xxxx.ngrok-free.app/api/messages
 
 所有频道都支持以下通用字段：
 
-| 字段                   | 类型     | 默认值   | 说明                                                    |
-| ---------------------- | -------- | -------- | ------------------------------------------------------- |
-| `enabled`              | bool     | `false`  | 是否启用该频道                                          |
-| `bot_prefix`           | string   | `""`     | 机器人回复前缀（如 `[BOT]`）                            |
-| `filter_tool_messages` | bool     | `false`  | 是否过滤工具调用/输出消息                               |
-| `filter_thinking`      | bool     | `false`  | 是否过滤思考/推理内容                                   |
-| `dm_policy`            | string   | `"open"` | 私聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
-| `group_policy`         | string   | `"open"` | 群聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
-| `allow_from`           | string[] | `[]`     | 白名单列表（当 policy 为 `"allowlist"` 时生效）         |
-| `deny_message`         | string   | `""`     | 拒绝访问时的提示消息                                    |
-| `require_mention`      | bool     | `false`  | 是否需要 @机器人 才响应                                 |
+| 字段                     | 类型     | 默认值   | 说明                                                    |
+| ------------------------ | -------- | -------- | ------------------------------------------------------- |
+| `enabled`                | bool     | `false`  | 是否启用该频道                                          |
+| `bot_prefix`             | string   | `""`     | 机器人回复前缀（如 `[BOT]`）                            |
+| `show_tool_calls`        | bool     | `true`   | 是否显示工具调用信息                                    |
+| `show_tool_results`      | bool     | `true`   | 是否显示工具结果文本；结果媒体始终发送                  |
+| `tool_call_max_length`   | int      | `200`    | 工具调用预览长度；`0` 表示不截断                        |
+| `tool_result_max_length` | int      | `500`    | 工具结果预览长度；`0` 表示不截断                        |
+| `show_thinking`          | bool     | `true`   | 是否显示思考/推理内容                                   |
+| `dm_policy`              | string   | `"open"` | 私聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
+| `group_policy`           | string   | `"open"` | 群聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
+| `allow_from`             | string[] | `[]`     | 白名单列表（当 policy 为 `"allowlist"` 时生效）         |
+| `deny_message`           | string   | `""`     | 拒绝访问时的提示消息                                    |
+| `require_mention`        | bool     | `false`  | 是否需要 @机器人 才响应                                 |
 
 ### 多模态消息支持
 
@@ -1763,20 +1770,32 @@ https://xxxx.ngrok-free.app/api/messages
 # my_channel.py
 from agentscope_runtime.engine.schemas.agent_schemas import TextContent, ContentType
 from qwenpaw.app.channels.base import BaseChannel
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 from qwenpaw.app.channels.schema import ChannelType
 
 class MyChannel(BaseChannel):
     channel: ChannelType = "my_channel"
 
-    def __init__(self, process, enabled=True, bot_prefix="", **kwargs):
-        super().__init__(process, on_reply_sent=kwargs.get("on_reply_sent"))
+    def __init__(self, process, enabled=True, bot_prefix="",
+                 display_config=None, **kwargs):
+        super().__init__(
+            process,
+            on_reply_sent=kwargs.get("on_reply_sent"),
+            display_config=display_config,
+        )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
 
     @classmethod
-    def from_config(cls, process, config, on_reply_sent=None, show_tool_details=True):
-        return cls(process=process, enabled=getattr(config, "enabled", True),
-                   bot_prefix=getattr(config, "bot_prefix", ""), on_reply_sent=on_reply_sent)
+    def from_config(cls, process, config, on_reply_sent=None,
+                    display_config=None, **kwargs):
+        return cls(
+            process=process,
+            enabled=getattr(config, "enabled", True),
+            bot_prefix=getattr(config, "bot_prefix", ""),
+            on_reply_sent=on_reply_sent,
+            display_config=display_config or ChannelDisplayConfig.from_config(config),
+        )
 
     @classmethod
     def from_env(cls, process, on_reply_sent=None):
@@ -1864,7 +1883,7 @@ def build_agent_request_from_native(self, native_payload):
 ### 通过插件添加自定义频道
 
 自定义频道现在通过**插件系统**注册。完整教程请参阅
-[插件系统 — 示例 8：注册自定义消息频道](./plugins)。
+[插件系统 — 示例 10：注册自定义消息频道](./plugins#示例-10注册自定义消息频道)。
 
 添加自定义频道的步骤：
 

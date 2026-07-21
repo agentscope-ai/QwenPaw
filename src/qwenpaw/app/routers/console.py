@@ -148,6 +148,14 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
         "content_parts": content_parts,
         "meta": meta,
     }
+
+    if isinstance(request_data, AgentRequest):
+        mso = getattr(request_data, "model_slot_override", None)
+    else:
+        mso = request_data.get("model_slot_override")
+    if mso is not None:
+        native_payload["model_slot_override"] = mso
+
     return native_payload
 
 

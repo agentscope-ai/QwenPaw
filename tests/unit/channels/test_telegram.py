@@ -32,6 +32,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+
 from qwenpaw.schemas import (
     TextContent,
     ImageContent,
@@ -88,12 +90,13 @@ def telegram_channel(
         http_proxy_auth="",
         bot_prefix="[TestBot] ",
         on_reply_sent=None,
-        show_tool_details=True,
         media_dir=str(tmp_path / "media"),
         workspace_dir=tmp_path / "workspace",
         show_typing=True,
-        filter_tool_messages=False,
-        filter_thinking=False,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=True,
+            show_tool_results=True,
+        ),
         dm_policy="open",
         group_policy="open",
         allow_from=None,

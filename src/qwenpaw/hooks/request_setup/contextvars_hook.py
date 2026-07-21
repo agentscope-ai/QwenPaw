@@ -33,6 +33,7 @@ class ContextVarsSetupHook(LifecycleHook):
         )
         from ...app.agent_context import (
             set_current_agent_id,
+            set_current_approval_route,
             set_current_channel,
             set_current_root_session_id,
             set_current_session_id as _set_app_session_id,
@@ -50,6 +51,27 @@ class ContextVarsSetupHook(LifecycleHook):
         )
         set_current_user_id(ctx.request.user_id)
         set_current_channel(getattr(ctx.request, "channel", None))
+        request_context = getattr(ctx.request, "request_context", None)
+        if isinstance(request_context, dict) and request_context.get(
+            "_spawn_subagent",
+        ):
+            approval_route = {
+                key: request_context.get(key)
+                for key in (
+                    "root_session_id",
+                    "user_id",
+                    "channel",
+                    "channel_meta",
+                )
+            }
+        else:
+            approval_route = {
+                "root_session_id": ctx.root_session_id or ctx.session_id or "",
+                "user_id": getattr(ctx.request, "user_id", None) or "",
+                "channel": getattr(ctx.request, "channel", None) or "",
+                "channel_meta": getattr(ctx.request, "channel_meta", None),
+            }
+        set_current_approval_route(approval_route)
 
         try:
             from ...config.config import load_agent_config

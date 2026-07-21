@@ -261,8 +261,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         )
 
     def _has_memory_manager(self) -> bool:
-        """Check if memory manager is available."""
-        return self.memory_manager is not None
+        """Return whether a functional memory manager is enabled."""
+        manager = self.memory_manager
+        return manager is not None and getattr(manager, "enabled", True)
 
     def _current_session_id(self) -> str:
         """Resolve the active session id on a best-effort basis.
@@ -803,7 +804,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
             return await self._make_system_msg(
                 "**Memory Manager Disabled**\n\n"
                 "- Cannot inspect ReMe memory usage\n"
-                "- Enable the ReMe memory manager to use this feature",
+                "- Set `memory_manager_backend` to `remelight` and restart "
+                "QwenPaw to enable this feature",
             )
 
         try:

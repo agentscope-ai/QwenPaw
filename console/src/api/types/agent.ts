@@ -67,7 +67,6 @@ export interface ReMeLightMemoryConfig {
   dream_cron: string;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
-  rebuild_memory_index_on_start: boolean;
 }
 
 export interface AutoTitleConfig {

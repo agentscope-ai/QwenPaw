@@ -3,6 +3,7 @@ import type {
   IAgentScopeRuntimeWebUIRef,
   IAgentScopeRuntimeWebUIMessage,
 } from "@agentscope-ai/chat";
+import { useTurnUsageStore } from "./turnUsageStore";
 
 export const TURN_USAGE_META_KEY = "qwenpaw_turn_usage";
 
@@ -111,6 +112,20 @@ function getResponseCardData(
       | undefined
   )?.find((c) => c?.code === "AgentScopeRuntimeResponseCard");
   return card?.data ?? null;
+}
+
+/** Latest turn usage snapshot from assistant response cards (newest first). */
+export function extractLatestSnapshotFromCards(
+  messages: IAgentScopeRuntimeWebUIMessage[],
+): TurnUsageSnapshot | null {
+  const assistants = messages.filter((m) => m.role === "assistant");
+  for (let i = assistants.length - 1; i >= 0; i--) {
+    const data = getResponseCardData(assistants[i].cards);
+    if (!data) continue;
+    const snap = readTurnUsageFromResponseCardData(data);
+    if (snap) return snap;
+  }
+  return null;
 }
 
 function findPatchTargetAssistant(
@@ -224,15 +239,41 @@ export function patchContextMaxInputLength(
     ) as IAgentScopeRuntimeWebUIMessage;
     const updatedData = getResponseCardData(updatedMsg.cards);
     if (!updatedData) return;
-    updatedData.context_usage = {
+    const updatedContext: ContextUsage = {
       estimated_tokens: estimatedTokens,
       max_input_length: newMaxInputLength,
       context_usage_ratio: newRatio,
     };
+    updatedData.context_usage = updatedContext;
     ReactDOM.flushSync(() => {
       messagesApi.updateMessage(updatedMsg);
     });
+    useTurnUsageStore.getState().setSnapshot({
+      usage: snap.usage,
+      context_usage: updatedContext,
+    });
     return;
+  }
+
+  const storeSnap = useTurnUsageStore.getState().snapshot;
+  if (
+    storeSnap?.context_usage &&
+    readNumber(storeSnap.context_usage, "max_input_length") !==
+      newMaxInputLength
+  ) {
+    const estimatedTokens = readNumber(
+      storeSnap.context_usage,
+      "estimated_tokens",
+    );
+    const newRatio = Math.min((estimatedTokens / newMaxInputLength) * 100, 100);
+    useTurnUsageStore.getState().setSnapshot({
+      usage: storeSnap.usage,
+      context_usage: {
+        estimated_tokens: estimatedTokens,
+        max_input_length: newMaxInputLength,
+        context_usage_ratio: newRatio,
+      },
+    });
   }
 }
 
@@ -301,6 +342,7 @@ export function wrapChatResponseUsageStream(
           if (snap) pendingUsage = snap;
         }
         if (pendingUsage) {
+          useTurnUsageStore.getState().setSnapshot(pendingUsage);
           schedulePatchLastResponseCardUsage(chatRef, pendingUsage);
         }
       },

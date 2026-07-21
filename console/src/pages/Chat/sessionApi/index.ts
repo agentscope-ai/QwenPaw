@@ -10,7 +10,11 @@ import api, {
   type Message,
 } from "../../../api";
 import { toDisplayUrl } from "../utils";
-import { extractTurnUsageFromOutputMessages } from "../turnUsage";
+import {
+  extractTurnUsageFromOutputMessages,
+  extractLatestSnapshotFromCards,
+} from "../turnUsage";
+import { useTurnUsageStore } from "../turnUsageStore";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -24,6 +28,42 @@ const ROLE_USER = "user";
 const ROLE_ASSISTANT = "assistant";
 const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
 const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
+
+function hydrateTurnUsageFromMessages(
+  messages: IAgentScopeRuntimeWebUIMessage[],
+): void {
+  const snap = extractLatestSnapshotFromCards(messages);
+  const activeMax = useTurnUsageStore.getState().activeMaxInputLength;
+  if (snap?.context_usage && typeof activeMax === "number" && activeMax > 0) {
+    const estimatedTokens = snap.context_usage.estimated_tokens;
+    const updatedContext = {
+      estimated_tokens: estimatedTokens,
+      max_input_length: activeMax,
+      context_usage_ratio: Math.min((estimatedTokens / activeMax) * 100, 100),
+    };
+    // Keep the latest assistant card in sync with the store. Otherwise
+    // patchContextMaxInputLength early-returns on stale card.max and the
+    // ring stops updating after a config change + model switch.
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== ROLE_ASSISTANT) continue;
+      const card = (
+        msg.cards as
+          | Array<{ code?: string; data?: Record<string, unknown> }>
+          | undefined
+      )?.find((c) => c?.code === CARD_RESPONSE);
+      if (!card?.data?.context_usage) continue;
+      card.data.context_usage = updatedContext;
+      break;
+    }
+    useTurnUsageStore.getState().setSnapshot({
+      usage: snap.usage,
+      context_usage: updatedContext,
+    });
+    return;
+  }
+  useTurnUsageStore.getState().setSnapshot(snap);
+}
 
 // ---------------------------------------------------------------------------
 // Window globals
@@ -713,6 +753,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     window.currentSessionId = sessionId;
     window.currentUserId = DEFAULT_USER_ID;
     window.currentChannel = DEFAULT_CHANNEL;
+    useTurnUsageStore.getState().setSnapshot(null);
     return {
       id: sessionId,
       name: DEFAULT_SESSION_NAME,
@@ -1024,6 +1065,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         cached.id = displayId;
         if (listEntry?.name) cached.name = listEntry.name;
         this.updateWindowVariables(cached);
+        hydrateTurnUsageFromMessages(cached.messages ?? []);
         return cached;
       }
     }
@@ -1056,6 +1098,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       );
     }
 
+    hydrateTurnUsageFromMessages(session.messages ?? []);
     return session;
   }
 
@@ -1065,6 +1108,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   ): Promise<IAgentScopeRuntimeWebUISession> {
     // --- No session selected (library bug: createSession sets undefined) ---
     if (!sessionId || sessionId === "undefined" || sessionId === "null") {
+      useTurnUsageStore.getState().setSnapshot(null);
       return {
         id: sessionId || "",
         name: "",
@@ -1091,6 +1135,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           // If fetching with realId fails, return the local session without messages
           // This handles cases where the backend has an inconsistency
           this.updateWindowVariables(fromList);
+          hydrateTurnUsageFromMessages(fromList.messages ?? []);
           return fromList;
         }
       }
@@ -1111,12 +1156,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             );
           } catch {
             this.updateWindowVariables(resolved);
+            hydrateTurnUsageFromMessages(resolved.messages ?? []);
             return resolved;
           }
         }
       }
       if (fromList) {
         this.updateWindowVariables(fromList);
+        hydrateTurnUsageFromMessages(fromList.messages ?? []);
         return fromList;
       }
       return this.createEmptySession(sessionId);

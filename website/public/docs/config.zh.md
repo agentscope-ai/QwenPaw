@@ -367,22 +367,24 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **ReMeLight 记忆配置（`reme_light_memory_config` 对象）：**
 
-| 字段                            | 类型        | 默认值           | 说明                                                                 |
-| ------------------------------- | ----------- | ---------------- | -------------------------------------------------------------------- |
-| `metadata_dir`                  | string      | `"mem_metadata"` | ReMe 持久状态子目录                                                  |
-| `session_dir`                   | string      | `"mem_session"`  | ReMe auto-memory 使用的来源对话日志子目录                            |
-| `mem_session_dir`               | string      | `"mem_agent"`    | ReMe 内部 memory-agent 会话子目录                                    |
-| `resource_dir`                  | string      | `"resource"`     | 外部资源子目录                                                       |
-| `daily_dir`                     | string      | `"memory"`       | 每日记忆子目录                                                       |
-| `digest_dir`                    | string      | `"digest"`       | digest 记忆子目录                                                    |
-| `summarize_when_compact`        | bool        | `true`           | 是否在上下文压缩时启用记忆总结                                       |
-| `inbox_push_enabled`            | bool        | `true`           | 是否将自动记忆、自动梦境和自动资源任务结果推送到收件箱               |
-| `auto_memory_interval`          | int \| null | `5`              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆 |
-| `dream_cron_enabled`            | bool        | `true`           | 是否启用按 Cron 定时执行的梦境记忆优化任务                           |
-| `dream_cron`                    | string      | `"0 23 * * *"`   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）                |
-| `auto_memory_search_config`     | object      | _（见下方）_     | 自动记忆搜索配置                                                     |
-| `embedding_model_config`        | object      | _（见下方）_     | Embedding 模型配置                                                   |
-| `rebuild_memory_index_on_start` | bool        | `false`          | Agent 启动时是否清空并重建记忆搜索索引；否则只监控并索引新的文件变化 |
+| 字段                        | 类型        | 默认值           | 说明                                                                                              |
+| --------------------------- | ----------- | ---------------- | ------------------------------------------------------------------------------------------------- |
+| `metadata_dir`              | string      | `"mem_metadata"` | ReMe 持久状态子目录                                                                               |
+| `session_dir`               | string      | `"mem_session"`  | ReMe auto-memory 使用的来源对话日志子目录                                                         |
+| `mem_session_dir`           | string      | `"mem_agent"`    | ReMe 内部 memory-agent 会话子目录                                                                 |
+| `resource_dir`              | string      | `"resource"`     | 外部资源子目录                                                                                    |
+| `daily_dir`                 | string      | `"memory"`       | 每日记忆子目录                                                                                    |
+| `digest_dir`                | string      | `"digest"`       | digest 记忆子目录                                                                                 |
+| `summarize_when_compact`    | bool        | `true`           | 是否在上下文压缩时启用记忆总结                                                                    |
+| `inbox_push_enabled`        | bool        | `true`           | 是否将自动记忆、自动梦境和自动资源任务结果推送到收件箱                                            |
+| `auto_memory_interval`      | int \| null | `5`              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆                              |
+| `dream_cron_enabled`        | bool        | `true`           | 是否启用按 Cron 定时执行的梦境记忆优化任务                                                        |
+| `dream_cron`                | string      | `"0 23 * * *"`   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动，以避免集中调用 |
+| `auto_memory_search_config` | object      | _（见下方）_     | 自动记忆搜索配置                                                                                  |
+| `embedding_model_config`    | object      | _（见下方）_     | Embedding 模型配置                                                                                |
+
+> `rebuild_memory_index_on_start` 已不再支持。仅在确有需要时通过控制台或维护 API 重建索引，详见
+> [重建记忆搜索索引](./memory#重建记忆搜索索引)。
 
 **自动记忆搜索配置（`reme_light_memory_config.auto_memory_search_config` 对象）：**
 

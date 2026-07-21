@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Callable
+from ..__version__ import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -128,40 +129,52 @@ async def agent_trace_scope(
         return
 
     client = (client_factory or _langfuse_client)()
-    root = None
-    parent_observation_id: str | None = None
-
     try:
-        if client is not None:
-            root = client.start_observation(
-                as_type="span",
+        if client is None:
+            set_current_trace(
+                trace_id=trace_id,
+                parent_observation_id=None,
                 name=name,
-                input=input,
                 metadata=metadata,
-                trace_context={"trace_id": trace_id},
             )
-            parent_observation_id = str(getattr(root, "id", "") or "") or None
+            yield None
+            return
+        from langfuse import propagate_attributes
 
-        set_current_trace(
-            trace_id=trace_id,
-            parent_observation_id=parent_observation_id,
+        with client.start_as_current_observation(
+            as_type="span",
             name=name,
+            input=input,
             metadata=metadata,
-        )
-        yield root
-        if root is not None:
-            root.update(output={"status": "success"})
-    except Exception as exc:
-        if root is not None:
-            root.update(
-                level="ERROR",
-                status_message=str(exc),
-                output={"status": "error"},
-            )
-        raise
+            trace_context={"trace_id": trace_id},
+        ) as root_span:
+            with propagate_attributes(
+                user_id=metadata.get("user_id") or None,
+                session_id=metadata.get(
+                    "session_id",
+                )
+                or None,
+                version=__version__,
+            ):
+                try:
+                    observation_id = client.get_current_observation_id()
+                    set_current_trace(
+                        trace_id=client.get_current_trace_id() or trace_id,
+                        parent_observation_id=observation_id,
+                        name=name,
+                        metadata=metadata,
+                    )
+                    yield root_span
+                    root_span.update(output={"status": "success"})
+                except Exception as exc:
+                    root_span.update(
+                        level="ERROR",
+                        status_message=str(exc),
+                        output={"status": "error"},
+                    )
+                    raise
+
     finally:
-        if root is not None:
-            root.end()
         if previous is None:
             clear_current_trace()
         else:

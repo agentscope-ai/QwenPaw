@@ -164,6 +164,8 @@ def _collect_daemon_specs() -> list[CommandSpec]:
 def _make_control_adapter(
     handler: Any,
     command_name: str,
+    *,
+    help_text: str = "",
 ) -> CommandSpec:
     """Wrap a :class:`BaseControlCommandHandler` as
     a :class:`CommandSpec`.
@@ -238,6 +240,7 @@ def _make_control_adapter(
         name=command_name,
         handler=_handler,
         category="control",
+        help_text=help_text,
     )
 
 
@@ -251,7 +254,9 @@ def _collect_control_specs() -> list[CommandSpec]:
         if name in seen_names:
             continue
         seen_names.add(name)
-        specs.append(_make_control_adapter(handler, name))
+        # Advertise from the handler's own definition site — no secondary map.
+        help_text = getattr(handler, "description", "") or ""
+        specs.append(_make_control_adapter(handler, name, help_text=help_text))
     return specs
 
 
@@ -390,7 +395,11 @@ def _resolve_scroll_block(
     return existing
 
 
-def _make_conversation_adapter(name: str) -> CommandSpec:
+def _make_conversation_adapter(
+    name: str,
+    *,
+    help_text: str = "",
+) -> CommandSpec:
     """Wrap one conversation command via standalone CommandHandler.
 
     Loads AgentState directly from session — no agent instance required.
@@ -481,12 +490,22 @@ def _make_conversation_adapter(name: str) -> CommandSpec:
         name=name,
         handler=_handler,
         category="conversation",
+        help_text=help_text,
     )
 
 
 def _collect_conversation_specs() -> list[CommandSpec]:
+    # Advertise from SYSTEM_COMMAND_DESCRIPTIONS — the curated subset defined
+    # next to SYSTEM_COMMANDS in command_handler.py. Commands absent from that
+    # dict keep help_text="" and are not shown in ACP autocomplete.
+    from ..agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
+
     return [
-        _make_conversation_adapter(n) for n in sorted(_CONVERSATION_COMMANDS)
+        _make_conversation_adapter(
+            n,
+            help_text=SYSTEM_COMMAND_DESCRIPTIONS.get(n, ""),
+        )
+        for n in sorted(_CONVERSATION_COMMANDS)
     ]
 
 

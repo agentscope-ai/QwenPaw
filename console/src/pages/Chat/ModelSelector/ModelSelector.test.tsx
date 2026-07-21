@@ -199,6 +199,24 @@ describe("ModelSelector", () => {
     window.removeEventListener("model-switched", switched);
   });
 
+  it("publishes the backend-resolved context window after loading active models", async () => {
+    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
+      ...mockActiveModels,
+      effective_max_input_length: 262144,
+    });
+    const switched = vi.fn();
+    window.addEventListener("model-switched", switched);
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+
+    await waitFor(() => expect(switched).toHaveBeenCalledOnce());
+    const event = switched.mock.calls[0][0] as CustomEvent;
+    expect(event.detail).toEqual({
+      maxInputLength: 262144,
+    });
+    window.removeEventListener("model-switched", switched);
+  });
+
   it("clicking the already active model does not call setActiveLlm", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ModelSelector />);

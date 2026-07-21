@@ -16,9 +16,12 @@ Key patterns demonstrated:
 # pylint: disable=unused-argument
 from __future__ import annotations
 
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 from qwenpaw.app.channels.console.channel import ConsoleChannel
 
@@ -59,9 +62,10 @@ class TestConsoleChannelUnit:
             process=mock_process,
             enabled=True,
             bot_prefix="[BOT] ",
-            show_tool_details=False,
-            filter_tool_messages=False,
-            filter_thinking=False,
+            display_config=ChannelDisplayConfig(
+                show_tool_calls=True,
+                show_tool_results=True,
+            ),
         )
 
     def test_init_stores_enabled_flag(self, mock_process):

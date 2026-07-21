@@ -367,6 +367,9 @@ async def _ask_user_approval(
             },
             "channel_meta": ctx.get("channel_meta"),
             "_channel_instance": ctx.get("_channel_instance"),
+            **(
+                {"_spawn_subagent": True} if ctx.get("_spawn_subagent") else {}
+            ),
         },
     )
 

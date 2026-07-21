@@ -182,6 +182,70 @@ def test_get_agent_returns_404_for_app_base_exception(client):
 
 
 # ---------------------------------------------------------------------------
+# POST /agents/{id}/memory/reindex
+# ---------------------------------------------------------------------------
+
+
+def test_rebuild_memory_index_runs_reme_job(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    reindex_response = MagicMock(success=True, answer="done")
+    memory_manager = MagicMock()
+    memory_manager.rebuild_index = AsyncMock(return_value=reindex_response)
+    manager_mock.get_agent = AsyncMock(
+        return_value=MagicMock(memory_manager=memory_manager),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.post("/api/agents/bot/memory/reindex")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "completed"}
+    memory_manager.rebuild_index.assert_awaited_once_with()
+
+
+def test_rebuild_memory_index_rejects_concurrent_run(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_manager = MagicMock()
+    memory_manager.rebuild_index = AsyncMock(
+        side_effect=RuntimeError("Memory index rebuild is already running"),
+    )
+    manager_mock.get_agent = AsyncMock(
+        return_value=MagicMock(memory_manager=memory_manager),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.post("/api/agents/bot/memory/reindex")
+
+    assert response.status_code == 409
+
+
+# ---------------------------------------------------------------------------
 # PUT /agents/order
 # ---------------------------------------------------------------------------
 
