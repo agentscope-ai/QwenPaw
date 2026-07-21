@@ -2964,9 +2964,13 @@ def _remove_profile_dir_sync(username: str) -> bool:
     if not os.path.exists(profile_dir):
         return True
 
+    # Take ownership of just the top-level directory (no /R), then grant
+    # Administrators full control with inheritance flags so that child
+    # objects inherit the permission automatically — avoids the expensive
+    # recursive takeown that touches every single file.
     _run_cmd_sync(
-        ["takeown", "/F", profile_dir, "/R", "/A", "/D", "Y"],
-        timeout=300,
+        ["takeown", "/F", profile_dir, "/A", "/D", "Y"],
+        timeout=30,
     )
     _run_cmd_sync(
         [
@@ -2977,7 +2981,7 @@ def _remove_profile_dir_sync(username: str) -> bool:
             "/T",
             "/C",
         ],
-        timeout=300,
+        timeout=60,
     )
 
     # Remove with error handler
@@ -3063,7 +3067,12 @@ def _verify_acl_removed_sync(
     return True
 
 
-def _remove_acl_with_verify_sync(path: str, sid: str) -> bool:
+def _remove_acl_with_verify_sync(
+    path: str,
+    sid: str,
+    *,
+    reset_only: bool = False,
+) -> bool:
     """Removes ACEs for a SID using multi-strategy retry.
 
     Mirrors the approach in scripts/cleanup_windows_sandbox.py:
@@ -3075,6 +3084,14 @@ def _remove_acl_with_verify_sync(path: str, sid: str) -> bool:
       6. Non-recursive /reset on target path only, then /remove
          (last resort — resets only the target directory's DACL,
          does not affect child objects)
+
+    Args:
+        path: Filesystem path to remove ACEs from.
+        sid: Security identifier whose ACEs should be removed.
+        reset_only: If True, skip strategies 1-5 and directly use the
+            reset+remove strategy. This is an optimization for paths
+            where inherited ACEs are known to cause strategies 1-5 to
+            fail (e.g. the workspace default directory).
     """
     if not os.path.exists(path):
         return True
@@ -3107,6 +3124,11 @@ def _remove_acl_with_verify_sync(path: str, sid: str) -> bool:
             _run_icacls_sync([path, "/remove", f"*{sid}", "/T", "/C"]),
         ),
     ]
+
+    # Optimization: for paths with inherited ACEs (e.g. workspace default
+    # directory), strategies 1-5 always fail. Skip directly to reset+remove.
+    if reset_only:
+        strategies = [strategies[-1]]
 
     for attempt, strategy in enumerate(strategies, 1):
         # Respect the shutdown time budget: abort early if deadline exceeded.
@@ -3175,11 +3197,12 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
-# Maximum seconds the atexit shutdown_cleanup is allowed to spend on ACL
-# removal before giving up.  Prevents blocking process exit indefinitely when
-# icacls consistently fails (e.g. SID belongs to a deleted sandbox user).
+# Maximum seconds per sandbox the atexit shutdown_cleanup is allowed to spend
+# on ACL removal before giving up.  Prevents blocking process exit indefinitely
+# when icacls consistently fails (e.g. SID belongs to a deleted sandbox user).
+# The total deadline is computed as: count * _SHUTDOWN_ACL_TIMEOUT_PER_SANDBOX.
 _SHUTDOWN_ACL_DEADLINE: float = 0.0
-_SHUTDOWN_ACL_TIMEOUT_SECONDS: float = 10.0
+_SHUTDOWN_ACL_TIMEOUT_PER_SANDBOX: float = 10.0
 
 
 def shutdown_cleanup() -> None:
@@ -3212,12 +3235,16 @@ def shutdown_cleanup() -> None:
     if not is_windows_admin():
         return
 
-    # Set a time budget so cleanup doesn't block process exit indefinitely.
-    _SHUTDOWN_ACL_DEADLINE = time.monotonic() + _SHUTDOWN_ACL_TIMEOUT_SECONDS
-
     sb_dir = _sandboxes_dir(_sandbox_state_dir)
     if not sb_dir.exists() or not list(sb_dir.glob("*.json")):
         return
+
+    # Set a time budget proportional to the number of sandboxes to clean,
+    # so cleanup doesn't block process exit indefinitely.
+    sandbox_count = len(list(sb_dir.glob("*.json")))
+    _SHUTDOWN_ACL_DEADLINE = (
+        time.monotonic() + sandbox_count * _SHUTDOWN_ACL_TIMEOUT_PER_SANDBOX
+    )
 
     my_pid = os.getpid()
 
@@ -3261,9 +3288,21 @@ def _remove_acls_from_metadata(
     acl_entries: list,
     cap_sid: str,
     user_sid: str,
-    username: str,
+    _username: str,
 ) -> None:
     """Remove ACL entries recorded in sandbox metadata."""
+    # Determine the workspace default directory path for optimization.
+    # This directory has inherited ACEs that cause strategies 1-5 to always
+    # fail, so we skip directly to the reset+remove strategy for it.
+    _workspace_default = os.path.normpath(
+        os.path.join(
+            os.path.expanduser("~"),
+            ".qwenpaw",
+            "workspaces",
+            "default",
+        ),
+    )
+
     for entry in acl_entries:
         entry_path = entry.get("path", "")
         sid_type = entry.get("sid_type", "")
@@ -3278,27 +3317,18 @@ def _remove_acls_from_metadata(
             sid = cap_sid or user_sid
 
         if sid:
-            _remove_acl_with_verify_sync(entry_path, sid)
+            # Optimization: workspace default dir has inherited ACEs,
+            # skip directly to reset+remove strategy.
+            use_reset_only = os.path.normpath(entry_path) == _workspace_default
+            _remove_acl_with_verify_sync(
+                entry_path,
+                sid,
+                reset_only=use_reset_only,
+            )
 
-    # Remove ACLs from profile directory
-    if username:
-        sys_drive = os.environ.get("SystemDrive", "C:")
-        profile_dir = os.path.join(
-            sys_drive + os.sep,
-            "Users",
-            username,
-        )
-        if os.path.exists(profile_dir):
-            if cap_sid:
-                _remove_acl_with_verify_sync(
-                    profile_dir,
-                    cap_sid,
-                )
-            if user_sid:
-                _remove_acl_with_verify_sync(
-                    profile_dir,
-                    user_sid,
-                )
+    # Skip ACL removal from profile directory — it will be entirely
+    # deleted in the subsequent _remove_profile_dir_sync step, making
+    # per-ACE removal redundant and wasteful.
 
 
 def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
