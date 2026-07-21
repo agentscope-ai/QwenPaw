@@ -279,6 +279,9 @@ class ConsoleChannel(BaseChannel):
         rc = meta.get("request_context")
         if isinstance(rc, dict) and rc:
             request.request_context = rc
+        mso = payload.get("model_slot_override")
+        if mso is not None:
+            request.model_slot_override = mso
         return request
 
     async def _extract_media_message(self, message: Message) -> Message | None:
