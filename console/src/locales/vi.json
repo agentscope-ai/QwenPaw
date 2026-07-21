@@ -202,6 +202,17 @@
         "description": "Loop Goal — Agent theo đuổi mục tiêu liên tục, tự đánh giá qua Rubric"
       }
     },
+    "turnUsagePopover": {
+      "ariaLabel": "Xem token lượt và mức dùng ngữ cảnh",
+      "turn": "Lượt này",
+      "turnEstimated": "Lượt này ~",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "Cửa sổ ngữ cảnh:",
+      "manageContext": "Quản lý ngữ cảnh",
+      "compact": "Nén",
+      "new": "Cuộc trò chuyện mới"
+    },
     "contextMenu": {
       "open": "Mở",
       "rename": "Đổi tên",

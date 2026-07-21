@@ -210,6 +210,17 @@
       "imageOnlyWarning": "Model saat ini hanya mendukung gambar, file non-gambar seperti video mungkin tidak diproses dengan benar"
     },
     "rateLimitHit": "Model saat ini terkena batas laju. Coba beralih ke model gratis lainnya.",
+    "turnUsagePopover": {
+      "ariaLabel": "Lihat token giliran dan penggunaan konteks",
+      "turn": "Giliran ini",
+      "turnEstimated": "Giliran ini ~",
+      "tok": "tok",
+      "inOut": "in {{inTok}} · out {{outTok}}",
+      "contextLabel": "Jendela konteks:",
+      "manageContext": "Kelola konteks",
+      "compact": "Kompres",
+      "new": "Obrolan baru"
+    },
     "rateLimitMessage": "Batas laju tercapai. Beralih ke model gratis lain:",
     "rateLimitSwitched": "Beralih ke {{model}}",
     "speech": {
