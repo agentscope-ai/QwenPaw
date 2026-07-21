@@ -37,7 +37,12 @@ flowchart LR
     J --> K{Still over the pressure target?}
     K -->|Yes| L[Fold completed live tool results to exact recall stubs]
     K -->|No| M[Keep rebuilt live context]
-    L --> M
+    L --> N{Above effective hard limit?}
+    N -->|No| M
+    N -->|Yes| O[Shorten newest text result to a visible head/tail preview]
+    O --> P{Fits effective hard limit?}
+    P -->|Yes| M
+    P -->|No| Q[CONTEXT_UNFIT]
 ```
 
 Key properties:
@@ -109,17 +114,19 @@ The split uses AgentScope's token accounting and pairing-safe compression helper
 
 ### Active-Turn Protection and the Pressure Pipeline
 
-A long tool-running turn (a `/heartbeat` cron run, a multi-search task) can exceed the reserve budget by itself, and the token-based split would then evict the **current request** along with old history — leaving the model staring at an old message plus an index, and answering the wrong thing. Scroll therefore relieves automatic pressure in three escalating stages, each engaging only if the previous one wasn't enough:
+A long tool-running turn (a `/heartbeat` cron run, a multi-search task) can exceed the reserve budget by itself, and the token-based split would then evict the **current request** along with old history — leaving the model staring at an old message plus an index, and answering the wrong thing. Scroll therefore relieves automatic pressure in four escalating stages, each engaging only if the previous one wasn't enough:
 
 1. **Pre-trim** — after durable persistence, recoverable tool results in completed turns are replaced incrementally with exact recall pointers, aiming for 75% of the context window. The newest live tool result and the complete active turn remain verbatim. Reaching at most the 80% trigger stops the pipeline without dialogue eviction.
 2. **Evict** — if pre-trimming cannot reach the trigger, finished turns before the active turn fold into the eviction index (the normal archival path). Explicit `/compact` starts here because the user requested eviction.
-3. **Live fold** — still overflowing after eviction (typically: the active turn _is_ the whole context), completed tool results may be replaced **in place** with one-line recall stubs:
+3. **Live fold** — still overflowing after eviction (typically: the active turn _is_ the whole context), completed tool results may be replaced **in place** with one-line recall stubs. Within the active turn, a result becomes eligible only after a later model-authored block proves the model has consumed it; parallel results that have not received their first model read stay visible:
 
    ```text
    [scroll folded] old tool result content cleared; recover with recall_history(op="recall_tool", tool_call_id='call_abc')
    ```
 
-   The request text, tool calls, reasoning, and the newest tool result stay verbatim — the turn itself remains a readable progress record, and every folded output is recoverable by its exact tool-call ID (it was persisted before folding, like everything else). `recall_tool` returns bounded pages; follow `next_cursor` when present. If it reports a saved full-output `file_path`, use `read_file` to read that artifact in bounded chunks. The stub points at the structured tool on purpose: it runs in-process without a sandbox, so the re-read works even on platforms where the Python REPL cannot run.
+   The request text, tool calls, reasoning, and the newest tool result stay verbatim under normal pressure — the turn itself remains a readable progress record, and every folded output is recoverable by its exact tool-call ID (it was persisted before folding, like everything else). `recall_tool` returns bounded pages; follow `next_cursor` when present. If it reports a saved full-output `file_path`, use `read_file` to read that artifact in bounded chunks. The stub points at the structured tool on purpose: it runs in-process without a sandbox, so the re-read works even on platforms where the Python REPL cannot run.
+
+4. **Hard-limit emergency** — Scroll reserves `min(4096, 5% of context_size)` tokens for the next model output. If the input still exceeds the resulting effective hard limit, the newest unread **text** result is reduced to a visible head/tail preview plus its exact `recall_tool` pointer. Non-text results, pending tool calls, and user input are never silently discarded. If those necessary contents still cannot fit, Scroll raises `CONTEXT_UNFIT` instead of resetting the session or retrying forever.
 
 ### Eviction Index
 

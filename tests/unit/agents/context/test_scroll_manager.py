@@ -684,6 +684,7 @@ async def test_pretrim_avoids_eviction_at_or_below_trigger(
         "evicted": 0,
         "pre_folded": 1,
         "live_folded": 0,
+        "emergency_shortened": 0,
         "folded": 1,
     }
     assert agent.model.calls == 2
@@ -718,6 +719,7 @@ async def test_pretrim_insufficient_then_continues_to_eviction(
         "evicted": 4,
         "pre_folded": 1,
         "live_folded": 0,
+        "emergency_shortened": 0,
         "folded": 1,
     }
     assert agent.model.calls == 3
@@ -870,12 +872,104 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
 
     # /compact reads this to report honestly (fold changes no msg count).
     assert mgr.last_compress["folded"] == 2
+    assert mgr.last_compress["live_folded"] == 2
+    assert mgr.last_compress["emergency_shortened"] == 0
 
     # Idempotent: a second round neither double-folds nor rewrites rows.
     await mgr.compress(agent)
     assert out_text(0).count("[scroll folded]") == 1
     assert out_text(2) == "RESULT-2" + "x" * 500
     assert mgr.last_compress["folded"] == 0  # nothing newly folded
+
+
+async def test_parallel_unconsumed_active_results_remain_visible(
+    store: HistoryStore,
+):
+    """Parallel results preceding no later model block are all unread."""
+    turn = Msg(
+        name="a",
+        role="assistant",
+        content=[
+            ToolCallBlock(type="tool_call", id="p1", name="grep", input="{}"),
+            ToolCallBlock(type="tool_call", id="p2", name="grep", input="{}"),
+            ToolResultBlock(
+                type="tool_result",
+                id="p1",
+                name="grep",
+                output=[TextBlock(type="text", text="FIRST" + "x" * 5000)],
+            ),
+            ToolResultBlock(
+                type="tool_result",
+                id="p2",
+                name="grep",
+                output=[TextBlock(type="text", text="SECOND" + "x" * 5000)],
+            ),
+        ],
+    )
+    ctx = [user("run both searches"), turn]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=600)
+    agent._split_return = (ctx, [])
+
+    await mgr.compress(agent)
+
+    assert turn.content[2].output[0].text.startswith("FIRST")
+    assert turn.content[3].output[0].text.startswith("SECOND")
+    assert mgr.last_compress["live_folded"] == 0
+
+
+async def test_hard_limit_emergency_shortens_newest_unread_preview(
+    store: HistoryStore,
+):
+    """The newest unread result keeps visible evidence above the safe limit."""
+    turn = assistant_with_tool("fresh", "HEAD-" + "x" * 5000 + "-TAIL")
+    ctx = [user("inspect the result"), turn]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=[980, 940])
+    agent._split_return = (ctx, [])
+
+    await mgr.compress(agent)
+
+    preview = turn.content[2].output[0].text
+    assert preview.startswith("[scroll emergency preview]")
+    assert "HEAD-" in preview
+    assert "-TAIL" in preview
+    assert "tool_call_id='fresh'" in preview
+    durable = store._conn.execute(
+        "SELECT content FROM conversation_history "
+        "WHERE kind='tool_result' AND tool_call_id='fresh'",
+    ).fetchone()
+    assert durable["content"] == "HEAD-" + "x" * 5000 + "-TAIL"
+    assert mgr.last_compress["emergency_shortened"] == 1
+    assert mgr.last_compress["live_folded"] == 0
+    assert agent.model.calls == 2
+
+
+async def test_pending_tool_call_is_preserved_when_context_is_unfit(
+    store: HistoryStore,
+):
+    pending = Msg(
+        name="a",
+        role="assistant",
+        content=[
+            ToolCallBlock(
+                type="tool_call",
+                id="pending",
+                name="grep",
+                input="{}",
+            ),
+        ],
+    )
+    ctx = [user("run it"), pending]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=960)
+    agent._split_return = (ctx, [])
+
+    with pytest.raises(ContextWindowUnfitError):
+        await mgr.compress(agent)
+
+    assert agent.state.context == ctx
+    assert pending.content[0].id == "pending"
 
 
 async def test_pressure_fold_does_not_replace_small_results_with_larger_stubs(
@@ -994,7 +1088,7 @@ async def test_single_message_over_hard_limit_fails_closed(
         await mgr.compress(agent)
 
     assert exc.value.tokens == 1200
-    assert exc.value.hard_limit == 1000
+    assert exc.value.hard_limit == 950
 
 
 async def test_steady_state_counts_once_and_warns_once(

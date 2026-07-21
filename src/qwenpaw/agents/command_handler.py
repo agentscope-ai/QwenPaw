@@ -402,7 +402,16 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         summary = self._get_summary()
         folded = int(compress_stats.get("folded", 0) or 0)
-        if evicted == 0 and folded == 0 and not summary and not index_text:
+        emergency_shortened = int(
+            compress_stats.get("emergency_shortened", 0) or 0,
+        )
+        if (
+            evicted == 0
+            and folded == 0
+            and emergency_shortened == 0
+            and not summary
+            and not index_text
+        ):
             return await self._make_system_msg(
                 "ℹ️ **Nothing to compact.**\n\n"
                 f"- Context is already minimal ({before} message(s))\n"
@@ -414,7 +423,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 f"{self._format_scroll_compact_detail(index_text)}\n"
             )
         else:
-            detail = f"**Compressed Summary:**\n{summary}\n"
+            detail = f"**Compressed Summary:**\n{summary}\n" if summary else ""
         # The fold rewrites tool results in place (message count unchanged),
         # so it must be reported explicitly — a fold-only run used to claim
         # "Nothing to compact" while live outputs were replaced with stubs.
@@ -423,10 +432,17 @@ class CommandHandler(ConversationCommandHandlerMixin):
             if folded
             else ""
         )
+        emergency_line = (
+            "- Newest tool result shortened to an emergency preview: "
+            f"{emergency_shortened}\n"
+            if emergency_shortened
+            else ""
+        )
         return await self._make_system_msg(
             f"✅ **Compact Complete!**\n\n"
             f"- Messages compacted: {evicted}\n"
             f"{folded_line}"
+            f"{emergency_line}"
             f"{detail}",
         )
 

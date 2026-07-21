@@ -44,7 +44,11 @@ logger = logging.getLogger(__name__)
 # stub and is never folded (or counted as reclaimable) again.
 _FOLD_MARK = "[scroll folded]"
 _RECALL_FOLD_MARK = "[scroll recall folded]"
+_EMERGENCY_PREVIEW_MARK = "[scroll emergency preview]"
 _PRE_TRIM_TARGET_RATIO = 0.75
+_OUTPUT_RESERVE_RATIO = 0.05
+_MAX_OUTPUT_RESERVE_TOKENS = 4096
+_MIN_EMERGENCY_PREVIEW_BYTES = 1024
 
 
 class ScrollContextManager:
@@ -112,6 +116,7 @@ class ScrollContextManager:
             "evicted": 0,
             "pre_folded": 0,
             "live_folded": 0,
+            "emergency_shortened": 0,
             "folded": 0,
         }
         # Warn once per overflow episode, not once per reasoning step.
@@ -288,18 +293,25 @@ class ScrollContextManager:
         5. add_eviction— fold the middle (if any) into the index as a new
                          Tier 0 block, rebuild context = [index] + tail.
         6. live-fold   — still under real pressure after finished turns are
-                         evicted: replace profitable
-                         old tool results with recovery pointers until the
-                         pressure target is met. The newest stays verbatim.
+                         evicted: replace consumed old tool results with
+                         recovery pointers. The newest stays verbatim.
+        7. emergency  — above the effective hard limit, shorten the newest
+                         unread text result to a visible head/tail preview.
         """
         cfg = context_config or agent.context_config
         self.last_compress = {
             "evicted": 0,
             "pre_folded": 0,
             "live_folded": 0,
+            "emergency_shortened": 0,
             "folded": 0,
         }
         hard_limit = int(agent.model.context_size)
+        output_reserve = min(
+            _MAX_OUTPUT_RESERVE_TOKENS,
+            max(1, int(hard_limit * _OUTPUT_RESERVE_RATIO)),
+        )
+        effective_hard_limit = hard_limit - output_reserve
         t0 = time.perf_counter()
         stage_t0 = t0
         timings: dict[str, float] = {}
@@ -334,11 +346,11 @@ class ScrollContextManager:
             mark("prepare_input")
             tokens = await agent.model.count_tokens(**kwargs)
             mark("count_tokens")
-            if tokens > hard_limit:
+            if tokens > effective_hard_limit:
                 log_timings("persist_failed_unfit")
                 raise ContextWindowUnfitError(
                     tokens=tokens,
-                    hard_limit=hard_limit,
+                    hard_limit=effective_hard_limit,
                 )
             log_timings("persist_failed")
             return
@@ -392,16 +404,6 @@ class ScrollContextManager:
                     log_timings("pre_trimmed_below_trigger")
                     return
 
-        if len(agent.state.context) <= 1:
-            if tokens > hard_limit:
-                log_timings("single_message_unfit")
-                raise ContextWindowUnfitError(
-                    tokens=tokens,
-                    hard_limit=hard_limit,
-                )
-            log_timings("single_message")
-            return
-
         # 4) Pairing-safe split; keep the recent tail, evict the middle.
         requested_reserve = cfg.reserve_ratio * agent.model.context_size
         # Keep a useful recent raw tail without letting a million-token model
@@ -409,50 +411,44 @@ class ScrollContextManager:
         # tail discipline used by mature compactors.
         minimum_recent = min(10_000, agent.model.context_size * 0.1)
         reserve = min(40_000, max(requested_reserve, minimum_recent))
-        to_compress, to_reserve = await as_internals.split_for_compression(
-            agent,
-            reserve,
-            kwargs.get("tools", []),
-        )
-        mark("split")
 
         def real(msgs: list[Msg]) -> list[Msg]:
             return [m for m in msgs if m.id not in self._synthetic_ids]
 
-        tail = real(to_reserve)
-        # AgentScope may split the boundary Msg at block granularity and put
-        # deep-copied fragments (with the original id) into both halves.  A
-        # fragment is not a safe live-context unit: it can contain a
-        # tool_result without its tool_call, or vice versa.  Scroll treats the
-        # reserve target as soft, so restore every retained Msg from the live
-        # context before deciding what to evict.  This deliberately keeps the
-        # whole boundary message even when it costs a few extra tokens.
-        tail = self._restore_full_tail_messages(agent, tail)
-        # AgentScope's pairing-safe split deep-copies the *boundary* Msg into
-        # BOTH halves under the SAME id (its blocks divided between compress
-        # and reserve). That id therefore appears in both to_compress and
-        # to_reserve. Drop any tail id from the middle so we never fold a
-        # still-live turn's seq span into the index — the reserve copy keeps it
-        # visible, so it isn't evicted yet. It gets indexed in a later round
-        # once it moves fully onto the compress side.
-        tail_ids = {m.id for m in tail}
-        active_tail = self._active_turn_tail(agent)
-        active_ids = {m.id for m in active_tail}
-        middle = [
-            m
-            for m in real(to_compress)
-            if m.id not in tail_ids and m.id not in active_ids
-        ]
-        if active_tail:
-            # Keep the whole active turn at the end in its original order.
-            # Partial boundary copies have already been restored above.
-            tail = [m for m in tail if m.id not in active_ids]
-            tail.extend(active_tail)
-        middle, tail = self._repair_dangling_user_boundary(
-            middle,
-            tail,
-            active_ids,
-        )
+        middle: list[Msg] = []
+        tail = real(list(agent.state.context))
+        if len(agent.state.context) > 1:
+            to_compress, to_reserve = await as_internals.split_for_compression(
+                agent,
+                reserve,
+                kwargs.get("tools", []),
+            )
+            mark("split")
+            tail = real(to_reserve)
+            # AgentScope may split the boundary Msg at block granularity and
+            # put deep-copied fragments (with the original id) into both
+            # halves. Restore every retained Msg from the live context so a
+            # fragment cannot orphan a tool call or result.
+            tail = self._restore_full_tail_messages(agent, tail)
+            # A split boundary Msg appears in both halves under the same id.
+            # Never index it while its complete live copy remains in the tail.
+            tail_ids = {m.id for m in tail}
+            active_tail = self._active_turn_tail(agent)
+            active_ids = {m.id for m in active_tail}
+            middle = [
+                m
+                for m in real(to_compress)
+                if m.id not in tail_ids and m.id not in active_ids
+            ]
+            if active_tail:
+                # Keep the whole active turn at the end in original order.
+                tail = [m for m in tail if m.id not in active_ids]
+                tail.extend(active_tail)
+            middle, tail = self._repair_dangling_user_boundary(
+                middle,
+                tail,
+                active_ids,
+            )
 
         # 3c) Sanitize: AgentScope's pairing-safe split only guarantees
         #    intra-message block-level pairing. Standalone tool_result
@@ -485,8 +481,10 @@ class ScrollContextManager:
         #    merely because Scroll ran: eviction may already have relieved the
         #    pressure. If it did not, replace recoverable results one at a time
         #    (older completed turns before the active turn, then largest byte
-        #    saving first) and stop as soon as the pressure target is met. The
-        #    newest result always stays verbatim. For manual /compact the
+        #    saving first) and stop as soon as the pressure target is met. An
+        #    active result is eligible only after a later model-authored block
+        #    proves it was consumed. The newest result stays verbatim under
+        #    normal pressure. For manual /compact the
         #    configured reserve, rather than its synthetic near-zero trigger,
         #    is the meaningful target.
         pressure_threshold = max(trigger, reserve)
@@ -505,6 +503,26 @@ class ScrollContextManager:
                     "scroll: pressure-folded %d live tool result(s)",
                     folded,
                 )
+        # The newest result may not have received its first model read, so it
+        # is excluded from normal pointer folding. If the remaining input
+        # would leave no safe output budget, degrade that result only to a
+        # visible head/tail preview. Its exact persisted row stays recallable.
+        if tokens > effective_hard_limit:
+            (
+                emergency_shortened,
+                tokens,
+            ) = await self._shorten_newest_result_for_emergency(
+                agent,
+                tokens=tokens,
+                target=effective_hard_limit,
+            )
+            mark("emergency_preview")
+            if emergency_shortened:
+                self.last_compress["emergency_shortened"] = emergency_shortened
+                logger.warning(
+                    "scroll: shortened newest tool result preview to preserve "
+                    "model output capacity",
+                )
         # Once per overflow episode, not once per reasoning step — the stuck
         # state repeats every step until the turn ends. Manual /compact
         # deliberately supplies a near-zero trigger to bypass the automatic
@@ -513,11 +531,11 @@ class ScrollContextManager:
         # target. During normal automatic compaction ``trigger`` is larger
         # than ``reserve``, preserving the existing warning unchanged.
         overflow_threshold = pressure_threshold
-        if tokens > hard_limit:
+        if tokens > effective_hard_limit:
             log_timings("unfit")
             raise ContextWindowUnfitError(
                 tokens=tokens,
-                hard_limit=hard_limit,
+                hard_limit=effective_hard_limit,
             )
         if tokens > overflow_threshold:
             if not self._overflow_warned:
@@ -538,6 +556,56 @@ class ScrollContextManager:
             **(await as_internals.prepare_model_input(agent)),
         )
 
+    @staticmethod
+    def _block_type(block: Any) -> str | None:
+        return (
+            block.get("type")
+            if isinstance(block, dict)
+            else getattr(block, "type", None)
+        )
+
+    def _live_tool_results(self, agent: Any) -> list[tuple[Any, Any]]:
+        """Return live ``(message, tool_result)`` pairs in wire order."""
+        results: list[tuple[Any, Any]] = []
+        for msg in getattr(agent.state, "context", []) or []:
+            if getattr(msg, "id", None) in self._synthetic_ids:
+                continue
+            content = getattr(msg, "content", None)
+            if not isinstance(content, list):
+                continue
+            results.extend(
+                (msg, block)
+                for block in content
+                if self._block_type(block) == "tool_result"
+            )
+        return results
+
+    def _consumed_active_result_ids(self, agent: Any) -> set[int]:
+        """Identify active results already observed by a later model call.
+
+        AgentScope appends each model step to the active assistant message. A
+        result is therefore known to have been consumed only when a later
+        model-authored block (text, reasoning, or another tool call) follows
+        it. Merely having another tool result after it is insufficient: those
+        results may come from parallel calls and all still need their first
+        model read. The structural rule survives process resume without an
+        ephemeral "seen" flag.
+        """
+        consumed: set[int] = set()
+        later_model_output = False
+        for msg in reversed(self._active_turn_tail(agent)):
+            content = getattr(msg, "content", None)
+            if not isinstance(content, list):
+                continue
+            is_assistant = getattr(msg, "role", None) == "assistant"
+            for block in reversed(content):
+                if self._block_type(block) == "tool_result":
+                    if later_model_output:
+                        consumed.add(id(block))
+                elif is_assistant:
+                    later_model_output = True
+        return consumed
+
     # pylint: disable-next=too-many-branches
     def _tool_result_fold_candidates(
         self,
@@ -555,28 +623,17 @@ class ScrollContextManager:
         absent: a result is eligible only when its pointer is actually smaller
         than its output.
         """
-        results: list[tuple[Any, Any]] = []
+        results = self._live_tool_results(agent)
         active_messages = {id(msg) for msg in self._active_turn_tail(agent)}
+        consumed_active = self._consumed_active_result_ids(agent)
         recall_inputs = self._tool_call_inputs(agent)
-        for msg in getattr(agent.state, "context", []) or []:
-            if getattr(msg, "id", None) in self._synthetic_ids:
-                continue
-            content = getattr(msg, "content", None)
-            if not isinstance(content, list):
-                continue
-            for block in content:
-                btype = (
-                    block.get("type")
-                    if isinstance(block, dict)
-                    else getattr(block, "type", None)
-                )
-                if btype == "tool_result":
-                    results.append((msg, block))
 
         candidates: list[tuple[bool, int, int, Any, str]] = []
         for ordinal, (msg, block) in enumerate(results[:-1]):
             is_active = id(msg) in active_messages
             if is_active and not include_active:
+                continue
+            if is_active and id(block) not in consumed_active:
                 continue
             if self._is_folded_stub(block):
                 continue
@@ -640,6 +697,113 @@ class ScrollContextManager:
             if tokens <= target:
                 break
         return folded, tokens
+
+    @staticmethod
+    def _emergency_preview_text(
+        text: str,
+        *,
+        max_bytes: int,
+        tool_call_id: str,
+    ) -> str:
+        """Build a bounded, visible head/tail preview with an exact pointer."""
+        recovery = (
+            'recover the exact result with recall_history(op="recall_tool", '
+            f"tool_call_id={tool_call_id!r})"
+        )
+        framing = (
+            f"{_EMERGENCY_PREVIEW_MARK}\n"
+            "[… middle removed to preserve model output capacity …]\n"
+            f"{recovery}"
+        )
+        budget = max(0, max_bytes - len(framing.encode("utf-8")) - 2)
+        raw = text.encode("utf-8")
+        head_size = budget // 2
+        tail_size = budget - head_size
+        head = raw[:head_size].decode("utf-8", errors="ignore")
+        tail = raw[-tail_size:].decode("utf-8", errors="ignore")
+        return (
+            f"{_EMERGENCY_PREVIEW_MARK}\n{head}\n"
+            "[… middle removed to preserve model output capacity …]\n"
+            f"{tail}\n{recovery}"
+        )
+
+    async def _shorten_newest_result_for_emergency(
+        self,
+        agent: Any,
+        *,
+        tokens: int,
+        target: int,
+    ) -> tuple[int, int]:
+        """Shrink the newest unread result only to avoid ``CONTEXT_UNFIT``.
+
+        Normal folding deliberately protects the newest result because the
+        model may not have read it yet. Above the effective hard limit, retain
+        a progressively smaller visible head/tail preview instead of replacing
+        it with an opaque pointer. The exact result is already durable.
+        """
+        results = self._live_tool_results(agent)
+        if not results:
+            return 0, tokens
+        _, block = results[-1]
+        tool_call_id = (
+            block.get("id")
+            if isinstance(block, dict)
+            else getattr(block, "id", None)
+        )
+        if not tool_call_id or str(tool_call_id) not in self._persisted_tcids:
+            return 0, tokens
+        output = (
+            block.get("output")
+            if isinstance(block, dict)
+            else getattr(block, "output", None)
+        )
+        if isinstance(output, str):
+            source = output
+        elif isinstance(output, list) and output:
+            if any(self._block_type(item) != "text" for item in output):
+                return 0, tokens
+            source = "\n".join(
+                str(
+                    item.get("text", "")
+                    if isinstance(item, dict)
+                    else getattr(item, "text", "") or "",
+                )
+                for item in output
+            )
+        else:
+            return 0, tokens
+
+        source_bytes = len(source.encode("utf-8"))
+        if source_bytes <= _MIN_EMERGENCY_PREVIEW_BYTES:
+            return 0, tokens
+        preview_bytes = max(
+            _MIN_EMERGENCY_PREVIEW_BYTES,
+            min(8192, source_bytes // 2),
+        )
+        changed = False
+        while tokens > target:
+            preview = self._emergency_preview_text(
+                source,
+                max_bytes=preview_bytes,
+                tool_call_id=str(tool_call_id),
+            )
+            replacement = [TextBlock(type="text", text=preview)]
+            if isinstance(block, dict):
+                block["output"] = replacement
+            else:
+                block.output = replacement
+            changed = True
+            tokens = await self._live_tokens(agent)
+            if (
+                tokens <= target
+                or preview_bytes <= _MIN_EMERGENCY_PREVIEW_BYTES
+            ):
+                break
+            preview_bytes = max(
+                _MIN_EMERGENCY_PREVIEW_BYTES,
+                preview_bytes // 2,
+            )
+        return int(changed), tokens
 
     # -- write-through -------------------------------------------------------
 
