@@ -51,6 +51,7 @@ def _context() -> ControlContext:
 async def test_approve_without_id_only_falls_back_to_spawned_child(
     monkeypatch,
 ):
+    """Root approval skips unmarked children and resolves spawned children."""
     svc = ApprovalService()
     unmarked = await svc.create_pending(
         session_id="other-child-session",
@@ -79,7 +80,7 @@ async def test_approve_without_id_only_falls_back_to_spawned_child(
         lambda: svc,
     )
 
-    response = await ApprovalCommandHandler()._handle_approve(_context())
+    response = await ApprovalCommandHandler().handle(_context())
 
     assert "工具已批准" in response
     assert await svc.get_request(pending.request_id) is None
