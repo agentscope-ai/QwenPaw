@@ -4,6 +4,7 @@
 from qwenpaw.agents.context.scroll.continuation_summary import (
     ContinuationSummary,
     build_update_prompt,
+    extract_identifiers,
     redact_secrets,
     parse_plain_markdown,
     validate_summary_quality,
@@ -164,3 +165,40 @@ Status: in_progress
     assert any("#999" in issue for issue in issues)
     assert any("endpoint does not exist: 2" in issue for issue in issues)
     assert any("artifact:invented" in issue for issue in issues)
+
+
+def test_identifier_validation_normalizes_numeric_units():
+    assert "5000" in extract_identifiers("timeout defaults to 5000")
+    assert "5000" in extract_identifiers("timeout is 5000ms")
+
+    summary = parse_plain_markdown(
+        """## Active Task
+Tune the timeout.
+Status: in_progress
+
+## Current State
+- The timeout is 5000ms. [seq:1]
+
+## Constraints
+(none)
+
+## Decisions
+(none)
+
+## Open Work
+(none)
+
+## Evidence
+- Configuration record. [seq:1]
+""",
+        covered_seq=(1, 1),
+    )
+    assert summary is not None
+
+    issues = validate_summary_quality(
+        summary,
+        evidence_text="[seq:1] timeout defaults to 5000",
+        existing_seqs={1},
+    )
+
+    assert not any("identifiers not present" in issue for issue in issues)

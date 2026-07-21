@@ -100,7 +100,7 @@ During normal replies, a turn that establishes a durable task-state change may a
 
 Headlines label individual milestones; the continuation summary maintains the latest effective task state across many evicted turns. It is updated only when dialogue is actually evicted and contains six fixed sections: `Active Task`, `Current State`, `Constraints`, `Decisions`, `Open Work`, and `Evidence`.
 
-- **Plain text generation**: the model is called normally and asked for Markdown. Scroll never invokes `generate_structured_output`, JSON mode, or a response schema for this update.
+- **Plain text generation**: the model is called normally with thinking disabled and asked for Markdown. Scroll never invokes `generate_structured_output`, JSON mode, or a response schema for this update.
 - **Local parsing and deterministic rendering**: code parses the Markdown into JSON-safe internal state and renders the six sections itself. Missing citations receive the real covered seq range supplied by code.
 - **Bounded evidence**: complete tool outputs are excluded from the summary prompt. It receives limited previews plus real `seq`, `tool_call_id`, artifact, and file pointers.
 - **Incremental update**: the previous valid summary and newly evicted span are supplied together, so obsolete state can be removed rather than accumulated as a log.

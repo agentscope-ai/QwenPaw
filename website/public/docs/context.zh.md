@@ -100,7 +100,7 @@ flowchart LR
 
 Headline 用来标记单个里程碑；continuation summary 则跨多个已驱逐轮次维护“当前仍有效”的任务状态。它只在真正发生对话驱逐时更新，固定包含 `Active Task`、`Current State`、`Constraints`、`Decisions`、`Open Work` 和 `Evidence` 六段。
 
-- **普通文本生成**：模型通过正常 chat completion 返回 Markdown；Scroll 不调用 `generate_structured_output`、JSON mode 或 response schema。
+- **普通文本生成**：模型通过关闭 thinking 的正常 chat completion 返回 Markdown；Scroll 不调用 `generate_structured_output`、JSON mode 或 response schema。
 - **本地解析、确定性渲染**：代码把 Markdown 解析成 JSON-safe 内部状态，再自行渲染六个 section。缺少 citation 时，由代码补上真实 covered seq 区间。
 - **有界证据**：完整工具输出不会进入 summary prompt，只提供有限 preview 以及真实 `seq`、`tool_call_id`、artifact、file 指针。
 - **增量更新**：上一份有效 summary 与新驱逐区段一起输入，让过时状态被删除，而不是不断追加成日志。

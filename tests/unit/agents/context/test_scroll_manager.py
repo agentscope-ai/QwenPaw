@@ -706,6 +706,7 @@ async def test_eviction_generates_plain_text_pointer_backed_summary(
     call = agent.model.summary_calls[0]
     assert call["tools"] is None
     assert call["max_tokens"] == 256
+    assert call["disable_thinking"] is True
     assert "structured_model" not in call
     assert "Do NOT return JSON" in call["messages"][1].get_text_content()
     summary = mgr.describe_summary()

@@ -68,12 +68,9 @@ _IDENTIFIER_PATTERNS = (
     re.compile(r"(?<!\w)#[1-9]\d*\b"),
     re.compile(r"\b[A-Za-z_][A-Za-z0-9_.]*\(\)"),
     re.compile(r"(?<!\w)v?\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b"),
-    re.compile(
-        r"\b\d+(?:\.\d+)?\s?(?:ms|seconds?|tokens?|Ki?B|Mi?B|Gi?B)\b",
-        re.IGNORECASE,
-    ),
     re.compile(r"(?<![\w.-])(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+"),
 )
+_NUMBER_RE = re.compile(r"(?<!\d)\d+(?:\.\d+)?(?![\d.])")
 
 
 def build_update_prompt(
@@ -103,8 +100,9 @@ def build_update_prompt(
     repair = (
         "\nThe previous candidate failed local validation:\n- "
         + "\n- ".join(safe_issues)
-        + "\nRegenerate it from the supplied evidence and correct every "
-        "issue.\n"
+        + "\nThis feedback is authoritative. Regenerate from the supplied "
+        "evidence, correct every issue, and completely remove any identifier "
+        "reported as absent; do not explain or paraphrase it.\n"
         if repair_issues
         else ""
     )
@@ -183,7 +181,12 @@ def contains_secret(text: str) -> bool:
 
 def extract_identifiers(text: str) -> set[str]:
     """Extract opaque values whose exact spelling must be source-backed."""
-    identifiers: set[str] = set()
+    # Numbers are compared independently from their surrounding unit. This
+    # accepts evidence such as "default 5000" when the summary writes
+    # "5000ms", while still rejecting an invented numeric value.
+    identifiers: set[str] = {
+        match.group(0) for match in _NUMBER_RE.finditer(text)
+    }
     for pattern in _IDENTIFIER_PATTERNS:
         identifiers.update(match.group(0) for match in pattern.finditer(text))
     return identifiers

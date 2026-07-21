@@ -747,6 +747,7 @@ class ScrollContextManager:
             ],
             tools=None,
             max_tokens=max_tokens,
+            disable_thinking=True,
         )
         if not inspect.isasyncgen(response):
             return self._response_text(response)
