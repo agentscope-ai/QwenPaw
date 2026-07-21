@@ -46,7 +46,7 @@ import {
   SparkVoiceChat01Line,
   SparkWifiLine,
 } from "@agentscope-ai/icons";
-import { GitBranch, Package } from "lucide-react";
+import { GitBranch } from "lucide-react";
 import i18next from "i18next";
 import { menuRegistry } from "../../plugins/registry/store";
 import type { MenuItem } from "../../plugins/registry/types";
