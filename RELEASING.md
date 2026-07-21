@@ -1,5 +1,7 @@
 # Releasing QwenPaw
 
+_中文版：[RELEASING_zh.md](RELEASING_zh.md)_
+
 QwenPaw ships four artifacts from a single version — the **PyPI** wheel, the
 **Docker** image, the **desktop** apps (Tauri, Windows + macOS) and the
 **plugins** bundle. They are published together by one orchestrated workflow so
