@@ -12,11 +12,11 @@ QwenPaw 把记忆组织为三套互补的系统——工作记忆（Working）�
 
 | 记忆系统     | 是什么                                                                                     | 文档                    |
 | ------------ | ------------------------------------------------------------------------------------------ | ----------------------- |
-| **工作记忆** | 实时的提示词窗口。较早的轮次被驱逐成一份紧凑、可展开的索引——从不总结。                     | [上下文管理](./context) |
+| **工作记忆** | 实时提示词窗口。较早轮次驱逐后由可展开索引和带指针的任务状态摘要表示；原始轮次持久保留。 | [上下文管理](./context) |
 | **情景记忆** | 跨会话、逐字的持久记录，通过 `recall_history`（或 `recall_history_python` REPL）按需取回。 | [上下文管理](./context) |
 | **语义记忆** | 提炼后的事实、偏好与知识；ReMe 把每日记忆沉淀进 `digest/`，用 `memory_search` 检索。       | [长期记忆](./memory)    |
 
-其中 **工作记忆** 与 **情景记忆** 由 **scroll** 上下文管理器（`ScrollContextManager`）实现；**语义记忆** 由 **ReMe** 实现。三者刻意保持正交：scroll 逐字保留原始历史、从不总结，而 ReMe 提炼可复用知识、从不触碰实时窗口或逐字历史库。
+其中 **工作记忆** 与 **情景记忆** 由 **scroll** 上下文管理器（`ScrollContextManager`）实现；**语义记忆** 由 **ReMe** 实现。三者刻意保持正交：scroll 逐字保留原始历史，只用带来源的 continuation summary 路由当前任务状态；ReMe 则提炼可复用知识、从不触碰实时窗口或逐字历史库。
 
 > **本页讲的是工作记忆与情景记忆**——即 scroll 上下文管理器。语义记忆（ReMe 长期记忆后端）请通过上方链接查看。
 
@@ -32,9 +32,10 @@ flowchart LR
     F -->|是| D
     F -->|否| G[保护当前活动轮次 + 最近尾部]
     G --> H[驱逐已完成的中间历史]
-    H --> I[把 seq 区间加入驱逐索引]
-    I --> J[用驱逐索引重建实时上下文]
-    J --> K{仍超出压力目标?}
+    H --> I[更新带指针的 continuation summary]
+    I --> J[把 seq 区间加入驱逐索引]
+    J --> R[用 summary + index + live tail 重建]
+    R --> K{仍超出压力目标?}
     K -->|是| L[把已完成的实时工具结果折叠为精确 recall 指针]
     K -->|否| M[保留重建后的实时上下文]
     L --> N{高于有效硬上限?}
@@ -49,7 +50,7 @@ flowchart LR
 
 - **先持久化**：`ScrollContextManager` 在任何驱逐前，都会先把实时上下文写入 `{working_dir}/history.db`。
 - **保护当前活动轮次**：最新的用户请求及其进行中的工具链绝不会在任务中途被驱逐——即使压缩恰好在一个长工具任务中间触发，模型也不会丢失（进而答非所问）当前请求。
-- **没有压缩时摘要瓶颈**：被驱逐的内容由 `EvictionIndex` 表示；有价值的任务状态里程碑由 assistant 在正常回复中写成可选 headline。
+- **不依赖有损摘要**：被驱逐的原文仍以 `history.db` 和 `EvictionIndex` 为准。Continuation summary 只是带指针的任务状态路由；更新失败会保留上一份有效摘要，绝不阻塞驱逐。
 - **可回溯原文**：索引中的每一行都带 `seq` 区间。Agent 可以调用 `recall_history(op="expand", lo, hi)` 读取完整原始记录（或在 `recall_history_python` REPL 中用 `ms.expand(lo, hi)`）。
 - **跨会话历史**：历史行包含 `session_id` 和 `agent_id`，默认可检索当前 Agent 的所有历史会话；显式放宽时也能查询同一工作区内其他 Agent 的历史。
 - **安全降级**：如果 scroll 无法构建，或 recall 工具无法安全运行，QwenPaw 会退回 native 上下文管理，避免把历史驱逐到无法读取的位置。
@@ -80,11 +81,11 @@ flowchart LR
 
 ## 工作记忆（Working Memory）
 
-**工作记忆** 就是实时的提示词窗口——模型此刻能看到的内容。窗口写满时，scroll 把较早的轮次驱逐成一份紧凑、可展开的索引，而不是总结后丢弃，从而把窗口控制在预算内；有价值的轮次可以为索引提供一行 **headline（里程碑标题）**。下面先讲 headline 怎么来，再讲实时窗口如何重建、驱逐索引如何分层。
+**工作记忆** 就是实时的提示词窗口——模型此刻能看到的内容。窗口写满时，scroll 先持久化并驱逐较早轮次，再保留一份带指针的任务状态摘要和可展开索引；摘要永远不会替代精确原文。有价值的轮次还可以为索引提供一行 **headline（里程碑标题）**。
 
 ### Headlines（里程碑标题）
 
-scroll 的核心设计是：**不靠模型生成摘要来压缩上下文**。取而代之，当一轮回复确立了持久的任务状态变化时，模型可以在所有工具调用完成后追加一行隐藏 headline：
+在正常回复中，如果一轮确立了持久任务状态变化，模型可以在所有工具调用完成后追加一行隐藏 headline：
 
 ```text
 ⟦ 数据库迁移｜已决定：因 JSONB 采用 PostgreSQL，MySQL 已废弃 ⟧
@@ -95,11 +96,26 @@ scroll 的核心设计是：**不靠模型生成摘要来压缩上下文**。取
 - **作用**：headline 是紧凑的语义检查点和导航标签，不是真相来源。原始轮次被驱逐后，它会成为该轮的 `seq · ⟦ … ⟧` 索引叶子；精确细节仍从 `history.db` recall。
 - **它在回复时是可选的**：普通确认、暂定想法或没有持久任务状态变化的轮次不生成 headline。这类区段之后被驱逐时保留为 `seq lo–hi · (no milestone)`；它没有语义标签，但原始内容仍可按该 seq 区间精确召回。压缩阶段不会为它额外调用模型补写。
 
+### 带指针的 Continuation Summary
+
+Headline 用来标记单个里程碑；continuation summary 则跨多个已驱逐轮次维护“当前仍有效”的任务状态。它只在真正发生对话驱逐时更新，固定包含 `Active Task`、`Current State`、`Constraints`、`Decisions`、`Open Work` 和 `Evidence` 六段。
+
+- **普通文本生成**：模型通过正常 chat completion 返回 Markdown；Scroll 不调用 `generate_structured_output`、JSON mode 或 response schema。
+- **本地解析、确定性渲染**：代码把 Markdown 解析成 JSON-safe 内部状态，再自行渲染六个 section。缺少 citation 时，由代码补上真实 covered seq 区间。
+- **有界证据**：完整工具输出不会进入 summary prompt，只提供有限 preview 以及真实 `seq`、`tool_call_id`、artifact、file 指针。
+- **增量更新**：上一份有效 summary 与新驱逐区段一起输入，让过时状态被删除，而不是不断追加成日志。
+- **失败安全**：空输出、格式不合法、provider 异常或解析失败时保留上一份 summary；已有 summary 会标记为 stale，空结果绝不覆盖有效状态。
+- **只作背景**：注入前缀明确说明 summary 不是活动指令，当前 live user request 始终优先。
+
 ### 实时上下文结构
 
 发生驱逐后，实时上下文会被重建为：
 
 ```text
+带指针的 continuation summary
+  保存当前有效任务状态及持久化 seq/artifact/file 引用。
+  明确标记为 background，不是新的用户指令。
+
 驱逐索引（名为 "memory" 的合成占位消息，不是真实对话轮次）
   以 [context compressed] 开头，后面是分层的 headline、seq 区间，
   以及如何 recall 原文的说明。详见下文「驱逐索引」。
@@ -285,7 +301,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 ## 手动压缩
 
-`/compact` 仍然存在，但在 scroll 策略下，它的含义是“强制 scroll manager 回收实时上下文，并展示当前驱逐索引”，而不是“生成一段压缩摘要”。
+`/compact` 仍然存在。在 scroll 策略下，它会强制归档；真正驱逐轮次时也会更新带指针的 continuation summary，并展示当前驱逐索引。
 
 典型返回：
 

@@ -17,6 +17,7 @@ from agentscope.message import (
     ToolCallBlock,
     ToolResultBlock,
 )
+from agentscope.model import ChatResponse
 
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
@@ -85,6 +86,26 @@ class FakeModel:
         if len(self._tokens) > 1:
             return self._tokens.pop(0)
         return self._tokens[0]
+
+
+class PlainSummaryModel(FakeModel):
+    """Fake chat model proving PR3 uses normal text generation only."""
+
+    def __init__(self, tokens, responses: list[str]) -> None:
+        super().__init__(tokens)
+        self._responses = list(responses)
+        self.summary_calls: list[dict] = []
+
+    async def __call__(self, **kwargs):
+        self.summary_calls.append(kwargs)
+        text = self._responses.pop(0)
+        return ChatResponse(
+            content=[TextBlock(type="text", text=text)],
+            is_last=True,
+        )
+
+    async def generate_structured_output(self, *args, **kwargs):
+        raise AssertionError("structured output must not be used")
 
 
 class FakeConfig:
@@ -641,6 +662,97 @@ def _completed_tool_turn(tcid: str, *, padding: int = 5000) -> Msg:
 class _RealisticScrollConfig:
     trigger_ratio = 0.8
     reserve_ratio = 0.1
+
+
+_VALID_CONTINUATION_SUMMARY = """## Active Task
+Fix provider discovery.
+Status: in_progress
+
+## Current State
+- DashScope passes.
+
+## Constraints
+- Keep the public API unchanged.
+
+## Decisions
+- Preserve fallback behavior.
+
+## Open Work
+- Fix the OpenAI timeout.
+
+## Evidence
+- Archived conversation.
+"""
+
+
+async def test_eviction_generates_plain_text_pointer_backed_summary(
+    store: HistoryStore,
+):
+    old = [user("fix discovery"), assistant("DashScope passes")]
+    current = user("continue")
+    ctx = [*old, current]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=[900, 300])
+    agent.model = PlainSummaryModel([900, 300], [_VALID_CONTINUATION_SUMMARY])
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (old, [current])
+
+    await mgr.compress(agent)
+
+    assert len(agent.model.summary_calls) == 1
+    call = agent.model.summary_calls[0]
+    assert call["tools"] is None
+    assert call["max_tokens"] == 256
+    assert "structured_model" not in call
+    assert "Do NOT return JSON" in call["messages"][1].get_text_content()
+    summary = mgr.describe_summary()
+    assert "## Active Task\nFix provider discovery." in summary
+    # The model omitted citations; code adds the real evicted range.
+    assert "[seq:1-2]" in summary
+    placeholder = agent.state.context[0].get_text_content()
+    assert "[continuation summary]" in placeholder
+    assert "NOT a user request" in placeholder
+    assert placeholder.index("[continuation summary]") < placeholder.index(
+        "[context compressed]",
+    )
+
+    restored = make_manager(store, session_id="s1")
+    try:
+        restored.load_state(mgr.to_dict())
+        assert restored.describe_summary() == summary
+    finally:
+        restored.close()
+
+
+async def test_invalid_summary_update_preserves_previous_and_marks_stale(
+    store: HistoryStore,
+):
+    old = [user("fix discovery"), assistant("DashScope passes")]
+    current = user("continue")
+    ctx = [*old, current]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx)
+    agent.model = PlainSummaryModel(
+        [900, 300, 900, 300],
+        [_VALID_CONTINUATION_SUMMARY, "not valid markdown"],
+    )
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (old, [current])
+    await mgr.compress(agent)
+    first = mgr.describe_summary()
+
+    finished = assistant("OpenAI is still pending")
+    next_request = user("continue again")
+    ctx2 = [*agent.state.context, finished, next_request]
+    agent.state.context = ctx2
+    agent._split_return = (ctx2[:-1], [next_request])
+    await mgr.compress(agent)
+
+    assert mgr.describe_summary() == first
+    placeholder = agent.state.context[0].get_text_content()
+    assert "summary status: stale" in placeholder
+    assert "Fix provider discovery." in placeholder
+    assert len(agent.model.summary_calls) == 2
 
 
 @pytest.mark.parametrize("after_trim", [730, 770])

@@ -12,11 +12,11 @@ QwenPaw organizes memory into three complementary systems, loosely mirroring hum
 
 | System              | What it is                                                                                                                               | Documented in                   |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| **Working memory**  | The live prompt window. Older turns evict into a compact, expandable index — never summarized.                                           | [Context Management](./context) |
+| **Working memory**  | The live prompt window. Older turns evict into an expandable index plus a pointer-backed task-state summary; raw turns remain durable.    | [Context Management](./context) |
 | **Episodic memory** | A durable, verbatim record of every turn across sessions, recalled on demand via `recall_history` (or the `recall_history_python` REPL). | [Context Management](./context) |
 | **Semantic memory** | Distilled facts, preferences, and knowledge; ReMe consolidates daily notes into `digest/`, searched by `memory_search`.                  | [Long-term Memory](./memory)    |
 
-Two of these — **working** and **episodic** memory — are implemented by the **scroll** context manager (`ScrollContextManager`). The third — **semantic** memory — is implemented by **ReMe**. They are deliberately orthogonal: scroll keeps raw history verbatim and never summarizes, while ReMe distills reusable knowledge and never touches the live window or the verbatim history store.
+Two of these — **working** and **episodic** memory — are implemented by the **scroll** context manager (`ScrollContextManager`). The third — **semantic** memory — is implemented by **ReMe**. They are deliberately orthogonal: scroll keeps raw history verbatim and uses a source-linked continuation summary only to route current task state, while ReMe distills reusable knowledge and never touches the live window or the verbatim history store.
 
 > **This page covers working and episodic memory** — the scroll context manager. For semantic memory (the ReMe long-term backend), follow the links above.
 
@@ -32,9 +32,10 @@ flowchart LR
     F -->|Yes| D
     F -->|No| G[Protect the active turn + recent tail]
     G --> H[Evict finished middle turns]
-    H --> I[Add seq span to eviction index]
-    I --> J[Rebuild live context with the eviction index]
-    J --> K{Still over the pressure target?}
+    H --> I[Update pointer-backed continuation summary]
+    I --> J[Add seq span to eviction index]
+    J --> R[Rebuild summary + index + live tail]
+    R --> K{Still over the pressure target?}
     K -->|Yes| L[Fold completed live tool results to exact recall stubs]
     K -->|No| M[Keep rebuilt live context]
     L --> N{Above effective hard limit?}
@@ -49,7 +50,7 @@ Key properties:
 
 - **Durable first**: `ScrollContextManager` persists live turns to `{working_dir}/history.db` before any eviction.
 - **Active turn protected**: the latest user request and its in-progress tool chain are never evicted mid-task, so a compression that fires in the middle of a long tool run cannot make the model lose (and answer past) the current request.
-- **No compaction-time summary bottleneck**: evicted content is represented by an `EvictionIndex`; useful task-state milestones are captured as optional headlines during normal assistant turns.
+- **No lossy-summary dependency**: raw evicted content remains authoritative in `history.db` and the `EvictionIndex`. A continuation summary is only a pointer-backed task-state router; a failed update preserves the previous valid summary and never blocks eviction.
 - **Recallable raw history**: each index line carries a `seq` span. The agent can call `recall_history(op="expand", lo, hi)` to read the full original rows (or `ms.expand(lo, hi)` in the `recall_history_python` REPL).
 - **Cross-session memory**: history rows include `session_id` and `agent_id`, so recall can search this agent's past sessions and, when explicitly widened, other agents in the same workspace.
 - **Fallback-safe**: if scroll cannot be wired or its recall tools cannot run safely, QwenPaw falls back to native context management instead of evicting history that cannot be recalled.
@@ -80,11 +81,11 @@ If SQLite FTS5 is available, QwenPaw also keeps a `conversation_history_fts` ind
 
 ## Working Memory
 
-**Working memory** is the live prompt window — what the model can attend to right now. When it fills, scroll keeps it within budget by evicting older turns into a compact, expandable index instead of summarizing them away. A useful turn may supply a one-line **headline** for that index. The sections below cover those headlines first, then how the live window is rebuilt, and how the eviction index is structured.
+**Working memory** is the live prompt window — what the model can attend to right now. When it fills, scroll keeps it within budget by persisting and evicting older turns, then retaining a pointer-backed task-state summary and an expandable index. The summary never replaces the exact rows. A useful turn may also supply a one-line **headline** for the index.
 
 ### Headlines
 
-Scroll's defining choice is that it **does not compress context by asking the model to summarize**. Instead, after a turn that establishes a durable task-state change, the model may append one hidden headline after all tool calls have completed:
+During normal replies, a turn that establishes a durable task-state change may append one hidden headline after all tool calls have completed:
 
 ```text
 ⟦ database migration | decided: use PostgreSQL for JSONB; MySQL superseded ⟧
@@ -95,11 +96,26 @@ Scroll's defining choice is that it **does not compress context by asking the mo
 - **What it's for**: the headline is a compact semantic checkpoint and navigation label, not the source of truth. Once the raw turn leaves the live window, it becomes the turn's `seq · ⟦ … ⟧` leaf in the eviction index; exact details remain recallable from `history.db`.
 - **It is optional at turn time**: routine turns, tentative thoughts, and turns without a durable task-state change emit no headline. When such a span is later evicted, it remains a `seq lo–hi · (no milestone)` entry: semantically unlabeled, but exactly recallable by that seq range. Compaction does not make an extra model call to backfill it.
 
+### Pointer-Backed Continuation Summary
+
+Headlines label individual milestones; the continuation summary maintains the latest effective task state across many evicted turns. It is updated only when dialogue is actually evicted and contains six fixed sections: `Active Task`, `Current State`, `Constraints`, `Decisions`, `Open Work`, and `Evidence`.
+
+- **Plain text generation**: the model is called normally and asked for Markdown. Scroll never invokes `generate_structured_output`, JSON mode, or a response schema for this update.
+- **Local parsing and deterministic rendering**: code parses the Markdown into JSON-safe internal state and renders the six sections itself. Missing citations receive the real covered seq range supplied by code.
+- **Bounded evidence**: complete tool outputs are excluded from the summary prompt. It receives limited previews plus real `seq`, `tool_call_id`, artifact, and file pointers.
+- **Incremental update**: the previous valid summary and newly evicted span are supplied together, so obsolete state can be removed rather than accumulated as a log.
+- **Failure-safe**: empty or malformed output, provider errors, and parsing failures retain the previous summary. If one exists, it is marked stale; an empty result never overwrites valid state.
+- **Background-only semantics**: the injected prefix says the summary is background, not an active instruction, and that the current live user request always has priority.
+
 ### Live Context Layout
 
 After eviction, the live context is rebuilt as:
 
 ```text
+Pointer-backed continuation summary
+  Current effective task state with durable seq/artifact/file citations.
+  It is explicitly labeled background-only, never an active user instruction.
+
 Eviction index (a synthetic placeholder message named "memory")
   A [context compressed] header, tiered headlines + seq spans, and instructions
   for recalling the original turns. Detailed in "Eviction Index" below.
@@ -286,7 +302,7 @@ Important fields:
 
 ## Manual Compaction
 
-`/compact` still exists, but under scroll it means "force the scroll manager to reclaim live context and show the current eviction-index map", not "generate a compact summary".
+`/compact` still exists. Under scroll it forces archival; when turns are actually evicted it also updates the pointer-backed continuation summary and shows the current eviction-index map.
 
 Typical result:
 

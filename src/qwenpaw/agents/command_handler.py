@@ -356,6 +356,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         # (``state.summary`` stays empty); native fills ``state.summary``.
         # Capture whichever applies.
         index_text = ""
+        continuation_text = ""
         compress_stats: dict = {}
         try:
             # Agent-backed mode: ``QwenPawAgent.compress_context`` already
@@ -374,12 +375,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
                     await scroll_mgr.compress(agent, forced_cfg)
                     self._updated_scroll_state = scroll_mgr.to_dict()
                     index_text = scroll_mgr.describe_index()
+                    continuation_text = scroll_mgr.describe_summary()
                     compress_stats = dict(scroll_mgr.last_compress)
                 finally:
                     scroll_mgr.close()
             else:
                 await agent.compress_context(forced_cfg)
                 index_text = self._scroll_index_text(agent)
+                continuation_text = self._scroll_summary_text(agent)
                 cm = getattr(agent, "_context_manager", None)
                 compress_stats = dict(
                     getattr(cm, "last_compress", None) or {},
@@ -419,7 +422,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
         if index_text:
             detail = (
-                "**Archived Turns:**\n"
+                (
+                    "**Continuation State:**\n" f"{continuation_text}\n"
+                    if continuation_text
+                    else ""
+                )
+                + "**Archived Turns:**\n"
                 f"{self._format_scroll_compact_detail(index_text)}\n"
             )
         else:
@@ -484,6 +492,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
         cm = getattr(agent, "_context_manager", None)
         if cm is not None and hasattr(cm, "describe_index"):
             return cm.describe_index()
+        return ""
+
+    @staticmethod
+    def _scroll_summary_text(agent: "Agent") -> str:
+        """Scroll continuation state for a live agent, else an empty string."""
+        cm = getattr(agent, "_context_manager", None)
+        if cm is not None and hasattr(cm, "describe_summary"):
+            return str(cm.describe_summary() or "")
         return ""
 
     @staticmethod

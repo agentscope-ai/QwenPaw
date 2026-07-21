@@ -8,15 +8,16 @@ two delegated hooks.
 * :meth:`on_save` — every live turn is persisted to the durable
   ``conversation_history`` as it enters the window (write-through).
 * :meth:`compress` — past the token threshold, keep the recent tail (and the
-  active turn) and fold the evicted middle into an in-context
-  :class:`EvictionIndex`. No compaction-time semantic summary replaces the raw
-  record — every node points to a ``seq`` span recallable via the structured
-  ``recall_history`` tool (or the sandboxed ``recall_history_python`` REPL).
+  active turn), update a pointer-backed continuation summary, and fold the
+  evicted middle into an in-context :class:`EvictionIndex`. The summary is a
+  state router, never a replacement for raw history: every claim points back
+  to durable evidence recallable through ``recall_history``.
 """
 
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import sqlite3
@@ -24,13 +25,18 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from agentscope.message import Msg, TextBlock, UserMsg
+from agentscope.message import Msg, SystemMsg, TextBlock, UserMsg
 
 from ....constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
 from . import _as_internals as as_internals
+from .continuation_summary import (
+    ContinuationSummary,
+    build_update_prompt,
+    parse_plain_markdown,
+)
 from .eviction_index import EvictionIndex, Leaf
 from .history import HistoryStore
 from .serialize import msg_to_entries
@@ -108,6 +114,8 @@ class ScrollContextManager:
         ] = {}  # msg.id -> #non-result blocks persisted
         self._leaf_by_id: dict[str, Leaf] = {}  # msg.id -> its index leaf
         self._index = EvictionIndex(session_id=session_id, agent_id=agent_id)
+        self._continuation_summary: ContinuationSummary | None = None
+        self._summary_update_failed = False
         # What the most recent compress() actually did — /compact reads this
         # to report honestly (an in-place fold changes no message count, so
         # the reply can't infer it from a before/after len()). Transient, not
@@ -290,12 +298,14 @@ class ScrollContextManager:
                          results toward the 75% health target. If the context
                          falls to the trigger or below, stop without eviction.
         4. split       — evictable middle | recent tail (+ active turn).
-        5. add_eviction— fold the middle (if any) into the index as a new
+        5. summarize   — update pointer-backed task state from bounded input;
+                         preserve the previous value on any failure.
+        6. add_eviction— fold the middle (if any) into the index as a new
                          Tier 0 block, rebuild context = [index] + tail.
-        6. live-fold   — still under real pressure after finished turns are
+        7. live-fold   — still under real pressure after finished turns are
                          evicted: replace consumed old tool results with
                          recovery pointers. The newest stays verbatim.
-        7. emergency  — above the effective hard limit, shorten the newest
+        8. emergency  — above the effective hard limit, shorten the newest
                          unread text result to a visible head/tail preview.
         """
         cfg = context_config or agent.context_config
@@ -466,8 +476,13 @@ class ScrollContextManager:
             await self._offload_dialog(middle)
             mark("offload_dialog")
 
-            # 5) Fold the evicted middle into the index as a new Tier 0
-            #    block.
+            # 5) Update the pointer-backed continuation state from bounded
+            #    previews. Failure is non-fatal: the previous valid summary
+            #    stays in place and the exact rows remain in history.db.
+            await self._update_continuation_summary(agent, middle)
+            mark("continuation_summary")
+
+            # 6) Fold the evicted middle into the index as a new Tier 0 block.
             self._index_evicted(middle)
             mark("index_evicted")
             self._rebuild_context(agent, tail)
@@ -477,7 +492,7 @@ class ScrollContextManager:
             tokens = await self._live_tokens(agent)
             mark("live_tokens")
 
-        # 6) Pressure-driven microcompaction. Do not clear live tool results
+        # 7) Pressure-driven microcompaction. Do not clear live tool results
         #    merely because Scroll ran: eviction may already have relieved the
         #    pressure. If it did not, replace recoverable results one at a time
         #    (older completed turns before the active turn, then largest byte
@@ -549,6 +564,211 @@ class ScrollContextManager:
         else:
             self._overflow_warned = False
         log_timings("done")
+
+    @staticmethod
+    def _bounded_summary_text(value: Any, limit: int) -> str:
+        """Return a compact head/tail preview without losing both endpoints."""
+        text = " ".join(str(value or "").split())
+        if len(text) <= limit:
+            return text
+        half = max(1, (limit - 25) // 2)
+        return f"{text[:half]} [… omitted …] {text[-half:]}"
+
+    def _evicted_span(self, messages: list[Msg]) -> tuple[int, int] | None:
+        ranges = [
+            self._seq_by_id.get(getattr(msg, "id", None) or str(id(msg)))
+            for msg in messages
+        ]
+        known = [span for span in ranges if span is not None]
+        if not known:
+            return None
+        return min(span[0] for span in known), max(span[1] for span in known)
+
+    @classmethod
+    def _summary_metadata_pointers(cls, value: Any) -> list[str]:
+        """Extract pointers without copying metadata wholesale."""
+        found: list[str] = []
+        if isinstance(value, dict):
+            for key, item in value.items():
+                lowered = str(key).casefold()
+                if isinstance(item, str) and item.strip():
+                    if lowered in ("file_path", "path"):
+                        found.append(f"[file:{item.strip()}]")
+                    elif "artifact" in lowered:
+                        found.append(f"[artifact:{item.strip()}]")
+                found.extend(cls._summary_metadata_pointers(item))
+        elif isinstance(value, list):
+            for item in value:
+                found.extend(cls._summary_metadata_pointers(item))
+        return list(dict.fromkeys(found))
+
+    def _summary_archived_context(
+        self,
+        middle: list[Msg],
+        *,
+        max_chars: int,
+    ) -> str:
+        """Render bounded evidence for the summary model.
+
+        Tool outputs are capped aggressively; exact values remain available by
+        the seq/tool-call pointers printed beside each preview.
+        """
+        chunks: list[str] = []
+        for msg in middle:
+            mid = getattr(msg, "id", None) or str(id(msg))
+            span = self._seq_by_id.get(mid)
+            pointer = f"[seq:{span[0]}-{span[1]}]" if span else "[seq:unknown]"
+            chunks.append(f"{pointer} role={getattr(msg, 'role', 'unknown')}")
+            for entry in msg_to_entries(msg):
+                if entry.kind == "tool_result":
+                    preview = self._bounded_summary_text(entry.content, 600)
+                    chunks.append(
+                        "  tool_result "
+                        f"name={entry.name!r} id={entry.tool_call_id!r} "
+                        f"state={entry.tool_state!r} preview={preview!r}",
+                    )
+                    pointers = self._summary_metadata_pointers(entry.metadata)
+                    if pointers:
+                        chunks.append(f"  recovery={' '.join(pointers)}")
+                    continue
+                text = self._bounded_summary_text(entry.content, 2000)
+                if text:
+                    chunks.append(f"  text={text!r}")
+                if entry.headline:
+                    headline = self._bounded_summary_text(
+                        entry.headline,
+                        2000,
+                    )
+                    chunks.append(
+                        f"  headline={headline!r}",
+                    )
+                if entry.name or entry.tool_call_id:
+                    tool_input = self._bounded_summary_text(
+                        entry.tool_input,
+                        600,
+                    )
+                    chunks.append(
+                        f"  tool_call name={entry.name!r} "
+                        f"id={entry.tool_call_id!r} input={tool_input!r}",
+                    )
+        rendered = "\n".join(chunks)
+        if len(rendered) <= max_chars:
+            return rendered
+        return self._bounded_summary_text(rendered, max_chars)
+
+    @staticmethod
+    def _response_text(response: Any) -> str:
+        parts: list[str] = []
+        for block in getattr(response, "content", None) or []:
+            btype = (
+                block.get("type")
+                if isinstance(block, dict)
+                else getattr(block, "type", None)
+            )
+            if btype == "text":
+                parts.append(
+                    str(
+                        block.get("text", "")
+                        if isinstance(block, dict)
+                        else getattr(block, "text", "") or "",
+                    ),
+                )
+        return "".join(parts).strip()
+
+    async def _generate_plain_summary(
+        self,
+        agent: Any,
+        prompt: str,
+        *,
+        max_tokens: int,
+    ) -> str:
+        """Call the chat model normally; structured output is never used."""
+        if not callable(getattr(agent, "model", None)):
+            return ""
+        response = await agent.model(
+            messages=[
+                SystemMsg(
+                    name="system",
+                    content=(
+                        "You update a compact continuation summary. Follow "
+                        "the requested Markdown headings exactly."
+                    ),
+                ),
+                UserMsg(name="user", content=prompt),
+            ],
+            tools=None,
+            max_tokens=max_tokens,
+        )
+        if not inspect.isasyncgen(response):
+            return self._response_text(response)
+        deltas: list[str] = []
+        final = ""
+        async for chunk in response:
+            text = self._response_text(chunk)
+            if getattr(chunk, "is_last", False):
+                final = text
+            elif text:
+                deltas.append(text)
+        return final or "".join(deltas).strip()
+
+    async def _update_continuation_summary(
+        self,
+        agent: Any,
+        middle: list[Msg],
+    ) -> None:
+        """Update summary; preserve the last valid value on failure."""
+        new_span = self._evicted_span(middle)
+        if new_span is None or not callable(getattr(agent, "model", None)):
+            return
+        previous = self._continuation_summary
+        covered = (
+            (
+                min(previous.covered_seq[0], new_span[0]),
+                max(previous.covered_seq[1], new_span[1]),
+            )
+            if previous is not None
+            else new_span
+        )
+        context_size = max(
+            1,
+            int(getattr(agent.model, "context_size", 0) or 0),
+        )
+        output_tokens = max(256, min(4000, context_size // 4))
+        input_chars = max(4000, min(80_000, context_size * 2))
+        prompt = build_update_prompt(
+            previous=previous,
+            archived_context=self._summary_archived_context(
+                middle,
+                max_chars=input_chars,
+            ),
+            covered_seq=covered,
+        )
+        try:
+            plain_text = await self._generate_plain_summary(
+                agent,
+                prompt,
+                max_tokens=output_tokens,
+            )
+            if len(plain_text) > 16_000:
+                raise ValueError("plain Markdown summary exceeds hard limit")
+            updated = parse_plain_markdown(
+                plain_text,
+                covered_seq=covered,
+            )
+            if updated is None:
+                raise ValueError("empty or malformed plain Markdown summary")
+        except (
+            Exception
+        ):  # noqa: BLE001 - summary failure cannot block eviction
+            self._summary_update_failed = True
+            logger.warning(
+                "scroll: continuation summary update failed; preserving the "
+                "previous valid summary",
+                exc_info=True,
+            )
+            return
+        self._continuation_summary = updated
+        self._summary_update_failed = False
 
     async def _live_tokens(self, agent: Any) -> int:
         """Token count of the live context as the model would receive it."""
@@ -1036,8 +1256,16 @@ class ScrollContextManager:
         agent: Any,
         tail: list[Msg],
     ) -> None:
-        """state.context = the single index placeholder + tail."""
+        """Rebuild from separate summary/index state plus the live tail."""
         memory = self._index.render()
+        if self._continuation_summary is not None:
+            memory = (
+                self._continuation_summary.render_background(
+                    stale=self._summary_update_failed,
+                )
+                + "\n\n"
+                + memory
+            )
         placeholder = UserMsg(name="memory", content=memory)
         self._synthetic_ids.add(placeholder.id)
         agent.state.context = [placeholder] + tail
@@ -1133,6 +1361,12 @@ class ScrollContextManager:
         if nothing has been evicted yet)."""
         return self._index.describe()
 
+    def describe_summary(self) -> str:
+        """Return the deterministic Markdown continuation state, if any."""
+        if self._continuation_summary is None:
+            return ""
+        return self._continuation_summary.render()
+
     # -- checkpoint ----------------------------------------------------------
 
     def to_dict(self) -> dict:
@@ -1158,6 +1392,12 @@ class ScrollContextManager:
                 k: [lf.seq, lf.headline] for k, lf in self._leaf_by_id.items()
             },
             "index": self._index.to_dict(),
+            "continuation_summary": (
+                self._continuation_summary.to_dict()
+                if self._continuation_summary is not None
+                else None
+            ),
+            "summary_update_failed": self._summary_update_failed,
         }
 
     def load_state(self, data: Any) -> None:
@@ -1181,6 +1421,14 @@ class ScrollContextManager:
         }
         if "index" in data:
             self._index = EvictionIndex.from_dict(data["index"])
+        raw_summary = data.get("continuation_summary")
+        if isinstance(raw_summary, dict):
+            self._continuation_summary = ContinuationSummary.from_dict(
+                raw_summary,
+            )
+        self._summary_update_failed = bool(
+            data.get("summary_update_failed", False),
+        )
 
     def purge_old(self, retention_days: int, *, dry_run: bool = False) -> int:
         """Drop durable history older than ``retention_days`` (0 = keep
