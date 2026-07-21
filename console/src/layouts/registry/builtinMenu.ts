@@ -36,7 +36,9 @@ import {
   SparkMicLine,
   SparkModePlazaLine,
   SparkModifyLine,
+  SparkMyApplicationLine,
   SparkOtherLine,
+  SparkPluginLine,
   SparkSaveLine,
   SparkScanLine,
   SparkToolLine,
@@ -44,7 +46,6 @@ import {
   SparkVoiceChat01Line,
   SparkWifiLine,
 } from "@agentscope-ai/icons";
-import { Package } from "lucide-react";
 import i18next from "i18next";
 import { menuRegistry } from "../../plugins/registry/store";
 import type { MenuItem } from "../../plugins/registry/types";
@@ -62,6 +63,15 @@ export const BUILTIN_MENU: MenuItem[] = [
     icon: SparkEmailLine,
     route: "core.inbox",
     order: 10,
+  },
+
+  {
+    id: "core.app-center",
+    location: "primary.agentScoped",
+    label: navLabel("nav.apps", "Apps"),
+    icon: SparkMyApplicationLine,
+    route: "core.app-center",
+    order: 15,
   },
 
   // control-group
@@ -275,7 +285,7 @@ export const BUILTIN_MENU: MenuItem[] = [
     location: "primary.settings",
     parentId: "core.settings-group",
     label: navLabel("nav.pluginManager", "Plugin Manager"),
-    icon: Package,
+    icon: SparkPluginLine,
     route: "core.plugin-manager",
     order: 110,
   },

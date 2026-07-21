@@ -45,4 +45,33 @@ describe("reorderAgents", () => {
     reorderAgents(list, "a", "c");
     expect(list.map((a) => a.id)).toEqual(original.map((a) => a.id));
   });
+
+  it("keeps the default agent pinned at the top", () => {
+    const list = agents(["default", "a", "b"]);
+    expect(reorderAgents(list, "default", "b")).toBe(list);
+    expect(reorderAgents(list, "b", "default")).toBe(list);
+  });
+
+  it("does not move agents across the pinned boundary", () => {
+    const list = agents(["default", "pinned", "regular"]);
+    list[1].pinned = true;
+
+    expect(reorderAgents(list, "pinned", "regular")).toBe(list);
+    expect(reorderAgents(list, "regular", "pinned")).toBe(list);
+  });
+
+  it("reorders peers within the pinned group", () => {
+    const list = agents(["default", "pinned-a", "pinned-b", "regular"]);
+    list[1].pinned = true;
+    list[2].pinned = true;
+
+    const result = reorderAgents(list, "pinned-b", "pinned-a");
+
+    expect(result.map((agent) => agent.id)).toEqual([
+      "default",
+      "pinned-b",
+      "pinned-a",
+      "regular",
+    ]);
+  });
 });

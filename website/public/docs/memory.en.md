@@ -245,19 +245,38 @@ Before restoring, the system prompts to create a snapshot of the current state. 
 
 Memory configuration is located in `agent.json` under `running.reme_light_memory_config`:
 
-| Field                           | Description                                                                    | Default          |
-| ------------------------------- | ------------------------------------------------------------------------------ | ---------------- |
-| `metadata_dir`                  | ReMe persistent state directory for indexes, catalogs, graph data, and caches  | `"mem_metadata"` |
-| `session_dir`                   | Directory for saved source conversations                                       | `"mem_session"`  |
-| `mem_session_dir`               | Directory for ReMe internal memory-agent sessions                              | `"mem_agent"`    |
-| `resource_dir`                  | Directory watched by `auto_resource`                                           | `"resource"`     |
-| `daily_dir`                     | Directory for daily memory notes                                               | `"memory"`       |
-| `digest_dir`                    | Directory for dream/digest memory                                              | `"digest"`       |
-| `summarize_when_compact`        | Whether pending turns are flushed to Auto-Memory before context compression    | `true`           |
-| `auto_memory_interval`          | Auto-Memory every N user turns. `None` or `<= 0` disables periodic Auto-Memory | `5`              |
-| `dream_cron_enabled`            | Whether the scheduled Auto-Dream job is enabled                                | `true`           |
-| `dream_cron`                    | Valid 5-field cron expression for Auto-Dream (required when enabled)           | `"0 23 * * *"`   |
-| `rebuild_memory_index_on_start` | Whether to clear and rebuild the ReMe search index on agent startup            | `false`          |
+| Field                    | Description                                                                                                                     | Default          |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `metadata_dir`           | ReMe persistent state directory for indexes, catalogs, graph data, and caches                                                   | `"mem_metadata"` |
+| `session_dir`            | Directory for saved source conversations                                                                                        | `"mem_session"`  |
+| `mem_session_dir`        | Directory for ReMe internal memory-agent sessions                                                                               | `"mem_agent"`    |
+| `resource_dir`           | Directory watched by `auto_resource`                                                                                            | `"resource"`     |
+| `daily_dir`              | Directory for daily memory notes                                                                                                | `"memory"`       |
+| `digest_dir`             | Directory for dream/digest memory                                                                                               | `"digest"`       |
+| `summarize_when_compact` | Whether pending turns are flushed to Auto-Memory before context compression                                                     | `true`           |
+| `auto_memory_interval`   | Auto-Memory every N user turns. `None` or `<= 0` disables periodic Auto-Memory                                                  | `5`              |
+| `dream_cron_enabled`     | Whether the scheduled Auto-Dream job is enabled                                                                                 | `true`           |
+| `dream_cron`             | Valid 5-field cron expression for Auto-Dream (required when enabled); scheduled runs start after a random delay of 0–60 seconds | `"0 23 * * *"`   |
+
+### Rebuilding the Memory Search Index
+
+Rebuilding is an explicit maintenance operation for repairing a damaged index or abnormal search results. It clears
+and recreates the ReMe search index, so CPU and memory usage may increase significantly while it runs. The operation
+is available only when the agent uses the ReMeLight memory backend and its memory manager is running.
+
+In the Console, open the agent configuration, find **Long-term Memory**, and select **Rebuild Memory Index**. Review
+the warning and confirm the operation. You can also call the synchronous maintenance API:
+
+```http
+POST /api/agents/{agentId}/memory/reindex
+```
+
+A successful rebuild returns `{"status":"completed"}`. Only one rebuild can run for an agent at a time; another
+request returns HTTP `409`. The endpoint may also return `400` for a non-ReMeLight backend, `404` for an unknown
+agent, `503` when ReMe is unavailable, or `500` when the rebuild job fails.
+
+> `rebuild_memory_index_on_start` is no longer supported. Remove it from `agent.json`; use the Console action or API
+> when an index rebuild is actually needed.
 
 ### Auto Memory Search Configuration
 
@@ -336,7 +355,7 @@ A long-term memory backend backed by a cloud vector database. It is suitable for
 
 **How to configure:**
 
-Open the agent's "Running Config" tab in the Console, locate the "Memory Manager Backend" dropdown, choose `adbpg`, and fill in `REST Base URL` and `REST API Key` under the "ADBPG Long-term Memory" tab.
+Open the agent's "Running Config" tab in the Console, locate the "Long-term Memory Management Backend" dropdown, choose `adbpg`, and fill in `REST Base URL` and `REST API Key` under the "ADBPG Long-term Memory" tab.
 
 ![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
 

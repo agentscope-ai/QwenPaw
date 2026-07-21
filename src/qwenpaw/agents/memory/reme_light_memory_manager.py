@@ -6,9 +6,11 @@ existing agent configs continue to work, but the implementation delegates to
 ReMe's application/job framework.
 """
 
+import asyncio
 import base64
 import hashlib
 import logging
+import os
 import re
 from typing import Any, TYPE_CHECKING
 
@@ -29,6 +31,8 @@ if TYPE_CHECKING:
     from reme.application import Response
 
 logger = logging.getLogger(__name__)
+
+os.environ.setdefault("REME_DISABLE_LOGURU", "true")
 
 NO_MEMORY_RESULTS = "(no memory results)"
 INBOX_RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "auto_resource"}
@@ -109,6 +113,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     def __init__(self, working_dir: str, agent_id: str):
         super().__init__(working_dir=working_dir, agent_id=agent_id)
         self._reme: "ReMe | None" = None
+        self._reindex_lock = asyncio.Lock()
         logger.info(
             "ReMeLightMemoryManager init: agent_id=%s working_dir=%s",
             agent_id,
@@ -150,15 +155,6 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         except Exception:
             logger.exception("ReMe start failed")
             return
-
-        agent_config = load_agent_config(self.agent_id)
-        cfg = agent_config.running.reme_light_memory_config
-        if cfg.rebuild_memory_index_on_start:
-            await self._run_reme_job("reindex")
-            logger.info(
-                "Memory index rebuilt on start for agent '%s'",
-                self.agent_id,
-            )
 
     async def close(self) -> bool:
         """Close ReMe and cleanup background summary worker state."""
@@ -543,3 +539,10 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     async def reme_status(self) -> "Response | None":
         """Return embedded ReMe component memory estimates and process RSS."""
         return await self._run_reme_job("status")
+
+    async def rebuild_index(self) -> "Response | None":
+        """Clear and rebuild the ReMe search index on explicit request."""
+        if self._reindex_lock.locked():
+            raise RuntimeError("Memory index rebuild is already running")
+        async with self._reindex_lock:
+            return await self._run_reme_job("reindex")

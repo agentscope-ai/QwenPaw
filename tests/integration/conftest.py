@@ -418,7 +418,7 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
                     )
 
                 try:
-                    resp = client.get(f"http://{host}:{port}/api/version")
+                    resp = client.get(f"http://{host}:{port}/api/healthz")
                     if resp.status_code == 200:
                         break
                 except (httpx.ConnectError, httpx.TimeoutException) as exc:
@@ -426,7 +426,7 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
                 time.sleep(0.5)
             else:
                 raise AssertionError(
-                    "qwenpaw app did not become ready in time.\n"
+                    "qwenpaw core agents did not become ready in time.\n"
                     f"last_error={last_error}\n"
                     f"logs:\n{''.join(logs)[-4000:]}",
                 )

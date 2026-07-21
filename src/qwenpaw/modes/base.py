@@ -65,9 +65,15 @@ class AgentMode:
     def prompt_contributors(self) -> list["PromptContributor"]:
         return []
 
+    async def on_turn_start(
+        self,
+        ctx: HookContext,  # noqa: ARG002
+    ) -> None:
+        """Prepare mode-owned state for a new user turn."""
+
     def on_conversation_reset(
         self,
-        workspace: object,
+        ctx: HookContext,  # noqa: ARG002
     ) -> None:
         """Called on /new and /clear to reset mode state.
 

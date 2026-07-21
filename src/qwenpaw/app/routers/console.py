@@ -547,6 +547,13 @@ async def post_console_chat_task(
         sender_id=native_payload["sender_id"],
         channel_meta=native_payload["meta"],
     )
+    name, _ = _extract_placeholder_name(native_payload["content_parts"])
+    await workspace.chat_manager.get_or_create_chat(
+        session_id,
+        native_payload["sender_id"],
+        native_payload["channel_id"],
+        name=name,
+    )
 
     task_timeout: Optional[float] = None
     if isinstance(request_data, dict):

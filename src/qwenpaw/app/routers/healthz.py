@@ -12,7 +12,7 @@ router = APIRouter(tags=["healthz"])
 
 @router.get("/healthz")
 async def get_healthz(request: Request):
-    """Readiness probe: 200 after all agents started, 503 otherwise."""
+    """Return 200 after core agents are ready, otherwise return 503."""
     state = request.app.state
     ready: asyncio.Event = getattr(state, "startup_ready", None)
     if ready is None or not ready.is_set():
