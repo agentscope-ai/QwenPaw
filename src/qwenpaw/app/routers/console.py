@@ -150,10 +150,6 @@ def _extract_session_and_payload(
     if isinstance(rc, dict) and rc:
         meta["request_context"] = rc
 
-    meta: dict = {
-        "session_id": session_id,
-        "user_id": sender_id,
-    }
     native_payload: dict = {
         "channel_id": channel_id,
         "sender_id": sender_id,
