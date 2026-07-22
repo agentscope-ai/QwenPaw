@@ -159,6 +159,13 @@ def test_prompt_and_redaction_encode_quality_constraints():
     assert "It is not evidence, conversation state" in prompt
     assert "Prioritize independent user constraints" in prompt
     assert "Do not speculate that more tasks" in prompt
+    assert "bounded previews are incomplete" in prompt
+    assert "evidence that something did not happen" in prompt
+    assert "reconcile Current State with Open Work" in prompt
+    assert "tests pass; implementation status unknown" in prompt
+    assert "Constraints describe effective" in prompt
+    assert "requirements, not implementation progress" in prompt
+    assert "Current State to 5-8 high-value bullets" in prompt
     assert "hint-secret-123" not in prompt
     assert "secret-value-123" not in redact_secrets(
         "token=secret-value-123",
@@ -204,6 +211,11 @@ def test_chinese_prompt_localizes_instructions_but_keeps_protocol_headings():
     assert "上一份候选 summary 未通过本地校验" in prompt
     assert "独立的用户约束和未解决要求优先" in prompt
     assert "不要猜测将来还会出现更多任务" in prompt
+    assert "“没有看到”不是“没有发生”的证据" in prompt
+    assert "协调 Current State 与" in prompt
+    assert "测试通过；实现状态未知" in prompt
+    assert "Constraints 描述仍然有效的要求" in prompt
+    assert "Current State 通常最多保留 5～8 个" in prompt
     assert "## Active Task" in prompt
     assert "Status: in_progress | blocked | completed | unknown" in prompt
     assert "## Open Work" in prompt

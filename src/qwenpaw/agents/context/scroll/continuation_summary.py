@@ -194,6 +194,14 @@ Status: in_progress | blocked | completed | unknown
 - 更新上一份状态：删除过期或已被取代的条目，不要追加日志。
 - 只保留所提供证据明确支持的结论；不要推断完成、成功、决定或 blocker。
 - 区分已验证、计划中、已尝试、失败与暂定状态。
+- 所提供的 bounded preview 并不完整。“没有看到”不是“没有发生”的证据。除非来源
+  明确说明某项工作未开始、未完成、未修改或不存在，否则不得生成这样的否定结论。
+- 对每个任务或实体只保留一个最新有效的 lifecycle 状态。输出前协调 Current State 与
+  Open Work：已完成事项不得同时作为待办，未知状态不得擅自改写为未开始或未完成。
+- 测试通过只证明测试结果。没有明确的实现状态证据时，写“测试通过；实现状态未知”，
+  不得推断“修复完成”或“没有代码修改”。状态未知本身不能自动进入 Open Work。
+- Constraints 描述仍然有效的要求，不代表实现进度；除非来源明确说明，不要把约束写成
+  “尚未开始”或“已经完成”。Open Work 只能包含证据明确支持的未完成事项。
 - 以 `Z` 结尾的 `created_at` 时间戳使用 UTC。标有 `timezone=unspecified`
   的时间是时区未知的本地时间。发生冲突或时间不明确时，以 sequence 顺序为准。
 - 每项独立的用户约束、偏好、精确值、决定和未解决要求都单独保留为一个 bullet，
@@ -211,6 +219,7 @@ Status: in_progress | blocked | completed | unknown
   recovery pointer 属于 eviction index，不属于这份 summary。除非会影响下一步，否则
   省略单次运行的测试数量、耗时和 tool-call ID。
 - 不要猜测将来还会出现更多任务、要求或用户消息；证据中没有待办事项时写 `(none)`。
+- Current State 通常最多保留 5～8 个高价值 bullet；只有恢复任务确实需要时才能超过。
 - 保持简洁：目标为 1500～2500 tokens，绝不能超过 4000 tokens。
 - 列表为空时写 `(none)`，不要增加其他 heading。
 
@@ -261,6 +270,22 @@ Rules:
 - Keep only claims explicitly supported by the supplied evidence. Do not infer
   completion, success, decisions, or blockers.
 - Distinguish verified, planned, attempted, failed, and tentative state.
+- The supplied bounded previews are incomplete. Absence from a preview is not
+  evidence that something did not happen. Never claim work was not started,
+  not completed, not changed, or nonexistent unless a source explicitly says
+  so.
+- Keep exactly one latest effective lifecycle state for each task or entity.
+  Before returning, reconcile Current State with Open Work: completed work
+  cannot also be pending, and unknown state cannot be rewritten as not started
+  or incomplete.
+- Passing tests proves only the test outcome. Without explicit implementation-
+  status evidence, write "tests pass; implementation status unknown"; infer
+  neither "the fix is complete" nor "no code was changed". Unknown status does
+  not automatically belong in Open Work.
+- Constraints describe effective requirements, not implementation progress.
+  Do not label a constraint "not started" or "completed" unless a source does
+  so explicitly. Open Work may contain only explicitly supported unfinished
+  items.
 - `created_at` timestamps ending in `Z` are UTC. A timestamp marked
   `timezone=unspecified` is local wall-clock evidence with an unknown offset.
   Use sequence order, not timestamps, when ordering conflicts or is unclear.
@@ -285,6 +310,8 @@ Rules:
   pointers belong to the eviction index, not this summary.
 - Do not speculate that more tasks, requirements, or user messages are coming.
   If the evidence contains no open work, use `(none)`.
+- Normally keep Current State to 5-8 high-value bullets; exceed that only when
+  the additional state is genuinely required to resume the task.
 - Be concise: target 1500-2500 tokens and never exceed 4000 tokens.
 - Use `(none)` for an empty list section. Do not add other headings.
 
