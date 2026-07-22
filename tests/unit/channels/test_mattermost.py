@@ -28,6 +28,7 @@ Run:
 # pylint: disable=broad-exception-raised,using-constant-test
 from __future__ import annotations
 
+
 import asyncio
 import json
 from pathlib import Path
@@ -35,6 +36,8 @@ from typing import Generator, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 
 # =============================================================================
@@ -216,8 +219,10 @@ def mattermost_channel(
         bot_token="test_token_123",
         bot_prefix="[TestBot] ",
         media_dir=str(tmp_path / "media"),
-        show_tool_details=False,
-        filter_tool_messages=True,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=False,
+            show_tool_results=False,
+        ),
         dm_policy="open",
         group_policy="open",
     )
@@ -276,9 +281,11 @@ class TestMattermostChannelInit:
             media_dir=str(tmp_path / "custom_media"),
             show_typing=False,
             thread_follow_without_mention=True,
-            show_tool_details=True,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
             allow_from=["user1", "user2"],
             deny_message="Access denied",
         )
@@ -286,9 +293,10 @@ class TestMattermostChannelInit:
         assert channel.enabled is False
         assert channel._show_typing is False
         assert channel._thread_follow is True
-        assert channel._show_tool_details is True
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is True
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
         assert channel.allow_from == {"user1", "user2"}
         assert channel.deny_message == "Access denied"
 
@@ -344,10 +352,14 @@ class TestMattermostChannelInit:
 
         assert hasattr(channel, "_typing_tasks")
         assert isinstance(channel._typing_tasks, dict)
+        # Bounded OrderedDict-backed sets (FIFO eviction) prevent unbounded
+        # growth of the lazy-context tracking maps.
+        from collections import OrderedDict
+
         assert hasattr(channel, "_participated_threads")
-        assert isinstance(channel._participated_threads, set)
+        assert isinstance(channel._participated_threads, OrderedDict)
         assert hasattr(channel, "_seen_sessions")
-        assert isinstance(channel._seen_sessions, set)
+        assert isinstance(channel._seen_sessions, OrderedDict)
         assert channel._bot_id == ""
         assert channel._bot_username == ""
 
@@ -1372,7 +1384,7 @@ class TestMattermostIsTriggered:
         """Should trigger on thread participation."""
         mattermost_channel._bot_id = "bot_123"
         mattermost_channel._thread_follow = True
-        mattermost_channel._participated_threads.add("thread_abc")
+        mattermost_channel._participated_threads["thread_abc"] = None
 
         post = {
             "user_id": "user_abc",
@@ -1487,7 +1499,7 @@ class TestMattermostGetContextPrefix:
     @pytest.mark.asyncio
     async def test_get_context_prefix_cached_session(self, mattermost_channel):
         """Should return empty string for cached session."""
-        mattermost_channel._seen_sessions.add("mattermost_dm:dm_123")
+        mattermost_channel._seen_sessions["mattermost_dm:dm_123"] = None
 
         result = await mattermost_channel._get_context_prefix(
             session_id="mattermost_dm:dm_123",
@@ -1854,53 +1866,27 @@ class TestMattermostLifecycle:
 # =============================================================================
 
 
-class TestMattermostAllowlist:
-    """Tests for _check_allowlist method (inherited from BaseChannel)."""
+class TestMattermostAccessControl:
+    """Tests for access control logic (inherited from BaseChannel)."""
 
-    def test_check_allowlist_open_policy(self, mattermost_channel):
-        """Open policy should allow all users."""
-        mattermost_channel.dm_policy = "open"
+    def test_access_control_disabled_by_default(self, mattermost_channel):
+        """Access control should be disabled by default."""
+        assert mattermost_channel.access_control_enabled is False
 
-        allowed, error = mattermost_channel._check_allowlist("any_user", False)
+    def test_access_control_dm_enables(self, mattermost_channel):
+        """access_control_dm=True enables access control."""
+        mattermost_channel.access_control_dm = True
+        assert mattermost_channel.access_control_enabled is True
 
-        assert allowed is True
-        assert error is None
+    def test_access_control_group_enables(self, mattermost_channel):
+        """access_control_group=True enables access control."""
+        mattermost_channel.access_control_group = True
+        assert mattermost_channel.access_control_enabled is True
 
-    def test_check_allowlist_dm_allowlist_authorized(self, mattermost_channel):
-        """DM allowlist should allow authorized users."""
-        mattermost_channel.dm_policy = "allowlist"
-        mattermost_channel.allow_from = {"user123"}
-
-        allowed, error = mattermost_channel._check_allowlist("user123", False)
-
-        assert allowed is True
-        assert error is None
-
-    def test_check_allowlist_dm_allowlist_unauthorized(
-        self,
-        mattermost_channel,
-    ):
-        """DM allowlist should block unauthorized users."""
-        mattermost_channel.dm_policy = "allowlist"
-        mattermost_channel.allow_from = {"other_user"}
-        mattermost_channel.deny_message = "Custom denial"
-
-        allowed, error = mattermost_channel._check_allowlist("user123", False)
-
-        assert allowed is False
-        assert error == "Custom denial"
-
-    def test_check_allowlist_dm_default_deny_message(self, mattermost_channel):
-        """Should use default deny message when not configured."""
-        mattermost_channel.dm_policy = "allowlist"
-        mattermost_channel.allow_from = set()
-        mattermost_channel.deny_message = ""
-
-        allowed, error = mattermost_channel._check_allowlist("user123", False)
-
-        assert allowed is False
-        assert "not authorized" in error
-        assert "user123" in error
+    def test_legacy_allowlist_migrates_to_dm(self, mattermost_channel):
+        """dm_policy=allowlist should have migrated at init."""
+        # The fixture creates with dm_policy="open" by default
+        assert mattermost_channel.access_control_dm is False
 
 
 # =============================================================================

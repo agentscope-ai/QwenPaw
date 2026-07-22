@@ -113,7 +113,7 @@ def get_signing_key() -> bytes:
             if _cached_key is not None and _cached_mtime_ns != new_mtime_ns:
                 logger.warning(
                     "Signing key was rotated; pre-rotation backups will "
-                    "require trust_foreign on restore.",
+                    "require trust_mode=foreign on restore.",
                 )
 
         _cached_key = key

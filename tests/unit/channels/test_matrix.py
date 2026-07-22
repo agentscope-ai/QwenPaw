@@ -6,12 +6,6 @@
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-from agentscope_runtime.engine.schemas.agent_schemas import (
-    AgentRequest,
-    ContentType,
-    ImageContent,
-    TextContent,
-)
 from nio import (
     MatrixRoom,
     RoomMessageAudio,
@@ -23,9 +17,16 @@ from nio import (
     UploadError,
     UploadResponse,
 )
-
 from nio.responses import WhoamiResponse
+
+from qwenpaw.schemas import (
+    AgentRequest,
+    ContentType,
+    ImageContent,
+    TextContent,
+)
 from qwenpaw.app.channels.matrix.channel import MatrixChannel
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 from qwenpaw.config.config import MatrixConfig
 
 
@@ -51,20 +52,21 @@ def matrix_config():
         user_id="@bot:example.com",
         access_token="test_token_123",
         bot_prefix="!bot",
-        dm_policy="open",
-        group_policy="open",
-        allow_from=["@allowed:example.com"],
+        dm_disabled=False,
+        group_disabled=False,
         deny_message="Access denied",
         require_mention=False,
     )
 
 
 @pytest.fixture
-def matrix_channel(mock_process, matrix_config):
+def matrix_channel(mock_process):
     """Create MatrixChannel instance."""
-    return MatrixChannel.from_config(
+    return MatrixChannel(
         process=mock_process,
-        config=matrix_config,
+        homeserver="https://matrix.example.com",
+        matrix_user_id="@bot:example.com",
+        access_token="test_token_123",
     )
 
 
@@ -102,16 +104,16 @@ class TestMatrixChannelInit:
 
     def test_init_with_required_params(self, mock_process):
         """Test initialization with required parameters."""
-        config = MatrixConfig(
+        channel = MatrixChannel(
+            process=mock_process,
             homeserver="https://matrix.example.com",
-            user_id="@bot:example.com",
+            matrix_user_id="@bot:example.com",
             access_token="test_token",
         )
-        channel = MatrixChannel(process=mock_process, config=config)
 
-        assert channel._cfg.homeserver == "https://matrix.example.com"
-        assert channel._cfg.user_id == "@bot:example.com"
-        assert channel._cfg.access_token == "test_token"
+        assert channel.homeserver == "https://matrix.example.com"
+        assert channel.matrix_user_id == "@bot:example.com"
+        assert channel.access_token == "test_token"
         assert channel.channel == "matrix"
         assert channel.uses_manager_queue is True
         assert channel._client is None
@@ -119,41 +121,113 @@ class TestMatrixChannelInit:
 
     def test_init_homeserver_trailing_slash(self, mock_process):
         """Test that trailing slash is stripped from homeserver."""
-        config = MatrixConfig(
+        channel = MatrixChannel(
+            process=mock_process,
             homeserver="https://matrix.example.com/",
-            user_id="@bot:example.com",
+            matrix_user_id="@bot:example.com",
             access_token="test_token",
         )
-        channel = MatrixChannel(process=mock_process, config=config)
 
-        assert channel._cfg.homeserver == "https://matrix.example.com"
+        assert channel.homeserver == "https://matrix.example.com"
 
     def test_init_with_all_params(self, mock_process):
         """Test initialization with all optional parameters."""
-        config = MatrixConfig(
-            homeserver="https://matrix.example.com",
-            user_id="@bot:example.com",
-            access_token="test_token",
-            bot_prefix="!cmd",
-            dm_policy="allowlist",
-            group_policy="allowlist",
-            allow_from=["@user:example.com"],
-        )
         channel = MatrixChannel(
             process=mock_process,
-            config=config,
+            homeserver="https://matrix.example.com",
+            matrix_user_id="@bot:example.com",
+            access_token="test_token",
+            dm_disabled=True,
+            group_disabled=False,
+            access_control_dm=True,
             on_reply_sent=Mock(),
-            show_tool_details=False,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_details=False,
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
 
-        assert channel._cfg.bot_prefix == "!cmd"
-        assert channel._cfg.dm_policy == "allowlist"
-        assert channel._cfg.group_policy == "allowlist"
-        assert channel._show_tool_details is False
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel.dm_disabled is True
+        assert channel.group_disabled is False
+        assert channel._display_config.show_tool_details is False
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
+
+
+class TestMatrixChannelBoundedState:
+    """Bounded local state must not alter normal recent-room behavior."""
+
+    def test_room_history_evicts_least_recent_room(
+        self,
+        matrix_channel,
+        monkeypatch,
+    ):
+        from qwenpaw.app.channels.matrix import channel as matrix_module
+        from qwenpaw.app.channels.matrix.channel import HistoryEntry
+
+        monkeypatch.setattr(matrix_module, "ROOM_HISTORY_MAX_ROOMS", 2)
+        for room_id in ("!one", "!two", "!three"):
+            matrix_channel._record_history(
+                room_id,
+                HistoryEntry(sender="user", body=room_id),
+            )
+
+        assert list(matrix_channel._room_histories) == ["!two", "!three"]
+
+    def test_dm_cache_prunes_expired_and_oldest_entries(
+        self,
+        matrix_channel,
+        monkeypatch,
+    ):
+        from qwenpaw.app.channels.matrix import channel as matrix_module
+
+        monkeypatch.setattr(matrix_module, "DM_ROOM_CACHE_MAX_ENTRIES", 2)
+        matrix_channel._dm_room_cache.update(
+            {
+                "!old": {"members": [], "ts": 0},
+                "!two": {"members": [], "ts": 30_001},
+                "!three": {"members": [], "ts": 30_001},
+            },
+        )
+
+        matrix_channel._prune_dm_room_cache(
+            30_001,
+        )
+
+        assert list(matrix_channel._dm_room_cache) == ["!two", "!three"]
+
+    def test_verification_state_expires_and_cancel_clears_peer(
+        self,
+        matrix_channel,
+        monkeypatch,
+    ):
+        from qwenpaw.app.channels.matrix import channel as matrix_module
+
+        monkeypatch.setattr(matrix_module, "VERIFICATION_STATE_MAX_ENTRIES", 1)
+        matrix_channel._remember_verification_peer("old", "@old", "D1")
+        matrix_channel._remember_verification_peer("new", "@new", "D2")
+        matrix_channel._clear_verification_transaction("new")
+
+        assert "old" not in matrix_channel._verification_tx_peers
+        assert "new" not in matrix_channel._verification_tx_peers
+
+    async def test_failed_done_keeps_peer_for_retry(self, matrix_channel):
+        matrix_channel._remember_verification_peer("tx", "@user:hs", "D1")
+        client = MagicMock()
+        client.to_device = AsyncMock(side_effect=RuntimeError("network down"))
+        matrix_channel._client = client
+
+        event = MagicMock()
+        event.sender = "@user:hs"
+        event.source = {"content": {"transaction_id": "tx"}}
+
+        await matrix_channel._handle_unknown_key_verification_done(event)
+
+        assert "tx" in matrix_channel._verification_tx_peers
+        assert "tx" not in matrix_channel._sent_verification_done
 
 
 class TestMatrixChannelFromConfig:
@@ -166,10 +240,10 @@ class TestMatrixChannelFromConfig:
             config=matrix_config,
         )
 
-        assert channel._cfg.enabled is True
-        assert channel._cfg.homeserver == "https://matrix.example.com"
-        assert channel._cfg.user_id == "@bot:example.com"
-        assert channel._cfg.access_token == "test_token_123"
+        assert channel.enabled is True
+        assert channel.homeserver == "https://matrix.example.com"
+        assert channel.matrix_user_id == "@bot:example.com"
+        assert channel.access_token == "test_token_123"
 
     def test_from_config_with_optional_params(
         self,
@@ -180,14 +254,18 @@ class TestMatrixChannelFromConfig:
         channel = MatrixChannel.from_config(
             process=mock_process,
             config=matrix_config,
-            show_tool_details=False,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_details=False,
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
 
-        assert channel._show_tool_details is False
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is False
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
 
     def test_from_env_raises_not_implemented(self, mock_process):
         """Test that from_env creates a channel (uses env vars)."""
@@ -230,69 +308,64 @@ class TestMatrixChannelMXC:
         assert result == ""
 
 
-class TestMatrixChannelAllowlist:
-    """Test allowlist checking."""
+class TestMatrixChannelDisabled:
+    """Test channel-level mute (dm_disabled / group_disabled)."""
 
-    def test_check_allowlist_open_policy(self, matrix_channel):
-        """Test that open policy allows all users."""
-        matrix_channel._cfg.dm_policy = "open"
-        matrix_channel._cfg.group_policy = "open"
+    def test_dm_not_disabled(self, matrix_channel):
+        """Test that DMs pass when not disabled."""
+        matrix_channel.dm_disabled = False
 
-        allowed = matrix_channel._check_allowed(
+        result = matrix_channel._is_channel_disabled(
             "@any_user:example.com",
             "!room:example.com",
             is_dm=True,
         )
+        assert result is False
 
-        assert allowed is True
+    def test_dm_disabled(self, matrix_channel):
+        """Test that DMs are blocked when dm_disabled=True."""
+        matrix_channel.dm_disabled = True
 
-    def test_check_allowlist_allowlist_user_allowed(self, matrix_channel):
-        """Test allowed user on allowlist."""
-        matrix_channel._cfg.dm_policy = "allowlist"
-        matrix_channel._cfg.allow_from = ["@allowed:example.com"]
-
-        allowed = matrix_channel._check_allowed(
-            "@allowed:example.com",
+        result = matrix_channel._is_channel_disabled(
+            "@any_user:example.com",
             "!room:example.com",
             is_dm=True,
         )
+        assert result is True
 
-        assert allowed is True
+    def test_group_not_disabled(self, matrix_channel):
+        """Test that group messages pass when not disabled."""
+        matrix_channel.group_disabled = False
 
-    def test_check_allowlist_allowlist_user_denied(self, matrix_channel):
-        """Test denied user not on allowlist."""
-        matrix_channel._cfg.dm_policy = "allowlist"
-        matrix_channel._cfg.allow_from = ["@allowed:example.com"]
-
-        allowed = matrix_channel._check_allowed(
-            "@not_allowed:example.com",
-            "!room:example.com",
-            is_dm=True,
-        )
-
-        assert allowed is False
-
-    def test_check_allowlist_dm_vs_group_policy(self, matrix_channel):
-        """Test different policies for DM and group."""
-        matrix_channel._cfg.dm_policy = "allowlist"
-        matrix_channel._cfg.group_policy = "open"
-        matrix_channel._cfg.allow_from = ["@allowed:example.com"]
-
-        # DM should use allowlist → denied
-        allowed_dm = matrix_channel._check_allowed(
-            "@unknown:example.com",
-            "!room:example.com",
-            is_dm=True,
-        )
-        assert allowed_dm is False
-
-        # Group should be open → allowed
-        allowed_group = matrix_channel._check_allowed(
-            "@unknown:example.com",
+        result = matrix_channel._is_channel_disabled(
+            "@any_user:example.com",
             "!room:example.com",
             is_dm=False,
         )
-        assert allowed_group is True
+        assert result is False
+
+    def test_group_disabled(self, matrix_channel):
+        """Test that group messages are blocked when group_disabled=True."""
+        matrix_channel.group_disabled = True
+
+        result = matrix_channel._is_channel_disabled(
+            "@any_user:example.com",
+            "!room:example.com",
+            is_dm=False,
+        )
+        assert result is True
+
+    def test_dm_disabled_does_not_affect_group(self, matrix_channel):
+        """Test dm_disabled doesn't block group messages."""
+        matrix_channel.dm_disabled = True
+        matrix_channel.group_disabled = False
+
+        result = matrix_channel._is_channel_disabled(
+            "@any_user:example.com",
+            "!room:example.com",
+            is_dm=False,
+        )
+        assert result is False
 
 
 @pytest.mark.asyncio
@@ -374,18 +447,18 @@ class TestMatrixChannelBuildRequest:
 class TestMatrixChannelHandleEvent:
     """Test event handling."""
 
-    async def test_on_room_event_open_policy(
+    async def test_on_room_event_dm_not_disabled(
         self,
         matrix_channel,
         mock_matrix_room,
     ):
-        """Test handling event with open DM policy enqueues the request."""
+        """Test handling event with DM not disabled enqueues the request."""
         matrix_channel._user_id = "@bot:example.com"
         matrix_channel._enqueue = Mock()
         matrix_channel._is_dm_room = AsyncMock(return_value=True)
         matrix_channel._send_read_receipt = AsyncMock()
         matrix_channel._send_typing = AsyncMock()
-        matrix_channel._cfg.dm_policy = "open"
+        matrix_channel.dm_disabled = False
         matrix_channel._get_display_name = Mock(return_value="user")
 
         event = MagicMock(spec=RoomMessageText)
@@ -401,15 +474,14 @@ class TestMatrixChannelHandleEvent:
         payload = matrix_channel._enqueue.call_args[0][0]
         assert payload["sender_id"] == "@user:example.com"
 
-    async def test_on_room_event_deny_message_sent(
+    async def test_on_room_event_dm_disabled(
         self,
         matrix_channel,
         mock_matrix_room,
     ):
-        """Test that blocked user does not get enqueued."""
+        """Test that DM messages are dropped when dm_disabled=True."""
         matrix_channel._user_id = "@bot:example.com"
-        matrix_channel._cfg.dm_policy = "allowlist"
-        matrix_channel._cfg.allow_from = []
+        matrix_channel.dm_disabled = True
         matrix_channel._is_dm_room = AsyncMock(return_value=True)
         matrix_channel._enqueue = Mock()
 
@@ -435,8 +507,8 @@ class TestMatrixChannelHandleEvent:
         matrix_channel._is_dm_room = AsyncMock(return_value=False)
         matrix_channel._send_read_receipt = AsyncMock()
         matrix_channel._send_typing = AsyncMock()
-        matrix_channel._cfg.group_policy = "open"
-        matrix_channel._cfg.require_mention = True
+        matrix_channel.group_disabled = False
+        matrix_channel.require_mention = True
 
         event = MagicMock(spec=RoomMessageText)
         event.sender = "@user:example.com"
@@ -533,6 +605,7 @@ class TestMatrixChannelMediaCallback:
         fake_file.write_bytes(b"fake image")
 
         matrix_channel._user_id = "@bot:example.com"
+        matrix_channel.vision_enabled = True
         matrix_channel._enqueue = Mock()
         matrix_channel._download_mxc = AsyncMock(return_value=str(fake_file))
         matrix_channel._is_dm_room = AsyncMock(return_value=True)
@@ -677,7 +750,7 @@ class TestMatrixChannelStartStop:
 
     async def test_start_when_not_configured(self, matrix_channel):
         """Test start when channel is not properly configured."""
-        matrix_channel._cfg.homeserver = ""
+        matrix_channel.homeserver = ""
 
         await matrix_channel.start()
 
@@ -690,7 +763,7 @@ class TestMatrixChannelStartStop:
     ):
         """Test that start creates and configures AsyncClient."""
         with patch(
-            "qwenpaw.app.channels.matrix.channel.QwenPawMatrixClient",
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
             return_value=mock_async_client,
         ):
             await matrix_channel.start()
@@ -706,7 +779,7 @@ class TestMatrixChannelStartStop:
     ):
         """Test that start creates sync task."""
         with patch(
-            "qwenpaw.app.channels.matrix.channel.QwenPawMatrixClient",
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
             return_value=mock_async_client,
         ):
             await matrix_channel.start()
@@ -721,7 +794,7 @@ class TestMatrixChannelStartStop:
     ):
         """Test that stop cancels sync task."""
         with patch(
-            "qwenpaw.app.channels.matrix.channel.QwenPawMatrixClient",
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
             return_value=mock_async_client,
         ):
             await matrix_channel.start()
@@ -734,7 +807,7 @@ class TestMatrixChannelStartStop:
     async def test_stop_closes_client(self, matrix_channel, mock_async_client):
         """Test that stop closes the client."""
         with patch(
-            "qwenpaw.app.channels.matrix.channel.QwenPawMatrixClient",
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
             return_value=mock_async_client,
         ):
             await matrix_channel.start()
@@ -1016,7 +1089,7 @@ class TestMatrixChannelSendMedia:
         tmp_path,
     ):
         """Test sending video media type."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             VideoContent,
         )
 
@@ -1048,7 +1121,7 @@ class TestMatrixChannelSendMedia:
         tmp_path,
     ):
         """Test sending audio media type."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AudioContent,
         )
 
@@ -1105,7 +1178,7 @@ class TestMatrixChannelSendMedia:
         )
         mock_async_client.room_send = AsyncMock(return_value=MagicMock())
 
-        from agentscope_runtime.engine.schemas.agent_schemas import FileContent
+        from qwenpaw.schemas import FileContent
 
         part = FileContent(
             type=ContentType.FILE,

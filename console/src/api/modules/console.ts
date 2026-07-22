@@ -40,12 +40,19 @@ export interface PendingApproval {
   owner_agent_id?: string;
   agent_id: string;
   tool_name: string;
+  tool_display_name?: string;
+  tool_source?: string;
   severity: string;
   findings_count: number;
   findings_summary: string;
   tool_params: Record<string, unknown>;
   created_at: number;
   timeout_seconds: number;
+  // Approval-scope display fields (governance path). When is_generalized
+  // is true the console offers Approve Pattern vs Approve Exact.
+  is_generalized?: boolean;
+  exact_target?: string;
+  similar_target?: string;
 }
 
 export const consoleApi = {

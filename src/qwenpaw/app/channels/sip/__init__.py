@@ -22,6 +22,7 @@ from typing import (
 from qwenpaw.config.config import SIPChannelConfig
 
 from ._audioop_compat import audioop  # noqa: F401  # must be first
+from ..renderer import ChannelDisplayConfig
 from ..base import BaseChannel, OnReplySent, ProcessHandler
 from .backend import SipBackend
 from .session import SIPCallSessionManager
@@ -50,16 +51,14 @@ class SIPChannel(BaseChannel):
         self,
         process: ProcessHandler,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
+        no_text_debounce: bool = True,
     ) -> None:
         super().__init__(
             process,
             on_reply_sent,
-            show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config,
+            no_text_debounce=no_text_debounce,
         )
         self.backend: Optional[SipBackend] = None
         self.session_mgr = SIPCallSessionManager()
@@ -79,16 +78,15 @@ class SIPChannel(BaseChannel):
         process: ProcessHandler,
         config: SIPChannelConfig,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
+        no_text_debounce: bool = True,
     ) -> "SIPChannel":
         instance = cls(
             process,
             on_reply_sent,
-            show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
+            no_text_debounce=no_text_debounce,
         )
         instance._config = config
         instance.backend = _create_backend(config)
@@ -262,7 +260,7 @@ class SIPChannel(BaseChannel):
         self,
         native_payload: Any,
     ) -> Any:
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AgentRequest,
             ContentType,
             Message,
@@ -600,11 +598,9 @@ class SIPChannel(BaseChannel):
 
         try:
             # Import here to avoid top-level dependency
-            from agentscope_runtime.engine.schemas import (
-                agent_schemas as _as,
-            )
+            from qwenpaw.schemas import RunStatus
 
-            completed = _as.RunStatus.Completed
+            completed = RunStatus.Completed
             async for event in self._process(request):
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)

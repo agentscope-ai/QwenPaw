@@ -1,243 +1,265 @@
-# 智能体记忆进化与主动交互(Beta)
+# 智能体记忆进化与主动交互（Beta）
 
-> **Beta 功能**：智能体记忆进化与主动交互是 QwenPaw 在 1.1.4beta1 之后版本中提供的实验性能力。我们围绕"记忆驱动的经验闭环"
->
-> 做了一些探索，目前仍处于持续迭代阶段。如果你在使用中有任何想法或建议，欢迎在 [GitHub](https://github.com/agentscope-ai/QwenPaw/issues)
-> 提出，帮助我们把它做得更好。
+> **Beta 功能**：QwenPaw 的 ReMeLight memory manager 会把 [ReMe](https://github.com/agentscope-ai/ReMe) 作为进程内应用嵌入。Auto Memory、Auto Resource、Auto Dream、搜索，以及 ReMe 底层的 proactive topic 读取能力都是 ReMe job。QwenPaw 的 `/proactive` 命令是另一条运行时逻辑，它读取近期 chat session 和可选屏幕上下文。
 
-QwenPaw 的智能体不依赖模型微调，而是通过**记忆驱动的经验闭环**实现持续进化——越用越聪明，并在此基础上实现主动交互。核心思路是：让
-Agent 在每次交互中积累经验、定期反思提炼、主动检索复用、最终形成个性化服务能力，从被动响应走向主动服务。
+QwenPaw 将记忆保存为 agent workspace 下的文件。对话先保存为 JSONL 来源日志，有价值的对话事实写入 daily Markdown note，资源可以转换成 daily note，Auto Dream 再定期把可复用抽象整合进 digest 记忆。
 
 ---
 
-## 进化闭环
-
-记忆进化并非单一功能，而是四个模块协同形成的闭环：
+## 实际流程
 
 ```mermaid
 graph LR
-    A[Auto-Memory<br/>经验积累与反思] --> B[Auto-Dream<br/>记忆整理]
-    B --> C[Auto-Memory-Search<br/>经验检索]
-    C --> D[Proactive<br/>主动服务]
-    D -.->|新交互产生新经验| A
+    A[Conversation turns] --> B[MemoryMiddleware]
+    B --> C[ReMe auto_memory job]
+    C --> D[mem_session/dialog/*.jsonl]
+    C --> E[memory/<date>/<note>.md]
+    R[resource/<date>/*] --> S[resource_watch_loop]
+    S --> T[ReMe auto_resource job]
+    T --> E
+    E --> U[ReMe auto_dream job]
+    U --> V[digest/personal|procedure|wiki/*.md]
+    U --> W[memory/<date>/interests.yaml]
 ```
 
-| 阶段     | 模块               | 核心作用                                   | 默认状态 | 类比         |
-| -------- | ------------------ | ------------------------------------------ | -------- | ------------ |
-| **积累** | Auto-Memory        | 全面总结：事实 + 经验反思 + 改进方向       | 关闭     | 写日记       |
-| **整理** | Auto-Dream         | 去噪、去矛盾、提炼为结构化知识             | 开启     | 定期复盘     |
-| **检索** | Auto-Memory-Search | 帮助弱模型主动检索相关经验，自动注入上下文 | 关闭     | 翻笔记       |
-| **服务** | Proactive          | 基于个性化记忆主动推送有价值信息           | 关闭     | 助手预判需求 |
+| 能力                 | 代码路径                                                     | 触发方式                                                                | 主要产物                                                                               |
+| -------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------ |
+| Auto Memory          | `ReMeLightMemoryManager.auto_memory()` -> ReMe `auto_memory` | `MemoryMiddleware` 按配置的用户轮次数触发；启用时也会在上下文压缩前触发 | `mem_session/dialog/<session_id>.jsonl`、`memory/<date>/<note>.md`、`memory/<date>.md` |
+| Auto Resource        | ReMe `resource_watch_loop` -> `auto_resource`                | 嵌入式 ReMe 后台 watcher 监听 `resource_dir`                            | `memory/<date>/<resource_note>.md`                                                     |
+| Auto Dream           | `ReMeLightMemoryManager.dream()` -> ReMe `auto_dream`        | `/dream` 命令或 `dream_cron` 调度                                       | `digest/*/*.md`、`memory/<date>/interests.yaml`                                        |
+| ReMe proactive job   | ReMe `proactive`                                             | 仅在直接调用 ReMe job 时运行                                            | `memory/<date>/interests.yaml` 的 metadata/content                                     |
+| QwenPaw `/proactive` | `src/qwenpaw/agents/memory/proactive`                        | `/proactive [minutes                                                    | on                                                                                     | off]` 空闲循环 | 通过 `/api/console/chat` 发送的主动 chat request |
 
-四个阶段形成正向循环：Proactive 产生的新交互又被 Auto-Memory 沉淀，推动下一轮进化。
-
----
-
-## 快速上手
-
-推荐的完整进化链路配置：
-
-| 步骤 | 操作                              | 配置路径                                    | 说明                           |
-| ---- | --------------------------------- | ------------------------------------------- | ------------------------------ |
-| 1    | 开启 Auto-Memory，设置间隔为 3~10 | 工作区 → 运行配置 → 长期记忆 → 自动记忆间隔 | 白天积累经验                   |
-| 2    | 保持 Auto-Dream 默认开启          | 工作区 → 运行配置 → 长期记忆 → 梦境         | 夜间整理结晶（默认每晚 11 点） |
-| 3    | 开启 Auto-Memory-Search           | 工作区 → 运行配置 → 长期记忆 → 自动记忆搜索 | 对话时自动复用经验             |
-| 4    | 按需开启 Proactive                | 在会话中输入 `/proactive`                   | 空闲时主动推送有价值信息       |
-
-> **一句话总结**：边做边记 → 定期整理 → 马上能用 → 主动服务。Agent 通过这个闭环，在不改模型的情况下持续进化。
+关键边界：`memory/<date>/interests.yaml` 由 Auto Dream 生成，也可以被 ReMe 的 `proactive` job 读取；但 QwenPaw 当前 `/proactive` 实现不会调用这个 job，也不会直接消费 `interests.yaml`。
 
 ---
 
-## 第一步：经验积累（Auto-Memory）
+## 文件布局
 
-Auto-Memory 是进化的起点。它让 Agent 做更加全面的总结——**不仅仅是记住之前发生了什么，更重要的是总结之前做事的经验和反思，思考如何在下一次事情中做得更好
-**。这是记忆进化的核心：每次交互都是一次学习机会。
+嵌入式 ReMe 配置来自 `src/qwenpaw/agents/memory/reme_config.py`，面向用户的默认值来自 `ReMeLightMemoryConfig`。
 
-### 记录什么
-
-| 类别         | 内容                                                                                         | 示例                                                                            |
-| ------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| **事实记忆** | 客观事实、用户信息更新、项目状态及重要事件                                                   | "用户偏好中文交流"、"项目使用 PostgreSQL"、"今天完成了 PR #3466 的合并"         |
-| **经验反思** | 基于用户反馈形成的可复用思考逻辑、成功的问题解决策略、应避免的陷阱，以及对未来交互的行动指南 | "查询股价用新浪财经 API 最可靠"、"不要跳过测试"、"这类任务应该先确认需求再动手" |
-
-经验反思是记忆进化的关键——它的核心目标是**构建可复用的认知框架，以改善未来的任务执行**。Agent 从"做过的事"中提炼出"
-做事的方法"，从"我做了什么"进化到"我下次怎么做更好"。
-
-### 怎么记录
-
-Auto-Memory 不是简单地追加新内容，而是与当日已有的记忆文件进行**智能合并**：
-
-- **分类清晰**：明确区分"事实记忆"与"反思与逻辑"两大类
-- **避免重复**：已记录的信息不会重复写入
-- **丰富细节**：相关条目会用新信息补充完善
-- **保持时序**：在适用时保持时间顺序，始终保留时间戳
-- **简洁完整**：只添加真正新的或有丰富价值的信息，保持条目简洁但完整
-
-如果没有新的内容可存储或反思，Auto-Memory 会静默跳过（回复 `[SILENT]`），不产生额外的 token 消耗。
-
-### 何时记录
-
-| 触发方式   | 配置项                   | 说明                         | 默认值 |
-| ---------- | ------------------------ | ---------------------------- | ------ |
-| 周期性触发 | `auto_memory_interval`   | 每 N 条用户消息后自动总结    | 关闭   |
-| 压缩时触发 | `summarize_when_compact` | 上下文超阈值压缩前先保存记忆 | 开启   |
-
-**默认关闭**，因为周期性触发会带来额外的高频 token 消耗。需手动开启：
-
-> **配置路径**：工作区 → 运行配置 → 长期记忆 → 自动记忆间隔
-
-**配置建议**：推荐设为 3~10，即每 3~10 轮对话进行一次反思总结。如果希望更积极地积累经验，可以设为 1——每轮用户 query
-都会进行总结。频率越高，经验积累越快，token 消耗也越大。此过程在后台自动执行，不影响当前对话体验。
-
----
-
-## 第二步：记忆整理（Auto-Dream）
-
-日常积累的记忆不可避免地包含重复、冲突和缺乏结构的内容。Auto-Dream **默认开启**，每天晚上 11 点自动执行一次，将原始记忆"
-结晶化"为高质量知识。一天一次的整理频率，token 消耗相对可控。
-
-> **配置路径**：工作区 → 运行配置 → 长期记忆 → 梦境
-
-### 五大优化原则
-
-| 原则         | 做了什么                                 |
-| ------------ | ---------------------------------------- |
-| **去除噪音** | 删除临时细节、一次性任务记录             |
-| **保留精华** | 只保留核心决策、确认的偏好、可复用的洞察 |
-| **解决矛盾** | 用最新状态覆盖过时信息                   |
-| **创建结构** | 将零散笔记组织为连贯的原则               |
-| **备份保护** | 每次优化前自动备份，可回溯历史版本       |
-
-### 整理结果
-
-优化后的内容写入 `{工作区}/MEMORY.md`，包含三类高价值信息：
-
-- 核心业务决策
-- 已确认的用户偏好
-- 高价值可复用经验
-
-> **注意**：`MEMORY.md` 默认不进入上下文。如需 Agent 在对话中自动使用，需在**工作区 → 文件**中手动开启MEMORY.md的开关，总是加载到上下文。
-
----
-
-## 第三步：经验检索（Auto-Memory-Search）
-
-积累和整理之后，关键在于**让 Agent 主动使用这些经验**。然而在实际使用中，弱模型往往不擅长主动调用记忆检索工具——它们不会在需要时自觉地去翻阅历史经验。Auto-Memory-Search 就是为了解决这个问题：**在每轮对话开始前自动检索相关记忆，注入推理上下文**，帮助弱模型也能用好记忆。
-
-### 工作流程
-
-```
-用户发送消息
-    ↓
-提取消息文本作为查询（最多 100 字符）
-    ↓
-检索 MEMORY.md + memory/*.md
-    ↓
-将检索结果作为已完成的工具调用注入消息历史
-    ↓
-Agent 基于历史经验进行推理
+```text
+<workspace>/
+├── mem_metadata/   # ReMe 持久状态、索引、catalog
+├── mem_session/    # Auto Memory 使用的来源对话日志
+│   └── dialog/
+│       └── <session_id>.jsonl
+├── mem_agent/      # ReMe 内部 memory-agent session
+├── resource/       # Auto Resource 监听的外部资料
+│   └── YYYY-MM-DD/
+│       └── <resource>.<ext>
+├── memory/         # Daily memory notes 和 day index
+│   ├── YYYY-MM-DD.md
+│   └── YYYY-MM-DD/
+│       ├── <note>.md
+│       └── interests.yaml
+└── digest/         # 长期 digest 记忆
+    ├── personal/
+    ├── procedure/
+    └── wiki/
 ```
 
-### 与传统 RAG 的区别
-
-检索结果以"已完成的工具调用"形式注入，而非拼接到 system prompt。这种方式**保持了 KVCache 的完整性**，显著提高 token 使用效率。
-
-### 效果对比
-
-以"查询阿里巴巴股价"为例：
-
-| 状态   | 表现                                               |
-| ------ | -------------------------------------------------- |
-| 未开启 | 16 个 step，反复尝试不同网站                       |
-| 已开启 | 4 个 step，直接复用"新浪财经 API 最可靠"的历史经验 |
-
-### 配置项
-
-| 配置项        | 说明                 | 默认值  |
-| ------------- | -------------------- | ------- |
-| `enabled`     | 是否开启自动记忆检索 | `false` |
-| `max_results` | 最多返回的记忆条数   | `2`     |
-| `min_score`   | 最低相关性分数阈值   | `0.3`   |
-
-> **注意**：默认关闭，需手动开启。
-
-> **配置路径**：工作区 → 运行配置 → 长期记忆 → 自动记忆搜索 → 打开「自动记忆搜索(Beta)」开关，可进一步设置最大结果数和最低相关性分数。
+默认目录名可通过 `metadata_dir`、`session_dir`、`mem_session_dir`、`resource_dir`、`daily_dir`、`digest_dir` 配置。
 
 ---
 
-## 第四步：主动服务（Proactive）
+## Auto Memory
 
-当记忆系统足够丰富时，Agent 可以从被动响应进化为主动服务——基于对用户的理解，预测需求并推送有价值的信息。
+Auto Memory 由 `MemoryMiddleware` 调用，不是每次 model call 都直接运行。Middleware 会：
 
-### 典型场景
+- 跳过来源为 `cron` 或 `heartbeat` 的自动化请求；
+- 当 `auto_memory_search_config.enabled` 为 true 时，在模型调用前注入自动记忆搜索上下文；
+- 在回复后收集 user-turn marker；
+- 累计到 `auto_memory_interval` 个用户轮次后 flush；
+- 当 `summarize_when_compact` 为 true 且即将压缩上下文时，也会先 flush pending turns。
 
-- 推送用户关心话题的最新进展（如"今日股市行情"）
-- 重试历史会话中未完成的任务
-- 为正在进行的工作补充信息（如相关学术调研）
-- 感知用户正在处理 PR，主动提供代码审查意见
+`auto_memory_interval` 默认是 `5`。`None`、`0` 或负数会禁用周期性 Auto Memory。
 
-### 运行机制
+Flush 时，QwenPaw 调用 ReMe 的 `auto_memory` job，并传入：
 
-**默认关闭**，开启后会增加额外的 token 消耗。通过超级命令开启：
+| 字段          | 来源                              |
+| ------------- | --------------------------------- |
+| `messages`    | pending user turns 对应的会话消息 |
+| `session_id`  | Agent session id                  |
+| `memory_hint` | 调用方可选提示                    |
 
-```
-/proactive          # 使用默认间隔（空闲 30 分钟后触发）
-/proactive 15       # 设置空闲 15 分钟后触发
-/proactive off      # 关闭主动服务
-```
+ReMe 的 `AutoMemoryStep` 随后会：
 
-应用空闲指定时间后触发，整体流程：
+1. 校验 `session_id` 存在且合法；
+2. 将清洗后的来源消息保存或追加到 `mem_session/dialog/<session_id>.jsonl`；
+3. 从保存的来源日志中移除 tool-result block 和 base64 data block；
+4. 从显式 date、消息时间戳或配置时区的当前日期中选择 note date；
+5. 查找 frontmatter 中 `session_id` 或 `source_conversation` 匹配的已有 daily note；
+6. 新 session 最多创建一条 note，已有 session 更新同一条 note；
+7. 确保 frontmatter 包含 `session_id` 和 `source_conversation`；
+8. 可能根据 frontmatter `name` 重命名 note；
+9. 刷新 `memory/<date>.md` day index；
+10. 返回 `date`、`path`、`created`、`modified`、`n_messages`、`source_conversation`、`index` 等 metadata。
 
-1. **记忆聚合** — 提取近期对话、用户兴趣点、未完成任务
-2. **需求预测** — 基于上下文推测潜在需求
-3. **信息检索与推送** — 调用工具获取最新信息，生成主动消息
-
-推送消息以 `[PROACTIVE]` 前缀标识，发送至专用 session。
-
-### 防打扰策略
-
-- 推送后若用户无操作，**不会重复触发相同内容**
-- 仅提供信息/建议/提醒，不执行高风险操作（如修改文件、发送请求）
-
-### 使用方式
-
-| 操作             | 说明                                                        |
-| ---------------- | ----------------------------------------------------------- |
-| `/proactive`     | 开启主动服务，默认空闲 30 分钟后触发（仅对当前 Agent 生效） |
-| `/proactive 15`  | 开启主动服务，设置空闲 15 分钟后触发                        |
-| `/proactive off` | 关闭主动服务                                                |
+如果 job 成功但没有实际修改 note，QwenPaw 不会为 `auto_memory` 推送 inbox event。否则会推送标题为 `Auto-memory result` 的 inbox event。
 
 ---
 
-## 后续规划
+## Auto Resource
 
-当前的记忆进化能力基于 [ReMe](https://github.com/agentscope-ai/ReMe) 的 ReMeLight 实现。ReMe
-正在进行一次大规模代码重构，重构完成后将为记忆进化带来质的提升：
+QwenPaw 配置了名为 `resource_watch_loop` 的 ReMe 后台 job。它监听 `resource_dir`，并把变更批次派发给 `auto_resource`。
 
-### 更精细的记忆分类
+监听的后缀是：
 
-记忆不再只是"事实"与"反思"的二分法，而是细分为三类：
+```text
+md, txt, json, jsonl, csv, yaml, html
+```
 
-| 记忆类型       | 说明                         | 进化价值             |
-| -------------- | ---------------------------- | -------------------- |
-| **Personal**   | 用户偏好、习惯、个人信息     | 个性化服务能力       |
-| **Procedural** | 做事的方法、流程、经验教训   | 记忆进化的核心驱动力 |
-| **Knowledge**  | 领域知识、项目文档、技术方案 | 知识库建设           |
+文件可以直接放在 `resource_dir` 根目录，此时使用 QwenPaw 配置的时区确定当天；也可放在
+`resource_dir/YYYY-MM-DD/` 下，此时使用路径中的日期。日期目录之后可以继续嵌套子目录。新增或修改资源时，
+ReMe 按 UTF-8 文本读取内容，由 memory agent 生成或更新 daily note；删除资源时也会删除对应的来源链接 note。
 
-### 差异化的创建与更新策略
+PDF、Word、Excel、图片等二进制文件不会被自动解析。`yml` 后缀也不在默认白名单中；需要先转换为受支持的文本格式。
 
-不同类型的记忆有不同的生命周期和更新逻辑，重构后将为每种类型实现专属的创建与更新方案：
+每个 change item 可以包含 `path` 或 `file_path`，以及类似 `added`、`modified`、`deleted` 的 `change` 值。ReMe step 会将变化的资源文件解读成 daily note。只有当 job 报告确实发生修改时，QwenPaw 才会推送 `Auto-resource result` inbox event。
 
-| 记忆类型       | 创建策略                   | 更新策略                                                                 |
-| -------------- | -------------------------- | ------------------------------------------------------------------------ |
-| **Personal**   | 用户首次表达偏好时自动创建 | 偏好变化时覆盖更新，保留最新状态                                         |
-| **Procedural** | 发现新的做事方法时创建     | 已有方法被验证更优或暴露问题时自更新，形成"创建 → 验证 → 更新"的进化循环 |
-| **Knowledge**  | 遇到新的领域知识时创建     | 知识演进时增量更新，通过图谱关联保持一致性                               |
+---
 
-这种差异化策略确保每种记忆都能以最适合的方式生长和演进，而非一刀切地套用同一种逻辑。其中 Procedural 记忆将拥有专属的 Summarizer，专门提炼"怎么做更好"的经验——这是记忆进化的核心驱动力。
+## Auto Dream
 
-### Knowledge 知识图谱
+QwenPaw 通过以下入口暴露 Auto Dream：
 
-Knowledge 类型记忆将支持 **Graph Markdown** 格式，构建结构化的知识图谱。Agent 不再只是"记住了一堆零散信息"，而是建立起信息之间的关联关系，形成可推理的知识网络。
+- `/dream [hint]`，由 `CommandHandler._process_dream()` 处理；
+- `dream_cron_enabled` 为 true 时按 `dream_cron` 配置调度，默认 `0 23 * * *`；定时触发后会随机延迟 0–60 秒启动，以避免集中调用；
+- `ReMeLightMemoryManager.dream(date="", hint="")`。
 
-以上所有模块（Auto-Memory、Auto-Dream、Auto-Memory-Search、Proactive）都将在 ReMe 新框架下统一重构，获得更好的架构支撑和更一致的体验。
+QwenPaw 运行名为 `auto_dream` 的 ReMe job，并设置 `needs_llm=True`，因此嵌入式 ReMe 会在 job 运行前用 QwenPaw 当前 active model 刷新自己的 LLM component。
+
+嵌入式 job 配置使用这些默认值：
+
+| 参数                   | 默认值 | 含义                              |
+| ---------------------- | -----: | --------------------------------- |
+| `date`                 |   `""` | 空值表示配置时区里的今天          |
+| `hint`                 |   `""` | 可选用户/操作者提示               |
+| `scan_days`            |    `2` | 扫描目标日期及最近日期            |
+| `max_units`            |    `5` | 最多抽取的可复用 memory units     |
+| `topic_count`          |    `3` | 最多最终 interest topics          |
+| `topic_diversity_days` |    `7` | 避免重复最近几天已经出现的 topics |
+
+Auto Dream 运行四个 ReMe steps：
+
+| Step                   | 实际行为                                                                                                                                              |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dream_extract_step`   | 刷新 day indexes，对比 daily files 和 dream catalog，删除缺失的 catalog entries，只从变化的 daily 输入中抽取可复用 memory units 和 topic candidates。 |
+| `dream_integrate_step` | 将每个抽取出的 unit 整合进一个 digest node。会使用 `node_search`、`read`、`frontmatter_read`、`write`、`edit`、`frontmatter_update`。                 |
+| `dream_topics_step`    | 选择并去重 interest topics，写入 `memory/<date>/interests.yaml`，并刷新 day index。                                                                   |
+| `dream_finish_step`    | 将成功处理的 changed paths、interest files 和 day indexes upsert 到 dream catalog，持久化 catalog，并返回 summary。                                   |
+
+如果没有变化的 daily 输入，extract 会以 no-change 响应结束。如果 LLM 不可用，extract 或 integrate 会失败，因为这些 step 需要 LLM。
+
+Digest node 按 bucket 存储：
+
+| Bucket       | 存什么                                                     |
+| ------------ | ---------------------------------------------------------- |
+| `personal/`  | 用户、团队或项目身份、偏好、约定、约束、avoid-rules        |
+| `procedure/` | How-to 工作流、runbook、recipe、方法、可执行模式           |
+| `wiki/`      | 定义、原则、观察、作为先例的决策、事实 claim，以及兜底知识 |
+
+Integration action 包括 `CREATE`、`CORROBORATE`、`REFINE`、`CORRECT`。整合 prompt 要求使用 workspace-relative wikilink，例如 `derived_from:: [[memory/<date>/<note>.md]]`，让 digest 记忆可以追溯到 daily material。
+
+Auto Dream 完成后，QwenPaw 会推送标题为 `Auto-dream result` 的 inbox event。
+
+---
+
+## Interest Topics 和 ReMe Proactive Job
+
+`dream_topics_step` 写入：
+
+```text
+memory/<date>/interests.yaml
+```
+
+YAML payload 包含：
+
+| 字段             | 含义                                                                   |
+| ---------------- | ---------------------------------------------------------------------- |
+| `date`           | 目标日期                                                               |
+| `topic_count`    | 请求的最大 topic 数                                                    |
+| `diversity_days` | 最近日期去重窗口                                                       |
+| `topics`         | 选出的 topics，包含 `title`、`reason`、`evidence`、`keywords`、`paths` |
+
+ReMe 还定义了一个由 `proactive_step` 实现的 `proactive` job。这个 job 只读取 `memory/<date>/interests.yaml`。它接受：
+
+| 参数              | 默认值 | 含义                             |
+| ----------------- | -----: | -------------------------------- |
+| `date`            |   `""` | 空值表示今天                     |
+| `include_content` | `true` | 在 metadata 中包含原始 YAML 文本 |
+
+如果 interests 文件不存在，ReMe proactive job 会返回正常的 skipped result。
+
+---
+
+## QwenPaw `/proactive`
+
+QwenPaw 当前 `/proactive` 命令实现位于 `src/qwenpaw/agents/memory/proactive`，它和 ReMe 的 `proactive` job 是两套逻辑。
+
+命令行为：
+
+```text
+/proactive           # 使用默认 30 分钟空闲阈值启用
+/proactive on        # 使用默认 30 分钟空闲阈值启用
+/proactive 45        # 使用 45 分钟空闲阈值启用
+/proactive off       # 取消后台 monitoring task
+```
+
+启用后，QwenPaw 会为 session 保存一个内存态 `ProactiveConfig`，并启动后台循环。该循环会：
+
+- 每 30 秒 wake 一次；
+- agent 有 active tasks 时跳过；
+- 读取最新 chat update time；
+- 等待 session 空闲达到配置分钟数；
+- 60 秒内不重复尝试；
+- 如果最后一条消息已经是未回应的 `[PROACTIVE]` 消息，则跳过；
+- 运行 proactive responder。
+
+Responder 构造上下文时读取近期 chat sessions，而不是读取 `interests.yaml`：
+
+- 通过 `workspace.chat_manager` 读取 chat metadata；
+- 保留最近 7 天更新过的 sessions；如果不足 5 个，则取最新 5 个 sessions；
+- 加载最多 100 条近期文本消息，总字符上限 50,000；
+- 过滤 system messages、非文本 blocks，以及之前 proactive helper 发出的请求；
+- 当 active model 支持多模态时，可选分析桌面截图。
+
+随后它让临时 `ProactiveAssistant` agent 从上下文中抽取 1 到 3 个可能任务，最多执行前 3 个任务 query，并通过以下接口发送面向用户的 proactive request：
+
+```text
+POST <agent-api-base>/api/console/chat
+session_id = proactive_mode:<active_agent_id>
+text starts with "[Agent proactive_helper requesting]"
+```
+
+最终面向用户的 prompt 要求 agent 回复以 `[PROACTIVE]` 开头。
+
+命令中的 warning 与代码一致：proactive mode 可能读取历史 session memory，并且在多模态屏幕分析可用时可能截图。Proactive agent 通过自己的临时 agent/tool setup 使用 tool protection bypass mode。
+
+---
+
+## 搜索与索引
+
+嵌入式 ReMe app 会启动 `index_update_loop` 后台 job。搜索索引监听：
+
+| 索引目录                  | 后缀 |
+| ------------------------- | ---- |
+| `daily_dir`、`digest_dir` | `md` |
+
+QwenPaw 的 `memory_search` tool 会运行 ReMe 的 `search` job，参数是 `query`、`limit`、`min_score`。该 job 配置为 hybrid workspace search，包含向量召回、BM25 keyword 召回、RRF 融合和 wikilink expansion。QwenPaw 嵌入式 ReMe 配置里的存储后端是 local。
+
+---
+
+## 当前状态
+
+本文档描述当前代码路径：
+
+- ReMeLight 由 `ReMeLightMemoryManager` 和嵌入式 `get_reme_app_config()` 实现；
+- Auto Memory 基于用户轮次数触发，默认每 5 个用户轮次一次；
+- Auto Dream 通过 `/dream` 或 `dream_cron` 运行；
+- ReMe 会写入 `interests.yaml`，也有读取它的底层 job；
+- QwenPaw `/proactive` 当前使用近期 chat/session/screen context，而不是 ReMe interest topics；
+- Auto Memory、Auto Resource、Auto Dream 产生可报告输出时，可能投递到 inbox。
+
+该能力仍处于 Beta 阶段，但以上行为与当前代码实现一致。

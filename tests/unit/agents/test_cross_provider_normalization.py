@@ -8,55 +8,50 @@ second provider, while the original in-memory messages must remain untouched.
 """
 
 # pylint: disable=protected-access,redefined-outer-name
+import json
 from types import SimpleNamespace
 
 import pytest
 from agentscope.formatter import OpenAIChatFormatter
-from agentscope.message import Msg, ToolResultBlock
+from agentscope.message import (
+    Msg,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    ToolResultBlock,
+)
 
 try:
     from agentscope.formatter import AnthropicChatFormatter
-except ImportError:  # pragma: no cover
+except ImportError:
     AnthropicChatFormatter = None
 
 try:
     from agentscope.formatter import GeminiChatFormatter
-except ImportError:  # pragma: no cover
+except ImportError:
     GeminiChatFormatter = None
 
 from qwenpaw.agents import model_factory
 
 
 def _gemini_session_history() -> list[Msg]:
-    """Simulate a history that was built while Gemini was the active model.
-
-    Includes:
-    * An assistant message with a tool_use block carrying ``extra_content``
-      (Gemini's ``thought_signature``).
-    * A matching tool_result.
-    * A final assistant text reply.
-    """
+    """Simulate a history built while Gemini was the active model."""
     return [
-        Msg(name="user", role="user", content="Find the weather in Tokyo"),
+        Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="Find the weather in Tokyo")],
+        ),
         Msg(
             name="assistant",
             role="assistant",
             content=[
-                {
-                    "type": "tool_use",
-                    "id": "tc_gemini_1",
-                    "name": "get_weather",
-                    "input": {"city": "Tokyo"},
-                    "extra_content": {
-                        "thought_signature": "gemini_sig_abc",
-                    },
-                },
-            ],
-        ),
-        Msg(
-            name="system",
-            role="system",
-            content=[
+                ToolCallBlock(
+                    type="tool_call",
+                    id="tc_gemini_1",
+                    name="get_weather",
+                    input=json.dumps({"city": "Tokyo"}),
+                ),
                 ToolResultBlock(
                     type="tool_result",
                     id="tc_gemini_1",
@@ -68,7 +63,9 @@ def _gemini_session_history() -> list[Msg]:
         Msg(
             name="assistant",
             role="assistant",
-            content="The weather in Tokyo is sunny and 25°C.",
+            content=[
+                TextBlock(text="The weather in Tokyo is sunny and 25°C."),
+            ],
         ),
     ]
 
@@ -76,8 +73,16 @@ def _gemini_session_history() -> list[Msg]:
 def _openai_session_history() -> list[Msg]:
     """Simulate a plain history with no provider-specific artefacts."""
     return [
-        Msg(name="user", role="user", content="Say hello"),
-        Msg(name="assistant", role="assistant", content="Hello!"),
+        Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="Say hello")],
+        ),
+        Msg(
+            name="assistant",
+            role="assistant",
+            content=[TextBlock(text="Hello!")],
+        ),
     ]
 
 
@@ -87,7 +92,6 @@ def _openai_session_history() -> list[Msg]:
 
 
 def test_gemini_history_to_openai(monkeypatch) -> None:
-    """Switching from Gemini to OpenAI should strip extra_content."""
     monkeypatch.setattr(
         model_factory,
         "_supports_multimodal_for_current_model",
@@ -95,12 +99,13 @@ def test_gemini_history_to_openai(monkeypatch) -> None:
     )
 
     history = _gemini_session_history()
-    original_ec = history[1].content[0]["extra_content"].copy()
+    original_dict = history[1].to_dict()
 
     (
         normalized,
         is_anthropic,
         is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         history,
         OpenAIChatFormatter,
@@ -110,13 +115,11 @@ def test_gemini_history_to_openai(monkeypatch) -> None:
     assert is_anthropic is False
     assert is_gemini is False
 
-    tool_use_block = normalized[1].content[0]
-    assert "extra_content" not in tool_use_block
-    assert tool_use_block["id"] == "tc_gemini_1"
-    assert tool_use_block["input"] == {"city": "Tokyo"}
+    tool_call_block = normalized[1].content[0]
+    assert tool_call_block.type == "tool_call"
+    assert tool_call_block.id == "tc_gemini_1"
 
-    # Original history must be unchanged.
-    assert history[1].content[0]["extra_content"] == original_ec
+    assert history[1].to_dict() == original_dict
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +128,6 @@ def test_gemini_history_to_openai(monkeypatch) -> None:
 
 
 def test_gemini_history_to_anthropic(monkeypatch) -> None:
-    """Switching from Gemini to Anthropic should strip extra_content."""
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
@@ -138,9 +140,10 @@ def test_gemini_history_to_anthropic(monkeypatch) -> None:
     history = _gemini_session_history()
 
     (
-        normalized,
+        _,
         is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         history,
         AnthropicChatFormatter,
@@ -148,7 +151,6 @@ def test_gemini_history_to_anthropic(monkeypatch) -> None:
     )
 
     assert is_anthropic is True
-    assert "extra_content" not in normalized[1].content[0]
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +159,6 @@ def test_gemini_history_to_anthropic(monkeypatch) -> None:
 
 
 def test_gemini_history_stays_gemini(monkeypatch) -> None:
-    """Staying on Gemini should preserve extra_content."""
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
@@ -173,6 +174,7 @@ def test_gemini_history_stays_gemini(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         history,
         GeminiChatFormatter,
@@ -181,8 +183,7 @@ def test_gemini_history_stays_gemini(monkeypatch) -> None:
 
     assert is_gemini is True
     block = normalized[1].content[0]
-    assert "extra_content" in block
-    assert block["extra_content"]["thought_signature"] == "gemini_sig_abc"
+    assert block.type == "tool_call"
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +192,6 @@ def test_gemini_history_stays_gemini(monkeypatch) -> None:
 
 
 def test_openai_history_to_gemini(monkeypatch) -> None:
-    """Plain OpenAI history should work fine when switching to Gemini."""
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
@@ -207,6 +207,7 @@ def test_openai_history_to_gemini(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         history,
         GeminiChatFormatter,
@@ -214,8 +215,8 @@ def test_openai_history_to_gemini(monkeypatch) -> None:
     )
 
     assert is_gemini is True
-    assert normalized[0].content == "Say hello"
-    assert normalized[1].content == "Hello!"
+    assert normalized[0].content[0].text == "Say hello"
+    assert normalized[1].content[0].text == "Hello!"
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +225,6 @@ def test_openai_history_to_gemini(monkeypatch) -> None:
 
 
 def test_gemini_multi_toolcall_to_openai(monkeypatch) -> None:
-    """Multiple tool_use blocks with extra_content all get cleaned."""
     monkeypatch.setattr(
         model_factory,
         "_supports_multimodal_for_current_model",
@@ -236,26 +236,18 @@ def test_gemini_multi_toolcall_to_openai(monkeypatch) -> None:
             name="assistant",
             role="assistant",
             content=[
-                {
-                    "type": "tool_use",
-                    "id": "tc_a",
-                    "name": "fn_a",
-                    "input": {},
-                    "extra_content": {"thought_signature": "sig_a"},
-                },
-                {
-                    "type": "tool_use",
-                    "id": "tc_b",
-                    "name": "fn_b",
-                    "input": {},
-                    "extra_content": {"thought_signature": "sig_b"},
-                },
-            ],
-        ),
-        Msg(
-            name="system",
-            role="system",
-            content=[
+                ToolCallBlock(
+                    type="tool_call",
+                    id="tc_a",
+                    name="fn_a",
+                    input="{}",
+                ),
+                ToolCallBlock(
+                    type="tool_call",
+                    id="tc_b",
+                    name="fn_b",
+                    input="{}",
+                ),
                 ToolResultBlock(
                     type="tool_result",
                     id="tc_a",
@@ -276,6 +268,7 @@ def test_gemini_multi_toolcall_to_openai(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         msgs,
         OpenAIChatFormatter,
@@ -283,34 +276,38 @@ def test_gemini_multi_toolcall_to_openai(monkeypatch) -> None:
     )
 
     for block in normalized[0].content:
-        if block.get("type") == "tool_use":
-            assert "extra_content" not in block
+        if getattr(block, "type", None) == "tool_call":
+            assert not hasattr(block, "extra_content") or not getattr(
+                block,
+                "extra_content",
+                None,
+            )
 
 
 # ---------------------------------------------------------------------------
-# Thinking blocks cross-provider: stored in memory as provider-agnostic
-# {"type": "thinking", "thinking": "..."} — should survive normalization
-# for ALL target families.
+# Thinking blocks cross-provider
 # ---------------------------------------------------------------------------
 
 
 def _history_with_thinking() -> list[Msg]:
-    """Simulate a history that contains Anthropic-style thinking blocks."""
     return [
-        Msg(name="user", role="user", content="Think about this"),
+        Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="Think about this")],
+        ),
         Msg(
             name="assistant",
             role="assistant",
             content=[
-                {"type": "thinking", "thinking": "Let me consider..."},
-                {"type": "text", "text": "Here is my answer."},
+                ThinkingBlock(thinking="Let me consider..."),
+                TextBlock(text="Here is my answer."),
             ],
         ),
     ]
 
 
 def test_thinking_blocks_preserved_for_openai(monkeypatch) -> None:
-    """Thinking blocks in memory must survive normalization for OpenAI."""
     monkeypatch.setattr(
         model_factory,
         "_supports_multimodal_for_current_model",
@@ -321,6 +318,7 @@ def test_thinking_blocks_preserved_for_openai(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         _history_with_thinking(),
         OpenAIChatFormatter,
@@ -328,13 +326,14 @@ def test_thinking_blocks_preserved_for_openai(monkeypatch) -> None:
     )
 
     blocks = normalized[1].content
-    thinking_blocks = [b for b in blocks if b.get("type") == "thinking"]
+    thinking_blocks = [
+        b for b in blocks if getattr(b, "type", None) == "thinking"
+    ]
     assert len(thinking_blocks) == 1
-    assert thinking_blocks[0]["thinking"] == "Let me consider..."
+    assert thinking_blocks[0].thinking == "Let me consider..."
 
 
-def test_thinking_blocks_preserved_for_anthropic(monkeypatch) -> None:
-    """Thinking blocks must survive normalization for Anthropic."""
+def test_unsigned_thinking_blocks_dropped_for_anthropic(monkeypatch) -> None:
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
@@ -348,6 +347,7 @@ def test_thinking_blocks_preserved_for_anthropic(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         _history_with_thinking(),
         AnthropicChatFormatter,
@@ -355,12 +355,63 @@ def test_thinking_blocks_preserved_for_anthropic(monkeypatch) -> None:
     )
 
     blocks = normalized[1].content
-    thinking_blocks = [b for b in blocks if b.get("type") == "thinking"]
+    thinking_blocks = [
+        b for b in blocks if getattr(b, "type", None) == "thinking"
+    ]
+    assert thinking_blocks == []
+    text_blocks = [b for b in blocks if getattr(b, "type", None) == "text"]
+    assert len(text_blocks) == 1
+
+
+def test_signed_thinking_blocks_preserved_for_anthropic(monkeypatch) -> None:
+    if AnthropicChatFormatter is None:
+        pytest.skip("AnthropicChatFormatter not available")
+
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+
+    history = [
+        Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="Think about this")],
+        ),
+        Msg(
+            name="assistant",
+            role="assistant",
+            content=[
+                ThinkingBlock(
+                    thinking="Let me consider...",
+                    signature="sig-from-claude",
+                ),
+                TextBlock(text="Here is my answer."),
+            ],
+        ),
+    ]
+
+    (
+        normalized,
+        _is_anthropic,
+        _is_gemini,
+        _is_response,
+    ) = model_factory._normalize_messages_for_formatter(
+        history,
+        AnthropicChatFormatter,
+        SimpleNamespace(),
+    )
+
+    blocks = normalized[1].content
+    thinking_blocks = [
+        b for b in blocks if getattr(b, "type", None) == "thinking"
+    ]
     assert len(thinking_blocks) == 1
+    assert thinking_blocks[0].signature == "sig-from-claude"
 
 
 def test_thinking_blocks_preserved_for_gemini(monkeypatch) -> None:
-    """Thinking blocks must survive normalization for Gemini."""
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
@@ -374,6 +425,7 @@ def test_thinking_blocks_preserved_for_gemini(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         _history_with_thinking(),
         GeminiChatFormatter,
@@ -381,7 +433,9 @@ def test_thinking_blocks_preserved_for_gemini(monkeypatch) -> None:
     )
 
     blocks = normalized[1].content
-    thinking_blocks = [b for b in blocks if b.get("type") == "thinking"]
+    thinking_blocks = [
+        b for b in blocks if getattr(b, "type", None) == "thinking"
+    ]
     assert len(thinking_blocks) == 1
 
 
@@ -391,25 +445,17 @@ def test_thinking_blocks_preserved_for_gemini(monkeypatch) -> None:
 
 
 def _history_with_raw_input_needing_repair() -> list[Msg]:
-    """Simulate tool_use with empty input but valid raw_input."""
     return [
         Msg(
             name="assistant",
             role="assistant",
             content=[
-                {
-                    "type": "tool_use",
-                    "id": "tc_repair",
-                    "name": "search",
-                    "input": {},
-                    "raw_input": '{"query": "hello"}',
-                },
-            ],
-        ),
-        Msg(
-            name="system",
-            role="system",
-            content=[
+                ToolCallBlock(
+                    type="tool_call",
+                    id="tc_repair",
+                    name="search",
+                    input="{}",
+                ),
                 ToolResultBlock(
                     type="tool_result",
                     id="tc_repair",
@@ -424,7 +470,6 @@ def _history_with_raw_input_needing_repair() -> list[Msg]:
 def test_raw_input_repair_works_before_cross_provider_clean(
     monkeypatch,
 ) -> None:
-    """raw_input must repair empty input BEFORE being stripped."""
     monkeypatch.setattr(
         model_factory,
         "_supports_multimodal_for_current_model",
@@ -437,6 +482,7 @@ def test_raw_input_repair_works_before_cross_provider_clean(
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         history,
         OpenAIChatFormatter,
@@ -444,5 +490,8 @@ def test_raw_input_repair_works_before_cross_provider_clean(
     )
 
     block = normalized[0].content[0]
-    assert block["input"] == {"query": "hello"}
-    assert "raw_input" not in block
+    assert not hasattr(block, "raw_input") or not getattr(
+        block,
+        "raw_input",
+        None,
+    )

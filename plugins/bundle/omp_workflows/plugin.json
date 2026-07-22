@@ -1,0 +1,16 @@
+{
+  "id": "omp-workflows",
+  "name": "OMP Workflows",
+  "version": "0.1.0",
+  "type": "bundle",
+  "description": "Oh My Paw workflow modes: Autopilot, Ralph, UltraQA, Ultrawork, Team",
+  "author": "QwenPaw Team",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": [],
+  "qwenpaw_version": {
+    "min": "2.0.0",
+    "max": "3.0.0"
+  }
+}

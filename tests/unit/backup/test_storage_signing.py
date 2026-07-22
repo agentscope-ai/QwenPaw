@@ -53,7 +53,7 @@ async def test_import_requires_trust_for_unsigned_backup(
 
 
 @pytest.mark.asyncio
-async def test_import_trusted_foreign_signs_with_local_key(
+async def test_import_trusted_legacy_signs_with_local_key(
     tmp_path,
     monkeypatch,
 ):
@@ -61,16 +61,58 @@ async def test_import_trusted_foreign_signs_with_local_key(
     backup_dir.mkdir()
     _patch_backup_dir(monkeypatch, backup_dir)
     upload = tmp_path / "upload.zip"
-    _write_backup(upload, BackupMeta(id="foreign", name="Foreign"))
+    _write_backup(upload, BackupMeta(id="legacy", name="Legacy"))
 
-    result = await storage.import_backup(upload, trust_foreign=True)
+    with pytest.raises(BackupValidationError) as wrong_trust:
+        await storage.import_backup(upload, trust_mode="foreign")
 
-    assert result.imported_via_trust_foreign is True
+    assert wrong_trust.value.code == "backup_legacy_unsigned"
+
+    result = await storage.import_backup(upload, trust_mode="legacy")
+
+    assert result.accepted_via_trust is True
     assert result.signature
-    dest = backup_dir / "foreign.zip"
+    dest = backup_dir / "legacy.zip"
     with zipfile.ZipFile(dest, "r") as zf:
         meta = BackupMeta.model_validate_json(zf.read(META_FILE))
-        assert meta.imported_via_trust_foreign is True
+        assert meta.accepted_via_trust is True
+        assert verify_signature(zf, meta)
+
+
+@pytest.mark.asyncio
+async def test_import_trusted_foreign_signature_signs_with_local_key(
+    tmp_path,
+    monkeypatch,
+):
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    _patch_backup_dir(monkeypatch, backup_dir)
+
+    upload = tmp_path / "foreign.zip"
+    foreign_keys = tmp_path / "foreign-keys"
+    foreign_keys.mkdir()
+    _patch_backup_dir(monkeypatch, foreign_keys)
+    foreign_meta = BackupMeta(
+        id="foreign-signed",
+        name="Foreign signed",
+        accepted_via_trust=False,
+    )
+    _write_backup(upload, foreign_meta)
+    replace_meta_with_local_signature(upload, foreign_meta)
+
+    _patch_backup_dir(monkeypatch, backup_dir)
+    with pytest.raises(BackupValidationError) as wrong_trust:
+        await storage.import_backup(upload, trust_mode="legacy")
+
+    assert wrong_trust.value.code == "backup_signature_mismatch"
+
+    result = await storage.import_backup(upload, trust_mode="foreign")
+
+    assert result.accepted_via_trust is True
+    dest = backup_dir / "foreign-signed.zip"
+    with zipfile.ZipFile(dest, "r") as zf:
+        meta = BackupMeta.model_validate_json(zf.read(META_FILE))
+        assert meta.accepted_via_trust is True
         assert verify_signature(zf, meta)
 
 
@@ -84,7 +126,7 @@ async def test_import_conflict_uses_existing_disk_meta(tmp_path, monkeypatch):
     existing_meta = BackupMeta(
         id="same",
         name="Existing",
-        imported_via_trust_foreign=False,
+        accepted_via_trust=False,
     )
     _write_backup(existing_path, existing_meta)
     replace_meta_with_local_signature(existing_path, existing_meta)
@@ -93,6 +135,59 @@ async def test_import_conflict_uses_existing_disk_meta(tmp_path, monkeypatch):
     _write_backup(upload, BackupMeta(id="same", name="Uploaded"))
 
     with pytest.raises(BackupConflictError) as exc_info:
-        await storage.import_backup(upload, trust_foreign=True)
+        await storage.import_backup(upload, trust_mode="legacy")
 
     assert exc_info.value.existing_meta.name == "Existing"
+
+
+@pytest.mark.asyncio
+async def test_operations_find_backup_when_filename_differs_from_id(
+    tmp_path,
+    monkeypatch,
+):
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    _patch_backup_dir(monkeypatch, backup_dir)
+
+    backup_path = backup_dir / "old-backup.zip"
+    _write_backup(
+        backup_path,
+        BackupMeta(id="canonical-id", name="Copied backup"),
+    )
+
+    detail = await storage.get_backup("canonical-id")
+    assert detail is not None
+    assert detail.name == "Copied backup"
+
+    export_path, export_name = await storage.export_backup("canonical-id")
+    assert export_path == backup_path
+    assert export_name == "Copied backup"
+
+    result = await storage.delete_backups(["canonical-id"])
+    assert result.deleted == ["canonical-id"]
+    assert result.failed == []
+    assert not backup_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_import_conflict_detects_noncanonical_existing_backup(
+    tmp_path,
+    monkeypatch,
+):
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    _patch_backup_dir(monkeypatch, backup_dir)
+
+    existing_path = backup_dir / "copied-name.zip"
+    _write_backup(
+        existing_path,
+        BackupMeta(id="same-id", name="Existing copied"),
+    )
+
+    upload = tmp_path / "upload.zip"
+    _write_backup(upload, BackupMeta(id="same-id", name="Uploaded"))
+
+    with pytest.raises(BackupConflictError) as exc_info:
+        await storage.import_backup(upload, trust_mode="legacy")
+
+    assert exc_info.value.existing_meta.name == "Existing copied"

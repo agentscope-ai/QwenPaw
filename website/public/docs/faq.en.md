@@ -26,7 +26,7 @@ irm https://qwenpaw.agentscope.io/install.ps1 | iex
 
 2. Install with pip
 
-Python version requirement: >= 3.10, < 3.14
+Python version requirement: >= 3.11, < 3.14
 
 ```
 pip install qwenpaw
@@ -107,10 +107,7 @@ docker run -p 127.0.0.1:8088:8088 \
   agentscope/qwenpaw:latest
 ```
 
-5. If using the Desktop app (Windows `.exe` or macOS `.zip`), you currently need to uninstall and reinstall:
-   - Uninstall QwenPaw on your machine
-   - Download the latest build: https://qwenpaw.agentscope.io/downloads
-   - Reinstall
+5. If using the Desktop app (Tauri build), it ships with a built-in in-app updater: on startup it automatically checks for new versions and prompts you in the UI, where you can choose "Install and Restart" to update now or "Update Later" to download in the background. You can also grab the latest build manually from the download page: https://qwenpaw.agentscope.io/downloads
 
 After upgrading, restart the service with `qwenpaw app`.
 
@@ -446,8 +443,9 @@ If a scheduled task does not run as expected, try the following:
 
 ### How to manage Skills
 
-Go to **Agent -> Skills** in Console. You can enable/disable Skills, create
-custom Skills, and import Skills from Skills Hub. See
+Go to **Agent -> Skills** in Console. You can enable/disable Skills, and add
+Skills through the **Add Skill** entry (create, upload via zip/URL, or browse
+the Skill Market). See
 [Skills](https://qwenpaw.agentscope.io/docs/skills).
 
 ### How to configure MCP

@@ -74,6 +74,7 @@ export default function BackupsPage() {
   return (
     <div className={styles.page}>
       <PageHeader
+        className={styles.pageHeader}
         parent={t("nav.settings")}
         current={t("backup.title")}
         extra={
@@ -111,7 +112,7 @@ export default function BackupsPage() {
       />
       <BackupTrustDialog
         open={!!importFlow.trustFileName}
-        mode="foreign"
+        mode={importFlow.trustMode ?? "foreign"}
         backupName={importFlow.trustFileName ?? undefined}
         confirmLoading={importFlow.trustLoading}
         onConfirm={importFlow.handleTrustConfirm}

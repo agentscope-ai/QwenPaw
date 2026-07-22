@@ -147,7 +147,7 @@ export function ACPDrawer({
           </div>
         </div>
       }
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}

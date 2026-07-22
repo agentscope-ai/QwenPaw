@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """XiaoYi Channel implementation.
 
-XiaoYi uses A2A (Agent-to-Agent) protocol over WebSocket.
+XiaoYi uses A2A (Agent-to-Agent) protocol over dual WebSocket connections
+(primary domain + backup IP) for redundancy.
 """
 
 from __future__ import annotations
@@ -9,13 +10,26 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import platform
+import re
+import time
 import uuid
+from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import (
+    Any,
+    Callable,
+    Coroutine,
+    Dict,
+    List,
+    Optional,
+    TYPE_CHECKING,
+)
+from urllib.parse import urlparse
 
 import aiohttp
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from ....schemas import (
     FileContent,
     ImageContent,
     ContentType,
@@ -24,6 +38,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 
 from ....config.config import XiaoYiConfig as XiaoYiChannelConfig
 from ....constant import DEFAULT_MEDIA_DIR
+from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -34,6 +49,8 @@ from .auth import generate_auth_headers
 from .constants import (
     CONNECTION_TIMEOUT,
     DEFAULT_TASK_TIMEOUT_MS,
+    DEFAULT_WS_URL,
+    DEFAULT_WS_URL_BACKUP,
     HEARTBEAT_INTERVAL,
     MAX_RECONNECT_ATTEMPTS,
     RECONNECT_DELAYS,
@@ -43,11 +60,287 @@ from .utils import download_file
 
 logger = logging.getLogger(__name__)
 
+# Upper bound for per-session routing maps to prevent unbounded growth.
+_SESSION_MAP_MAX = 4096
+
 if TYPE_CHECKING:
-    from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
+    from ....schemas import AgentRequest
+
+# Type alias for message/disconnect callbacks
+_OnMessage = Callable[[Dict[str, Any], str], Coroutine[Any, Any, None]]
+_OnDisconnect = Callable[[str], Any]
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_IP_RE = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$")
+
+
+def _is_ip_address(host: str) -> bool:
+    """Return True if *host* looks like an IPv4 address."""
+    return bool(_IP_RE.match(host)) and all(
+        0 <= int(p) <= 255 for p in host.split(".")
+    )
+
+
+def _get_ssl_for_url(url: str) -> Any:
+    """Return *ssl* kwarg for aiohttp ws_connect.
+
+    For IP-based URLs, return ``False`` to skip certificate verification
+    (the server cert CN won't match the IP).  For domain URLs, return
+    ``None`` (use default verification).
+    """
+    host = urlparse(url).hostname or ""
+    return False if _is_ip_address(host) else None
+
+
+# ---------------------------------------------------------------------------
+# XiaoYiConnection – single WebSocket link
+# ---------------------------------------------------------------------------
+
+
+class XiaoYiConnection:
+    """Manages a single WebSocket connection to one XiaoYi endpoint.
+
+    The *Channel* owns two of these (primary + backup) and coordinates
+    between them.
+    """
+
+    def __init__(
+        self,
+        server_name: str,
+        ws_url: str,
+        ak: str,
+        sk: str,
+        agent_id: str,
+        on_message: _OnMessage,
+        on_disconnect: _OnDisconnect,
+    ):
+        self.server_name = server_name
+        self.ws_url = ws_url
+        self.ak = ak
+        self.sk = sk
+        self.agent_id = agent_id
+        self.on_message = on_message
+        self.on_disconnect = on_disconnect
+
+        self._ssl = _get_ssl_for_url(ws_url)
+        self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
+        self._session: Optional[aiohttp.ClientSession] = None
+        self._heartbeat_task: Optional[asyncio.Task] = None
+        self._receive_task: Optional[asyncio.Task] = None
+        self.connected = False
+
+    # -- public API --------------------------------------------------------
+
+    async def connect(self) -> bool:
+        """Establish the WebSocket connection. Return True on success."""
+        headers = generate_auth_headers(self.ak, self.sk, self.agent_id)
+        await self._cleanup()
+
+        self._session = aiohttp.ClientSession()
+        ws_timeout = aiohttp.ClientWSTimeout(ws_close=CONNECTION_TIMEOUT)
+        try:
+            kwargs: Dict[str, Any] = {
+                "headers": headers,
+                "timeout": ws_timeout,
+            }
+            if self._ssl is not None:
+                kwargs["ssl"] = self._ssl
+            self._ws = await self._session.ws_connect(
+                self.ws_url,
+                **kwargs,
+            )
+            self.connected = True
+            logger.info(
+                "XiaoYi [%s]: WebSocket connected to %s",
+                self.server_name,
+                self.ws_url,
+            )
+            await self._send_init_message()
+            self._heartbeat_task = asyncio.create_task(
+                self._heartbeat_loop(),
+            )
+            self._receive_task = asyncio.create_task(
+                self._receive_loop(),
+            )
+            return True
+        except Exception as e:
+            logger.error(
+                "XiaoYi [%s]: Connection error: %s",
+                self.server_name,
+                e,
+            )
+            self.connected = False
+            await self._cleanup()
+            return False
+
+    async def disconnect(self) -> None:
+        """Gracefully tear down the connection."""
+        self.connected = False
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            self._heartbeat_task = None
+        if self._receive_task:
+            self._receive_task.cancel()
+            try:
+                await self._receive_task
+            except asyncio.CancelledError:
+                pass
+            self._receive_task = None
+        await self._cleanup()
+        logger.info("XiaoYi [%s]: Disconnected", self.server_name)
+
+    async def send_json(self, data: Dict[str, Any]) -> bool:
+        """Send a JSON payload. Return True on success."""
+        if not self._ws or self._ws.closed or not self.connected:
+            return False
+        try:
+            await self._ws.send_json(data)
+            return True
+        except Exception as e:
+            logger.error(
+                "XiaoYi [%s]: Send error: %s",
+                self.server_name,
+                e,
+            )
+            return False
+
+    def transfer_callbacks(
+        self,
+        on_message: _OnMessage,
+        on_disconnect: _OnDisconnect,
+    ) -> None:
+        """Re-bind callbacks to a new Channel instance (hot-swap)."""
+        self.on_message = on_message
+        self.on_disconnect = on_disconnect
+
+    # -- internal ----------------------------------------------------------
+
+    async def _send_init_message(self) -> None:
+        if not self._ws:
+            return
+        try:
+            await self._ws.send_json(
+                {
+                    "msgType": "clawd_bot_init",
+                    "agentId": self.agent_id,
+                    "msgDetail": json.dumps(
+                        {
+                            "agentId": self.agent_id,
+                            "hostname": platform.node(),
+                        },
+                    ),
+                },
+            )
+        except Exception as e:
+            logger.error(
+                "XiaoYi [%s]: Failed to send init message: %s",
+                self.server_name,
+                e,
+            )
+
+    async def _heartbeat_loop(self) -> None:
+        """Send heartbeat messages periodically."""
+        while self.connected and self._ws and not self._ws.closed:
+            try:
+                await asyncio.sleep(HEARTBEAT_INTERVAL)
+                if not self.connected or not self._ws:
+                    break
+                await self._ws.send_json(
+                    {
+                        "msgType": "heartbeat",
+                        "agentId": self.agent_id,
+                        "msgDetail": json.dumps(
+                            {"timestamp": int(time.time() * 1000)},
+                        ),
+                    },
+                )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(
+                    "XiaoYi [%s]: Heartbeat error: %s",
+                    self.server_name,
+                    e,
+                )
+                break
+
+    async def _receive_loop(self) -> None:
+        """Receive and dispatch messages from WebSocket."""
+        if not self._ws:
+            return
+        try:
+            async for msg in self._ws:
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    await self._handle_text(msg.data)
+                elif msg.type == aiohttp.WSMsgType.ERROR:
+                    logger.error(
+                        "XiaoYi [%s]: WebSocket error: %s",
+                        self.server_name,
+                        self._ws.exception(),
+                    )
+                    break
+                elif msg.type in (
+                    aiohttp.WSMsgType.CLOSED,
+                    aiohttp.WSMsgType.CLOSE,
+                ):
+                    logger.info(
+                        "XiaoYi [%s]: WebSocket closed",
+                        self.server_name,
+                    )
+                    break
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(
+                "XiaoYi [%s]: Receive loop error: %s",
+                self.server_name,
+                e,
+            )
+        finally:
+            self.connected = False
+            self.on_disconnect(self.server_name)
+
+    async def _handle_text(self, data: str) -> None:
+        try:
+            message = json.loads(data)
+        except json.JSONDecodeError as e:
+            logger.error(
+                "XiaoYi [%s]: Failed to parse message: %s",
+                self.server_name,
+                e,
+            )
+            return
+        await self.on_message(message, self.server_name)
+
+    async def _cleanup(self) -> None:
+        ws = self._ws
+        if ws:
+            self._ws = None
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        session = self._session
+        if session:
+            self._session = None
+            try:
+                await session.close()
+            except Exception:
+                pass
+
+
+# ---------------------------------------------------------------------------
 # Class-level registry to track active connections per agent_id
+# ---------------------------------------------------------------------------
+
 _active_connections: Dict[str, "XiaoYiChannel"] = {}
 _active_connections_lock = asyncio.Lock()
 
@@ -69,29 +362,29 @@ class XiaoYiChannel(BaseChannel):
         ak: str,
         sk: str,
         agent_id: str,
-        ws_url: str,
         task_timeout_ms: int = DEFAULT_TASK_TIMEOUT_MS,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
+        no_text_debounce: bool = True,
         bot_prefix: str = "",
         media_dir: str = "",
         workspace_dir: Path | None = None,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config,
+            no_text_debounce=no_text_debounce,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
 
         self.enabled = enabled
         self.ak = ak
         self.sk = sk
         self.agent_id = agent_id
-        self.ws_url = ws_url
         self.task_timeout_ms = task_timeout_ms
         self.bot_prefix = bot_prefix
 
@@ -109,21 +402,19 @@ class XiaoYiChannel(BaseChannel):
             self._media_dir = DEFAULT_MEDIA_DIR / "xiaoyi"
         self._media_dir.mkdir(parents=True, exist_ok=True)
 
-        # WebSocket state
-        self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
-        self._session: Optional[aiohttp.ClientSession] = None
+        # Dual WebSocket connections
+        self._conn_primary: Optional[XiaoYiConnection] = None
+        self._conn_backup: Optional[XiaoYiConnection] = None
         self._connected = False
         self._reconnect_attempts = 0
         self._stopping = False  # Flag to prevent reconnect during stop
+        # In-flight reconnect task, tracked so stop() can cancel it.
+        self._reconnect_task: Optional[asyncio.Task] = None
 
-        # Session -> task_id mapping
-        self._session_task_map: Dict[str, str] = {}
-
-        # Heartbeat task
-        self._heartbeat_task: Optional[asyncio.Task] = None
-
-        # Receive loop task
-        self._receive_task: Optional[asyncio.Task] = None
+        # Session routing: session_id -> server_name (bounded)
+        self._session_server_map: "OrderedDict[str, str]" = OrderedDict()
+        # Session -> task_id mapping (bounded)
+        self._session_task_map: "OrderedDict[str, str]" = OrderedDict()
 
     @classmethod
     def from_env(
@@ -140,10 +431,6 @@ class XiaoYiChannel(BaseChannel):
             ak=os.getenv("XIAOYI_AK", ""),
             sk=os.getenv("XIAOYI_SK", ""),
             agent_id=os.getenv("XIAOYI_AGENT_ID", ""),
-            ws_url=os.getenv(
-                "XIAOYI_WS_URL",
-                "wss://hag.cloud.huawei.com/openclaw/v1/ws/link",
-            ),
             on_reply_sent=on_reply_sent,
             media_dir=os.getenv("XIAOYI_MEDIA_DIR", ""),
         )
@@ -154,9 +441,8 @@ class XiaoYiChannel(BaseChannel):
         process: ProcessHandler,
         config: XiaoYiChannelConfig,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
+        no_text_debounce: bool = True,
         workspace_dir: Path | None = None,
     ) -> "XiaoYiChannel":
         if isinstance(config, dict):
@@ -166,21 +452,23 @@ class XiaoYiChannel(BaseChannel):
                 ak=config.get("ak", ""),
                 sk=config.get("sk", ""),
                 agent_id=config.get("agent_id", ""),
-                ws_url=config.get(
-                    "ws_url",
-                    "wss://hag.cloud.huawei.com/openclaw/v1/ws/link",
-                ),
                 task_timeout_ms=config.get(
                     "task_timeout_ms",
                     DEFAULT_TASK_TIMEOUT_MS,
                 ),
                 on_reply_sent=on_reply_sent,
-                show_tool_details=show_tool_details,
-                filter_tool_messages=filter_tool_messages,
-                filter_thinking=filter_thinking,
+                display_config=display_config
+                or ChannelDisplayConfig.from_config(config),
+                no_text_debounce=no_text_debounce,
                 bot_prefix=config.get("bot_prefix", ""),
                 media_dir=config.get("media_dir", ""),
                 workspace_dir=workspace_dir,
+                access_control_dm=bool(
+                    config.get("access_control_dm", False),
+                ),
+                access_control_group=bool(
+                    config.get("access_control_group", False),
+                ),
             )
 
         return cls(
@@ -189,15 +477,20 @@ class XiaoYiChannel(BaseChannel):
             ak=config.ak,
             sk=config.sk,
             agent_id=config.agent_id,
-            ws_url=config.ws_url,
             task_timeout_ms=config.task_timeout_ms,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
+            no_text_debounce=no_text_debounce,
             bot_prefix=config.bot_prefix,
             media_dir=getattr(config, "media_dir", ""),
             workspace_dir=workspace_dir,
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
+            ),
         )
 
     def _validate_config(self) -> None:
@@ -217,26 +510,25 @@ class XiaoYiChannel(BaseChannel):
                 "status": "disabled",
                 "detail": "XiaoYi channel is disabled.",
             }
-        if not self._connected:
+        c1 = self._conn_primary and self._conn_primary.connected
+        c2 = self._conn_backup and self._conn_backup.connected
+        if c1 or c2:
             return {
                 "channel": self.channel,
-                "status": "unhealthy",
-                "detail": "XiaoYi WebSocket is not connected.",
-            }
-        if self._ws is None or self._ws.closed:
-            return {
-                "channel": self.channel,
-                "status": "unhealthy",
-                "detail": "XiaoYi WebSocket connection is closed.",
+                "status": "healthy",
+                "detail": (
+                    f"primary={'ok' if c1 else 'down'}, "
+                    f"backup={'ok' if c2 else 'down'}"
+                ),
             }
         return {
             "channel": self.channel,
-            "status": "healthy",
-            "detail": "XiaoYi WebSocket is connected.",
+            "status": "unhealthy",
+            "detail": "No WebSocket connections active.",
         }
 
     async def start(self) -> None:
-        """Start WebSocket connection."""
+        """Start dual WebSocket connections."""
         if not self.enabled:
             logger.debug("XiaoYi: start() skipped (enabled=false)")
             return
@@ -249,8 +541,8 @@ class XiaoYiChannel(BaseChannel):
 
         # Check if there's already an active connection for this agent_id
         # and reuse it if only filter settings changed
+        # pylint: disable=global-variable-not-assigned
         global _active_connections
-        should_connect = True
         async with _active_connections_lock:
             existing = _active_connections.get(self.agent_id)
             if (
@@ -259,73 +551,120 @@ class XiaoYiChannel(BaseChannel):
                 and existing._connected  # pylint: disable=protected-access
             ):
                 # pylint: disable=protected-access
-                # Found active connection - update settings
                 logger.info(
                     "XiaoYi: Updating settings for existing "
                     f"connection agent_id={self.agent_id}",
                 )
-                # Update render style settings on the existing channel
-                existing._render_style.filter_tool_messages = (
-                    self._render_style.filter_tool_messages
-                )
-                existing._render_style.filter_thinking = (
-                    self._render_style.filter_thinking
-                )
-                existing._render_style.show_tool_details = (
-                    self._render_style.show_tool_details
-                )
-                # Re-register this instance
-                # (so the new instance becomes the active one)
+                existing._display_config = self._display_config
+                existing._render_style.display_config = self._display_config
                 _active_connections[self.agent_id] = self
-                # Copy the WebSocket state to this instance
-                self._ws = existing._ws
-                self._session = existing._session
+                # Transfer connections to this instance
+                self._conn_primary = existing._conn_primary
+                self._conn_backup = existing._conn_backup
                 self._connected = existing._connected
-                self._heartbeat_task = existing._heartbeat_task
-                self._receive_task = existing._receive_task
                 self._session_task_map = existing._session_task_map
-                # Mark old instance as not owning the connection anymore
-                existing._ws = None
-                existing._session = None
+                self._session_server_map = existing._session_server_map
+                # Re-bind callbacks to new instance
+                if self._conn_primary:
+                    self._conn_primary.transfer_callbacks(
+                        self._handle_incoming_message,
+                        self._handle_disconnect,
+                    )
+                if self._conn_backup:
+                    self._conn_backup.transfer_callbacks(
+                        self._handle_incoming_message,
+                        self._handle_disconnect,
+                    )
+                # Mark old instance as inactive
+                existing._conn_primary = None
+                existing._conn_backup = None
                 existing._connected = False
-                existing._heartbeat_task = None
-                existing._receive_task = None
-                should_connect = False
+                logger.info(
+                    "XiaoYi: Reused existing connections",
+                )
+                return
 
-        if not should_connect:
-            logger.info(
-                "XiaoYi: Reused existing connection with updated settings",
-            )
-            return
-
-        # No existing connection or can't reuse - start new connection
+        # No existing connection or can't reuse - start new connections
         await self._wait_and_register_connection()
 
-        logger.info(f"XiaoYi: Connecting to {self.ws_url}...")
+        logger.info(
+            "XiaoYi: Connecting to %s + %s...",
+            DEFAULT_WS_URL,
+            DEFAULT_WS_URL_BACKUP,
+        )
 
-        try:
-            await self._connect()
-        except Exception as e:
-            logger.error(f"XiaoYi connection failed: {e}")
-            # Unregister on failure
+        await self._start_connections()
+
+    async def _start_connections(self) -> None:
+        """Connect to WebSocket endpoints.
+
+        Connects to *both* primary (domain) and backup (IP) endpoints
+        in parallel.  The XiaoYi server may route messages through
+        either endpoint, so both must be active.
+        """
+        # Disconnect any existing connections first
+        for conn in (self._conn_primary, self._conn_backup):
+            if conn:
+                await conn.disconnect()
+        self._conn_backup = None
+
+        self._conn_primary = XiaoYiConnection(
+            server_name="primary",
+            ws_url=DEFAULT_WS_URL,
+            ak=self.ak,
+            sk=self.sk,
+            agent_id=self.agent_id,
+            on_message=self._handle_incoming_message,
+            on_disconnect=self._handle_disconnect,
+        )
+
+        tasks = [self._conn_primary.connect()]
+
+        if DEFAULT_WS_URL_BACKUP:
+            self._conn_backup = XiaoYiConnection(
+                server_name="backup",
+                ws_url=DEFAULT_WS_URL_BACKUP,
+                ak=self.ak,
+                sk=self.sk,
+                agent_id=self.agent_id,
+                on_message=self._handle_incoming_message,
+                on_disconnect=self._handle_disconnect,
+            )
+            tasks.append(self._conn_backup.connect())
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        any_connected = any(
+            r is True for r in results if not isinstance(r, Exception)
+        )
+        if any_connected:
+            self._connected = True
+            self._reconnect_attempts = 0
+            c1 = self._conn_primary and self._conn_primary.connected
+            c2 = self._conn_backup and self._conn_backup.connected
+            logger.info(
+                "XiaoYi: Connected (primary=%s, backup=%s)",
+                "ok" if c1 else "fail",
+                "ok" if c2 else "fail",
+            )
+        else:
+            self._connected = False
+            logger.error("XiaoYi: All connections failed")
             await self._unregister_connection()
             self._schedule_reconnect()
 
     async def _wait_and_register_connection(self) -> None:
         """Stop any existing connection with same agent_id, then register."""
+        # pylint: disable=global-variable-not-assigned
         global _active_connections
 
-        # First, get existing connection and remove it from registry
         existing = None
         async with _active_connections_lock:
             existing = _active_connections.get(self.agent_id)
             if existing is not None and existing is not self:
-                # Remove from registry immediately
                 _active_connections.pop(self.agent_id, None)
-            # Register this instance
             _active_connections[self.agent_id] = self
 
-        # Now stop the old connection outside the lock
         if existing is not None and existing is not self:
             # pylint: disable=protected-access
             logger.info(
@@ -333,30 +672,21 @@ class XiaoYiChannel(BaseChannel):
                 f"agent_id={self.agent_id}",
             )
             try:
-                # Set stopping flag FIRST to prevent any reconnect
                 existing._stopping = True
                 existing._connected = False
-                # Cancel tasks and wait for them to finish
-                if existing._heartbeat_task:
-                    existing._heartbeat_task.cancel()
-                    try:
-                        await existing._heartbeat_task
-                    except asyncio.CancelledError:
-                        pass
-                if existing._receive_task:
-                    existing._receive_task.cancel()
-                    try:
-                        await existing._receive_task
-                    except asyncio.CancelledError:
-                        pass
-                # Close WebSocket
-                if existing._ws:
-                    await existing._ws.close()
-                if existing._session:
-                    await existing._session.close()
-                logger.debug("XiaoYi: Old connection stopped")
+                for conn in (
+                    existing._conn_primary,
+                    existing._conn_backup,
+                ):
+                    if conn:
+                        await conn.disconnect()
+                existing._conn_primary = None
+                existing._conn_backup = None
+                logger.debug("XiaoYi: Old connections stopped")
             except Exception as e:
-                logger.debug(f"XiaoYi: Error stopping old connection: {e}")
+                logger.debug(
+                    f"XiaoYi: Error stopping old connection: {e}",
+                )
 
         logger.debug(
             f"XiaoYi: Registered connection for agent_id={self.agent_id}",
@@ -364,6 +694,7 @@ class XiaoYiChannel(BaseChannel):
 
     async def _unregister_connection(self) -> None:
         """Unregister this connection from active connections."""
+        # pylint: disable=global-variable-not-assigned
         global _active_connections
         async with _active_connections_lock:
             if _active_connections.get(self.agent_id) is self:
@@ -373,112 +704,37 @@ class XiaoYiChannel(BaseChannel):
                     f"agent_id={self.agent_id}",
                 )
 
-    async def _connect(self) -> None:
-        """Establish WebSocket connection."""
-        headers = generate_auth_headers(self.ak, self.sk, self.agent_id)
+    @staticmethod
+    def _bounded_map_put(
+        store: "OrderedDict[str, str]",
+        key: str,
+        value: str,
+        max_items: int = _SESSION_MAP_MAX,
+    ) -> None:
+        """Set store[key]=value, evicting oldest entries beyond max_items."""
+        store[key] = value
+        store.move_to_end(key)
+        while len(store) > max_items:
+            store.popitem(last=False)
 
-        # Clean up any existing session first
-        await self._cleanup_session()
+    # -----------------------------------------------------------------
+    # Message routing (dual connection)
+    # -----------------------------------------------------------------
 
-        self._session = aiohttp.ClientSession()
-        ws_timeout = aiohttp.ClientWSTimeout(ws_close=CONNECTION_TIMEOUT)
-
-        try:
-            self._ws = await self._session.ws_connect(
-                self.ws_url,
-                headers=headers,
-                timeout=ws_timeout,
-            )
-
-            self._connected = True
-            self._reconnect_attempts = 0
-            logger.info("XiaoYi: WebSocket connected")
-
-            # Send init message
-            await self._send_init_message()
-
-            # Start heartbeat
-            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-
-            # Start receive loop
-            self._receive_task = asyncio.create_task(self._receive_loop())
-
-        except Exception as e:
-            logger.error(f"XiaoYi: WebSocket connection error: {e}")
-            self._connected = False
-            raise
-
-    async def _send_init_message(self) -> None:
-        """Send init message to server."""
-        if not self._ws:
-            return
-
-        init_msg = {
-            "msgType": "clawd_bot_init",
-            "agentId": self.agent_id,
-        }
-
-        try:
-            await self._ws.send_json(init_msg)
-        except Exception as e:
-            logger.error(f"XiaoYi: Failed to send init message: {e}")
-
-    async def _heartbeat_loop(self) -> None:
-        """Send heartbeat messages periodically."""
-        while self._connected and self._ws:
-            try:
-                await asyncio.sleep(HEARTBEAT_INTERVAL)
-
-                if not self._connected or not self._ws:
-                    break
-
-                heartbeat_msg = {
-                    "msgType": "heartbeat",
-                    "agentId": self.agent_id,
-                }
-
-                await self._ws.send_json(heartbeat_msg)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"XiaoYi: Heartbeat error: {e}")
-                break
-
-    async def _receive_loop(self) -> None:
-        """Receive and process messages from WebSocket."""
-        if not self._ws:
+    async def _handle_incoming_message(
+        self,
+        message: Dict[str, Any],
+        server_name: str,
+    ) -> None:
+        """Dispatch an incoming message from either connection."""
+        if self._stopping:
             return
 
         try:
-            async for msg in self._ws:
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    await self._handle_message(msg.data)
-                elif msg.type == aiohttp.WSMsgType.ERROR:
-                    logger.error(
-                        f"XiaoYi: WebSocket error: {self._ws.exception()}",
-                    )
-                    break
-                elif msg.type == aiohttp.WSMsgType.CLOSED:
-                    logger.info("XiaoYi: WebSocket closed")
-                    break
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.error(f"XiaoYi: Receive loop error: {e}")
-        finally:
-            self._connected = False
-            # Only reconnect if not stopping
-            if not self._stopping:
-                self._schedule_reconnect()
-
-    async def _handle_message(self, data: str) -> None:
-        """Handle incoming WebSocket message."""
-        try:
-            message = json.loads(data)
             logger.debug(
-                "XiaoYi: Received message: "
-                f"{json.dumps(message, indent=2)}",
+                "XiaoYi [%s]: Received message: %s",
+                server_name,
+                json.dumps(message, indent=2),
             )
 
             # Validate agent_id
@@ -488,6 +744,17 @@ class XiaoYiChannel(BaseChannel):
                     f"{message['agentId']}, expected {self.agent_id}",
                 )
                 return
+
+            # Track which server this session came from
+            session_id = message.get("params", {}).get(
+                "sessionId",
+            ) or message.get("sessionId")
+            if session_id:
+                self._bounded_map_put(
+                    self._session_server_map,
+                    session_id,
+                    server_name,
+                )
 
             # Handle clear context
             if (
@@ -509,10 +776,56 @@ class XiaoYiChannel(BaseChannel):
             if message.get("method") == "message/stream":
                 await self._handle_a2a_request(message)
 
-        except json.JSONDecodeError as e:
-            logger.error(f"XiaoYi: Failed to parse message: {e}")
         except Exception as e:
-            logger.error(f"XiaoYi: Error handling message: {e}", exc_info=True)
+            logger.error(
+                "XiaoYi: Error handling message: %s",
+                e,
+                exc_info=True,
+            )
+
+    def _handle_disconnect(self, server_name: str) -> None:
+        """Called when one connection drops.
+
+        Only trigger reconnect when *both* connections are down.
+        """
+        if self._stopping:
+            return
+
+        logger.warning("XiaoYi [%s]: Disconnected", server_name)
+
+        # Clean session-server mappings for the dropped server
+        for sid, srv in list(self._session_server_map.items()):
+            if srv == server_name:
+                self._session_server_map.pop(sid, None)
+
+        c1 = self._conn_primary and self._conn_primary.connected
+        c2 = self._conn_backup and self._conn_backup.connected
+        if not c1 and not c2:
+            self._connected = False
+            self._schedule_reconnect()
+
+    async def _send_to_session_server(
+        self,
+        session_id: str,
+        msg: Dict[str, Any],
+    ) -> None:
+        """Route outgoing message to the server that owns the session."""
+        target = self._session_server_map.get(session_id, "primary")
+
+        # Try target server first, fallback to the other
+        if target == "backup":
+            if self._conn_backup and await self._conn_backup.send_json(msg):
+                return
+            # Fallback to primary
+            if self._conn_primary and await self._conn_primary.send_json(msg):
+                return
+        else:
+            if self._conn_primary and await self._conn_primary.send_json(msg):
+                return
+            # Fallback to backup
+            if self._conn_backup and await self._conn_backup.send_json(msg):
+                return
+        logger.warning("XiaoYi: No connection available to send message")
 
     async def _handle_a2a_request(self, message: Dict[str, Any]) -> None:
         """Handle A2A request message."""
@@ -526,7 +839,11 @@ class XiaoYiChannel(BaseChannel):
                 logger.warning("XiaoYi: No sessionId in message")
                 return
 
-            self._session_task_map[session_id] = task_id
+            self._bounded_map_put(
+                self._session_task_map,
+                session_id,
+                task_id or "",
+            )
 
             # Extract content parts
             text_parts: List[str] = []
@@ -653,7 +970,7 @@ class XiaoYiChannel(BaseChannel):
         success: bool = True,
     ) -> None:
         """Send clear context response."""
-        if not self._ws or not self._connected:
+        if not self._connected:
             return
 
         json_rpc_response = {
@@ -672,10 +989,7 @@ class XiaoYiChannel(BaseChannel):
             "msgDetail": json.dumps(json_rpc_response),
         }
 
-        try:
-            await self._ws.send_json(msg)
-        except Exception as e:
-            logger.error(f"XiaoYi: Failed to send clear context response: {e}")
+        await self._send_to_session_server(session_id, msg)
 
     async def _send_tasks_cancel_response(
         self,
@@ -684,7 +998,7 @@ class XiaoYiChannel(BaseChannel):
         success: bool = True,
     ) -> None:
         """Send tasks cancel response."""
-        if not self._ws or not self._connected:
+        if not self._connected:
             return
 
         json_rpc_response = {
@@ -704,10 +1018,7 @@ class XiaoYiChannel(BaseChannel):
             "msgDetail": json.dumps(json_rpc_response),
         }
 
-        try:
-            await self._ws.send_json(msg)
-        except Exception as e:
-            logger.error(f"XiaoYi: Failed to send cancel response: {e}")
+        await self._send_to_session_server(session_id, msg)
 
     def _schedule_reconnect(self) -> None:
         """Schedule reconnection attempt."""
@@ -731,74 +1042,42 @@ class XiaoYiChannel(BaseChannel):
             await asyncio.sleep(delay)
             if self._stopping or self._connected:
                 return
-
-            # Clean up old session before reconnecting
-            await self._cleanup_session()
-
             try:
-                await self._connect()
-                logger.info("XiaoYi: Reconnected successfully")
+                await self._start_connections()
+                if self._connected:
+                    logger.info("XiaoYi: Reconnected successfully")
             except Exception as e:
                 logger.error(f"XiaoYi: Reconnect failed: {e}")
                 self._schedule_reconnect()
 
-        asyncio.create_task(reconnect())
-
-    async def _cleanup_session(self) -> None:
-        """Clean up WebSocket and session."""
-        if self._ws:
-            try:
-                await self._ws.close()
-            except Exception:
-                pass
-            self._ws = None
-
-        if self._session:
-            try:
-                await self._session.close()
-            except Exception:
-                pass
-            self._session = None
+        self._reconnect_task = asyncio.create_task(reconnect())
 
     async def stop(self) -> None:
-        """Stop WebSocket connection."""
+        """Stop WebSocket connections."""
         logger.info("XiaoYi: Stopping channel...")
 
         self._stopping = True  # Prevent reconnect during stop
         self._connected = False
 
-        # Cancel tasks
-        if self._heartbeat_task:
-            self._heartbeat_task.cancel()
+        # Cancel any in-flight reconnect task.
+        if self._reconnect_task and not self._reconnect_task.done():
+            self._reconnect_task.cancel()
             try:
-                await self._heartbeat_task
+                await self._reconnect_task
             except asyncio.CancelledError:
                 pass
-            self._heartbeat_task = None
+        self._reconnect_task = None
 
-        if self._receive_task:
-            self._receive_task.cancel()
-            try:
-                await self._receive_task
-            except asyncio.CancelledError:
-                pass
-            self._receive_task = None
-
-        # Close WebSocket
-        if self._ws:
-            await self._ws.close()
-            self._ws = None
-
-        # Close session
-        if self._session:
-            await self._session.close()
-            self._session = None
+        # Disconnect both connections
+        for conn in (self._conn_primary, self._conn_backup):
+            if conn:
+                await conn.disconnect()
+        self._conn_primary = None
+        self._conn_backup = None
 
         # Unregister from active connections
         await self._unregister_connection()
 
-        # Keep _stopping = True to prevent any reconnection attempts
-        # This channel instance will not be reused after stop
         logger.info("XiaoYi: Channel stopped")
 
     async def send(
@@ -813,7 +1092,7 @@ class XiaoYiChannel(BaseChannel):
         at TEXT_CHUNK_LIMIT characters to avoid WebSocket disconnection
         on large messages.
         """
-        if not self.enabled or not self._ws or not self._connected:
+        if not self.enabled or not self._connected:
             logger.warning("XiaoYi: Cannot send - not connected")
             return
 
@@ -882,7 +1161,7 @@ class XiaoYiChannel(BaseChannel):
         task_id: str,
         message_id: str,
         parts: List[Dict[str, Any]],
-        last_chunk: bool = False,
+        *,
         final: bool = False,
     ) -> Dict[str, Any]:
         """Build artifact-update message for XiaoYi A2A protocol."""
@@ -894,7 +1173,7 @@ class XiaoYiChannel(BaseChannel):
                 "taskId": task_id,
                 "kind": "artifact-update",
                 "append": True,
-                "lastChunk": last_chunk,
+                "lastChunk": True,
                 "final": final,
                 "artifact": {
                     "artifactId": artifact_id,
@@ -918,7 +1197,7 @@ class XiaoYiChannel(BaseChannel):
         text: str,
     ) -> None:
         """Send a single text chunk via WebSocket."""
-        if not self._ws or not self._connected:
+        if not self._connected:
             return
         msg = self._build_artifact_msg(
             session_id,
@@ -926,10 +1205,7 @@ class XiaoYiChannel(BaseChannel):
             message_id,
             [{"kind": "text", "text": text}],
         )
-        try:
-            await self._ws.send_json(msg)
-        except Exception as e:
-            logger.error(f"XiaoYi: Failed to send chunk: {e}")
+        await self._send_to_session_server(session_id, msg)
 
     async def _send_reasoning_chunk(
         self,
@@ -939,7 +1215,7 @@ class XiaoYiChannel(BaseChannel):
         reasoning_text: str,
     ) -> None:
         """Send a reasoning/thinking chunk via WebSocket."""
-        if not self._ws or not self._connected:
+        if not self._connected:
             return
         msg = self._build_artifact_msg(
             session_id,
@@ -947,10 +1223,7 @@ class XiaoYiChannel(BaseChannel):
             message_id,
             [{"kind": "reasoningText", "reasoningText": reasoning_text}],
         )
-        try:
-            await self._ws.send_json(msg)
-        except Exception as e:
-            logger.error(f"XiaoYi: Failed to send reasoning chunk: {e}")
+        await self._send_to_session_server(session_id, msg)
 
     async def send_final_message(
         self,
@@ -958,21 +1231,64 @@ class XiaoYiChannel(BaseChannel):
         task_id: str,
         message_id: str,
     ) -> None:
-        """Send final empty message to end the stream."""
-        if not self.enabled or not self._ws or not self._connected:
+        """Send status-update + final artifact to end the stream.
+
+        The XiaoYi A2A protocol requires two messages to properly close
+        a response stream:
+        1. ``status-update`` with ``state: "completed"``
+        2. ``artifact-update`` with ``final: true`` (empty text)
+
+        Without step 1 the XiaoYi UI stays in "running" state.
+        """
+        if not self.enabled or not self._connected:
             return
-        msg = self._build_artifact_msg(
+
+        # Step 1: status-update  (state=completed)
+        status_msg = {
+            "msgType": "agent_response",
+            "agentId": self.agent_id,
+            "sessionId": session_id,
+            "taskId": task_id,
+            "msgDetail": json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": message_id,
+                    "result": {
+                        "taskId": task_id,
+                        "kind": "status-update",
+                        "final": False,
+                        "status": {
+                            "message": {
+                                "role": "agent",
+                                "parts": [
+                                    {"kind": "text", "text": ""},
+                                ],
+                            },
+                            "state": "completed",
+                        },
+                    },
+                },
+            ),
+        }
+        await self._send_to_session_server(session_id, status_msg)
+        logger.info(
+            "XiaoYi: Sent status-update(completed) for session=%s",
+            session_id,
+        )
+
+        # Step 2: artifact-update  (final=true, stream end)
+        final_msg = self._build_artifact_msg(
             session_id,
             task_id,
             message_id,
             [{"kind": "text", "text": ""}],
-            last_chunk=True,
             final=True,
         )
-        try:
-            await self._ws.send_json(msg)
-        except Exception as e:
-            logger.error(f"XiaoYi: Failed to send final message: {e}")
+        await self._send_to_session_server(session_id, final_msg)
+        logger.info(
+            "XiaoYi: Sent artifact-update(final) for session=%s",
+            session_id,
+        )
 
     async def send_media(
         self,
@@ -981,7 +1297,7 @@ class XiaoYiChannel(BaseChannel):
         meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Send media message via WebSocket."""
-        if not self.enabled or not self._ws or not self._connected:
+        if not self.enabled or not self._connected:
             return
 
         meta = meta or {}
@@ -1011,11 +1327,20 @@ class XiaoYiChannel(BaseChannel):
                     "uri": getattr(part, "video_url", ""),
                 },
             }
+        elif part_type == ContentType.AUDIO:
+            artifact_part = {
+                "kind": "file",
+                "file": {
+                    "name": "audio",
+                    "mimeType": getattr(part, "format", None) or "audio/mpeg",
+                    "uri": getattr(part, "data", ""),
+                },
+            }
         elif part_type == ContentType.FILE:
             artifact_part = {
                 "kind": "file",
                 "file": {
-                    "name": getattr(part, "file_name", "file"),
+                    "name": getattr(part, "filename", None) or "file",
                     "mimeType": "application/octet-stream",
                     "uri": getattr(part, "file_url", ""),
                 },
@@ -1028,18 +1353,14 @@ class XiaoYiChannel(BaseChannel):
             task_id,
             str(uuid.uuid4()),
             [artifact_part],
-            last_chunk=True,
             final=True,
         )
-        try:
-            await self._ws.send_json(msg)
-        except Exception as e:
-            logger.error(f"XiaoYi: Failed to send media: {e}")
+        await self._send_to_session_server(session_id, msg)
 
     def _extract_xiaoyi_parts(
         self,
         message: Any,
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], List[OutgoingContentPart]]:
         # pylint: disable=too-many-branches,too-many-statements
         # pylint: disable=too-many-nested-blocks
         """Extract parts from message with proper XiaoYi kinds.
@@ -1048,7 +1369,7 @@ class XiaoYiChannel(BaseChannel):
         - kind="reasoningText": For thinking/reasoning content
         - kind="text": For regular text content
         """
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from ....schemas import (
             MessageType,
         )
 
@@ -1059,8 +1380,8 @@ class XiaoYiChannel(BaseChannel):
         # Check if this is a reasoning/thinking message type
         if msg_type == MessageType.REASONING:
             # Check if thinking is filtered
-            if self._render_style.filter_thinking:
-                return []
+            if not self._display_config.show_thinking:
+                return [], []
             for c in content:
                 text = getattr(c, "text", None)
                 if text:
@@ -1071,7 +1392,33 @@ class XiaoYiChannel(BaseChannel):
                             "reasoningText": text + "\n",
                         },
                     )
-            return parts
+            return parts, []
+
+        tool_types = (
+            MessageType.FUNCTION_CALL,
+            MessageType.PLUGIN_CALL,
+            MessageType.MCP_TOOL_CALL,
+            MessageType.FUNCTION_CALL_OUTPUT,
+            MessageType.PLUGIN_CALL_OUTPUT,
+            MessageType.MCP_TOOL_CALL_OUTPUT,
+        )
+        if msg_type in tool_types:
+            rendered = self._message_to_content_parts(message)
+            media = []
+            for part in rendered:
+                part_type = getattr(part, "type", None)
+                if part_type == ContentType.TEXT:
+                    text = getattr(part, "text", "")
+                    if text:
+                        parts.append({"kind": "text", "text": text})
+                elif part_type in (
+                    ContentType.IMAGE,
+                    ContentType.VIDEO,
+                    ContentType.AUDIO,
+                    ContentType.FILE,
+                ):
+                    media.append(part)
+            return parts, media
 
         # Process each content item
         for c in content:
@@ -1085,7 +1432,7 @@ class XiaoYiChannel(BaseChannel):
                     blocks = data.get("blocks", [])
                     if (
                         isinstance(blocks, list)
-                        and not self._render_style.filter_thinking
+                        and self._display_config.show_thinking
                     ):
                         for block in blocks:
                             if (
@@ -1116,97 +1463,6 @@ class XiaoYiChannel(BaseChannel):
             elif ctype == ContentType.REFUSAL and getattr(c, "refusal", None):
                 parts.append({"kind": "text", "text": c.refusal})
 
-        # Handle tool call/output messages
-        # with complete, independent formatting
-        # Check if tool messages should be filtered
-        if self._render_style.filter_tool_messages:
-            if msg_type in (
-                MessageType.FUNCTION_CALL,
-                MessageType.PLUGIN_CALL,
-                MessageType.MCP_TOOL_CALL,
-                MessageType.FUNCTION_CALL_OUTPUT,
-                MessageType.PLUGIN_CALL_OUTPUT,
-                MessageType.MCP_TOOL_CALL_OUTPUT,
-            ):
-                return []
-
-        if msg_type in (
-            MessageType.FUNCTION_CALL,
-            MessageType.PLUGIN_CALL,
-            MessageType.MCP_TOOL_CALL,
-        ):
-            # Tool call: format as "🔧 **name**" + code block with args
-            for c in content:
-                if getattr(c, "type", None) != ContentType.DATA:
-                    continue
-                data = getattr(c, "data", None)
-                if not isinstance(data, dict):
-                    continue
-                name = data.get("name") or "tool"
-                args = data.get("arguments") or "{}"
-                # Complete, independent formatting for each tool call
-                formatted = f"\n\n🔧 **{name}**\n```\n{args}\n```\n"
-                parts.append({"kind": "text", "text": formatted})
-            return parts
-
-        if msg_type in (
-            MessageType.FUNCTION_CALL_OUTPUT,
-            MessageType.PLUGIN_CALL_OUTPUT,
-            MessageType.MCP_TOOL_CALL_OUTPUT,
-        ):
-            # Tool output: format as "✅ **name**" + code block with result
-            for c in content:
-                if getattr(c, "type", None) != ContentType.DATA:
-                    continue
-                data = getattr(c, "data", None)
-                if not isinstance(data, dict):
-                    continue
-                name = data.get("name") or "tool"
-                output = data.get("output", "")
-
-                # Parse output and format as JSON
-                try:
-                    if isinstance(output, str):
-                        parsed = json.loads(output)
-                    else:
-                        parsed = output
-
-                    # Handle list format like [{'type': 'text', 'text': '...'}]
-                    if isinstance(parsed, list):
-                        texts = []
-                        for item in parsed:
-                            if (
-                                isinstance(item, dict)
-                                and item.get("type") == "text"
-                            ):
-                                texts.append(item.get("text", ""))
-                        output_str = "\n".join(texts) if texts else str(parsed)
-                    elif isinstance(parsed, dict):
-                        output_str = json.dumps(
-                            parsed,
-                            ensure_ascii=False,
-                            indent=2,
-                        )
-                    else:
-                        output_str = str(parsed)
-                except (json.JSONDecodeError, TypeError):
-                    output_str = str(output) if output else ""
-
-                # Truncate if too long
-                if len(output_str) > 500:
-                    output_str = output_str[:500] + "..."
-
-                # Escape backticks in output
-                # to avoid breaking code blocks
-                output_str = output_str.replace("```", "\\`\\`\\`")
-
-                # Complete, independent formatting
-                # for each tool output
-                # Ensure code block is properly closed
-                formatted = f"\n\n✅ **{name}**\n```\n{output_str}\n```\n"
-                parts.append({"kind": "text", "text": formatted})
-            return parts
-
         # If no parts extracted, use renderer as fallback
         if not parts:
             rendered_parts = self._renderer.message_to_parts(message)
@@ -1216,7 +1472,7 @@ class XiaoYiChannel(BaseChannel):
                     if text:
                         parts.append({"kind": "text", "text": text})
 
-        return parts
+        return parts, []
 
     async def send_xiaoyi_parts(
         self,
@@ -1231,7 +1487,7 @@ class XiaoYiChannel(BaseChannel):
         - kind: "text" or "reasoningText"
         - text/reasoningText: the content string
         """
-        if not self.enabled or not self._ws or not self._connected:
+        if not self.enabled or not self._connected:
             logger.warning("XiaoYi: Cannot send - not connected")
             return
 
@@ -1320,10 +1576,7 @@ class XiaoYiChannel(BaseChannel):
             message_id,
             artifact_parts,
         )
-        try:
-            await self._ws.send_json(msg)
-        except Exception as e:
-            logger.error(f"XiaoYi: Failed to send parts: {e}")
+        await self._send_to_session_server(session_id, msg)
 
     async def on_event_message_completed(
         self,
@@ -1337,14 +1590,17 @@ class XiaoYiChannel(BaseChannel):
         Separates thinking/reasoning content from regular text.
         """
         # Extract parts with proper kinds
-        parts = self._extract_xiaoyi_parts(event)
+        parts, media_parts = self._extract_xiaoyi_parts(event)
 
-        if not parts:
+        if not parts and not media_parts:
             logger.debug("XiaoYi: No parts to send for message")
             return
 
         # Send with XiaoYi format
-        await self.send_xiaoyi_parts(to_handle, parts, send_meta)
+        if parts:
+            await self.send_xiaoyi_parts(to_handle, parts, send_meta)
+        for part in media_parts:
+            await self.send_media(to_handle, part, send_meta)
 
     def resolve_session_id(
         self,
@@ -1394,56 +1650,30 @@ class XiaoYiChannel(BaseChannel):
             return session_id.split(":", 1)[-1]
         return user_id
 
-    async def _run_process_loop(
+    async def _on_process_completed(
         self,
         request: "AgentRequest",
         to_handle: str,
         send_meta: Dict[str, Any],
     ) -> None:
-        """Run process and send events. Override to send final message."""
-        from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
-
-        last_response = None
+        """Send status-update + final artifact after processing."""
         session_id = send_meta.get("session_id") or to_handle
+        task_id = send_meta.get("task_id") or self._session_task_map.get(
+            session_id,
+        )
+        message_id = send_meta.get("message_id") or str(uuid.uuid4())
 
-        try:
-            async for event in self._process(request):
-                obj = getattr(event, "object", None)
-                status = getattr(event, "status", None)
-                if obj == "message" and status == RunStatus.Completed:
-                    await self.on_event_message_completed(
-                        request,
-                        to_handle,
-                        event,
-                        send_meta,
-                    )
-                elif obj == "response":
-                    last_response = event
-                    await self.on_event_response(request, event)
+        logger.info(
+            "XiaoYi: final msg session=%s task=%s",
+            session_id,
+            task_id,
+        )
 
-            # Send final message to end the stream
-            task_id = send_meta.get("task_id") or self._session_task_map.get(
+        if task_id and session_id:
+            await self.send_final_message(session_id, task_id, message_id)
+        else:
+            logger.warning(
+                "XiaoYi: Cannot send final - session=%s task=%s",
                 session_id,
-            )
-            message_id = str(uuid.uuid4())
-
-            if task_id and session_id:
-                await self.send_final_message(session_id, task_id, message_id)
-
-            err_msg = self._get_response_error_message(last_response)
-            if err_msg:
-                await self._on_consume_error(
-                    request,
-                    to_handle,
-                    f"Error: {err_msg}",
-                )
-            if self._on_reply_sent:
-                args = self.get_on_reply_sent_args(request, to_handle)
-                self._on_reply_sent(self.channel, *args)
-        except Exception:
-            logger.exception("XiaoYi channel consume_one failed")
-            await self._on_consume_error(
-                request,
-                to_handle,
-                "An error occurred while processing your request.",
+                task_id,
             )

@@ -19,10 +19,12 @@ Run:
     pytest tests/unit/channels/test_dingtalk.py -v
     pytest tests/unit/channels/test_dingtalk.py::TestDingTalkSessionWebhook -v
 """
+
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 # pylint: disable=broad-exception-raised,using-constant-test,unused-import
 # pylint: disable=reimported
 from __future__ import annotations
+
 
 import asyncio
 import json
@@ -34,9 +36,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+
 from qwenpaw.exceptions import ChannelError
 from tests.fixtures.channels.mock_http import MockAiohttpSession
-
 
 # =============================================================================
 # Fixtures
@@ -88,8 +91,10 @@ def dingtalk_channel(
         client_secret="test_client_secret",
         bot_prefix="[TestBot] ",
         media_dir=str(temp_media_dir),
-        show_tool_details=False,
-        filter_tool_messages=True,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=False,
+            show_tool_results=False,
+        ),
     )
     yield channel
 
@@ -109,8 +114,10 @@ def dingtalk_channel_with_workspace(
         client_secret="test_client_secret",
         bot_prefix="[TestBot] ",
         workspace_dir=temp_workspace_dir,
-        show_tool_details=False,
-        filter_tool_messages=True,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=False,
+            show_tool_results=False,
+        ),
     )
     yield channel
 
@@ -906,13 +913,19 @@ class TestDingTalkResolveSession:
         assert result == "dingtalk:user456"
 
     def test_to_handle_from_target_formats_correctly(self, dingtalk_channel):
-        """to_handle_from_target should format handle with session_id."""
+        """to_handle_from_target should include user_id prefix for DM."""
         result = dingtalk_channel.to_handle_from_target(
             user_id="user123",
             session_id="sess_abc",
         )
+        assert result == "dingtalk:sw:user123_sess_abc"
 
-        assert result == "dingtalk:sw:sess_abc"
+        # Without user_id, falls back to suffix-only key (group chat)
+        result_no_user = dingtalk_channel.to_handle_from_target(
+            user_id="",
+            session_id="sess_abc",
+        )
+        assert result_no_user == "dingtalk:sw:sess_abc"
 
     def test_route_from_handle_sw(self, dingtalk_channel):
         """_route_from_handle should parse 'dingtalk:sw:' format."""
@@ -1507,7 +1520,7 @@ class TestDingTalkWorkspaceIntegration:
         dingtalk_with_workspace,
     ):
         """_stream_with_tracker should yield SSE formatted events."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             RunStatus,
             Event,
             Message,
@@ -1578,6 +1591,95 @@ class TestDingTalkSendContentParts:
             )
 
             mock_send.assert_not_called()
+
+    async def test_send_content_parts_whitespace_text_skipped(
+        self,
+        dingtalk_channel,
+    ):
+        """Whitespace-only text should not send a prefix-only message."""
+        from qwenpaw.app.channels.base import TextContent, ContentType
+
+        parts = [TextContent(type=ContentType.TEXT, text="   \n\t")]
+
+        with patch.object(
+            dingtalk_channel,
+            "send",
+            new_callable=AsyncMock,
+        ) as mock_send:
+            await dingtalk_channel.send_content_parts(
+                to_handle="dingtalk:sw:test",
+                parts=parts,
+                meta={"bot_prefix": "[TestBot] "},
+            )
+
+            mock_send.assert_not_called()
+
+    async def test_send_content_parts_text_failure_logs_without_strict_meta(
+        self,
+        dingtalk_channel,
+    ):
+        """Conversation replies should not fail the whole agent pipeline."""
+        from qwenpaw.app.channels.base import TextContent, ContentType
+
+        parts = [TextContent(type=ContentType.TEXT, text="Hello")]
+
+        with (
+            patch.object(
+                dingtalk_channel,
+                "_send_via_session_webhook",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_webhook,
+            patch.object(
+                dingtalk_channel,
+                "_try_open_api_fallback",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_fallback,
+        ):
+            # Should complete without raising even when both hops fail.
+            await dingtalk_channel.send_content_parts(
+                to_handle="dingtalk:sw:test",
+                parts=parts,
+                meta={"session_webhook": "http://webhook.url"},
+            )
+
+            # Verify the full webhook -> Open API fallback chain ran.
+            mock_webhook.assert_awaited()
+            mock_fallback.assert_awaited()
+
+    async def test_send_content_parts_text_failure_raises_for_api_send(
+        self,
+        dingtalk_channel,
+    ):
+        """Explicit API delivery failure should surface to callers."""
+        from qwenpaw.app.channels.base import TextContent, ContentType
+
+        parts = [TextContent(type=ContentType.TEXT, text="Hello")]
+
+        with (
+            patch.object(
+                dingtalk_channel,
+                "_send_via_session_webhook",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch.object(
+                dingtalk_channel,
+                "_try_open_api_fallback",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+        ):
+            with pytest.raises(ChannelError, match="Open API fallback"):
+                await dingtalk_channel.send_content_parts(
+                    to_handle="dingtalk:sw:test",
+                    parts=parts,
+                    meta={
+                        "_api_send": True,
+                        "session_webhook": "http://webhook.url",
+                    },
+                )
 
     async def test_send_content_parts_with_file(
         self,
@@ -2643,35 +2745,67 @@ class TestDingTalkSendMethodsExtended:
             meta={},
         )
 
-    async def test_send_no_webhook_warning(
+    async def test_send_no_delivery_target_logs_without_strict_meta(
         self,
         dingtalk_channel,
         mock_http_session,
     ):
-        """Should log warning when no webhook available."""
-        from unittest.mock import patch
-
-        # Set http session (required for send to proceed)
+        """Conversation replies should not raise on missing target metadata."""
         dingtalk_channel._http = mock_http_session
 
-        # Patch logger.warning to capture the call
         with patch(
             "qwenpaw.app.channels.dingtalk.channel.logger.warning",
         ) as mock_warning:
+            # Should return quietly (no raise) for non-API sends.
             await dingtalk_channel.send(
                 to_handle="unknown_handle",
                 text="Test message",
                 meta={},
             )
 
-            # Check that the warning was logged with 'no sessionWebhook'
-            # Filter for calls containing 'no sessionWebhook'
-            warning_calls = [
-                call
-                for call in mock_warning.call_args_list
-                if "no sessionWebhook" in str(call)
-            ]
-            assert len(warning_calls) == 1
+        assert any(
+            "no sessionWebhook" in str(call)
+            for call in mock_warning.call_args_list
+        )
+
+    async def test_send_no_delivery_target_raises_for_api_send(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Explicit send should fail when no DingTalk target is reachable."""
+        dingtalk_channel._http = mock_http_session
+
+        with pytest.raises(ChannelError, match="no sessionWebhook"):
+            await dingtalk_channel.send(
+                to_handle="unknown_handle",
+                text="Test message",
+                meta={"_api_send": True},
+            )
+
+    async def test_send_open_api_fallback_failure_raises_for_api_send(
+        self,
+        dingtalk_channel,
+        mock_http_session,
+    ):
+        """Open API transport failure should fail explicit sends."""
+        dingtalk_channel._http = mock_http_session
+
+        with patch.object(
+            dingtalk_channel,
+            "_send_robot_message",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            with pytest.raises(ChannelError, match="Open API send failed"):
+                await dingtalk_channel.send(
+                    to_handle="unknown_handle",
+                    text="Test message",
+                    meta={
+                        "_api_send": True,
+                        "conversation_id": "cid_test",
+                    },
+                )
 
 
 # =============================================================================
@@ -3131,28 +3265,26 @@ class TestDingTalkLoadSessionWebhookEntry:
 class TestDingTalkAdditionalCoverage:
     """Additional tests to reach 60% coverage."""
 
-    def test_check_allowlist_empty(self, dingtalk_channel):
-        """Check allowlist when empty allows all."""
-        dingtalk_channel.allow_from = set()
+    def test_access_control_disabled_allows_all(self, dingtalk_channel):
+        """Access control disabled allows all users."""
+        dingtalk_channel.access_control_dm = False
+        dingtalk_channel.access_control_group = False
 
-        allowed, _ = dingtalk_channel._check_allowlist("any_user", False)
-        assert allowed is True
+        assert dingtalk_channel.access_control_enabled is False
 
-    def test_check_allowlist_blocked(self, dingtalk_channel):
-        """Check blocked user in allowlist."""
-        dingtalk_channel.allow_from = {"user1", "user2"}
-        dingtalk_channel.dm_policy = "allowlist"
+    def test_access_control_dm_enabled(self, dingtalk_channel):
+        """Access control dm enabled makes access_control_enabled True."""
+        dingtalk_channel.access_control_dm = True
+        dingtalk_channel.access_control_group = False
 
-        allowed, msg = dingtalk_channel._check_allowlist("other_user", False)
-        assert allowed is False
-        assert "not authorized" in msg
+        assert dingtalk_channel.access_control_enabled is True
 
-    def test_check_allowlist_allowed(self, dingtalk_channel):
-        """Check allowed user in allowlist."""
-        dingtalk_channel.allow_from = {"user1", "user2"}
+    def test_access_control_group_enabled(self, dingtalk_channel):
+        """Access control group enabled makes access_control_enabled True."""
+        dingtalk_channel.access_control_dm = False
+        dingtalk_channel.access_control_group = True
 
-        allowed, _ = dingtalk_channel._check_allowlist("user1", False)
-        assert allowed is True
+        assert dingtalk_channel.access_control_enabled is True
 
     def test_check_group_mention_not_required(self, dingtalk_channel):
         """Check group mention when not required."""

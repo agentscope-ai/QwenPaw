@@ -2,6 +2,7 @@
 """CLI skill: list, inspect, and interactively configure workspace skills."""
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import click
@@ -19,6 +20,7 @@ from ..agents.skill_system import (
 from ..agents.skill_system.registry import list_workspaces
 from ..agents.skill_system.store import validate_skill_content
 from ..agents.skill_system.hub import (
+    aclose_hub_client,
     import_pool_skill_from_hub,
     install_skill_from_hub,
 )
@@ -436,15 +438,27 @@ def install_cmd(
     With ``--agent-id``, the skill is imported directly into that workspace.
     """
     normalized_agent_id = str(agent_id or "").strip()
+    workspace_dir = (
+        _require_agent_workspace(normalized_agent_id)
+        if normalized_agent_id
+        else None
+    )
+
+    async def _run_install() -> object:
+        try:
+            if workspace_dir is not None:
+                return await install_skill_from_hub(
+                    workspace_dir=workspace_dir,
+                    bundle_url=bundle_url,
+                    enable=enable,
+                )
+            return await import_pool_skill_from_hub(bundle_url=bundle_url)
+        finally:
+            await aclose_hub_client()
 
     try:
-        if normalized_agent_id:
-            workspace_dir = _require_agent_workspace(normalized_agent_id)
-            result = install_skill_from_hub(
-                workspace_dir=workspace_dir,
-                bundle_url=bundle_url,
-                enable=enable,
-            )
+        result = asyncio.run(_run_install())
+        if workspace_dir is not None:
             click.echo(
                 f"✓ Installed skill '{result.name}' to agent "
                 f"'{normalized_agent_id}'.",
@@ -455,9 +469,6 @@ def install_cmd(
             click.echo(f"Workspace: {workspace_dir}")
             return
 
-        result = import_pool_skill_from_hub(
-            bundle_url=bundle_url,
-        )
         click.echo(f"✓ Installed skill '{result.name}' to the skill pool.")
         click.echo(f"Source: {result.source_url}")
     except SkillConflictError as exc:

@@ -1,6 +1,11 @@
 import React from "react";
 import { Button, Card } from "@agentscope-ai/design";
-import { ReloadOutlined } from "@ant-design/icons";
+import {
+  CaretDownOutlined,
+  CaretRightOutlined,
+  FolderOutlined,
+  ReloadOutlined,
+} from "@ant-design/icons";
 import {
   DndContext,
   closestCenter,
@@ -15,7 +20,9 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import type { MarkdownFile, DailyMemoryFile } from "../../../../api/types";
-import { FileItem } from "./FileItem";
+import { buildMemoryTree, FileItem } from "./FileItem";
+import prettyBytes from "pretty-bytes";
+import { formatTimeAgo } from "./utils";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
@@ -29,6 +36,7 @@ interface FileListPanelProps {
   onRefresh: () => void;
   onFileClick: (file: MarkdownFile) => void;
   onDailyMemoryClick: (daily: DailyMemoryFile) => void;
+  onMemoryExpand?: () => void;
   onToggleEnabled: (filename: string) => void;
   onReorder: (newOrder: string[]) => void;
 }
@@ -42,10 +50,18 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
   onRefresh,
   onFileClick,
   onDailyMemoryClick,
+  onMemoryExpand,
   onToggleEnabled,
   onReorder,
 }) => {
   const { t } = useTranslation();
+  const [expandedDigestNodes, setExpandedDigestNodes] = React.useState<
+    Set<string>
+  >(() => new Set());
+  const digestRoot = React.useMemo(
+    () => buildMemoryTree(dailyMemories).digestRoot,
+    [dailyMemories],
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -65,6 +81,71 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
 
     const newOrder = arrayMove(enabledFiles, oldIndex, newIndex);
     onReorder(newOrder);
+  };
+
+  const isDigestNodeExpanded = (key: string) => expandedDigestNodes.has(key);
+
+  const toggleDigestNode = (key: string) => {
+    setExpandedDigestNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const renderDigestFile = (
+    file: DailyMemoryFile,
+    label: string,
+    level = 0,
+  ) => {
+    const isSelected = selectedFile?.memory_path === file.filename;
+    return (
+      <div
+        key={file.filename}
+        onClick={() => onDailyMemoryClick(file)}
+        className={`${styles.dailyMemoryItem} ${
+          isSelected ? styles.selected : ""
+        }`}
+        style={{ marginLeft: level * 14 }}
+      >
+        <div className={styles.dailyMemoryName}>{label}</div>
+        <div className={styles.dailyMemoryMeta}>
+          {prettyBytes(file.size)} · {formatTimeAgo(file.updated_at)}
+        </div>
+      </div>
+    );
+  };
+
+  const renderDigestNode = (
+    node: typeof digestRoot,
+    level = 0,
+    path = node.name,
+  ): React.ReactNode => {
+    if (node.file) {
+      return renderDigestFile(node.file, node.name, level);
+    }
+    const isExpanded = isDigestNodeExpanded(path);
+    return (
+      <div key={path}>
+        <div
+          className={`${styles.dailyMemoryItem} ${styles.memoryFolderItem}`}
+          style={{ marginLeft: level * 14 }}
+          onClick={() => toggleDigestNode(path)}
+        >
+          {isExpanded ? <CaretDownOutlined /> : <CaretRightOutlined />}
+          <FolderOutlined />
+          <span>{node.name}</span>
+        </div>
+        {isExpanded &&
+          node.children.map((child) =>
+            renderDigestNode(child, level + 1, `${path}/${child.name}`),
+          )}
+      </div>
+    );
   };
 
   return (
@@ -110,6 +191,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
                       enabled={isEnabled}
                       onFileClick={onFileClick}
                       onDailyMemoryClick={onDailyMemoryClick}
+                      onMemoryExpand={onMemoryExpand}
                       onToggleEnabled={onToggleEnabled}
                     />
                   );
@@ -119,6 +201,7 @@ export const FileListPanel: React.FC<FileListPanelProps> = ({
           ) : (
             <div className={styles.emptyState}>{t("workspace.noFiles")}</div>
           )}
+          {digestRoot.children.length > 0 && renderDigestNode(digestRoot)}
         </div>
       </Card>
     </div>

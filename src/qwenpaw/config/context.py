@@ -5,8 +5,14 @@ This module provides a context variable to pass the agent's workspace
 directory to tool functions, allowing them to resolve relative paths
 correctly in a multi-agent environment.
 """
+from __future__ import annotations
+
 from contextvars import ContextVar
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agentscope.tool import Toolkit
 
 # Context variable to store the current agent's workspace directory
 current_workspace_dir: ContextVar[Path | None] = ContextVar(
@@ -105,3 +111,53 @@ def set_current_shell_command_executable(executable: str | None) -> None:
         executable: Path to the shell executable (e.g. "/bin/bash").
     """
     current_shell_command_executable.set(executable)
+
+
+# Context variable to store the current session ID for tool functions
+current_session_id: ContextVar[str | None] = ContextVar(
+    "current_session_id",
+    default=None,
+)
+
+
+def get_current_session_id() -> str | None:
+    """Get the current session ID from context.
+
+    Returns:
+        Current session ID, or None if not set.
+    """
+    return current_session_id.get()
+
+
+def set_current_session_id(session_id: str | None) -> None:
+    """Set the current session ID in context.
+
+    Args:
+        session_id: Session ID to store in context.
+    """
+    current_session_id.set(session_id)
+
+
+# Context variable to store the current agent's Toolkit instance
+current_toolkit: ContextVar[Toolkit | None] = ContextVar(
+    "current_toolkit",
+    default=None,
+)
+
+
+def get_current_toolkit() -> Toolkit | None:
+    """Get the current agent's Toolkit instance from context.
+
+    Returns:
+        The current Toolkit instance, or None if not set.
+    """
+    return current_toolkit.get()
+
+
+def set_current_toolkit(toolkit: Toolkit | None) -> None:
+    """Set the current agent's Toolkit instance in context.
+
+    Args:
+        toolkit: Toolkit instance to store in context.
+    """
+    current_toolkit.set(toolkit)

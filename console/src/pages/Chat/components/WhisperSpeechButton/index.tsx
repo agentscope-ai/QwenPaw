@@ -11,9 +11,9 @@ import { Tooltip, message } from "antd";
 import { LoadingOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { agentApi, TranscriptionError } from "@/api/modules/agent";
+import { useUploadLimitStore } from "@/stores/uploadLimitStore";
 
 const MAX_RECORDING_DURATION_MS = 5 * 60 * 1000; // 5 minutes
-const MAX_AUDIO_SIZE_MB = 25;
 
 export interface WhisperSpeechButtonRef {
   toggleRecording: () => void;
@@ -133,11 +133,12 @@ const WhisperSpeechButton = forwardRef<
 
         // File size validation
         const sizeMb = blob.size / 1024 / 1024;
-        if (sizeMb > MAX_AUDIO_SIZE_MB) {
+        const uploadLimit = useUploadLimitStore.getState().uploadMaxSizeMb;
+        if (uploadLimit !== null && sizeMb > uploadLimit) {
           message.error(
             t("chat.speech.fileTooLarge", {
               size: sizeMb.toFixed(1),
-              limit: MAX_AUDIO_SIZE_MB,
+              limit: uploadLimit,
             }),
           );
           return;
@@ -159,7 +160,7 @@ const WhisperSpeechButton = forwardRef<
                 message.error(
                   t("chat.speech.fileTooLarge", {
                     size: sizeMb.toFixed(1),
-                    limit: MAX_AUDIO_SIZE_MB,
+                    limit: uploadLimit ?? "?",
                   }),
                 );
                 break;

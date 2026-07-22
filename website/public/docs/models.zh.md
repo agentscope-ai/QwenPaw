@@ -2,7 +2,7 @@
 
 在使用 QwenPaw 之前，您需要配置至少一个可用模型，QwenPaw 支持多种模型提供商，您可以在页面左侧边栏的 **设置 -> 模型** 页面进行配置和管理。
 
-![设置模型](https://img.alicdn.com/imgextra/i1/O1CN01mi22sP1uCyJu22bLc_!!6000000006002-2-tps-3822-2070.png)
+![设置模型](https://img.alicdn.com/imgextra/i4/O1CN01fCY3MW1R3F46MQWCk_!!6000000002055-2-tps-3810-2064.png)
 
 QwenPaw 支持多种 LLM 提供商：
 
@@ -26,7 +26,7 @@ QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包
 
 QwenPaw Local 是基于 llama.cpp 的本地模型提供商，可以进入 **模型** 界面进行配置和管理。
 
-![QwenPaw Local 提供商](https://img.alicdn.com/imgextra/i4/O1CN01eFCOm91cn0Ofu4v4r_!!6000000003644-2-tps-3822-2070.png)
+![QwenPaw Local 提供商](https://img.alicdn.com/imgextra/i4/O1CN01SCsDMo1PV3tJhmYgD_!!6000000001845-2-tps-3810-2064.png)
 
 初次配置 QwenPaw Local 时，您需要先下载 llama.cpp 运行库，点击 **下载 llama.cpp** 按钮，QwenPaw 会自动下载并配置好 llama.cpp 运行库，下载完成后您就可以使用 QwenPaw Local 提供商了。
 
@@ -162,7 +162,7 @@ QwenPaw 当前支持的云提供商包括：
 
 > 由于部分供应商针对中国大陆以及其他地区提供了不同的 API 域名，请根据您所在的地区选择正确的供应商
 
-![云供应商列表](https://img.alicdn.com/imgextra/i2/O1CN010o2p2y1Qj5cbfpqto_!!6000000002011-2-tps-3826-2076.png)
+![云供应商列表](https://img.alicdn.com/imgextra/i4/O1CN01AvAWdy1GGYoDlNecN_!!6000000000595-2-tps-3810-2064.png)
 
 为了激活云供应商，你需要进入供应商的配置页面进行配置，大部分云供应商都已经提前配置了 API 域名，您只需要输入 API Key 即可。
 
@@ -188,7 +188,7 @@ QwenPaw 当前支持的云提供商包括：
 
 您可以使用 **设置 -> 模型 -> 提供商** 右上角的 **添加提供商** 来添加一个新的提供商，添加时需要提供 **提供商 ID**（用于 QwenPaw 内部索引）以及 **提供商名称** （用于在界面中展示），并选择该供应商的 API 兼容模式（目前支持 OpenAI `chat.completions` 以及 Anthropic `messages` 两种）。添加完成后您可以像云提供商一样在该提供商下添加模型，并且在聊天等场景中选择使用该提供商的模型。
 
-![添加提供商](https://img.alicdn.com/imgextra/i3/O1CN01palLpz1fGtTWePlTS_!!6000000003980-2-tps-3826-2076.png)
+![添加提供商](https://img.alicdn.com/imgextra/i4/O1CN0109IMbU1x9FyG248X2_!!6000000006400-2-tps-3810-2064.png)
 
 ### 配置供应商
 
@@ -206,11 +206,11 @@ QwenPaw 当前支持的云提供商包括：
 
 配置好的模型供应商以及模型会显示在 **设置 -> 模型 -> 默认 LLM** 的列表中，您可以选择一个模型作为全局默认模型，点击模型右侧的 **保存** 按钮即可，在该页面设置的模型会作为全局默认模型被 QwenPaw 使用，如果您在某些场景（例如聊天）中没有指定模型，QwenPaw 就会使用这里设置的默认模型。
 
-![默认模型设置](https://img.alicdn.com/imgextra/i2/O1CN01yvndw51U9904SNmLx_!!6000000002474-2-tps-3804-968.png)
+![默认模型设置](https://img.alicdn.com/imgextra/i4/O1CN01hczGZs1OH290Y4JAG_!!6000000001679-2-tps-3810-2064.png)
 
 由于不同任务所需的模型能力存在差别，QwenPaw 也支持在不同聊天中使用不同的模型，你可以在 **聊天** 页面右上角的下拉菜单中选择合适的供应商和模型，但该设置仅对当前使用的智能体以及聊天生效。如果没有在聊天页面配置供应商或者模型，QwenPaw 就会使用全局默认模型。
 
-![聊天模型设置](https://img.alicdn.com/imgextra/i3/O1CN01UpOvxZ1MlbKYCtNAv_!!6000000001475-2-tps-3826-2076.png)
+![聊天模型设置](https://img.alicdn.com/imgextra/i2/O1CN01YhPlMl1ONRgnMBj7i_!!6000000001693-2-tps-3810-2064.png)
 
 ## 模型配置进阶
 

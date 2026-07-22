@@ -108,6 +108,7 @@ def _submit_background_task(
     to_agent: str,
     session_id: str,
     timeout: int,
+    task_timeout: Optional[float] = None,
 ) -> None:
     """Submit background task and return task_id."""
     try:
@@ -116,6 +117,7 @@ def _submit_background_task(
             request_payload,
             to_agent,
             timeout,
+            task_timeout=task_timeout,
         )
 
         task_id = result.get("task_id")
@@ -781,6 +783,15 @@ def delete_cmd(
     help="Request timeout in seconds (default 300)",
 )
 @click.option(
+    "--task-timeout",
+    type=float,
+    default=None,
+    help=(
+        "Task execution timeout in seconds for background tasks. "
+        "Overrides server-side default stream_task_timeout."
+    ),
+)
+@click.option(
     "--json-output",
     is_flag=True,
     default=False,
@@ -802,12 +813,13 @@ def chat_cmd(
     background: bool,
     task_id: Optional[str],
     timeout: int,
+    task_timeout: Optional[float],
     json_output: bool,
     base_url: Optional[str],
 ) -> None:
     """Chat with another agent (inter-agent communication).
 
-    Sends a message to another agent via /api/agent/process endpoint
+    Sends a message to another agent via /api/console/chat endpoint
     and returns the response. By default generates unique session IDs
     to avoid concurrency issues.
 
@@ -936,6 +948,7 @@ def chat_cmd(
             to_agent,
             final_session_id,
             timeout,
+            task_timeout=task_timeout,
         )
         return
 

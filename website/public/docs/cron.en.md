@@ -161,6 +161,10 @@ qwenpaw cron create \
   --text "Please review my todos and list the top three priorities."
 ```
 
+Add `--silent` to an `agent` task when it should run in the background without
+sending its response to the channel. The task still keeps its session and
+trace, and `--save-result-to-inbox` remains independent.
+
 Example (calendar task, one-time run only):
 
 ```bash
@@ -201,6 +205,7 @@ Parameter notes:
 - `--schedule-type cron`: requires `--cron`
 - `--schedule-type scheduled`: requires `--run-at`
 - For repeating `scheduled` tasks, pass `--repeat-every-days` and an end condition (`count` / `until` / `never`)
+- `--silent` is available for `agent` tasks only and suppresses channel delivery, not execution
 - To control Inbox delivery, explicitly pass `--save-result-to-inbox` or `--no-save-result-to-inbox`
 
 ---

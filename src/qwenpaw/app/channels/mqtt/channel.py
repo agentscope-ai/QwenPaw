@@ -11,12 +11,13 @@ from typing import Any, Dict, Optional, Union
 import paho.mqtt.client as mqtt
 from paho.mqtt import MQTTException
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
     ContentType,
 )
 
 from ....config.config import MQTTConfig as MQTTChannelConfig
+from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -52,16 +53,18 @@ class MQTTChannel(BaseChannel):
         tls_certfile: Optional[str] = None,
         tls_keyfile: Optional[str] = None,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
+        no_text_debounce: bool = True,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config,
+            no_text_debounce=no_text_debounce,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
 
         self.enabled = enabled
@@ -124,9 +127,8 @@ class MQTTChannel(BaseChannel):
         process: ProcessHandler,
         config: Union[MQTTChannelConfig, dict],
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
+        no_text_debounce: bool = True,
     ) -> "MQTTChannel":
         if isinstance(config, dict):
             port_val = config.get("port", 1883)
@@ -162,9 +164,15 @@ class MQTTChannel(BaseChannel):
                 tls_keyfile=config.get("tls_keyfile"),
                 transport=config.get("transport", "tcp"),
                 on_reply_sent=on_reply_sent,
-                show_tool_details=show_tool_details,
-                filter_tool_messages=filter_tool_messages,
-                filter_thinking=filter_thinking,
+                display_config=display_config
+                or ChannelDisplayConfig.from_config(config),
+                no_text_debounce=no_text_debounce,
+                access_control_dm=bool(
+                    config.get("access_control_dm", False),
+                ),
+                access_control_group=bool(
+                    config.get("access_control_group", False),
+                ),
             )
         port = int(config.port) if config.port else 1883
 
@@ -189,9 +197,15 @@ class MQTTChannel(BaseChannel):
             tls_certfile=getattr(config, "tls_certfile", None),
             tls_keyfile=getattr(config, "tls_keyfile", None),
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
+            no_text_debounce=no_text_debounce,
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
+            ),
         )
 
     def _validate_config(self):

@@ -15,7 +15,9 @@ from ..auth import (
     revoke_token,
     update_credentials,
     verify_token,
+    resolve_client_ip,
 )
+from ..rate_limiter import rate_limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -47,7 +49,7 @@ class AuthStatusResponse(BaseModel):
 
 
 @router.post("/login")
-async def login(req: LoginRequest):
+async def login(request: Request, req: LoginRequest):
     """Authenticate with username and password.
 
     Optional `expires_in` field:
@@ -58,9 +60,45 @@ async def login(req: LoginRequest):
     if not is_auth_enabled():
         return LoginResponse(token="", username="")
 
+    # Get client IP for rate limiting
+    client_ip = resolve_client_ip(request)
+
+    # Check if user account is locked
+    if rate_limiter.is_user_locked(req.username):
+        raise HTTPException(
+            status_code=423,
+            detail="Account temporarily locked. Please try again later",
+        )
+
+    # Check if IP is locked or rate-limited
+    if rate_limiter.is_ip_locked(client_ip):
+        raise HTTPException(
+            status_code=423,
+            detail="Too many login attempts. Please try again later",
+        )
+
+    if rate_limiter.is_ip_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please slow down",
+        )
+
+    # Attempt authentication
     token = authenticate(req.username, req.password, req.expires_in)
     if token is None:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        # Record failed attempt
+        rate_limiter.record_login_attempt(
+            client_ip,
+            req.username,
+            success=False,
+        )
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password",
+        )
+
+    # Record successful attempt
+    rate_limiter.record_login_attempt(client_ip, req.username, success=True)
 
     return LoginResponse(token=token, username=req.username)
 

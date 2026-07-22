@@ -8,6 +8,9 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from ._utils.meta import generate_backup_id
+from ..exceptions import BackupConflictError, BackupValidationError
+
+BackupTrustMode = Literal["legacy", "foreign"]
 
 
 class BackupScope(BaseModel):
@@ -57,11 +60,11 @@ class BackupMeta(BaseModel):
         default=None,
         description="Backup HMAC signature in '<scheme>:<hex>' format",
     )
-    imported_via_trust_foreign: Optional[bool] = Field(
+    accepted_via_trust: Optional[bool] = Field(
         default=None,
         description=(
             "Trust state marker: None=legacy/unknown, False=local signed, "
-            "True=trusted foreign/legacy backup."
+            "True=accepted after explicit legacy/foreign trust."
         ),
     )
 
@@ -120,13 +123,18 @@ class RestoreBackupRequest(BaseModel):
     preserve_local_protected_config: Optional[bool] = Field(
         default=None,
         description=(
-            "When None, preserve local critical settings for trusted-foreign "
-            "backups and fully restore local signed backups."
+            "When None, preserve local critical settings for explicitly "
+            "trusted legacy/foreign backups and fully restore local signed "
+            "backups."
         ),
     )
-    trust_legacy: bool = Field(
-        default=False,
-        description="Explicitly trust and sign an unsigned legacy backup.",
+    trust_mode: Optional[BackupTrustMode] = Field(
+        default=None,
+        description=(
+            "Explicit trust action for backups that are not locally signed: "
+            "'legacy' for unsigned legacy backups, 'foreign' for backups "
+            "signed by another instance."
+        ),
     )
 
 
@@ -146,24 +154,10 @@ class BackupDetail(BackupMeta):
     )
 
 
-class BackupConflictError(Exception):
-    """Raised when an imported backup's ID already exists on disk."""
-
-    def __init__(self, existing_meta: BackupMeta) -> None:
-        self.existing_meta = existing_meta
-        super().__init__(f"backup_conflict: {existing_meta.id}")
-
-
-class BackupValidationError(ValueError):
-    """Raised for user-actionable backup validation failures."""
-
-    def __init__(
-        self,
-        code: str,
-        message: str,
-        details: dict[str, object] | None = None,
-    ) -> None:
-        self.code = code
-        self.message = message
-        self.details = details or {}
-        super().__init__(message)
+__all__ = [
+    "BackupConflictError",
+    "BackupMeta",
+    "BackupTrustMode",
+    "BackupValidationError",
+    "RestoreBackupRequest",
+]

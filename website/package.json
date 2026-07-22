@@ -11,12 +11,14 @@
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",
+    "@supabase/supabase-js": "^2.110.4",
     "@types/react-syntax-highlighter": "^15.5.13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "fuse.js": "^7.0.0",
     "highlight.js": "^11.11.1",
     "i18next": "^25.8.20",
+    "js-yaml": "^4.3.0",
     "lucide-react": "^0.468.0",
     "mermaid": "^11.12.2",
     "motion": "^11.11.17",
@@ -37,7 +39,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
-    "@types/highlight.js": "^10.1.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.5.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

@@ -1,13 +1,22 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useDeferredValue,
+} from "react";
 import {
   Button,
   Form,
   Input,
+  InputNumber,
   Modal,
+  Slider,
+  Switch,
   Tag,
   Tooltip,
 } from "@agentscope-ai/design";
-import { AutoComplete } from "antd";
+import { AutoComplete, Segmented } from "antd";
 import {
   DeleteOutlined,
   PlusOutlined,
@@ -48,18 +57,48 @@ function ModelConfigEditor({
   providerId,
   model,
   onSaved,
+  onProviderUpdated,
   onClose,
   isDark,
+  thinkingParamStyle,
+  reasoningEffortOptions,
+  thinkingBudgetRange = [1, 81920],
+  chatModel,
 }: {
   providerId: string;
   model: ModelInfo;
   onSaved: () => void | Promise<void>;
+  onProviderUpdated?: (provider: ProviderInfo) => void;
   onClose: () => void;
   isDark: boolean;
+  thinkingParamStyle?: "budget" | "effort" | null;
+  reasoningEffortOptions?: string[];
+  thinkingBudgetRange?: [number, number];
+  chatModel?: string;
 }) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [saving, setSaving] = useState(false);
+
+  const [maxTokens, setMaxTokens] = useState<number | null>(
+    model.max_tokens ?? 8192,
+  );
+  const [maxInputLength, setMaxInputLength] = useState<number | null>(
+    model.max_input_length ?? 131072,
+  );
+  const [maxInputLengthDirty, setMaxInputLengthDirty] = useState(false);
+  const [relayReasoning, setRelayReasoning] = useState<boolean>(
+    model.relay_reasoning ?? true,
+  );
+  const [thinkingEnabled, setThinkingEnabled] = useState<boolean | null>(
+    model.thinking_enabled ?? null,
+  );
+  const [thinkingBudget, setThinkingBudget] = useState<number | null>(
+    model.thinking_budget ?? null,
+  );
+  const [reasoningEffort, setReasoningEffort] = useState<string | null>(
+    model.reasoning_effort ?? null,
+  );
 
   const initialText = useMemo(
     () =>
@@ -74,16 +113,42 @@ function ModelConfigEditor({
 
   useEffect(() => {
     setText(initialText);
+    setMaxTokens(model.max_tokens ?? 8192);
+    setMaxInputLength(model.max_input_length ?? 131072);
+    setMaxInputLengthDirty(false);
+    setRelayReasoning(model.relay_reasoning ?? true);
+    setThinkingEnabled(model.thinking_enabled ?? null);
+    setThinkingBudget(model.thinking_budget ?? null);
+    setReasoningEffort(model.reasoning_effort ?? null);
     setDirty(false);
-  }, [initialText]);
+  }, [
+    initialText,
+    model.max_tokens,
+    model.max_input_length,
+    model.relay_reasoning,
+    model.thinking_enabled,
+    model.thinking_budget,
+    model.reasoning_effort,
+  ]);
 
-  const handleChange = useCallback(
-    (val: string) => {
-      setText(val);
-      setDirty(val !== initialText);
-    },
-    [initialText],
-  );
+  const effectiveMaxTokens = maxTokens ?? 8192;
+  const effectiveMaxInputLength = maxInputLength ?? 131072;
+
+  const handleChange = useCallback((val: string) => {
+    setText(val);
+    setDirty(true);
+  }, []);
+
+  const handleMaxTokensChange = useCallback((val: number | null) => {
+    setMaxTokens(val);
+    setDirty(true);
+  }, []);
+
+  const handleMaxInputLengthChange = useCallback((val: number | null) => {
+    setMaxInputLength(val);
+    setMaxInputLengthDirty(true);
+    setDirty(true);
+  }, []);
 
   const handleSave = async () => {
     const trimmed = text.trim();
@@ -104,11 +169,21 @@ function ModelConfigEditor({
 
     setSaving(true);
     try {
-      await api.configureModel(providerId, model.id, {
+      const updated = await api.configureModel(providerId, model.id, {
+        max_tokens: effectiveMaxTokens,
+        ...(maxInputLengthDirty
+          ? { max_input_length: effectiveMaxInputLength }
+          : {}),
         generate_kwargs: parsed,
+        relay_reasoning: relayReasoning,
+        thinking_enabled: thinkingEnabled,
+        thinking_budget: thinkingBudget,
+        reasoning_effort: reasoningEffort,
       });
       message.success(t("models.modelConfigSaved", { name: model.name }));
       setDirty(false);
+      setMaxInputLengthDirty(false);
+      onProviderUpdated?.(updated);
       await onSaved();
       onClose();
     } catch (error) {
@@ -122,8 +197,250 @@ function ModelConfigEditor({
     }
   };
 
+  const labelStyle: React.CSSProperties = {
+    fontSize: 13,
+    color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+    marginBottom: 4,
+  };
+
   return (
     <div style={{ padding: "8px 0 4px" }}>
+      <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
+        <div style={{ flex: 1 }}>
+          <div style={labelStyle}>
+            {t("models.maxTokensLabel", "Max Tokens")}
+          </div>
+          <InputNumber
+            style={{ width: "100%" }}
+            min={1}
+            step={1024}
+            value={maxTokens}
+            placeholder="8192"
+            onChange={handleMaxTokensChange}
+          />
+          <div
+            style={{
+              fontSize: 11,
+              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+              marginTop: 2,
+            }}
+          >
+            {t("models.maxTokensHint", "每次响应的最大输出 token 数")}
+          </div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={labelStyle}>
+            {t("models.maxInputLengthLabel", "Max Context Length")}
+          </div>
+          <InputNumber
+            style={{ width: "100%" }}
+            min={1000}
+            step={1024}
+            value={maxInputLength}
+            placeholder="131072"
+            onChange={handleMaxInputLengthChange}
+          />
+          <div
+            style={{
+              fontSize: 11,
+              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+              marginTop: 2,
+            }}
+          >
+            {t(
+              "models.maxInputLengthHint",
+              "模型上下文窗口大小，控制上下文压缩阈值（≥1000）",
+            )}
+          </div>
+        </div>
+      </div>
+      {/* Enable Thinking (only for providers that support thinking config) */}
+      {thinkingParamStyle && (
+        <>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 8,
+              padding: "6px 0",
+            }}
+          >
+            <div>
+              <span
+                style={{
+                  fontSize: 13,
+                  color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+                }}
+              >
+                {t("models.thinkingModeLabel")}
+              </span>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+                  marginTop: 2,
+                }}
+              >
+                {t("models.thinkingModeHint")}
+              </div>
+            </div>
+            <Switch
+              checked={thinkingEnabled === true}
+              onChange={(checked) => {
+                setThinkingEnabled(checked);
+                setDirty(true);
+              }}
+            />
+          </div>
+
+          {thinkingEnabled === true && (
+            <div style={{ marginBottom: 12 }}>
+              {thinkingParamStyle === "budget" ? (
+                <div>
+                  <div
+                    style={{
+                      ...labelStyle,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <span>{t("models.thinkingBudgetLabel")}</span>
+                    <a
+                      style={{ fontSize: 11, cursor: "pointer" }}
+                      onClick={() => {
+                        setThinkingBudget(
+                          thinkingBudget === null
+                            ? thinkingBudgetRange[0]
+                            : null,
+                        );
+                        setDirty(true);
+                      }}
+                    >
+                      {thinkingBudget === null
+                        ? t("models.switchToManual")
+                        : t("models.switchToAuto")}
+                    </a>
+                  </div>
+                  {thinkingBudget !== null ? (
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 12 }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <Slider
+                          min={thinkingBudgetRange[0]}
+                          max={thinkingBudgetRange[1]}
+                          step={1024}
+                          value={thinkingBudget}
+                          onChange={(val: number) => {
+                            setThinkingBudget(val);
+                            setDirty(true);
+                          }}
+                        />
+                      </div>
+                      <InputNumber
+                        style={{ width: 100 }}
+                        min={thinkingBudgetRange[0]}
+                        max={thinkingBudgetRange[1]}
+                        step={1024}
+                        value={thinkingBudget}
+                        onChange={(val) => {
+                          setThinkingBudget(val);
+                          setDirty(true);
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+                        marginTop: 2,
+                      }}
+                    >
+                      {t("models.thinkingBudgetHint")}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <div style={labelStyle}>
+                    {t("models.reasoningEffortLabel")}
+                  </div>
+                  <Segmented
+                    block
+                    value={reasoningEffort ?? "__auto__"}
+                    onChange={(val) => {
+                      const v = val as string;
+                      setReasoningEffort(v === "__auto__" ? null : v);
+                      setDirty(true);
+                    }}
+                    options={[
+                      { label: t("models.switchToAuto"), value: "__auto__" },
+                      ...(
+                        reasoningEffortOptions ?? [
+                          "none",
+                          "minimal",
+                          "low",
+                          "medium",
+                          "high",
+                          "xhigh",
+                        ]
+                      ).map((v) => ({
+                        label: v.charAt(0).toUpperCase() + v.slice(1),
+                        value: v,
+                      })),
+                    ]}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+      {/* Responses API models handle reasoning via native reasoning items
+         that the API requires to be echoed back; relay_reasoning has no
+         effect, so hide the toggle to avoid confusion. */}
+      {chatModel !== "OpenAIResponseModel" && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 8,
+            padding: "6px 0",
+          }}
+        >
+          <div>
+            <span
+              style={{
+                fontSize: 13,
+                color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+              }}
+            >
+              {t("models.relayReasoningLabel")}
+            </span>
+            <div
+              style={{
+                fontSize: 11,
+                color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+                marginTop: 2,
+              }}
+            >
+              {t("models.relayReasoningHint")}
+            </div>
+          </div>
+          <Switch
+            checked={relayReasoning}
+            onChange={(checked) => {
+              setRelayReasoning(checked);
+              setDirty(true);
+            }}
+          />
+        </div>
+      )}
+
       <div
         style={{
           fontSize: 12,
@@ -136,7 +453,7 @@ function ModelConfigEditor({
       <JsonConfigEditor
         value={text}
         onChange={handleChange}
-        placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  },\n  "max_tokens": 2048\n}`}
+        placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  }\n}`}
       />
       <div
         style={{
@@ -208,6 +525,7 @@ interface RemoteModelManageModalProps {
   open: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
+  onProviderUpdated?: (provider: ProviderInfo) => void;
 }
 
 function CapabilityTags({
@@ -264,6 +582,7 @@ export function RemoteModelManageModal({
   open,
   onClose,
   onSaved,
+  onProviderUpdated,
 }: RemoteModelManageModalProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
@@ -295,6 +614,8 @@ export function RemoteModelManageModal({
   const [loadingFilters, setLoadingFilters] = useState(false);
 
   const [loadingDiscoveredModels, setLoadingDiscoveredModels] = useState(false);
+  const PAGE_SIZE = 30;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
@@ -453,6 +774,7 @@ export function RemoteModelManageModal({
     setAdding(false);
     setConfigOpenModelId(null);
     setModelSearchQuery("");
+    setVisibleCount(PAGE_SIZE);
     form.resetFields();
     onClose();
   };
@@ -598,17 +920,23 @@ export function RemoteModelManageModal({
     form.resetFields();
   }, [adding, form, isOpenRouter]);
 
+  const deferredSearchQuery = useDeferredValue(modelSearchQuery);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [deferredSearchQuery]);
+
   const filteredModels = useMemo(() => {
     const all_models = [
       ...(provider.extra_models ?? []),
       ...(provider.models ?? []),
     ];
-    const q = modelSearchQuery.trim().toLowerCase();
+    const q = deferredSearchQuery.trim().toLowerCase();
     if (!q) return all_models;
     return all_models.filter(
       (m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
     );
-  }, [provider.models, provider.extra_models, modelSearchQuery]);
+  }, [provider.models, provider.extra_models, deferredSearchQuery]);
 
   const colors = tagColors(isDark);
 
@@ -619,6 +947,7 @@ export function RemoteModelManageModal({
       onCancel={handleClose}
       footer={null}
       width={800}
+      className={styles.modelManageModal}
       destroyOnHidden
     >
       <Input
@@ -634,63 +963,63 @@ export function RemoteModelManageModal({
         {filteredModels.length === 0 ? (
           <div className={styles.modelListEmpty}>{t("models.noModels")}</div>
         ) : (
-          filteredModels.map((m) => {
-            const isDeletable = provider.is_custom || extraModelIds.has(m.id);
-            const isConfigOpen = configOpenModelId === m.id;
-            return (
-              <div key={m.id}>
-                <div className={styles.modelListItem}>
-                  <div className={styles.modelListItemInfo}>
-                    <span className={styles.modelListItemName}>{m.name}</span>
-                    <span className={styles.modelListItemId}>{m.id}</span>
-                  </div>
-                  <div className={styles.modelListItemActions}>
-                    <CapabilityTags model={m} isDark={isDark} />
-                    {m.is_free && (
+          <>
+            {filteredModels.slice(0, visibleCount).map((m) => {
+              const isDeletable = provider.is_custom || extraModelIds.has(m.id);
+              const isConfigOpen = configOpenModelId === m.id;
+              return (
+                <div key={m.id}>
+                  <div className={styles.modelListItem}>
+                    <div className={styles.modelListItemInfo}>
+                      <span className={styles.modelListItemName}>{m.name}</span>
+                      <span className={styles.modelListItemId}>{m.id}</span>
+                    </div>
+                    <div className={styles.modelListItemActions}>
+                      <CapabilityTags model={m} isDark={isDark} />
+                      {m.is_free && (
+                        <Tag
+                          style={{
+                            fontSize: 11,
+                            marginRight: 4,
+                            ...colors.free,
+                          }}
+                        >
+                          <GiftOutlined
+                            style={{ fontSize: 10, marginRight: 3 }}
+                          />
+                          {t("models.free")}
+                        </Tag>
+                      )}
                       <Tag
                         style={{
                           fontSize: 11,
                           marginRight: 4,
-                          ...colors.free,
+                          ...(isDeletable ? colors.userAdded : colors.builtin),
                         }}
                       >
-                        <GiftOutlined
-                          style={{ fontSize: 10, marginRight: 3 }}
-                        />
-                        {t("models.free")}
+                        {isDeletable ? (
+                          <UserOutlined
+                            style={{ fontSize: 10, marginRight: 3 }}
+                          />
+                        ) : (
+                          <DatabaseOutlined
+                            style={{ fontSize: 10, marginRight: 3 }}
+                          />
+                        )}
+                        {t(isDeletable ? "models.userAdded" : "models.builtin")}
                       </Tag>
-                    )}
-                    <Tag
-                      style={{
-                        fontSize: 11,
-                        marginRight: 4,
-                        ...(isDeletable ? colors.userAdded : colors.builtin),
-                      }}
-                    >
-                      {isDeletable ? (
-                        <UserOutlined
-                          style={{ fontSize: 10, marginRight: 3 }}
-                        />
-                      ) : (
-                        <DatabaseOutlined
-                          style={{ fontSize: 10, marginRight: 3 }}
-                        />
-                      )}
-                      {t(isDeletable ? "models.userAdded" : "models.builtin")}
-                    </Tag>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        width: 1,
-                        height: 16,
-                        background: isDark
-                          ? "rgba(255,255,255,0.15)"
-                          : "#e5e7eb",
-                        margin: "0 8px",
-                        flexShrink: 0,
-                      }}
-                    />
-                    {m.probe_source !== "documentation" && (
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: 1,
+                          height: 16,
+                          background: isDark
+                            ? "rgba(255,255,255,0.15)"
+                            : "#e5e7eb",
+                          margin: "0 8px",
+                          flexShrink: 0,
+                        }}
+                      />
                       <Tooltip
                         title={t("models.probeMultimodal", "测试多模态")}
                       >
@@ -703,62 +1032,104 @@ export function RemoteModelManageModal({
                           style={darkBtnStyle}
                         />
                       </Tooltip>
-                    )}
-                    <Tooltip title={t("models.testConnection")}>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<ApiOutlined />}
-                        onClick={() => handleTestModel(m.id)}
-                        loading={testingModelId === m.id}
-                        style={darkBtnStyle}
-                      />
-                    </Tooltip>
-                    <Tooltip title={t("models.modelConfigLabel", "模型配置")}>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={
-                          isConfigOpen ? <DownOutlined /> : <SettingOutlined />
-                        }
-                        onClick={() =>
-                          setConfigOpenModelId(isConfigOpen ? null : m.id)
-                        }
-                        style={darkBtnStyle}
-                      />
-                    </Tooltip>
-                    {isDeletable && (
-                      <Button
-                        type="text"
-                        size="small"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={() => handleRemoveModel(m.id, m.name)}
-                      />
-                    )}
+                      <Tooltip title={t("models.testConnection")}>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<ApiOutlined />}
+                          onClick={() => handleTestModel(m.id)}
+                          loading={testingModelId === m.id}
+                          style={darkBtnStyle}
+                        />
+                      </Tooltip>
+                      <Tooltip title={t("models.modelConfigLabel", "模型配置")}>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={
+                            isConfigOpen ? (
+                              <DownOutlined />
+                            ) : (
+                              <SettingOutlined />
+                            )
+                          }
+                          onClick={() =>
+                            setConfigOpenModelId(isConfigOpen ? null : m.id)
+                          }
+                          style={darkBtnStyle}
+                        />
+                      </Tooltip>
+                      {isDeletable && (
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                          onClick={() => handleRemoveModel(m.id, m.name)}
+                        />
+                      )}
+                    </div>
                   </div>
+                  {isConfigOpen && (
+                    <div
+                      style={{
+                        padding: "0 16px 12px",
+                        borderBottom: isDark
+                          ? "1px solid rgba(255,255,255,0.06)"
+                          : "1px solid #f5f5f5",
+                      }}
+                    >
+                      <ModelConfigEditor
+                        providerId={provider.id}
+                        model={m}
+                        onSaved={onSaved}
+                        onProviderUpdated={onProviderUpdated}
+                        onClose={() => setConfigOpenModelId(null)}
+                        isDark={isDark}
+                        chatModel={provider.chat_model}
+                        thinkingParamStyle={
+                          extraModelIds.has(m.id)
+                            ? undefined
+                            : m.thinking_param_style ??
+                              provider.thinking_param_style
+                        }
+                        reasoningEffortOptions={
+                          m.reasoning_effort_options ??
+                          provider.reasoning_effort_options
+                        }
+                        thinkingBudgetRange={
+                          (m.thinking_budget_range ??
+                            provider.thinking_budget_range) as
+                            | [number, number]
+                            | undefined
+                        }
+                      />
+                    </div>
+                  )}
                 </div>
-                {isConfigOpen && (
-                  <div
-                    style={{
-                      padding: "0 16px 12px",
-                      borderBottom: isDark
-                        ? "1px solid rgba(255,255,255,0.06)"
-                        : "1px solid #f5f5f5",
-                    }}
-                  >
-                    <ModelConfigEditor
-                      providerId={provider.id}
-                      model={m}
-                      onSaved={onSaved}
-                      onClose={() => setConfigOpenModelId(null)}
-                      isDark={isDark}
-                    />
-                  </div>
-                )}
+              );
+            })}
+            {filteredModels.length > visibleCount && (
+              <div className={styles.modelListLoadMore}>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                >
+                  {t("models.loadMore", {
+                    count: Math.min(
+                      PAGE_SIZE,
+                      filteredModels.length - visibleCount,
+                    ),
+                    total: filteredModels.length,
+                  })}
+                </Button>
+                <span className={styles.modelListCount}>
+                  {visibleCount} / {filteredModels.length}
+                </span>
               </div>
-            );
-          })
+            )}
+          </>
         )}
       </div>
 

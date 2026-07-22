@@ -1,24 +1,14 @@
 import { useTranslation } from "react-i18next";
-import {
-  Button,
-  Tag,
-  Tooltip,
-  Empty,
-  Spin,
-  Typography,
-  Space,
-  Table,
-} from "antd";
-import { Package, Plus, Trash2, CheckCircle, XCircle } from "lucide-react";
-import type { PluginType, PluginInfo } from "@/api/modules/plugin";
+import { Button, Empty, Spin, Table, Tabs } from "antd";
+import { ExternalLink, Package, Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { usePluginManager } from "./hooks/usePluginManager";
+import { usePluginColumns } from "./hooks/usePluginColumns";
 import { useInstallModal } from "./hooks/useInstallModal";
 import { InstallPluginModal } from "./components/InstallPluginModal";
-import { PluginTypeTag } from "./components/PluginTypeTag";
+import { OfficialPluginList } from "./components/OfficialPluginList";
+import { MarketPluginList } from "./components/MarketPluginList";
 import styles from "./index.module.less";
-
-const { Text } = Typography;
 
 export default function PluginManagerPage() {
   const { t } = useTranslation();
@@ -28,120 +18,22 @@ export default function PluginManagerPage() {
 
   const installModal = useInstallModal(refresh);
 
-  const columns = [
-    {
-      title: t("pluginManager.title"),
-      dataIndex: "name",
-      key: "name",
-      render: (name: string, record: PluginInfo) => (
-        <Space direction="vertical" size={2}>
-          <Space size={8}>
-            <Package size={16} style={{ flexShrink: 0 }} />
-            <Text strong>{name}</Text>
-          </Space>
-          {record.description && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {record.description}
-            </Text>
-          )}
-        </Space>
-      ),
-    },
-    {
-      title: t("pluginManager.type"),
-      dataIndex: "plugin_type",
-      key: "plugin_type",
-      width: 110,
-      render: (type: PluginType) => <PluginTypeTag type={type ?? "general"} />,
-    },
-    {
-      title: t("pluginManager.version"),
-      dataIndex: "version",
-      key: "version",
-      width: 100,
-      render: (v: string) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {v}
-        </Text>
-      ),
-    },
-    {
-      title: t("pluginManager.author"),
-      dataIndex: "author",
-      key: "author",
-      width: 140,
-      render: (author: string) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {author || t("pluginManager.unknown")}
-        </Text>
-      ),
-    },
-    {
-      title: "Status",
-      dataIndex: "loaded",
-      key: "loaded",
-      width: 110,
-      render: (loaded: boolean) =>
-        loaded ? (
-          <Tag
-            icon={<CheckCircle size={12} />}
-            color="success"
-            style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-          >
-            {t("pluginManager.statusLoaded")}
-          </Tag>
-        ) : (
-          <Tag
-            icon={<XCircle size={12} />}
-            color="default"
-            style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-          >
-            {t("pluginManager.statusUnloaded")}
-          </Tag>
-        ),
-    },
-    {
-      title: "",
-      key: "actions",
-      width: 100,
-      render: (_: unknown, record: PluginInfo) => (
-        <Tooltip title={t("pluginManager.uninstall")}>
-          <Button
-            type="text"
-            danger
-            size="small"
-            icon={<Trash2 size={14} />}
-            loading={uninstallingId === record.id}
-            onClick={() => handleUninstall(record)}
-          />
-        </Tooltip>
-      ),
-    },
-  ];
+  const columns = usePluginColumns({
+    uninstallingId,
+    onUninstall: handleUninstall,
+  });
 
-  return (
-    <div className={styles.page}>
-      <PageHeader
-        parent={t("nav.settings")}
-        current={t("nav.pluginManager")}
-        extra={
-          <Button
-            type="primary"
-            icon={<Plus size={16} />}
-            onClick={installModal.openModal}
-          >
-            {t("pluginManager.installBtn")}
-          </Button>
-        }
-      />
-
-      <div className={styles.content}>
+  const tabItems = [
+    {
+      key: "installed",
+      label: t("pluginManager.installed"),
+      children: (
         <Spin spinning={loading}>
           {!loading && (!plugins || plugins.length === 0) ? (
             <Empty
               image={<Package size={48} strokeWidth={1} />}
               description={t("pluginManager.noPlugins")}
-              style={{ marginTop: 80 }}
+              style={{ marginTop: 24 }}
             />
           ) : (
             <Table
@@ -153,6 +45,48 @@ export default function PluginManagerPage() {
             />
           )}
         </Spin>
+      ),
+    },
+    {
+      key: "official",
+      label: t("pluginManager.officialTitle"),
+      children: <OfficialPluginList onInstalled={refresh} />,
+    },
+    {
+      key: "market",
+      label: t("pluginManager.marketTitle"),
+      children: <MarketPluginList onInstalled={refresh} />,
+    },
+  ];
+
+  return (
+    <div className={styles.page}>
+      <PageHeader
+        parent={t("nav.settings")}
+        current={t("nav.pluginManager")}
+        extra={
+          <>
+            <Button
+              icon={<ExternalLink size={16} />}
+              onClick={() =>
+                window.open("https://platform.agentscope.io/plugins", "_blank")
+              }
+            >
+              {t("pluginManager.publishBtn")}
+            </Button>
+            <Button
+              type="primary"
+              icon={<Plus size={16} />}
+              onClick={installModal.openModal}
+            >
+              {t("pluginManager.installBtn")}
+            </Button>
+          </>
+        }
+      />
+
+      <div className={styles.content}>
+        <Tabs items={tabItems} className={styles.tabs} />
       </div>
 
       <InstallPluginModal {...installModal} />

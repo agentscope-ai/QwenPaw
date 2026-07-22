@@ -2,7 +2,7 @@
 """Pure-function helpers for restore operations.
 
 These functions are free of ``self`` so they can be unit-tested in isolation.
-They also hold the trust-boundary decisions for restore so the large restore
+They hold restore-specific config and workspace decisions so the large restore
 operation remains mostly file staging and commit orchestration.
 """
 from __future__ import annotations
@@ -17,11 +17,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .._utils.constants import PREFIX_SECRETS, PREFIX_WORKSPACES
-from .._utils.signing import (
-    replace_meta_with_local_signature,
-    signature_error,
-    verify_signature,
-)
 from ..models import BackupMeta, RestoreBackupRequest
 from ...constant import BACKUP_DIR, SECRET_DIR, WORKING_DIR
 
@@ -34,53 +29,6 @@ _MASTER_KEY = ".master_key"
 LOCAL_PROTECTED_CONFIG_KEYS: tuple[str, ...] = ("security", "mcp")
 
 
-def assert_signature_or_legacy(
-    zf: zipfile.ZipFile,
-    meta: BackupMeta,
-    backup_id: str,
-    *,
-    trust_legacy: bool,
-) -> None:
-    """Verify local backup signature or require explicit legacy trust.
-
-    Unsigned backups can only proceed when the request carries explicit
-    legacy trust. That keeps old backups usable without treating every
-    unsigned archive as safe by default.
-    """
-    if meta.signature:
-        if verify_signature(zf, meta):
-            return
-        raise signature_error(meta)
-
-    if not trust_legacy:
-        raise signature_error(meta)
-
-    logger.warning(
-        "Restoring legacy unsigned backup after explicit trust: %s",
-        backup_id,
-    )
-
-
-def sign_trusted_legacy_unsigned(zp: Path, meta: BackupMeta) -> BackupMeta:
-    """Sign a legacy unsigned backup in place using this instance's key.
-
-    Once the user has approved a legacy restore, re-signing the archive makes
-    later restores follow the normal local-signature path instead of asking
-    for trust on every attempt.
-    """
-    if meta.signature:
-        return meta
-
-    logger.warning(
-        "Signing trusted legacy unsigned backup with local signature: %s",
-        zp,
-    )
-    signed = meta.model_copy(
-        update={"imported_via_trust_foreign": True, "signature": None},
-    )
-    return replace_meta_with_local_signature(zp, signed)
-
-
 def resolve_preserve_flag(
     req: RestoreBackupRequest,
     meta: BackupMeta,
@@ -88,12 +36,12 @@ def resolve_preserve_flag(
     """Resolve whether local critical config keys should be preserved.
 
     The UI may send an explicit choice. If it does not, backups imported after
-    trust_foreign default to preservation because their config came from
-    outside this installation.
+    explicit legacy/foreign trust default to preservation because their config
+    came from outside this installation.
     """
     if req.preserve_local_protected_config is not None:
         return req.preserve_local_protected_config
-    return meta.imported_via_trust_foreign is True
+    return meta.accepted_via_trust is True
 
 
 def overlay_local_keys(backup_cfg: dict, current_cfg: dict) -> dict:

@@ -60,6 +60,8 @@ h6,
 
 /* ─── Dark mode global token overrides ─────────────────────────────────────── */
 html.dark-mode {
+  --text-secondary: rgba(255, 255, 255, 0.55);
+  --text-quaternary: rgba(255, 255, 255, 0.35);
   color-scheme: dark;
 }
 
@@ -659,12 +661,12 @@ html.dark-mode .ant-modal-body .ant-form-item-extra {
 /* Drawer */
 html.dark-mode .qwenpaw-drawer-content,
 html.dark-mode .ant-drawer-content {
-  background: #1f1f1f !important;
+  background: #141414 !important;
 }
 
 html.dark-mode .qwenpaw-drawer-header,
 html.dark-mode .ant-drawer-header {
-  background: #1f1f1f !important;
+  background: #141414 !important;
   border-bottom-color: rgba(255, 255, 255, 0.08) !important;
 }
 
@@ -685,13 +687,13 @@ html.dark-mode .ant-drawer-close:hover {
 
 html.dark-mode .qwenpaw-drawer-body,
 html.dark-mode .ant-drawer-body {
-  background: #1f1f1f !important;
+  background: #141414 !important;
   color: rgba(255, 255, 255, 0.85) !important;
 }
 
 html.dark-mode .qwenpaw-drawer-footer,
 html.dark-mode .ant-drawer-footer {
-  background: #1f1f1f !important;
+  background: #141414 !important;
   border-top-color: rgba(255, 255, 255, 0.08) !important;
 }
 
@@ -826,7 +828,14 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] h3,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] h4,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] h5,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] h6,
-html.dark-mode [class*="chat-anywhere"] [class*="message"] span,
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="message"]
+  span:not([class*="diffAddBadge"]):not([class*="diffDelBadge"]):not(
+    [class*="lineReadBadge"]
+  ):not([class*="lineSearchBadge"]):not([class*="jsonKey"]):not(
+    [class*="jsonStr"]
+  ):not([class*="jsonNum"]):not([class*="jsonNull"]),
 html.dark-mode [class*="chat-anywhere"] [class*="message"] blockquote,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] td,
 html.dark-mode [class*="chat-anywhere"] [class*="message"] th {
@@ -845,6 +854,85 @@ html.dark-mode [class*="chat-anywhere"] [class*="message"] code {
 
 html.dark-mode [class*="chat-anywhere"] [class*="message"] a {
   color: var(--qwenpaw-color-link, #ff7f16) !important;
+}
+
+/* Tool card content blocks — dark mode text and background overrides.
+   These elements use div/pre which are not covered by the span/p/li rules above. */
+html.dark-mode [class*="chat-anywhere"] [class*="defaultBlock"] {
+  background: #2a2a2a !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+html.dark-mode [class*="chat-anywhere"] [class*="defaultBlockHeader"] {
+  background: #333 !important;
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+html.dark-mode [class*="chat-anywhere"] [class*="defaultBlockTitle"],
+html.dark-mode [class*="chat-anywhere"] [class*="defaultBlockContent"],
+html.dark-mode [class*="chat-anywhere"] [class*="toolCallResultMd"],
+html.dark-mode [class*="chat-anywhere"] [class*="toolCallResultMd"] pre,
+html.dark-mode [class*="chat-anywhere"] [class*="toolCallDiff"] {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+html.dark-mode [class*="chat-anywhere"] [class*="toolCallResultMd"] {
+  background: #2a2a2a !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* JSON syntax highlighting in tool output — preserve distinct colors in dark mode */
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="defaultBlockContent"]
+  [class*="jsonKey"] {
+  color: #f5827a !important;
+}
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="defaultBlockContent"]
+  [class*="jsonStr"] {
+  color: #7ec87e !important;
+}
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="defaultBlockContent"]
+  [class*="jsonNum"] {
+  color: #6cb6ff !important;
+}
+html.dark-mode
+  [class*="chat-anywhere"]
+  [class*="defaultBlockContent"]
+  [class*="jsonNull"] {
+  color: #f0b95f !important;
+}
+
+/* ─── Mobile safe-area & keyboard adaptation (#4738) ──────────────────────── */
+/* Ensure the chat input area stays above the mobile browser toolbar / keyboard */
+
+/* Apply safe-area padding to the chat input container */
+.qwenpaw-chat-anywhere-input,
+[class*="chat-anywhere-input"] {
+  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+}
+
+/* When the virtual keyboard is open (supported browsers), shrink viewport */
+@supports (height: 100dvh) {
+  .qwenpaw-chat-anywhere-chat,
+  [class*="chat-anywhere-chat"] {
+    height: 100dvh;
+  }
+}
+
+/* Touch-device-specific: ensure send button is always reachable */
+@media (hover: none) and (pointer: coarse) {
+  .qwenpaw-chat-anywhere-input,
+  [class*="chat-anywhere-input"] {
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 8px) !important;
+  }
+
+  /* Prevent iOS bounce-scroll that can hide the input */
+  .qwenpaw-chat-anywhere-chat,
+  [class*="chat-anywhere-chat"] {
+    overscroll-behavior: none;
+  }
 }
 
 #root {

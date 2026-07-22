@@ -33,6 +33,10 @@ import type { AgentSummary } from "@/api/types/agents";
 import { parseErrorDetail } from "@/utils/error";
 import { isFullBackup } from "../shared/scope";
 import BackupTrustDialog from "../trust/BackupTrustDialog";
+import {
+  trustModeFromErrorCode,
+  type BackupTrustMode,
+} from "../trust/trustErrors";
 import RestoreAgentTable from "./RestoreAgentTable";
 import styles from "./RestoreBackupModal.module.less";
 
@@ -48,6 +52,10 @@ interface Props {
 
 type RestoreMode = "full" | "custom";
 type RestoreStrategy = "preserve" | "restore";
+type TrustPrompt = {
+  mode: BackupTrustMode;
+  request: RestoreBackupRequest;
+};
 
 export default function RestoreBackupModal({
   open,
@@ -88,9 +96,8 @@ export default function RestoreBackupModal({
     backup.scope.include_agents,
   );
   const [confirmed, setConfirmed] = useState(false);
-  const [legacyRequest, setLegacyRequest] =
-    useState<RestoreBackupRequest | null>(null);
-  const [legacyLoading, setLegacyLoading] = useState(false);
+  const [trustPrompt, setTrustPrompt] = useState<TrustPrompt | null>(null);
+  const [trustLoading, setTrustLoading] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -116,11 +123,11 @@ export default function RestoreBackupModal({
     if (!open) return;
     setRestoreMode(fullBackup ? "full" : "custom");
     setRestoreStrategy(
-      backup.imported_via_trust_foreign === false ? "restore" : "preserve",
+      backup.accepted_via_trust === false ? "restore" : "preserve",
     );
     setConfirmed(false);
-    setLegacyRequest(null);
-  }, [open, backup.id, backup.imported_via_trust_foreign, fullBackup]);
+    setTrustPrompt(null);
+  }, [open, backup.id, backup.accepted_via_trust, fullBackup]);
 
   const existingAgentMap = useMemo(
     () => new Map(agents.map((a) => [a.id, a])),
@@ -244,8 +251,9 @@ export default function RestoreBackupModal({
       await finishRestore(request);
     } catch (err: unknown) {
       const detail = parseErrorDetail(err);
-      if (detail?.code === "backup_legacy_unsigned") {
-        setLegacyRequest(request);
+      const trustMode = trustModeFromErrorCode(detail?.code);
+      if (trustMode) {
+        setTrustPrompt({ mode: trustMode, request });
       } else {
         showRestoreFailure(detail);
       }
@@ -254,23 +262,24 @@ export default function RestoreBackupModal({
     }
   };
 
-  const handleLegacyConfirm = async () => {
-    if (!legacyRequest) return;
-    setLegacyLoading(true);
+  const handleTrustConfirm = async () => {
+    if (!trustPrompt) return;
+    setTrustLoading(true);
     try {
-      await finishRestore({ ...legacyRequest, trust_legacy: true });
-      setLegacyRequest(null);
+      await finishRestore({
+        ...trustPrompt.request,
+        trust_mode: trustPrompt.mode,
+      });
+      setTrustPrompt(null);
     } catch (err: unknown) {
       showRestoreFailure(parseErrorDetail(err));
     } finally {
-      setLegacyLoading(false);
+      setTrustLoading(false);
     }
   };
 
   const trustState =
-    backupDetail?.imported_via_trust_foreign ??
-    backup.imported_via_trust_foreign ??
-    null;
+    backupDetail?.accepted_via_trust ?? backup.accepted_via_trust ?? null;
 
   const summaryText =
     restoreMode === "custom" &&
@@ -536,12 +545,12 @@ export default function RestoreBackupModal({
         </div>
       </Modal>
       <BackupTrustDialog
-        open={!!legacyRequest}
-        mode="legacy"
+        open={!!trustPrompt}
+        mode={trustPrompt?.mode ?? "legacy"}
         backupName={backup.name}
-        confirmLoading={legacyLoading}
-        onConfirm={handleLegacyConfirm}
-        onCancel={() => setLegacyRequest(null)}
+        confirmLoading={trustLoading}
+        onConfirm={handleTrustConfirm}
+        onCancel={() => setTrustPrompt(null)}
       />
     </>
   );

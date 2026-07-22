@@ -38,7 +38,7 @@ def test_resign_writes_verifiable_local_signature(tmp_path, monkeypatch):
     meta = BackupMeta(
         id="signed-test",
         name="Signed test",
-        imported_via_trust_foreign=False,
+        accepted_via_trust=False,
     )
     _write_backup(src, meta)
 

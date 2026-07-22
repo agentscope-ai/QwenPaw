@@ -43,3 +43,26 @@ export const getPoolBuiltinStatusTone = (
       return "neutral";
   }
 };
+
+// ─── Install-origin helpers ────────────────────────────────────
+
+export const INSTALLED_FROM_LABELS: Record<string, string> = {
+  "skills-sh": "skills.sh",
+  github: "GitHub",
+  lobehub: "LobeHub",
+  modelscope: "ModelScope",
+  aliyun: "Aliyun",
+  skillsmp: "SkillsMP",
+  clawhub: "ClawHub",
+  url: "URL",
+  zip: "ZIP",
+};
+
+// Skills without a recorded origin (builtins, hand-created, legacy entries)
+// have an empty installed_from and render as an empty string.
+export const deriveInstalledFromLabel = (
+  installed_from: string | undefined,
+): string => {
+  if (!installed_from) return "";
+  return INSTALLED_FROM_LABELS[installed_from] ?? installed_from;
+};

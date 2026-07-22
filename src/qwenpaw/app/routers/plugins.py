@@ -41,9 +41,13 @@ def _list_plugins_from_disk() -> list[dict]:
     if not plugins_dir.exists():
         return []
 
+    from ...plugins.loader import _is_disabled_plugin_dir
+
     result: list[dict] = []
     for item in sorted(plugins_dir.iterdir()):
         if not item.is_dir():
+            continue
+        if _is_disabled_plugin_dir(item):
             continue
         manifest_path = item / "plugin.json"
         if not manifest_path.exists():
@@ -51,7 +55,7 @@ def _list_plugins_from_disk() -> list[dict]:
         try:
             with open(manifest_path, encoding="utf-8") as f:
                 manifest = json.load(f)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Failed to read %s: %s", manifest_path, exc)
             continue
 
@@ -170,7 +174,7 @@ async def _post_load_setup(  # pylint: disable=too-many-branches
 
     # Register any control commands the plugin registered
     try:
-        from ...app.runner.control_commands import register_command
+        from ...runtime.commands.control import register_command
         from ...app.channels.command_registry import CommandRegistry
 
         command_registry = CommandRegistry()
@@ -380,7 +384,7 @@ def _post_unload_cleanup(
     # ── Control commands ─────────────────────────────────────────────────
     if command_names:
         try:
-            from ...app.runner.control_commands import (
+            from ...runtime.commands.control import (
                 unregister_command as unregister_handler,
             )
             from ...app.channels.command_registry import CommandRegistry
@@ -476,6 +480,21 @@ async def list_plugins(request: Request):
         )
 
     return result
+
+
+@router.get(
+    "/catalog",
+    summary="Official plugin catalog",
+    description=(
+        "Proxy the download CDN plugin manifest for in-app browsing. "
+        "Marks plugins already installed under the working directory."
+    ),
+)
+async def get_plugin_catalog():
+    """Return official plugins from OSS metadata (server-side fetch)."""
+    from ...plugins.download_catalog import fetch_plugin_catalog_async
+
+    return await fetch_plugin_catalog_async()
 
 
 class InstallPluginRequest(BaseModel):
@@ -868,6 +887,52 @@ async def serve_plugin_ui_file(
     return FileResponse(str(full_path))
 
 
+# ── Plugin market proxy ───────────────────────────────────────────────────
+
+_PLUGIN_MARKET_BASE_URL = "https://platform.agentscope.io"
+_PLUGIN_MARKET_TIMEOUT = 15
+
+
+@router.get(
+    "/market/search",
+    summary="Search plugins from AgentScope Platform",
+)
+async def search_market_plugins(
+    page_number: int = 1,
+    page_size: int = 20,
+    search: Optional[str] = None,
+    category: Optional[str] = None,
+):
+    """Proxy plugin search to AgentScope Platform to avoid CORS."""
+    import httpx
+
+    params: dict = {
+        "page_number": page_number,
+        "page_size": page_size,
+    }
+    if search:
+        params["search"] = search
+    if category:
+        params["category"] = category
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=_PLUGIN_MARKET_TIMEOUT,
+        ) as client:
+            resp = await client.get(
+                f"{_PLUGIN_MARKET_BASE_URL}/openapi/v1/plugins",
+                params=params,
+            )
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        logger.warning("Plugin market search failed: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to fetch from plugin market: {exc}",
+        ) from exc
+
+
 # ── Internal async helpers ────────────────────────────────────────────────
 
 
@@ -892,7 +957,7 @@ async def _async_download(url: str, dest: Path) -> None:
     import asyncio
 
     def _download() -> None:
-        with urllib.request.urlopen(  # noqa: S310
+        with urllib.request.urlopen(
             url,
             timeout=_DOWNLOAD_TIMEOUT,
         ) as resp:

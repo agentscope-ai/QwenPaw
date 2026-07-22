@@ -12,8 +12,11 @@ from typing import TYPE_CHECKING, Any, List
 
 from agentscope.model import ChatModelBase
 from openai import APIError
+from pydantic import Field
 
 from qwenpaw.providers.provider import ModelInfo, Provider
+
+from .capping_formatter import MAX_INLINE_MEDIA_BYTES, _CappingOpenAIFormatter
 
 if TYPE_CHECKING:
     from qwenpaw.providers.multimodal_prober import ProbeResult
@@ -30,6 +33,24 @@ TOKEN_PLAN_BASE_URL = (
     "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 )
 
+
+def _uses_max_completion_tokens(model_id: str) -> bool:
+    """Return whether an OpenAI model requires max_completion_tokens."""
+    model_name = model_id.strip().lower().rsplit("/", maxsplit=1)[-1]
+    return model_name.startswith("gpt-5") or (
+        len(model_name) > 1
+        and model_name[0] == "o"
+        and model_name[1].isdigit()
+    )
+
+
+def _token_limit_kwargs(model_id: str, limit: int) -> dict[str, int]:
+    """Build the model-specific output token limit argument."""
+    if _uses_max_completion_tokens(model_id):
+        return {"max_completion_tokens": limit}
+    return {"max_tokens": limit}
+
+
 if os.environ.get("LANGFUSE_SECRET_KEY") and importlib.util.find_spec(
     "langfuse",
 ):
@@ -45,6 +66,18 @@ else:
 
 class OpenAIProvider(Provider):
     """Provider implementation for OpenAI API and compatible endpoints."""
+
+    max_inline_media_bytes: int = Field(
+        default=MAX_INLINE_MEDIA_BYTES,
+        ge=0,
+        description=(
+            "Maximum size (in bytes) of a local media file inlined as "
+            "base64 into the model request body. Media above this is "
+            "replaced with a text placeholder to avoid oversized requests "
+            "when large files (e.g. generated videos) persist in "
+            "conversation history. 0 disables capping."
+        ),
+    )
 
     def _build_default_headers(self) -> dict:
         return dict(self.custom_headers) if self.custom_headers else {}
@@ -88,12 +121,19 @@ class OpenAIProvider(Provider):
         try:
             await client.models.list(timeout=timeout)
             return True, ""
-        except APIError:
-            return False, f"API error when connecting to `{self.base_url}`"
-        except Exception:
+        except APIError as exc:
+            detail = str(exc) or getattr(exc, "message", "")
+            status = getattr(exc, "status_code", "unknown")
             return (
                 False,
-                f"Unknown exception when connecting to `{self.base_url}`",
+                f"API error when connecting to `{self.base_url}` "
+                f"(status={status}): {detail}",
+            )
+        except Exception as exc:
+            return (
+                False,
+                f"Unknown exception when connecting to `{self.base_url}`: "
+                f"{exc}",
             )
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
@@ -134,8 +174,8 @@ class OpenAIProvider(Provider):
                     },
                 ],
                 timeout=timeout,
-                max_tokens=1,
                 stream=True,
+                **_token_limit_kwargs(model_id, 20),
             )
             # consume the stream to ensure the model is actually responsive
             async for _ in res:
@@ -150,45 +190,60 @@ class OpenAIProvider(Provider):
             )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        from agentscope.credential._openai import OpenAICredential
+        from agentscope.model import OpenAIChatModel
+
         from .openai_chat_model_compat import OpenAIChatModelCompat
 
-        client_kwargs: dict = {"base_url": self.base_url}
+        credential = OpenAICredential(
+            id=f"qwenpaw-{self.id}",
+            api_key=self.api_key,
+            base_url=self.base_url,
+        )
 
-        # Start with user-defined custom headers, then layer platform-specific
-        # headers on top so required service headers are always present.
+        # Platform-specific headers injected per-request via extra_headers.
         merged_headers = self._build_default_headers()
-
+        dashscope_meta = json.dumps(
+            {
+                "agentType": "QwenPaw",
+                "deployType": "UnKnown",
+                "moduleCode": "model",
+                "agentCode": "UnKnown",
+            },
+            ensure_ascii=False,
+        )
         if self.base_url in DASHSCOPE_BASE_URLS:
-            merged_headers["x-dashscope-agentapp"] = json.dumps(
-                {
-                    "agentType": "QwenPaw",
-                    "deployType": "UnKnown",
-                    "moduleCode": "model",
-                    "agentCode": "UnKnown",
-                },
-                ensure_ascii=False,
-            )
+            merged_headers["x-dashscope-agentapp"] = dashscope_meta
         elif self.base_url in (CODING_DASHSCOPE_BASE_URL, TOKEN_PLAN_BASE_URL):
-            merged_headers["X-DashScope-Cdpl"] = json.dumps(
-                {
-                    "agentType": "QwenPaw",
-                    "deployType": "UnKnown",
-                    "moduleCode": "model",
-                    "agentCode": "UnKnown",
-                },
-                ensure_ascii=False,
-            )
+            merged_headers["X-DashScope-Cdpl"] = dashscope_meta
 
-        if merged_headers:
-            client_kwargs["default_headers"] = merged_headers
+        gen_kwargs = self.get_effective_generate_kwargs(model_id)
+        max_tokens = gen_kwargs.pop("max_tokens", None)
+        if _uses_max_completion_tokens(model_id):
+            if max_tokens is not None:
+                gen_kwargs.setdefault(
+                    "max_completion_tokens",
+                    max_tokens,
+                )
+            max_tokens = None
+        parameters = OpenAIChatModel.Parameters(
+            max_tokens=max_tokens,
+            temperature=gen_kwargs.pop("temperature", None),
+            top_p=gen_kwargs.pop("top_p", None),
+        )
 
         return OpenAIChatModelCompat(
-            model_name=model_id,
+            credential=credential,
+            model=model_id,
+            parameters=parameters,
             stream=True,
-            api_key=self.api_key,
-            stream_tool_parsing=False,
-            client_kwargs=client_kwargs,
-            generate_kwargs=self.get_effective_generate_kwargs(model_id),
+            default_headers=merged_headers or None,
+            extra_generate_kwargs=gen_kwargs or None,
+            context_size=self._get_context_size(model_id),
+            formatter=_CappingOpenAIFormatter(
+                max_bytes=self.max_inline_media_bytes,
+                relay_reasoning_content=self._get_relay_reasoning(model_id),
+            ),
         )
 
     async def probe_model_multimodal(
@@ -257,8 +312,8 @@ class OpenAIProvider(Provider):
             this class of silent failures.
         """
         from .multimodal_prober import (
-            _PROBE_IMAGE_B64,
             _IMAGE_PROBE_PROMPT,
+            _PROBE_IMAGE_B64,
             _is_media_keyword_error,
             evaluate_image_probe_answer,
         )
@@ -293,8 +348,8 @@ class OpenAIProvider(Provider):
                         ],
                     },
                 ],
-                max_tokens=200,
                 timeout=timeout,
+                **_token_limit_kwargs(model_id, 200),
             )
             answer = (res.choices[0].message.content or "").lower().strip()
             reasoning = ""
@@ -340,10 +395,7 @@ class OpenAIProvider(Provider):
         timeout: float = 30,
     ) -> tuple[bool, str]:
         """Probe video support with automatic format fallback."""
-        from .multimodal_prober import (
-            _PROBE_VIDEO_B64,
-            _PROBE_VIDEO_URL,
-        )
+        from .multimodal_prober import _PROBE_VIDEO_B64, _PROBE_VIDEO_URL
 
         logger.info(
             "Video probe start: model=%s url=%s",
@@ -414,8 +466,8 @@ class OpenAIProvider(Provider):
                         ],
                     },
                 ],
-                max_tokens=200,
                 timeout=req_timeout,
+                **_token_limit_kwargs(model_id, 200),
             )
             return self._evaluate_video_response(
                 res,
@@ -532,3 +584,123 @@ class OpenAIProvider(Provider):
             False,
             f"Model did not recognise video (answer={answer!r})",
         )
+
+
+class _FreeSuffixProviderMixin:
+    """Mixin for providers that mark models as free by suffix."""
+
+    _FREE_SUFFIX = "-free"
+
+    async def fetch_models(
+        self,
+        timeout: float = 5,
+    ) -> List[ModelInfo]:
+        """Fetch models and mark free ones by suffix."""
+        try:
+            client = self._client(timeout=timeout)
+            payload = await client.models.list(timeout=timeout)
+        except Exception:
+            return []
+
+        suffix = self._FREE_SUFFIX
+        models: List[ModelInfo] = []
+        seen: set[str] = set()
+        for row in getattr(payload, "data", []) or []:
+            model_id = str(
+                getattr(row, "id", "") or "",
+            ).strip()
+            if not model_id or model_id in seen:
+                continue
+            seen.add(model_id)
+            is_free = model_id.endswith(suffix)
+            display_name = (
+                model_id.removesuffix(suffix)
+                .replace("-", " ")
+                .replace("/", " - ")
+                .title()
+            )
+            models.append(
+                ModelInfo(
+                    id=model_id,
+                    name=display_name,
+                    is_free=is_free,
+                ),
+            )
+        return models
+
+
+class OpenCodeProvider(_FreeSuffixProviderMixin, OpenAIProvider):
+    """OpenCode provider with dynamic free model detection."""
+
+    _FREE_SUFFIX = "-free"
+
+
+class KiloProvider(_FreeSuffixProviderMixin, OpenAIProvider):
+    """Kilo Code provider with dynamic free model detection."""
+
+    _FREE_SUFFIX = ":free"
+
+
+class GitHubModelsProvider(OpenAIProvider):
+    """GitHub Models provider.
+
+    GitHub Models exposes an OpenAI-compatible chat completions endpoint at
+    ``https://models.github.ai/inference``.  Unlike many OpenAI-compatible
+    providers it does **not** implement the ``/models`` listing endpoint, so
+    the generic ``OpenAIProvider.check_connection`` (which calls
+    ``client.models.list()``) receives a 404 response.  This override checks
+    connectivity by issuing a minimal chat completion request instead.
+    """
+
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
+        """Check connectivity via a tiny chat completion request."""
+        # Prefer a built-in model; fall back to a well-known GitHub Models id.
+        model_id = ""
+        for candidate in ("openai/gpt-4o-mini", "gpt-4o-mini"):
+            if any(m.id == candidate for m in self.models):
+                model_id = candidate
+                break
+        if not model_id:
+            model_id = (
+                self.models[0].id if self.models else "openai/gpt-4o-mini"
+            )
+
+        try:
+            client = self._client(timeout=timeout)
+            res = await client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "ping",
+                            },
+                        ],
+                    },
+                ],
+                timeout=timeout,
+                stream=True,
+                **_token_limit_kwargs(model_id, 5),
+            )
+            try:
+                async for _ in res:
+                    break
+            finally:
+                await res.response.aclose()
+            return True, ""
+        except APIError as exc:
+            detail = str(exc) or getattr(exc, "message", "")
+            status = getattr(exc, "status_code", "unknown")
+            return (
+                False,
+                f"API error when connecting to `{self.base_url}` "
+                f"(status={status}): {detail}",
+            )
+        except Exception as exc:
+            return (
+                False,
+                f"Unknown exception when connecting to `{self.base_url}`: "
+                f"{exc}",
+            )

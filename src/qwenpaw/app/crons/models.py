@@ -4,7 +4,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Literal, Optional
 
-from agentscope_runtime.engine.schemas.exception import ConfigurationException
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -83,21 +82,16 @@ class ScheduleSpec(BaseModel):
             return f"0 0 {dom} {month} {_crontab_dow_to_name(dow)}"
 
         # 6 fields (seconds) or too short: reject
-        raise ConfigurationException(
-            config_key="cron.schedule.cron",
-            message=(
-                "cron must have 5 fields (or 4/3 fields that can be "
-                "normalized); seconds not supported"
-            ),
+        raise ValueError(
+            "cron must have 5 fields (or 4/3 fields that can be "
+            "normalized); seconds not supported",
         )
 
     @model_validator(mode="after")
     def _validate_schedule_type(self) -> "ScheduleSpec":
         if self.type == "cron":
             if not (self.cron and self.cron.strip()):
-                raise ConfigurationException(
-                    message="schedule.type is cron but cron is empty",
-                )
+                raise ValueError("schedule.type is cron but cron is empty")
             self.cron = self.normalize_cron_5_fields(self.cron)
             self.run_at = None
             self.repeat_every_days = None
@@ -107,9 +101,7 @@ class ScheduleSpec(BaseModel):
             return self
 
         if self.run_at is None:
-            raise ConfigurationException(
-                message="schedule.type is once but run_at is missing",
-            )
+            raise ValueError("schedule.type is once but run_at is missing")
         self.cron = None
         if self.repeat_every_days is None:
             self.repeat_end_type = None
@@ -127,22 +119,20 @@ class ScheduleSpec(BaseModel):
 
         if self.repeat_end_type == "until":
             if self.repeat_until is None:
-                raise ConfigurationException(
-                    message=(
-                        "repeat_end_type is until "
-                        "but repeat_until is missing"
-                    ),
+                raise ValueError(
+                    "repeat_end_type is until but repeat_until is missing",
                 )
             if self.repeat_until <= self.run_at:
-                raise ConfigurationException(
-                    message="repeat_until must be later than run_at",
+                raise ValueError(
+                    "repeat_until must be later than run_at "
+                    "(deadline must be after execution time)",
                 )
             self.repeat_count = None
             return self
 
         if self.repeat_count is None:
-            raise ConfigurationException(
-                message="repeat_end_type is count but repeat_count is missing",
+            raise ValueError(
+                "repeat_end_type is count but repeat_count is missing",
             )
         self.repeat_until = None
         return self
@@ -158,13 +148,19 @@ class DispatchSpec(BaseModel):
     channel: str = Field(default=DEFAULT_CHANNEL)
     target: DispatchTarget
     mode: Literal["stream", "final"] = Field(default="stream")
+    silent: bool = Field(
+        default=False,
+        description=(
+            "Run an agent task without delivering its events to the channel."
+        ),
+    )
     meta: Dict[str, Any] = Field(default_factory=dict)
 
 
 class JobRuntimeSpec(BaseModel):
     max_concurrency: int = Field(default=1, ge=1)
     timeout_seconds: int = Field(default=120, ge=1)
-    misfire_grace_seconds: int = Field(default=60, ge=0)
+    misfire_grace_seconds: int = Field(default=600, ge=0)
     share_session: bool = Field(
         default=True,
         description=(
@@ -172,10 +168,20 @@ class JobRuntimeSpec(BaseModel):
             "If False, creates isolated context with unique run ID."
         ),
     )
+    tool_safety: bool = Field(
+        default=False,
+        description=(
+            "Tool execution safety for this cron job. "
+            "When enabled (True), uses AUTO mode — risky tools require "
+            "approval (may block unattended execution). "
+            "When disabled (False), uses OFF mode — all tools execute "
+            "without approval checks, suitable for trusted automated tasks."
+        ),
+    )
 
 
 class CronJobRequest(BaseModel):
-    """Passthrough payload to runner.stream_query(request=...).
+    """Passthrough payload to workspace.stream_query(request=...).
 
     This is aligned with AgentRequest(extra="allow"). We keep it permissive.
     """
@@ -209,17 +215,15 @@ class CronJobSpec(BaseModel):
     def _validate_task_type_fields(self) -> "CronJobSpec":
         if self.task_type == "text":
             if not (self.text and self.text.strip()):
-                raise ConfigurationException(
-                    config_key="cron.text",
-                    message="task_type is text but text is empty",
+                raise ValueError("task_type is text but text is empty")
+            if self.dispatch.silent:
+                raise ValueError(
+                    "silent delivery is only supported for agent tasks",
                 )
             self.request = None
         elif self.task_type == "agent":
             if self.request is None:
-                raise ConfigurationException(
-                    config_key="cron.request",
-                    message="task_type is agent but request is missing",
-                )
+                raise ValueError("task_type is agent but request is missing")
             # Keep request.user_id and request.session_id in sync with target
             target = self.dispatch.target
             self.request = self.request.model_copy(

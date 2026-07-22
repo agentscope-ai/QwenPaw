@@ -26,13 +26,14 @@ const buildDispatch = () => ({
     session_id: "cron_job",
   },
   mode: "final" as const,
+  silent: false,
 });
 
 const buildRuntime = () => ({
   share_session: true,
   max_concurrency: 1,
   timeout_seconds: 120,
-  misfire_grace_seconds: 60,
+  misfire_grace_seconds: 600,
 });
 
 const createCustomCronTemplate = (

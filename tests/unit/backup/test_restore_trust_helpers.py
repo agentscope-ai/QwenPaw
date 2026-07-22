@@ -33,17 +33,17 @@ def test_resolve_preserve_flag_defaults_from_backup_trust_state():
 
     assert resolve_preserve_flag(
         req,
-        BackupMeta(name="Foreign", imported_via_trust_foreign=True),
+        BackupMeta(name="Foreign", accepted_via_trust=True),
     )
     assert not resolve_preserve_flag(
         req,
-        BackupMeta(name="Local", imported_via_trust_foreign=False),
+        BackupMeta(name="Local", accepted_via_trust=False),
     )
     assert not resolve_preserve_flag(
         RestoreBackupRequest(preserve_local_protected_config=False),
-        BackupMeta(name="Foreign", imported_via_trust_foreign=True),
+        BackupMeta(name="Foreign", accepted_via_trust=True),
     )
     assert resolve_preserve_flag(
         RestoreBackupRequest(preserve_local_protected_config=True),
-        BackupMeta(name="Local", imported_via_trust_foreign=False),
+        BackupMeta(name="Local", accepted_via_trust=False),
     )

@@ -97,12 +97,15 @@ def _probe_matrix(
 
 def _probe_telegram(
     agent_id: str,
-    _cfg: TelegramConfig,
+    cfg: TelegramConfig,
     timeout: float,
 ) -> list[str]:
-    err = _http_get_ok("https://api.telegram.org", timeout)
+    url = (cfg.base_url or "").strip().rstrip(
+        "/",
+    ) or "https://api.telegram.org"
+    err = _http_get_ok(url, timeout)
     if err:
-        return [f"{agent_id}: telegram: reach api.telegram.org — {err}"]
+        return [f"{agent_id}: telegram: reach {url} — {err}"]
     return []
 
 
@@ -189,21 +192,36 @@ def _probe_voice(
 
 def _probe_xiaoyi(
     agent_id: str,
-    cfg: XiaoYiConfig,
+    _cfg: XiaoYiConfig,
     timeout: float,
 ) -> list[str]:
-    raw = (cfg.ws_url or "").strip()
-    if not raw:
-        return []
-    parsed = urlparse(raw)
-    host = parsed.hostname
-    if not host:
-        return [f"{agent_id}: xiaoyi: could not parse host from ws_url"]
-    port = parsed.port or (443 if parsed.scheme in ("wss", "https") else 80)
-    err = _tcp_check(host, port, timeout)
-    if err:
-        return [f"{agent_id}: xiaoyi: TCP {host}:{port} — {err}"]
-    return []
+    from qwenpaw.app.channels.xiaoyi.constants import (
+        DEFAULT_WS_URL,
+        DEFAULT_WS_URL_BACKUP,
+    )
+
+    notes: list[str] = []
+    for label, raw in (
+        ("primary", DEFAULT_WS_URL),
+        ("backup", DEFAULT_WS_URL_BACKUP),
+    ):
+        if not raw:
+            continue
+        parsed = urlparse(raw)
+        host = parsed.hostname
+        if not host:
+            continue
+        port = parsed.port or (
+            443 if parsed.scheme in ("wss", "https") else 80
+        )
+        err = _tcp_check(host, port, timeout)
+        if err:
+            notes.append(
+                f"{agent_id}: xiaoyi: "
+                f"TCP {host}:{port} ({label}) "
+                f"\u2014 {err}",
+            )
+    return notes
 
 
 def _probe_wechat(

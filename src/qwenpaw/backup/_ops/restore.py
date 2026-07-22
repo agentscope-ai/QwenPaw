@@ -15,7 +15,7 @@ from .._utils.constants import (
     PREFIX_SECRETS,
     PREFIX_SKILL_POOL,
     PREFIX_WORKSPACES,
-    zip_path,
+    find_zip_path,
 )
 from .._utils.meta import read_meta_from_zip
 from .._utils.safe_swap import (
@@ -27,20 +27,19 @@ from .._utils.safe_swap import (
     find_busy_restore_paths,
     restore_process_lock,
 )
+from .._utils.signing import resolve_signature_action, sign_trusted_backup
 from ..models import BackupMeta, BackupValidationError, RestoreBackupRequest
 from ...config.config import AgentProfileRef
 from ...config.utils import load_config, save_config
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
 from ...security.secret_store import reload_master_key_from_disk
 from .restore_helpers import (
-    assert_signature_or_legacy,
     collect_workspace_agents_from_zip,
     handle_master_key_conflict,
     overlay_local_keys,
     resolve_preserve_flag,
     resolve_workspace_dst,
     rewrite_agent_workspace_dir,
-    sign_trusted_legacy_unsigned,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,17 +69,18 @@ def preflight_restore(backup_id: str, req: RestoreBackupRequest) -> BackupMeta:
     fails here, so the HTTP orchestration can show the trust prompt without
     stopping and immediately restarting the affected workspaces.
     """
-    zp = zip_path(backup_id)
-    if not zp.is_file():
+    zp = find_zip_path(backup_id)
+    if zp is None:
         raise FileNotFoundError(f"Backup not found: {backup_id}")
 
     with zipfile.ZipFile(zp, "r") as zf:
         meta = _read_meta_or_missing(zf, backup_id)
-        assert_signature_or_legacy(
+        resolve_signature_action(
             zf,
             meta,
             backup_id,
-            trust_legacy=req.trust_legacy,
+            trust_mode=req.trust_mode,
+            operation="Restoring",
         )
         _validate_version(meta)
         return meta
@@ -488,35 +488,37 @@ def _restore_sync_locked(
     req: RestoreBackupRequest,
 ) -> BackupMeta:
     """Restore after both async and process-level restore locks are held."""
-    zp = zip_path(backup_id)
-    if not zp.is_file():
+    zp = find_zip_path(backup_id)
+    if zp is None:
         raise FileNotFoundError(f"Backup not found: {backup_id}")
 
     with zipfile.ZipFile(zp, "r") as zf:
         meta = _read_meta_or_missing(zf, backup_id)
-        if not meta.signature:
-            # Legacy backups predate local signatures. They are usable only
-            # after explicit user trust, then signed before any file writes.
-            assert_signature_or_legacy(
-                zf,
-                meta,
-                backup_id,
-                trust_legacy=req.trust_legacy,
-            )
-            _validate_version(meta)
-
-    if not meta.signature:
-        meta = sign_trusted_legacy_unsigned(zp, meta)
-
-    with zipfile.ZipFile(zp, "r") as zf:
-        meta = _read_meta_or_missing(zf, backup_id)
-        # Re-open after legacy signing and verify the archive that will
-        # actually be restored, including its newly written meta.json.
-        assert_signature_or_legacy(
+        # Legacy/foreign backups are usable only after explicit user trust.
+        # If trust is accepted, sign the archive locally before any file
+        # writes so the restore below verifies the same bytes it will apply.
+        signature_action = resolve_signature_action(
             zf,
             meta,
             backup_id,
-            trust_legacy=False,
+            trust_mode=req.trust_mode,
+            operation="Restoring",
+        )
+        _validate_version(meta)
+
+    if signature_action == "sign_trusted":
+        meta = sign_trusted_backup(zp, meta)
+
+    with zipfile.ZipFile(zp, "r") as zf:
+        meta = _read_meta_or_missing(zf, backup_id)
+        # Re-open after trust signing and verify the archive that will
+        # actually be restored, including its newly written meta.json.
+        resolve_signature_action(
+            zf,
+            meta,
+            backup_id,
+            trust_mode=None,
+            operation="Restoring",
         )
         _validate_version(meta)
 

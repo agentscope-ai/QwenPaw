@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 from tests.contract.channels import ChannelContractTest
 
@@ -30,20 +31,14 @@ class TestMatrixChannelContract(ChannelContractTest):
         """Provide a MatrixChannel instance for contract testing."""
         from qwenpaw.app.channels.matrix.channel import MatrixChannel
 
-        from qwenpaw.app.channels.matrix.channel import MatrixChannelConfig
-
         process = AsyncMock()
-        config = MatrixChannelConfig(
-            raw={
-                "enabled": True,
-                "homeserver": "https://matrix.example.com",
-                "access_token": "test_token_12345",
-                "bot_prefix": "[Test]",
-            },
-        )
         return MatrixChannel(
             process=process,
-            config=config,
-            show_tool_details=False,
-            filter_tool_messages=True,
+            homeserver="https://matrix.example.com",
+            access_token="test_token_12345",
+            enabled=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )

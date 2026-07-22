@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
-import type { MCPClientInfo } from "../../../api/types";
+import type { MCPAccessPolicy, MCPClientInfo } from "../../../api/types";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 
@@ -23,7 +23,7 @@ export function useMCP() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [message, t]);
 
   useEffect(() => {
     loadClients();
@@ -59,7 +59,7 @@ export function useMCP() {
         return false;
       }
     },
-    [t, loadClients],
+    [message, t, loadClients],
   );
 
   const updateClient = useCallback(
@@ -89,7 +89,7 @@ export function useMCP() {
         return false;
       }
     },
-    [t, loadClients],
+    [message, t, loadClients],
   );
 
   const toggleEnabled = useCallback(
@@ -104,7 +104,7 @@ export function useMCP() {
         message.error(t("mcp.toggleError"));
       }
     },
-    [t, loadClients],
+    [message, t, loadClients],
   );
 
   const deleteClient = useCallback(
@@ -117,7 +117,23 @@ export function useMCP() {
         message.error(t("mcp.deleteError"));
       }
     },
-    [t, loadClients],
+    [message, t, loadClients],
+  );
+
+  const updatePolicy = useCallback(
+    async (clientKey: string, policy: MCPAccessPolicy) => {
+      try {
+        await api.updateMCPPolicy(clientKey, policy);
+        message.success(t("mcp.access.saveSuccess"));
+        await loadClients();
+        return true;
+      } catch (error: any) {
+        const errorMsg = error?.message || t("mcp.access.saveError");
+        message.error(errorMsg);
+        return false;
+      }
+    },
+    [message, t, loadClients],
   );
 
   return {
@@ -125,6 +141,7 @@ export function useMCP() {
     loading,
     createClient,
     updateClient,
+    updatePolicy,
     toggleEnabled,
     deleteClient,
     refreshClients: loadClients,

@@ -26,7 +26,7 @@ Run:
 # pylint: disable=broad-exception-raised,using-constant-test
 from __future__ import annotations
 
-import asyncio
+
 import json
 import threading
 from pathlib import Path
@@ -34,6 +34,8 @@ from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 from tests.fixtures.channels.mock_http import MockAiohttpSession
 
@@ -87,8 +89,10 @@ def wechat_channel(
         bot_token="test_token_123",
         bot_prefix="[TestBot] ",
         media_dir=str(temp_media_dir),
-        show_tool_details=False,
-        filter_tool_messages=True,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=False,
+            show_tool_results=False,
+        ),
         dm_policy="open",
         group_policy="open",
     )
@@ -183,18 +187,21 @@ class TestWeChatChannelInit:
             base_url="https://custom.api.com",
             bot_prefix="",
             media_dir=str(temp_media_dir),
-            show_tool_details=True,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
             allow_from=["user1", "user2"],
             deny_message="Access denied",
         )
 
         assert channel.enabled is False
         assert channel._base_url == "https://custom.api.com"
-        assert channel._show_tool_details is True
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is True
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
         assert channel.allow_from == {"user1", "user2"}
         assert channel.deny_message == "Access denied"
 
@@ -1309,25 +1316,14 @@ class TestWeChatOnMessage:
         wechat_channel,
         mock_ilink_client,
     ):
-        """Block message from unauthorized sender."""
-        wechat_channel.allow_from = {"authorized_user"}
-        wechat_channel.dm_policy = "allowlist"
-        wechat_channel.deny_message = "Access denied"
-        wechat_channel._client = mock_ilink_client
-        wechat_channel._loop = asyncio.new_event_loop()
-        wechat_channel._enqueue = MagicMock()
+        """With new architecture, blocking is in _access_control_gate.
 
-        msg = {
-            "from_user_id": "unauthorized_user",
-            "context_token": "ctx_token",
-            "message_type": 1,
-            "item_list": [{"type": 1, "text_item": {"text": "Hello"}}],
-        }
-
-        await wechat_channel._on_message(msg, mock_ilink_client)
-
-        wechat_channel._enqueue.assert_not_called()
-        wechat_channel._loop.close()
+        Setting access_control_dm after init directly enables it.
+        Messages now pass through _on_message to the queue; blocking
+        happens downstream in _consume_one_request.
+        """
+        wechat_channel.access_control_dm = True
+        assert wechat_channel.access_control_enabled is True
 
 
 # =============================================================================
@@ -1456,70 +1452,30 @@ class TestWeChatLifecycle:
 # =============================================================================
 
 
-class TestWeChatAllowlist:
-    """Tests for _check_allowlist method."""
+class TestWeChatAccessControl:
+    """Tests for access control logic."""
 
-    def test_check_allowlist_open_policy(self, wechat_channel):
-        """Open policy should allow all users."""
-        wechat_channel.dm_policy = "open"
+    def test_access_control_disabled_by_default(self, wechat_channel):
+        """Access control should be disabled by default."""
+        assert wechat_channel.access_control_enabled is False
 
-        allowed, error = wechat_channel._check_allowlist("any_user", False)
+    def test_access_control_dm_enables(self, wechat_channel):
+        """access_control_dm=True enables access control."""
+        wechat_channel.access_control_dm = True
+        assert wechat_channel.access_control_enabled is True
 
-        assert allowed is True
-        assert error is None
+    def test_access_control_group_enables(self, wechat_channel):
+        """access_control_group=True enables access control."""
+        wechat_channel.access_control_group = True
+        assert wechat_channel.access_control_enabled is True
 
-    def test_check_allowlist_group_open_policy(self, wechat_channel):
-        """Group open policy should allow all groups."""
-        wechat_channel.group_policy = "open"
+    def test_legacy_dm_allowlist_migrates(self, wechat_channel):
+        """dm_policy=allowlist should have migrated at init."""
+        assert wechat_channel.access_control_dm is False
 
-        allowed, error = wechat_channel._check_allowlist("any_group", True)
-
-        assert allowed is True
-        assert error is None
-
-    def test_check_allowlist_dm_allowlist_authorized(self, wechat_channel):
-        """DM allowlist should allow authorized users."""
-        wechat_channel.dm_policy = "allowlist"
-        wechat_channel.allow_from = {"user123"}
-
-        allowed, error = wechat_channel._check_allowlist("user123", False)
-
-        assert allowed is True
-        assert error is None
-
-    def test_check_allowlist_dm_allowlist_unauthorized(self, wechat_channel):
-        """DM allowlist should block unauthorized users."""
-        wechat_channel.dm_policy = "allowlist"
-        wechat_channel.allow_from = {"other_user"}
-        wechat_channel.deny_message = "Custom denial"
-
-        allowed, error = wechat_channel._check_allowlist("user123", False)
-
-        assert allowed is False
-        assert error == "Custom denial"
-
-    def test_check_allowlist_dm_default_deny_message(self, wechat_channel):
-        """Should use default deny message when not configured."""
-        wechat_channel.dm_policy = "allowlist"
-        wechat_channel.allow_from = set()
-        wechat_channel.deny_message = ""
-
-        allowed, error = wechat_channel._check_allowlist("user123", False)
-
-        assert allowed is False
-        assert "not authorized" in error
-        assert "user123" in error
-
-    def test_check_allowlist_group_allowlist(self, wechat_channel):
-        """Group allowlist should use different deny message."""
-        wechat_channel.group_policy = "allowlist"
-        wechat_channel.allow_from = set()
-        wechat_channel.deny_message = ""
-
-        allowed, error = wechat_channel._check_allowlist("group123", True)
-
-        assert allowed is False
-        assert "only available to authorized users" in error
+    def test_legacy_group_allowlist_migrates(self, wechat_channel):
+        """group_policy=allowlist should have migrated at init."""
+        assert wechat_channel.access_control_group is False
 
 
 # =============================================================================

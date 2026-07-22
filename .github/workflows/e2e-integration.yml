@@ -1,0 +1,20 @@
+# Standalone E2E Integration Tests (manual dispatch only).
+# Nightly E2E runs are handled by full-tests-nightly.yml as part of the
+# four-tier coverage pipeline. Use this workflow for ad-hoc E2E runs
+# with a custom marker filter.
+name: E2E Integration Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_marker:
+        description: 'Pytest marker filter (default: p0)'
+        required: false
+        default: 'p0'
+
+jobs:
+  e2e-integration:
+    uses: ./.github/workflows/_e2e-job.yml
+    with:
+      test_marker: ${{ github.event.inputs.test_marker || 'p0' }}
+    secrets: inherit

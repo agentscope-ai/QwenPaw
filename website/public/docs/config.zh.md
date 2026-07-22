@@ -56,21 +56,24 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 
 **路径相关：**
 
-| 变量                       | 默认值              | 说明                                                                                        |
-| -------------------------- | ------------------- | ------------------------------------------------------------------------------------------- |
-| `QWENPAW_WORKING_DIR`      | `~/.qwenpaw`        | 工作目录根路径                                                                              |
-| `QWENPAW_SECRET_DIR`       | `~/.qwenpaw.secret` | 敏感数据目录（存放 `providers.json` 和 `envs.json`）。Docker 中默认为 `/app/working.secret` |
-| `QWENPAW_CONFIG_FILE`      | `config.json`       | 配置文件名（相对于 `QWENPAW_WORKING_DIR`）                                                  |
-| `QWENPAW_HEARTBEAT_FILE`   | `HEARTBEAT.md`      | 心跳文件名（相对于智能体工作区）                                                            |
-| `QWENPAW_JOBS_FILE`        | `jobs.json`         | 定时任务文件名（相对于智能体工作区）                                                        |
-| `QWENPAW_CHATS_FILE`       | `chats.json`        | 对话历史文件名（相对于智能体工作区）                                                        |
-| `QWENPAW_TOKEN_USAGE_FILE` | `token_usage.json`  | Token 消耗记录文件名（相对于智能体工作区）                                                  |
+| 变量                       | 默认值              | 说明                                                                                                                                                                                                                           |
+| -------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `QWENPAW_WORKING_DIR`      | `~/.qwenpaw`        | 工作目录根路径                                                                                                                                                                                                                 |
+| `QWENPAW_SECRET_DIR`       | `~/.qwenpaw.secret` | 敏感数据目录（存放 `providers.json` 和 `envs.json`）。Docker 中默认为 `/app/working.secret`                                                                                                                                    |
+| `QWENPAW_KEYRING_ACCOUNT`  | _(自动)_            | 主密钥在操作系统钥匙串中的账户名。默认为 `master_key`；当设置了 `QWENPAW_WORKING_DIR`/`QWENPAW_SECRET_DIR`（例如开发检出）时会自动派生为每个安装独立的账户名，使开发安装不会覆盖稳定安装的密钥。可显式设置以命名某个配置档案。 |
+| `QWENPAW_CONFIG_FILE`      | `config.json`       | 配置文件名（相对于 `QWENPAW_WORKING_DIR`）                                                                                                                                                                                     |
+| `QWENPAW_HEARTBEAT_FILE`   | `HEARTBEAT.md`      | 心跳文件名（相对于智能体工作区）                                                                                                                                                                                               |
+| `QWENPAW_JOBS_FILE`        | `jobs.json`         | 定时任务文件名（相对于智能体工作区）                                                                                                                                                                                           |
+| `QWENPAW_CHATS_FILE`       | `chats.json`        | 对话历史文件名（相对于智能体工作区）                                                                                                                                                                                           |
+| `QWENPAW_TOKEN_USAGE_FILE` | `token_usage.json`  | Token 消耗记录文件名（相对于智能体工作区）                                                                                                                                                                                     |
 
 **其他配置：**
 
 | 变量                                 | 默认值         | 说明                                                            |
 | ------------------------------------ | -------------- | --------------------------------------------------------------- |
 | `QWENPAW_LOG_LEVEL`                  | `info`         | 日志级别（`debug` / `info` / `warning` / `error` / `critical`） |
+| `QWENPAW_LOG_MAX_SIZE`               | `5MiB`         | 当前日志文件大小上限，支持字节数及 `10MB`、`1GiB` 等后缀        |
+| `QWENPAW_LOG_MAX_BACKUPS`            | `3`            | 保留的轮转日志份数；设为 `0` 时不保留备份                       |
 | `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`       | 触发记忆压缩的字符阈值                                          |
 | `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`            | 压缩后保留的最近消息数                                          |
 | `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`          | 触发压缩的阈值比例（相对于上下文窗口大小）                      |
@@ -85,13 +88,6 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 | `QWENPAW_AUTH_PASSWORD`      | -       | 自动注册时的管理员密码（可选）           |
 | `QWENPAW_TOOL_GUARD_ENABLED` | `true`  | 是否启用工具守卫                         |
 | `QWENPAW_SKILL_SCAN_MODE`    | `warn`  | 技能扫描模式（`block` / `warn` / `off`） |
-
-**记忆与检索：**
-
-| 变量                   | 默认值 | 说明                                                   |
-| ---------------------- | ------ | ------------------------------------------------------ |
-| `FTS_ENABLED`          | `true` | 是否启用 BM25 全文检索                                 |
-| `MEMORY_STORE_BACKEND` | `auto` | 记忆存储后端（`auto` / `local` / `chroma` / `sqlite`） |
 
 ---
 
@@ -203,6 +199,7 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
     "enabled": false,
     "every": "30m",
     "target": "main",
+    "timeoutSeconds": 300,
     "activeHours": null
   },
   "running": {
@@ -295,12 +292,13 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 心跳是定时自检功能，按固定间隔执行 `HEARTBEAT.md` 中的任务。
 
-| 字段          | 类型           | 默认值   | 说明                                                                         |
-| ------------- | -------------- | -------- | ---------------------------------------------------------------------------- |
-| `enabled`     | bool           | `false`  | 是否启用心跳功能                                                             |
-| `every`       | string         | `"30m"`  | 运行间隔。支持 `Nh`、`Nm`、`Ns` 组合，如 `"1h"`、`"30m"`、`"2h30m"`、`"90s"` |
-| `target`      | string         | `"main"` | `"main"` = 只在主会话运行；`"last"` = 把结果发到最后一个发消息的频道/用户    |
-| `activeHours` | object \| null | `null`   | 可选活跃时段（`start`、`end` 时间，24 小时制）                               |
+| 字段             | 类型           | 默认值   | 说明                                                                         |
+| ---------------- | -------------- | -------- | ---------------------------------------------------------------------------- |
+| `enabled`        | bool           | `false`  | 是否启用心跳功能                                                             |
+| `every`          | string         | `"30m"`  | 运行间隔。支持 `Nh`、`Nm`、`Ns` 组合，如 `"1h"`、`"30m"`、`"2h30m"`、`"90s"` |
+| `target`         | string         | `"main"` | `"main"` = 只在主会话运行；`"last"` = 把结果发到最后一个发消息的频道/用户    |
+| `timeoutSeconds` | int            | `300`    | 单次心跳执行的最长时间，单位秒。有效范围：`1`–`3600`                         |
+| `activeHours`    | object \| null | `null`   | 可选活跃时段（`start`、`end` 时间，24 小时制）                               |
 
 详细说明请看 [心跳](./heartbeat)。
 
@@ -353,60 +351,77 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **Light 上下文压缩配置（`light_context_config.context_compact_config` 对象）：**
 
-| 字段                          | 类型  | 默认值 | 说明                                            |
-| ----------------------------- | ----- | ------ | ----------------------------------------------- |
-| `enabled`                     | bool  | `true` | 是否启用自动上下文压缩                          |
-| `compact_threshold_ratio`     | float | `0.8`  | 触发压缩的阈值比例（相对于 `max_input_length`） |
-| `reserve_threshold_ratio`     | float | `0.1`  | 压缩时保留的最近上下文比例                      |
-| `compact_with_thinking_block` | bool  | `true` | 压缩时是否包含思考块                            |
+| 字段                      | 类型  | 默认值 | 说明                                            |
+| ------------------------- | ----- | ------ | ----------------------------------------------- |
+| `enabled`                 | bool  | `true` | 是否启用自动上下文压缩                          |
+| `compact_threshold_ratio` | float | `0.8`  | 触发压缩的阈值比例（相对于 `max_input_length`） |
+| `reserve_threshold_ratio` | float | `0.1`  | 压缩时保留的最近上下文比例                      |
 
 **Light 工具结果修剪配置（`light_context_config.tool_result_pruning_config` 对象）：**
 
-| 字段                           | 类型 | 默认值  | 说明                       |
-| ------------------------------ | ---- | ------- | -------------------------- |
-| `enabled`                      | bool | `true`  | 是否启用工具结果修剪       |
-| `pruning_recent_n`             | int  | `2`     | 最近 N 条消息使用较高阈值  |
-| `pruning_old_msg_max_bytes`    | int  | `3000`  | 旧消息的工具结果字节阈值   |
-| `pruning_recent_msg_max_bytes` | int  | `50000` | 最近消息的工具结果字节阈值 |
-| `offload_retention_days`       | int  | `5`     | 工具结果文件保留天数       |
+| 字段                           | 类型 | 默认值  | 说明                                                                |
+| ------------------------------ | ---- | ------- | ------------------------------------------------------------------- |
+| `enabled`                      | bool | `true`  | 是否启用工具结果修剪                                                |
+| `pruning_recent_n`             | int  | `2`     | scroll compact 前，最近 N 条包含工具结果的消息使用最近预览阈值      |
+| `pruning_old_msg_max_bytes`    | int  | `3000`  | scroll compact 后仍保留在 live context 中的工具结果轻量预览字节阈值 |
+| `pruning_recent_msg_max_bytes` | int  | `50000` | 工具结果进入 context 前及仍属于 recent 时使用的预览字节阈值         |
+| `offload_retention_days`       | int  | `5`     | 工具结果文件保留天数                                                |
 
 **ReMeLight 记忆配置（`reme_light_memory_config` 对象）：**
 
-| 字段                            | 类型        | 默认值         | 说明                                                     |
-| ------------------------------- | ----------- | -------------- | -------------------------------------------------------- |
-| `summarize_when_compact`        | bool        | `true`         | 是否在上下文压缩时启用记忆总结                           |
-| `auto_memory_interval`          | int \| null | `null`         | 每隔 N 次用户查询触发自动记忆。null 表示禁用定期自动记忆 |
-| `dream_cron`                    | string      | `"0 23 * * *"` | 梦境记忆优化任务的 Cron 表达式（空字符串禁用）           |
-| `rebuild_memory_index_on_start` | bool        | `false`        | 启动时是否重建记忆搜索索引                               |
-| `recursive_file_watcher`        | bool        | `false`        | 是否递归监控记忆目录                                     |
-| `auto_memory_search_config`     | object      | _（见下方）_   | 自动记忆搜索配置                                         |
-| `embedding_model_config`        | object      | _（见下方）_   | Embedding 模型配置                                       |
+| 字段                        | 类型        | 默认值           | 说明                                                                                              |
+| --------------------------- | ----------- | ---------------- | ------------------------------------------------------------------------------------------------- |
+| `metadata_dir`              | string      | `"mem_metadata"` | ReMe 持久状态子目录                                                                               |
+| `session_dir`               | string      | `"mem_session"`  | ReMe auto-memory 使用的来源对话日志子目录                                                         |
+| `mem_session_dir`           | string      | `"mem_agent"`    | ReMe 内部 memory-agent 会话子目录                                                                 |
+| `resource_dir`              | string      | `"resource"`     | 外部资源子目录                                                                                    |
+| `daily_dir`                 | string      | `"memory"`       | 每日记忆子目录                                                                                    |
+| `digest_dir`                | string      | `"digest"`       | digest 记忆子目录                                                                                 |
+| `summarize_when_compact`    | bool        | `true`           | 是否在上下文压缩时启用记忆总结                                                                    |
+| `inbox_push_enabled`        | bool        | `true`           | 是否将自动记忆、自动梦境和自动资源任务结果推送到收件箱                                            |
+| `auto_memory_interval`      | int \| null | `5`              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆                              |
+| `dream_cron_enabled`        | bool        | `true`           | 是否启用按 Cron 定时执行的梦境记忆优化任务                                                        |
+| `dream_cron`                | string      | `"0 23 * * *"`   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动，以避免集中调用 |
+| `auto_memory_search_config` | object      | _（见下方）_     | 自动记忆搜索配置                                                                                  |
+| `embedding_model_config`    | object      | _（见下方）_     | Embedding 模型配置                                                                                |
+
+> `rebuild_memory_index_on_start` 已不再支持。仅在确有需要时通过控制台或维护 API 重建索引，详见
+> [重建记忆搜索索引](./memory#重建记忆搜索索引)。
 
 **自动记忆搜索配置（`reme_light_memory_config.auto_memory_search_config` 对象）：**
 
-| 字段          | 类型  | 默认值  | 说明                                        |
-| ------------- | ----- | ------- | ------------------------------------------- |
-| `enabled`     | bool  | `false` | 是否在每轮对话时自动执行记忆搜索            |
-| `max_results` | int   | `1`     | 自动搜索时最多返回的结果数                  |
-| `min_score`   | float | `0.1`   | 自动搜索时的最低相关性分数阈值（0.0 - 1.0） |
-| `timeout`     | float | `10.0`  | 自动搜索超时时间（秒）                      |
+| 字段          | 类型 | 默认值  | 说明                             |
+| ------------- | ---- | ------- | -------------------------------- |
+| `enabled`     | bool | `false` | 是否在每轮对话时自动执行记忆搜索 |
+| `max_results` | int  | `2`     | 自动搜索时最多返回的结果数       |
 
 **Embedding 配置（`reme_light_memory_config.embedding_model_config` 对象）：**
 
-| 字段               | 类型   | 默认值     | 说明                                                |
-| ------------------ | ------ | ---------- | --------------------------------------------------- |
-| `backend`          | string | `"openai"` | Embedding 后端类型（如 `"openai"`）                 |
-| `api_key`          | string | `""`       | Embedding 提供商的 API Key                          |
-| `base_url`         | string | `""`       | 自定义 API 地址（可选）                             |
-| `model_name`       | string | `""`       | Embedding 模型名称（如 `"text-embedding-3-small"`） |
-| `dimensions`       | int    | `1024`     | Embedding 向量维度                                  |
-| `enable_cache`     | bool   | `true`     | 是否启用 Embedding 缓存                             |
-| `use_dimensions`   | bool   | `false`    | 是否使用自定义维度                                  |
-| `max_cache_size`   | int    | `3000`     | 最大缓存大小                                        |
-| `max_input_length` | int    | `8192`     | Embedding 的最大输入长度                            |
-| `max_batch_size`   | int    | `10`       | 批处理的最大批量大小                                |
+| 字段               | 类型   | 默认值     | 说明                                                                                  |
+| ------------------ | ------ | ---------- | ------------------------------------------------------------------------------------- |
+| `backend`          | string | `"openai"` | Embedding 后端类型：`openai`、`dashscope`、`dashscope_multimodal`、`gemini`、`ollama` |
+| `api_key`          | string | `""`       | Embedding 提供商的 API Key。OpenAI 兼容和 Gemini 后端必填                             |
+| `base_url`         | string | `""`       | OpenAI 兼容后端的可选自定义 API 地址；Ollama 后端会作为 host 传递                     |
+| `model_name`       | string | `""`       | Embedding 模型名称（如 `"text-embedding-3-small"`）                                   |
+| `dimensions`       | int    | `1024`     | Embedding 向量维度                                                                    |
+| `enable_cache`     | bool   | `true`     | 是否启用 Embedding 缓存                                                               |
+| `use_dimensions`   | bool   | `false`    | 是否使用自定义维度                                                                    |
+| `max_cache_size`   | int    | `10000`    | 最大缓存大小                                                                          |
+| `max_input_length` | int    | `8192`     | Embedding 的最大输入长度                                                              |
+| `max_batch_size`   | int    | `10`       | 批处理的最大批量大小                                                                  |
 
-这些配置也可以在控制台的 **智能体 → 运行配置** 页面中修改。保存后会对新的 LLM 请求生效，不需要重启服务。
+向量检索只有在当前后端具备最低可运行配置时才会启用；这些条件与 AgentScope credential 要求保持一致：
+
+| 后端                                            | 启用条件                         | Credential 映射                |
+| ----------------------------------------------- | -------------------------------- | ------------------------------ |
+| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` 和 `api_key` 均非空 | `api_key`；可选 `base_url`     |
+| `gemini`                                        | `model_name` 和 `api_key` 均非空 | `api_key`                      |
+| `ollama`                                        | `model_name` 非空                | 可选 `host`（来自 `base_url`） |
+
+不满足启用条件时，ReMe 仍会保留关键词索引和 wikilink 图谱索引，但不会启用 embedding 向量索引。
+
+这些配置也可以在控制台的 **智能体 → 运行配置** 页面中修改。直接从 `agent.json` 读取的字段，例如自动记忆间隔和自动搜索条数，
+保存后会在后续对话轮次生效。目录和 Embedding 等嵌入式 ReMe 组件配置需要重启 Agent 进程，让 ReMe 应用用新配置重新构造。
 
 ---
 
@@ -437,16 +452,6 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `model`       | string | `""`   | 模型名称（如 `"qwen-max"`、`"gpt-4"`）        |
 
 为 `null` 时使用全局默认模型。可在控制台（智能体 → 模型设置）中配置。
-
----
-
-#### `plan` — 计划模式配置
-
-| 字段      | 类型 | 默认值  | 说明             |
-| --------- | ---- | ------- | ---------------- |
-| `enabled` | bool | `false` | 是否启用计划模式 |
-
-启用后,智能体支持 `/plan` 命令进行结构化任务规划与执行。详见 [计划模式](./plan)。
 
 ---
 

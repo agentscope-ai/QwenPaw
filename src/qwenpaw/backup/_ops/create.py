@@ -110,7 +110,7 @@ def _write_meta_and_finalize(
 ) -> None:
     """Finalize *meta*, emit a saving event, and write meta.json into *zf*."""
     finalize_backup_meta(meta, agent_count)
-    meta.imported_via_trust_foreign = False
+    meta.accepted_via_trust = False
     meta.signature = None
     put({"type": "saving", "percent": 90})
     zf.writestr(META_FILE, meta.model_dump_json(indent=2))
@@ -217,7 +217,7 @@ def _compress_to_tmp(
 
     signed_meta = replace_meta_with_local_signature(tmp, meta, dest_zip=dest)
     meta.signature = signed_meta.signature
-    meta.imported_via_trust_foreign = signed_meta.imported_via_trust_foreign
+    meta.accepted_via_trust = signed_meta.accepted_via_trust
     tmp.unlink(missing_ok=True)
     put(
         {"type": "done", "meta": meta.model_dump(mode="json"), "percent": 100},

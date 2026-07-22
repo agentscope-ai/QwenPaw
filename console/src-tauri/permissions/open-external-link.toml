@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "open-external-link"
+description = "Allows the frontend to open supported external links in the system browser."
+commands.allow = ["open_external_link"]

@@ -1,15 +1,16 @@
 # Quick start
 
-This section describes multiple ways to install QwenPaw:
+This section describes multiple ways to install or start using QwenPaw:
 
-| Installation Method   | Best For                                      | Advantages                                                  | Prerequisites         |
-| --------------------- | --------------------------------------------- | ----------------------------------------------------------- | --------------------- |
-| **pip install**       | Developers familiar with Python               | Flexible environment control, easy for development          | Python 3.10~3.13      |
-| **Script install**    | Users who don't want manual environment setup | Zero configuration, automatic Python environment management | None                  |
-| **Docker**            | Containerized deployment or production        | Environment isolation, easy migration                       | Docker                |
-| **Alibaba Cloud ECS** | Stable cloud operation                        | One-click deploy, stable and reliable                       | Alibaba Cloud account |
-| **ModelScope Studio** | No local environment or quick trial           | One-click deploy, cloud running, no installation            | ModelScope account    |
-| **Desktop app**       | Users unfamiliar with command line            | Double-click to use, graphical interface                    | None                  |
+| Installation Method     | Best For                                      | Advantages                                                                                      | Prerequisites                           |
+| ----------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------- |
+| **pip install**         | Developers familiar with Python               | Flexible environment control, easy for development                                              | Python 3.11~3.13                        |
+| **Script install**      | Users who don't want manual environment setup | Zero configuration, automatic Python environment management                                     | None                                    |
+| **Docker**              | Containerized deployment or production        | Environment isolation, easy migration                                                           | Docker                                  |
+| **AgentScope Platform** | No local environment or quick trial           | Free after registration, no installation required, browser-based, with Beta and stable versions | Register an AgentScope Platform account |
+| **Alibaba Cloud ECS**   | Stable cloud operation                        | One-click deploy, stable and reliable                                                           | Alibaba Cloud account                   |
+| **ModelScope Studio**   | No local environment or quick trial           | One-click deploy, cloud running, no installation                                                | ModelScope account                      |
+| **Desktop app**         | Users unfamiliar with command line            | Double-click to use, graphical interface                                                        | None                                    |
 
 > 📖 Please read [Introduction](./intro) first. After installation and startup, check out [Console](./console).
 
@@ -24,7 +25,7 @@ This section describes multiple ways to install QwenPaw:
 
 ## Option 1: pip install
 
-If you prefer managing Python yourself (requires Python >= 3.10, < 3.14):
+If you prefer managing Python yourself (requires Python >= 3.11, < 3.14):
 
 ```bash
 pip install qwenpaw
@@ -179,7 +180,7 @@ first and then configure channels.
 
 ## Option 2: pip install
 
-If you prefer managing Python yourself (requires Python >= 3.10, < 3.14):
+If you prefer managing Python yourself (requires Python >= 3.11, < 3.14):
 
 ```bash
 pip install qwenpaw
@@ -217,7 +218,17 @@ and API keys are stored in the `qwenpaw-secrets` volume; backup archives are sto
 
 ---
 
-## Option 4: Deploy to Alibaba Cloud ECS
+## Option 4: AgentScope Platform (no installation)
+
+[AgentScope Platform](https://platform.agentscope.io/) is the cloud experience platform for the AgentScope ecosystem, providing one-click QwenPaw deployment and an online runtime environment, with both Beta and stable versions available to try. Register to try it for free, with no local installation or environment setup required. After signing in, deploy QwenPaw with one click and use it directly in your browser.
+
+![QwenPaw one-click deployment and feedback entry points on AgentScope Platform](https://img.alicdn.com/imgextra/i1/O1CN01LEMjf01YXeg8iyOjE_!!6000000003069-2-tps-2840-1436.png)
+
+If you encounter any issues while deploying or using QwenPaw, click **Suggestions & Feedback** in the lower-right corner of the page to submit feedback.
+
+---
+
+## Option 5: Deploy to Alibaba Cloud ECS
 
 To deploy QwenPaw on Alibaba Cloud, use the ECS one-click deployment:
 
@@ -228,7 +239,7 @@ For detailed steps and instructions, see [Alibaba Cloud Developer Community: Dep
 
 ---
 
-## Option 5: ModelScope Studio one-click setup (no installation)
+## Option 6: ModelScope Studio one-click setup (no installation)
 
 If you don't want to install Python locally, you can deploy QwenPaw to the cloud
 through ModelScope Studio:
@@ -240,7 +251,7 @@ through ModelScope Studio:
 
 ---
 
-## Option 6: Desktop application
+## Option 7: Desktop application
 
 If you're not comfortable with command-line tools, you can download and use
 QwenPaw's desktop application without manually configuring Python environments
@@ -250,25 +261,25 @@ or running commands.
 
 - ✅ **Zero configuration**: Download and double-click to run, no need to install Python or configure environment variables
 - ✅ **Cross-platform**: Supports Windows 10+ and macOS 14+ (Apple Silicon recommended)
-- ✅ **Visual interface**: Automatically opens browser interface, no need to manually enter addresses
+- ✅ **Visual interface**: Automatically opens the app window, no need to manually enter addresses
 
 ### Download and usage
 
 1. **Download the installer**
-   Go to [GitHub Releases](https://github.com/agentscope-ai/QwenPaw/releases) to download the version for your system:
+   Go to [GitHub Releases](https://github.com/agentscope-ai/QwenPaw/releases) to download the Tauri build for your system:
 
-   - Windows: `QwenPaw-Setup-<version>.exe`
-   - macOS: `QwenPaw-<version>-macOS.zip`
+   - Windows: `QwenPaw-Tauri-<version>-Windows-setup.exe`
+   - macOS: `QwenPaw-Tauri-<version>-macOS.zip`
 
 2. **Install and launch**
 
    - **Windows**: Double-click the `.exe` file to install following the wizard, then double-click the desktop shortcut to launch
-   - **macOS**: Extract the `.zip` to get `QwenPaw.app`, first time requires right-click and select "Open" to bypass system security restrictions
+   - **macOS**: Extract the `.zip` to get `QwenPaw Desktop.app`, first time requires right-click and select "Open" to bypass system security restrictions
 
 3. **First launch note**
    The first launch may take 10-60 seconds (depending on your system configuration).
    The application needs to initialize the Python environment and load dependencies.
-   Please wait patiently for the browser window to open automatically.
+   Please wait patiently for the window to open automatically.
 
 ### Complete guide
 
@@ -286,11 +297,11 @@ to learn about:
 ## Verify installation (optional)
 
 After the server starts, you can call the Agent API via HTTP to confirm the
-environment is working. The endpoint is **POST** `/api/agent/process`, with
+environment is working. The endpoint is **POST** `/api/console/chat`, with
 JSON body and SSE streaming support. Single-turn example:
 
 ```bash
-curl -N -X POST "http://localhost:8088/api/agent/process" \
+curl -N -X POST "http://localhost:8088/api/console/chat" \
   -H "Content-Type: application/json" \
   -d '{"input":[{"role":"user","content":[{"type":"text","text":"Hello"}]}],"session_id":"session123"}'
 ```
@@ -354,6 +365,39 @@ Chat with QwenPaw in DingTalk, Feishu, QQ, Discord, iMessage, and other apps:
 2. Select the channel to connect
 3. Follow the [Channels](./channels) documentation to obtain credentials and fill them in
 4. After saving, you can send messages to QwenPaw in the corresponding app
+
+#### 📊 Enable Langfuse tracing
+
+Langfuse tracing is optional. If you do not use Langfuse, no extra package or
+configuration is required. To enable it, install the Langfuse SDK and provide
+your Langfuse credentials. `LANGFUSE_BASE_URL` can point to Langfuse Cloud or a
+self-hosted Langfuse instance.
+
+For source or local deployments:
+
+```bash
+pip install "langfuse>=4,<5"
+```
+
+For Docker deployments, build a small custom image:
+
+```dockerfile
+FROM agentscope/qwenpaw:latest
+RUN pip install --no-cache-dir "langfuse>=4,<5"
+```
+
+Then run QwenPaw with Langfuse environment variables:
+
+```bash
+docker run -p 127.0.0.1:8088:8088 \
+  -e LANGFUSE_SECRET_KEY=sk-lf-... \
+  -e LANGFUSE_PUBLIC_KEY=pk-lf-... \
+  -e LANGFUSE_BASE_URL=https://your-langfuse.example.com \
+  -v qwenpaw-data:/app/working \
+  -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
+  qwenpaw-langfuse:latest
+```
 
 #### 🔧 Enable and extend skills
 

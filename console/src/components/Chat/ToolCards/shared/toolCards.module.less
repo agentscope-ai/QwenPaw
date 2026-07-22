@@ -1,0 +1,392 @@
+// Tool card styles — self-contained within the plugin system.
+// Extracted from ChatV2 MessageList.module.less so plugin cards
+// have zero dependencies on files outside ToolCards/.
+
+// Tool call — compact single-line (click to expand)
+.toolCallCompact {
+  margin: 2px 0;
+  display: block;
+  width: 100%;
+
+  &.toolCallCompactLoading {
+    .toolCallLabel {
+      color: var(--ant-color-primary, #1677ff);
+    }
+  }
+
+  &.toolCallCompactError {
+    .toolCallLabel {
+      color: #ff4d4f;
+    }
+  }
+}
+
+.toolCallCompactSummary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  padding: 2px 0;
+  max-width: 100%;
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+
+  &::marker {
+    content: none;
+  }
+}
+
+.toolCallIcon {
+  font-size: 13px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.toolCallIconSuccess {
+  color: var(--ant-color-text-secondary, #8c8c8c);
+}
+
+.toolCallIconError {
+  color: #ff4d4f;
+}
+
+.toolCallSpinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--ant-color-border, rgba(0, 0, 0, 0.1));
+  border-top-color: var(--ant-color-primary, #1677ff);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: toolSpin 0.8s linear infinite;
+}
+
+@keyframes toolSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.toolCallLabel {
+  color: var(--ant-color-text, rgba(0, 0, 0, 0.88));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 1 auto;
+
+  &:hover {
+    color: var(--ant-color-primary, #1677ff);
+    text-decoration: underline;
+  }
+}
+
+// Badges — use explicit colors that work on both light and dark backgrounds.
+// The chat-anywhere dark-mode stylesheet applies a blanket
+// `color: rgba(255,255,255,0.85) !important` to all descendant spans
+// with high specificity. We double the class selector to win the
+// specificity battle while keeping !important.
+.diffAddBadge.diffAddBadge {
+  font-size: 12px;
+  color: #52c41a !important;
+  font-weight: 500;
+}
+
+.diffDelBadge.diffDelBadge {
+  font-size: 12px;
+  color: #ff4d4f !important;
+  font-weight: 500;
+}
+
+.lineReadBadge.lineReadBadge {
+  font-size: 12px;
+  color: #4096ff !important;
+  font-weight: 500;
+}
+
+.lineSearchBadge.lineSearchBadge {
+  font-size: 12px;
+  color: #faad14 !important;
+  font-weight: 500;
+}
+
+// Diff block
+.toolCallDiff {
+  margin: 4px 0 2px 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  overflow-x: auto;
+  max-height: 360px;
+  overflow-y: auto;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px var(--ant-color-border, rgba(0, 0, 0, 0.08));
+}
+
+.diffLineDel {
+  background: rgba(255, 77, 79, 0.08);
+  color: #ff4d4f !important;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 0 6px;
+}
+
+.diffLineAdd {
+  background: rgba(82, 196, 26, 0.08);
+  color: #52c41a !important;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 0 6px;
+}
+
+// Media preview
+.toolCallMediaPreview {
+  margin: 6px 0 4px 18px;
+}
+
+.toolCallImage {
+  max-width: 256px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06));
+}
+
+// Bubble media (reused by MediaPreview)
+.bubbleVideo {
+  width: 256px;
+  height: 144px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.bubbleAudio {
+  background-color: var(--ant-color-bg-base, #fff);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  padding-right: 4px;
+  border-radius: 20px;
+  width: fit-content;
+  margin: 4px 0;
+
+  :global([class*="-media-progress-container"]) {
+    display: none;
+  }
+}
+
+:global(.dark-mode) {
+  .bubbleAudio {
+    background-color: #2a2a2a;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+}
+
+.bubbleFile {
+  position: relative;
+  display: inline-block;
+}
+
+.bubbleFileDownload {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1;
+  opacity: 0;
+  font-size: 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #fff;
+  transition: opacity 0.2s;
+
+  .bubbleFile:hover & {
+    opacity: 1;
+  }
+}
+
+// Default block (input/output sections)
+.defaultBlock {
+  margin: 4px 0 4px 0;
+  border: 1px solid var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06));
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06));
+  background: var(--ant-color-bg-container, #fff);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.defaultBlockHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--ant-color-fill-quaternary, rgba(0, 0, 0, 0.02));
+  border-bottom: 1px solid
+    var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06));
+}
+
+.defaultBlockTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: inherit !important;
+}
+
+.defaultBlockCopy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ant-color-text-quaternary, #bbb);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+  transition: all 0.15s;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--ant-color-text-secondary, #666);
+  }
+}
+
+.defaultBlockContent {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 300px;
+  overflow-y: auto;
+  color: var(--ant-color-text, #000) !important;
+}
+
+.defaultBlockContentMd {
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 360px;
+  overflow-y: auto;
+  color: var(--ant-color-text, #000) !important;
+
+  :global(p),
+  :global(ul),
+  :global(ol),
+  :global(pre) {
+    margin: 4px 0;
+  }
+  :global(table) {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  :global(th),
+  :global(td) {
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    padding: 6px 10px;
+    text-align: left;
+  }
+  :global(th) {
+    background: rgba(0, 0, 0, 0.02);
+    font-weight: 500;
+  }
+}
+
+// Inline result (next to tool label)
+.toolCallInlineResult {
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary, #999);
+  margin-left: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+// JSON syntax highlighting.
+// Double class selector + !important to beat the blanket
+// `color: rgba(255,255,255,0.85) !important` from chat-anywhere dark-mode.
+.jsonKey.jsonKey {
+  color: #cf1322 !important;
+}
+.jsonStr.jsonStr {
+  color: #389e0d !important;
+}
+.jsonNum.jsonNum {
+  color: #1677ff !important;
+}
+.jsonNull.jsonNull {
+  color: #d4880f !important;
+}
+
+:global(.dark-mode) {
+  .jsonKey.jsonKey {
+    color: #f5827a !important;
+  }
+  .jsonStr.jsonStr {
+    color: #7ec87e !important;
+  }
+  .jsonNum.jsonNum {
+    color: #6cb6ff !important;
+  }
+  .jsonNull.jsonNull {
+    color: #f0b95f !important;
+  }
+}
+
+// Markdown result block
+.toolCallResultMd {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 4px 0 2px 18px;
+  padding: 8px 12px;
+  background: var(--ant-color-fill-quaternary, rgba(0, 0, 0, 0.03));
+  border-radius: 8px;
+  overflow-x: auto;
+  max-height: 360px;
+  color: var(--ant-color-text, #000) !important;
+  box-shadow: 0 1px 4px var(--ant-color-border, rgba(0, 0, 0, 0.08));
+
+  :global(p),
+  :global(ul),
+  :global(ol),
+  :global(pre) {
+    margin: 4px 0;
+  }
+  :global(pre) {
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 4px;
+    overflow-x: auto;
+  }
+  :global(code) {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  :global(table) {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin: 4px 0;
+  }
+  :global(th),
+  :global(td) {
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    padding: 6px 10px;
+    text-align: left;
+  }
+  :global(th) {
+    background: rgba(0, 0, 0, 0.02);
+    font-weight: 500;
+  }
+}

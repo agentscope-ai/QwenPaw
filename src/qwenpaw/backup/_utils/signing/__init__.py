@@ -14,12 +14,20 @@ from .digest import (
 )
 from .key import get_signing_key
 from .resign import replace_meta_with_local_signature
+from .trust import (
+    SignatureAction,
+    resolve_signature_action,
+    sign_trusted_backup,
+)
 
 __all__ = [
     "SCHEME",
+    "SignatureAction",
     "compute_signature",
     "get_signing_key",
     "replace_meta_with_local_signature",
+    "resolve_signature_action",
     "signature_error",
+    "sign_trusted_backup",
     "verify_signature",
 ]

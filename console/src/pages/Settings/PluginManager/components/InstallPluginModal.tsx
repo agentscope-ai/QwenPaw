@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Button, Modal, Input, Form, Divider, Typography, Space } from "antd";
 import { Package, Link, FolderOpen, FileArchive, X } from "lucide-react";
 import type { useInstallModal } from "../hooks/useInstallModal";
-import styles from "../index.module.less";
+import styles from "./InstallPluginModal.module.less";
 
 const { Text } = Typography;
 

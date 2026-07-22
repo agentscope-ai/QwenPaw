@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Set
 import aiohttp
 from aiohttp import web
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     AudioContent,
     ContentType,
     FileContent,
@@ -33,6 +33,7 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
 )
 
 from ....config.config import OneBotConfig as OneBotChannelConfig
+from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -42,6 +43,9 @@ from ..base import (
 from ..utils import split_text
 
 logger = logging.getLogger(__name__)
+
+# Hard cap on concurrently-tracked event handlers (flood protection).
+_EVENT_TASK_HARD_CAP = 500
 
 
 class OneBotChannel(BaseChannel):
@@ -63,27 +67,29 @@ class OneBotChannel(BaseChannel):
         access_token: str = "",
         bot_prefix: str = "",
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
+        no_text_debounce: bool = True,
         dm_policy: str = "open",
         group_policy: str = "open",
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
         share_session_in_group: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config,
+            no_text_debounce=no_text_debounce,
             dm_policy=dm_policy,
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
             require_mention=require_mention,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
@@ -101,8 +107,16 @@ class OneBotChannel(BaseChannel):
         # Echo-based API call tracking
         self._pending_calls: Dict[str, asyncio.Future] = {}
 
+        # Fire-and-forget event handlers, tracked so stop() can cancel them.
+        self._event_tasks: Set[asyncio.Task] = set()
+
         # Bot self ID (populated on first meta_event/lifecycle)
         self._self_id: Optional[int] = None
+
+        # Watchdog for auto-restart
+        self._watchdog_task: Optional[asyncio.Task] = None
+        self._watchdog_interval: float = 10.0  # seconds
+        self._stopping: bool = False
 
     # ------------------------------------------------------------------
     # Factory methods
@@ -142,9 +156,8 @@ class OneBotChannel(BaseChannel):
         process: ProcessHandler,
         config: OneBotChannelConfig,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
+        no_text_debounce: bool = True,
     ) -> "OneBotChannel":
         return cls(
             process=process,
@@ -154,9 +167,9 @@ class OneBotChannel(BaseChannel):
             access_token=config.access_token or "",
             bot_prefix=config.bot_prefix or "",
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
+            no_text_debounce=no_text_debounce,
             dm_policy=config.dm_policy,
             group_policy=config.group_policy,
             allow_from=config.allow_from,
@@ -166,6 +179,12 @@ class OneBotChannel(BaseChannel):
                 config,
                 "share_session_in_group",
                 False,
+            ),
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
             ),
         )
 
@@ -212,6 +231,35 @@ class OneBotChannel(BaseChannel):
         if not self.enabled:
             logger.debug("onebot channel disabled")
             return
+        self._stopping = False
+        await self._start_ws_server()
+        self._watchdog_task = asyncio.create_task(self._watchdog_loop())
+
+    async def stop(self) -> None:
+        if not self.enabled:
+            return
+        self._stopping = True
+        if self._watchdog_task and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
+            try:
+                await self._watchdog_task
+            except asyncio.CancelledError:
+                pass
+            self._watchdog_task = None
+        await self._stop_ws_server()
+        # Cancel any in-flight event handlers.
+        for task in list(self._event_tasks):
+            task.cancel()
+        if self._event_tasks:
+            await asyncio.gather(*self._event_tasks, return_exceptions=True)
+            self._event_tasks.clear()
+
+    async def _start_ws_server(self) -> None:
+        """Create and start the aiohttp WebSocket server.
+
+        On port conflict (e.g. during reload), defers to watchdog
+        for automatic recovery instead of blocking.
+        """
         self._app = web.Application()
         self._app.router.add_get("/ws", self._handle_ws_connection)
         self._app.router.add_get("/ws/", self._handle_ws_connection)
@@ -222,24 +270,49 @@ class OneBotChannel(BaseChannel):
             self._ws_host,
             self._ws_port,
         )
-        await self._site.start()
-        logger.info(
-            "onebot: reverse WS server listening on %s:%s",
-            self._ws_host,
-            self._ws_port,
-        )
+        try:
+            await self._site.start()
+            logger.info(
+                "onebot: reverse WS server listening on %s:%s",
+                self._ws_host,
+                self._ws_port,
+            )
+        except OSError:
+            logger.warning(
+                "onebot: port %s:%s in use, watchdog will retry "
+                "once the old instance releases it",
+                self._ws_host,
+                self._ws_port,
+            )
+            # Clean up the failed attempt so watchdog sees
+            # _site as None and triggers a restart.
+            self._site = None
+            try:
+                await self._runner.cleanup()
+            except Exception:
+                pass
+            self._runner = None
+            self._app = None
 
-    async def stop(self) -> None:
-        if not self.enabled:
-            return
+    async def _stop_ws_server(self) -> None:
+        """Tear down the WebSocket server and clean up connections."""
         for ws in list(self._connections):
-            await ws.close()
+            try:
+                await ws.close()
+            except Exception:
+                pass
         self._connections.clear()
         if self._site:
-            await self._site.stop()
+            try:
+                await self._site.stop()
+            except Exception:
+                pass
             self._site = None
         if self._runner:
-            await self._runner.cleanup()
+            try:
+                await self._runner.cleanup()
+            except Exception:
+                pass
             self._runner = None
         self._app = None
         # Cancel pending API futures
@@ -247,6 +320,66 @@ class OneBotChannel(BaseChannel):
             if not fut.done():
                 fut.cancel()
         self._pending_calls.clear()
+
+    async def _watchdog_loop(self) -> None:
+        """Periodically check server health; restart if not listening."""
+        while not self._stopping:
+            await asyncio.sleep(self._watchdog_interval)
+            if self._stopping:
+                break
+            if not await self._is_server_healthy():
+                logger.warning(
+                    "onebot: watchdog detected server not healthy, "
+                    "restarting...",
+                )
+                try:
+                    await self._stop_ws_server()
+                    await self._start_ws_server()
+                    logger.info("onebot: watchdog restarted server OK")
+                except Exception:
+                    logger.exception(
+                        "onebot: watchdog failed to restart server, "
+                        "will retry in %ss",
+                        self._watchdog_interval,
+                    )
+
+    def _get_listen_port(self) -> int:
+        """Return the actual port the server is listening on.
+
+        When ``ws_port=0`` the OS assigns a random port; we read it
+        from the site's underlying sockets.
+        """
+        if self._site is None:
+            return self._ws_port
+        server = getattr(self._site, "_server", None)
+        if server is not None:
+            for sock in server.sockets or []:
+                return sock.getsockname()[1]
+        return self._ws_port
+
+    async def _is_server_healthy(self) -> bool:
+        """Check if the WS server is actually accepting connections.
+
+        Returns True if the TCP port is reachable, False otherwise.
+        This catches cases where ``_site`` is not None but the
+        underlying socket has stopped accepting connections.
+        """
+        if self._site is None:
+            return False
+        probe_host = (
+            "127.0.0.1" if self._ws_host == "0.0.0.0" else self._ws_host
+        )
+        probe_port = self._get_listen_port()
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(probe_host, probe_port),
+                timeout=3.0,
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except (OSError, asyncio.TimeoutError):
+            return False
 
     # ------------------------------------------------------------------
     # WebSocket connection handling
@@ -295,7 +428,7 @@ class OneBotChannel(BaseChannel):
                         # Dispatch as background task so the WS read
                         # loop stays unblocked — handlers can freely
                         # await _call_api (e.g. resolve file URLs).
-                        asyncio.create_task(self._handle_event(data))
+                        self._spawn_event_task(self._handle_event(data))
                 elif msg.type in (
                     aiohttp.WSMsgType.ERROR,
                     aiohttp.WSMsgType.CLOSE,
@@ -312,6 +445,28 @@ class OneBotChannel(BaseChannel):
     # ------------------------------------------------------------------
     # Event dispatch
     # ------------------------------------------------------------------
+
+    def _spawn_event_task(self, coro) -> None:
+        """Schedule a tracked background event handler with a hard cap.
+
+        Under a message flood the cap prevents unbounded task accumulation;
+        excess events are dropped with a warning. Tracked tasks are cancelled
+        on stop().
+
+        Note: we must not block the WS read loop here — ``_call_api`` awaits
+        echo responses that arrive through the same loop, so a blocking
+        semaphore would deadlock. A drop-on-cap valve is used instead.
+        """
+        if len(self._event_tasks) >= _EVENT_TASK_HARD_CAP:
+            logger.warning(
+                "onebot: event task cap (%d) reached — dropping event",
+                _EVENT_TASK_HARD_CAP,
+            )
+            coro.close()
+            return
+        task = asyncio.create_task(coro)
+        self._event_tasks.add(task)
+        task.add_done_callback(self._event_tasks.discard)
 
     async def _handle_event(self, data: Dict[str, Any]) -> None:
         """Dispatch an OneBot v11 event."""
@@ -371,19 +526,11 @@ class OneBotChannel(BaseChannel):
             "message_type": message_type,
             "message_id": message_id,
             "sender_id": user_id,
-            "sender_name": sender_name,
+            "user_name": sender_name,
             "group_id": group_id if is_group else "",
             "is_group": is_group,
             "bot_mentioned": bot_mentioned,
         }
-
-        # Allowlist check
-        allowed, deny_msg = self._check_allowlist(user_id, is_group)
-        if not allowed:
-            if deny_msg:
-                to = f"group:{group_id}" if is_group else user_id
-                await self.send(to, deny_msg, meta)
-            return
 
         # Mention check (group messages may require @bot)
         if not self._check_group_mention(is_group, meta):
@@ -398,6 +545,7 @@ class OneBotChannel(BaseChannel):
 
         request = self.build_agent_request_from_native(native)
         request.channel_meta = meta
+        request.acl_sender_id = user_id
 
         logger.info(
             "onebot recv %s from=%s%s text=%r",
@@ -556,31 +704,6 @@ class OneBotChannel(BaseChannel):
                 resolved.append(part)
 
         return resolved
-
-    # ------------------------------------------------------------------
-    # Debounce override: process media-only messages immediately
-    # ------------------------------------------------------------------
-
-    def _apply_no_text_debounce(
-        self,
-        session_id: str,
-        content_parts: list,
-    ) -> tuple[bool, list]:
-        """Process media-only messages without waiting for text.
-
-        Same approach as TelegramChannel: if the message contains any
-        media (image, audio, video, file), process it immediately
-        instead of buffering until a text message arrives.
-        """
-        has_media = any(
-            getattr(part, "type", None)
-            not in (ContentType.TEXT, ContentType.REFUSAL)
-            for part in content_parts
-        )
-        if has_media:
-            pending = self._pending_content_by_session.pop(session_id, [])
-            return True, pending + list(content_parts)
-        return super()._apply_no_text_debounce(session_id, content_parts)
 
     # ------------------------------------------------------------------
     # Build AgentRequest

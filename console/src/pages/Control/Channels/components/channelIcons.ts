@@ -12,6 +12,8 @@ export const CHANNEL_ICON_URLS: Record<string, string> = {
     "https://gw.alicdn.com/imgextra/i1/O1CN01EPS9Z81OKhIEcwpCd_!!6000000001687-2-tps-476-476.png",
   telegram:
     "https://gw.alicdn.com/imgextra/i2/O1CN0100jIva25Dqqq1VqJN_!!6000000007493-2-tps-400-400.png",
+  slack:
+    "https://gw.alicdn.com/imgextra/i2/O1CN01JcOK7v1GqHhRjG0fy_!!6000000000673-2-tps-512-512.png",
   mqtt: "https://gw.alicdn.com/imgextra/i2/O1CN0117Adu3282o9G5ZNCd_!!6000000007875-2-tps-400-400.png",
   imessage:
     "https://gw.alicdn.com/imgextra/i1/O1CN016pwG4m1uEntwJKsGl_!!6000000006006-2-tps-400-400.png",
@@ -29,6 +31,8 @@ export const CHANNEL_ICON_URLS: Record<string, string> = {
     "https://gw.alicdn.com/imgextra/i4/O1CN01GsAob11fkfDWVIb3R_!!6000000004045-2-tps-400-400.png",
   onebot:
     "https://gw.alicdn.com/imgextra/i3/O1CN01xqM0EN1oKrRiAFX3K_!!6000000005207-2-tps-400-400.png",
+  yuanbao:
+    "https://img.alicdn.com/imgextra/i4/O1CN0164yBmJ1a2AftSglge_!!6000000003271-2-tps-225-225.png",
 };
 
 export const CHANNEL_DEFAULT_ICON_URL =
@@ -47,6 +51,7 @@ const LETTER_ICON_COLORS: Record<string, string> = {
   feishu: "#3370FF",
   qq: "#12B7F5",
   telegram: "#2AABEE",
+  slack: "#4A154B",
   discord: "#5865F2",
   wecom: "#07C160",
   wechat: "#07C160",
@@ -56,6 +61,7 @@ const LETTER_ICON_COLORS: Record<string, string> = {
   imessage: "#34C759",
   voice: "#F44336",
   xiaoyi: "#CF1322",
+  yuanbao: "#1677FF",
 };
 
 /** A palette of fallback colors for channels without a predefined color. */

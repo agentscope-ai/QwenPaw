@@ -22,13 +22,16 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from typing import Any, Optional
 from urllib.parse import urljoin
 from urllib import request as urllib_request
 
+import psutil
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...config import (
     get_playwright_chromium_executable_path,
@@ -37,6 +40,8 @@ from ...config import (
 )
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR, EnvVarLoader
+from ...exceptions import DirectUrlDownloadRejectedError
+from ...runtime.tool_registry import tool_descriptor
 
 from .browser_snapshot import build_role_snapshot_from_aria
 
@@ -44,6 +49,14 @@ logger = logging.getLogger(__name__)
 
 _MAX_DIRECT_URL_DOWNLOAD_BYTES = 10 * 1024 * 1024
 _CDP_CONNECT_TIMEOUT_SECONDS = 30.0
+_BROWSER_CLEANUP_TIMEOUT_SECONDS = 5.0
+_MAX_WAITTIME = 60.0
+_HEADLESS_VERIFICATION_WARNING = (
+    "Headless browser launches are more likely to trigger verification. "
+    "If verification appears, call browser_use with action='stop' to stop "
+    "the current browser, then call browser_use with action='start' and "
+    "headed=true to open a visible browser and continue there."
+)
 
 
 # Keywords used to validate executable_path — the binary filename must
@@ -81,6 +94,64 @@ def _validate_executable_path(executable_path: str) -> None:
         )
 
 
+def _browser_type_from_exe(exe_path: str) -> str:
+    """Infer browser type keyword from an executable path (lowercase)."""
+    if not exe_path:
+        return ""
+    name = Path(exe_path).name.lower()
+    for browser_type in (
+        "edge",
+        "chromium",
+        "chrome",
+        "brave",
+        "vivaldi",
+        "opera",
+        "firefox",
+        "360se",
+        "yandex",
+        "tor",
+    ):
+        if browser_type in name:
+            return browser_type
+    return ""
+
+
+def _workspace_dir_for_browser_state(state: dict) -> str:
+    """Return a usable workspace directory for browser profile storage."""
+    workspace_dir = state.get("workspace_dir")
+    if workspace_dir:
+        return str(workspace_dir)
+    current_workspace = get_current_workspace_dir()
+    if current_workspace:
+        return str(current_workspace)
+    return str(WORKING_DIR)
+
+
+def _resolve_user_data_dir(
+    workspace_dir: str,
+    exe_path: str,
+    explicit_executable_path: bool = False,
+) -> str:
+    """Return the user-data directory for a browser launch.
+
+    * No explicit executable_path → ``{workspace}/browser/user_data``
+    * Explicit executable_path    → ``{workspace}/browser/user_data_{type}``
+
+    Keeping the implicit/default launch on the legacy directory preserves
+    existing users' cookies and sessions. Explicit browser paths get isolated
+    profiles to avoid profile-format conflicts when switching browsers.
+    """
+    if not workspace_dir:
+        return ""
+    base = Path(workspace_dir) / "browser"
+    if not explicit_executable_path:
+        return str(base / "user_data")
+    browser_type = _browser_type_from_exe(exe_path)
+    if not browser_type:
+        return str(base / "user_data")
+    return str(base / f"user_data_{browser_type}")
+
+
 def _resolve_output_path(path: str) -> str:
     """Resolve relative output paths under workspace_dir/browser/."""
     if Path(path).is_absolute():
@@ -96,21 +167,6 @@ def _safe_download_filename(filename: Any, default: str = "download") -> str:
     name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", name)
     name = name.strip(" .")
     return name or default
-
-
-class DirectUrlDownloadRejectedError(ValueError):
-    """Raised when direct URL download cannot be proven small enough."""
-
-    def __init__(
-        self,
-        reason: str,
-        content_length: int | None = None,
-        status: int | None = None,
-    ) -> None:
-        super().__init__(reason)
-        self.content_length = content_length
-        self.status = status
-        self.reason = reason
 
 
 def _browser_output_dir(state: dict, name: str) -> Path:
@@ -260,8 +316,21 @@ def _is_browser_running(state: dict) -> bool:
         return (
             state.get("_sync_context") is not None
             or state.get("_sync_browser") is not None
+            or state.get("_sync_playwright") is not None
         )
-    return state.get("browser") is not None or state.get("context") is not None
+    if (
+        state.get("browser") is not None
+        or state.get("context") is not None
+        or state.get("playwright") is not None
+    ):
+        return True
+    proc = state.get("browser_process")
+    if proc is None:
+        return False
+    try:
+        return proc.poll() is None
+    except Exception:
+        return True
 
 
 def _reset_browser_state(state: dict) -> None:
@@ -348,9 +417,11 @@ def _atexit_cleanup() -> None:
 atexit.register(_atexit_cleanup)
 
 
-def _tool_response(text: str) -> ToolResponse:
-    """Wrap text for agentscope Toolkit (return ToolResponse)."""
-    return ToolResponse(
+def _tool_response(text: str) -> ToolChunk:
+    """Wrap text for agentscope Toolkit (return ToolChunk)."""
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[TextBlock(type="text", text=text)],
     )
 
@@ -412,17 +483,475 @@ def _ensure_playwright_sync():
         ) from exc
 
 
-async def _stop_playwright_instance(pw: Any) -> None:
-    """Best-effort stop for a locally-started Playwright driver."""
-    if pw is None:
-        return
+def _cleanup_timeout() -> float:
+    return max(0.1, float(_BROWSER_CLEANUP_TIMEOUT_SECONDS))
+
+
+def _record_cleanup_error(
+    cleanup_errors: Optional[list[str]],
+    message: str,
+    exc: Optional[BaseException] = None,
+) -> None:
+    if cleanup_errors is not None:
+        cleanup_errors.append(message)
+    if exc is None:
+        logger.warning(message)
+    else:
+        logger.warning("%s: %s", message, exc, exc_info=True)
+
+
+async def _run_cleanup_step(
+    label: str,
+    action,
+    cleanup_errors: Optional[list[str]] = None,
+) -> bool:
+    timeout = _cleanup_timeout()
     try:
-        await pw.stop()
+        result = action()
+        if hasattr(result, "__await__"):
+            await asyncio.wait_for(result, timeout=timeout)
+        return True
+    except asyncio.TimeoutError as exc:
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} timed out after {timeout:.1f}s",
+            exc,
+        )
+    except Exception as exc:
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} failed",
+            exc,
+        )
+    return False
+
+
+def _playwright_driver_process(pw: Any) -> Any:
+    """Return Playwright's private driver subprocess when available."""
+    # Best-effort fallback verified against Playwright 1.60.0. If this private
+    # chain changes, graceful pw.stop() remains the primary cleanup path.
+    try:
+        impl = getattr(pw, "_impl_obj", None)
+        connection = getattr(impl, "_connection", None)
+        transport = getattr(connection, "_transport", None)
+        return getattr(transport, "_proc", None)
+    except Exception:
+        return None
+
+
+def _process_pid(proc: Any) -> Optional[int]:
+    try:
+        pid = getattr(proc, "pid", None)
+        if isinstance(pid, int) and pid > 0:
+            return pid
+    except Exception:
+        return None
+    return None
+
+
+def _pid_is_active(pid: int) -> bool:
+    try:
+        proc = psutil.Process(pid)
+        if not proc.is_running():
+            return False
+        try:
+            return proc.status() != psutil.STATUS_ZOMBIE
+        except psutil.Error:
+            return True
+    except psutil.NoSuchProcess:
+        return False
+    except psutil.Error:
+        return True
+
+
+def _process_is_alive(proc: Any) -> bool:
+    if proc is None:
+        return False
+    if isinstance(proc, subprocess.Popen):
+        return proc.poll() is None
+    try:
+        if getattr(proc, "returncode", None) is not None:
+            return False
     except Exception:
         pass
+    pid = _process_pid(proc)
+    if pid is None:
+        return True
+    return _pid_is_active(pid)
 
 
-def _sync_browser_launch(
+async def _wait_for_pid_exit(pid: int, timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        if not _pid_is_active(pid):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        await asyncio.sleep(0.05)
+
+
+async def _terminate_pid(  # pylint: disable=too-many-return-statements
+    pid: int,
+    label: str,
+    cleanup_errors: Optional[list[str]] = None,
+) -> bool:
+    timeout = _cleanup_timeout()
+    try:
+        proc = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return True
+    except psutil.Error as exc:
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} lookup failed",
+            exc,
+        )
+        return False
+
+    try:
+        # Windows terminate() and kill() both use TerminateProcess; keeping both
+        # steps preserves the same fallback shape across platforms.
+        proc.terminate()
+        if await _wait_for_pid_exit(pid, timeout):
+            return True
+    except psutil.NoSuchProcess:
+        return True
+    except psutil.Error as exc:
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} terminate failed",
+            exc,
+        )
+
+    try:
+        proc = psutil.Process(pid)
+        proc.kill()
+        if await _wait_for_pid_exit(pid, timeout):
+            return True
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} kill timed out after {timeout:.1f}s",
+        )
+    except psutil.NoSuchProcess:
+        return True
+    except psutil.Error as exc:
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} kill failed",
+            exc,
+        )
+    return False
+
+
+async def _terminate_popen_process(
+    proc: subprocess.Popen,
+    label: str,
+    cleanup_errors: Optional[list[str]] = None,
+) -> bool:
+    if proc.poll() is not None:
+        return True
+    try:
+        proc.terminate()
+        await asyncio.to_thread(proc.wait, _cleanup_timeout())
+        return True
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+            await asyncio.to_thread(proc.wait, _cleanup_timeout())
+            return True
+        except Exception as exc:
+            _record_cleanup_error(
+                cleanup_errors,
+                f"{label} kill failed",
+                exc,
+            )
+    except Exception as exc:
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} terminate failed",
+            exc,
+        )
+    return False
+
+
+async def _terminate_asyncio_process(
+    proc: asyncio.subprocess.Process,
+    label: str,
+    cleanup_errors: Optional[list[str]] = None,
+) -> bool:
+    if proc.returncode is not None:
+        return True
+    try:
+        proc.terminate()
+        await asyncio.wait_for(proc.wait(), timeout=_cleanup_timeout())
+        return True
+    except ProcessLookupError:
+        return True
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+            await asyncio.wait_for(proc.wait(), timeout=_cleanup_timeout())
+            return True
+        except ProcessLookupError:
+            return True
+        except Exception as exc:
+            _record_cleanup_error(
+                cleanup_errors,
+                f"{label} kill failed",
+                exc,
+            )
+    except Exception as exc:
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} terminate failed",
+            exc,
+        )
+    return False
+
+
+def _run_async_cleanup_from_sync(
+    label: str,
+    coro_factory,
+    cleanup_errors: Optional[list[str]] = None,
+) -> bool:
+    """Reuse async cleanup helpers from sync launch-failure code paths."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            return bool(asyncio.run(coro_factory()))
+        except Exception as exc:
+            _record_cleanup_error(
+                cleanup_errors,
+                f"{label} async cleanup failed",
+                exc,
+            )
+            return False
+    _record_cleanup_error(
+        cleanup_errors,
+        f"{label} cannot run async cleanup from an active event loop",
+    )
+    return False
+
+
+def _terminate_process_from_sync_context(
+    proc: Any,
+    label: str,
+    cleanup_errors: Optional[list[str]] = None,
+) -> bool:
+    if proc is None:
+        return False
+    if isinstance(proc, subprocess.Popen):
+        return _run_async_cleanup_from_sync(
+            label,
+            lambda: _terminate_popen_process(proc, label, cleanup_errors),
+            cleanup_errors,
+        )
+
+    pid = _process_pid(proc)
+    if pid is not None:
+        return _run_async_cleanup_from_sync(
+            label,
+            lambda: _terminate_pid(pid, label, cleanup_errors),
+            cleanup_errors,
+        )
+    _record_cleanup_error(
+        cleanup_errors,
+        f"{label} process has no pid for force stop",
+    )
+    return False
+
+
+async def _terminate_process(
+    proc: Any,
+    label: str,
+    cleanup_errors: Optional[list[str]] = None,
+) -> bool:
+    if proc is None:
+        return False
+    if isinstance(proc, subprocess.Popen):
+        return await _terminate_popen_process(proc, label, cleanup_errors)
+    if isinstance(proc, asyncio.subprocess.Process):
+        stopped = await _terminate_asyncio_process(
+            proc,
+            label,
+            cleanup_errors,
+        )
+        if stopped:
+            return True
+
+    pid = _process_pid(proc)
+    if pid is not None:
+        return await _terminate_pid(pid, label, cleanup_errors)
+    _record_cleanup_error(
+        cleanup_errors,
+        f"{label} process has no pid for force stop",
+    )
+    return False
+
+
+async def _force_stop_playwright_driver(
+    pw: Any,
+    cleanup_errors: Optional[list[str]],
+    label: str,
+) -> bool:
+    proc = _playwright_driver_process(pw)
+    if proc is None:
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} process unavailable for force stop",
+        )
+        return False
+    return await _terminate_process(
+        proc,
+        f"{label} driver process",
+        cleanup_errors,
+    )
+
+
+async def _stop_playwright_instance(
+    pw: Any,
+    cleanup_errors: Optional[list[str]] = None,
+    label: str = "Playwright driver",
+) -> bool:
+    """Best-effort stop for a locally-started Playwright driver."""
+    if pw is None:
+        return True
+
+    proc = _playwright_driver_process(pw)
+    stopped = await _run_cleanup_step(
+        f"{label} stop",
+        pw.stop,
+        cleanup_errors,
+    )
+    if stopped and not _process_is_alive(proc):
+        return True
+    if stopped:
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} stop returned but driver is still alive",
+        )
+        if proc is not None:
+            return await _terminate_process(
+                proc,
+                f"{label} driver process",
+                cleanup_errors,
+            )
+    return await _force_stop_playwright_driver(pw, cleanup_errors, label)
+
+
+async def _stop_sync_playwright_instance(
+    pw: Any,
+    cleanup_errors: Optional[list[str]] = None,
+    label: str = "sync Playwright driver",
+) -> bool:
+    if pw is None:
+        return True
+
+    loop = asyncio.get_running_loop()
+    proc = _playwright_driver_process(pw)
+    stopped = await _run_cleanup_step(
+        f"{label} stop",
+        lambda: loop.run_in_executor(_get_executor(), pw.stop),
+        cleanup_errors,
+    )
+    if stopped and not _process_is_alive(proc):
+        return True
+    if stopped:
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} stop returned but driver is still alive",
+        )
+        if proc is not None:
+            return await _terminate_process(
+                proc,
+                f"{label} driver process",
+                cleanup_errors,
+            )
+    return await _force_stop_playwright_driver(pw, cleanup_errors, label)
+
+
+def _run_sync_cleanup_step_in_thread(
+    label: str,
+    action,
+    cleanup_errors: Optional[list[str]] = None,
+) -> bool:
+    """Run a blocking cleanup step with a timeout from sync-only code."""
+    timeout = _cleanup_timeout()
+    done = threading.Event()
+    errors: list[Exception] = []
+
+    def runner() -> None:
+        try:
+            action()
+        except Exception as exc:  # pragma: no cover - exercised via caller
+            errors.append(exc)
+        finally:
+            done.set()
+
+    thread = threading.Thread(
+        target=runner,
+        name="playwright-sync-cleanup",
+        daemon=True,
+    )
+    thread.start()
+    if not done.wait(timeout):
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} timed out after {timeout:.1f}s",
+        )
+        return False
+    if errors:
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} failed",
+            errors[0],
+        )
+        return False
+    return True
+
+
+def _stop_sync_playwright_instance_from_sync_context(
+    pw: Any,
+    cleanup_errors: Optional[list[str]] = None,
+    label: str = "sync Playwright driver",
+) -> bool:
+    if pw is None:
+        return True
+
+    proc = _playwright_driver_process(pw)
+    stopped = _run_sync_cleanup_step_in_thread(
+        f"{label} stop",
+        pw.stop,
+        cleanup_errors,
+    )
+    if stopped and not _process_is_alive(proc):
+        return True
+    if stopped:
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} stop returned but driver is still alive",
+        )
+        if proc is not None:
+            return _terminate_process_from_sync_context(
+                proc,
+                f"{label} driver process",
+                cleanup_errors,
+            )
+    if proc is None:
+        _record_cleanup_error(
+            cleanup_errors,
+            f"{label} process unavailable for force stop",
+        )
+        return False
+    return _terminate_process_from_sync_context(
+        proc,
+        f"{label} driver process",
+        cleanup_errors,
+    )
+
+
+def _sync_browser_launch(  # pylint: disable=too-many-branches,too-many-statements
     state: dict,
     cdp_port: int = 0,
     browser_args: str = "",
@@ -431,78 +960,81 @@ def _sync_browser_launch(
     """Launch browser using sync Playwright (for hybrid mode)."""
     sync_playwright = _ensure_playwright_sync()
     pw = sync_playwright().start()  # Start without context manager
-    use_default = not is_running_in_container() and EnvVarLoader.get_bool(
-        "QWENPAW_BROWSER_USE_DEFAULT",
-        True,
-    )
-    default_kind, default_path = (
-        get_system_default_browser() if use_default else (None, None)
-    )
-    exe: Optional[str] = None
-    if default_kind == "chromium" and default_path:
-        exe = default_path
-    elif default_kind != "webkit":
-        exe = _chromium_executable_path()
-    if executable_path:
-        exe = executable_path
-
-    extra_args = list(_chromium_launch_args())
-    if browser_args:
-        extra_args.extend(
-            shlex.split(browser_args, posix=sys.platform != "win32"),
+    browser = None
+    context = None
+    try:
+        use_default = not is_running_in_container() and EnvVarLoader.get_bool(
+            "QWENPAW_BROWSER_USE_DEFAULT",
+            True,
         )
-    if cdp_port:
-        extra_args.append(f"--remote-debugging-port={cdp_port}")
+        default_kind, default_path = (
+            get_system_default_browser() if use_default else (None, None)
+        )
+        exe: Optional[str] = None
+        if default_kind == "chromium" and default_path:
+            exe = default_path
+        elif default_kind != "webkit":
+            exe = _chromium_executable_path()
+        explicit_exe = bool(executable_path)
+        if executable_path:
+            exe = executable_path
 
-    if exe:
-        user_data_dir = state["user_data_dir"]
-        if user_data_dir:
-            Path(user_data_dir).mkdir(parents=True, exist_ok=True)
-            context = pw.chromium.launch_persistent_context(
-                user_data_dir=user_data_dir,
-                headless=state["headless"],
-                executable_path=exe,
-                args=extra_args if extra_args else [],
-                accept_downloads=True,
+        extra_args = list(_chromium_launch_args())
+        if browser_args:
+            extra_args.extend(
+                shlex.split(browser_args, posix=sys.platform != "win32"),
             )
-            _attach_context_listeners(state, context)
-            return pw, None, context
-        launch_kwargs = {"headless": state["headless"]}
-        if extra_args:
-            launch_kwargs["args"] = extra_args
-        launch_kwargs["executable_path"] = exe
-        browser = pw.chromium.launch(**launch_kwargs)
-    elif default_kind == "webkit" or sys.platform == "darwin":
-        browser = pw.webkit.launch(headless=state["headless"])
-    else:
-        launch_kwargs = {"headless": state["headless"]}
-        if extra_args:
-            launch_kwargs["args"] = extra_args
-        browser = pw.chromium.launch(**launch_kwargs)
+        if cdp_port:
+            extra_args.append(f"--remote-debugging-port={cdp_port}")
 
-    context = browser.new_context(accept_downloads=True)
-    _attach_context_listeners(state, context)
-    return pw, browser, context
+        if exe:
+            ws_dir = _workspace_dir_for_browser_state(state)
+            user_data_dir = _resolve_user_data_dir(
+                ws_dir,
+                exe or "",
+                explicit_exe,
+            )
+            state["user_data_dir"] = user_data_dir
+            if user_data_dir:
+                Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+                context = pw.chromium.launch_persistent_context(
+                    user_data_dir=user_data_dir,
+                    headless=state["headless"],
+                    executable_path=exe,
+                    args=extra_args if extra_args else [],
+                    accept_downloads=True,
+                )
+                _attach_context_listeners(state, context)
+                return pw, None, context
+            launch_kwargs = {"headless": state["headless"]}
+            if extra_args:
+                launch_kwargs["args"] = extra_args
+            launch_kwargs["executable_path"] = exe
+            browser = pw.chromium.launch(**launch_kwargs)
+        elif default_kind == "webkit" or sys.platform == "darwin":
+            browser = pw.webkit.launch(headless=state["headless"])
+        else:
+            launch_kwargs = {"headless": state["headless"]}
+            if extra_args:
+                launch_kwargs["args"] = extra_args
+            browser = pw.chromium.launch(**launch_kwargs)
 
-
-def _sync_browser_close(state: dict):
-    """Close browser using sync Playwright (for hybrid mode)."""
-    if state["_sync_browser"] is not None:
-        try:
-            state["_sync_browser"].close()
-        except Exception:
-            pass
-    elif state["_sync_context"] is not None:
-        # persistent context mode: no separate browser object, close context directly
-        try:
-            state["_sync_context"].close()
-        except Exception:
-            pass
-    if state["_sync_playwright"] is not None:
-        try:
-            state["_sync_playwright"].stop()
-        except Exception:
-            pass
+        context = browser.new_context(accept_downloads=True)
+        _attach_context_listeners(state, context)
+        return pw, browser, context
+    except Exception:
+        if context is not None:
+            try:
+                context.close()
+            except Exception:
+                pass
+        if browser is not None:
+            try:
+                browser.close()
+            except Exception:
+                pass
+        _stop_sync_playwright_instance_from_sync_context(pw)
+        raise
 
 
 def _resolve_chromium_launch_target() -> tuple[Optional[str], Optional[str]]:
@@ -547,7 +1079,7 @@ async def _wait_for_cdp_ready(
     )
 
 
-async def _start_managed_cdp_browser(
+async def _start_managed_cdp_browser(  # pylint: disable=too-many-statements
     state: dict,
     cdp_port: int = 0,
     ensure_pages: bool = False,
@@ -555,6 +1087,7 @@ async def _start_managed_cdp_browser(
     executable_path: str = "",
 ) -> None:
     default_kind, exe = _resolve_chromium_launch_target()
+    explicit_exe = bool(executable_path)
     if executable_path:
         exe = executable_path
     if not exe:
@@ -569,10 +1102,14 @@ async def _start_managed_cdp_browser(
             "but none was found.",
         )
 
+    ws_dir = _workspace_dir_for_browser_state(state)
+    user_data_dir = _resolve_user_data_dir(ws_dir, exe or "", explicit_exe)
+    state["user_data_dir"] = user_data_dir
+
     chosen_cdp_port = cdp_port or _find_free_local_port()
     proc = _start_managed_chromium_process(
         executable_path=exe,
-        user_data_dir=state["user_data_dir"],
+        user_data_dir=user_data_dir,
         headless=state["headless"],
         cdp_port=chosen_cdp_port,
         browser_args=browser_args,
@@ -619,7 +1156,7 @@ async def _start_managed_cdp_browser(
         try:
             if proc.poll() is None:
                 proc.kill()
-                await asyncio.to_thread(proc.wait, 5)
+                await asyncio.to_thread(proc.wait, _cleanup_timeout())
         except Exception:
             pass
         raise
@@ -680,17 +1217,134 @@ async def _stop_owned_browser_process(state: dict) -> bool:
             proc.terminate()
         else:
             proc.send_signal(signal.SIGTERM)
-        await asyncio.to_thread(proc.wait, 5)
+        await asyncio.to_thread(proc.wait, _cleanup_timeout())
         return True
     except subprocess.TimeoutExpired:
         try:
             proc.kill()
-            await asyncio.to_thread(proc.wait, 5)
+            await asyncio.to_thread(proc.wait, _cleanup_timeout())
             return True
         except Exception:
             return False
     except Exception:
         return False
+
+
+async def _close_async_resource(
+    resource: Any,
+    label: str,
+    cleanup_errors: list[str],
+) -> bool:
+    if resource is None:
+        return True
+    close = getattr(resource, "close", None)
+    if close is None:
+        return True
+    return await _run_cleanup_step(label, close, cleanup_errors)
+
+
+async def _close_sync_resource(
+    resource: Any,
+    label: str,
+    cleanup_errors: list[str],
+) -> bool:
+    if resource is None:
+        return True
+    close = getattr(resource, "close", None)
+    if close is None:
+        return True
+    loop = asyncio.get_running_loop()
+    return await _run_cleanup_step(
+        label,
+        lambda: loop.run_in_executor(_get_executor(), close),
+        cleanup_errors,
+    )
+
+
+async def _dispose_browser_state(
+    state: dict,
+    reason: str = "browser cleanup",
+) -> dict[str, Any]:
+    """Release browser resources, then clear browser state.
+
+    _reset_browser_state is intentionally state-only. This function owns the
+    async resource lifecycle so all teardown paths get the same timeout and
+    fallback behavior.
+    """
+    cleanup_errors: list[str] = []
+    owned = bool(state.get("owned_browser_process"))
+    context = state.get("context")
+    browser = state.get("browser")
+    playwright = state.get("playwright")
+    sync_context = state.get("_sync_context")
+    sync_browser = state.get("_sync_browser")
+    sync_playwright = state.get("_sync_playwright")
+    owned_browser_stopped = False
+    context_closed = True
+    browser_closed = True
+    playwright_stopped = True
+
+    try:
+        _cancel_idle_watchdog(state)
+    except Exception:
+        state["_idle_task"] = None
+
+    logger.debug("Disposing browser state: %s", reason)
+    try:
+        if _USE_SYNC_PLAYWRIGHT:
+            context_closed = await _close_sync_resource(
+                sync_context,
+                "sync browser context close",
+                cleanup_errors,
+            )
+            browser_closed = await _close_sync_resource(
+                sync_browser,
+                "sync browser close",
+                cleanup_errors,
+            )
+        else:
+            context_closed = await _close_async_resource(
+                context,
+                "browser context close",
+                cleanup_errors,
+            )
+            browser_closed = await _close_async_resource(
+                browser,
+                "browser close",
+                cleanup_errors,
+            )
+
+        if owned:
+            owned_browser_stopped = await _stop_owned_browser_process(state)
+            if not owned_browser_stopped:
+                cleanup_errors.append("owned browser process stop failed")
+
+        if _USE_SYNC_PLAYWRIGHT:
+            playwright_stopped = await _stop_sync_playwright_instance(
+                sync_playwright,
+                cleanup_errors,
+            )
+        else:
+            playwright_stopped = await _stop_playwright_instance(
+                playwright,
+                cleanup_errors,
+            )
+    finally:
+        _reset_browser_state(state)
+
+    fully_cleaned = (
+        context_closed
+        and browser_closed
+        and playwright_stopped
+        and (not owned or owned_browser_stopped)
+    )
+
+    return {
+        "cleanup_errors": cleanup_errors,
+        "owned_browser_stopped": owned_browser_stopped,
+        "playwright_stopped": playwright_stopped,
+        "fully_cleaned": fully_cleaned,
+    }
 
 
 def _parse_json_param(value: str, default: Any = None):
@@ -711,6 +1365,47 @@ def _parse_json_param(value: str, default: Any = None):
 def _get_page(state: dict, page_id: str):
     """Return page for page_id or None if not found."""
     return state["pages"].get(page_id)
+
+
+async def _get_tab_info_list(state: dict) -> list[dict[str, str]]:
+    """Return a list of dicts with page_id, url, and title for all pages.
+    Safely handles closed or detached pages without raising exceptions.
+    """
+    pages = state.get("pages", {})
+    tab_list = []
+    for pid, p in list(pages.items()):
+        try:
+            # Basic sanity check: if the page object is gone or explicitly closed
+            if p is None:
+                continue
+
+            # Playwright pages might be closed but still in our dict
+            # We use a try-except block to catch 'Target closed' errors during property access
+            if _USE_SYNC_PLAYWRIGHT:
+                is_closed = await _run_sync(p.is_closed)
+                if is_closed:
+                    continue
+                url = p.url
+                title = await _run_sync(p.title)
+            else:
+                if p.is_closed():
+                    continue
+                url = p.url
+                title = await p.title()
+
+            tab_list.append(
+                {
+                    "page_id": pid,
+                    "url": url or "about:blank",
+                    "title": title or "Untitled",
+                },
+            )
+        except Exception:
+            # If any error occurs (e.g. page detached, browser crashed),
+            # we skip this tab or provide a fallback if we know it exists.
+            logger.debug("Failed to get info for tab %s, skipping", pid)
+            continue
+    return tab_list
 
 
 def _get_context(state: dict):
@@ -849,7 +1544,7 @@ async def _ensure_browser(
             f"CDP connection lost (was: {cdp_url}). "
             "Reconnect with action='connect_cdp'."
         )
-        _reset_browser_state(state)
+        await _dispose_browser_state(state, "CDP connection lost")
         return False
 
     # Check browser state based on mode
@@ -862,6 +1557,10 @@ async def _ensure_browser(
                 try:
                     is_connected = browser.is_connected()
                 except Exception:
+                    logger.debug(
+                        "Failed to check sync browser connection",
+                        exc_info=True,
+                    )
                     is_connected = False
 
             if is_connected:
@@ -871,7 +1570,10 @@ async def _ensure_browser(
                 logger.warning(
                     "Sync browser process disconnected, resetting state",
                 )
-                _reset_browser_state(state)
+                await _dispose_browser_state(
+                    state,
+                    "sync browser process disconnected",
+                )
     else:
         # Accept both regular context (browser+context) and persistent context
         # (context only, no separate browser object)
@@ -880,7 +1582,14 @@ async def _ensure_browser(
             browser = state.get("browser")
             is_connected = True
             if browser:
-                is_connected = browser.is_connected()
+                try:
+                    is_connected = browser.is_connected()
+                except Exception:
+                    logger.debug(
+                        "Failed to check async browser connection",
+                        exc_info=True,
+                    )
+                    is_connected = False
 
             if is_connected:
                 _touch_activity(state)
@@ -889,7 +1598,10 @@ async def _ensure_browser(
                 logger.warning(
                     "Async browser process disconnected, resetting state",
                 )
-                _reset_browser_state(state)
+                await _dispose_browser_state(
+                    state,
+                    "async browser process disconnected",
+                )
 
     try:
         if _USE_SYNC_PLAYWRIGHT:
@@ -968,7 +1680,7 @@ async def _action_start(
     private_mode: bool = False,
     browser_args: str = "",
     executable_path: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     _validate_executable_path(executable_path)
     # Check browser state based on mode
     if _USE_SYNC_PLAYWRIGHT:
@@ -1008,12 +1720,14 @@ async def _action_start(
             except Exception:
                 pass
         else:
+            result: dict[str, Any] = {
+                "ok": True,
+                "message": "Browser already running",
+            }
+            if current_headless:
+                result["headless_warning"] = _HEADLESS_VERIFICATION_WARNING
             return _tool_response(
-                json.dumps(
-                    {"ok": True, "message": "Browser already running"},
-                    ensure_ascii=False,
-                    indent=2,
-                ),
+                json.dumps(result, ensure_ascii=False, indent=2),
             )
     # Default: headless (background). Only headed=True (e.g. browser_visible skill) shows window.
     state["headless"] = not headed
@@ -1036,6 +1750,8 @@ async def _action_start(
                     ),
                 )
 
+    started_playwright = None
+    cleanup_errors: list[str] = []
     try:
         if not _USE_SYNC_PLAYWRIGHT and not bool(private_mode):
             await _start_managed_cdp_browser(
@@ -1069,6 +1785,7 @@ async def _action_start(
         else:
             async_playwright = _ensure_playwright_async()
             pw = await async_playwright().start()
+            started_playwright = pw
             default_kind, exe = _resolve_chromium_launch_target()
             if executable_path:
                 exe = executable_path
@@ -1148,7 +1865,7 @@ async def _action_start(
             if not state["headless"]
             else "Browser started"
         )
-        result: dict[str, Any] = {
+        result = {
             "ok": True,
             "message": msg,
             "tip": "Enable browser-related skills in the agent config for a better experience.",
@@ -1156,6 +1873,8 @@ async def _action_start(
             "owned_browser_process": state.get("owned_browser_process", False),
             "private_mode": bool(private_mode),
         }
+        if state["headless"]:
+            result["headless_warning"] = _HEADLESS_VERIFICATION_WARNING
         if state.get("browser_pid"):
             result["browser_pid"] = state["browser_pid"]
         cdp_url = state.get("cdp_url") or (
@@ -1170,16 +1889,30 @@ async def _action_start(
             json.dumps(result, ensure_ascii=False, indent=2),
         )
     except Exception as e:
+        if _is_browser_running(state):
+            cleanup = await _dispose_browser_state(
+                state,
+                "browser start failed",
+            )
+            cleanup_errors.extend(cleanup.get("cleanup_errors", []))
+        elif started_playwright is not None:
+            await _stop_playwright_instance(
+                started_playwright,
+                cleanup_errors,
+                "Playwright driver after failed start",
+            )
+        payload: dict[str, Any] = {
+            "ok": False,
+            "error": f"Browser start failed: {e!s}",
+        }
+        if cleanup_errors:
+            payload["cleanup_warnings"] = cleanup_errors
         return _tool_response(
-            json.dumps(
-                {"ok": False, "error": f"Browser start failed: {e!s}"},
-                ensure_ascii=False,
-                indent=2,
-            ),
+            json.dumps(payload, ensure_ascii=False, indent=2),
         )
 
 
-async def _action_stop(state: dict) -> ToolResponse:
+async def _action_stop(state: dict) -> ToolChunk:
     _cancel_idle_watchdog(state)
 
     # Check browser state based on mode
@@ -1197,40 +1930,29 @@ async def _action_stop(state: dict) -> ToolResponse:
         cdp_url = state.get("cdp_url") or ""
         owned = bool(state.get("owned_browser_process"))
         pid = state.get("browser_pid")
-        try:
-            if state["context"] is not None:
-                try:
-                    await state["context"].close()
-                except Exception:
-                    pass
-            if state["browser"] is not None:
-                try:
-                    await state["browser"].close()
-                except Exception:
-                    pass
-            if state["playwright"] is not None:
-                try:
-                    await state["playwright"].stop()
-                except Exception:
-                    pass
-            stopped = False
-            if owned:
-                stopped = await _stop_owned_browser_process(state)
-        finally:
-            _reset_browser_state(state)
+        cleanup = await _dispose_browser_state(state, "browser stop")
+        stopped = bool(cleanup.get("owned_browser_stopped"))
+        fully_cleaned = bool(cleanup.get("fully_cleaned", True))
         message = (
             f"Disconnected from Chrome and stopped owned browser process (pid={pid})"
             if owned
             else f"Disconnected from Chrome (process still running: {cdp_url})"
         )
+        payload: dict[str, Any] = {
+            "ok": fully_cleaned,
+            "message": message,
+            "owned_browser_process": owned,
+            "browser_stopped": stopped if owned else False,
+            "fully_cleaned": fully_cleaned,
+        }
+        if not fully_cleaned:
+            payload["error"] = "Browser cleanup incomplete"
+        cleanup_errors = cleanup.get("cleanup_errors") or []
+        if cleanup_errors:
+            payload["cleanup_warnings"] = cleanup_errors
         return _tool_response(
             json.dumps(
-                {
-                    "ok": True,
-                    "message": message,
-                    "owned_browser_process": owned,
-                    "browser_stopped": stopped if owned else False,
-                },
+                payload,
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -1242,62 +1964,30 @@ async def _action_stop(state: dict) -> ToolResponse:
         "Chrome process will be terminated. "
         "Any other agents connected to this browser via CDP will be disconnected."
     )
-    if _USE_SYNC_PLAYWRIGHT:
-        loop = asyncio.get_event_loop()
-        try:
-            await loop.run_in_executor(
-                _get_executor(),
-                lambda: _sync_browser_close(state),
-            )
-        except Exception as e:
-            return _tool_response(
-                json.dumps(
-                    {"ok": False, "error": f"Browser stop failed: {e!s}"},
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-            )
-        finally:
-            _reset_browser_state(state)
-    else:
-        try:
-            # For persistent_context, close the context directly (no separate browser)
-            if state["context"] is not None:
-                try:
-                    await state["context"].close()
-                except Exception:
-                    pass
-            if state["browser"] is not None:
-                try:
-                    await state["browser"].close()
-                except Exception:
-                    pass
-            if state["playwright"] is not None:
-                try:
-                    await state["playwright"].stop()
-                except Exception:
-                    pass
-        except Exception as e:
-            return _tool_response(
-                json.dumps(
-                    {"ok": False, "error": f"Browser stop failed: {e!s}"},
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-            )
-        finally:
-            _reset_browser_state(state)
+    cleanup = await _dispose_browser_state(state, "browser stop")
+    fully_cleaned = bool(cleanup.get("fully_cleaned", True))
+    payload = {
+        "ok": fully_cleaned,
+        "message": "Browser stopped",
+        "warning": warning,
+        "fully_cleaned": fully_cleaned,
+    }
+    if not fully_cleaned:
+        payload["error"] = "Browser cleanup incomplete"
+    cleanup_errors = cleanup.get("cleanup_errors") or []
+    if cleanup_errors:
+        payload["cleanup_warnings"] = cleanup_errors
 
     return _tool_response(
         json.dumps(
-            {"ok": True, "message": "Browser stopped", "warning": warning},
+            payload,
             ensure_ascii=False,
             indent=2,
         ),
     )
 
 
-async def _action_open(state: dict, url: str, page_id: str) -> ToolResponse:
+async def _action_open(state: dict, url: str, page_id: str) -> ToolChunk:
     url = (url or "").strip()
     if not url:
         return _tool_response(
@@ -1369,7 +2059,7 @@ async def _action_navigate(
     state: dict,
     url: str,
     page_id: str,
-) -> ToolResponse:
+) -> ToolChunk:
     url = (url or "").strip()
     if not url:
         return _tool_response(
@@ -1428,7 +2118,7 @@ async def _action_screenshot(
     ref: str = "",
     element: str = "",  # pylint: disable=unused-argument
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     path = (path or "").strip()
     if not path:
         ext = "jpeg" if screenshot_type == "jpeg" else "png"
@@ -1541,28 +2231,54 @@ async def _action_screenshot(
         )
 
 
-async def _action_click(  # pylint: disable=too-many-branches
+async def _action_click(  # pylint: disable=too-many-branches,too-many-return-statements
     state: dict,
     page_id: str,
     selector: str,
     ref: str = "",
     element: str = "",  # pylint: disable=unused-argument
+    page_x: int = -1,
+    page_y: int = -1,
     wait: int = 0,
     double_click: bool = False,
     button: str = "left",
     modifiers_json: str = "",
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     ref = (ref or "").strip()
     selector = (selector or "").strip()
+    has_any_coord = page_x != -1 or page_y != -1
+    coords_are_int = isinstance(page_x, int) and isinstance(page_y, int)
+    has_page_xy = coords_are_int and page_x >= 0 and page_y >= 0
     if not ref and not selector:
-        return _tool_response(
-            json.dumps(
-                {"ok": False, "error": "selector or ref required for click"},
-                ensure_ascii=False,
-                indent=2,
-            ),
-        )
+        if has_any_coord and (not coords_are_int or page_x < 0 or page_y < 0):
+            return _tool_response(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": (
+                            "page_x and page_y must both be non-negative"
+                            " integers for coordinate click"
+                        ),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+        if not has_page_xy:
+            return _tool_response(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": (
+                            "selector or ref required for click, or provide both"
+                            " page_x and page_y"
+                        ),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -1574,21 +2290,32 @@ async def _action_click(  # pylint: disable=too-many-branches
         )
     try:
         if wait > 0:
-            await asyncio.sleep(wait / 1000.0)
+            wait_secs = wait / 1000.0
+            if wait_secs > _MAX_WAITTIME:
+                logger.warning(
+                    "click wait %.1fs exceeds _MAX_WAITTIME %.1fs, capping",
+                    wait_secs,
+                    _MAX_WAITTIME,
+                )
+            await asyncio.sleep(min(wait_secs, _MAX_WAITTIME))
         mods = _parse_json_param(modifiers_json, [])
         if not isinstance(mods, list):
             mods = []
-        kwargs = {
+        click_kwargs = {
             "button": (
                 button if button in ("left", "right", "middle") else "left"
             ),
         }
         if mods:
-            kwargs["modifiers"] = [
+            click_kwargs["modifiers"] = [
                 m
                 for m in mods
                 if m in ("Alt", "Control", "ControlOrMeta", "Meta", "Shift")
             ]
+        mouse_kwargs = {
+            "button": click_kwargs["button"],
+            "click_count": 2 if double_click else 1,
+        }
 
         if _USE_SYNC_PLAYWRIGHT:
             loop = asyncio.get_event_loop()
@@ -1611,26 +2338,31 @@ async def _action_click(  # pylint: disable=too-many-branches
                 if double_click:
                     await loop.run_in_executor(
                         _get_executor(),
-                        lambda: locator.dblclick(**kwargs),
+                        lambda: locator.dblclick(**click_kwargs),
                     )
                 else:
                     await loop.run_in_executor(
                         _get_executor(),
-                        lambda: locator.click(**kwargs),
+                        lambda: locator.click(**click_kwargs),
                     )
-            else:
+            elif selector:
                 root = _get_root(page, frame_selector)
                 locator = root.locator(selector).first
                 if double_click:
                     await loop.run_in_executor(
                         _get_executor(),
-                        lambda: locator.dblclick(**kwargs),
+                        lambda: locator.dblclick(**click_kwargs),
                     )
                 else:
                     await loop.run_in_executor(
                         _get_executor(),
-                        lambda: locator.click(**kwargs),
+                        lambda: locator.click(**click_kwargs),
                     )
+            else:
+                await loop.run_in_executor(
+                    _get_executor(),
+                    lambda: page.mouse.click(page_x, page_y, **mouse_kwargs),
+                )
         else:
             # Standard async mode
             if ref:
@@ -1650,20 +2382,29 @@ async def _action_click(  # pylint: disable=too-many-branches
                         ),
                     )
                 if double_click:
-                    await locator.dblclick(**kwargs)
+                    await locator.dblclick(**click_kwargs)
                 else:
-                    await locator.click(**kwargs)
-            else:
+                    await locator.click(**click_kwargs)
+            elif selector:
                 root = _get_root(page, frame_selector)
                 locator = root.locator(selector).first
                 if double_click:
-                    await locator.dblclick(**kwargs)
+                    await locator.dblclick(**click_kwargs)
                 else:
-                    await locator.click(**kwargs)
+                    await locator.click(**click_kwargs)
+            else:
+                await page.mouse.click(page_x, page_y, **mouse_kwargs)
 
         return _tool_response(
             json.dumps(
-                {"ok": True, "message": f"Clicked {ref or selector}"},
+                {
+                    "ok": True,
+                    "message": (
+                        f"Clicked {ref or selector}"
+                        if (ref or selector)
+                        else (f"Clicked page coordinate ({page_x}, {page_y})")
+                    ),
+                },
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -1688,7 +2429,7 @@ async def _action_type(
     submit: bool = False,
     slowly: bool = False,
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     ref = (ref or "").strip()
     selector = (selector or "").strip()
     if not ref and not selector:
@@ -1793,7 +2534,7 @@ async def _action_type(
         )
 
 
-async def _action_eval(state: dict, page_id: str, code: str) -> ToolResponse:
+async def _action_eval(state: dict, page_id: str, code: str) -> ToolChunk:
     code = (code or "").strip()
     if not code:
         return _tool_response(
@@ -1849,7 +2590,7 @@ async def _action_eval(state: dict, page_id: str, code: str) -> ToolResponse:
         )
 
 
-async def _action_pdf(state: dict, page_id: str, path: str) -> ToolResponse:
+async def _action_pdf(state: dict, page_id: str, path: str) -> ToolChunk:
     path = (path or "page.pdf").strip() or "page.pdf"
     path = _resolve_output_path(path)
     page = _get_page(state, page_id)
@@ -1883,7 +2624,7 @@ async def _action_pdf(state: dict, page_id: str, path: str) -> ToolResponse:
         )
 
 
-async def _action_close(state: dict, page_id: str) -> ToolResponse:
+async def _action_close(state: dict, page_id: str) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -1933,7 +2674,7 @@ async def _action_snapshot(
     page_id: str,
     filename: str,
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -1992,7 +2733,7 @@ async def _action_snapshot(
         )
 
 
-async def _action_navigate_back(state: dict, page_id: str) -> ToolResponse:
+async def _action_navigate_back(state: dict, page_id: str) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2031,7 +2772,7 @@ async def _action_evaluate(
     ref: str = "",
     element: str = "",  # pylint: disable=unused-argument
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     code = (code or "").strip()
     if not code:
         return _tool_response(
@@ -2117,7 +2858,7 @@ async def _action_resize(
     page_id: str,
     width: int,
     height: int,
-) -> ToolResponse:
+) -> ToolChunk:
     if width <= 0 or height <= 0:
         return _tool_response(
             json.dumps(
@@ -2165,7 +2906,7 @@ async def _action_console_messages(
     page_id: str,
     level: str,
     filename: str,
-) -> ToolResponse:
+) -> ToolChunk:
     level = (level or "info").strip().lower()
     order = ("error", "warning", "info", "debug")
     idx = order.index(level) if level in order else 2
@@ -2215,7 +2956,7 @@ async def _action_handle_dialog(
     page_id: str,
     accept: bool,
     prompt_text: str,
-) -> ToolResponse:
+) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2273,7 +3014,7 @@ async def _action_file_upload(
     state: dict,
     page_id: str,
     paths_json: str,
-) -> ToolResponse:
+) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2404,7 +3145,7 @@ def _direct_url_download_rejected_response(
     source_url: str,
     file_path: str,
     error: DirectUrlDownloadRejectedError,
-) -> ToolResponse:
+) -> ToolChunk:
     payload = {
         "ok": False,
         "error": error.reason,
@@ -2437,7 +3178,7 @@ async def _action_file_download(  # pylint: disable=too-many-branches,too-many-r
     ref: str = "",
     url: str = "",
     wait_time: float = 0.0,
-) -> ToolResponse:
+) -> ToolChunk:
     """Save a browser download event or a page resource to a local file."""
     file_path = (file_path or "").strip()
     if not file_path:
@@ -2651,7 +3392,7 @@ async def _file_download_click_fallback(
     before_url: str,
     before_page_ids: set[str],
     original_error: Exception,
-) -> ToolResponse:
+) -> ToolChunk:
     new_page_id = None
     current_page = page
     current_page_id = page_id
@@ -2728,7 +3469,7 @@ async def _action_fill_form(
     state: dict,
     page_id: str,
     fields_json: str,
-) -> ToolResponse:
+) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2825,7 +3566,7 @@ def _run_playwright_install() -> None:
     )
 
 
-async def _action_install() -> ToolResponse:
+async def _action_install() -> ToolChunk:
     """Install Playwright browsers. If a system Chrome/Chromium/Edge is found,
     use it and skip download. On macOS with no Chromium, use Safari (WebKit)
     so no download is needed. Only run playwright install when necessary.
@@ -2893,7 +3634,7 @@ async def _action_press_key(
     state: dict,
     page_id: str,
     key: str,
-) -> ToolResponse:
+) -> ToolChunk:
     key = (key or "").strip()
     if not key:
         return _tool_response(
@@ -2939,7 +3680,7 @@ async def _action_network_requests(
     page_id: str,
     include_static: bool,
     filename: str,
-) -> ToolResponse:
+) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2986,7 +3727,7 @@ async def _action_run_code(
     state: dict,
     page_id: str,
     code: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Run JS in page (like eval). Use evaluate for element (ref)."""
     code = (code or "").strip()
     if not code:
@@ -3053,7 +3794,7 @@ async def _action_drag(
     start_element: str = "",  # pylint: disable=unused-argument
     end_element: str = "",  # pylint: disable=unused-argument
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     start_ref = (start_ref or "").strip()
     end_ref = (end_ref or "").strip()
     start_selector = (start_selector or "").strip()
@@ -3138,7 +3879,7 @@ async def _action_hover(
     element: str = "",  # pylint: disable=unused-argument
     selector: str = "",
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     ref = (ref or "").strip()
     selector = (selector or "").strip()
     if not ref and not selector:
@@ -3206,7 +3947,7 @@ async def _action_select_option(
     element: str = "",  # pylint: disable=unused-argument
     values_json: str = "",
     frame_selector: str = "",
-) -> ToolResponse:
+) -> ToolChunk:
     ref = (ref or "").strip()
     values = _parse_json_param(values_json, [])
     if not isinstance(values, list):
@@ -3281,7 +4022,7 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
     page_id: str,
     tab_action: str,
     index: int,
-) -> ToolResponse:
+) -> ToolChunk:
     tab_action = (tab_action or "").strip().lower()
     if not tab_action:
         return _tool_response(
@@ -3299,7 +4040,12 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
     if tab_action == "list":
         return _tool_response(
             json.dumps(
-                {"ok": True, "tabs": page_ids, "count": len(page_ids)},
+                {
+                    "ok": True,
+                    "tabs": page_ids,
+                    "tab_list": await _get_tab_info_list(state),
+                    "count": len(page_ids),
+                },
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -3350,6 +4096,7 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
                         "ok": True,
                         "page_id": new_id,
                         "tabs": list(state["pages"].keys()),
+                        "tab_list": await _get_tab_info_list(state),
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -3395,7 +4142,7 @@ async def _action_wait_for(
     wait_time: float,
     text: str,
     text_gone: str,
-) -> ToolResponse:
+) -> ToolChunk:
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -3407,7 +4154,14 @@ async def _action_wait_for(
         )
     try:
         if wait_time and wait_time > 0:
-            await asyncio.sleep(wait_time)
+            capped_wait = min(float(wait_time), _MAX_WAITTIME)
+            if capped_wait < wait_time:
+                logger.warning(
+                    "wait_for wait_time %.1fs exceeds _MAX_WAITTIME %.1fs, capping",
+                    wait_time,
+                    _MAX_WAITTIME,
+                )
+            await asyncio.sleep(capped_wait)
         text = (text or "").strip()
         text_gone = (text_gone or "").strip()
         if text:
@@ -3465,7 +4219,7 @@ _BROWSER_DISK_CACHE_DIRS = [
 ]
 
 
-async def _action_clear_browser_cache(state: dict) -> ToolResponse:
+async def _action_clear_browser_cache(state: dict) -> ToolChunk:
     """Clear browser cache.
 
     - Browser running: uses CDP Network.clearBrowserCache (no restart needed).
@@ -3586,7 +4340,7 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
     state: dict,
     page_id: str,
     actions_json: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Execute multiple browser actions sequentially.
 
     Each action in the JSON array is a dict with at least an "action" key.
@@ -3649,7 +4403,7 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
         }
 
         try:
-            resp: ToolResponse | None = None
+            resp: ToolChunk | None = None
 
             # --- navigate ---
             if sub_action == "navigate":
@@ -3667,6 +4421,8 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
                     selector=(act.get("selector") or "").strip(),
                     ref=(act.get("ref") or "").strip(),
                     element=act.get("element", ""),
+                    page_x=act.get("page_x", -1),
+                    page_y=act.get("page_y", -1),
                     wait=act.get("wait", 0),
                     double_click=act.get("double_click", False),
                     button=act.get("button", "left"),
@@ -3800,7 +4556,7 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
             # Parse helper response into step_result
             if resp is not None and resp.content:
                 try:
-                    # ToolResponse content is a list of TextBlocks; extract text from the first one
+                    # ToolChunk content is a list of TextBlocks; extract text from the first one
                     raw_text = resp.content[0]["text"]
                     resp_data = json.loads(raw_text)
                     if isinstance(resp_data, dict):
@@ -3820,7 +4576,13 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
 
         # Post-action wait
         if sub_wait > 0:
-            await asyncio.sleep(sub_wait)
+            if float(sub_wait) > _MAX_WAITTIME:
+                logger.warning(
+                    "batch wait %.1fs exceeds _MAX_WAITTIME %.1fs, capping",
+                    float(sub_wait),
+                    _MAX_WAITTIME,
+                )
+            await asyncio.sleep(min(float(sub_wait), _MAX_WAITTIME))
 
     completed = sum(1 for r in results if r.get("ok"))
     all_ok = completed == len(results)
@@ -3846,7 +4608,7 @@ _CDP_SCAN_PORT_MAX = 10000
 def _fetch_cdp_json(port: int) -> list:
     """Fetch CDP /json endpoint synchronously. Raises on failure."""
     url = f"http://localhost:{port}/json"
-    with urllib_request.urlopen(url, timeout=1) as resp:  # noqa: S310
+    with urllib_request.urlopen(url, timeout=1) as resp:
         return json.loads(resp.read())
 
 
@@ -3854,7 +4616,7 @@ async def _action_list_cdp_targets(
     port: int = 0,
     port_min: int = 0,
     port_max: int = 0,
-) -> ToolResponse:
+) -> ToolChunk:
     """List CDP targets on local ports.
 
     Priority: port (single) > port_min/port_max (range) > default range.
@@ -3909,7 +4671,7 @@ async def _action_list_cdp_targets(
     )
 
 
-async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
+async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolChunk:
     """Connect Playwright to a running Chrome via CDP."""
     if not cdp_url:
         return _tool_response(
@@ -3953,9 +4715,11 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
     try:
         async_playwright = _ensure_playwright_async()
         pw = await async_playwright().start()
-        browser = await asyncio.wait_for(
+        from ...tool_calls import cancellable_wait
+
+        browser = await cancellable_wait(
             pw.chromium.connect_over_cdp(cdp_url),
-            timeout=_CDP_CONNECT_TIMEOUT_SECONDS,
+            fallback_secs=_CDP_CONNECT_TIMEOUT_SECONDS,
         )
         contexts = browser.contexts
         if contexts:
@@ -4033,17 +4797,24 @@ async def stop_all_browsers() -> None:
         return
 
     logger.info("Stopping all browser instances...")
-    # Use list() to avoid mutation during iteration if stop resets state
-    for state in list(_workspace_states.values()):
-        if _is_browser_running(state):
-            try:
-                await _action_stop(state)
-            except Exception as e:
-                logger.error(
-                    "Failed to stop browser for workspace %s: %s",
-                    state.get("workspace_id", "unknown"),
-                    e,
-                )
+
+    async def _stop_one(state: dict) -> None:
+        try:
+            await _action_stop(state)
+        except Exception as e:
+            logger.error(
+                "Failed to stop browser for workspace %s: %s",
+                state.get("workspace_id", "unknown"),
+                e,
+            )
+
+    await asyncio.gather(
+        *(
+            _stop_one(s)
+            for s in list(_workspace_states.values())
+            if _is_browser_running(s)
+        ),
+    )
 
 
 async def stop_browsers_for_workspace_dirs(
@@ -4099,6 +4870,16 @@ def _workspace_dir_key(workspace_dir: str | Path) -> str:
         return str(path.absolute())
 
 
+@tool_descriptor(
+    async_execution=True,
+    tool_type="network",
+    target_param="url",
+    policy_name="Browser",
+    default_policy="allow",
+    policy_reason="Allow all browser access",
+    ui_description="Browser automation and web interaction",
+    ui_icon="🌐",
+)
 async def browser_use(  # pylint: disable=R0911,R0912
     action: str,
     url: str = "",
@@ -4150,7 +4931,9 @@ async def browser_use(  # pylint: disable=R0911,R0912
     port: int = 0,
     port_min: int = 0,
     port_max: int = 0,
-) -> ToolResponse:
+    page_x: int = -1,
+    page_y: int = -1,
+) -> ToolChunk:
     """Control browser (Playwright). Default is headless. Use headed=True with
     action=start to open a visible browser window. Flow: start, open(url),
     snapshot to get refs, then click/type etc. with ref or selector. Use
@@ -4277,7 +5060,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
         wait_time (float):
             Seconds to wait. Used with action=wait_for and as the download
             event timeout for action=file_download. Defaults to 30 seconds for
-            file_download when omitted.
+            file_download when omitted. For action=wait_for it is capped at
+            60 seconds (_MAX_WAITTIME) to avoid blocking the agent.
         text_gone (str):
             Wait until this text disappears from page. Used with
             action=wait_for.
@@ -4401,6 +5185,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 selector,
                 ref,
                 element,
+                page_x,
+                page_y,
                 wait,
                 double_click,
                 button,

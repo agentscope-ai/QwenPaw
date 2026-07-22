@@ -48,6 +48,21 @@ qwenpaw app --log-level debug           # 详细日志
 
 > **说明：** `--workers` 选项因稳定性原因已废弃。QwenPaw 被设计为单 worker 进程运行。多 worker 模式会导致内存状态管理和 WebSocket 连接出现问题。此选项将在未来版本中移除。
 
+### qwenpaw tui
+
+打开内置终端聊天界面。它会使用当前 Python 环境运行 QwenPaw，适合开发安装
+和偏命令行的工作流。
+
+```bash
+qwenpaw                         # 用当前活跃 Agent 打开 TUI
+qwenpaw tui --agent writer      # 用指定 Agent 打开 TUI
+qwenpaw .                       # 将当前目录绑定为本次 TUI 会话的项目
+qwenpaw tui /path/to/repo       # 将其他目录绑定为本次 TUI 会话的项目
+```
+
+传入项目目录会为本次 TUI 会话启用 Coding 模式，并把该目录作为活跃项目。
+这是会话级设置；不会写入 `agent.json`，也不会改变控制台里选择的项目。
+
 ### 控制台
 
 `qwenpaw app` 启动后，在浏览器打开 `http://127.0.0.1:8088/` 即可进入 **控制台** ——
@@ -257,7 +272,7 @@ qwenpaw models set-llm          # 切换到其他 Ollama 模型
 ```bash
 qwenpaw env list
 qwenpaw env set TAVILY_API_KEY "tvly-xxxxxxxx"
-qwenpaw env set GITHUB_TOKEN "ghp_xxxxxxxx"
+qwenpaw env set GITHUB_TOKEN "ghp_xxxxxxxx"  # 也支持以 github_pat_ 开头的 fine-grained PAT
 qwenpaw env delete TAVILY_API_KEY
 ```
 
@@ -277,25 +292,17 @@ qwenpaw env delete TAVILY_API_KEY
 
 **别名：** 可以用 `qwenpaw channel`（单数）作为 `qwenpaw channels` 的简写。
 
-| 命令                             | 说明                                                                            |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `qwenpaw channels list`          | 查看所有频道的状态（密钥脱敏）                                                  |
-| `qwenpaw channels send`          | 向用户/会话单向发送消息（需要全部 5 个参数）                                    |
-| `qwenpaw channels install <key>` | 在 `custom_channels/` 安装频道：创建模板，或用 `--path` / `--url` 安装          |
-| `qwenpaw channels add <key>`     | 安装并加入 config；内置频道只写 config；支持 `--path` / `--url`                 |
-| `qwenpaw channels remove <key>`  | 从 `custom_channels/` 删除自定义频道（内置不可删）；`--keep-config` 保留 config |
-| `qwenpaw channels config`        | 交互式启用/禁用频道并填写凭据                                                   |
+| 命令                      | 说明                                         |
+| ------------------------- | -------------------------------------------- |
+| `qwenpaw channels list`   | 查看所有频道的状态（密钥脱敏）               |
+| `qwenpaw channels send`   | 向用户/会话单向发送消息（需要全部 5 个参数） |
+| `qwenpaw channels config` | 交互式启用/禁用频道并填写凭据                |
 
 **多智能体支持：** 所有命令都支持 `--agent-id` 参数（默认为 `default`）。
 
 ```bash
 qwenpaw channels list                    # 看默认智能体的频道状态
 qwenpaw channels list --agent-id abc123  # 看特定智能体的频道状态
-qwenpaw channels install my_channel      # 创建自定义频道模板
-qwenpaw channels install my_channel --path ./my_channel.py
-qwenpaw channels add dingtalk            # 把钉钉加入 config
-qwenpaw channels remove my_channel       # 删除自定义频道（并默认从 config 移除）
-qwenpaw channels remove my_channel --keep-config   # 只删模块，保留 config 条目
 qwenpaw channels config                  # 交互式配置默认智能体
 qwenpaw channels config --agent-id abc123 # 交互式配置特定智能体
 ```
@@ -531,6 +538,19 @@ qwenpaw cron create \
   --target-session "会话ID" \
   --text "我有什么待办事项？"
 
+# agent：后台执行，不向渠道投递回复
+qwenpaw cron create \
+  --agent-id abc123 \
+  --type agent \
+  --schedule-type cron \
+  --name "刷新搜索索引" \
+  --cron "0 * * * *" \
+  --channel console \
+  --target-user "你的用户ID" \
+  --target-session "会话ID" \
+  --text "刷新搜索索引。" \
+  --silent
+
 # 日程任务：一次性执行（不重复）
 qwenpaw cron create \
   --type text \
@@ -585,6 +605,7 @@ JSON 结构见 `qwenpaw cron get <job_id>` 的返回。
 | `--timezone`                                           | 用户时区 | 调度时区（默认使用 config 中的 `user_timezone`）                  |
 | `--enabled` / `--no-enabled`                           | 启用     | 创建时启用或禁用                                                  |
 | `--mode`                                               | `final`  | `stream`（逐步发送）或 `final`（完成后一次性发送）                |
+| `--silent` / `--no-silent`                             | 关闭     | 执行 `agent` 任务但不向渠道投递回复                               |
 | `--save-result-to-inbox` / `--no-save-result-to-inbox` | 自动规则 | 是否将执行结果写入收件箱（省略时由服务端默认策略决定）            |
 | `--repeat-every-days`                                  | 不重复   | 仅 `--schedule-type scheduled` 可用；每 N 天重复                  |
 | `--repeat-end-type`                                    | `never`  | 仅重复日程可用；`never` / `until` / `count`                       |

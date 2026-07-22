@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { AgentSummary } from "../api/types/agents";
+import { agentsApi } from "../api/modules/agents";
+import { menuRegistry } from "../plugins/registry/store";
 
 /**
  * Storage key used by both sessionStorage (per-tab state) and localStorage
@@ -14,6 +16,8 @@ const STORAGE_KEY = "qwenpaw-agent-storage";
  */
 const LAST_USED_AGENT_KEY = "qwenpaw-last-used-agent";
 
+let agentRefreshPromise: Promise<void> | null = null;
+
 interface AgentStore {
   selectedAgent: string;
   agents: AgentSummary[];
@@ -21,6 +25,7 @@ interface AgentStore {
   lastChatIdByAgent: Record<string, string>;
   setSelectedAgent: (agentId: string) => void;
   setAgents: (agents: AgentSummary[]) => void;
+  refreshAgents: () => Promise<void>;
   addAgent: (agent: AgentSummary) => void;
   removeAgent: (agentId: string) => void;
   updateAgent: (agentId: string, updates: Partial<AgentSummary>) => void;
@@ -78,6 +83,7 @@ export const useAgentStore = create<AgentStore>()(
 
       setSelectedAgent: (agentId) => {
         set({ selectedAgent: agentId });
+        menuRegistry.refresh();
         // Persist to localStorage so new tabs inherit this choice
         try {
           localStorage.setItem(LAST_USED_AGENT_KEY, agentId);
@@ -88,14 +94,31 @@ export const useAgentStore = create<AgentStore>()(
 
       setAgents: (agents) => set({ agents }),
 
+      refreshAgents: async () => {
+        if (agentRefreshPromise !== null) {
+          return agentRefreshPromise;
+        }
+
+        agentRefreshPromise = agentsApi.listAgents().then((response) => {
+          set({ agents: response.agents });
+        });
+        try {
+          await agentRefreshPromise;
+        } finally {
+          agentRefreshPromise = null;
+        }
+      },
+
       addAgent: (agent) =>
         set((state) => ({
           agents: [...state.agents, agent],
         })),
 
-      removeAgent: (agentId) =>
+      removeAgent: (agentId) => {
+        const shouldRefresh = get().selectedAgent === agentId;
         set((state) => {
-          const { [agentId]: _, ...remainingChatIds } = state.lastChatIdByAgent;
+          const remainingChatIds = { ...state.lastChatIdByAgent };
+          delete remainingChatIds[agentId];
           return {
             agents: state.agents.filter((a) => a.id !== agentId),
             lastChatIdByAgent: remainingChatIds,
@@ -103,7 +126,9 @@ export const useAgentStore = create<AgentStore>()(
               ? { selectedAgent: "default" }
               : {}),
           };
-        }),
+        });
+        if (shouldRefresh) menuRegistry.refresh();
+      },
 
       updateAgent: (agentId, updates) =>
         set((state) => ({

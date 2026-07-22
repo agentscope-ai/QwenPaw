@@ -11,6 +11,7 @@ export const CHANNEL_LABELS: Record<string, string> = {
   feishu: "Feishu",
   qq: "QQ",
   telegram: "Telegram",
+  slack: "Slack",
   mqtt: "MQTT",
   mattermost: "Mattermost",
   matrix: "Matrix",
@@ -21,6 +22,7 @@ export const CHANNEL_LABELS: Record<string, string> = {
   xiaoyi: "XiaoYi",
   wechat: "WeChat",
   onebot: "OneBot",
+  yuanbao: "Yuanbao",
 };
 
 function formatCustomChannelKey(key: string): string {

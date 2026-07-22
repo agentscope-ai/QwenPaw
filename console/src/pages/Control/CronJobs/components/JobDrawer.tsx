@@ -55,6 +55,7 @@ export function JobDrawer({
   const [userSearch, setUserSearch] = useState("");
   const [sessionSearch, setSessionSearch] = useState("");
   const selectedChannel = Form.useWatch(["dispatch", "channel"], form);
+  const selectedTaskType = Form.useWatch("task_type", form);
   const selectedTargetUserId = Form.useWatch(
     ["dispatch", "target", "user_id"],
     form,
@@ -73,6 +74,12 @@ export function JobDrawer({
       );
     }
   }, [open, editingJob?.id, onReloadTargets]);
+
+  useEffect(() => {
+    if (selectedTaskType === "text") {
+      form.setFieldValue(["dispatch", "silent"], false);
+    }
+  }, [form, selectedTaskType]);
 
   const mergeOptions = (
     values: Iterable<string>,
@@ -133,7 +140,7 @@ export function JobDrawer({
       title={editingJob ? t("cronJobs.editJob") : t("cronJobs.createJob")}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
       footer={
         <div className={styles.formActions}>
           <Button onClick={onClose}>{t("common.cancel")}</Button>
@@ -694,12 +701,30 @@ export function JobDrawer({
         </Form.Item>
 
         <Form.Item
+          name={["dispatch", "silent"]}
+          label={t("cronJobs.silentDelivery")}
+          valuePropName="checked"
+          tooltip={t("cronJobs.silentDeliveryTooltip")}
+        >
+          <Switch disabled={selectedTaskType !== "agent"} />
+        </Form.Item>
+
+        <Form.Item
           name={["runtime", "share_session"]}
           label={t("cronJobs.runtimeShareSession")}
           valuePropName="checked"
           tooltip={t("cronJobs.shareSessionTooltip")}
         >
           <Switch defaultChecked />
+        </Form.Item>
+
+        <Form.Item
+          name={["runtime", "tool_safety"]}
+          label={t("cronJobs.runtimeToolSafety")}
+          valuePropName="checked"
+          tooltip={t("cronJobs.toolSafetyTooltip")}
+        >
+          <Switch />
         </Form.Item>
 
         <Form.Item
@@ -723,7 +748,7 @@ export function JobDrawer({
           label={t("cronJobs.runtimeMisfireGraceSeconds")}
           tooltip={t("cronJobs.misfireGraceSecondsTooltip")}
         >
-          <InputNumber min={0} style={{ width: "100%" }} placeholder="60" />
+          <InputNumber min={0} style={{ width: "100%" }} placeholder="600" />
         </Form.Item>
       </Form>
     </Drawer>

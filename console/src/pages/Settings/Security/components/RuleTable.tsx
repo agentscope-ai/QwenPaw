@@ -66,7 +66,7 @@ export function RuleTable({
       title: t("security.rules.id"),
       dataIndex: "id",
       key: "id",
-      width: 220,
+      width: 280,
       render: (id: string, record: MergedRule) => (
         <span style={{ opacity: record.disabled ? 0.4 : 1 }}>{id}</span>
       ),
@@ -155,7 +155,7 @@ export function RuleTable({
     {
       title: t("security.rules.actions"),
       key: "actions",
-      width: 160,
+      width: 100,
       render: (_: unknown, record: MergedRule) => (
         <Space size="small">
           <Tooltip

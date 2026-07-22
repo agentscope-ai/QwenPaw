@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 
@@ -198,9 +198,19 @@ async def ai_optimize_skill_stream(request: AIOptimizeSkillRequest):
                 SYSTEM_PROMPTS["en"],
             )
 
+            from agentscope.message import Msg, TextBlock
+
             messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": request.content},
+                Msg(
+                    name="system",
+                    role="system",
+                    content=[TextBlock(type="text", text=system_prompt)],
+                ),
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[TextBlock(type="text", text=request.content)],
+                ),
             ]
 
             response = await model(messages)

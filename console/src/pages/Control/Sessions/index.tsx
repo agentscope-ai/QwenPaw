@@ -1,17 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useDeferredValue } from "react";
 import { useNavigate } from "react-router-dom";
-import { Card, Form, Modal, Table, Button } from "@agentscope-ai/design";
+import { Card, Form, Modal, Table, Button, Tabs } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import {
   createColumns,
   FilterBar,
   SessionDrawer,
+  formatTime,
   type Session,
 } from "./components";
 import { useSessions } from "./useSessions";
 import api from "../../../api";
 import { PageHeader } from "@/components/PageHeader";
+import { ChannelIcon } from "../Channels/components";
 import styles from "./index.module.less";
 
 function SessionsPage() {
@@ -23,6 +25,14 @@ function SessionsPage() {
     updateSession,
     deleteSession,
     batchDeleteSessions,
+    archiveSession,
+    unarchiveSession,
+    batchArchiveSessions,
+    batchUnarchiveSessions,
+    activeTab,
+    setActiveTab,
+    activeCount,
+    archivedCount,
   } = useSessions();
   const [filteredSessions, setFilteredSessions] = useState<Session[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -35,7 +45,19 @@ function SessionsPage() {
   // Filter states
   const [filterUserId, setFilterUserId] = useState<string>("");
   const [filterChannel, setFilterChannel] = useState<string>("");
+  const [filterTitle, setFilterTitle] = useState<string>("");
   const [availableChannels, setAvailableChannels] = useState<string[]>([]);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    setIsMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  const deferredTitle = useDeferredValue(filterTitle);
 
   const { message } = useAppMessage();
 
@@ -45,7 +67,7 @@ function SessionsPage() {
         const types = await api.listChannelTypes();
         setAvailableChannels(types);
       } catch (error) {
-        console.error("❌ Failed to load channel types:", error);
+        console.error("Failed to load channel types:", error);
       }
     };
     fetchChannelTypes();
@@ -68,8 +90,20 @@ function SessionsPage() {
       );
     }
 
+    if (deferredTitle) {
+      filtered = filtered.filter((session: Session) => {
+        const name = session.name || "";
+        return name.toLowerCase().includes(deferredTitle.toLowerCase());
+      });
+    }
+
     setFilteredSessions(filtered);
-  }, [sessions, filterUserId, filterChannel]);
+  }, [sessions, filterUserId, filterChannel, deferredTitle]);
+
+  // Clear selection when switching tabs
+  useEffect(() => {
+    setSelectedRowKeys([]);
+  }, [activeTab]);
 
   const handleEdit = (session: Session) => {
     setEditingSession(session);
@@ -92,6 +126,14 @@ function SessionsPage() {
 
   const handleView = (session: Session) => {
     navigate(`/chat/${encodeURIComponent(session.id)}`);
+  };
+
+  const handleArchiveToggle = async (session: Session) => {
+    if (activeTab === "archived") {
+      await unarchiveSession(session.id);
+    } else {
+      await archiveSession(session.id);
+    }
   };
 
   const handleBatchDelete = () => {
@@ -117,6 +159,22 @@ function SessionsPage() {
     });
   };
 
+  const handleBatchArchive = async () => {
+    if (selectedRowKeys.length === 0) return;
+    const success = await batchArchiveSessions(selectedRowKeys as string[]);
+    if (success) {
+      setSelectedRowKeys([]);
+    }
+  };
+
+  const handleBatchUnarchive = async () => {
+    if (selectedRowKeys.length === 0) return;
+    const success = await batchUnarchiveSessions(selectedRowKeys as string[]);
+    if (success) {
+      setSelectedRowKeys([]);
+    }
+  };
+
   const handleDrawerClose = () => {
     setDrawerOpen(false);
     setEditingSession(null);
@@ -139,11 +197,14 @@ function SessionsPage() {
     }
   };
 
+  const isArchivedTab = activeTab === "archived";
+
   const columns = createColumns({
     onEdit: handleEdit,
     onDelete: handleDelete,
     onView: handleView,
-    t,
+    onArchiveToggle: handleArchiveToggle,
+    isArchivedTab,
   });
 
   const rowSelection = {
@@ -162,38 +223,153 @@ function SessionsPage() {
         extra={
           <div className={styles.headerRight}>
             <FilterBar
+              isMobile={isMobile}
               filterUserId={filterUserId}
               filterChannel={filterChannel}
+              filterTitle={filterTitle}
               uniqueChannels={availableChannels}
               onUserIdChange={setFilterUserId}
               onChannelChange={setFilterChannel}
+              onTitleChange={setFilterTitle}
             />
             {selectedRowKeys.length > 0 && (
-              <Button type="primary" danger onClick={handleBatchDelete}>
-                {t("sessions.batchDeleteButton")} ({selectedRowKeys.length})
-              </Button>
+              <>
+                {isArchivedTab ? (
+                  <Button onClick={handleBatchUnarchive}>
+                    {t("sessions.archive.batchUnaction", "Batch Unarchive")} (
+                    {selectedRowKeys.length})
+                  </Button>
+                ) : (
+                  <Button onClick={handleBatchArchive}>
+                    {t("sessions.archive.batchAction", "Batch Archive")} (
+                    {selectedRowKeys.length})
+                  </Button>
+                )}
+                <Button type="primary" danger onClick={handleBatchDelete}>
+                  {t("sessions.batchDeleteButton")} ({selectedRowKeys.length})
+                </Button>
+              </>
             )}
           </div>
         }
       />
 
-      <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>
-        <Table
-          columns={columns}
-          dataSource={filteredSessions}
-          loading={loading}
-          rowKey="id"
-          rowSelection={rowSelection}
-          rowClassName={(record) =>
-            selectedRowKeys.includes(record.id) ? styles.selectedRow : ""
-          }
-          scroll={{ x: 1500 }}
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: false,
-          }}
-        />
-      </Card>
+      <Tabs
+        activeKey={activeTab}
+        onChange={(key) => setActiveTab(key as "active" | "archived")}
+        items={[
+          {
+            key: "active",
+            label: `${t("sessions.activeTab", "Active")} (${activeCount})`,
+          },
+          {
+            key: "archived",
+            label: `${t(
+              "sessions.archivedTab",
+              "Archived",
+            )} (${archivedCount})`,
+          },
+        ]}
+        style={{ padding: "0 16px" }}
+      />
+
+      {isMobile ? (
+        <div className={styles.mobileCardList}>
+          {filteredSessions.map((session) => (
+            <Card
+              key={session.id}
+              className={styles.mobileSessionCard}
+              size="small"
+              bodyStyle={{ padding: 24 }}
+            >
+              <div className={styles.mobileSessionHeader}>
+                <span className={styles.mobileSessionName}>
+                  {session.name || session.id}
+                </span>
+                <span className={styles.mobileSessionChannel}>
+                  <ChannelIcon channelKey={session.channel} size={24} />
+                </span>
+              </div>
+              <div className={styles.mobileSessionMeta}>
+                <span>ID: {session.id}</span>
+                {session.user_id && <span>User: {session.user_id}</span>}
+                <span>Created: {formatTime(session.created_at)}</span>
+              </div>
+              <div className={styles.mobileSessionActions}>
+                {isArchivedTab ? (
+                  <>
+                    <Button
+                      size="small"
+                      className={styles.mobileActionBtn}
+                      onClick={() => handleArchiveToggle(session)}
+                    >
+                      {t("sessions.archive.unaction", "Unarchive")}
+                    </Button>
+                    <Button
+                      size="small"
+                      className={styles.mobileActionBtn}
+                      danger
+                      onClick={() => handleDelete(session.id)}
+                    >
+                      {t("common.delete")}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      size="small"
+                      className={styles.mobileActionBtn}
+                      onClick={() => handleEdit(session)}
+                    >
+                      {t("common.edit")}
+                    </Button>
+                    <Button
+                      size="small"
+                      className={styles.mobileActionBtn}
+                      onClick={() => handleView(session)}
+                    >
+                      {t("common.view")}
+                    </Button>
+                    <Button
+                      size="small"
+                      className={styles.mobileActionBtn}
+                      onClick={() => handleArchiveToggle(session)}
+                    >
+                      {t("sessions.archive.action", "Archive")}
+                    </Button>
+                    <Button
+                      size="small"
+                      className={styles.mobileActionBtn}
+                      danger
+                      onClick={() => handleDelete(session.id)}
+                    >
+                      {t("common.delete")}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card className={styles.tableCard} bodyStyle={{ padding: 0 }}>
+          <Table
+            columns={columns}
+            dataSource={filteredSessions}
+            loading={loading}
+            rowKey="id"
+            rowSelection={rowSelection}
+            rowClassName={(record) =>
+              selectedRowKeys.includes(record.id) ? styles.selectedRow : ""
+            }
+            scroll={{ x: 1500 }}
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: false,
+            }}
+          />
+        </Card>
+      )}
 
       <SessionDrawer
         open={drawerOpen}

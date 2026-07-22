@@ -72,7 +72,11 @@
   "bot_prefix": "[BOT]",
   "client_id": "你的 Client ID",
   "client_secret": "你的 Client Secret",
-  "filter_tool_messages": false
+  "show_tool_calls": true,
+  "show_tool_results": true,
+  "show_thinking": true,
+  "tool_call_max_length": 200,
+  "tool_result_max_length": 500
 }
 ```
 
@@ -90,7 +94,7 @@
 
 > **提示：**
 >
-> - 若希望隐藏工具执行详情，可设置 `filter_tool_messages: true`。
+> - 工具调用和结果可以分别控制是否显示；最大长度设置为 `0` 时不截断。
 > - AI Card 模式：将 `message_type` 设为 `card`，并填写 `card_template_id`；`card_template_key` 必须与钉钉模板变量名完全一致。
 > - 群聊场景建议显式配置 `robot_code`；留空时 QwenPaw 会回退使用 `client_id`。
 
@@ -918,6 +922,40 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 
 ---
 
+## 腾讯元宝（Yuanbao）
+
+元宝频道通过 protobuf WebSocket 连接腾讯元宝 AI 助手平台，支持私聊和群聊，支持图片/文件发送。
+
+### 创建 Bot 并配置
+
+1. 打开腾讯元宝，点击 **我的Bot** → **创建Bot**。
+
+   ![创建Bot](https://img.alicdn.com/imgextra/i3/O1CN01ChYAcN1L0b4pj7ODV_!!6000000001237-2-tps-2112-1440.png)
+
+2. 在 Bot 设置中找到 **方式2**，获取 **AppID** 和 **AppSecret**，填入 QwenPaw 的频道设置中，点击 **我已操作**。
+
+   ![AppID 和 AppSecret](https://img.alicdn.com/imgextra/i2/O1CN01F4vbLs29ID63r4cGf_!!6000000008044-2-tps-2112-1440.png)
+
+**配置示例：**
+
+```json
+"yuanbao": {
+  "enabled": true,
+  "app_id": "你的 AppID",
+  "app_secret": "你的 AppSecret"
+}
+```
+
+**元宝专属字段说明：**
+
+| 字段         | 类型   | 默认值                    | 说明                 |
+| ------------ | ------ | ------------------------- | -------------------- |
+| `app_id`     | string | `""`（必填）              | 元宝平台的 AppID     |
+| `app_secret` | string | `""`（必填）              | 元宝平台的 AppSecret |
+| `api_domain` | string | `bot.yuanbao.tencent.com` | REST API 域名        |
+
+---
+
 ## 小艺（XiaoYi）
 
 小艺通道通过 **A2A (Agent-to-Agent) 协议** 基于 WebSocket 连接华为小艺平台。
@@ -1309,6 +1347,299 @@ pip install "qwenpaw[sip,sip-livekit]"
 | `welcome_greeting`   | string | `"Hi! This is QwenPaw. How can I help you?"` | 欢迎语（接通电话后的第一句话）                         |
 | `call_timeout`       | float  | `30.0`                                       | 呼出超时时间（秒）                                     |
 
+## Azure Bot（Microsoft 机器人服务）
+
+Azure Bot channel 基于 [Bot Framework](https://dev.botframework.com/) Webhook 协议，支持将 QwenPaw 接入 **Microsoft Teams**、**Web Chat**、**DirectLine** 等所有 Azure Bot Service 支持的频道。
+
+配置分为以下几步：先在 **Microsoft Entra ID** 注册应用以获取凭证，再创建 **Azure Bot** 资源并关联已有注册，最后将 QwenPaw 的 Webhook 地址填入并启用目标频道。
+
+> **提示**：Azure Bot 是**插件频道**，并非内置频道。使用前请先在 QwenPaw 控制台的**插件市场**中搜索并安装 `azure-bot` 插件；安装完成后，该频道才会出现在「频道」设置中。
+
+### 第一步：创建应用注册（App Registration）
+
+在此步骤中获取三个必要凭证：`app_id`、`tenant_id`、`app_password`。
+
+1. 打开 [Azure 门户](https://portal.azure.com/)，在顶部搜索栏输入 `Microsoft Entra ID`，点击进入。
+
+   ![Microsoft Entra ID](https://img.alicdn.com/imgextra/i3/O1CN01sFcUI11x1vdPfro5i_!!6000000006384-2-tps-1540-880.png)
+
+2. 点击页面顶部的 **"+ 添加（+ Add）"** 按钮，在下拉菜单中选择 **"应用注册（App registration）"**。
+
+   ![App registration](https://img.alicdn.com/imgextra/i4/O1CN01Mlk83h1TmhbuJIWQe_!!6000000002425-2-tps-1531-838.png)
+
+3. 填写注册信息：
+
+   - **名称（Name）**：自定义，如 `QwenPaw-Bot`
+   - **受支持的帐户类型（Supported account types）**：选第一项 **"仅此组织目录中的帐户（Accounts in this organizational directory only）"**（单租户）
+   - **重定向 URI（Redirect URI）**：留空
+
+   点击 **"注册（Register）"**。
+
+   ![Register](https://img.alicdn.com/imgextra/i2/O1CN01XKfBNU1VYcfLwQhXl_!!6000000002665-2-tps-1543-831.png)
+
+4. 注册完成后，在应用概述页面记录以下两个 ID：
+
+   - **应用程序（客户端）ID（Application (client) ID）** → 即 `app_id`
+   - **目录（租户）ID（Directory (tenant) ID）** → 即 `tenant_id`
+
+   ![Application ID 和 Directory ID](https://img.alicdn.com/imgextra/i2/O1CN01IoyGl71EK6e1jd9DQ_!!6000000000332-2-tps-1535-836.png)
+
+5. 在左侧菜单点击 **"证书和机密（Certificates & secrets）"** → 选择 **"客户端机密（Client secrets）"** 标签 → 点击 **"新建客户端机密（New client secret）"**。
+
+   填写描述（如 `qwenpaw`），选择合适的有效期，点击 **"添加（Add）"**。
+
+   ![Add](https://img.alicdn.com/imgextra/i3/O1CN01IfUrY727KNkaWwu8g_!!6000000007778-2-tps-1544-836.png)
+
+6. 机密创建后，**立即复制 "值（Value）" 列** → 即 `app_password`。
+
+   > **注意：** 离开此页面后 Value 将永久隐藏，无法再次查看，务必立即保存！
+
+   ![复制客户端机密的 Value 列](https://img.alicdn.com/imgextra/i2/O1CN01KzpIc11aDcaFe0U0i_!!6000000003296-2-tps-1543-833.png)
+
+### 第二步：创建 Azure Bot 资源
+
+1. 在 Azure 门户顶部搜索栏输入 `Azure Bot`，点击搜索结果中的 **Azure Bot**，然后点击 **"创建（Create）"**。
+
+   ![Azure Bot](https://img.alicdn.com/imgextra/i1/O1CN01u7ZxBm1PdlPrl6sKI_!!6000000001864-2-tps-1545-836.png)
+
+2. 填写基础信息：
+
+   - **机器人句柄（Bot handle）**：全局唯一，可自定义（如 `qwenpaw-bot`）
+   - **订阅（Subscription）**：选择你的订阅
+   - **资源组（Resource group）**：选择已有或新建
+   - **定价层（Pricing tier）**：`F0 (Free)` 即可
+   - **Microsoft 应用类型（Type of App）**：选 **"单租户（Single Tenant）"**
+   - **创建类型（Creation type）**：选 **"使用现有应用注册（Use existing app registration）"**
+   - **应用 ID（App ID）**：粘贴第一步的 `app_id`
+   - **应用租户 ID（App tenant ID）**：粘贴第一步的 `tenant_id`
+
+   ![Azure Bot](https://img.alicdn.com/imgextra/i4/O1CN01gly9dG1fIGgGQVTqq_!!6000000003983-2-tps-1535-829.png)
+
+3. 点击 **"查看 + 创建（Review + create）"**，验证通过后点击 **"创建（Create）"**，等待部署完成后点击 **"转到资源（Go to resource）"**。
+
+   ![create](https://img.alicdn.com/imgextra/i2/O1CN01LA5fDL1KzDtdLmH8c_!!6000000001234-2-tps-1544-834.png)
+
+### 第三步：暴露 Webhook 端点
+
+QwenPaw 会在本地启动一个独立 HTTP 服务（默认端口 `3978`）接收 Azure 转发的消息。Azure Bot Service 要求该端点**可从公网通过 HTTPS 访问**。
+
+**方式 A：固定域名 + 反向代理（推荐生产环境）**
+
+如果 QwenPaw 运行在有公网 IP 的服务器上，使用 Nginx 反向代理并配置 HTTPS 证书，Webhook 地址形如：
+
+```
+https://your-domain.com/api/messages
+```
+
+**方式 B：本地开发 — 使用 ngrok 内网穿透**
+
+```bash
+ngrok http 3978
+```
+
+ngrok 启动后会输出一个临时公网地址，Webhook URL 即：
+
+```
+https://xxxx.ngrok-free.app/api/messages
+```
+
+> **注意：** ngrok 免费版每次重启地址会变更，需同步更新 Azure Bot 的 Messaging Endpoint。生产环境请使用固定域名。
+
+### 第四步：配置消息端点（Messaging Endpoint）
+
+1. 进入刚创建的 Azure Bot 资源，在左侧菜单点击 **"配置（Configuration）"**。
+2. 在 **消息端点（Messaging endpoint）** 字段填入你的公网 Webhook 地址：
+
+   ```
+   https://<your-domain-or-ngrok>/api/messages
+   ```
+
+3. 点击 **"应用（Apply）"** 保存。
+
+   ![Messaging endpoint](https://img.alicdn.com/imgextra/i2/O1CN01S6WH5O1dbqNUWATNo_!!6000000003755-2-tps-1544-839.png)
+
+### 第五步：启用目标频道（可选）
+
+在 Azure Bot 资源左侧菜单，点击 **"频道（Channels）"**，即可看到所有支持的频道列表（Teams、Web Chat、Slack 等）。根据需要点击对应频道图标，按提示完成授权并点击 **"应用（Apply）"** 启用。
+
+![Channels](https://img.alicdn.com/imgextra/i3/O1CN01cpH8jd1rS8bZYQpCE_!!6000000005629-2-tps-1533-839.png)
+
+### 第六步：绑定配置
+
+可以在控制台前端配置，或直接修改 `agent.json`。
+
+**方法 1：** 在控制台中配置
+
+进入 **控制（Control） → 频道（Channels）**，找到 **Azure Bot**，点击后填入以下信息：
+
+- **App ID**：第一步的 Application (client) ID
+- **App Password**：第一步的 Client Secret Value
+- **Tenant ID**：第一步的 Directory (tenant) ID
+
+![控制台 Azure Bot 配置抽屉界面](https://img.alicdn.com/imgextra/i1/O1CN01k7dvrw1rBBwztyPTz_!!6000000005592-2-tps-1549-880.png)
+
+**方法 2：** 修改 `agent.json`
+
+在智能体工作区的 `agent.json`（如 `~/.qwenpaw/workspaces/default/agent.json`）里找到 `channels.azure_bot`，填入对应信息：
+
+```json
+"azure_bot": {
+  "enabled": true,
+  "app_id": "第一步的 Application (client) ID",
+  "app_password": "第一步的 Client Secret Value",
+  "tenant_id": "第一步的 Directory (tenant) ID",
+  "http_port": 3978,
+  "share_session_in_group": false,
+  "require_mention": false
+}
+```
+
+保存后若服务已运行会自动重载；未运行则执行 `qwenpaw app` 启动。
+
+**Azure Bot 专属字段说明：**
+
+| 字段                     | 类型   | 默认值       | 说明                                                                                  |
+| ------------------------ | ------ | ------------ | ------------------------------------------------------------------------------------- |
+| `app_id`                 | string | `""`（必填） | Microsoft 应用 ID（即 Azure AD Client ID）                                            |
+| `app_password`           | string | `""`（必填） | 客户端机密值（Client Secret Value）                                                   |
+| `tenant_id`              | string | `""`（必填） | Azure AD 目录租户 ID（Directory tenant ID）                                           |
+| `http_port`              | int    | `3978`       | Webhook 监听端口，需与 Messaging Endpoint 中填写的端口一致                            |
+| `http_host`              | string | `"0.0.0.0"`  | Webhook 监听地址，通常保持默认                                                        |
+| `media_dir`              | string | `null`       | 媒体文件下载目录（留空则使用工作区 `media/` 子目录）                                  |
+| `share_session_in_group` | bool   | `false`      | 群聊中是否所有成员共享同一会话；`true` 时整个群共用一个会话，`false` 时各成员独立会话 |
+
+### 注意事项
+
+- **HTTPS 必须**：Azure Bot Service 要求 Messaging Endpoint 使用 HTTPS，本地开发请使用 ngrok 或配置了 SSL 的反向代理。
+- **端口防火墙**：确保服务器安全组 / 防火墙已开放 `http_port`（默认 3978）的入站流量，或通过反向代理在标准端口（443）上对外提供服务。
+- **群聊 @mention**：在 Teams 群聊中建议开启 `require_mention: true`，避免每条群消息都触发机器人回复；私聊不受此限制。
+- **多频道并行**：同一个 Azure Bot 资源可同时连接 Teams、Web Chat、DirectLine 等多个频道，QwenPaw 会自动识别来源频道并路由回复。
+- **会话引用持久化**：QwenPaw 将各用户 / 群聊的会话引用保存在工作区的 `azure_bot_refs.json` 中，重启后可继续主动向用户发送消息。
+- **客户端机密有效期**：Azure AD 客户端机密有效期最长 2 年，到期需重新生成并更新 `app_password` 配置。
+
+---
+
+## Slack
+
+### 创建 Slack 应用
+
+1. 访问 [https://api.slack.com/apps](https://api.slack.com/apps)，点击 **Create New App** → **From a manifest**。
+
+   ![From a manifest 创建应用](https://img.alicdn.com/imgextra/i2/O1CN01K6LQ851dgsjSspFNi_!!6000000003766-2-tps-1760-1043.png)
+
+2. 选择要安装应用的工作区，然后粘贴以下 manifest（JSON 格式）：
+
+> **提示：** 粘贴前可以将 `name` 和 `display_name` 修改为你喜欢的机器人名称。
+
+```json
+{
+  "display_information": {
+    "name": "Demo App"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Demo App",
+      "always_online": false
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "files:read",
+        "files:write",
+        "im:history",
+        "mpim:history",
+        "channels:history",
+        "groups:history",
+        "app_mentions:read",
+        "users:read",
+        "commands"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "bot_events": [
+        "app_mention",
+        "message.channels",
+        "message.groups",
+        "message.im",
+        "message.mpim"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": true
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": true,
+    "token_rotation_enabled": false
+  }
+}
+```
+
+![粘贴 JSON 配置](https://img.alicdn.com/imgextra/i1/O1CN01XtgiMy1IkuHXafxzg_!!6000000000932-2-tps-1765-1046.png)
+
+3. 确认摘要信息后点击 **Create**。
+
+   ![Manifest 确认页](https://img.alicdn.com/imgextra/i3/O1CN01M076Oa1OmdTIpshdZ_!!6000000001748-2-tps-1758-1042.png)
+
+4. 在 **Features → App Home** 中，勾选 **"Allow users to send Slash commands and messages from the messages tab"**。
+
+   ![App Home Messages Tab](https://img.alicdn.com/imgextra/i2/O1CN01wvaTja1qARggWd6RB_!!6000000005455-2-tps-1752-1044.png)
+
+### 获取 Token
+
+应用创建完成后，需要获取两个 Token：
+
+1. **App-Level Token** — 在 **Settings → Basic Information** 中，下滑到 **App-Level Tokens**，点击 **Generate Token and Scopes**，添加 `connections:write` 权限范围，复制生成的 Token（以 `xapp-` 开头）。
+
+   ![Generate App Token](https://img.alicdn.com/imgextra/i4/O1CN01OGk6GU1zpVk1zp8Ua_!!6000000006763-2-tps-1793-1079.png)
+
+2. **Bot Token** — 在 **Settings → Install App** 中，点击 **Install to Workspace**，授权后复制 **Bot User OAuth Token**（以 `xoxb-` 开头）。
+
+   ![Install App](https://img.alicdn.com/imgextra/i1/O1CN01AjFgQN1al3UjLne0H_!!6000000003369-2-tps-1790-1080.png)
+
+3. 在 Slack 中输入 `/invite @你的机器人名称`，将机器人邀请到每个频道。
+
+### 配置机器人
+
+您可以通过控制台界面进行配置，或通过编辑代理工作区中的 `agent.json` 文件进行配置。
+
+**方法 1：** 在控制台中配置
+
+转到 **控制 → 频道**，点击 **Slack**，并输入您获取的 **Bot Token** 和 **App Token**。
+
+**方法 2：** 编辑代理工作区 `agent.json`
+
+在代理的 `agent.json` 文件中（例如 `~/.qwenpaw/workspaces/default/agent.json`）找到 `channels.slack` 部分，填写相关字段：
+
+```json
+"slack": {
+    "enabled": true,
+    "bot_token": "xoxb-your-bot-token-here",
+    "app_token": "xapp-your-app-token-here",
+    "proxy": "",
+    "streaming_enabled": false
+}
+```
+
+**Slack 专属字段：**
+
+| 字段                | 类型   | 默认值       | 说明                                                                 |
+| ------------------- | ------ | ------------ | -------------------------------------------------------------------- |
+| `bot_token`         | 字符串 | `""`（必填） | Slack 机器人用户的 OAuth 令牌，以 `xoxb-` 开头                       |
+| `app_token`         | 字符串 | `""`（必填） | 用于套接字模式的 Slack 应用级令牌，以 `xapp-` 开头                   |
+| `proxy`             | 字符串 | `""`         | 用于连接 Slack API 的 HTTP 代理 URL（例如 `http://127.0.0.1:18118`） |
+| `streaming_enabled` | 布尔值 | `false`      | 启用通过 chat.update 编辑的增量消息渲染                              |
+
+### 注意事项
+
+- QwenPaw 魔法命令（如 `/stop`、`/model list`）可以作为原生 Slack 斜杠命令发送。也可以作为普通消息发送 — 在线程中发送时加一个空格前缀（如 ` /stop`）即可绕过 Slack 的斜杠命令拦截。
+- 若后续更改权限范围或事件订阅，**必须重新安装该应用**，更改才能生效。
+- 要控制哪些用户可以与机器人互动，请使用访问控制字段（`access_control_dm`、`access_control_group`）。Slack 使用**成员 ID**（例如 `U01ABC2DEF3`）来识别用户 — 您可通过“个人资料”→ ⋮ → “复制成员 ID”来获取。
+- 可以在 manifest 的 `slash_commands` 数组中添加更多斜杠命令来注册额外的魔法命令（如 `/stop`、`/status`）。
+
 ---
 
 ## 附录
@@ -1328,7 +1659,9 @@ pip install "qwenpaw[sip,sip-livekit]"
 | 企业微信   | wecom      | bot_id, secret；可选 media_dir                                                                         |
 | 微信个人   | wechat     | bot_token（或扫码登录）；可选 bot_token_file, base_url, media_dir                                      |
 | 小艺       | xiaoyi     | ak, sk, agent_id；可选 ws_url                                                                          |
+| 元宝       | yuanbao    | app_id, app_secret；可选 api_domain, media_dir                                                         |
 | Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid；可选 tts_provider, stt_provider |
+| Azure Bot  | azure_bot  | app_id, app_password, tenant_id；可选 http_port, media_dir, share_session_in_group                     |
 
 所有频道均支持本页顶部「通用字段」中介绍的访问控制字段（`dm_policy`、`group_policy`、`allow_from`、`deny_message`、`require_mention`）。
 
@@ -1338,17 +1671,20 @@ pip install "qwenpaw[sip,sip-livekit]"
 
 所有频道都支持以下通用字段：
 
-| 字段                   | 类型     | 默认值   | 说明                                                    |
-| ---------------------- | -------- | -------- | ------------------------------------------------------- |
-| `enabled`              | bool     | `false`  | 是否启用该频道                                          |
-| `bot_prefix`           | string   | `""`     | 机器人回复前缀（如 `[BOT]`）                            |
-| `filter_tool_messages` | bool     | `false`  | 是否过滤工具调用/输出消息                               |
-| `filter_thinking`      | bool     | `false`  | 是否过滤思考/推理内容                                   |
-| `dm_policy`            | string   | `"open"` | 私聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
-| `group_policy`         | string   | `"open"` | 群聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
-| `allow_from`           | string[] | `[]`     | 白名单列表（当 policy 为 `"allowlist"` 时生效）         |
-| `deny_message`         | string   | `""`     | 拒绝访问时的提示消息                                    |
-| `require_mention`      | bool     | `false`  | 是否需要 @机器人 才响应                                 |
+| 字段                     | 类型     | 默认值   | 说明                                                    |
+| ------------------------ | -------- | -------- | ------------------------------------------------------- |
+| `enabled`                | bool     | `false`  | 是否启用该频道                                          |
+| `bot_prefix`             | string   | `""`     | 机器人回复前缀（如 `[BOT]`）                            |
+| `show_tool_calls`        | bool     | `true`   | 是否显示工具调用信息                                    |
+| `show_tool_results`      | bool     | `true`   | 是否显示工具结果文本；结果媒体始终发送                  |
+| `tool_call_max_length`   | int      | `200`    | 工具调用预览长度；`0` 表示不截断                        |
+| `tool_result_max_length` | int      | `500`    | 工具结果预览长度；`0` 表示不截断                        |
+| `show_thinking`          | bool     | `true`   | 是否显示思考/推理内容                                   |
+| `dm_policy`              | string   | `"open"` | 私聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
+| `group_policy`           | string   | `"open"` | 群聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
+| `allow_from`             | string[] | `[]`     | 白名单列表（当 policy 为 `"allowlist"` 时生效）         |
+| `deny_message`           | string   | `""`     | 拒绝访问时的提示消息                                    |
+| `require_mention`        | bool     | `false`  | 是否需要 @机器人 才响应                                 |
 
 ### 多模态消息支持
 
@@ -1359,7 +1695,8 @@ pip install "qwenpaw[sip,sip-livekit]"
 | ---------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- | -------- |
 | 钉钉       | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | 飞书       | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
-| Discord    | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| Discord    | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
+| Slack      | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | iMessage   | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        |
 | QQ         | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | 企业微信   | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
@@ -1368,13 +1705,16 @@ pip install "qwenpaw[sip,sip-livekit]"
 | Mattermost | ✓        | ✓        | 🚧       | 🚧       | ✓        | ✓        | ✓        | 🚧       | 🚧       | ✓        |
 | Matrix     | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | 小艺       | ✓        | ✓        | ✗        | ✗        | ✓        | ✓        | 🚧       | 🚧       | 🚧       | 🚧       |
+| 元宝       | ✓        | ✓        | ✗        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 | Voice      | ✗        | ✗        | ✗        | ✓        | ✗        | ✗        | ✗        | ✗        | ✓        | ✗        |
+| Azure Bot  | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        | ✓        |
 
 说明：
 
 - **钉钉**：接收支持富文本与单文件（downloadCode），发送通过会话 webhook 支持图片 / 语音 / 视频 / 文件。
 - **飞书**：WebSocket 长连接收消息，Open API 发送；支持文本 / 图片 / 文件收发；群聊时在消息 metadata 中带 `feishu_chat_id`、`feishu_message_id` 便于下游去重与群上下文。
 - **Discord**：接收时附件会解析为图片 / 视频 / 音频 / 文件并传入 Agent；回复时真实附件发送为 🚧 施工中，当前仅以链接形式附在文本中。
+- **Slack**：原生支持所有文件类型 — 图片、音频、视频、PDF 及任意文件。用户上传的文件会自动下载并作为多模态输入处理；发送侧通过 `files.uploadV2` 支持所有媒体类型。
 - **iMessage**：基于本地 imsg + 数据库轮询，仅支持文本收发；平台/实现限制，无法支持附件（✗）。
 - **QQ**：接收侧附件解析为多模态、发送侧真实媒体均为 🚧 施工中，当前仅文本 + 链接形式。
 - **Telegram**：接收时附件会解析为文件并传入，可在telegram对话界面以对应格式打开（图片 / 语音 / 视频 / 文件）
@@ -1382,7 +1722,9 @@ pip install "qwenpaw[sip,sip-livekit]"
 - **微信个人（iLink）**：HTTP 长轮询接收，支持文本、图片（AES-128-ECB 解密）、语音（ASR 转录文字）、文件和视频；发送支持文本、图片、文件和视频；音频文件（如 MP3）因 iLink API 限制暂不支持。
 - **Matrix**：接收图片 / 视频 / 音频 / 文件（通过 `mxc://` 媒体 URL）；发送时将文件上传至服务器后以原生 Matrix 媒体消息（`m.image`、`m.video`、`m.audio`、`m.file`）发出。
 - **小艺**：支持接收文本、图片（JPEG/PNG/BMP/WEBP）和文件（PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT）；平台限制不支持视频和音频。
+- **元宝**：支持接收文本、图片、音频；发送支持文本、图片、视频、音频和文件（通过 COS CDN 上传）；平台不转发视频消息给 Bot。
 - **Voice**：纯语音通话频道，接收用户语音并转为文本，Agent 回复转为语音播放；不支持其他格式。
+- **Azure Bot**：支持接收和发送文本、图片、视频、音频和文件；发送附件通过 Bot Framework Upload API 实现，单文件大小上限为 **180 KB**，超限文件将以提示消息代替发送。
 
 ### 通过 HTTP 修改配置
 
@@ -1428,20 +1770,32 @@ pip install "qwenpaw[sip,sip-livekit]"
 # my_channel.py
 from agentscope_runtime.engine.schemas.agent_schemas import TextContent, ContentType
 from qwenpaw.app.channels.base import BaseChannel
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 from qwenpaw.app.channels.schema import ChannelType
 
 class MyChannel(BaseChannel):
     channel: ChannelType = "my_channel"
 
-    def __init__(self, process, enabled=True, bot_prefix="", **kwargs):
-        super().__init__(process, on_reply_sent=kwargs.get("on_reply_sent"))
+    def __init__(self, process, enabled=True, bot_prefix="",
+                 display_config=None, **kwargs):
+        super().__init__(
+            process,
+            on_reply_sent=kwargs.get("on_reply_sent"),
+            display_config=display_config,
+        )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
 
     @classmethod
-    def from_config(cls, process, config, on_reply_sent=None, show_tool_details=True):
-        return cls(process=process, enabled=getattr(config, "enabled", True),
-                   bot_prefix=getattr(config, "bot_prefix", ""), on_reply_sent=on_reply_sent)
+    def from_config(cls, process, config, on_reply_sent=None,
+                    display_config=None, **kwargs):
+        return cls(
+            process=process,
+            enabled=getattr(config, "enabled", True),
+            bot_prefix=getattr(config, "bot_prefix", ""),
+            on_reply_sent=on_reply_sent,
+            display_config=display_config or ChannelDisplayConfig.from_config(config),
+        )
 
     @classmethod
     def from_env(cls, process, on_reply_sent=None):
@@ -1526,99 +1880,36 @@ def build_agent_request_from_native(self, native_payload):
     return request
 ```
 
-### 自定义渠道目录与 CLI
+### 通过插件添加自定义频道
 
-- **目录**：工作目录下的 `custom_channels/`（默认 `~/.qwenpaw/custom_channels/`）用于存放自定义渠道模块。Manager 启动时会扫描该目录下的 `.py` 文件与包（含 `__init__.py` 的子目录），加载其中的 `BaseChannel` 子类，并按类的 `channel` 属性注册。
-- **安装**：`qwenpaw channels install <key>` 会在 `custom_channels/` 下生成名为 `<key>.py` 的模板文件，可直接编辑实现；也可用 `--path <本地路径>` 或 `--url <URL>` 从本地/网络复制渠道模块。`qwenpaw channels add <key>` 等价于安装后并写入 config 默认项，且可加 `--path`/`--url`。
-- **删除**：`qwenpaw channels remove <key>` 会从 `custom_channels/` 中删除该渠道模块（仅支持自定义渠道，内置渠道不可删）；加 `--no-keep-config`（默认）会同时从 `config.json` 的 `channels` 中移除对应 key。
-- **Config**：`ChannelConfig` 使用 `extra="allow"`，`config.json` 的 `channels` 下可写任意 key；自定义渠道的配置会保存在 extra 中。配置方式与内置一致：`qwenpaw channels config` 交互式配置，或直接编辑 config。
+自定义频道现在通过**插件系统**注册。完整教程请参阅
+[插件系统 — 示例 10：注册自定义消息频道](./plugins#示例-10注册自定义消息频道)。
 
-### HTTP 路由注册
+添加自定义频道的步骤：
 
-对于需要 Webhook 回调的渠道（如微信、Slack、LINE 等），可以通过在模块中导出 `register_app_routes` 可调用对象来注册自定义 HTTP 路由，无需修改 QwenPaw 核心源码。
+1. 创建插件，在 `plugin.json` 中设置 `type: "channel"`
+2. 实现一个 `BaseChannel` 子类，设置唯一的 `channel` 类属性
+3. 在插件的 `register()` 方法中调用 `api.register_channel(...)`
+4. 使用 `qwenpaw plugin install <路径>` 安装
 
-QwenPaw 启动时会扫描 `custom_channels/` 下的模块，发现 `register_app_routes` 后将其与 FastAPI `app` 实例一起调用，渠道即可注册所需的任何路由。
+插件频道会在控制台 UI 中与内置频道并列显示，完整支持启用/禁用、配置字段和访问控制。
 
-**路由前缀规则**：
+如果频道需要 Webhook HTTP 端点，请在同一个插件中使用 `api.register_http_router()`
+在 `/api` 下挂载路由。
 
-| 路由前缀 | 行为                     |
-| -------- | ------------------------ |
-| `/api/`  | 静默注册                 |
-| 其他路径 | 启动时打印警告（不阻断） |
-
-**接口说明 — `register_app_routes(app)`**
-
-- **参数**：`app` — FastAPI 应用实例
-- **返回**：None
-- **作用域**：注册路由、中间件、或 startup/shutdown 事件
-- **错误隔离**：单个渠道注册失败不影响其他渠道
-
-**最简示例 — Echo 频道**：
-
-```
-<workspace>/
-└── custom_channels/
-    └── my_echo/
-        └── __init__.py
-```
-
-```python
-# custom_channels/my_echo/__init__.py
-from qwenpaw.app.channels.base import BaseChannel
-
-class MyEchoChannel(BaseChannel):
-    """最简单的回声频道。"""
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    async def _listen(self):
-        pass  # 通过 HTTP 回调接收消息
-
-    async def _send(self, target, content, **kwargs):
-        self.logger.info(f"Would send to {target}: {content}")
-
-
-def register_app_routes(app):
-    """注册该频道的 HTTP 路由。"""
-
-    @app.post("/api/my-echo/callback")
-    async def echo_callback(request):
-        """Webhook 入口。"""
-        body = await request.json()
-
-        from qwenpaw.app.channels.base import TextContent
-        channel = MyEchoChannel()
-        channel.enqueue_user_message(
-            user_id=body.get("user_id", "anonymous"),
-            session_id=body.get("session_id", "default"),
-            content=[TextContent(type="text", text=body.get("text", ""))],
-        )
-
-        return {"status": "ok"}
-```
-
-配置 `agent.json`：
-
-```json
-{
-  "channels": {
-    "my_echo": {
-      "enabled": true
-    }
-  }
-}
-```
-
-启动后测试：
-
-```bash
-curl -X POST http://localhost:8088/api/my-echo/callback \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": "test", "session_id": "test", "text": "Hello!"}'
-```
-
-**实际案例**：微信 ClawBot 集成（[PR #2140](https://github.com/agentscope-ai/QwenPaw/pull/2140)、[Issue #2043](https://github.com/agentscope-ai/QwenPaw/issues/2043)）通过此机制注册 `/api/wechat/callback` 路由，使用腾讯官方 SDK 处理消息投递。
+> **从 `custom_channels/` 迁移**：旧的 `custom_channels/` 目录和
+> `qwenpaw channels install/add/remove` CLI 命令已被移除。如果你有现存的
+> 自定义频道在 `custom_channels/` 下，请按以下步骤迁移到插件系统：
+>
+> 1. 创建插件目录，编写 `plugin.json`（设置 `"type": "channel"`）
+> 2. 将 `BaseChannel` 子类移入插件目录
+> 3. 创建 `plugin.py`，在其中调用 `api.register_channel(...)` 注册频道类
+>    和 `config_fields`
+> 4. 如果频道之前使用了 `register_app_routes(app)`，请替换为
+>    `api.register_http_router(router, prefix="/your-channel")`，使用
+>    FastAPI `APIRouter`
+> 5. 安装插件：`qwenpaw plugin install <路径>`
+> 6. 删除 `custom_channels/` 下的旧模块
 
 ---
 

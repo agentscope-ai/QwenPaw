@@ -5,6 +5,8 @@ export interface BackupScope {
   include_skill_pool: boolean;
 }
 
+export type BackupTrustMode = "legacy" | "foreign";
+
 export interface BackupMeta {
   id: string;
   name: string;
@@ -13,7 +15,7 @@ export interface BackupMeta {
   scope: BackupScope;
   agent_count: number;
   signature?: string | null;
-  imported_via_trust_foreign?: boolean | null;
+  accepted_via_trust?: boolean | null;
 }
 
 export interface BackupDetail extends BackupMeta {
@@ -39,7 +41,7 @@ export interface RestoreBackupRequest {
   default_workspace_dir?: string | null;
   mode?: "full" | "custom";
   preserve_local_protected_config?: boolean | null;
-  trust_legacy?: boolean;
+  trust_mode?: BackupTrustMode | null;
 }
 
 export interface RestoreBackupResponse {

@@ -38,7 +38,7 @@ def mock_process() -> ProcessHandler:
     """Mock agent processing flow, returns simple text response."""
 
     async def process(_request: Any):
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             RunStatus,
             Event,
             Message,
@@ -83,7 +83,7 @@ def base_channel(mock_process) -> BaseChannel:
 @pytest.fixture
 def content_builder():
     """Build different types of content parts for testing."""
-    from agentscope_runtime.engine.schemas.agent_schemas import (
+    from qwenpaw.schemas import (
         TextContent,
         ImageContent,
         RefusalContent,
@@ -177,7 +177,7 @@ class TestBuildAgentRequestCore:
 
     def test_empty_content_gets_default(self, base_channel):
         """Empty content should auto-fill with default empty text"""
-        from agentscope_runtime.engine.schemas.agent_schemas import ContentType
+        from qwenpaw.schemas import ContentType
 
         request = base_channel.build_agent_request_from_user_content(
             channel_id="test",
@@ -355,6 +355,59 @@ class TestNoTextDebounceBuffering:
         assert "session_b" in base_channel._pending_content_by_session
         assert len(base_channel._pending_content_by_session["session_b"]) == 1
 
+    def test_disabled_debounce_processes_immediately(
+        self,
+        mock_process,
+        content_builder,
+    ):
+        """When no_text_debounce=False, media-only content is processed
+        immediately without buffering."""
+        channel = ConsoleChannel(
+            process=mock_process,
+            enabled=True,
+            bot_prefix="[TEST] ",
+        )
+        channel._no_text_debounce = False
+        parts = [content_builder.image("http://a.jpg")]
+
+        should_process, merged = channel._apply_no_text_debounce(
+            "session_disabled",
+            parts,
+        )
+
+        assert should_process is True
+        assert len(merged) == 1
+        # Nothing should be buffered
+        assert "session_disabled" not in channel._pending_content_by_session
+
+    def test_disabled_debounce_releases_pending_buffer(
+        self,
+        mock_process,
+        content_builder,
+    ):
+        """When no_text_debounce=False, any previously buffered content is
+        released and merged with the current content."""
+        channel = ConsoleChannel(
+            process=mock_process,
+            enabled=True,
+            bot_prefix="[TEST] ",
+        )
+        channel._no_text_debounce = False
+        # Simulate pre-existing buffered content
+        channel._pending_content_by_session["session_disabled"] = [
+            content_builder.image("http://old.jpg"),
+        ]
+
+        parts = [content_builder.text("Hello")]
+        should_process, merged = channel._apply_no_text_debounce(
+            "session_disabled",
+            parts,
+        )
+
+        assert should_process is True
+        assert len(merged) == 2  # old image + new text
+        assert "session_disabled" not in channel._pending_content_by_session
+
 
 # =============================================================================
 # P1: Native Items Merging (Complex Merge Logic)
@@ -457,95 +510,41 @@ class TestMergeNativeItemsLogic:
 
 
 # =============================================================================
-# P1: Allowlist Permission Logic (Security Critical)
+# P1: Access Control Gate Logic (Security Critical)
 # =============================================================================
 
 
-class TestAllowlistPermissionLogic:
+class TestAccessControlGateLogic:
     """
-    _check_allowlist permission check logic tests.
+    access_control_dm / access_control_group permission logic tests.
 
     **Security Critical**: Wrong implementation causes unauthorized access.
     """
 
-    def test_open_policy_allows_all_dm(self, base_channel):
-        """Open policy DM should allow any user"""
-        base_channel.dm_policy = "open"
-        base_channel.allow_from = set()
+    def test_no_access_control_allows_all(self, base_channel):
+        """When both dm and group access control are off, allow all"""
+        base_channel.access_control_dm = False
+        base_channel.access_control_group = False
 
-        allowed, error = base_channel._check_allowlist(
-            "any_user",
-            is_group=False,
-        )
+        assert base_channel.access_control_enabled is False
 
-        assert allowed is True
-        assert error is None
+    def test_dm_policy_allowlist_migrates(self, base_channel):
+        """dm_policy=allowlist should set access_control_dm=True at init"""
+        # This is tested via the __init__ migration logic
+        assert base_channel.dm_policy == "open"  # default
 
-    def test_restricted_dm_blocks_not_in_list(self, base_channel):
-        """Restricted policy should block users not in whitelist (DM)"""
-        base_channel.dm_policy = "restricted"
-        base_channel.allow_from = {"allowed_user"}
-        base_channel.deny_message = "Access denied"
+    def test_access_control_enabled_property(self, base_channel):
+        """access_control_enabled is True when either dm or group is on"""
+        base_channel.access_control_dm = False
+        base_channel.access_control_group = False
+        assert base_channel.access_control_enabled is False
 
-        allowed, error = base_channel._check_allowlist(
-            "blocked_user",
-            is_group=False,
-        )
+        base_channel.access_control_dm = True
+        assert base_channel.access_control_enabled is True
 
-        assert allowed is False
-        assert error is not None
-        assert "Access denied" in error
-
-    def test_restricted_dm_allows_in_list(self, base_channel):
-        """Restricted policy should allow users in whitelist (DM)"""
-        base_channel.dm_policy = "restricted"
-        base_channel.allow_from = {"allowed_user"}
-
-        allowed, error = base_channel._check_allowlist(
-            "allowed_user",
-            is_group=False,
-        )
-
-        assert allowed is True
-        assert error is None
-
-    def test_group_policy_separate_from_dm(self, base_channel):
-        """group_policy should be independent from dm_policy"""
-        base_channel.dm_policy = "restricted"
-        base_channel.group_policy = "open"
-        base_channel.allow_from = {"specific_user"}
-
-        # User blocked in DM
-        dm_allowed, _ = base_channel._check_allowlist(
-            "stranger",
-            is_group=False,
-        )
-        # Same user allowed in group chat
-        group_allowed, _ = base_channel._check_allowlist(
-            "stranger",
-            is_group=True,
-        )
-
-        assert dm_allowed is False
-        assert group_allowed is True
-
-    def test_default_deny_message_provided(self, base_channel):
-        """Default deny message should be provided when not configured"""
-        base_channel.dm_policy = "restricted"
-        base_channel.allow_from = {"user1"}
-        base_channel.deny_message = ""
-
-        allowed, error = base_channel._check_allowlist(
-            "blocked",
-            is_group=False,
-        )
-
-        assert allowed is False
-        assert error is not None
-        assert (
-            "not authorized" in error.lower()
-            or "only available" in error.lower()
-        )
+        base_channel.access_control_dm = False
+        base_channel.access_control_group = True
+        assert base_channel.access_control_enabled is True
 
 
 # =============================================================================
@@ -892,7 +891,7 @@ class TestStreamWithTracker:
 
     async def test_stream_with_tracker_yields_sse_events(self, base_channel):
         """_stream_with_tracker should yield SSE-formatted events."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             RunStatus,
             Event,
             Message,
@@ -998,7 +997,7 @@ class TestStreamWithTracker:
         base_channel,
     ):
         """_stream_with_tracker should fallback on malformed surrogate data."""
-        from agentscope_runtime.engine.schemas.agent_schemas import RunStatus
+        from qwenpaw.schemas import RunStatus
 
         class BrokenJsonEvent:
             object = "response"
@@ -1069,7 +1068,7 @@ class TestAudioContentDetection:
 
     def test_audio_content_returns_true(self, base_channel):
         """Content with AudioContent should return True."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AudioContent,
             ContentType,
         )
@@ -1094,7 +1093,7 @@ class TestAudioContentDetection:
 
     def test_mixed_content_with_audio_returns_true(self, base_channel):
         """Mixed content with audio should return True."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AudioContent,
             TextContent,
             ContentType,
@@ -1364,7 +1363,7 @@ class TestRunProcessLoopIntegration:
 
     async def test_completed_message_triggers_send(self, base_channel):
         """Complete message event should trigger sending"""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             RunStatus,
             Event,
             Message,

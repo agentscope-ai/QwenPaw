@@ -39,7 +39,9 @@ BUILTIN_CHANNEL_TYPES = (
     "console",
     "voice",
     "sip",
+    "slack",
     "xiaoyi",
+    "yuanbao",
 )
 
 # ChannelType is str to allow plugin channels; built-in set above.

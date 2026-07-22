@@ -9,11 +9,11 @@
 <p align="center">
   <a href="https://github.com/agentscope-ai/CloudPaw/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License" /></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.10%2B-blue.svg" alt="Python" /></a>
-  <a href="#"><img src="https://img.shields.io/badge/version-0.0.1-green.svg" alt="Version" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/version-0.0.4-green.svg" alt="Version" /></a>
 </p>
 
 <p align="center">
-  <b>English</b> | <a href="README_zh.md">中文</a>
+  <b>English</b> | <a href="README_zh.md">中文</a> | <a href="README_ja.md">日本語</a> | <a href="README_ru.md">Русский</a>
 </p>
 
 ---
@@ -46,20 +46,16 @@ CloudPaw runs entirely in your own environment, keeping your data secure and und
 
 1. Launch QwenPaw (`qwenpaw app`), open http://127.0.0.1:8088/
 2. Click "Plugin Manager" in the left sidebar (under Settings), then click "Install Plugin"
-3. Install using either method:
-   - Enter the plugin download URL: `https://qwenpaw-download.oss-ap-southeast-1.aliyuncs.com/files/plugins/cloudpaw/cloudpaw-0.0.1.zip`
-   - Drag the `cloudpaw/` folder into the install dialog, or select a ZIP file (CloudPaw is pre-bundled with QwenPaw v1.1.7+ at `plugins/bundle/cloudpaw/`)
+3. Install by dragging the `cloudpaw/` folder into the install dialog, or selecting a ZIP file (CloudPaw is pre-bundled with QwenPaw v1.1.7+ at `plugins/bundle/cloudpaw/`)
 4. Wait for installation to complete
 
 **Via CLI:**
 
 ```bash
 qwenpaw plugin install /path/to/cloudpaw
-# Or install via URL
-qwenpaw plugin install https://qwenpaw-download.oss-ap-southeast-1.aliyuncs.com/files/plugins/cloudpaw/cloudpaw-0.0.1.zip
 ```
 
-> ⚠️ After installation, you **must refresh the browser** (`Ctrl+Shift+R` / `Cmd+Shift+R`) to load frontend updates.
+> **⚠️ IMPORTANT: After installation, you MUST hard-refresh the browser** (`Ctrl+Shift+R` / `Cmd+Shift+R`) to load frontend updates. CloudPaw's custom UI components (proposal selection, PRD management, etc.) will not appear until the page is refreshed. If features seem missing after install, try refreshing first.
 
 ### 2. Configure
 
@@ -81,7 +77,11 @@ You can also configure via system environment variables or CLI. For instructions
 
 #### ③ iac-code Model Configuration
 
-CloudPaw relies on [iac-code](https://github.com/aliyun/iac-code) for IaC template generation. For model configuration, see the [iac-code documentation](https://aliyun.github.io/iac-code/docs/configuration/llm-providers).
+CloudPaw relies on [iac-code](https://github.com/aliyun/iac-code) (≥ 0.1.2) for IaC template generation. **No manual model configuration is needed** — CloudPaw automatically syncs QwenPaw's active model to iac-code.
+
+When the CloudPaw plugin starts, it writes `llm_source: qwenpaw` to `~/.iac-code/settings.yml`. This tells iac-code to read model configuration (provider, API key, model name, etc.) directly from QwenPaw's active model. As long as you have configured a working model in QwenPaw (step ①), iac-code will use the same model automatically — no extra setup required.
+
+**Manual override:** If you need iac-code to use a different model from QwenPaw, set the `IAC_CODE_PROVIDER` environment variable (via QwenPaw's Environment Variables page or system env). When this variable is present, CloudPaw skips automatic injection and iac-code uses your manual configuration. For details, see the [iac-code LLM configuration docs](https://aliyun.github.io/iac-code/docs/configuration/llm-providers).
 
 ### 3. Start Using
 

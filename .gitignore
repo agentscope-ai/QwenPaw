@@ -1,4 +1,14 @@
+# Reme local data
+.reme/
+
+# Local issue tracking (not committed)
+.scratch/
+
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# AI agent / copilot local config
+.aone_copilot/
+.agents/
 
 # dependencies
 /.pnp
@@ -12,6 +22,8 @@ sessions_mount_dir/
 coverage.xml
 htmlcov/
 htmlcov.zip
+htmlcov-integration/
+.integration_coverage/
 
 # cookbook
 cookbook/_build
@@ -22,6 +34,7 @@ dist/
 .wheelshim/
 # Console frontend build (generated in Docker/CI, do not commit)
 console/.cursor/
+console/.wiki/
 src/qwenpaw/console/dist/
 src/qwenpaw/console/
 
@@ -112,5 +125,27 @@ src/.hypothesis/
 # Qoder IDE
 .qoder/
 
+# Cursor IDE
+.cursor/
+
+# Codex IDE
+.codex/
+
 # Worktrees
 .worktrees/
+.qwenpaw/worktrees/
+
+# Local File
+/localfile/
+local-docs/
+
+# E2E test artifacts
+e2e/reports/
+e2e/data/
+e2e/.pytest_cache/
+e2e/__pycache__/
+
+# knowledge-base related
+graphify-out/
+local-docs/
+docs-site/

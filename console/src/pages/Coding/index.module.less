@@ -1,0 +1,248 @@
+// ---- Root -----------------------------------------------------------------
+.root {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  overflow: hidden;
+  background: var(--body-background, #fff);
+}
+
+// ---- Activity bar (narrow left strip, VS Code-style) ---------------------
+.activityBar {
+  width: 44px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  gap: 4px;
+  background: var(--header-background, #f0f0f0);
+  border-right: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+}
+
+.actBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 6px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  padding: 0;
+  transition:
+    background 0.12s,
+    color 0.12s;
+
+  &:hover {
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.07));
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  }
+}
+
+.actBtnActive {
+  color: var(--primary-color, #1677ff);
+  background: var(--primary-color-bg, #e6f4ff);
+
+  &:hover {
+    background: var(--primary-color-bg-hover, #bae0ff) !important;
+  }
+}
+
+.actBarSpacer {
+  flex: 1;
+}
+
+// ---- Workspace (panels) --------------------------------------------------
+.workspace {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.group {
+  height: 100%;
+}
+
+.sep {
+  width: 4px;
+  background: transparent;
+  cursor: col-resize;
+  flex-shrink: 0;
+  position: relative;
+  transition: background 0.15s;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    margin: 0 1px;
+    background: var(--border-color, rgba(0, 0, 0, 0.08));
+    transition: background 0.15s;
+  }
+
+  &:hover::after,
+  &[data-resize-handle-active]::after {
+    background: var(--primary-color, #1677ff);
+  }
+}
+
+.leftPanel {
+  overflow: hidden;
+  border-right: 1px solid var(--border-color, rgba(0, 0, 0, 0.07));
+}
+
+// ---- Right panel (Chat) --------------------------------------------------
+.rightPanel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--border-color, rgba(0, 0, 0, 0.07));
+}
+
+.chatHeader {
+  display: flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.07));
+  flex-shrink: 0;
+  height: 30px;
+  background: var(--header-background, #fafafa);
+}
+
+.chatTitle {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  flex: 1;
+}
+
+.chatCloseBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 3px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.3));
+  padding: 0;
+
+  &:hover {
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.06));
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  }
+}
+
+.chatBody {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+// Chat re-open button (floating, bottom right)
+.chatReopenBtn {
+  position: absolute;
+  right: 10px;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+  background: var(--body-background, #fff);
+  cursor: pointer;
+  border-radius: 6px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 0;
+  z-index: 10;
+
+  &:hover {
+    color: var(--primary-color, #1677ff);
+    border-color: var(--primary-color, #1677ff);
+  }
+}
+
+// ---- Dark mode -----------------------------------------------------------
+:global(.dark-mode) {
+  .root {
+    background: #141414;
+  }
+
+  .activityBar {
+    background: #1a1a1a;
+    border-right-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .actBtn {
+    color: rgba(255, 255, 255, 0.55);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .actBtnActive {
+    color: #4da3ff;
+    background: rgba(22, 119, 255, 0.18);
+
+    &:hover {
+      background: rgba(22, 119, 255, 0.28) !important;
+    }
+  }
+
+  .sep::after {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .leftPanel,
+  .rightPanel {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .chatHeader {
+    background: #1a1a1a;
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .chatTitle {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .chatCloseBtn {
+    color: rgba(255, 255, 255, 0.45);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .chatReopenBtn {
+    background: #1f1f1f;
+    border-color: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.65);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+
+    &:hover {
+      color: #4da3ff;
+      border-color: #4da3ff;
+    }
+  }
+}
+
+// Issue #4987: Tighten chat header padding in coding mode
+// so action buttons remain visible in the narrower panel.
+.root :global(.qwenpaw-chat-anywhere-layout-right-header) {
+  padding: 0 10px;
+}

@@ -4,38 +4,40 @@ It provides a unified interface to manage providers, such as listing available
 providers, adding/removing custom providers, and fetching provider details."""
 
 import asyncio
+import json
+import logging
 import os
 from typing import Dict, List
-import logging
-import json
-
-from pydantic import BaseModel
 
 from agentscope.model import ChatModelBase
-from agentscope_runtime.engine.schemas.exception import (
-    ModelNotFoundException,
-)
+from pydantic import BaseModel
 
-from ..constant import SECRET_DIR
+from qwenpaw.exceptions import ModelNotFoundException
+
 from ..config.config import ModelSlotConfig
+from ..constant import SECRET_DIR
 from ..exceptions import ProviderError
-from .anthropic_provider import AnthropicProvider
-from .gemini_provider import GeminiProvider
-from .ollama_provider import OllamaProvider
-from .openai_provider import OpenAIProvider
-from .lmstudio_provider import LMStudioProvider
-from .provider import (
-    ModelInfo,
-    Provider,
-    ProviderInfo,
-)
-from .openrouter_provider import OpenRouterProvider
 from ..security.secret_store import (
     PROVIDER_SECRET_FIELDS,
     decrypt_dict_fields,
     encrypt_dict_fields,
     is_encrypted,
 )
+from .anthropic_provider import AnthropicProvider
+from .context_windows import DEFAULT_CONTEXT_WINDOW
+from .dashscope_provider import DashScopeProvider
+from .gemini_provider import GeminiProvider
+from .lmstudio_provider import LMStudioProvider
+from .ollama_provider import OllamaProvider
+from .openai_provider import (
+    GitHubModelsProvider,
+    KiloProvider,
+    OpenAIProvider,
+    OpenCodeProvider,
+)
+from .openai_response_provider import OpenAIResponseProvider
+from .openrouter_provider import OpenRouterProvider
+from .provider import ModelInfo, Provider, ProviderInfo
 
 logger = logging.getLogger(__name__)
 
@@ -62,15 +64,112 @@ MODELSCOPE_MODELS: List[ModelInfo] = [
 
 DASHSCOPE_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="qwen3-max",
-        name="Qwen3 Max",
+        id="qwen3.7-max",
+        name="Qwen3.7 Max",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        thinking_enabled=True,
+        relay_reasoning=False,
+    ),
+    ModelInfo(
+        id="qwen3.7-plus",
+        name="Qwen3.7 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+        thinking_enabled=True,
+        relay_reasoning=False,
+    ),
+    ModelInfo(
+        id="qwen3.6-plus",
+        name="Qwen3.6 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+        thinking_enabled=True,
+        relay_reasoning=False,
+    ),
+    ModelInfo(
+        id="deepseek-v4-pro",
+        name="DeepSeek-V4 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        thinking_enabled=True,
+        thinking_param_style="effort",
+        reasoning_effort_options=["high", "max"],
+        relay_reasoning=False,
+    ),
+    ModelInfo(
+        id="glm-5.2",
+        name="GLM-5.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        thinking_enabled=True,
+        thinking_param_style="effort",
+        reasoning_effort_options=["high", "max"],
+        relay_reasoning=False,
+    ),
+]
+
+MIMO_TOKENPLAN_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="mimo-v2.5-pro",
+        name="MiMo V2.5 Pro",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
     ),
     ModelInfo(
-        id="qwen3-235b-a22b-thinking-2507",
-        name="Qwen3 235B A22B Thinking",
+        id="mimo-v2.5",
+        name="MiMo V2.5",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+]
+
+ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="qwen3.7-plus",
+        name="Qwen3.7 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3.7-max",
+        name="Qwen3.7 Max",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3.6-plus",
+        name="Qwen3.6 Plus",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="qwen3.6-flash",
+        name="Qwen3.6 Flash",
+        supports_image=True,
+        supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v4-pro",
+        name="DeepSeek-V4 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="deepseek-v4-flash",
+        name="DeepSeek-V4 Flash",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
@@ -82,14 +181,18 @@ DASHSCOPE_MODELS: List[ModelInfo] = [
         supports_video=False,
         probe_source="documentation",
     ),
-]
-
-ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="qwen3.6-plus",
-        name="Qwen3.6 Plus",
-        supports_image=True,
-        supports_video=True,
+        id="glm-5.2",
+        name="GLM-5.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.1",
+        name="GLM-5.1",
+        supports_image=False,
+        supports_video=False,
         probe_source="documentation",
     ),
     ModelInfo(
@@ -107,10 +210,10 @@ ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
         probe_source="documentation",
     ),
     ModelInfo(
-        id="deepseek-v3.2",
-        name="DeepSeek-V3.2",
-        supports_image=False,
-        supports_video=False,
+        id="kimi-k2.6",
+        name="Kimi K2.6",
+        supports_image=True,
+        supports_video=True,
         probe_source="documentation",
     ),
     ModelInfo(
@@ -135,6 +238,20 @@ ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
         name="Qwen3.5 Plus",
         supports_image=True,
         supports_video=True,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.2",
+        name="GLM-5.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.1",
+        name="GLM-5.1",
+        supports_image=False,
+        supports_video=False,
         probe_source="documentation",
     ),
     ModelInfo(
@@ -190,8 +307,23 @@ ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
 
 ZHIPU_MODELS: List[ModelInfo] = [
     ModelInfo(
+        id="glm-4.7-flash",
+        name="GLM-4.7-Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
         id="glm-5",
         name="glm-5",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+    ModelInfo(
+        id="glm-5.2",
+        name="glm-5.2",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
@@ -299,10 +431,85 @@ OPENAI_MODELS: List[ModelInfo] = [
     ),
 ]
 
+KILO_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="kilo-auto/free",
+        name="Kilo Auto (Free Router)",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="nvidia/nemotron-3-ultra-550b-a55b:free",
+        name="Nemotron 3 Ultra 550B",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="nvidia/nemotron-3-super-120b-a12b:free",
+        name="Nemotron 3 Super 120B",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="poolside/laguna-m.1:free",
+        name="Poolside Laguna M.1",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="poolside/laguna-xs.2:free",
+        name="Poolside Laguna XS.2",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="stepfun/step-3.7-flash:free",
+        name="Step 3.7 Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="nex-agi/nex-n2-pro:free",
+        name="Nex N2 Pro",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+]
+
 OPENCODE_MODELS: List[ModelInfo] = [
     ModelInfo(
-        id="big-pickle",
-        name="Big Pickle",
+        id="deepseek-v4-flash-free",
+        name="DeepSeek V4 Flash",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="mimo-v2.5-free",
+        name="Mimo V2.5",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="nemotron-3-ultra-free",
+        name="Nemotron 3 Ultra",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
@@ -310,7 +517,7 @@ OPENCODE_MODELS: List[ModelInfo] = [
     ),
     ModelInfo(
         id="nemotron-3-super-free",
-        name="Nemotron 3 Super Free",
+        name="Nemotron 3 Super",
         supports_image=False,
         supports_video=False,
         probe_source="documentation",
@@ -686,12 +893,15 @@ PROVIDER_MODELSCOPE = OpenAIProvider(
     freeze_url=True,
 )
 
-PROVIDER_DASHSCOPE = OpenAIProvider(
+PROVIDER_DASHSCOPE = DashScopeProvider(
     id="dashscope",
     name="DashScope",
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
     api_key_prefix="sk",
     models=DASHSCOPE_MODELS,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="dashscope",
     meta={
         "base_url_options": [
             {
@@ -719,9 +929,11 @@ PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     base_url="https://coding.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
-    # This provider doesn't support connection check without model config
     support_connection_check=False,
     freeze_url=True,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="coding_plan_cn",
 )
 
 PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
@@ -730,21 +942,42 @@ PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
     base_url="https://coding-intl.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
     models=ALIYUN_CODINGPLAN_MODELS,
-    # This provider doesn't support connection check without model config
     support_connection_check=False,
     freeze_url=True,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="coding_plan_intl",
 )
 
 PROVIDER_ALIYUN_TOKENPLAN = OpenAIProvider(
     id="aliyun-tokenplan",
     name="Aliyun Token Plan",
     base_url=(
-        "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+        "https://token-plan.cn-beijing.maas.aliyuncs.com/" "compatible-mode/v1"
     ),
     api_key_prefix="sk-sp",
     models=ALIYUN_TOKENPLAN_MODELS,
     support_connection_check=False,
     freeze_url=True,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="token_plan",
+)
+
+PROVIDER_ALIYUN_TOKENPLAN_INTL = OpenAIProvider(
+    id="aliyun-tokenplan-intl",
+    name="Aliyun Token Plan (International)",
+    base_url=(
+        "https://token-plan.ap-southeast-1.maas.aliyuncs.com/"
+        "compatible-mode/v1"
+    ),
+    api_key_prefix="sk-sp",
+    models=ALIYUN_TOKENPLAN_MODELS,
+    support_connection_check=False,
+    freeze_url=True,
+    provider_group="aliyun",
+    provider_group_name="Aliyun",
+    provider_variant="token_plan_intl",
 )
 
 PROVIDER_ZHIPU_CN = OpenAIProvider(
@@ -754,6 +987,10 @@ PROVIDER_ZHIPU_CN = OpenAIProvider(
     api_key_prefix="",
     models=ZHIPU_MODELS,
     freeze_url=True,
+    provider_group="zhipu",
+    provider_group_name="Zhipu",
+    provider_variant="open_platform_cn",
+    meta={"is_free_tier": True},
 )
 
 PROVIDER_ZHIPU_CN_CODINGPLAN = OpenAIProvider(
@@ -764,6 +1001,9 @@ PROVIDER_ZHIPU_CN_CODINGPLAN = OpenAIProvider(
     models=ZHIPU_MODELS,
     freeze_url=True,
     support_connection_check=False,
+    provider_group="zhipu",
+    provider_group_name="Zhipu",
+    provider_variant="coding_plan_cn",
 )
 
 PROVIDER_ZHIPU_INTL = OpenAIProvider(
@@ -773,6 +1013,9 @@ PROVIDER_ZHIPU_INTL = OpenAIProvider(
     api_key_prefix="",
     models=ZHIPU_MODELS,
     freeze_url=True,
+    provider_group="zhipu",
+    provider_group_name="Zhipu",
+    provider_variant="open_platform_intl",
 )
 
 PROVIDER_ZHIPU_INTL_CODINGPLAN = OpenAIProvider(
@@ -783,6 +1026,9 @@ PROVIDER_ZHIPU_INTL_CODINGPLAN = OpenAIProvider(
     models=ZHIPU_MODELS,
     freeze_url=True,
     support_connection_check=False,
+    provider_group="zhipu",
+    provider_group_name="Zhipu",
+    provider_variant="coding_plan_intl",
 )
 
 PROVIDER_QWENPAW = OpenAIProvider(
@@ -801,14 +1047,42 @@ PROVIDER_OPENAI = OpenAIProvider(
     freeze_url=True,
 )
 
-PROVIDER_OPENCODE = OpenAIProvider(
+PROVIDER_OPENAI_RESPONSE = OpenAIResponseProvider(
+    id="openai-response",
+    name="OpenAI (Response API)",
+    base_url="https://api.openai.com/v1",
+    api_key_prefix="sk-",
+    chat_model="OpenAIResponseModel",
+    models=OPENAI_MODELS,
+    freeze_url=True,
+)
+
+PROVIDER_OPENCODE = OpenCodeProvider(
     id="opencode",
     name="OpenCode",
     base_url="https://opencode.ai/zen/v1",
     api_key_prefix="",
     models=OPENCODE_MODELS,
-    freeze_url=True,
     require_api_key=False,
+    meta={
+        "base_url_options": [
+            {"label": "OpenCode", "value": "https://opencode.ai/zen/v1"},
+            {"label": "OpenCode Go", "value": "https://opencode.ai/zen/go/v1"},
+        ],
+        "is_free_tier": True,
+    },
+    freeze_url=False,
+)
+
+PROVIDER_KILO = KiloProvider(
+    id="kilo",
+    name="Kilo Code",
+    base_url="https://api.kilo.ai/api/gateway",
+    api_key_prefix="",
+    models=KILO_MODELS,
+    require_api_key=False,
+    meta={"is_free_tier": True},
+    freeze_url=True,
 )
 
 PROVIDER_AZURE_OPENAI = OpenAIProvider(
@@ -825,8 +1099,10 @@ PROVIDER_MINIMAX = AnthropicProvider(
     models=MINIMAX_MODELS,
     chat_model="AnthropicChatModel",
     freeze_url=True,
-    # This provider doesn't support connection check without model config
     support_connection_check=False,
+    provider_group="minimax",
+    provider_group_name="MiniMax",
+    provider_variant="open_platform_intl",
 )
 
 PROVIDER_MINIMAX_CN = AnthropicProvider(
@@ -836,8 +1112,10 @@ PROVIDER_MINIMAX_CN = AnthropicProvider(
     models=MINIMAX_MODELS,
     chat_model="AnthropicChatModel",
     freeze_url=True,
-    # This provider doesn't support connection check without model config
     support_connection_check=False,
+    provider_group="minimax",
+    provider_group_name="MiniMax",
+    provider_variant="open_platform_cn",
 )
 
 PROVIDER_KIMI_CN = OpenAIProvider(
@@ -847,6 +1125,9 @@ PROVIDER_KIMI_CN = OpenAIProvider(
     api_key_prefix="",
     models=KIMI_MODELS,
     freeze_url=True,
+    provider_group="kimi",
+    provider_group_name="Kimi",
+    provider_variant="open_platform_cn",
 )
 
 PROVIDER_KIMI_INTL = OpenAIProvider(
@@ -856,6 +1137,32 @@ PROVIDER_KIMI_INTL = OpenAIProvider(
     api_key_prefix="",
     models=KIMI_MODELS,
     freeze_url=True,
+    provider_group="kimi",
+    provider_group_name="Kimi",
+    provider_variant="open_platform_intl",
+)
+
+KIMI_CODINGPLAN_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="kimi-for-coding",
+        name="Kimi for Coding",
+        supports_image=False,
+        supports_video=False,
+        probe_source="documentation",
+    ),
+]
+
+PROVIDER_KIMI_CODINGPLAN = OpenAIProvider(
+    id="kimi-codingplan",
+    name="Kimi Coding Plan",
+    base_url="https://api.kimi.com/coding/v1",
+    api_key_prefix="sk-kimi-",
+    models=KIMI_CODINGPLAN_MODELS,
+    freeze_url=True,
+    support_connection_check=False,
+    provider_group="kimi",
+    provider_group_name="Kimi",
+    provider_variant="coding_plan",
 )
 
 PROVIDER_DEEPSEEK = OpenAIProvider(
@@ -885,6 +1192,9 @@ PROVIDER_GEMINI = GeminiProvider(
     models=GEMINI_MODELS,
     chat_model="GeminiChatModel",
     freeze_url=True,
+    meta={
+        "is_free_tier": True,
+    },
 )
 
 PROVIDER_OLLAMA = OllamaProvider(
@@ -903,7 +1213,44 @@ PROVIDER_OPENROUTER = OpenRouterProvider(
     api_key_prefix="sk-or-v1-",
     models=[],
     freeze_url=True,
+    meta={
+        "supports_oauth": True,
+        "is_free_tier": True,
+    },
 )
+
+GITHUB_MODELS_MODELS: List[ModelInfo] = [
+    ModelInfo(
+        id="openai/gpt-4o-mini",
+        name="GPT-4o Mini",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+    ModelInfo(
+        id="openai/gpt-4o",
+        name="GPT-4o",
+        supports_image=True,
+        supports_video=False,
+        probe_source="documentation",
+        is_free=True,
+    ),
+]
+
+PROVIDER_GITHUB_MODELS = GitHubModelsProvider(
+    id="github-models",
+    name="GitHub Models",
+    base_url="https://models.github.ai/inference",
+    api_key_prefix="ghp_",
+    api_key_prefixes=["ghp_", "github_pat_"],
+    models=GITHUB_MODELS_MODELS,
+    freeze_url=False,
+    meta={
+        "is_free_tier": True,
+    },
+)
+
 
 PROVIDER_LMSTUDIO = LMStudioProvider(
     id="lmstudio",
@@ -924,6 +1271,12 @@ PROVIDER_SILICONFLOW_CN = OpenAIProvider(
     models=[],
     freeze_url=True,
     require_api_key=True,
+    provider_group="siliconflow",
+    provider_group_name="SiliconFlow",
+    provider_variant="china",
+    meta={
+        "is_free_tier": True,
+    },
 )
 
 PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
@@ -934,6 +1287,12 @@ PROVIDER_SILICONFLOW_INTL = OpenAIProvider(
     models=[],
     freeze_url=True,
     require_api_key=True,
+    provider_group="siliconflow",
+    provider_group_name="SiliconFlow",
+    provider_variant="international",
+    meta={
+        "is_free_tier": True,
+    },
 )
 
 PROVIDER_VOLCENGINE_CN = OpenAIProvider(
@@ -944,6 +1303,9 @@ PROVIDER_VOLCENGINE_CN = OpenAIProvider(
     models=VOLCENGINE_MODELS,
     freeze_url=True,
     support_model_discovery=False,
+    provider_group="volcengine",
+    provider_group_name="Volcano Engine",
+    provider_variant="open_platform",
 )
 
 PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
@@ -955,6 +1317,18 @@ PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
     support_connection_check=False,
     freeze_url=True,
     support_model_discovery=False,
+    provider_group="volcengine",
+    provider_group_name="Volcano Engine",
+    provider_variant="coding_plan",
+)
+
+PROVIDER_MIMO_TOKENPLAN = OpenAIProvider(
+    id="mimo-tokenplan",
+    name="Xiaomi MiMo Token Plan",
+    base_url="https://token-plan-cn.xiaomimimo.com/v1",
+    api_key_prefix="",
+    models=MIMO_TOKENPLAN_MODELS,
+    freeze_url=True,
 )
 
 
@@ -1003,19 +1377,24 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
         self._add_builtin(PROVIDER_OPENROUTER)
+        self._add_builtin(PROVIDER_GITHUB_MODELS)
         self._add_builtin(PROVIDER_MODELSCOPE)
         self._add_builtin(PROVIDER_DASHSCOPE)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN)
         self._add_builtin(PROVIDER_ALIYUN_CODINGPLAN_INTL)
         self._add_builtin(PROVIDER_ALIYUN_TOKENPLAN)
+        self._add_builtin(PROVIDER_ALIYUN_TOKENPLAN_INTL)
         self._add_builtin(PROVIDER_OPENCODE)
+        self._add_builtin(PROVIDER_KILO)
         self._add_builtin(PROVIDER_OPENAI)
+        self._add_builtin(PROVIDER_OPENAI_RESPONSE)
         self._add_builtin(PROVIDER_AZURE_OPENAI)
         self._add_builtin(PROVIDER_ANTHROPIC)
         self._add_builtin(PROVIDER_GEMINI)
         self._add_builtin(PROVIDER_DEEPSEEK)
         self._add_builtin(PROVIDER_KIMI_CN)
         self._add_builtin(PROVIDER_KIMI_INTL)
+        self._add_builtin(PROVIDER_KIMI_CODINGPLAN)
         self._add_builtin(PROVIDER_MINIMAX_CN)
         self._add_builtin(PROVIDER_MINIMAX)
         self._add_builtin(PROVIDER_ZHIPU_CN)
@@ -1026,6 +1405,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_SILICONFLOW_INTL)
         self._add_builtin(PROVIDER_VOLCENGINE_CN)
         self._add_builtin(PROVIDER_VOLCENGINE_CN_CODINGPLAN)
+        self._add_builtin(PROVIDER_MIMO_TOKENPLAN)
 
     def _add_builtin(self, provider: Provider):
         self.builtin_providers[provider.id] = provider
@@ -1203,6 +1583,20 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # Add a new custom provider with the given data. This will update the
         # providers.json file and make the new provider available in the UI.
         provider_payload = provider_data.model_dump()
+        # ``max_input_length`` equal to the historical 128K default is only
+        # distinguishable from an omitted value while the request model still
+        # carries Pydantic's field-presence information. Preserve that intent
+        # before model_dump/storage erase it. This is deliberately scoped to
+        # the user-facing custom-provider ingestion path: legacy provider JSON
+        # serialized every default field, so applying the same inference while
+        # loading from disk would incorrectly mark all old 128K defaults as
+        # explicit overrides.
+        for field in ("models", "extra_models"):
+            source_models = getattr(provider_data, field, ())
+            payload_models = provider_payload.get(field, ())
+            for source, payload in zip(source_models, payload_models):
+                if "max_input_length" in source.model_fields_set:
+                    payload["max_input_length_configured"] = True
         provider_payload["id"] = self._resolve_custom_provider_id(
             provider_data.id,
         )
@@ -1278,6 +1672,20 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 result.get("supports_image"),
                 result.get("supports_video"),
             )
+            # Heal a poisoned ``rejects_media`` cache entry: if the
+            # probe actually saw the image, force ``rejects_media`` to
+            # False so subsequent ``_reasoning`` calls stop stripping
+            # media.  Without this, a stale entry written from an
+            # unrelated 400 (request too large, malformed block fields)
+            # would silently drop every future image.
+            if result.get("supports_image"):
+                from .model_capability_cache import get_capability_cache
+
+                get_capability_cache().learn(
+                    f"{provider_id}:{model_id}",
+                    "rejects_media",
+                    False,
+                )
         except Exception as e:
             logger.warning("Auto-probe multimodal failed: %s", e)
 
@@ -1501,6 +1909,35 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         except OSError:
             pass
 
+    def save_provider_config(
+        self,
+        provider_id: str,
+        provider: Provider | None = None,
+    ) -> None:
+        """Persist the current in-memory provider state to disk.
+
+        Args:
+            provider_id: The provider to save.
+            provider: Optional pre-resolved provider instance. When
+                supplied, this instance is saved directly — important
+                for plugin providers where ``get_provider`` returns a
+                fresh copy each time.
+        """
+        if provider is None:
+            provider = self.get_provider(provider_id)
+        if provider is None:
+            return
+        is_plugin = provider_id in self.plugin_providers
+        if is_plugin:
+            provider_info = ProviderInfo(**provider.model_dump())
+            self.plugin_providers[provider_id]["info"] = provider_info
+            self._save_plugin_provider(provider)
+        else:
+            self._save_provider(
+                provider,
+                is_builtin=provider_id in self.builtin_providers,
+            )
+
     def load_provider(
         self,
         provider_id: str,
@@ -1564,6 +2001,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 return True
         return False
 
+    # pylint: disable=too-many-return-statements
     def _provider_from_data(self, data: Dict) -> Provider:
         """Deserialize provider data to a concrete provider type."""
         provider_id = str(data.get("id", ""))
@@ -1575,8 +2013,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             return AnthropicProvider.model_validate(data)
         if provider_id == "gemini" or chat_model == "GeminiChatModel":
             return GeminiProvider.model_validate(data)
+        if provider_id == "dashscope" or chat_model == "DashScopeChatModel":
+            return DashScopeProvider.model_validate(data)
         if provider_id == "ollama":
             return OllamaProvider.model_validate(data)
+        if chat_model == "OpenAIResponseModel":
+            return OpenAIResponseProvider.model_validate(data)
         return OpenAIProvider.model_validate(data)
 
     def save_active_model(self, active_model: ModelSlotConfig):
@@ -1753,9 +2195,45 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     "Failed to remove legacy providers.json after migration.",
                 )
 
+    @staticmethod
+    def _restore_builtin_model_config(
+        model: ModelInfo,
+        config: dict,
+    ) -> None:
+        """Restore persisted overrides onto a built-in model definition."""
+        if config["generate_kwargs"]:
+            model.generate_kwargs = config["generate_kwargs"]
+        if config["max_tokens"] is not None:
+            model.max_tokens = config["max_tokens"]
+        if config["max_input_length"] is not None:
+            model.max_input_length = config["max_input_length"]
+        configured_length = config.get("max_input_length")
+        model.max_input_length_configured = bool(
+            config.get("max_input_length_configured", False)
+            or (
+                configured_length is not None
+                and configured_length != DEFAULT_CONTEXT_WINDOW
+            ),
+        )
+        if config.get("relay_reasoning") is not None:
+            model.relay_reasoning = config["relay_reasoning"]
+        if config.get("thinking_enabled") is not None:
+            model.thinking_enabled = config["thinking_enabled"]
+        if config.get("thinking_budget") is not None:
+            model.thinking_budget = config["thinking_budget"]
+        if config.get("reasoning_effort") is not None:
+            model.reasoning_effort = config["reasoning_effort"]
+        if config.get("supports_multimodal") is not None:
+            model.supports_multimodal = config["supports_multimodal"]
+        if config.get("supports_image") is not None:
+            model.supports_image = config["supports_image"]
+        if config.get("supports_video") is not None:
+            model.supports_video = config["supports_video"]
+
     def _init_from_storage(self):
         """Initialize all providers and active model from disk storage."""
         # Load built-in providers
+        # pylint: disable=too-many-nested-blocks
         for builtin in self.builtin_providers.values():
             provider = self.load_provider(builtin.id, is_builtin=True)
             if provider:
@@ -1767,6 +2245,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     builtin.auth_mode = provider.auth_mode
                 if provider.custom_headers:
                     builtin.custom_headers = provider.custom_headers
+                # Restore the configurable inline-media cap for the providers
+                # that support it (currently DashScope).
+                if hasattr(builtin, "max_inline_media_bytes"):
+                    builtin.max_inline_media_bytes = (
+                        provider.max_inline_media_bytes
+                    )
                 builtin_model_ids = {m.id for m in builtin.models}
                 builtin.extra_models = [
                     m
@@ -1774,26 +2258,39 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     if m.id not in builtin_model_ids
                 ]
                 builtin.generate_kwargs.update(provider.generate_kwargs)
-                # Restore per-model generate_kwargs for built-in models.
+                # Restore per-model config for built-in models.
                 # Collect from both stored built-in models and promoted
                 # extra_models (models that were user-added but are now
                 # part of the built-in list).
-                stored_model_kwargs: dict = {}
+                stored_model_config: dict = {}
+                _per_model_keys = (
+                    "generate_kwargs",
+                    "max_tokens",
+                    "max_input_length",
+                    "max_input_length_configured",
+                    "relay_reasoning",
+                    "thinking_enabled",
+                    "thinking_budget",
+                    "reasoning_effort",
+                    "supports_multimodal",
+                    "supports_image",
+                    "supports_video",
+                )
                 for m in provider.models:
-                    if m.generate_kwargs:
-                        stored_model_kwargs[m.id] = m.generate_kwargs
+                    stored_model_config[m.id] = {
+                        k: getattr(m, k) for k in _per_model_keys
+                    }
                 for m in provider.extra_models:
-                    if m.id in builtin_model_ids and m.generate_kwargs:
-                        stored_model_kwargs.setdefault(
+                    if m.id in builtin_model_ids:
+                        stored_model_config.setdefault(
                             m.id,
-                            m.generate_kwargs,
+                            {k: getattr(m, k) for k in _per_model_keys},
                         )
-                if stored_model_kwargs:
+                if stored_model_config:
                     for model in builtin.models:
-                        if model.id in stored_model_kwargs:
-                            model.generate_kwargs = stored_model_kwargs[
-                                model.id
-                            ]
+                        cfg = stored_model_config.get(model.id)
+                        if cfg:
+                            self._restore_builtin_model_config(model, cfg)
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)

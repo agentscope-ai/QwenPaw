@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from abc import ABC
 from typing import (
     Optional,
@@ -22,7 +23,7 @@ from typing import (
     TYPE_CHECKING,
 )
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     RunStatus,
     ContentType,
     TextContent,
@@ -34,8 +35,9 @@ from agentscope_runtime.engine.schemas.agent_schemas import (
     MessageType,
 )
 
-from .renderer import MessageRenderer, RenderStyle
+from .renderer import ChannelDisplayConfig, MessageRenderer, RenderStyle
 from .schema import ChannelType
+from .access_control import get_access_control_store
 from ...config.utils import load_config
 
 # Optional callback to enqueue payload (set by manager)
@@ -54,7 +56,7 @@ _TOOL_OUTPUT_MESSAGE_TYPES = {
 }
 
 if TYPE_CHECKING:
-    from agentscope_runtime.engine.schemas.agent_schemas import (
+    from qwenpaw.schemas import (
         AgentRequest,
         AgentResponse,
         Event,
@@ -120,27 +122,32 @@ class BaseChannel(ABC):
         self,
         process: ProcessHandler,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         dm_policy: str = "open",
         group_policy: str = "open",
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        no_text_debounce: bool = True,
         streaming_enabled: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         self._process = process
         self._on_reply_sent = on_reply_sent
-        self._show_tool_details = show_tool_details
-        self._filter_tool_messages = filter_tool_messages
-        self._filter_thinking = filter_thinking
+        self._display_config = display_config or ChannelDisplayConfig()
+        self._no_text_debounce = no_text_debounce
         self.streaming_enabled = streaming_enabled
+        # Legacy fields — stored for backward compat but not used for
+        # filtering (new ACL gate handles access control).
         self.dm_policy = dm_policy or "open"
         self.group_policy = group_policy or "open"
         self.allow_from = set(allow_from or [])
         self.deny_message = deny_message or ""
         self.require_mention = require_mention
+        self.access_control_dm = access_control_dm
+        self.access_control_group = access_control_group
+        self._language = "zh"
         self._enqueue: EnqueueCallback = None
         self._workspace = None
         cfg = load_config()
@@ -150,9 +157,7 @@ class BaseChannel(ABC):
             if not tc.display_to_user
         )
         self._render_style = RenderStyle(
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=self._display_config,
             internal_tools=internal_tools,
         )
         self._renderer = MessageRenderer(self._render_style)
@@ -212,6 +217,7 @@ class BaseChannel(ABC):
         return {
             "channel_id": first.get("channel_id") or self.channel,
             "sender_id": first.get("sender_id") or "",
+            "acl_sender_id": first.get("acl_sender_id") or "",
             "content_parts": merged_parts,
             "meta": merged_meta,
         }
@@ -298,6 +304,9 @@ class BaseChannel(ABC):
         Audio-only messages bypass debounce and are processed immediately
         (voice messages are standalone user input, not partial uploads).
         """
+        if not self._no_text_debounce:
+            pending = self._pending_content_by_session.pop(session_id, [])
+            return (True, pending + list(content_parts))
         if not self._content_has_text(content_parts):
             if self._content_has_audio(content_parts):
                 # Audio-only messages (e.g. voice messages) should be
@@ -321,29 +330,119 @@ class BaseChannel(ABC):
         merged = pending + list(content_parts)
         return (True, merged)
 
-    def _check_allowlist(
-        self,
-        sender_id: str,
-        is_group: bool,
-    ) -> tuple[bool, Optional[str]]:
-        """Check sender against allowlist policy."""
-        policy = self.group_policy if is_group else self.dm_policy
-        if policy == "open":
-            return True, None
-        if sender_id in self.allow_from:
-            return True, None
-        if self.deny_message:
-            return False, self.deny_message
-        if is_group:
-            return (
-                False,
-                "Sorry, this bot is only available to authorized users.",
+    # ── Access-control i18n messages ───────────────────────────────────
+
+    _ACL_I18N = {
+        "blocked": {
+            "zh": "您已被禁止访问此智能体。",
+            "en": "You have been blocked from this agent.",
+            "ja": "このエージェントへのアクセスがブロックされています。",
+            "ru": "Вам заблокирован доступ к этому агенту.",
+            "pt-BR": "Você foi bloqueado deste agente.",
+            "id": "Anda telah diblokir dari agen ini.",
+        },
+        "pending": {
+            "zh": "您目前没有访问此智能体的权限，需要审批。\n" "ID: {sender_id}",
+            "en": "You do not have access to this agent. "
+            "Approval required.\nID: {sender_id}",
+            "ja": "このエージェントへのアクセス権がありません。" "承認が必要です。\nID: {sender_id}",
+            "ru": "У вас нет доступа к этому агенту. "
+            "Требуется одобрение.\nID: {sender_id}",
+            "pt-BR": "Você não tem acesso a este agente. "
+            "Aprovação necessária.\nID: {sender_id}",
+            "id": "Anda tidak memiliki akses ke agen ini. "
+            "Persetujuan diperlukan.\nID: {sender_id}",
+        },
+    }
+
+    _ACL_LANG_FALLBACK = {"zh", "en", "ja", "ru", "pt-BR", "id"}
+
+    def _acl_msg(self, key: str, **kwargs: str) -> str:
+        """Return an access-control message in the agent's language."""
+        lang = self._language
+        if lang not in self._ACL_LANG_FALLBACK:
+            lang = "zh" if lang.startswith("zh") else "en"
+        template = self._ACL_I18N[key][lang]
+        return template.format(**kwargs) if kwargs else template
+
+    @property
+    def access_control_enabled(self) -> bool:
+        """True if access control is active for any chat type."""
+        return self.access_control_dm or self.access_control_group
+
+    async def _access_control_gate(self, payload: Any) -> bool:
+        """Check access control. Returns True if blocked."""
+        if not self.access_control_enabled:
+            return False
+
+        # Prefer acl_sender_id (real sender, unaffected by shared session)
+        if isinstance(payload, dict):
+            sender_id = (
+                payload.get("acl_sender_id") or payload.get("sender_id") or ""
             )
-        return False, (
-            "Sorry, you are not authorized to use this bot. "
-            "Please contact the administrator to add your ID "
-            f"to the allowlist. Your ID: {sender_id}"
+            meta = dict(payload.get("meta") or {})
+        else:
+            sender_id = (
+                getattr(payload, "acl_sender_id", "")
+                or getattr(payload, "user_id", "")
+                or ""
+            )
+            meta = dict(getattr(payload, "channel_meta", None) or {})
+
+        if not sender_id:
+            return False
+
+        # Skip if access control not enabled for this chat type
+        is_group = meta.get("is_group", False)
+        if is_group and not self.access_control_group:
+            return False
+        if not is_group and not self.access_control_dm:
+            return False
+
+        store = self._get_acl_store()
+        channel_key = self.channel
+
+        # ── Whitelist / blacklist / pending decision ────────────────────
+        if store.is_whitelisted(channel_key, sender_id):
+            return False  # allowed
+
+        if store.is_blacklisted(channel_key, sender_id):
+            deny_msg = self._acl_msg("blocked")
+        else:
+            first_message = self._extract_query_from_payload(payload)
+            username = meta.get("user_name") or ""
+            store.add_pending(
+                channel_key,
+                sender_id,
+                first_message,
+                username=username,
+            )
+            deny_msg = self._acl_msg("pending", sender_id=sender_id)
+
+        # ── Send deny message back via the channel's own send() ─────────
+        try:
+            if isinstance(payload, dict):
+                to_handle = sender_id
+            else:
+                to_handle = self.get_to_handle_from_request(payload)
+            await self.send_content_parts(
+                to_handle,
+                [TextContent(type=ContentType.TEXT, text=deny_msg)],
+                meta,
+            )
+        except Exception:
+            logger.debug(
+                "%s access control: failed to send deny to %s",
+                self.channel,
+                sender_id[:20] if sender_id else "?",
+            )
+
+        logger.info(
+            "%s access control blocked: sender=%s",
+            self.channel,
+            sender_id,
         )
+        return True
 
     def _check_group_mention(
         self,
@@ -356,6 +455,15 @@ class BaseChannel(ABC):
         return bool(
             meta.get("bot_mentioned") or meta.get("has_bot_command"),
         )
+
+    def _get_acl_store(self):
+        """Get the AccessControlStore for this channel's workspace."""
+        from pathlib import Path
+
+        workspace_dir = None
+        if self._workspace is not None:
+            workspace_dir = Path(self._workspace.workspace_dir)
+        return get_access_control_store(workspace_dir)
 
     def set_enqueue(self, cb: EnqueueCallback) -> None:
         """Set enqueue callback (called by ChannelManager)."""
@@ -443,6 +551,18 @@ class BaseChannel(ABC):
             f"session={session_id[:30]}",
         )
 
+        # Refresh updated_at so the session list surfaces this chat as the
+        # latest activity (issue #6131). get_or_create_chat returns an
+        # existing chat unchanged, so without this the timestamp stays stale.
+        try:
+            await self._workspace.chat_manager.touch_chat(chat.id)
+        except Exception:  # pylint: disable=broad-except
+            logger.debug(
+                "failed to touch chat updated_at: chat_id=%s",
+                chat.id,
+                exc_info=True,
+            )
+
         queue, is_new = await self._workspace.task_tracker.attach_or_start(
             chat.id,
             payload,
@@ -470,6 +590,8 @@ class BaseChannel(ABC):
             )
 
     _STREAMABLE_TYPES = {"reasoning", "message"}
+    _STREAM_DELTA_MIN_INTERVAL_S: float = 0.0
+    _STREAM_FLUSH_TIMEOUT_S: float = 5.0
 
     def _resolve_stream_type(self, event: Any) -> str:
         """Map event.type to a stream_type string.
@@ -513,7 +635,7 @@ class BaseChannel(ABC):
                 msg_id_to_stream_type,
                 streaming_buffers,
             )
-        if obj == "content" and status == RunStatus.InProgress:
+        if obj == "content":
             return await self._on_stream_content_delta(
                 request,
                 to_handle,
@@ -548,7 +670,10 @@ class BaseChannel(ABC):
         msg_id = getattr(event, "id", None)
         if msg_id:
             msg_id_to_stream_type[msg_id] = stream_type
-        if stream_type == "reasoning" and self._filter_thinking:
+        if (
+            stream_type == "reasoning"
+            and not self._display_config.show_thinking
+        ):
             return True
         streaming_buffers[stream_type] = ""
         await self.on_streaming_start(
@@ -577,23 +702,105 @@ class BaseChannel(ABC):
             content_msg_id,
             "",
         )
-        if not stream_type or stream_type not in self._STREAMABLE_TYPES:
+        if (
+            not stream_type
+            or stream_type not in self._STREAMABLE_TYPES
+            or stream_type not in streaming_buffers
+        ):
             return False
-        if stream_type not in streaming_buffers:
-            return False
-        if stream_type == "reasoning" and self._filter_thinking:
+        if (
+            stream_type == "reasoning"
+            and not self._display_config.show_thinking
+        ):
             return True
+
+        # Detect content index change → split into a new streaming box
+        content_index = getattr(event, "index", 0) or 0
+        index_key = f"_stream_last_index_{stream_type}"
+        last_index = send_meta.get(index_key, 0)
+        if content_index != last_index and streaming_buffers.get(
+            stream_type,
+            "",
+        ):
+            # Finalize current streaming box before starting a new one
+            flush_meta = self._get_stream_flush_meta(
+                send_meta,
+                stream_type,
+            )
+            task = flush_meta.get("task")
+            if task and not task.done():
+                try:
+                    await asyncio.wait_for(
+                        task,
+                        timeout=self._STREAM_FLUSH_TIMEOUT_S,
+                    )
+                except (
+                    asyncio.TimeoutError,
+                    asyncio.CancelledError,
+                    Exception,
+                ):
+                    task.cancel()
+            send_meta.get("_stream_flush", {}).pop(
+                stream_type,
+                None,
+            )
+            accumulated = streaming_buffers.pop(stream_type, "")
+            await self.on_streaming_end(
+                request,
+                to_handle,
+                event,
+                send_meta,
+                stream_type,
+                accumulated_text=accumulated,
+            )
+            # Start a new streaming box
+            streaming_buffers[stream_type] = ""
+            await self.on_streaming_start(
+                request,
+                to_handle,
+                event,
+                send_meta,
+                stream_type,
+                accumulated_text="",
+            )
+        send_meta[index_key] = content_index
+
         delta_text = getattr(event, "text", "") or ""
         streaming_buffers[stream_type] = (
             streaming_buffers.get(stream_type, "") + delta_text
         )
-        await self.on_streaming_delta(
-            request,
-            to_handle,
-            event,
-            send_meta,
-            stream_type,
-            accumulated_text=streaming_buffers[stream_type],
+
+        # --- Non-blocking flush with in-flight guard ---
+        flush_meta = self._get_stream_flush_meta(send_meta, stream_type)
+        now = time.monotonic()
+
+        # Guard 1: previous flush still in-flight
+        task = flush_meta.get("task")
+        if task and not task.done():
+            elapsed = now - flush_meta.get("last_ts", 0.0)
+            if elapsed > self._STREAM_FLUSH_TIMEOUT_S:
+                task.cancel()
+            return True
+
+        # Guard 2: minimum interval not elapsed
+        if self._STREAM_DELTA_MIN_INTERVAL_S > 0:
+            if (
+                now - flush_meta.get("last_ts", 0.0)
+                < self._STREAM_DELTA_MIN_INTERVAL_S
+            ):
+                return True
+
+        # Fire-and-forget flush
+        flush_meta["last_ts"] = now
+        flush_meta["task"] = asyncio.create_task(
+            self._safe_streaming_delta(
+                request,
+                to_handle,
+                event,
+                send_meta,
+                stream_type,
+                streaming_buffers[stream_type],
+            ),
         )
         return True
 
@@ -613,10 +820,39 @@ class BaseChannel(ABC):
         if stream_type not in self._STREAMABLE_TYPES:
             return False
         if stream_type in streaming_buffers:
-            if stream_type == "reasoning" and self._filter_thinking:
+            if (
+                stream_type == "reasoning"
+                and not self._display_config.show_thinking
+            ):
                 streaming_buffers.pop(stream_type, None)
                 return True
-            accumulated = streaming_buffers.pop(stream_type, "")
+
+            # Await pending flush to ensure ordering before finalize
+            flush_meta = self._get_stream_flush_meta(
+                send_meta,
+                stream_type,
+            )
+            task = flush_meta.get("task")
+            if task and not task.done():
+                try:
+                    await asyncio.wait_for(
+                        task,
+                        timeout=self._STREAM_FLUSH_TIMEOUT_S,
+                    )
+                except (
+                    asyncio.TimeoutError,
+                    asyncio.CancelledError,
+                    Exception,
+                ):
+                    task.cancel()
+            # Clean up flush state
+            send_meta.get("_stream_flush", {}).pop(
+                stream_type,
+                None,
+            )
+
+            buf = streaming_buffers.pop(stream_type, "")
+            accumulated = self._extract_text_from_event(event) or buf
             await self.on_streaming_end(
                 request,
                 to_handle,
@@ -626,6 +862,19 @@ class BaseChannel(ABC):
                 accumulated_text=accumulated,
             )
         return True
+
+    @staticmethod
+    def _extract_text_from_event(event: Any) -> str:
+        """Extract concatenated text from event.content list."""
+        content = getattr(event, "content", None)
+        if not content or not isinstance(content, list):
+            return ""
+        parts = []
+        for item in content:
+            text = getattr(item, "text", None)
+            if text:
+                parts.append(text)
+        return "".join(parts)
 
     async def _stream_with_tracker(
         self,
@@ -637,6 +886,7 @@ class BaseChannel(ABC):
         reasoning / message events alongside the normal path.
         """
         request = self._payload_to_request(payload)
+        request.channel_instance = self
 
         if isinstance(payload, dict):
             send_meta = dict(payload.get("meta") or {})
@@ -654,6 +904,8 @@ class BaseChannel(ABC):
             send_meta = {**send_meta, "bot_prefix": bot_prefix}
 
         to_handle = self.get_to_handle_from_request(request)
+        session_id = getattr(request, "session_id", "") or ""
+        self._clear_session_turn_usage(session_id)
 
         await self._before_consume_process(request)
 
@@ -708,6 +960,7 @@ class BaseChannel(ABC):
 
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
+                self._clear_session_turn_usage(session_id)
                 await self._on_consume_error(
                     request,
                     to_handle,
@@ -719,6 +972,12 @@ class BaseChannel(ABC):
                     to_handle,
                     send_meta,
                 )
+                for sse in await self._commit_turn_usage(
+                    request,
+                    session_id,
+                    emit_sse=True,
+                ):
+                    yield sse
 
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
@@ -729,6 +988,7 @@ class BaseChannel(ABC):
                 f"channel task cancelled: "
                 f"session={getattr(request, 'session_id', '')[:30]}",
             )
+            self._clear_session_turn_usage(session_id)
             if process_iterator is not None:
                 await process_iterator.aclose()
             raise
@@ -739,6 +999,7 @@ class BaseChannel(ABC):
                 f"session={getattr(request, 'session_id', 'N/A')[:30]}, "
                 f"agent={to_handle}",
             )
+            self._clear_session_turn_usage(session_id)
             await self._on_consume_error(
                 request,
                 to_handle,
@@ -775,6 +1036,38 @@ class BaseChannel(ABC):
             return out
         return value
 
+    @staticmethod
+    def _strip_event_headlines(event: Any, fallback: str) -> str:
+        """Drop scroll headlines (``<!-- ⟦ … ⟧ -->``) from an SSE payload.
+
+        Channels strip headlines via ``MessageRenderer``, but this raw-event
+        SSE path (console + web UI) bypasses it, so the comment leaks into the
+        rendered chat. We strip a dumped *copy* here — the live event, the
+        persisted ``conversation_history`` row, and the durable index all keep
+        the headline verbatim (those go through separate paths). A no-op on any
+        text block that holds no headline, so user/tool text is untouched.
+        """
+        from qwenpaw.agents.context.scroll.serialize import strip_headline
+
+        try:
+            payload = event.model_dump(mode="json")
+        except Exception:  # noqa: BLE001 - fall back to the unstripped data
+            return fallback
+
+        def walk(node: Any) -> Any:
+            if isinstance(node, str):
+                return strip_headline(node)
+            if isinstance(node, dict):
+                for key, value in list(node.items()):
+                    node[key] = walk(value)
+                return node
+            if isinstance(node, list):
+                return [walk(value) for value in node]
+            return node
+
+        payload = walk(payload)
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
     def _serialize_event_for_sse(self, event: Any) -> str:
         try:
             if hasattr(event, "model_dump_json"):
@@ -783,6 +1076,12 @@ class BaseChannel(ABC):
                 data = event.json()
             else:
                 data = json.dumps({"text": str(event)}, ensure_ascii=True)
+
+            # Headlines reach the UI only through this raw-event path; rewrite
+            # to strip them, but only when a fence marker is actually present
+            # so the common (headline-free) event pays nothing.
+            if hasattr(event, "model_dump") and ("⟦" in data or "〚" in data):
+                data = self._strip_event_headlines(event, data)
 
             return self._sanitize_surrogate_text(data)
 
@@ -827,9 +1126,8 @@ class BaseChannel(ABC):
         process: ProcessHandler,
         config: Any,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
+        no_text_debounce: bool = True,
     ) -> "BaseChannel":
         raise NotImplementedError
 
@@ -855,10 +1153,11 @@ class BaseChannel(ABC):
     ) -> "AgentRequest":
         """
         Build AgentRequest from runtime content parts (Message content list).
-        Use agentscope_runtime Message/Content types; no intermediate envelope.
-        Subclasses call this after parsing native payload to content_parts.
+        Uses :mod:`qwenpaw.schemas` Message / Content types directly — no
+        intermediate envelope. Subclasses call this after parsing the
+        native payload into ``content_parts``.
         """
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AgentRequest,
             Message,
             Role,
@@ -1052,6 +1351,10 @@ class BaseChannel(ABC):
         if not self._debounce_payload(payload):
             return
 
+        # ── Unified access control gate ─────────────────────────────────
+        if await self._access_control_gate(payload):
+            return
+
         if self._workspace is not None and self._command_registry is not None:
             query_text = self._extract_query_from_payload(payload)
             logger.debug(
@@ -1114,6 +1417,8 @@ class BaseChannel(ABC):
         loop (e.g. DingTalk _process_one_request with webhook sends).
         """
         last_response = None
+        session_id = getattr(request, "session_id", "") or ""
+        self._clear_session_turn_usage(session_id)
         try:
             async for event in self._process(request):
                 obj = getattr(event, "object", None)
@@ -1138,6 +1443,7 @@ class BaseChannel(ABC):
                     await self.on_event_response(request, event)
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
+                self._clear_session_turn_usage(session_id)
                 await self._on_consume_error(
                     request,
                     to_handle,
@@ -1149,11 +1455,24 @@ class BaseChannel(ABC):
                     to_handle,
                     send_meta,
                 )
+                await self._commit_turn_usage(
+                    request,
+                    session_id,
+                    emit_sse=False,
+                )
             if self._on_reply_sent:
                 args = self.get_on_reply_sent_args(request, to_handle)
                 self._on_reply_sent(self.channel, *args)
+        except asyncio.CancelledError:
+            logger.info(
+                "channel task cancelled: session=%s",
+                getattr(request, "session_id", "")[:30],
+            )
+            self._clear_session_turn_usage(session_id)
+            raise
         except Exception:
             logger.exception("channel consume_one failed")
+            self._clear_session_turn_usage(session_id)
             await self._on_consume_error(
                 request,
                 to_handle,
@@ -1201,7 +1520,7 @@ class BaseChannel(ABC):
         status = getattr(event, "status", None)
         if status != RunStatus.InProgress:
             return False
-        if self._filter_tool_messages:
+        if not self._display_config.show_tool_results:
             return False
         data = getattr(event, "data", None) or {}
         if not isinstance(data, dict) or "output" not in data:
@@ -1219,6 +1538,49 @@ class BaseChannel(ABC):
     # ------------------------------------------------------------------
     # Streaming hooks — override in subclasses
     # ------------------------------------------------------------------
+
+    def _get_stream_flush_meta(
+        self,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+    ) -> Dict[str, Any]:
+        """Return per-stream_type flush state dict from *send_meta*."""
+        key = "_stream_flush"
+        if key not in send_meta:
+            send_meta[key] = {}
+        if stream_type not in send_meta[key]:
+            send_meta[key][stream_type] = {
+                "task": None,
+                "last_ts": 0.0,
+            }
+        return send_meta[key][stream_type]
+
+    async def _safe_streaming_delta(
+        self,
+        request: "AgentRequest",
+        to_handle: str,
+        event: Any,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+        accumulated_text: str,
+    ) -> None:
+        """Wrapper that invokes on_streaming_delta and catches errors."""
+        try:
+            await self.on_streaming_delta(
+                request,
+                to_handle,
+                event,
+                send_meta,
+                stream_type,
+                accumulated_text=accumulated_text,
+            )
+        except Exception:
+            logger.warning("streaming delta failed", exc_info=True)
+            flush_meta = self._get_stream_flush_meta(
+                send_meta,
+                stream_type,
+            )
+            flush_meta["last_ts"] = 0.0
 
     async def on_streaming_start(
         self,
@@ -1296,6 +1658,99 @@ class BaseChannel(ABC):
         """Hook called after all events processed without error.
 
         Override for post-processing (e.g. Feishu DONE reaction).
+        """
+
+    @staticmethod
+    def _clear_session_turn_usage(session_id: str) -> None:
+        """Drop any staged per-session usage (turn start / cancel / error)."""
+        if not session_id:
+            return
+        import importlib
+
+        mod = importlib.import_module("qwenpaw.token_usage.model_wrapper")
+        mod.TokenRecordingModelWrapper.pop_usage_for_session(session_id)
+
+    async def _commit_turn_usage(
+        self,
+        request: "AgentRequest",
+        session_id: str,
+        *,
+        emit_sse: bool = True,
+    ) -> List[str]:
+        """Resolve, persist, and optionally emit a ``turn_usage`` SSE."""
+        if not session_id:
+            return []
+        try:
+            import importlib
+
+            turn_usage = importlib.import_module(
+                "qwenpaw.token_usage.turn_usage",
+            )
+            token_usage = importlib.import_module("qwenpaw.token_usage")
+
+            workspace = self._workspace
+            session = (
+                getattr(workspace, "session", None)
+                if workspace is not None
+                else None
+            )
+            agent_id = (
+                getattr(workspace, "agent_id", "default")
+                if workspace is not None
+                else "default"
+            )
+            user_id = getattr(request, "user_id", "") or ""
+            channel = getattr(request, "channel", "") or self.channel
+            turn, ctx, agent_state = await turn_usage.resolve_turn_usage(
+                session_id=session_id,
+                agent_id=agent_id,
+                session=session,
+                user_id=user_id,
+                channel=channel,
+            )
+            if turn is None and ctx is None:
+                return []
+            self._on_turn_usage_ready(turn, ctx)
+            if turn:
+                logger.info("Usage for session %s: %s", session_id, turn)
+            if session is not None:
+                try:
+                    await token_usage.persist_turn_usage(
+                        session=session,
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                        turn=turn,
+                        ctx=ctx,
+                        agent_state=agent_state,
+                    )
+                except Exception:
+                    logger.warning(
+                        "turn usage persist skipped",
+                        exc_info=True,
+                    )
+            if not emit_sse:
+                return []
+            payload: Dict[str, Any] = {
+                "type": "turn_usage",
+                "session_id": session_id,
+                "usage": turn,
+                "context_usage": ctx,
+            }
+            return [
+                f"data: {json.dumps(payload, ensure_ascii=False)}\n\n",
+            ]
+        except Exception:
+            logger.warning("turn usage commit skipped", exc_info=True)
+            return []
+
+    def _on_turn_usage_ready(
+        self,
+        turn: Optional[Dict[str, Any]],
+        ctx: Optional[Dict[str, Any]],
+    ) -> None:
+        """Hook: channel-specific side effect once per-turn usage is staged
+        (e.g. console prints a terminal status line). Default: no-op.
         """
 
     async def _on_consume_error(
@@ -1523,24 +1978,16 @@ class BaseChannel(ABC):
 
         Subclasses must implement from_config(process, config, on_reply_sent).
 
-        show_tool_details is global config (not in channel config), so we
-        preserve from self. filter_tool_messages and filter_thinking are
-        per-channel config, so we read from new config.
+        Global tool detail visibility is preserved while per-channel display
+        settings are reloaded from the new configuration.
         """
         return self.__class__.from_config(
             process=self._process,
             config=config,
             on_reply_sent=self._on_reply_sent,
-            show_tool_details=getattr(self, "_show_tool_details", True),
-            filter_tool_messages=getattr(
+            display_config=ChannelDisplayConfig.from_config(
                 config,
-                "filter_tool_messages",
-                False,
-            ),
-            filter_thinking=getattr(
-                config,
-                "filter_thinking",
-                False,
+                show_tool_details=self._display_config.show_tool_details,
             ),
         )
 
@@ -1613,3 +2060,61 @@ class BaseChannel(ABC):
             session_id=session_id,
         )
         await self.send_message_content(to_handle, event, meta)
+
+    async def send_approval_notification(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        request_id: str,
+        tool_name: str,
+        severity: str,
+        result_summary: str,
+        channel_meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Push a tool-guard approval notification.
+
+        Constructs a mock event with metadata.message_type=tool_guard_approval
+        so card-capable channels render interactive cards, while others fall
+        back to plain text.
+        """
+        from qwenpaw.schemas import AgentRequest, Event
+
+        to_handle = self.to_handle_from_target(
+            user_id=user_id,
+            session_id=session_id,
+        )
+        send_meta: Dict[str, Any] = dict(channel_meta or {})
+        send_meta.setdefault("session_id", session_id)
+        send_meta.setdefault("user_id", user_id)
+        bot_prefix = getattr(self, "bot_prefix", None) or getattr(
+            self,
+            "_bot_prefix",
+            "",
+        )
+        if bot_prefix and "bot_prefix" not in send_meta:
+            send_meta["bot_prefix"] = bot_prefix
+
+        event = Event(
+            object="message",
+            status=RunStatus.Completed,
+            metadata={
+                "metadata": {
+                    "message_type": "tool_guard_approval",
+                    "approval_request_id": request_id,
+                    "tool_name": tool_name,
+                    "severity": severity,
+                },
+            },
+            content=[
+                TextContent(type=ContentType.TEXT, text=result_summary),
+            ],
+        )
+        request = AgentRequest(session_id=session_id, user_id=user_id)
+
+        await self.on_event_message_completed(
+            request,
+            to_handle,
+            event,
+            send_meta,
+        )

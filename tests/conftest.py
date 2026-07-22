@@ -8,6 +8,7 @@ This module provides shared fixtures for testing CoPaw components.
 All fixtures are designed to be isolated, safe, and easy to use.
 """
 
+import logging
 import os
 import shutil
 import sys
@@ -18,6 +19,15 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+
+from qwenpaw.providers import provider_manager as _provider_manager_module
+
+
+@pytest.fixture(autouse=True)
+def capture_qwenpaw_logs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let caplog see qwenpaw records despite the app logger handler."""
+    monkeypatch.setattr(logging.getLogger("qwenpaw"), "propagate", True)
+
 
 # =============================================================================
 # Third-Party Library Mocks
@@ -353,8 +363,9 @@ def mock_channel_config():
 
     config = MagicMock()
     config.enabled = True
-    config.filter_tool_messages = False
-    config.filter_thinking = False
+    config.show_tool_calls = True
+    config.show_tool_results = True
+    config.show_thinking = True
     config.dm_policy = "open"
     config.group_policy = "open"
     config.require_mention = False
@@ -428,3 +439,27 @@ def pytest_collection_modifyitems(
         #   - s_module: ["utils/tokenizer", "security/tool_guard"]
         #   - c_module: ["channels/dingtalk", "channels/feishu"]
         # This allows module classification to evolve without code changes.
+
+
+# =============================================================================
+# Provider Isolation
+# =============================================================================
+
+
+@pytest.fixture(autouse=True)
+def isolated_secret_dir(monkeypatch, tmp_path):
+    """Isolate all tests from real disk provider data.
+
+    ProviderManager._init_from_storage reads persisted configs and mutates
+    global provider singletons (e.g. base_url when freeze_url=False).
+    This fixture ensures every test uses a clean temporary directory and
+    a fresh ProviderManager singleton.
+    """
+    secret_dir = tmp_path / ".qwenpaw.secret"
+    monkeypatch.setattr(_provider_manager_module, "SECRET_DIR", secret_dir)
+    monkeypatch.setattr(
+        _provider_manager_module.ProviderManager,
+        "_instance",
+        None,
+    )
+    return secret_dir

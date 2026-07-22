@@ -1,0 +1,19 @@
+# Keep in sync with plugin.json -> dependencies.
+# Install into the same Python environment as QwenPaw, e.g.:
+#   pip install -r plugins/qwenpaw-pet/requirements.txt
+
+# Plugin (QwenPaw side)
+httpx>=0.27.0
+# Required by FastAPI to parse multipart/form-data (Import pet upload).
+python-multipart>=0.0.9
+
+# Embedded desktop runtime (qwenpaw_pet_desktop/)
+fastapi>=0.110
+uvicorn>=0.27
+pillow>=10.0
+# PySide6-Essentials is the Qt-core slice (QtCore/QtGui/QtWidgets) —
+# the only modules the pet window touches. It's roughly 300 MB on
+# disk; the full PySide6 meta package adds another ~800 MB of Addons
+# (WebEngine, 3D, Multimedia, etc.) that we never import. Wheels exist
+# only for Python 3.10-3.13.
+pyside6-essentials>=6.6

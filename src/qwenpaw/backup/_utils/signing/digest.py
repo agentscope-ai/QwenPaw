@@ -30,7 +30,7 @@ _SIGNED_FIELDS = (
     "agent_count",
     "qwenpaw_version",
     "system_info",
-    "imported_via_trust_foreign",
+    "accepted_via_trust",
 )
 # ``signature`` itself is deliberately excluded to avoid signing a value that
 # changes as a result of the signature calculation.

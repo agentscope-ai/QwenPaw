@@ -69,6 +69,12 @@ export function useSecurityPage() {
     builtinRules,
     enabled,
     setEnabled,
+    sandboxEnabled,
+    savedSandboxEnabled,
+    markSandboxSaved,
+    setSandboxEnabled,
+    sandboxEffective,
+    sandboxReason,
     mergedRules,
     shellEvasionChecks,
     toggleShellEvasionCheck,
@@ -106,8 +112,17 @@ export function useSecurityPage() {
         auto_denied_rules: savedBody.auto_denied_rules,
         shell_evasion_checks: savedBody.shell_evasion_checks,
       };
+      // Save sandbox FIRST so that if it fails (e.g. 403 for non-admin),
+      // Tool Guard has not been touched — avoiding a partial-save state
+      // where Tool Guard is persisted but sandbox is not.
+      // Only call the API when the value actually changed to skip
+      // unnecessary requests (and potential 403s) on unchanged toggles.
+      if (sandboxEnabled !== savedSandboxEnabled) {
+        await api.updateSandbox({ enabled: sandboxEnabled });
+      }
       await api.updateToolGuard(body);
       setEnabled(body.enabled);
+      markSandboxSaved();
       message.success(t("security.saveSuccess"));
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) {
@@ -119,7 +134,17 @@ export function useSecurityPage() {
     } finally {
       setSaving(false);
     }
-  }, [customRules, buildSaveBody, form, t]);
+  }, [
+    customRules,
+    buildSaveBody,
+    form,
+    t,
+    sandboxEnabled,
+    savedSandboxEnabled,
+    markSandboxSaved,
+    setEnabled,
+    message,
+  ]);
 
   const handleReset = useCallback(() => {
     form.resetFields();
@@ -220,6 +245,10 @@ export function useSecurityPage() {
     config,
     enabled,
     setEnabled,
+    sandboxEnabled,
+    setSandboxEnabled,
+    sandboxEffective,
+    sandboxReason,
     toolOptions,
     saving,
     handleSave,

@@ -8,7 +8,6 @@ import asyncio
 import html
 import logging
 import re
-import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
@@ -24,7 +23,7 @@ from telegram.error import (
     TimedOut,
 )
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
     ImageContent,
     VideoContent,
@@ -37,6 +36,7 @@ from ....config.config import TelegramConfig as TelegramChannelConfig
 from ....constant import WORKING_DIR
 from .format_html import markdown_to_telegram_html
 from ..utils import file_url_to_local_path
+from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -61,7 +61,15 @@ _RECONNECT_FACTOR = 1.8
 _POLLING_STATUS_CHECK_INTERVAL_S = 15
 _POLLING_NETWORK_RETRY_BASE_S = 5.0
 _POLLING_NETWORK_RETRY_MAX_S = 60.0
-_POLLING_CONFLICT_RETRY_DELAY_S = 10.0
+# Worst-case client-side lifetime of an in-flight getUpdates request; the
+# conflict backoff cap must exceed it so a stale poll is surely gone.
+_GET_UPDATES_READ_TIMEOUT_S = 20
+# Conflict backoff: start small (most conflicts are transient self-overlaps),
+# escalate up to a cap above the worst-case old-connection lifetime.
+_POLLING_CONFLICT_RETRY_BASE_S = 5.0
+_POLLING_CONFLICT_RETRY_MAX_S = _GET_UPDATES_READ_TIMEOUT_S + 1.0
+# Grace period after shutdown for the HTTP session to fully close.
+_TEARDOWN_SETTLE_S = 0.5
 
 _MEDIA_ATTRS: list[tuple[str, type, Any, str]] = [
     ("document", FileContent, ContentType.FILE, "file_url"),
@@ -92,6 +100,13 @@ class _PollingReconnectRequested(Exception):
         self.reason = reason
         self.attempt = attempt
         self.delay = delay
+
+
+def _telegram_base_urls(base_url: str) -> tuple[str, str]:
+    root = (base_url or "").strip().rstrip("/")
+    if not root:
+        return "", ""
+    return f"{root}/bot", f"{root}/file/bot"
 
 
 async def _download_telegram_file(
@@ -135,6 +150,7 @@ async def _resolve_telegram_file_url(
     bot: Any,
     file_id: str,
     bot_token: str,
+    base_url: str = "",
 ) -> str:
     """Resolve the remote URL for a Telegram file.
 
@@ -153,7 +169,9 @@ async def _resolve_telegram_file_url(
         return ""
     if file_path.startswith("http"):
         return file_path
-    return f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+    _, base_file_url = _telegram_base_urls(base_url)
+    base_file_url = base_file_url or "https://api.telegram.org/file/bot"
+    return f"{base_file_url}{bot_token}/{file_path}"
 
 
 async def _build_content_parts_from_message(
@@ -284,6 +302,7 @@ class TelegramChannel(BaseChannel):
     """Telegram channel: Bot API polling; session_id = telegram:{chat_id}."""
 
     channel = "telegram"
+    _STREAM_DELTA_MIN_INTERVAL_S = _STREAM_EDIT_INTERVAL_S
     uses_manager_queue = True
 
     def __init__(
@@ -295,34 +314,38 @@ class TelegramChannel(BaseChannel):
         http_proxy_auth: str,
         bot_prefix: str,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
         media_dir: str = "",
         workspace_dir: Path | None = None,
         show_typing: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
+        no_text_debounce: bool = True,
         dm_policy: str = "open",
         group_policy: str = "open",
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
         streaming_enabled: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
+        base_url: str = "",
     ):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config,
+            no_text_debounce=no_text_debounce,
             dm_policy=dm_policy,
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
             require_mention=require_mention,
             streaming_enabled=streaming_enabled,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self._bot_token = bot_token
+        self._base_url = (base_url or "").strip().rstrip("/")
         self._http_proxy = http_proxy or ""
         self._http_proxy_auth = http_proxy_auth or ""
         self.bot_prefix = bot_prefix
@@ -347,6 +370,15 @@ class TelegramChannel(BaseChannel):
         self._pending_reconnect_delay_s = _RECONNECT_INITIAL_S
         self._polling_network_error_count = 0
         self._polling_conflict_count = 0
+        # Set when a reconnect is requested so the polling watchdog exits
+        # immediately instead of waiting out its status-check interval.
+        self._reconnect_event = asyncio.Event()
+
+        # Interactive card handler (tool-guard approval cards).
+        from .cards.dispatcher import TelegramCardHandler
+
+        self._card_handler = TelegramCardHandler(self)
+
         if self.enabled and self._bot_token:
             try:
                 self._application = self._build_application()
@@ -368,6 +400,7 @@ class TelegramChannel(BaseChannel):
         from telegram import Update
         from telegram.ext import (
             Application,
+            CallbackQueryHandler,
             ContextTypes,
             MessageHandler,
             filters,
@@ -384,7 +417,10 @@ class TelegramChannel(BaseChannel):
             return self._http_proxy
 
         builder = Application.builder().token(self._bot_token)
-        builder = builder.get_updates_read_timeout(20)
+        base_url, base_file_url = _telegram_base_urls(self._base_url)
+        if base_url:
+            builder = builder.base_url(base_url).base_file_url(base_file_url)
+        builder = builder.get_updates_read_timeout(_GET_UPDATES_READ_TIMEOUT_S)
         builder = builder.get_updates_connect_timeout(10)
         proxy = proxy_url()
         if proxy:
@@ -428,28 +464,6 @@ class TelegramChannel(BaseChannel):
             sender_id = str(getattr(user, "id", "")) if user else chat_id
             is_group = meta.get("is_group", False)
 
-            allowed, error_msg = self._check_allowlist(
-                sender_id,
-                is_group,
-            )
-            if not allowed:
-                logger.info(
-                    "telegram allowlist blocked: sender=%s is_group=%s",
-                    sender_id,
-                    is_group,
-                )
-                try:
-                    await context.bot.send_message(
-                        chat_id=chat_id,
-                        text=error_msg,
-                    )
-                except Exception:
-                    logger.debug(
-                        "telegram reject failed chat_id=%s",
-                        chat_id,
-                    )
-                return
-
             if not self._check_group_mention(is_group, meta):
                 return
 
@@ -460,30 +474,25 @@ class TelegramChannel(BaseChannel):
                 "meta": meta,
             }
             if self._enqueue is not None:
-                self._start_typing(chat_id)
-                self._is_processing[chat_id] = True
                 self._enqueue(native)
             else:
                 logger.warning("telegram: _enqueue not set, message dropped")
 
         app.add_handler(MessageHandler(filters.ALL, handle_message))
-        return app
 
-    def _apply_no_text_debounce(
-        self,
-        session_id: str,
-        content_parts: list[Any],
-    ) -> tuple[bool, list[Any]]:
-        """Process media-only Telegram messages without waiting for text."""
-        has_media = any(
-            getattr(part, "type", None)
-            not in (ContentType.TEXT, ContentType.REFUSAL)
-            for part in content_parts
-        )
-        if has_media:
-            pending = self._pending_content_by_session.pop(session_id, [])
-            return True, pending + list(content_parts)
-        return super()._apply_no_text_debounce(session_id, content_parts)
+        # Inline keyboard callback handler (tool-guard approval buttons).
+        async def handle_callback_query(
+            update: Update,
+            context: ContextTypes.DEFAULT_TYPE,  # noqa: ARG001
+        ) -> None:
+            del context  # required by PTB handler signature
+            query = update.callback_query
+            if query is None:
+                return
+            await self._card_handler.handle_callback_query(query)
+
+        app.add_handler(CallbackQueryHandler(handle_callback_query))
+        return app
 
     @staticmethod
     def _looks_like_polling_conflict(error: Exception) -> bool:
@@ -510,10 +519,13 @@ class TelegramChannel(BaseChannel):
         if reason == "conflict":
             self._polling_conflict_count += 1
             self._polling_network_error_count = 0
-            return (
-                self._polling_conflict_count,
-                _POLLING_CONFLICT_RETRY_DELAY_S,
+            attempt = self._polling_conflict_count
+            delay = min(
+                _POLLING_CONFLICT_RETRY_BASE_S
+                * (_RECONNECT_FACTOR ** (attempt - 1)),
+                _POLLING_CONFLICT_RETRY_MAX_S,
             )
+            return attempt, delay
 
         self._polling_network_error_count += 1
         self._polling_conflict_count = 0
@@ -561,6 +573,9 @@ class TelegramChannel(BaseChannel):
                     reason,
                     stop_err,
                 )
+        # Wake the polling watchdog so the cycle exits without waiting out
+        # its status-check interval.
+        self._reconnect_event.set()
 
     @classmethod
     def from_env(
@@ -580,6 +595,7 @@ class TelegramChannel(BaseChannel):
             process=process,
             enabled=os.getenv("TELEGRAM_CHANNEL_ENABLED", "0") == "1",
             bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
+            base_url=os.getenv("TELEGRAM_BASE_URL", ""),
             http_proxy=os.getenv("TELEGRAM_HTTP_PROXY", ""),
             http_proxy_auth=os.getenv("TELEGRAM_HTTP_PROXY_AUTH", ""),
             bot_prefix=os.getenv("TELEGRAM_BOT_PREFIX", ""),
@@ -598,9 +614,8 @@ class TelegramChannel(BaseChannel):
         process: ProcessHandler,
         config: Union[TelegramChannelConfig, dict],
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
+        no_text_debounce: bool = True,
         workspace_dir: Path | None = None,
     ) -> "TelegramChannel":
         if isinstance(config, dict):
@@ -619,13 +634,14 @@ class TelegramChannel(BaseChannel):
             process=process,
             enabled=bool(c.get("enabled", False)),
             bot_token=_get_str("bot_token"),
+            base_url=_get_str("base_url"),
             http_proxy=_get_str("http_proxy"),
             http_proxy_auth=_get_str("http_proxy_auth"),
             bot_prefix=_get_str("bot_prefix"),
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
+            no_text_debounce=no_text_debounce,
             workspace_dir=workspace_dir,
             show_typing=show_typing,
             dm_policy=c.get("dm_policy") or "open",
@@ -634,6 +650,12 @@ class TelegramChannel(BaseChannel):
             deny_message=c.get("deny_message") or "",
             require_mention=c.get("require_mention", False),
             streaming_enabled=bool(c.get("streaming_enabled", False)),
+            access_control_dm=bool(
+                c.get("access_control_dm", False),
+            ),
+            access_control_group=bool(
+                c.get("access_control_group", False),
+            ),
         )
 
     def _chunk_text(self, text: str) -> list[str]:
@@ -893,7 +915,6 @@ class TelegramChannel(BaseChannel):
         if state is None:
             state = {
                 "message_ids": {},
-                "last_edit_ts": {},
             }
             send_meta["_tg_stream"] = state
         return state
@@ -1021,7 +1042,6 @@ class TelegramChannel(BaseChannel):
         )
         if msg_id:
             state["message_ids"][stream_type] = msg_id
-            state["last_edit_ts"][stream_type] = time.monotonic()
 
     async def on_streaming_delta(
         self,
@@ -1032,14 +1052,10 @@ class TelegramChannel(BaseChannel):
         stream_type: str,
         accumulated_text: str = "",
     ) -> None:
-        """Throttled plain-text edit to show incremental progress."""
+        """Plain-text edit to show incremental progress."""
         state = self._get_stream_state(send_meta)
         msg_id = state["message_ids"].get(stream_type)
         if not msg_id:
-            return
-        now = time.monotonic()
-        last_ts = state["last_edit_ts"].get(stream_type, 0.0)
-        if now - last_ts < _STREAM_EDIT_INTERVAL_S:
             return
         chat_id = send_meta.get("chat_id") or to_handle
         if not chat_id:
@@ -1053,14 +1069,12 @@ class TelegramChannel(BaseChannel):
             display_text = (
                 "..." + display_text[-(TELEGRAM_MAX_MESSAGE_LENGTH - 4) :]
             )
-        success = await self._edit_stream_message(
+        await self._edit_stream_message(
             chat_id,
             msg_id,
             display_text,
             use_html=False,
         )
-        if success:
-            state["last_edit_ts"][stream_type] = now
 
     async def on_streaming_end(
         self,
@@ -1078,7 +1092,6 @@ class TelegramChannel(BaseChannel):
         """
         state = self._get_stream_state(send_meta)
         msg_id = state["message_ids"].pop(stream_type, None)
-        state["last_edit_ts"].pop(stream_type, None)
         chat_id = send_meta.get("chat_id") or to_handle
         if not chat_id:
             return
@@ -1091,10 +1104,8 @@ class TelegramChannel(BaseChannel):
         # normal send so the reply is not silently lost.
         if not msg_id:
             await self.send(to_handle, final_text, send_meta)
-            return
-
-        # If text fits in a single message, edit in place
-        if len(final_text) <= TELEGRAM_SEND_CHUNK_SIZE:
+        elif len(final_text) <= TELEGRAM_SEND_CHUNK_SIZE:
+            # Text fits in a single message — edit in place.
             html_text = markdown_to_telegram_html(final_text)
             success = await self._edit_stream_message(
                 chat_id,
@@ -1109,12 +1120,11 @@ class TelegramChannel(BaseChannel):
                     final_text,
                     use_html=False,
                 )
-            return
-
-        # Text too long for a single edit — delete placeholder and use
-        # the normal chunked send path (same as non-streaming).
-        await self._delete_message(chat_id, msg_id)
-        await self.send(to_handle, final_text, send_meta)
+        else:
+            # Text too long for a single edit — delete placeholder and
+            # use the normal chunked send path (same as non-streaming).
+            await self._delete_message(chat_id, msg_id)
+            await self.send(to_handle, final_text, send_meta)
 
     # ------------------------------------------------------------------
     # Event hooks
@@ -1127,7 +1137,16 @@ class TelegramChannel(BaseChannel):
         event,
         send_meta: dict,
     ) -> None:
-        """Message completed — send content but keep typing active."""
+        """Render card-flagged events via the card handler; else default."""
+        if await self._card_handler.try_send_card_for_event(
+            to_handle,
+            event,
+            send_meta,
+        ):
+            # Re-start typing after sending, in case more tool calls follow.
+            if self._is_processing.get(to_handle, False):
+                self._start_typing(to_handle)
+            return
         await super().on_event_message_completed(
             request,
             to_handle,
@@ -1138,6 +1157,20 @@ class TelegramChannel(BaseChannel):
         if self._is_processing.get(to_handle, False):
             self._start_typing(to_handle)
 
+    async def _before_consume_process(
+        self,
+        request: Any,
+    ) -> None:
+        """Start typing indicator when processing actually begins.
+
+        Called after the no-text debounce check passes, so the typing
+        indicator only starts for messages that will be processed — not
+        for file-only messages buffered while waiting for text input.
+        """
+        to_handle = self.get_to_handle_from_request(request)
+        self._is_processing[to_handle] = True
+        self._start_typing(to_handle)
+
     async def _on_process_completed(
         self,
         request,
@@ -1147,7 +1180,6 @@ class TelegramChannel(BaseChannel):
         """All events done — clear processing flag and stop typing."""
         self._is_processing.pop(to_handle, None)
         self._stop_typing(to_handle)
-        await super()._on_process_completed(request, to_handle, send_meta)
 
     async def _on_consume_error(
         self,
@@ -1268,6 +1300,7 @@ class TelegramChannel(BaseChannel):
         self._pending_reconnect_attempt = 0
         self._pending_reconnect_delay_s = _RECONNECT_INITIAL_S
         self._polling_error_task = None
+        self._reconnect_event.clear()
 
         def _on_poll_error(exc) -> None:
             if (
@@ -1340,7 +1373,7 @@ class TelegramChannel(BaseChannel):
 
         await app.updater.start_polling(
             bootstrap_retries=0,
-            allowed_updates=["message", "edited_message"],
+            allowed_updates=["message", "edited_message", "callback_query"],
             error_callback=_on_poll_error,
         )
         await app.start()
@@ -1348,7 +1381,15 @@ class TelegramChannel(BaseChannel):
         logger.info("telegram: polling started (receiving updates)")
 
         while getattr(app.updater, "running", False):
-            await asyncio.sleep(_POLLING_STATUS_CHECK_INTERVAL_S)
+            try:
+                await asyncio.wait_for(
+                    self._reconnect_event.wait(),
+                    timeout=_POLLING_STATUS_CHECK_INTERVAL_S,
+                )
+            except asyncio.TimeoutError:
+                continue
+            else:
+                break
 
         if self._polling_error_task:
             try:
@@ -1386,7 +1427,12 @@ class TelegramChannel(BaseChannel):
             if getattr(app, "running", False):
                 await app.stop()
             await app.shutdown()
+            # Give the closed HTTP session and Telegram's server side a brief
+            # moment to release the old getUpdates connection.
+            await asyncio.sleep(_TEARDOWN_SETTLE_S)
         except Exception as exc:
+            # CancelledError is BaseException, so it propagates and is not
+            # swallowed here (keeps stop()'s cancellation working).
             logger.debug("telegram teardown: %s", exc)
 
     async def _run_polling(self) -> None:

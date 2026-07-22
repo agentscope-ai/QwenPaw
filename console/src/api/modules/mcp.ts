@@ -4,6 +4,8 @@ import type {
   MCPClientCreateRequest,
   MCPClientUpdateRequest,
   MCPToolInfo,
+  MCPAccessPrincipalOption,
+  MCPAccessPolicy,
   MCPOAuthStartRequest,
   MCPOAuthStartResponse,
   MCPOAuthStatusResponse,
@@ -43,7 +45,7 @@ export const mcpApi = {
    * Toggle MCP client enabled status
    */
   toggleMCPClient: (clientKey: string) =>
-    request<MCPClientInfo>(`/mcp/${encodeURIComponent(clientKey)}/toggle`, {
+    request<MCPClientInfo>(`/mcp/toggle/${encodeURIComponent(clientKey)}`, {
       method: "PATCH",
     }),
 
@@ -59,7 +61,37 @@ export const mcpApi = {
    * List tools from a connected MCP server
    */
   listMCPTools: (clientKey: string) =>
-    request<MCPToolInfo[]>(`/mcp/${encodeURIComponent(clientKey)}/tools`),
+    request<MCPToolInfo[]>(`/mcp/tools/${encodeURIComponent(clientKey)}`),
+
+  /**
+   * List recent source-scoped principals for MCP access rules.
+   */
+  listMCPAccessPrincipals: () =>
+    request<MCPAccessPrincipalOption[]>("/mcp/access-principals"),
+
+  /**
+   * Get saved MCP access policy. Does not require the MCP server to be online.
+   */
+  getMCPPolicy: (clientKey: string) =>
+    request<MCPAccessPolicy>(`/mcp/policy/${encodeURIComponent(clientKey)}`),
+
+  /**
+   * Update saved MCP access policy. Does not require the MCP server to be online.
+   */
+  updateMCPPolicy: (clientKey: string, body: MCPAccessPolicy) =>
+    request<MCPAccessPolicy>(`/mcp/policy/${encodeURIComponent(clientKey)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  /**
+   * Update tool whitelist for an MCP client
+   */
+  updateMCPToolWhitelist: (clientKey: string, tools: string[] | null) =>
+    request<MCPToolInfo[]>(`/mcp/tools/${encodeURIComponent(clientKey)}`, {
+      method: "PUT",
+      body: JSON.stringify({ tools }),
+    }),
 
   /**
    * Start an OAuth 2.1 PKCE flow for a remote MCP client.
@@ -67,7 +99,7 @@ export const mcpApi = {
    */
   startOAuth: (clientKey: string, body: MCPOAuthStartRequest) =>
     request<MCPOAuthStartResponse>(
-      `/mcp/${encodeURIComponent(clientKey)}/oauth/start`,
+      `/mcp/oauth/start/${encodeURIComponent(clientKey)}`,
       {
         method: "POST",
         body: JSON.stringify(body),
@@ -79,7 +111,7 @@ export const mcpApi = {
    */
   getOAuthStatus: (clientKey: string) =>
     request<MCPOAuthStatusResponse>(
-      `/mcp/${encodeURIComponent(clientKey)}/oauth/status`,
+      `/mcp/oauth/status/${encodeURIComponent(clientKey)}`,
     ),
 
   /**
@@ -87,7 +119,7 @@ export const mcpApi = {
    */
   revokeOAuth: (clientKey: string) =>
     request<{ message: string }>(
-      `/mcp/${encodeURIComponent(clientKey)}/oauth`,
+      `/mcp/oauth/${encodeURIComponent(clientKey)}`,
       { method: "DELETE" },
     ),
 };

@@ -52,6 +52,23 @@ qwenpaw app --log-level debug           # Verbose logging
 
 > **Note:** The `--workers` option is deprecated for stability reasons. QwenPaw is designed to run with a single worker process. Multi-worker mode can cause issues with in-memory state management and WebSocket connections. This option will be removed in a future version.
 
+### qwenpaw tui
+
+Open the bundled terminal chat UI. It runs QwenPaw through the current Python
+environment, so it is useful for development installs and shell-first
+workflows.
+
+```bash
+qwenpaw                         # Open the TUI with the active agent
+qwenpaw tui --agent writer      # Open the TUI with a specific agent
+qwenpaw .                       # Bind this TUI session to the current project
+qwenpaw tui /path/to/repo       # Bind this TUI session to another project
+```
+
+Passing a project directory enables Coding Mode for that TUI session and uses
+the directory as the active project. This is session-scoped; it does not write
+to `agent.json` or change the project selected in the Console.
+
 ### Console
 
 Once `qwenpaw app` is running, open `http://127.0.0.1:8088/` in your browser to
@@ -268,7 +285,7 @@ Manage environment variables used by tools and skills at runtime.
 ```bash
 qwenpaw env list
 qwenpaw env set TAVILY_API_KEY "tvly-xxxxxxxx"
-qwenpaw env set GITHUB_TOKEN "ghp_xxxxxxxx"
+qwenpaw env set GITHUB_TOKEN "ghp_xxxxxxxx"  # fine-grained PATs starting with github_pat_ are also supported
 qwenpaw env delete TAVILY_API_KEY
 ```
 
@@ -290,25 +307,17 @@ subcommand); use `remove` to uninstall custom channels (no `uninstall`).
 
 **Alias:** You can use `qwenpaw channel` (singular) as a shorthand for `qwenpaw channels`.
 
-| Command                          | What it does                                                                                                      |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `qwenpaw channels list`          | Show all channels and their status (secrets masked)                                                               |
-| `qwenpaw channels send`          | Send a one-way message to a user/session via a channel (requires all 5 parameters)                                |
-| `qwenpaw channels install <key>` | Install a channel into `custom_channels/`: create stub or use `--path`/`--url`                                    |
-| `qwenpaw channels add <key>`     | Install and add to config; built-in channels only get config entry; supports `--path`/`--url`                     |
-| `qwenpaw channels remove <key>`  | Remove a custom channel from `custom_channels/` (built-ins cannot be removed); `--keep-config` keeps config entry |
-| `qwenpaw channels config`        | Interactively enable/disable channels and fill in credentials                                                     |
+| Command                   | What it does                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------------- |
+| `qwenpaw channels list`   | Show all channels and their status (secrets masked)                                |
+| `qwenpaw channels send`   | Send a one-way message to a user/session via a channel (requires all 5 parameters) |
+| `qwenpaw channels config` | Interactively enable/disable channels and fill in credentials                      |
 
 **Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
 
 ```bash
 qwenpaw channels list                    # See default agent's channels
 qwenpaw channels list --agent-id abc123  # See specific agent's channels
-qwenpaw channels install my_channel      # Create custom channel stub
-qwenpaw channels install my_channel --path ./my_channel.py
-qwenpaw channels add dingtalk            # Add DingTalk to config
-qwenpaw channels remove my_channel       # Remove custom channel (and from config by default)
-qwenpaw channels remove my_channel --keep-config   # Remove module only, keep config entry
 qwenpaw channels config                  # Configure default agent
 qwenpaw channels config --agent-id abc123 # Configure specific agent
 ```
@@ -544,6 +553,19 @@ qwenpaw cron create \
   --target-session "session_id" \
   --text "What are my todo items?"
 
+# Agent: run in the background without channel delivery
+qwenpaw cron create \
+  --agent-id abc123 \
+  --type agent \
+  --schedule-type cron \
+  --name "Refresh search index" \
+  --cron "0 * * * *" \
+  --channel console \
+  --target-user "your_user_id" \
+  --target-session "session_id" \
+  --text "Refresh the search index." \
+  --silent
+
 # Scheduled one-time task (no repeat)
 qwenpaw cron create \
   --type text \
@@ -598,6 +620,7 @@ JSON structure matches the output of `qwenpaw cron get <job_id>`.
 | `--timezone`                                           | user timezone | Schedule timezone (defaults to `user_timezone` from config)                 |
 | `--enabled` / `--no-enabled`                           | enabled       | Create enabled or disabled                                                  |
 | `--mode`                                               | `final`       | `stream` (incremental) or `final` (complete response)                       |
+| `--silent` / `--no-silent`                             | disabled      | Run an `agent` task without delivering its response to the channel          |
 | `--save-result-to-inbox` / `--no-save-result-to-inbox` | server rules  | Save execution results to Inbox (if omitted, server-side defaults are used) |
 | `--repeat-every-days`                                  | no repeat     | `--schedule-type scheduled` only; repeat every N days                       |
 | `--repeat-end-type`                                    | `never`       | For repeated scheduled jobs: `never` / `until` / `count`                    |

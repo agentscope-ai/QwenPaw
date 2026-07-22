@@ -1,15 +1,16 @@
 # 快速开始
 
-本节介绍多种方式安装 QwenPaw：
+本节介绍多种方式安装或开始使用 QwenPaw：
 
-| 安装方式       | 适用场景                 | 优势                         | 前置要求         |
-| -------------- | ------------------------ | ---------------------------- | ---------------- |
-| **pip 安装**   | 熟悉 Python 的开发者     | 灵活控制环境，便于开发调试   | Python 3.10~3.13 |
-| **脚本安装**   | 不想要手动配置环境的用户 | 零配置，自动管理 Python 环境 | 无               |
-| **Docker**     | 容器化部署或生产环境     | 环境隔离，易于迁移           | Docker           |
-| **阿里云 ECS** | 云上稳定运行             | 一键部署，稳定可靠           | 阿里云账号       |
-| **魔搭创空间** | 无本地环境或快速体验     | 一键部署，云端运行，无需安装 | 魔搭账号         |
-| **桌面应用**   | 不熟悉命令行的用户       | 双击即用，图形化界面         | 无               |
+| 安装方式                | 适用场景                 | 优势                                                             | 前置要求                      |
+| ----------------------- | ------------------------ | ---------------------------------------------------------------- | ----------------------------- |
+| **pip 安装**            | 熟悉 Python 的开发者     | 灵活控制环境，便于开发调试                                       | Python 3.11~3.13              |
+| **脚本安装**            | 不想要手动配置环境的用户 | 零配置，自动管理 Python 环境                                     | 无                            |
+| **Docker**              | 容器化部署或生产环境     | 环境隔离，易于迁移                                               | Docker                        |
+| **AgentScope Platform** | 无本地环境或快速体验     | 注册即可免费体验，无需安装，浏览器直接使用，支持 Beta 与正式版本 | 注册 AgentScope Platform 账号 |
+| **阿里云 ECS**          | 云上稳定运行             | 一键部署，稳定可靠                                               | 阿里云账号                    |
+| **魔搭创空间**          | 无本地环境或快速体验     | 一键部署，云端运行，无需安装                                     | 魔搭账号                      |
+| **桌面应用**            | 不熟悉命令行的用户       | 双击即用，图形化界面                                             | 无                            |
 
 > 📖 阅读前请先了解 [项目介绍](./intro)，完成安装与启动后可查看 [控制台](./console)。
 
@@ -24,7 +25,7 @@
 
 ## 方式一：pip 安装
 
-如果你更习惯自行管理 Python 环境（需 Python >= 3.10, < 3.14）：
+如果你更习惯自行管理 Python 环境（需 Python >= 3.11, < 3.14）：
 
 ```bash
 pip install qwenpaw
@@ -187,7 +188,17 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ---
 
-## 方式四：部署到阿里云 ECS
+## 方式四：AgentScope Platform（无需安装）
+
+[AgentScope Platform](https://platform.agentscope.io/) 是 AgentScope 生态的云端体验平台，提供 QwenPaw 的一键部署和在线运行环境，同时支持 Beta 版本和正式版本试用。注册即可免费体验，无需在本地安装或配置运行环境；登录后一键部署，即可直接在浏览器中使用 QwenPaw。
+
+![AgentScope Platform 中的 QwenPaw 一键部署入口与建议反馈入口](https://img.alicdn.com/imgextra/i4/O1CN01eJWlFV24HEB3V2ATv_!!6000000007365-2-tps-2914-1446.png)
+
+如果在 QwenPaw 部署或使用过程中遇到问题，可点击页面右下角的「建议反馈」提交反馈。
+
+---
+
+## 方式五：部署到阿里云 ECS
 
 若希望将 QwenPaw 部署在阿里云上，可使用阿里云 ECS 一键部署：
 
@@ -198,7 +209,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ---
 
-## 方式五：魔搭创空间一键配置（无需安装）
+## 方式六：魔搭创空间一键配置（无需安装）
 
 若不想在本地安装 Python，可通过魔搭创空间将 QwenPaw 部署到云端运行：
 
@@ -209,7 +220,7 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ---
 
-## 方式六：桌面应用
+## 方式七：桌面应用
 
 如果你不习惯使用命令行，可以下载并使用 QwenPaw 的桌面应用版本，无需手动配置 Python 环境或执行命令。
 
@@ -217,23 +228,23 @@ docker run -p 127.0.0.1:8088:8088 \
 
 - ✅ **零配置**：下载后双击即可运行，无需安装 Python 或配置环境变量
 - ✅ **跨平台**：支持 Windows 10+ 和 macOS 14+ (推荐 Apple Silicon)
-- ✅ **可视化**：自动打开浏览器界面，无需手动输入地址
+- ✅ **可视化**：自动打开应用界面，无需手动输入地址
 
 ### 下载与使用
 
 1. **下载安装包**
-   前往 [GitHub Releases](https://github.com/agentscope-ai/QwenPaw/releases) 下载对应系统的版本：
+   前往 [GitHub Releases](https://github.com/agentscope-ai/QwenPaw/releases) 下载对应系统的 Tauri 版本：
 
-   - Windows: `QwenPaw-Setup-<version>.exe`
-   - macOS: `QwenPaw-<version>-macOS.zip`
+   - Windows: `QwenPaw-Tauri-<version>-Windows-setup.exe`
+   - macOS: `QwenPaw-Tauri-<version>-macOS.zip`
 
 2. **安装并启动**
 
    - **Windows**: 双击 `.exe` 文件按向导安装，完成后双击桌面快捷方式启动
-   - **macOS**: 解压 `.zip` 得到 `QwenPaw.app`，首次需右键选择"打开"以绕过系统安全限制
+   - **macOS**: 解压 `.zip` 得到 `QwenPaw Desktop.app`，首次需右键选择"打开"以绕过系统安全限制
 
 3. **首次启动提示**
-   首次启动可能需要 10-60 秒（取决于系统配置），应用需要初始化 Python 环境和加载依赖，请耐心等待浏览器窗口自动打开。
+   首次启动可能需要 10-60 秒（取决于系统配置），应用需要初始化 Python 环境和加载依赖，请耐心等待窗口自动打开。
 
 ### 完整使用指南
 
@@ -248,10 +259,10 @@ docker run -p 127.0.0.1:8088:8088 \
 
 ## 验证安装（可选）
 
-服务启动后,可通过 HTTP 调用 Agent 接口以确认环境正常。接口为 **POST** `/api/agent/process`,请求体为 JSON,支持 SSE 流式响应。单轮请求示例:
+服务启动后,可通过 HTTP 调用 Agent 接口以确认环境正常。接口为 **POST** `/api/console/chat`,请求体为 JSON,支持 SSE 流式响应。单轮请求示例:
 
 ```bash
-curl -N -X POST "http://localhost:8088/api/agent/process" \
+curl -N -X POST "http://localhost:8088/api/console/chat" \
   -H "Content-Type: application/json" \
   -d '{"input":[{"role":"user","content":[{"type":"text","text":"你好"}]}],"session_id":"session123"}'
 ```
@@ -314,6 +325,38 @@ QwenPaw 需要大语言模型才能工作。你可以选择以下任一方式：
 2. 选择要接入的频道
 3. 按照 [频道配置](./channels) 文档获取凭据并填写
 4. 保存后即可在对应 app 中发消息给 QwenPaw
+
+#### 📊 启用 Langfuse tracing
+
+Langfuse tracing 是可选功能。如果不使用 Langfuse，不需要安装额外依赖或配置。
+如需启用，请先安装 Langfuse SDK，并传入 Langfuse 凭据。`LANGFUSE_BASE_URL`
+可以指向 Langfuse Cloud，也可以指向自托管的 Langfuse 实例。
+
+源码或本地部署：
+
+```bash
+pip install "langfuse>=4,<5"
+```
+
+Docker 部署可基于官方镜像构建一个小的自定义镜像：
+
+```dockerfile
+FROM agentscope/qwenpaw:latest
+RUN pip install --no-cache-dir "langfuse>=4,<5"
+```
+
+然后通过环境变量运行 QwenPaw：
+
+```bash
+docker run -p 127.0.0.1:8088:8088 \
+  -e LANGFUSE_SECRET_KEY=sk-lf-... \
+  -e LANGFUSE_PUBLIC_KEY=pk-lf-... \
+  -e LANGFUSE_BASE_URL=https://your-langfuse.example.com \
+  -v qwenpaw-data:/app/working \
+  -v qwenpaw-secrets:/app/working.secret \
+  -v qwenpaw-backups:/app/working.backups \
+  qwenpaw-langfuse:latest
+```
 
 #### 🔧 启用和扩展技能
 

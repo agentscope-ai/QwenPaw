@@ -1,10 +1,6 @@
 import { Dropdown, Button, type MenuProps } from "antd";
-import {
-  SparkMoonLine,
-  SparkSunLine,
-  SparkComputerLine,
-} from "@agentscope-ai/icons";
-import { Check, Edit3, Star } from "lucide-react";
+import { SparkMoonLine, SparkSunLine } from "@agentscope-ai/icons";
+import { Check, Edit3, Star, SunMoon } from "lucide-react";
 import {
   getThemePresetGradient,
   isBuiltInThemePreset,
@@ -21,7 +17,7 @@ import styles from "./index.module.less";
 const ICONS: Record<ThemeMode, ReactNode> = {
   light: <SparkSunLine />,
   dark: <SparkMoonLine />,
-  system: <SparkComputerLine />,
+  system: <SunMoon size="1em" />,
 };
 
 export default function ThemeToggleButton() {

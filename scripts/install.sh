@@ -53,6 +53,7 @@ VERSION=""
 FROM_SOURCE=false
 SOURCE_DIR=""
 EXTRAS=""
+PRERELEASE=false
 
 # ── Parse args ────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -69,6 +70,8 @@ while [[ $# -gt 0 ]]; do
             shift ;;
         --extras)
             EXTRAS="$2"; shift 2 ;;
+        --prerelease)
+            PRERELEASE=true; shift ;;
         -h|--help)
             cat <<EOF
 QwenPaw Installer
@@ -81,6 +84,7 @@ Options:
                         directory; otherwise clone from GitHub.
   --extras <EXTRAS>     Comma-separated optional extras to install
                         (e.g. dev, whisper)
+  --prerelease          Install the latest PyPI release, including pre-releases
   -h, --help            Show this help
 
 Environment:
@@ -244,7 +248,7 @@ if [ "$FROM_SOURCE" = true ]; then
         prepare_console "$SOURCE_DIR"
         prepare_docs "$SOURCE_DIR"
         info "Installing package from source..."
-        uv pip install "${SOURCE_DIR}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --prerelease=allow --index-url "$PYPI_MIRROR"
+        uv pip install "${SOURCE_DIR}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --index-url "$PYPI_MIRROR"
         cleanup_console "$SOURCE_DIR"
         cleanup_docs "$SOURCE_DIR"
     else
@@ -255,7 +259,7 @@ if [ "$FROM_SOURCE" = true ]; then
         prepare_console "$CLONE_DIR"
         prepare_docs "$CLONE_DIR"
         info "Installing package from source..."
-        uv pip install "${CLONE_DIR}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --prerelease=allow --index-url "$PYPI_MIRROR"
+        uv pip install "${CLONE_DIR}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --index-url "$PYPI_MIRROR"
         # CLONE_DIR is cleaned up by trap; no need for cleanup_console/cleanup_docs
     fi
 else
@@ -264,8 +268,13 @@ else
         PACKAGE="qwenpaw==$VERSION"
     fi
 
+    PRERELEASE_ARGS=()
+    if [ "$PRERELEASE" = true ]; then
+        PRERELEASE_ARGS=(--prerelease=allow)
+    fi
+
     info "Installing ${PACKAGE}${EXTRAS_SUFFIX} from PyPI..."
-    uv pip install "${PACKAGE}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --prerelease=allow --quiet --index-url "$PYPI_MIRROR" --refresh-package qwenpaw
+    uv pip install "${PACKAGE}${EXTRAS_SUFFIX}" --python "$QWENPAW_VENV/bin/python" --quiet --index-url "$PYPI_MIRROR" --refresh-package qwenpaw ${PRERELEASE_ARGS[@]+"${PRERELEASE_ARGS[@]}"}
 fi
 
 # Verify the CLI entry point exists

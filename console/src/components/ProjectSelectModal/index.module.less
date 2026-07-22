@@ -1,0 +1,344 @@
+.modal {
+  :global(.ant-modal-body) {
+    padding: 12px 24px 20px;
+  }
+}
+
+.desc {
+  font-size: 13px;
+  color: var(--ant-color-text-secondary);
+  margin: 0 0 12px;
+}
+
+// ---- Tab label with icon --------------------------------------------------
+
+.tabLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+}
+
+// ---- Tab content ----------------------------------------------------------
+
+.tabContent {
+  padding: 8px 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+  font-weight: 500;
+}
+
+.input {
+  font-size: 13px;
+}
+
+.hint {
+  font-size: 11.5px;
+  color: var(--ant-color-text-tertiary);
+  margin: 0;
+}
+
+.alert {
+  font-size: 12.5px;
+}
+
+.workspaceAlert {
+  font-size: 13px;
+}
+
+.currentInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.currentLabel {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+
+.currentPath {
+  font-size: 12px;
+  background: var(--ant-color-fill-quaternary);
+  padding: 3px 6px;
+  border-radius: 4px;
+  word-break: break-all;
+  color: var(--ant-color-primary);
+}
+
+.actionBtn {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+// ---- Clone log box --------------------------------------------------------
+
+.logBox {
+  background: var(--code-bg, #1e1e1e);
+  border-radius: 6px;
+  padding: 8px 12px;
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--text-code, #d4d4d4);
+}
+
+.logLine {
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+// ---- Drop zone (EXACT same CSS as PluginManager/index.module.less) -------
+
+.dropZone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 36px 24px;
+  border: 1.5px dashed var(--ant-color-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+  user-select: none;
+
+  &:hover {
+    border-color: var(--ant-color-primary);
+    background: var(--ant-color-primary-bg);
+
+    .dropIcon {
+      color: var(--ant-color-primary);
+    }
+  }
+}
+
+.dropZoneActive {
+  border-color: var(--ant-color-primary) !important;
+  background: var(--ant-color-primary-bg) !important;
+
+  .dropIcon {
+    color: var(--ant-color-primary) !important;
+  }
+}
+
+.dropIcon {
+  color: var(--ant-color-text-quaternary);
+  transition: color 0.2s ease;
+  margin-bottom: 4px;
+}
+
+.dropPrimary {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ant-color-text);
+}
+
+.dropSecondary {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+
+// ---- Selected path card (EXACT same as PluginManager selectionCard) ------
+
+.selectionCard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 8px;
+  background: var(--ant-color-fill-quaternary);
+  color: var(--ant-color-text);
+}
+
+.selectionName {
+  flex: 1;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// ---- Open Directory: server-side file browser -----------------------------
+
+.browseShortcuts {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.browseBreadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1px;
+  padding: 6px 10px;
+  background: var(--ant-color-fill-quaternary);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  min-height: 32px;
+}
+
+.breadcrumbItem {
+  display: inline-flex;
+  align-items: center;
+}
+
+.breadcrumbSep {
+  color: var(--ant-color-text-quaternary);
+  flex-shrink: 0;
+}
+
+.breadcrumbSeg {
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 3px;
+  color: var(--ant-color-primary);
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--ant-color-primary-bg);
+  }
+}
+
+.breadcrumbCurrent {
+  color: var(--ant-color-text);
+  font-weight: 600;
+  cursor: default;
+
+  &:hover {
+    background: none;
+  }
+}
+
+.browseList {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 8px;
+}
+
+.browseItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.12s;
+  border-bottom: 1px solid
+    var(--ant-color-border-secondary, rgba(0, 0, 0, 0.04));
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: var(--ant-color-primary-bg);
+
+    .browseItemChevron {
+      opacity: 1;
+    }
+  }
+}
+
+.browseItemIcon {
+  color: var(--ant-color-primary);
+  flex-shrink: 0;
+}
+
+.browseItemName {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browseItemChevron {
+  color: var(--ant-color-text-quaternary);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.browseEmpty {
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ant-color-text-secondary);
+}
+
+// ---- Recent projects list -------------------------------------------------
+
+.recentWrap {
+  margin-top: 16px;
+  border-top: 1px solid var(--ant-color-border);
+  padding-top: 12px;
+}
+
+.recentTitle {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ant-color-text-tertiary);
+  margin-bottom: 6px;
+}
+
+.recentItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 6px 8px !important;
+  border-radius: 6px;
+  transition: background 0.12s;
+  border-bottom: none !important;
+
+  &:hover {
+    background: var(--ant-color-fill-tertiary);
+  }
+}
+
+.recentItemActive {
+  background: var(--ant-color-primary-bg) !important;
+
+  .recentName {
+    color: var(--ant-color-primary);
+  }
+}
+
+.recentIcon {
+  color: var(--ant-color-text-secondary);
+  flex-shrink: 0;
+}
+
+.recentName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ant-color-text);
+  min-width: 80px;
+}
+
+.recentPath {
+  font-size: 11px;
+  color: var(--ant-color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  direction: rtl;
+  text-align: left;
+}

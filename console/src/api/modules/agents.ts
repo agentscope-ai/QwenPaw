@@ -3,6 +3,7 @@ import type {
   AgentListResponse,
   AgentProfileConfig,
   CreateAgentRequest,
+  CopyAgentRequest,
   AgentProfileRef,
   ReorderAgentsResponse,
 } from "../types/agents";
@@ -23,11 +24,24 @@ export const agentsApi = {
       body: JSON.stringify(agent),
     }),
 
+  // Copy selected agent configuration files into a new agent
+  copyAgent: (agentId: string, body: CopyAgentRequest) =>
+    request<AgentProfileRef>(`/agents/${agentId}/copy`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   // Update agent configuration
   updateAgent: (agentId: string, agent: AgentProfileConfig) =>
     request<AgentProfileConfig>(`/agents/${agentId}`, {
       method: "PUT",
       body: JSON.stringify(agent),
+    }),
+
+  rebuildMemoryIndex: (agentId: string) =>
+    request<{ status: "completed" }>(`/agents/${agentId}/memory/reindex`, {
+      method: "POST",
+      timeout: 10 * 60 * 1000,
     }),
 
   // Delete agent
@@ -50,6 +64,15 @@ export const agentsApi = {
       {
         method: "PATCH",
         body: JSON.stringify({ enabled }),
+      },
+    ),
+
+  setAgentPinned: (agentId: string, pinned: boolean) =>
+    request<{ success: boolean; agent_id: string; pinned: boolean }>(
+      `/agents/${agentId}/pin`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ pinned }),
       },
     ),
 };

@@ -4,6 +4,9 @@
 Provides utilities to get the correct agent instance for each request.
 """
 from contextvars import ContextVar
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
 from typing import Optional, TYPE_CHECKING
 from fastapi import Request
 from .multi_agent_manager import MultiAgentManager
@@ -27,6 +30,21 @@ _current_session_id: ContextVar[Optional[str]] = ContextVar(
 # Context variable to store current root session id for cross-session approval
 _current_root_session_id: ContextVar[Optional[str]] = ContextVar(
     "current_root_session_id",
+    default=None,
+)
+
+_current_user_id: ContextVar[Optional[str]] = ContextVar(
+    "current_user_id",
+    default=None,
+)
+
+_current_channel: ContextVar[Optional[str]] = ContextVar(
+    "current_channel",
+    default=None,
+)
+
+_current_approval_route: ContextVar[Optional[dict]] = ContextVar(
+    "current_approval_route",
     default=None,
 )
 
@@ -118,6 +136,27 @@ async def get_agent_for_request(
         ) from e
 
 
+def get_coding_dir(workspace: "Workspace") -> Path:
+    """Return the active coding project directory for *workspace*.
+
+    If the agent has set a ``coding_mode.project_dir`` in its config, that
+    path is returned.  Otherwise the agent's default ``workspace_dir`` is used.
+    """
+    from ..config.config import load_agent_config
+
+    try:
+        config = load_agent_config(workspace.agent_id)
+        project_dir = (
+            config.coding_mode.project_dir if config.coding_mode else None
+        )
+    except Exception:
+        project_dir = None
+
+    if project_dir:
+        return Path(project_dir).expanduser().resolve()
+    return workspace.workspace_dir
+
+
 def get_active_agent_id() -> str:
     """Get current active agent ID from config.
 
@@ -156,6 +195,16 @@ def set_current_session_id(session_id: str) -> None:
     _current_session_id.set(session_id)
 
 
+@contextmanager
+def scoped_session_id(session_id: str) -> Iterator[None]:
+    """Temporarily expose one session through the request context."""
+    token = _current_session_id.set(session_id)
+    try:
+        yield
+    finally:
+        _current_session_id.reset(token)
+
+
 def get_current_session_id() -> Optional[str]:
     return _current_session_id.get()
 
@@ -176,3 +225,33 @@ def get_current_root_session_id() -> Optional[str]:
         Root session ID or None
     """
     return _current_root_session_id.get()
+
+
+def set_current_user_id(user_id: Optional[str]) -> None:
+    """Set current user ID in context."""
+    _current_user_id.set(user_id)
+
+
+def get_current_user_id() -> Optional[str]:
+    """Get current user ID from context."""
+    return _current_user_id.get()
+
+
+def set_current_channel(channel: Optional[str]) -> None:
+    """Set current channel in context."""
+    _current_channel.set(channel)
+
+
+def get_current_channel() -> Optional[str]:
+    """Get current channel from context."""
+    return _current_channel.get()
+
+
+def set_current_approval_route(route: Optional[dict]) -> None:
+    """Set routing metadata used only for spawned-child approvals."""
+    _current_approval_route.set(route)
+
+
+def get_current_approval_route() -> Optional[dict]:
+    """Return routing metadata used only for spawned-child approvals."""
+    return _current_approval_route.get()

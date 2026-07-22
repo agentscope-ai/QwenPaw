@@ -78,22 +78,33 @@ async def create_trace(
         _write_trace(run_id, payload)
 
 
-async def append_trace_event(
+async def append_trace_events(
     run_id: str,
-    event: Any,
-    *,
-    at: float | None = None,
+    events: list[dict[str, Any]],
 ) -> None:
-    async with _LOCK:
-        payload = _read_trace(run_id)
-        events = payload.get("events", [])
-        events.append(
+    if not events:
+        return
+
+    normalized_events: list[dict[str, Any]] = []
+    for item in events:
+        if not isinstance(item, dict):
+            continue
+        normalized_events.append(
             {
-                "at": at if at is not None else time.time(),
-                "event": _to_jsonable(event),
+                "at": item.get("at")
+                if item.get("at") is not None
+                else time.time(),
+                "event": _to_jsonable(item.get("event")),
             },
         )
-        payload["events"] = events
+    if not normalized_events:
+        return
+
+    async with _LOCK:
+        payload = _read_trace(run_id)
+        existing_events = payload.get("events", [])
+        existing_events.extend(normalized_events)
+        payload["events"] = existing_events
         _write_trace(run_id, payload)
 
 
@@ -114,11 +125,13 @@ def parse_session_timestamp(value: Any) -> float | None:
     if not isinstance(value, str) or not value.strip():
         return None
     raw = value.strip()
-    formats = ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S")
-    for fmt in formats:
+    try:
+        return datetime.fromisoformat(raw).timestamp()
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
         try:
-            dt = datetime.strptime(raw, fmt)
-            return dt.timestamp()
+            return datetime.strptime(raw, fmt).timestamp()
         except ValueError:
             continue
     return None
@@ -143,8 +156,8 @@ async def read_session_messages(
         )
     except Exception:  # pylint: disable=broad-except
         return []
-    memory = state.get("agent", {}).get("memory", {})
-    return flatten_session_messages(memory.get("content"))
+    agent_state = state.get("agent", {}).get("state", {})
+    return flatten_session_messages(agent_state.get("context"))
 
 
 async def append_trace_from_session_delta(
@@ -164,9 +177,18 @@ async def append_trace_from_session_delta(
     )
     baseline_count = max(baseline_count, 0)
     delta = messages[baseline_count:]
-    for msg in delta:
-        at = parse_session_timestamp(msg.get("timestamp"))
-        await append_trace_event(run_id, msg, at=at)
+    await append_trace_events(
+        run_id,
+        [
+            {
+                "at": parse_session_timestamp(
+                    msg.get("created_at") or msg.get("timestamp"),
+                ),
+                "event": msg,
+            }
+            for msg in delta
+        ],
+    )
     return delta
 
 

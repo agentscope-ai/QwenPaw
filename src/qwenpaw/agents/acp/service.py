@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import atexit
 import os
+import shutil
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
+
+import psutil
 
 from acp import PROTOCOL_VERSION, spawn_agent_process, text_block
 from acp.schema import ClientCapabilities, Implementation
@@ -18,8 +21,35 @@ from .core import (
     ACPConfigurationError,
     ACPSessionError,
 )
+from .node_runtime import build_acp_process_env
 
 MessageHandler = Callable[[dict[str, Any], bool], Awaitable[None]]
+
+
+def _kill_process_tree(pid: int) -> None:
+    """Recursively kill a process and all its descendants (cross-platform)."""
+    try:
+        parent = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return
+    children = parent.children(recursive=True)
+    for child in children:
+        try:
+            child.kill()
+        except psutil.NoSuchProcess:
+            pass
+    try:
+        parent.kill()
+    except psutil.NoSuchProcess:
+        pass
+
+
+def _resolve_process_command(command: str, env: dict[str, str]) -> str:
+    path = next(
+        (value for key, value in env.items() if key.lower() == "path"),
+        None,
+    )
+    return shutil.which(command, path=path) or command
 
 
 @dataclass
@@ -266,13 +296,19 @@ class ACPService:
         )
         exit_stack = AsyncExitStack()
         try:
+            process_env = build_acp_process_env(
+                {**os.environ, **agent_config.env},
+            )
             conn, process = await exit_stack.enter_async_context(
                 spawn_agent_process(
                     client,
-                    agent_config.command,
+                    _resolve_process_command(
+                        agent_config.command,
+                        process_env,
+                    ),
                     *agent_config.args,
                     cwd=cwd,
-                    env={**os.environ, **agent_config.env},
+                    env=process_env,
                     transport_kwargs={
                         "limit": agent_config.stdio_buffer_limit_bytes,
                     },
@@ -380,7 +416,22 @@ class ACPService:
                     await conversation.prompt_task
                 except Exception:
                     pass
+            # Fix #4615: Handle orphan processes for ACP started via node
+            # wrapper script.
+            try:
+                await asyncio.wait_for(
+                    conversation.conn.close_session(
+                        session_id=conversation.acp_session_id,
+                    ),
+                    timeout=5.0,
+                )
+            except Exception:
+                pass
         finally:
+            # Fix #4615: Handle orphan processes for ACP executed directly
+            # by binary.
+            # Force kill the entire process tree to prevent resource leaks.
+            _kill_process_tree(conversation.process.pid)
             await conversation.exit_stack.aclose()
 
     @staticmethod

@@ -112,23 +112,31 @@ export function DataTables({ byModelData, byDateData }: DataTablesProps) {
   return (
     <>
       {byModelData.length > 0 && (
-        <Card className={styles.tableCard} title={t("tokenUsage.byModel")}>
+        <Card
+          className={`${styles.tableCard} mobile-scroll-x`}
+          title={t("tokenUsage.byModel")}
+        >
           <Table
             columns={byModelColumns}
             dataSource={byModelData}
             pagination={{ pageSize: 10 }}
             size="small"
+            scroll={{ x: "max-content" }}
           />
         </Card>
       )}
 
       {byDateData.length > 0 && (
-        <Card className={styles.tableCard} title={t("tokenUsage.byDate")}>
+        <Card
+          className={`${styles.tableCard} mobile-scroll-x`}
+          title={t("tokenUsage.byDate")}
+        >
           <Table
             columns={byDateColumns}
             dataSource={byDateData}
             pagination={{ pageSize: 10 }}
             size="small"
+            scroll={{ x: "max-content" }}
           />
         </Card>
       )}

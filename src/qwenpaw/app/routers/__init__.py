@@ -7,6 +7,7 @@ from .agents import router as agents_router
 from .config import router as config_router
 from .local_models import router as local_models_router
 from .providers import router as providers_router
+from .market import router as market_router
 from .skills import router as skills_router
 from .skills_stream import router as skills_stream_router
 from .workspace import router as workspace_router
@@ -15,8 +16,9 @@ from .mcp import router as mcp_router
 from .mcp_oauth import router as mcp_oauth_router
 from .tools import router as tools_router
 from ..crons.api import router as cron_router
-from ..runner.api import router as runner_router
+from ..chats.api import router as runner_router
 from .console import router as console_router
+from .fork import router as fork_router
 from .token_usage import router as token_usage_router
 from .agent_stats import router as agent_stats_router
 from .auth import router as auth_router
@@ -24,21 +26,28 @@ from .messages import router as messages_router
 from .files import router as files_router
 from .settings import router as settings_router
 from .plugins import router as plugins_router
+from .frontend_plugin import router as frontend_plugin_router
 from .backup import router as backup_router
-from .plan import router as plan_router
+from .git import router as git_router
+from .coding_project import router as coding_project_router
+from .access_control import router as access_control_router
+from .provider_oauth import router as provider_oauth_router
+from .pawapps import router as pawapps_router
 
 router = APIRouter()
 
 router.include_router(agents_router)
 router.include_router(config_router)
 router.include_router(console_router)
+router.include_router(fork_router)
 router.include_router(cron_router)
 router.include_router(local_models_router)
-router.include_router(mcp_router)
 router.include_router(mcp_oauth_router)
+router.include_router(mcp_router)
 router.include_router(messages_router)
 router.include_router(providers_router)
 router.include_router(runner_router)
+router.include_router(market_router)
 router.include_router(skills_router)
 router.include_router(skills_stream_router)
 router.include_router(tools_router)
@@ -50,8 +59,13 @@ router.include_router(auth_router)
 router.include_router(files_router)
 router.include_router(settings_router)
 router.include_router(plugins_router)
+router.include_router(frontend_plugin_router)
 router.include_router(backup_router)
-router.include_router(plan_router)
+router.include_router(git_router)
+router.include_router(coding_project_router)
+router.include_router(access_control_router)
+router.include_router(provider_oauth_router)
+router.include_router(pawapps_router)
 
 
 def create_agent_scoped_router() -> APIRouter:

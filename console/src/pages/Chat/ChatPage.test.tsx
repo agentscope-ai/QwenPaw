@@ -12,6 +12,7 @@ import { screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import ChatPage from "./index";
+import { chatExtensions } from "@/plugins/registry/chatExtensions";
 
 // ---------------------------------------------------------------------------
 // Capture AgentScopeRuntimeWebUI options
@@ -26,6 +27,7 @@ const {
   mockGetApiUrl,
   mockSelectedAgent,
   mockSetSelectedAgent,
+  mockGetTranscriptionProviderType,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
@@ -34,6 +36,7 @@ const {
   mockGetApiUrl: vi.fn((p: string) => `/api${p}`),
   mockSelectedAgent: vi.fn(() => "default"),
   mockSetSelectedAgent: vi.fn(),
+  mockGetTranscriptionProviderType: vi.fn(),
 }));
 
 vi.mock("../../hooks/useAppMessage", () => ({
@@ -99,6 +102,13 @@ vi.mock("@/api/modules/chat", () => ({
     setLastUserMessage: vi.fn(),
     getSessionList: vi.fn(() => Promise.resolve([])),
   },
+}));
+
+vi.mock("@/api/modules/agent", () => ({
+  agentApi: {
+    getTranscriptionProviderType: mockGetTranscriptionProviderType,
+  },
+  TranscriptionError: class TranscriptionError extends Error {},
 }));
 
 vi.mock("antd", async (importOriginal) => {
@@ -191,6 +201,7 @@ const mockProviders = [
 // ---------------------------------------------------------------------------
 describe("ChatPage", () => {
   beforeEach(() => {
+    chatExtensions.__resetForTests();
     capturedOptions = null;
     mockListProviders.mockResolvedValue(mockProviders);
     mockGetActiveModels.mockResolvedValue(mockActiveModel);
@@ -198,9 +209,15 @@ describe("ChatPage", () => {
       url: "uploaded.png",
       file_name: "uploaded.png",
     });
+    mockGetTranscriptionProviderType.mockResolvedValue({
+      transcription_provider_type: "disabled",
+    });
   });
 
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    chatExtensions.__resetForTests();
+    vi.clearAllMocks();
+  });
 
   // ── basic rendering ───────────────────────────────────────────────────────
 
@@ -293,6 +310,46 @@ describe("ChatPage", () => {
     );
   });
 
+  it("customFetch applies request payload transforms before sending", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200 } as Response);
+    chatExtensions.addRequestPayloadTransform("plugin-a", {
+      id: "plugin-a.request-context",
+      order: 10,
+      transform: ({ payload, sessionId, selectedAgent }) => ({
+        ...payload,
+        request_context: {
+          session_id: sessionId,
+          agent_id: selectedAgent,
+          datasource_id: "ds-123",
+        },
+      }),
+    });
+
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    await capturedOptions.api.fetch({
+      input: [
+        {
+          role: "user",
+          content: "hello",
+          session: { session_id: "session-1" },
+        },
+      ],
+      signal: undefined,
+    });
+
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body.request_context).toEqual({
+      session_id: "session-1",
+      agent_id: "default",
+      datasource_id: "ds-123",
+    });
+  });
+
   // ── handleFileUpload ──────────────────────────────────────────────────────
 
   it("calls onError and skips upload when file exceeds 10MB", async () => {
@@ -333,6 +390,57 @@ describe("ChatPage", () => {
     expect(mockUploadFile).toHaveBeenCalledWith(smallFile);
     expect(onSuccess).toHaveBeenCalledWith({ url: "/preview/uploaded.png" });
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  // ── voice input mode ───────────────────────────────────────────────────────
+
+  it("does not enable browser speech before transcription provider type loads", async () => {
+    let resolveProviderType!: (value: {
+      transcription_provider_type: string;
+    }) => void;
+    mockGetTranscriptionProviderType.mockReturnValue(
+      new Promise((resolve) => {
+        resolveProviderType = resolve;
+      }),
+    );
+
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    expect(capturedOptions.sender.allowSpeech).toBe(false);
+    expect(capturedOptions.sender.prefix).toBeUndefined();
+
+    act(() => {
+      resolveProviderType({ transcription_provider_type: "disabled" });
+    });
+  });
+
+  it("uses Whisper speech button and disables browser speech when transcription provider is enabled", async () => {
+    mockGetTranscriptionProviderType.mockResolvedValue({
+      transcription_provider_type: "whisper_api",
+    });
+
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    await waitFor(() => {
+      expect(capturedOptions.sender.allowSpeech).toBe(false);
+      expect(capturedOptions.sender.prefix).toBeTruthy();
+    });
+  });
+
+  it("keeps browser speech enabled when transcription provider is disabled", async () => {
+    mockGetTranscriptionProviderType.mockResolvedValue({
+      transcription_provider_type: "disabled",
+    });
+
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    await waitFor(() => {
+      expect(capturedOptions.sender.allowSpeech).toBe(true);
+      expect(capturedOptions.sender.prefix).toBeUndefined();
+    });
   });
 
   // ── multimodal caps ───────────────────────────────────────────────────────

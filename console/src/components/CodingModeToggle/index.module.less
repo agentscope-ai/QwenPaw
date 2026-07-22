@@ -1,0 +1,109 @@
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-color, rgba(0, 0, 0, 0.12));
+  background: transparent;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.55));
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  letter-spacing: 0.01em;
+
+  &:hover:not(:disabled) {
+    border-color: var(--primary-color, #1677ff);
+    color: var(--primary-color, #1677ff);
+    background: var(--primary-bg, rgba(22, 119, 255, 0.06));
+  }
+
+  &.active {
+    border-color: var(--primary-color, #1677ff);
+    color: var(--primary-color, #1677ff);
+    background: var(--primary-bg, rgba(22, 119, 255, 0.08));
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+}
+
+.label {
+  line-height: 1;
+}
+
+// ---- Experimental modal ------------------------------------------------
+
+.modalTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flaskIcon {
+  color: var(--warning-color, #faad14);
+}
+
+.modalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0 8px;
+}
+
+.modalDesc {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  line-height: 1.6;
+}
+
+.modalNote {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.45));
+  background: var(--fill-tertiary, rgba(0, 0, 0, 0.04));
+  border-left: 3px solid var(--warning-color, #faad14);
+  padding: 8px 10px;
+  border-radius: 0 4px 4px 0;
+  line-height: 1.6;
+}
+
+// ---- Dark mode -----------------------------------------------------------
+// Match the GitHub / Resources <Button type="text"> rendered by antd's
+// dark algorithm — same text color and a subdued border.
+:global(.dark-mode) {
+  .toggle {
+    border-color: rgba(255, 255, 255, 0.15);
+    color: rgba(255, 255, 255, 0.85);
+
+    &:hover:not(:disabled) {
+      border-color: #4da3ff;
+      color: #4da3ff;
+      background: rgba(22, 119, 255, 0.12);
+    }
+
+    &.active {
+      border-color: #4da3ff;
+      color: #4da3ff;
+      background: rgba(22, 119, 255, 0.18);
+    }
+  }
+
+  .modalDesc {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .modalNote {
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.06);
+  }
+}

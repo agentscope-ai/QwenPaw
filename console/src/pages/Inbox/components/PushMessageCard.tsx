@@ -5,7 +5,9 @@ import {
   Send,
   MessageSquare,
   Mail,
+  RefreshCw,
   Trash2,
+  Brain,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { PushMessage } from "../types";
@@ -26,7 +28,9 @@ const CHANNEL_ICONS = {
   telegram: Send,
   discord: MessageSquare,
   email: Mail,
+  memory: Brain,
   heartbeat: MessageCircle,
+  skill: RefreshCw,
 };
 
 const CHANNEL_COLORS = {
@@ -35,7 +39,9 @@ const CHANNEL_COLORS = {
   telegram: "#0088CC",
   discord: "#5865F2",
   email: "#EA4335",
+  memory: "#7C3AED",
   heartbeat: "#5865F2",
+  skill: "#1677ff",
 };
 
 const normalizeCronTaskName = (title: string): string =>

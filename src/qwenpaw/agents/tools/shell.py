@@ -11,18 +11,21 @@ import signal
 import subprocess
 import sys
 import tempfile
+from dataclasses import replace
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
-from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.message import TextBlock, ToolResultState
+from agentscope.tool import ToolChunk
 
-from ...constant import WORKING_DIR
 from ...config.context import (
     get_current_shell_command_executable,
     get_current_shell_command_timeout,
     get_current_workspace_dir,
 )
+from ...constant import WORKING_DIR
+from ...runtime.tool_registry import tool_descriptor
+from ...sandbox import ExecutionResult
 
 
 def _kill_process_tree_win32(pid: int) -> None:
@@ -40,6 +43,11 @@ def _kill_process_tree_win32(pid: int) -> None:
         )
     except Exception:
         pass
+
+
+def _windows_shell_creationflags() -> int:
+    """Return Windows process flags for shell commands."""
+    return getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 
 def _collapse_newlines_outside_quotes(cmd: str) -> str:
@@ -295,7 +303,7 @@ def _execute_subprocess_sync(
             text=False,
             cwd=cwd,
             env=env,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+            creationflags=_windows_shell_creationflags(),
         )
 
         # Parent copies are no longer needed — the child inherited its own
@@ -353,13 +361,158 @@ def _execute_subprocess_sync(
                     pass
 
 
+# Extra seconds added to the tool-call deadline to accommodate first-time
+# sandbox creation (user provisioning, profile creation, firewall rules, ACLs).
+# Subsequent calls hit the cache and need no extension.
+_SANDBOX_SETUP_DEADLINE_EXTENSION = 180.0
+
+
+async def _execute_in_sandbox(
+    cmd: str,
+    sandbox_config: Any,
+    timeout: float,
+    cwd: str,
+    env: dict[str, str],
+) -> ExecutionResult:
+    """Execute a shell command inside the sandbox and return raw result.
+
+    On first invocation the sandbox setup (user creation, profile, ACLs,
+    firewall rules) can take 5-100+ seconds. To prevent the ToolCoordinator's
+    deadline from expiring during this one-time setup, we temporarily extend
+    the deadline by _SANDBOX_SETUP_DEADLINE_EXTENSION seconds. The extension
+    is only applied when the call context has a deadline set.
+    """
+    from ...sandbox import create_sandbox
+    from ...tool_calls import get_call_context
+
+    # Sandbox backends rebuild their environment from os.environ. Carry over
+    # the PATH adjusted by the shell entrypoint unless policy set one itself.
+    sandbox_env = dict(sandbox_config.env_vars)
+    if not any(key.upper() == "PATH" for key in sandbox_env):
+        path_key = next(
+            (key for key in env if key.upper() == "PATH"),
+            "PATH",
+        )
+        sandbox_env[path_key] = env[path_key]
+
+    effective_config = replace(
+        sandbox_config,
+        timeout_seconds=int(timeout),
+        env_vars=sandbox_env,
+    )
+
+    # Temporarily extend the tool-call deadline so that sandbox creation
+    # does not consume the user's command timeout budget.
+    ctx = get_call_context()
+    original_deadline = None
+    if ctx is not None and ctx.deadline is not None:
+        original_deadline = ctx.deadline
+        ctx.deadline += _SANDBOX_SETUP_DEADLINE_EXTENSION
+
+    try:
+        async with create_sandbox(effective_config) as sandbox:
+            # Restore the original deadline (plus only the command timeout)
+            # now that sandbox setup is complete.
+            if ctx is not None and original_deadline is not None:
+                now = asyncio.get_event_loop().time()
+                ctx.deadline = now + timeout
+            result = await sandbox.execute(cmd, cwd=cwd)
+    except BaseException:
+        # On failure, restore original deadline to avoid permanent extension
+        if ctx is not None and original_deadline is not None:
+            ctx.deadline = original_deadline
+        raise
+
+    return result
+
+
+_DANGER_NAMES = {
+    "python",
+    "pythonw",
+    "cmd",
+    "powershell",
+    "pwsh",
+    "conhost",
+}
+
+# Prefix: kill/taskkill at command start or after &&, ;, |
+_KILL_PREFIX = r"(?:^|[;&|]\s*)\s*"
+
+# Matches PID-based kills: taskkill /PID 123, kill -9 123, kill 123.
+_KILL_PID_RE = re.compile(
+    rf"{_KILL_PREFIX}(?:taskkill|kill|stop-process)\b"
+    rf".*(?:/PID|-p|-pid|\b)\s*(\d+)",
+    re.IGNORECASE,
+)
+
+# Matches dangerous process names as /IM targets or bare kill targets.
+_DANGER_NAME_RE = re.compile(
+    rf"{_KILL_PREFIX}(?:taskkill|kill|stop-process)\b"
+    rf".*?\b({'|'.join(_DANGER_NAMES)})(?:\.exe)?\b",
+    re.IGNORECASE,
+)
+
+# Shell variables that reference the current/parent PID.
+_SHELL_PID_VARS = {"$$", "$ppid", "$pid"}
+
+
+def _is_dangerous_self_kill(cmd: str) -> bool:
+    """Return True if *cmd* would kill the current process or its parent.
+
+    Uses token-based regex matching to avoid false positives from
+    substring matching (e.g. ``echo "do not kill python"`` is safe).
+
+    Blocks three patterns:
+    1. ``taskkill /IM <dangerous_name>`` — kills by image name.
+    2. ``kill <pid>`` / ``taskkill /PID <pid>`` targeting our PID or
+       parent.
+    3. Shell variable self-kill: ``kill -9 $$``, ``kill $PPID``.
+    """
+    lower = cmd.lower()
+
+    if _DANGER_NAME_RE.search(lower):
+        return True
+
+    if "kill" in lower or "stop-process" in lower:
+        if any(var in lower for var in _SHELL_PID_VARS):
+            return True
+
+    m = _KILL_PID_RE.search(lower)
+    if m:
+        try:
+            target_pid = int(m.group(1))
+            protected_pids = {os.getpid()}
+            if hasattr(os, "getppid"):
+                protected_pids.add(os.getppid())
+            if target_pid in protected_pids:
+                return True
+        except ValueError:
+            pass
+
+    return False
+
+
 # pylint: disable=too-many-branches, too-many-statements
+@tool_descriptor(
+    requires_sandbox=("shell_exec",),
+    async_execution=True,
+    tool_type="shell",
+    target_param="command",
+    policy_name="Bash",
+    ui_description="Execute shell commands",
+    ui_icon="💻",
+)
 async def execute_shell_command(
     command: str,
     timeout: float = 60.0,
     cwd: Optional[Path] = None,
-) -> ToolResponse:
+    sandbox_config: Optional[Any] = None,
+) -> ToolChunk:
     """Execute a shell command and return its output.
+
+    Each call runs in a fresh subprocess — `cd`, `export`, `source`,
+    etc. do NOT persist. Pass `cwd=` or chain in one call
+    (`cd /repo && pytest`).
 
     IMPORTANT: Check the 'Default Shell' field to
     determine which shell is active, and generate commands using the
@@ -373,16 +526,36 @@ async def execute_shell_command(
             Default is 60.0 seconds.
         cwd (`Optional[Path]`, defaults to `None`):
             The working directory for the command execution.
-            If None, defaults to WORKING_DIR.
+            If None, defaults to the agent workspace.
+        sandbox_config (`Optional[Any]`, defaults to `None`):
+            Sandbox execution configuration compiled from governance policy.
+            When provided, the command executes within a sandboxed environment
+            with the specified mount permissions and network restrictions.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             The tool response containing the return code, standard output, and
             standard error of the executed command. If timeout occurs, the
             return code will be -1 and stderr will contain timeout information.
     """
 
     cmd = _collapse_embedded_newlines((command or "").strip())
+
+    if _is_dangerous_self_kill(cmd):
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        "Blocked: this command would terminate the "
+                        "QwenPaw process or its parent. "
+                        "Refusing to execute."
+                    ),
+                ),
+            ],
+        )
 
     if isinstance(timeout, str):
         try:
@@ -418,6 +591,65 @@ async def execute_shell_command(
         or None
     )
 
+    if sandbox_config is not None:
+        # Create a copy with resolved shell and timeout to avoid mutating
+        # the shared config object (it may be reused across tool calls).
+        sandbox_config = replace(
+            sandbox_config,
+            shell_executable=shell_executable,
+            timeout_seconds=int(timeout),
+        )
+        result = await _execute_in_sandbox(
+            cmd,
+            sandbox_config,
+            timeout,
+            str(working_dir),
+            env,
+        )
+        # Sandbox violation: command tried to access something not permitted
+        if result.sandbox_violation:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.DENIED,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Sandbox violation: {result.sandbox_violation}\n"
+                        f"Command was blocked by sandbox security policy.",
+                    ),
+                ],
+                metadata={"sandbox_violation": result.sandbox_violation},
+            )
+        if result.exit_code == 0:
+            response_text = (
+                result.stdout or "Command executed successfully (no output)."
+            )
+            if result.stderr:
+                response_text += f"\n[stderr]\n{result.stderr}"
+        else:
+            parts = [f"Command failed with exit code {result.exit_code}."]
+            if result.stdout:
+                parts.append(f"\n[stdout]\n{result.stdout}")
+            if result.stderr:
+                parts.append(f"\n[stderr]\n{result.stderr}")
+            response_text = "".join(parts)
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=response_text,
+                ),
+            ],
+        )
+
+    import logging as _logging
+
+    _logging.getLogger(__name__).debug(
+        "[sandbox] SKIP: sandbox_config is None, executing directly",
+    )
+
     try:
         if sys.platform == "win32":
             # Windows: use thread pool to avoid asyncio subprocess limitations
@@ -444,15 +676,17 @@ async def execute_shell_command(
             try:
                 # Apply timeout to communicate directly; wait()+communicate()
                 # can hang if descendants keep stdout/stderr pipes open.
-                stdout, stderr = await asyncio.wait_for(
+                from ...tool_calls import cancellable_wait
+
+                stdout, stderr = await cancellable_wait(
                     proc.communicate(),
-                    timeout=timeout,
+                    fallback_secs=timeout,
                 )
                 stdout_str = smart_decode(stdout)
                 stderr_str = smart_decode(stderr)
                 returncode = proc.returncode
 
-            except asyncio.TimeoutError:
+            except (asyncio.TimeoutError, asyncio.CancelledError):
                 stderr_suffix = (
                     f"⚠️ TimeoutError: The command execution exceeded "
                     f"the timeout of {timeout} seconds. "
@@ -511,7 +745,9 @@ async def execute_shell_command(
                 response_parts.append(f"\n[stderr]\n{stderr_str}")
             response_text = "".join(response_parts)
 
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -521,7 +757,9 @@ async def execute_shell_command(
         )
 
     except Exception as e:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",

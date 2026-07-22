@@ -24,7 +24,7 @@ irm https://qwenpaw.agentscope.io/install.ps1 | iex
 
 2. pip 安装
 
-Python环境要求版本号 >= 3.10，<3.14
+Python环境要求版本号 >= 3.11，<3.14
 
 ```
 pip install qwenpaw
@@ -104,10 +104,7 @@ docker run -p 127.0.0.1:8088:8088 \
   agentscope/qwenpaw:latest
 ```
 
-5. 如果你使用的是桌面版（exe/zip），目前需要卸载后重新安装：
-   - 在电脑中卸载 QwenPaw
-   - 下载最新版本：https://qwenpaw.agentscope.io/downloads
-   - 重新安装
+5. 如果你使用的是桌面版（Tauri 版），已内置应用内更新：应用启动时会自动检测新版本并在界面中提示，你可以选择「安装并重启」立即更新，或「稍后更新」在后台下载。也可从下载页手动获取最新版本：https://qwenpaw.agentscope.io/downloads
 
 升级后重启服务 qwenpaw app。
 
@@ -398,7 +395,7 @@ lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-F
 
 ### 如何管理Skill
 
-进入控制台 **智能体 → 技能**，可以启用/禁用技能、创建自定义技能、以及从 Skills Hub 中导入技能。详情请见文档 [Skills](https://qwenpaw.agentscope.io/docs/skills)。
+进入控制台 **智能体 → 技能**，可以启用/禁用技能，并通过 **添加技能** 入口创建技能、通过Zip/URL上传、或浏览技能市场。详情请见文档 [Skills](https://qwenpaw.agentscope.io/docs/skills)。
 
 ### 如何配置MCP
 

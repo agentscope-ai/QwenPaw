@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from typing import Any
 
 from ..constant import WORKING_DIR
+
+logger = logging.getLogger(__name__)
 
 _INBOX_PATH = WORKING_DIR / "inbox_events.json"
 _LOCK = asyncio.Lock()
@@ -17,7 +20,19 @@ _MAX_EVENTS = 5000
 def _load_events() -> list[dict[str, Any]]:
     if not _INBOX_PATH.exists():
         return []
-    data = json.loads(_INBOX_PATH.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(_INBOX_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        # Corrupted or unreadable inbox file — treat as empty rather than
+        # crashing every subsequent read. The next append_event will
+        # atomically replace the file with a valid payload. Log the
+        # error so permission/disk-full issues are not silently lost.
+        logger.warning(
+            "Failed to load inbox events from %s: %s",
+            _INBOX_PATH,
+            exc,
+        )
+        return []
     if not isinstance(data, list):
         return []
     return [item for item in data if isinstance(item, dict)]

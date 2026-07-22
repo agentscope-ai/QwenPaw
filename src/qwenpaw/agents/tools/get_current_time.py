@@ -6,14 +6,23 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...config import load_config, save_config
+from ...runtime.tool_registry import tool_descriptor
 
 logger = logging.getLogger(__name__)
 
 
-async def get_current_time() -> ToolResponse:
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    policy_name="GetCurrentTime",
+    ui_description="Get current date and time",
+    ui_icon="🕐",
+)
+async def get_current_time() -> ToolChunk:
     """Get the current time in format `%Y-%m-%d %H:%M:%S TZ (Day)`,
     e.g. "2026-02-13 19:30:45 Asia/Shanghai (Friday)".
 
@@ -21,7 +30,7 @@ async def get_current_time() -> ToolResponse:
     the current time is needed for other operations.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             The current time string,
             e.g. "2026-02-13 19:30:45 Asia/Shanghai (Friday)".
     """
@@ -34,11 +43,12 @@ async def get_current_time() -> ToolResponse:
         user_tz = "UTC"
 
     time_str = (
-        f"{now.strftime('%Y-%m-%d %H:%M:%S')} "
-        f"{user_tz} ({now.strftime('%A')})"
+        f"{now.strftime('%Y-%m-%d %H:%M:%S')} {user_tz} ({now.strftime('%A')})"
     )
 
-    return ToolResponse(
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[
             TextBlock(
                 type="text",
@@ -48,7 +58,17 @@ async def get_current_time() -> ToolResponse:
     )
 
 
-async def set_user_timezone(timezone_name: str) -> ToolResponse:
+@tool_descriptor(
+    async_execution=True,
+    # Config/internal op — not a filesystem tool. Using tool_type="file"
+    # would make extract_target() join workspace_dir onto timezone names.
+    tool_type="internal",
+    target_param="timezone_name",
+    policy_name="SetUserTimezone",
+    ui_description="Set user timezone",
+    ui_icon="🌍",
+)
+async def set_user_timezone(timezone_name: str) -> ToolChunk:
     """Set the user timezone.
     Only call this tool when the user explicitly asks to change their timezone.
 
@@ -57,18 +77,22 @@ async def set_user_timezone(timezone_name: str) -> ToolResponse:
             "America/New_York", "Europe/London", "UTC").
 
     Returns:
-        `ToolResponse`: Confirmation with the new timezone and current time.
+        `ToolChunk`: Confirmation with the new timezone and current time.
     """
     tz_name = timezone_name.strip()
     if not tz_name:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[TextBlock(type="text", text="Error: timezone is empty.")],
         )
 
     try:
         now = datetime.now(ZoneInfo(tz_name))
     except (ZoneInfoNotFoundError, KeyError):
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -82,10 +106,11 @@ async def set_user_timezone(timezone_name: str) -> ToolResponse:
     save_config(config)
 
     time_str = (
-        f"{now.strftime('%Y-%m-%d %H:%M:%S')} "
-        f"{tz_name} ({now.strftime('%A')})"
+        f"{now.strftime('%Y-%m-%d %H:%M:%S')} {tz_name} ({now.strftime('%A')})"
     )
-    return ToolResponse(
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[
             TextBlock(
                 type="text",

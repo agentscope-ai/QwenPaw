@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import plistlib
+import shlex
 import shutil
 import socket
 import subprocess
@@ -33,6 +34,7 @@ from .config import (
     LastApiConfig,
     LastDispatchConfig,
     load_agent_config,
+    migrate_channel_display_fields,
     save_agent_config,
 )
 
@@ -278,6 +280,31 @@ def _get_win32_default_browser() -> Tuple[Optional[str], Optional[str]]:
     return (None, None)
 
 
+def _exec_executable_token(exec_value: str) -> Optional[str]:
+    """Extract the real executable from a .desktop ``Exec=`` value.
+
+    Handles the common ``env VAR=val /path/to/browser %U`` form (seen with
+    IME setups, e.g. ``Exec=env GTK_IM_MODULE=ibus /usr/bin/google-chrome``)
+    by skipping a leading ``env`` wrapper and any ``VAR=VALUE`` assignments,
+    so the browser binary is returned instead of ``env``.
+    """
+    try:
+        tokens = shlex.split(exec_value)
+    except ValueError:
+        tokens = exec_value.split()
+    idx = 0
+    if idx < len(tokens) and Path(tokens[idx]).name == "env":
+        idx += 1
+        # Skip VAR=VALUE assignments that follow the `env` wrapper.
+        while (
+            idx < len(tokens)
+            and "=" in tokens[idx]
+            and not tokens[idx].startswith("/")
+        ):
+            idx += 1
+    return tokens[idx] if idx < len(tokens) else None
+
+
 def _get_linux_default_browser() -> Tuple[Optional[str], Optional[str]]:
     """Return (browser_kind, executable_path) for Linux default HTTP
     handler.
@@ -307,7 +334,11 @@ def _get_linux_default_browser() -> Tuple[Optional[str], Optional[str]]:
             with open(path, encoding="utf-8") as f:
                 for line in f:
                     if line.strip().startswith("Exec="):
-                        exe = line.split("=", 1)[1].strip().split()[0]
+                        exe = _exec_executable_token(
+                            line.split("=", 1)[1].strip(),
+                        )
+                        if not exe:
+                            break
                         if exe.startswith("/") and Path(exe).is_file():
                             return _linux_desktop_to_kind_and_path(exe)
                         for p in ["/usr/bin", "/usr/local/bin"]:
@@ -499,57 +530,19 @@ def _read_config_data(config_path: Path) -> Optional[dict]:
     return data
 
 
-def _rewrite_legacy_weixin_key_on_disk(config_path: Path) -> None:
-    """One-shot migration: rewrite ``channels.weixin`` -> ``channels.wechat``.
-
-    Re-reads the raw file to detect whether the legacy key is still
-    present on disk (in-memory data may already have been normalized by
-    the model validator). When detected, backs up the original file and
-    writes the migrated content back so subsequent loads see the
-    canonical key directly.
-    """
-    try:
-        with open(config_path, "r", encoding="utf-8") as file:
-            raw = file.read()
-        raw_data = json.loads(raw)
-    except (OSError, json.JSONDecodeError):
-        return
-    if not isinstance(raw_data, dict):
-        return
-    channels = raw_data.get("channels")
-    if not isinstance(channels, dict) or "weixin" not in channels:
-        return
-
-    legacy = channels.pop("weixin")
-    if "wechat" not in channels:
-        channels["wechat"] = legacy
-
-    try:
-        backup_path = config_path.with_suffix(
-            f".{uuid.uuid4().hex[:8]}.weixin-migrate.bak",
-        )
-        shutil.copy2(config_path, backup_path)
-        with open(config_path, "w", encoding="utf-8") as file:
-            json.dump(raw_data, file, indent=2, ensure_ascii=False)
-        logger.warning(
-            "Migrated legacy 'channels.weixin' -> 'channels.wechat' in %s "
-            "(backup: %s)",
-            config_path,
-            backup_path,
-        )
-    except OSError as exc:
-        logger.error(
-            "Failed to migrate legacy 'weixin' key in %s: %s",
-            config_path,
-            exc,
-        )
-
-
 def _load_and_validate_config(
     config_path: Path,
     data: dict,
 ) -> Config:
     """Load and validate config data, handling validation errors."""
+    channels = data.get("channels")
+    migrated_weixin = False
+    if isinstance(channels, dict) and "weixin" in channels:
+        legacy = channels.pop("weixin")
+        channels.setdefault("wechat", legacy)
+        migrated_weixin = True
+    migrated_display = migrate_channel_display_fields(channels)
+    migrated_data = data
     data = _normalize_working_dir_bound_paths(data)
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
@@ -579,7 +572,27 @@ def _load_and_validate_config(
             )
             return Config()
 
-    _rewrite_legacy_weixin_key_on_disk(config_path)
+    if migrated_weixin or migrated_display:
+        try:
+            migration_name = (
+                "channel-display" if migrated_display else "weixin"
+            )
+            backup_path = config_path.with_suffix(
+                f".{uuid.uuid4().hex[:8]}.{migration_name}-migrate.bak",
+            )
+            shutil.copy2(config_path, backup_path)
+            with open(config_path, "w", encoding="utf-8") as file:
+                json.dump(migrated_data, file, indent=2, ensure_ascii=False)
+            logger.warning(
+                "Migrated legacy channel configuration in %s (backup: %s)",
+                config_path,
+                backup_path,
+            )
+        except OSError:
+            logger.warning(
+                "Failed to persist channel configuration migration: %s",
+                config_path,
+            )
     return config
 
 
@@ -620,7 +633,10 @@ def load_config(config_path: Optional[Path] = None) -> Config:
             config = _load_and_validate_config(config_path, data)
 
         _config_cache = config
-        _config_mtime = current_mtime
+        try:
+            _config_mtime = config_path.stat().st_mtime
+        except OSError:
+            _config_mtime = current_mtime
         return config
 
 
@@ -720,13 +736,16 @@ def get_dream_cron(agent_id: Optional[str] = None) -> str:
                   root config.agents.defaults (legacy behavior).
 
     Returns:
-        str: Cron expression for dream-based memory optimization job, or empty
-             string if disabled.
+        str: Cron expression for dream-based memory optimization job, or an
+             empty string if disabled.
     """
     if agent_id is not None:
         try:
             agent_config = load_agent_config(agent_id)
-            return agent_config.running.reme_light_memory_config.dream_cron
+            memory_config = agent_config.running.reme_light_memory_config
+            if not getattr(memory_config, "dream_cron_enabled", True):
+                return ""
+            return memory_config.dream_cron
         except Exception:
             return ""
     # Legacy: return empty string if no agent_id provided
@@ -770,18 +789,50 @@ def update_last_dispatch(
     save_config(config)
 
 
+# In-process cache for the current server's API address.
+# Desktop mode uses a random port, and config.json on disk may be
+# overwritten by migrations or file-lock races.  The in-process cache
+# guarantees that tools running in the same process always resolve the
+# correct address without depending on disk I/O.
+#
+# Thread safety: the cache is an immutable tuple assigned atomically under
+# CPython's GIL.  Only the server startup thread calls write_last_api(),
+# so no lock is required for the current single-writer / multi-reader
+# pattern.  If concurrent writers are ever introduced, wrap both
+# read/write in a threading.Lock.
+_runtime_last_api: Optional[Tuple[str, int]] = None
+
+
 def read_last_api() -> Optional[Tuple[str, int]]:
-    """Read last API host/port from config (via config load/save)."""
+    """Read last API host/port, preferring the in-process cache.
+
+    Priority:
+    1. In-process runtime cache (set by ``write_last_api`` in this process)
+    2. Persisted value from config.json on disk
+    """
+    if _runtime_last_api is not None:
+        logger.debug(
+            "read_last_api: using in-process cache %s:%s",
+            _runtime_last_api[0],
+            _runtime_last_api[1],
+        )
+        return _runtime_last_api
+
     config = load_config()
     host = config.last_api.host
     port = config.last_api.port
     if not host or port is None:
+        logger.debug("read_last_api: no value in cache or config")
         return None
+    logger.debug("read_last_api: disk fallback %s:%s", host, port)
     return host, port
 
 
 def write_last_api(host: str, port: int) -> None:
-    """Write last API host/port to config (via config load/save)."""
+    """Write last API host/port to both in-process cache and config file."""
+    global _runtime_last_api
+    _runtime_last_api = (host, port)
+
     config = load_config()
     config.last_api = LastApiConfig(host=host, port=port)
     save_config(config)
@@ -858,3 +909,41 @@ def is_qwenpaw_running() -> bool:
 
     except Exception:
         return False
+
+
+def sanitize_mcp_clients(
+    data: dict,
+    agent_id: str,
+) -> None:
+    """Drop invalid MCP client entries in-place.
+
+    Iterates over ``data["mcp"]["clients"]`` and removes
+    entries that fail ``MCPClientConfig`` validation so that
+    one broken MCP client does not prevent the whole agent
+    from loading.
+    """
+    from .config import MCPClientConfig
+
+    mcp = data.get("mcp")
+    if not isinstance(mcp, dict):
+        return
+    clients = mcp.get("clients")
+    if not isinstance(clients, dict):
+        return
+    bad_keys: list[str] = []
+    for key, val in clients.items():
+        if not isinstance(val, dict):
+            bad_keys.append(key)
+            continue
+        try:
+            MCPClientConfig.model_validate(
+                {**val, "name": key},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                f"Agent '{agent_id}': skipping invalid "
+                f"MCP client '{key}': {exc}",
+            )
+            bad_keys.append(key)
+    for key in bad_keys:
+        del clients[key]

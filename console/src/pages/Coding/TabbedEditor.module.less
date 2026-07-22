@@ -1,0 +1,404 @@
+.wrap {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--body-background, #fff);
+  overflow: hidden;
+}
+
+// ---- Tab bar ---------------------------------------------------------------
+.tabBar {
+  display: flex;
+  align-items: flex-end;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-shrink: 0;
+  background: var(--header-background, #fafafa);
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 5px 12px;
+  font-size: 12px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  white-space: nowrap;
+  cursor: pointer;
+  border-right: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+  background: transparent;
+  transition: background 0.12s;
+  min-width: 0;
+  flex-shrink: 0;
+  max-width: 200px;
+
+  &:hover {
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.04));
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  }
+}
+
+.tabActive {
+  background: var(--body-background, #fff);
+  color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  border-bottom: 2px solid var(--primary-color, #1677ff);
+}
+
+.tabName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.dirtyDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warning-color, #faad14);
+  flex-shrink: 0;
+}
+
+// Tab with pending diff — subtle teal left border
+.tabDiff {
+  border-left: 2px solid var(--info-color, #13c2c2) !important;
+}
+
+.diffDot {
+  color: var(--info-color, #13c2c2);
+  flex-shrink: 0;
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 3px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.25));
+  padding: 0;
+  flex-shrink: 0;
+  opacity: 0;
+  transition:
+    opacity 0.1s,
+    background 0.1s;
+
+  .tab:hover & {
+    opacity: 1;
+  }
+
+  .tabActive & {
+    opacity: 0.6;
+  }
+
+  &:hover {
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.08));
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+    opacity: 1 !important;
+  }
+}
+
+// ---- Toolbar ---------------------------------------------------------------
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+  flex-shrink: 0;
+  min-height: 30px;
+}
+
+.fileName {
+  font-size: 11px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.35));
+  font-family: "SFMono-Regular", Consolas, monospace;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+// Diff action bar (replaces toolbarRight when diff is active)
+.diffActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.diffLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--info-color, #13c2c2);
+  font-weight: 500;
+}
+
+.keepBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px !important;
+  height: 22px !important;
+  font-size: 12px !important;
+  background: rgba(82, 196, 26, 0.1) !important;
+  color: #52c41a !important;
+  border-radius: 4px;
+  border: 1px solid rgba(82, 196, 26, 0.3);
+  width: auto !important;
+
+  &:hover:not(:disabled) {
+    background: rgba(82, 196, 26, 0.18) !important;
+    color: #52c41a !important;
+  }
+}
+
+.undoBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px !important;
+  height: 22px !important;
+  font-size: 12px !important;
+  background: rgba(255, 77, 79, 0.08) !important;
+  color: #ff4d4f !important;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 77, 79, 0.25);
+  width: auto !important;
+
+  &:hover:not(:disabled) {
+    background: rgba(255, 77, 79, 0.15) !important;
+    color: #ff4d4f !important;
+  }
+}
+
+.iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  padding: 0;
+  transition:
+    background 0.12s,
+    color 0.12s;
+
+  &:hover:not(:disabled) {
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.06));
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+}
+
+// Preview toggle — highlight when preview is active
+.previewActiveBtn {
+  color: var(--primary-color, #1677ff) !important;
+  background: var(--primary-bg, rgba(22, 119, 255, 0.1)) !important;
+}
+
+// ---- Editor ----------------------------------------------------------------
+.editor {
+  flex: 1;
+  overflow: hidden;
+}
+
+// ---- Diff editor wrap + per-hunk action overlays --------------------------
+// The wrap is a positioning context for the per-hunk Keep / Undo
+// overlays that float on top of the DiffEditor. Monaco renders inside
+// the wrap; the overlays are React siblings positioned by absolute
+// `top` (in px) driven by Monaco's view-zone onDomNodeTop callback.
+//
+// Why an overlay (not a Monaco widget): clicks on DOM that lives inside
+// Monaco's view-zones or content-widgets get hijacked by Monaco's mouse
+// handler (focus + preventDefault). Rendering buttons OUTSIDE Monaco
+// sidesteps the whole event-handler chain.
+.diffWrap {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+.hunkWidget {
+  position: absolute;
+  right: 24px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0;
+  background: transparent;
+  pointer-events: auto;
+  z-index: 5;
+}
+
+.hunkBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 1;
+  border: 1px solid;
+  border-radius: 3px;
+  background: var(--body-background, #fff);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.hunkKeepBtn {
+  color: #52c41a;
+  border-color: rgba(82, 196, 26, 0.4);
+
+  &:hover {
+    background: rgba(82, 196, 26, 0.12);
+  }
+}
+
+.hunkUndoBtn {
+  color: #ff4d4f;
+  border-color: rgba(255, 77, 79, 0.35);
+
+  &:hover {
+    background: rgba(255, 77, 79, 0.1);
+  }
+}
+
+// ---- Empty state -----------------------------------------------------------
+.empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--body-background, #fff);
+}
+
+.emptyIcon {
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.15));
+}
+
+.emptyText {
+  font-size: 13px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.25));
+  margin: 0;
+}
+
+// ---- Dark mode -----------------------------------------------------------
+:global(.dark-mode) {
+  .wrap,
+  .empty,
+  .tabActive {
+    background: #1e1e1e;
+  }
+
+  .tabBar {
+    background: #1a1a1a;
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .tab {
+    color: rgba(255, 255, 255, 0.55);
+    border-right-color: rgba(255, 255, 255, 0.06);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .tabActive {
+    color: rgba(255, 255, 255, 0.88);
+    border-bottom-color: #4da3ff;
+  }
+
+  .closeBtn {
+    color: rgba(255, 255, 255, 0.4);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .toolbar {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .fileName {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .iconBtn {
+    color: rgba(255, 255, 255, 0.55);
+
+    &:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+    }
+  }
+
+  .previewActiveBtn {
+    color: #4da3ff !important;
+    background: rgba(22, 119, 255, 0.18) !important;
+  }
+
+  .emptyIcon {
+    color: rgba(255, 255, 255, 0.15);
+  }
+
+  .emptyText {
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .hunkBtn {
+    background: #2a2a2a;
+  }
+
+  .hunkKeepBtn {
+    border-color: rgba(82, 196, 26, 0.45);
+
+    &:hover {
+      background: rgba(82, 196, 26, 0.18);
+    }
+  }
+
+  .hunkUndoBtn {
+    border-color: rgba(255, 77, 79, 0.4);
+
+    &:hover {
+      background: rgba(255, 77, 79, 0.16);
+    }
+  }
+}

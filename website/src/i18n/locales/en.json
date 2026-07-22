@@ -1,6 +1,7 @@
 {
   "nav": {
     "docs": "Docs",
+    "blog": "Blog",
     "more": "More",
     "releaseNotes": "Release Notes",
     "qwenpaw": "Qwenpaw",
@@ -8,17 +9,30 @@
     "github": "GitHub",
     "githubComingSoon": "Coming Soon",
     "lang": "中文",
-    "agentscopeTeam": "AgentScope"
+    "platform": "Platform",
+    "platformTitle": "AgentScope Platform",
+    "agentscopeTeam": "AgentScope",
+    "communityBenefits": "Benefits",
+    "communityBenefitsNew": "NEW",
+    "benefit1Title": "ModelStudio: 100M free tokens",
+    "benefit1Desc": "Check your free quota",
+    "benefit2Title": "Token rebate",
+    "benefit2Desc": "Up to ¥200 back",
+    "benefit3Title": "Up to ¥1M tokens",
+    "benefit3Desc": "OPC innovation subsidy",
+    "benefit4Title": "Student subsidy",
+    "benefit4Desc": "¥50 credit · win iPhone 17"
   },
   "hero": {
     "titleleft": "Your Personal",
     "titleright": "AI assistant",
     "slogan": "Works for you, grows with you",
-    "sub": "v1.1.5: QwenPaw custom LLMs, safety architecture, multi-agent collaboration,",
-    "sub1": "and memory management — all upgraded, all yours.",
-    "releaseNote": "QwenPaw v1.1.5 is released",
+    "sub": "{{version}}: QwenPaw custom Agent OS, Loop Engineering, Scroll Context, ReMe v0.4,",
+    "sub1": "and TUI — all upgraded, all yours.",
+    "releaseNote": "QwenPaw {{version}} is released",
     "cta": "Read the docs",
-    "quickStart": "Quick Start"
+    "quickStart": "Quick Start",
+    "quickTry": "Try Now"
   },
   "follow": {
     "title": "Follow us",
@@ -50,26 +64,21 @@
     "sub": "Memory and personalization under your control.",
     "learnMore": "Learn more",
     "cards": {
-      "skills": {
-        "title": "Security Architecture",
-        "desc": "QwenPaw 1.0 adopts a three-layer defense architecture—Tool Guard, File Guard, and Skill Scanner—to protect against runtime threats, unauthorized file access, and risky skill installations across all agent operations."
+      "agentOs": {
+        "title": "Agent OS",
+        "desc": "QwenPaw 2.0 introduces Agent OS Foundation, an open intelligence layer powered by an OS-like Harness that connects models and applications. More QwenPaw-powered mini apps and lightweight applications are on the way."
       },
-      "control": {
-        "title": "Multi-agent Workspaces",
-        "desc": "QwenPaw 1.0 enables multiple isolated agent workspaces to run concurrently within a single instance, each with independent configurations and memory, supporting asynchronous collaboration for complex multi-role tasks."
+      "tui": {
+        "title": "Terminal UI",
+        "desc": "A full-screen terminal chat experience built with Textual, featuring streaming responses, rendered tool calls, and session management—with sessions and memory shared across the console and channels."
       },
-      "apps": {
-        "title": "QwenPaw Custom Models",
-        "desc": "QwenPaw 1.0 introduces the QwenPaw-Flash series—purpose-built small models for local deployment that require no cloud dependency, offer one-click setup, and are specifically optimized for high-frequency tasks such as document processing, memory update, and information retrieval.",
-        "learnMoreHref": "https://huggingface.co/agentscope-ai"
+      "scrollContext": {
+        "title": "Scroll Context",
+        "desc": "Every conversation turn is persisted to SQLite in real time. When the context window fills, indexed entries are evicted instead of summarized, while the original content remains available for on-demand recall."
       },
-      "memory": {
-        "title": "Memory",
-        "desc": "Compress context and tool output; turn experience into reusable memory—personalization stays under your control."
-      },
-      "toolkit": {
-        "title": "Tools, Skills & MCP",
-        "desc": "20+ built-in tools and skills with hot reload; plug in MCP and add skills anytime—your toolkit grows with QwenPaw."
+      "loopEngineering": {
+        "title": "Loop Engineering",
+        "desc": "Agent execution moves from hard-coded logic to composable orchestration. Workflows can already be assembled through plugin interfaces, with more loop-control patterns coming as official “Oh-My-Paw” plugins."
       }
     }
   },
@@ -181,8 +190,10 @@
       "hub": "Docker Hub"
     },
     "cloud": {
+      "agentscope": "AgentScope Platform",
       "aliyun": "Aliyun",
       "modelscope": "ModelScope",
+      "agentscopeGo": "Go to AgentScope Platform",
       "aliyunDeploy": "Deploy on Aliyun ECS",
       "aliyunDoc": "View Documentation",
       "modelscopeGo": "Go to ModelScope Studio"
@@ -225,8 +236,10 @@
       "x": "X",
       "github": "GitHub",
       "discord": "Discord",
-      "wechat": "WeChat Official Account",
-      "youtube": "YouTube"
+      "dingtalk": "DingTalk",
+      "xiaohongshu": "Xiaohongshu",
+      "wechat": "WeChat",
+      "douyin": "Douyin"
     },
     "copyright": "© 2026 Qwenpaw PRIVATE LIMITED, All rights reserved.",
     "poweredBy": {
@@ -250,11 +263,31 @@
       "suffix": " for the Agent Skills spec and examples."
     }
   },
+  "blog": {
+    "breadcrumbHome": "Home",
+    "breadcrumbCurrent": "Blog",
+    "title": "QwenPaw Team Blog",
+    "subtitle": "Latest news, deep dives, and stories from the QwenPaw team.",
+    "latestUpdate": "Last updated {{date}}",
+    "totalPosts": "{{count}} posts",
+    "readTime": "{{minutes}} min read",
+    "sessionCount": "{{count}} developer day sessions",
+    "backToList": "Back to blog",
+    "notFound": "Post not found",
+    "empty": "No blog posts yet",
+    "views": "{{count}} views",
+    "viewsLabel": "Views",
+    "likes": "{{count}}",
+    "like": "Like",
+    "unlike": "Unlike"
+  },
   "docs": {
     "intro": "Introduction",
     "quickstart": "Quick start",
     "desktop": "Desktop App",
+    "demo": "Feature Demos",
     "console": "Console",
+    "tui": "Terminal UI",
     "multiAgent": "Multi-Agent",
     "models": "Models",
     "channels": "Channels",
@@ -263,9 +296,10 @@
     "acpServer": "ACP Integration",
     "memory": "Memory",
     "memoryEvolvingAndProactive": "Memory-Evolving & Proactive",
+    "codingMode": "Coding Mode",
     "context": "Context",
+    "loopEngineering": "Loop Engineering",
     "commands": "Magic commands",
-    "plan": "Plan mode",
     "cron": "Cron Jobs",
     "heartbeat": "Heartbeat",
     "config": "Config & working dir",
@@ -273,6 +307,8 @@
     "backup": "Backup & Restore",
     "cli": "CLI",
     "plugins": "Plugin System",
+    "pluginsMigration": "Plugin Migration Guide",
+    "architecture": "Architecture",
     "faq": "FAQ",
     "apiTutorial": "RESTful API",
     "community": "Bug reports & community",
@@ -289,6 +325,14 @@
     "closeSidebar": "Close sidebar",
     "onThisPage": "On this page",
     "videoNotSupported": "Your browser does not support the video tag.",
+    "demoTitle": "Feature Demos",
+    "demoVideos": {
+      "skill": "/skills: On-demand agent skill invocation",
+      "doctor": "QwenPaw Doctor: One-click comprehensive system diagnostics",
+      "missionMode": "QwenPaw Mission Mode: Autonomous execution for complex tasks",
+      "autoContinue": "Auto-Continue for Text-Only Steps"
+    },
+    "textVersion": "View text documentation",
     "backToTop": "Back to top",
     "copy": "Copy",
     "copied": "Copied",
@@ -448,6 +492,7 @@
     "emptyTitle": "No downloads available yet",
     "emptyDesc": "Desktop builds are in progress. Please check back later.",
     "emptyCta": "View other installation methods",
+    "tabNavLabel": "Download categories",
     "desktopTitle": "Desktop Application",
     "desktopDesc": "Standalone desktop app with bundled Python environment and all dependencies. Double-click to run, no command line required.",
     "recommended": "Recommended",
@@ -472,7 +517,10 @@
     "helpTitle": "Need Help?",
     "helpPrefix": "See the",
     "helpLink": "installation guide",
-    "helpSuffix": "for detailed setup instructions."
+    "helpSuffix": "for detailed setup instructions.",
+    "pluginsTitle": "Plugins",
+    "pluginsDesc": "Bundled and tool plugins discovered in the QwenPaw repository. Download a .zip package to install manually.",
+    "downloadZip": "Download .zip"
   },
   "releaseNotes": {
     "title": "Release Notes",

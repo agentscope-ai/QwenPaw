@@ -7,17 +7,113 @@ import inspect
 import json
 import logging
 import os
+import platform
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _dist_version
+from packaging.requirements import Requirement
 
 from .architecture import PluginManifest, PluginRecord
 from .api import PluginApi
 from .registry import PluginRegistry
 
 logger = logging.getLogger(__name__)
+
+# Distribution name -> import name, for the common cases where they differ.
+_IMPORT_NAME_OVERRIDES = {
+    "pillow": "PIL",
+    "pyyaml": "yaml",
+    "beautifulsoup4": "bs4",
+    "python-dateutil": "dateutil",
+    "opencv-python": "cv2",
+    "scikit-learn": "sklearn",
+    "protobuf": "google.protobuf",
+}
+
+
+def _is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def _desktop_python() -> Optional[str]:
+    """Bundled standalone CPython used to install plugin deps in the frozen
+    desktop build. Its absolute path is injected by the Tauri shell."""
+    path = os.environ.get("QWENPAW_DESKTOP_PY_RUNTIME", "").strip()
+    return path if path and Path(path).is_file() else None
+
+
+def _plugin_runtime_dir() -> Path:
+    """Root dir holding plugin runtime data (installed deps, locks)."""
+    from ..constant import WORKING_DIR
+
+    return Path(WORKING_DIR) / "plugin_runtime"
+
+
+def _plugin_site_dir() -> Path:
+    """User-writable, ABI-bucketed directory holding installed plugin deps."""
+    bucket = (
+        f"py{sys.version_info.major}.{sys.version_info.minor}"
+        f"-{platform.system().lower()}-{platform.machine().lower()}"
+    )
+    site_dir = _plugin_runtime_dir() / bucket / "site"
+    site_dir.mkdir(parents=True, exist_ok=True)
+    return site_dir
+
+
+def _install_lock_path(plugin_id: str) -> Path:
+    """Path to the inter-process lock guarding *plugin_id* installs.
+
+    Keyed per plugin so unrelated plugins can install concurrently, but
+    every process installing the *same* plugin serialises through one lock.
+    """
+    safe_id = "".join(
+        c if c.isalnum() or c in "-_." else "_" for c in plugin_id
+    )
+    return _plugin_runtime_dir() / "install-locks" / f"{safe_id}.lock"
+
+
+def _is_disabled_plugin_dir(path: Path) -> bool:
+    """Return whether *path* is a hidden or explicitly disabled plugin dir.
+
+    A plugin is "disabled" by renaming its directory with a ``.disabled``
+    suffix (e.g. ``remote-ssh.disabled``); hidden dirs (``.git`` etc.) are
+    never plugins. Both are skipped during discovery so a disabled plugin no
+    longer loads or installs its dependencies (issue #5550).
+    """
+    name = path.name
+    return name.startswith(".") or name.endswith(".disabled")
+
+
+def _ensure_plugin_site_on_path() -> None:
+    """Put the plugin-deps site dir on ``sys.path`` (idempotent).
+
+    Only relevant for the frozen desktop build, where plugin dependencies are
+    installed into a user-writable target dir; in normal installs they go into
+    the active environment, so this is a no-op.
+    """
+    if not _is_frozen():
+        return
+    try:
+        site_dir = str(_plugin_site_dir())
+    except Exception:
+        return
+    # Expose the dir so plugins that spawn the bundled Python (e.g. the pet
+    # desktop window) can put their installed deps on the child's PYTHONPATH.
+    os.environ["QWENPAW_PLUGIN_SITE"] = site_dir
+    if site_dir in sys.path:
+        return
+    import site as _site
+
+    _site.addsitedir(site_dir)
+    if site_dir not in sys.path:
+        sys.path.insert(0, site_dir)
+    importlib.invalidate_caches()
 
 
 class PluginLoader:
@@ -52,17 +148,23 @@ class PluginLoader:
                 if not item.is_dir():
                     continue
 
+                if _is_disabled_plugin_dir(item):
+                    logger.info(
+                        "Skipping disabled/hidden plugin directory: %s",
+                        item.name,
+                    )
+                    continue
+
                 manifest_path = item / "plugin.json"
                 if not manifest_path.exists():
                     continue
-
                 try:
                     manifest = self._load_manifest(manifest_path)
                     discovered.append((manifest, item))
                     logger.info(f"Discovered plugin: {manifest.id}")
                 except Exception as e:
                     logger.error(
-                        f"Failed to load manifest from {manifest_path}: {e}",
+                        f"Failed to load manifest from {item}: {e}",
                         exc_info=True,
                     )
 
@@ -84,6 +186,333 @@ class PluginLoader:
         with open(manifest_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         return PluginManifest.from_dict(data)
+
+    @staticmethod
+    def _check_version_compatibility(
+        manifest: "PluginManifest",
+    ) -> tuple:
+        """Check plugin compatibility with current QwenPaw version.
+
+        Uses left-closed, right-open semantics: ``>=min, <max``.
+        When ``qwenpaw_version`` is absent, falls back to legacy
+        ``min_version`` / ``max_version`` top-level fields.
+
+        Returns:
+            (compatible, message) tuple.
+        """
+        from .._version_compat import check_plugin_version_compat
+
+        return check_plugin_version_compat(manifest)
+
+    @staticmethod
+    def _is_requirement_satisfied(req: Requirement) -> bool:
+        """Return True if *req* is already available.
+
+        Two complementary probes are combined so neither environment causes a
+        spurious reinstall on every launch:
+
+        * ``importlib.metadata`` — authoritative for deps installed via
+          ``pip install --target`` (they keep a proper ``.dist-info``) and the
+          only way to honour version specifiers. It is keyed by *distribution*
+          name, so import-name/dist-name mismatches (``pillow`` -> ``PIL``)
+          never cause false negatives.
+        * ``find_spec`` import probe — covers deps already bundled into the
+          frozen desktop build, whose ``.dist-info`` is often stripped, so they
+          are not misreported as missing (issue #5209).
+        """
+        # 1) Metadata probe: reliable for --target installs and version checks.
+        try:
+            installed = _dist_version(req.name)
+        except PackageNotFoundError:
+            installed = None
+        if installed is not None:
+            if not req.specifier:
+                return True
+            try:
+                return req.specifier.contains(installed)
+            except Exception:
+                return True
+        # 2) Import probe: frozen-bundled deps that lack ``.dist-info``.
+        dist = req.name.lower().replace("_", "-")
+        import_name = _IMPORT_NAME_OVERRIDES.get(
+            dist,
+            req.name.replace("-", "_"),
+        )
+        top = import_name.split(".")[0]
+        try:
+            return importlib.util.find_spec(top) is not None
+        except (ImportError, ValueError):
+            return False
+
+    @staticmethod
+    def _find_unsatisfied_dependencies(
+        requirements_file: Path,
+    ) -> List[str]:
+        """Return requirement lines that are not importable / out of spec."""
+        if not requirements_file.exists():
+            return []
+
+        missing: List[str] = []
+        for line in requirements_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or line.startswith("-"):
+                continue
+            try:
+                req = Requirement(line)
+            except Exception:
+                continue
+            if not PluginLoader._is_requirement_satisfied(req):
+                missing.append(line)
+
+        return missing
+
+    async def _ensure_dependencies_installed(
+        self,
+        source_path: Path,
+        plugin_id: str,
+    ) -> None:
+        """Check and install missing dependencies for a plugin.
+
+        Inspects ``requirements.txt`` in the plugin directory; if any
+        packages are missing or version-incompatible, installs them via
+        pip/uv before the plugin module is imported.
+
+        Args:
+            source_path: Plugin directory containing requirements.txt
+            plugin_id: Plugin identifier (for log messages)
+        """
+        # Previously installed plugin deps live in a user-writable site dir;
+        # ensure it is importable before checking and before plugin import.
+        _ensure_plugin_site_on_path()
+
+        requirements_file = source_path / "requirements.txt"
+        missing_deps = self._find_unsatisfied_dependencies(requirements_file)
+        if not missing_deps:
+            return
+        logger.info(
+            "Plugin '%s' has %d unsatisfied dependency(ies): %s. "
+            "Installing...",
+            plugin_id,
+            len(missing_deps),
+            ", ".join(missing_deps),
+        )
+        await asyncio.to_thread(
+            self._install_requirements_locked,
+            requirements_file,
+            plugin_id,
+        )
+
+    def _install_requirements_locked(
+        self,
+        requirements_file: Path,
+        plugin_id: str,
+    ) -> None:
+        """Install deps under a per-plugin inter-process lock (blocking).
+
+        Multiple backend processes (e.g. an orphaned one plus a new launch,
+        issue #5550) must not run ``pip install`` for the same plugin into
+        the same target dir concurrently. The lock serialises them, and the
+        double-check after acquiring it means only the first installer does
+        the work — the rest see the dependencies already satisfied and skip,
+        avoiding the reinstall storm that exhausted memory.
+        """
+        from .install_lock import plugin_install_lock
+
+        with plugin_install_lock(_install_lock_path(plugin_id)):
+            # Another process may have installed while we waited; re-probe
+            # with fresh import caches before spending resources on pip.
+            _ensure_plugin_site_on_path()
+            importlib.invalidate_caches()
+            if not self._find_unsatisfied_dependencies(requirements_file):
+                logger.info(
+                    "Plugin '%s' dependencies already satisfied by a "
+                    "concurrent installer; skipping pip install",
+                    plugin_id,
+                )
+                return
+            self._install_requirements(requirements_file, plugin_id)
+
+    def _validate_entry_points(
+        self,
+        plugin_id: str,
+        backend_entry_file: Path | None,
+        frontend_entry_file: Path | None,
+    ) -> tuple[bool, bool]:
+        """Validate plugin entry points exist.
+
+        Returns:
+            Tuple of (backend_exists, frontend_exists).
+
+        Raises:
+            FileNotFoundError: If no entry points declared or files missing.
+        """
+        if backend_entry_file is None and frontend_entry_file is None:
+            raise FileNotFoundError(
+                f"Plugin '{plugin_id}' has no entry points declared "
+                f"(entry.backend or entry.frontend)",
+            )
+
+        backend_exists = (
+            backend_entry_file is not None and backend_entry_file.exists()
+        )
+        frontend_exists = (
+            frontend_entry_file is not None and frontend_entry_file.exists()
+        )
+
+        if not backend_exists and not frontend_exists:
+            missing = []
+            if backend_entry_file:
+                missing.append(str(backend_entry_file))
+            if frontend_entry_file:
+                missing.append(str(frontend_entry_file))
+            raise FileNotFoundError(
+                f"Plugin '{plugin_id}' entry point files not found: "
+                + ", ".join(missing),
+            )
+
+        return backend_exists, frontend_exists
+
+    async def _load_backend_module(
+        self,
+        plugin_id: str,
+        backend_entry_file: Path,
+        source_path: Path,
+        config: Optional[Dict],
+        manifest: "PluginManifest",
+    ) -> Any:
+        """Dynamically load and register backend plugin module.
+
+        Returns:
+            Plugin definition object.
+
+        Raises:
+            ImportError: If module spec cannot be created.
+            AttributeError: If plugin doesn't export required objects.
+        """
+        module_name = f"plugin_{plugin_id.replace('-', '_')}"
+        plugin_dir_str = str(source_path)
+
+        spec = importlib.util.spec_from_file_location(
+            module_name,
+            backend_entry_file,
+            submodule_search_locations=[plugin_dir_str],
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(
+                f"Failed to load module spec for {backend_entry_file}",
+            )
+
+        module = importlib.util.module_from_spec(spec)
+
+        try:
+            sys.modules[module_name] = module
+            module.__package__ = module_name
+            module.__path__ = [plugin_dir_str]
+            spec.loader.exec_module(module)
+
+            plugin_def = getattr(module, "plugin", None)
+            if plugin_def is None:
+                # PawApp ('app'-type) modules export a PawApp instance named
+                # 'app' that implements the same register(api) contract.
+                plugin_def = getattr(module, "app", None)
+            if plugin_def is None:
+                raise AttributeError(
+                    "Plugin module must export a 'plugin' object "
+                    "(or a PawApp 'app' instance)",
+                )
+
+            if manifest.qwenpaw_version is not None:
+                qv_dict = manifest.qwenpaw_version.model_dump()
+            else:
+                qv_dict = {
+                    "min": manifest.min_version,
+                    "max": manifest.max_version,
+                }
+            manifest_dict = {
+                "id": manifest.id,
+                "name": manifest.name,
+                "version": manifest.version,
+                "description": manifest.description,
+                "author": manifest.author,
+                "dependencies": manifest.dependencies,
+                "qwenpaw_version": qv_dict,
+                "meta": manifest.meta,
+            }
+            api = PluginApi(plugin_id, config or {}, manifest_dict)
+            api.set_registry(self.registry)
+            self.registry.register_plugin_manifest(plugin_id, manifest_dict)
+
+            if hasattr(plugin_def, "register"):
+                result = plugin_def.register(api)
+                if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                    await result
+            else:
+                raise AttributeError(
+                    "Plugin must implement 'register(api)' method",
+                )
+        except Exception:
+            self._cleanup_failed_load(
+                plugin_id,
+                module_name,
+                source_path,
+            )
+            raise
+
+        return plugin_def
+
+    def _cleanup_failed_load(
+        self,
+        plugin_id: str,
+        module_name: str,
+        source_path: Path,
+    ) -> None:
+        """Roll back side effects after a failed plugin load.
+
+        Mirrors the cleanup logic in ``unload_plugin`` (registry,
+        ``sys.modules``, ``sys.path``) so that a failed load leaves no
+        orphan state that could interfere with other plugins or a
+        subsequent retry.
+
+        .. note::
+            NOT thread-safe.  ``sys.modules`` and ``sys.path`` mutations
+            are not guarded by a lock.  This is fine because
+            ``load_all_plugins`` loads plugins sequentially, but callers
+            must not invoke this method concurrently.
+        """
+        logger.warning(
+            "Cleaning up failed plugin load for '%s'",
+            plugin_id,
+        )
+
+        # 1. Registry (manifest, providers, hooks, middleware, routes, …)
+        self.registry.unregister_plugin(plugin_id)
+
+        # 2. sys.modules — by module-name prefix
+        prefix = module_name + "."
+        stale = [
+            k for k in sys.modules if k == module_name or k.startswith(prefix)
+        ]
+        for k in stale:
+            sys.modules.pop(k, None)
+
+        # 3. sys.modules — by __file__ path (catches bare imports that
+        #    bypassed the plugin_<id> namespace, e.g. ``import utils``
+        #    after the plugin inserted its dir into sys.path).
+        source_resolved = os.path.realpath(str(source_path)) + os.sep
+        stale_by_file = [
+            k
+            for k, mod in list(sys.modules.items())
+            if (mod_file := getattr(mod, "__file__", None)) is not None
+            and os.path.realpath(mod_file).startswith(source_resolved)
+        ]
+        for k in stale_by_file:
+            sys.modules.pop(k, None)
+
+        # 4. sys.path — remove the plugin directory if it was added
+        plugin_dir_real = os.path.realpath(str(source_path))
+        sys.path[:] = [
+            p for p in sys.path if os.path.realpath(p) != plugin_dir_real
+        ]
 
     async def load_plugin(
         self,
@@ -112,7 +541,25 @@ class PluginLoader:
             logger.warning(f"Plugin '{plugin_id}' already loaded")
             return self._loaded_plugins[plugin_id]
 
-        # Load backend module (if declared and exists)
+        compatible, compat_msg = self._check_version_compatibility(manifest)
+        if not compatible:
+            logger.warning(
+                "Plugin '%s' is incompatible: %s",
+                plugin_id,
+                compat_msg,
+            )
+            record = PluginRecord(
+                manifest=manifest,
+                source_path=source_path,
+                enabled=False,
+                diagnostics=[compat_msg],
+            )
+            self._loaded_plugins[plugin_id] = record
+            return record
+
+        # Ensure plugin dependencies are installed before loading
+        await self._ensure_dependencies_installed(source_path, plugin_id)
+
         backend_entry = manifest.entry.backend
         frontend_entry = manifest.entry.frontend
         backend_entry_file = (
@@ -121,102 +568,30 @@ class PluginLoader:
         frontend_entry_file = (
             source_path / frontend_entry if frontend_entry else None
         )
+
+        backend_exists, _ = self._validate_entry_points(
+            plugin_id,
+            backend_entry_file,
+            frontend_entry_file,
+        )
+
         plugin_def = None
-
-        if backend_entry_file is None and frontend_entry_file is None:
-            raise FileNotFoundError(
-                f"Plugin '{plugin_id}' has no entry points declared "
-                f"(entry.backend or entry.frontend)",
-            )
-
-        backend_exists = (
-            backend_entry_file is not None and backend_entry_file.exists()
-        )
-        frontend_exists = (
-            frontend_entry_file is not None and frontend_entry_file.exists()
-        )
-
-        if not backend_exists and not frontend_exists:
-            raise FileNotFoundError(
-                f"Plugin '{plugin_id}' entry point files not found: "
-                + (f"{backend_entry_file}" if backend_entry_file else "")
-                + (f", {frontend_entry_file}" if frontend_entry_file else ""),
-            )
-
         if not backend_exists:
-            # Frontend-only plugin — skip backend loading
             logger.info(
-                f"Plugin '{plugin_id}' has no backend entry point "
-                f"— loading as frontend-only plugin",
+                "Plugin '%s' has no backend entry point "
+                "— loading as frontend-only plugin",
+                plugin_id,
             )
         else:
+            assert backend_entry_file is not None
             try:
-                # Dynamic import of plugin module
-                # Use unique module name to avoid conflicts
-                module_name = f"plugin_{plugin_id.replace('-', '_')}"
-                plugin_dir_str = str(source_path)
-
-                # submodule_search_locations enables relative imports
-                # within plugin without polluting global sys.path
-                spec = importlib.util.spec_from_file_location(
-                    module_name,
-                    backend_entry_file,
-                    submodule_search_locations=[plugin_dir_str],
-                )
-                if spec is None or spec.loader is None:
-                    raise ImportError(
-                        f"Failed to load module spec for {backend_entry_file}",
-                    )
-
-                module = importlib.util.module_from_spec(spec)
-                sys.modules[module_name] = module
-
-                # Set __package__ and __path__ to enable relative imports
-                module.__package__ = module_name
-                module.__path__ = [plugin_dir_str]
-
-                spec.loader.exec_module(module)
-
-                # Get plugin definition
-                if not hasattr(module, "plugin"):
-                    raise AttributeError(
-                        "Plugin module must export 'plugin' object",
-                    )
-
-                plugin_def = module.plugin
-
-                # Create plugin API instance with manifest
-                manifest_dict = {
-                    "id": manifest.id,
-                    "name": manifest.name,
-                    "version": manifest.version,
-                    "description": manifest.description,
-                    "author": manifest.author,
-                    "dependencies": manifest.dependencies,
-                    "min_version": manifest.min_version,
-                    "meta": manifest.meta,
-                }
-                api = PluginApi(plugin_id, config or {}, manifest_dict)
-                api.set_registry(self.registry)
-
-                # Register plugin manifest to registry
-                self.registry.register_plugin_manifest(
+                plugin_def = await self._load_backend_module(
                     plugin_id,
-                    manifest_dict,
+                    backend_entry_file,
+                    source_path,
+                    config,
+                    manifest,
                 )
-
-                # Call plugin's register method (support both sync and async)
-                if hasattr(plugin_def, "register"):
-                    result = plugin_def.register(api)
-                    if inspect.iscoroutine(result) or inspect.isawaitable(
-                        result,
-                    ):
-                        await result
-                else:
-                    raise AttributeError(
-                        "Plugin must implement 'register(api)' method",
-                    )
-
             except Exception as e:
                 logger.error(
                     f"Failed to load plugin '{plugin_id}': {e}",
@@ -224,27 +599,30 @@ class PluginLoader:
                 )
                 raise
 
-        # Create plugin record
         record = PluginRecord(
             manifest=manifest,
             source_path=source_path,
             enabled=True,
             instance=plugin_def,
         )
-
         self._loaded_plugins[plugin_id] = record
         logger.info(f"✓ Loaded plugin '{plugin_id}' successfully")
-
         return record
 
     async def load_all_plugins(
         self,
         configs: Optional[Dict[str, Dict]] = None,
+        types: Optional[List[str]] = None,
     ) -> Dict[str, PluginRecord]:
         """Discover and load all plugins.
 
         Args:
             configs: Optional dictionary of plugin_id -> config
+            types: Optional list of plugin types to load (e.g.
+                ``["channel"]``).  When ``None``, all types are loaded.
+                Plugins already loaded are always skipped (see
+                :meth:`load_plugin`), so calling this twice — first
+                with ``types`` then without — is safe.
 
         Returns:
             Dictionary of plugin_id -> PluginRecord
@@ -252,6 +630,8 @@ class PluginLoader:
         discovered = self.discover_plugins()
 
         for manifest, plugin_dir in discovered:
+            if types is not None and manifest.plugin_type not in types:
+                continue
             config = configs.get(manifest.id) if configs else None
 
             try:
@@ -292,6 +672,55 @@ class PluginLoader:
                 return str(candidate)
         return None
 
+    @staticmethod
+    def _run_subprocess_with_streaming_log(
+        cmd: list[str],
+        *,
+        timeout: int,
+        plugin_id: str,
+    ) -> subprocess.CompletedProcess:
+        """Run *cmd*; stream stdout/stderr to debug logs in real time."""
+        logger.debug(
+            "Running install command for plugin '%s': %s",
+            plugin_id,
+            " ".join(cmd),
+        )
+        output_lines: List[str] = []
+        with subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        ) as proc:
+
+            def _read_output() -> None:
+                assert proc.stdout is not None
+                for line in proc.stdout:
+                    stripped = line.rstrip("\n\r")
+                    if stripped:
+                        output_lines.append(stripped)
+                        logger.debug("[%s] %s", plugin_id, stripped)
+
+            reader = threading.Thread(target=_read_output, daemon=True)
+            reader.start()
+            try:
+                returncode = proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                reader.join(timeout=2)
+                raise
+            reader.join(timeout=2)
+
+        combined = "\n".join(output_lines)
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=returncode,
+            stdout=combined,
+            stderr="",
+        )
+
     def _install_requirements(
         self,
         requirements_file: Path,
@@ -320,9 +749,15 @@ class PluginLoader:
         req = str(requirements_file)
         timeout = 300
 
+        # In a frozen desktop build ``sys.executable`` is the backend binary,
+        # not a Python interpreter; install via the bundled runtime instead.
+        if _is_frozen():
+            self._install_requirements_frozen(req, plugin_id, timeout)
+            return
+
         # ── Attempt 1: python -m pip ──────────────────────────────────
         try:
-            result = subprocess.run(  # pylint: disable=subprocess-run-check
+            result = self._run_subprocess_with_streaming_log(
                 [
                     sys.executable,
                     "-m",
@@ -333,9 +768,8 @@ class PluginLoader:
                     "-r",
                     req,
                 ],
-                capture_output=True,
-                text=True,
                 timeout=timeout,
+                plugin_id=plugin_id,
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
@@ -374,7 +808,7 @@ class PluginLoader:
             f"pip not available; retrying with uv for plugin '{plugin_id}'",
         )
         try:
-            uv_result = subprocess.run(  # pylint: disable=subprocess-run-check
+            uv_result = self._run_subprocess_with_streaming_log(
                 [
                     uv,
                     "pip",
@@ -384,9 +818,8 @@ class PluginLoader:
                     "-r",
                     req,
                 ],
-                capture_output=True,
-                text=True,
                 timeout=timeout,
+                plugin_id=plugin_id,
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
@@ -401,6 +834,64 @@ class PluginLoader:
             )
         logger.info(
             f"Dependencies installed for plugin '{plugin_id}' (via uv)",
+        )
+
+    def _install_requirements_frozen(
+        self,
+        req: str,
+        plugin_id: str,
+        timeout: int,
+    ) -> None:
+        """Install plugin deps in the frozen desktop build.
+
+        Uses the bundled standalone CPython (same ``X.Y``/arch as the frozen
+        runtime) to ``pip install --target`` into a user-writable, ABI-bucketed
+        directory. Never runs ``sys.executable`` — that is the frozen backend
+        binary, and invoking it re-launches the backend and crash-loops the
+        desktop app (issue #5209).
+        """
+        python = _desktop_python()
+        if python is None:
+            raise RuntimeError(
+                f"Cannot install dependencies for plugin '{plugin_id}': the "
+                "bundled Python runtime is unavailable "
+                "(QWENPAW_DESKTOP_PY_RUNTIME not set). Reinstall QwenPaw "
+                "Desktop, or install the plugin's dependencies manually.",
+            )
+        target = str(_plugin_site_dir())
+        try:
+            result = self._run_subprocess_with_streaming_log(
+                [
+                    python,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--disable-pip-version-check",
+                    "--no-input",
+                    "--target",
+                    target,
+                    "-r",
+                    req,
+                ],
+                timeout=timeout,
+                plugin_id=plugin_id,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"Dependency installation timed out for '{plugin_id}' "
+                f"(300 s limit exceeded)",
+            ) from exc
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Dependency installation failed for '{plugin_id}': "
+                f"{result.stdout}",
+            )
+        importlib.invalidate_caches()
+        logger.info(
+            "Dependencies installed for plugin '%s' into %s",
+            plugin_id,
+            target,
         )
 
     async def load_plugin_from_path(
@@ -474,7 +965,7 @@ class PluginLoader:
         requirements_file = target_dir / "requirements.txt"
         if requirements_file.exists():
             await asyncio.to_thread(
-                self._install_requirements,
+                self._install_requirements_locked,
                 requirements_file,
                 plugin_id,
             )
@@ -528,6 +1019,29 @@ class PluginLoader:
                     f"for plugin '{plugin_id}': {exc}",
                 )
 
+        # Execute uninstall hooks (only run on explicit unload/remove)
+        uninstall_hooks = [
+            h
+            for h in self.registry.get_uninstall_hooks()
+            if h.plugin_id == plugin_id
+        ]
+        for hook in uninstall_hooks:
+            try:
+                result = hook.callback(
+                    plugin_id=plugin_id,
+                    delete_files=delete_files,
+                )
+                if inspect.iscoroutine(result) or inspect.isawaitable(
+                    result,
+                ):
+                    await result
+            except Exception as exc:
+                logger.error(
+                    f"Error in uninstall hook '{hook.hook_name}' "
+                    f"for plugin '{plugin_id}': {exc}",
+                    exc_info=True,
+                )
+
         # Remove Python module and all sub-modules so the next import
         # gets a fresh copy (e.g. plugin_foo.utils must not be reused).
         module_name = f"plugin_{plugin_id.replace('-', '_')}"
@@ -537,6 +1051,32 @@ class PluginLoader:
         ]
         for k in stale:
             sys.modules.pop(k, None)
+
+        # Plugins that manipulate ``sys.path`` (e.g. inserting their own
+        # directory) and use bare ``from sibling import …`` load sibling
+        # modules as top-level entries in ``sys.modules`` — the prefix
+        # cleanup above misses them.  Sweep any module whose ``__file__``
+        # lives inside the plugin directory so a reinstall always gets
+        # fresh code.
+        source_resolved = str(record.source_path.resolve()) + os.sep
+        stale_by_file = [
+            k
+            for k, mod in list(sys.modules.items())
+            if (mod_file := getattr(mod, "__file__", None)) is not None
+            and os.path.realpath(mod_file).startswith(source_resolved)
+        ]
+        for k in stale_by_file:
+            sys.modules.pop(k, None)
+
+        # Remove the plugin directory from sys.path (plugins add it at
+        # import time for sibling imports; leaving it leaks into later
+        # imports and prevents clean hot-reload).  Compare by realpath
+        # so symlinks or non-resolved spellings of the same directory
+        # are also caught.
+        plugin_dir_real = os.path.realpath(record.source_path)
+        sys.path[:] = [
+            p for p in sys.path if os.path.realpath(p) != plugin_dir_real
+        ]
 
         # Clear all in-memory registry entries for this plugin
         self.registry.unregister_plugin(plugin_id)

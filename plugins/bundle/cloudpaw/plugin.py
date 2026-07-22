@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 """CloudPaw Plugin for QwenPaw.
 
 Provides Alibaba Cloud deployment orchestration capabilities:
@@ -19,11 +20,29 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qwenpaw").getChild("plugin.cloudpaw")
+
+
+# ---------------------------------------------------------------------------
+# Plugin path initialization (must run before any router/tool imports)
+# ---------------------------------------------------------------------------
+
+
+def _init_plugin_path() -> None:
+    """Ensure the plugin directory is on sys.path.
+
+    This eliminates the cold-start window where absolute imports like
+    ``from modules.a2a.client_manager`` would fail because ``constants.py``
+    (which does ``sys.path.insert``) has not been imported yet.
+    """
+    plugin_dir = str(Path(__file__).parent)
+    if plugin_dir not in sys.path:
+        sys.path.insert(0, plugin_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -162,18 +181,6 @@ def _init_a2a_manager() -> None:
         logger.info("A2A client manager initialized")
     except Exception as e:
         logger.warning("Failed to initialize A2A client manager: %s", e)
-
-
-def _register_a2a_command() -> None:
-    """Register /a2a as a control command."""
-    try:
-        from qwenpaw.app.runner.control_commands import register_command
-        from .tools.a2a_command import A2AListCommandHandler
-
-        register_command(A2AListCommandHandler())
-        logger.info("Registered /a2a control command")
-    except Exception as e:
-        logger.warning("Failed to register /a2a command: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +434,10 @@ def _patch_plugin_loader_unload() -> None:
         )
         return
 
+    if getattr(PluginLoader.unload_plugin, "_cloudpaw_patched", False):
+        logger.debug("unload_plugin already patched; skip")
+        return
+
     _original_unload_plugin = PluginLoader.unload_plugin
 
     async def _patched_unload_plugin(
@@ -451,6 +462,8 @@ def _patch_plugin_loader_unload() -> None:
 
         return await _original_unload_plugin(self, plugin_id, delete_files)
 
+    _patched_unload_plugin._cloudpaw_patched = True
+    _patched_unload_plugin._original = _original_unload_plugin
     PluginLoader.unload_plugin = _patched_unload_plugin
     logger.info("[CloudPaw] Patched PluginLoader.unload_plugin")
 
@@ -465,6 +478,58 @@ class CloudPawPlugin:
 
     def register(self, api):
         """Register all CloudPaw components via startup hook."""
+        logger.info("CloudPawPlugin.register() called")
+
+        # Ensure plugin dir is on sys.path BEFORE any router/tool imports.
+        _init_plugin_path()
+
+        # Inject synthetic modules BEFORE route registration so that
+        # routers_setup.py can import InteractionManager.  This must
+        # happen early because on cold restart sys.modules is empty.
+        from .injectors import inject_interaction_module
+
+        inject_interaction_module()
+        logger.info("CloudPaw: injected synthetic modules")
+
+        # Register HTTP routers via the official PluginApi — no manual
+        # app mounting needed. The registry already has the FastAPI app
+        # set via set_plugin_http_app() before load_all_plugins().
+        try:
+            from .routers_setup import build_plugin_routers
+
+            routers = build_plugin_routers()
+            logger.info(
+                "CloudPaw: got %d HTTP routers: %s",
+                len(routers),
+                [(r.prefix, p) for r, p in routers],
+            )
+            for router, prefix in routers:
+                logger.info(
+                    "CloudPaw: registering router at prefix '/api%s'",
+                    prefix,
+                )
+                api.register_http_router(router, prefix=prefix)
+        except Exception as e:
+            logger.warning(
+                "Failed to register HTTP routers: %s",
+                e,
+                exc_info=True,
+            )
+
+        # Register A2A mode via official PluginApi.
+        # This registers /a2a as a slash command via SlashCommandRegistry.
+        try:
+            from .a2a_mode import A2AMode
+
+            api.register_mode(A2AMode)
+            logger.info("CloudPaw: registered A2A mode")
+        except Exception as e:
+            logger.warning(
+                "Failed to register A2A mode: %s",
+                e,
+                exc_info=True,
+            )
+
         api.register_startup_hook(
             hook_name="cloudpaw_init",
             callback=self._on_startup,
@@ -479,22 +544,17 @@ class CloudPawPlugin:
 
     async def _on_startup(self):
         """Initialize all CloudPaw components on application startup."""
-        from .injectors import inject_interaction_module
         from .agents_setup import ensure_builtin_agents
         from .hooks import (
             setup_tool_and_prompt_hooks,
             setup_mission_hooks,
             setup_acp_auto_approve,
         )
-        from .routers_setup import mount_routers
 
         logger.info("CloudPaw plugin starting up...")
 
         logger.info("[CloudPaw] Ensuring default environment variables...")
         _ensure_default_env_vars()
-
-        logger.info("[CloudPaw] Injecting synthetic modules...")
-        inject_interaction_module()
 
         logger.info("[CloudPaw] Installing skills to pool...")
         _install_plugin_skills()
@@ -511,14 +571,8 @@ class CloudPawPlugin:
         logger.info("[CloudPaw] Setting up mission mode hooks...")
         setup_mission_hooks()
 
-        logger.info("[CloudPaw] Mounting API routers...")
-        mount_routers()
-
         logger.info("[CloudPaw] Initializing A2A client manager...")
         _init_a2a_manager()
-
-        logger.info("[CloudPaw] Registering /a2a control command...")
-        _register_a2a_command()
 
         logger.info("[CloudPaw] Checking aliyun CLI availability...")
         await _ensure_aliyun_cli()

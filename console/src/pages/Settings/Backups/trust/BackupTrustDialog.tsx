@@ -61,7 +61,7 @@ export default function BackupTrustDialog({
               })
             : t("backup.trustForeignDesc", {
                 defaultValue:
-                  "This backup was not signed by this instance. Only import it if you trust the source; local security and MCP settings will be preserved by default when restored.",
+                  "This backup was not signed by this instance. Only continue if you trust the source; local security and MCP settings will be preserved by default when restored.",
               })
         }
       />

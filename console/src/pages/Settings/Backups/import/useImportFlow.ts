@@ -6,7 +6,8 @@
  *
  * It also owns the foreign/legacy trust prompt. The first failed upload keeps
  * the File in memory; only after explicit confirmation do we retry with
- * trustForeign=true so the server can re-sign the archive locally.
+ * trust_mode matching the prompt so the server can re-sign the archive
+ * locally.
  *
  * Kept separate from useRestoreFlow so each hook has a single responsibility.
  */
@@ -15,17 +16,24 @@ import { useTranslation } from "react-i18next";
 import api from "@/api";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import type { BackupConflictResponse, BackupMeta } from "@/api/types/backup";
-import { parseErrorDetail } from "@/utils/error";
+import { trustModeFromError, type BackupTrustMode } from "../trust/trustErrors";
 
 interface UseImportFlowOptions {
   onSuccess: () => void;
 }
 
+type ImportTrustPrompt = {
+  file: File;
+  mode: BackupTrustMode;
+};
+
 export function useImportFlow({ onSuccess }: UseImportFlowOptions) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [conflictMeta, setConflictMeta] = useState<BackupMeta | null>(null);
-  const [trustFile, setTrustFile] = useState<File | null>(null);
+  const [trustPrompt, setTrustPrompt] = useState<ImportTrustPrompt | null>(
+    null,
+  );
   const [trustLoading, setTrustLoading] = useState(false);
   const pendingTokenRef = useRef<string | null>(null);
 
@@ -40,10 +48,13 @@ export function useImportFlow({ onSuccess }: UseImportFlowOptions) {
       if (conflict?.detail === "backup_conflict") {
         pendingTokenRef.current = conflict.pending_token;
         setConflictMeta(conflict.existing);
-      } else if (isTrustRequired(err)) {
-        setTrustFile(file);
       } else {
-        message.error(t("backup.importFailed"));
+        const trustMode = trustModeFromError(err);
+        if (trustMode) {
+          setTrustPrompt({ file, mode: trustMode });
+        } else {
+          message.error(t("backup.importFailed"));
+        }
       }
     }
   };
@@ -71,19 +82,21 @@ export function useImportFlow({ onSuccess }: UseImportFlowOptions) {
 
   /** Retries the held upload after the user explicitly trusts the archive. */
   const handleTrustConfirm = async () => {
-    if (!trustFile) return;
+    if (!trustPrompt) return;
     setTrustLoading(true);
     try {
-      await api.importBackup(trustFile, { trustForeign: true });
+      await api.importBackup(trustPrompt.file, {
+        trustMode: trustPrompt.mode,
+      });
       message.success(t("backup.importSuccess"));
-      setTrustFile(null);
+      setTrustPrompt(null);
       onSuccess();
     } catch (err: unknown) {
       const conflict = (err as { conflict?: BackupConflictResponse }).conflict;
       if (conflict?.detail === "backup_conflict") {
         pendingTokenRef.current = conflict.pending_token;
         setConflictMeta(conflict.existing);
-        setTrustFile(null);
+        setTrustPrompt(null);
       } else {
         message.error(t("backup.importFailed"));
       }
@@ -92,11 +105,12 @@ export function useImportFlow({ onSuccess }: UseImportFlowOptions) {
     }
   };
 
-  const clearTrust = () => setTrustFile(null);
+  const clearTrust = () => setTrustPrompt(null);
 
   return {
     conflictMeta,
-    trustFileName: trustFile?.name ?? null,
+    trustFileName: trustPrompt?.file.name ?? null,
+    trustMode: trustPrompt?.mode ?? null,
     trustLoading,
     handleImport,
     handleConflictChoice,
@@ -104,13 +118,4 @@ export function useImportFlow({ onSuccess }: UseImportFlowOptions) {
     clearConflict,
     clearTrust,
   };
-}
-
-function isTrustRequired(error: unknown): boolean {
-  const detail = parseErrorDetail(error);
-  return [
-    "backup_legacy_unsigned",
-    "backup_signature_mismatch",
-    "backup_unknown_signature_scheme",
-  ].includes(String(detail?.code ?? ""));
 }

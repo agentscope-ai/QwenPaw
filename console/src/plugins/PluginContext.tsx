@@ -12,6 +12,25 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { pluginSystem } from "./hostExternals";
 import { loadAllPlugins } from "./usePluginLoader";
 import type { PluginRouteDeclaration } from "./hostExternals";
+import {
+  routeRegistry,
+  subscribe as registrySubscribe,
+} from "./registry/store";
+
+/** Derive the legacy PluginRouteDeclaration[] shape from routeRegistry. */
+function derivePluginRoutes(): PluginRouteDeclaration[] {
+  // Include both legacy (registerRoutes shim) routes and any new route.add
+  // registrations from a plugin source. Built-in `core.*` routes are excluded.
+  return routeRegistry
+    .snapshot()
+    .filter((r) => r.source !== "core")
+    .map((r) => ({
+      path: r.path,
+      component: r.Component,
+      label: r.id,
+      icon: "",
+    }));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Context shape
@@ -49,25 +68,35 @@ export function PluginProvider({ children }: { children: React.ReactNode }) {
     Record<string, React.FC<any>>
   >(pluginSystem.getToolRenderConfig());
   const [pluginRoutes, setPluginRoutes] = useState<PluginRouteDeclaration[]>(
-    pluginSystem.getRoutes(),
+    derivePluginRoutes(),
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Re-sync state whenever any plugin registers new capabilities
-    const unsub = pluginSystem.subscribe(() => {
+    // Re-sync state whenever any plugin registers new capabilities — both
+    // the legacy pluginSystem (toolRenderers) and the new registry
+    // (routes via shim + direct route.add) notify on change.
+    const unsubA = pluginSystem.subscribe(() => {
       setToolRenderConfig(pluginSystem.getToolRenderConfig());
-      setPluginRoutes(pluginSystem.getRoutes());
+    });
+    const unsubB = registrySubscribe(() => {
+      setPluginRoutes(derivePluginRoutes());
     });
 
-    // Load all installed plugins (non-fatal: one bad plugin won’t block others)
+    // Load all installed plugins and PawApps (non-fatal: one bad module
+    // won’t block others). PawApps are 'app'-type plugins: the loader
+    // executes their ui bundle, which self-registers the /apps/{id} route
+    // so the App Center can render them inline.
     loadAllPlugins().then(({ failed }) => {
       if (failed.length > 0) setError(failed.join("; "));
       setLoading(false);
     });
 
-    return unsub;
+    return () => {
+      unsubA();
+      unsubB();
+    };
   }, []);
 
   return (

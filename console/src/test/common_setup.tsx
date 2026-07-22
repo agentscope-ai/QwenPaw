@@ -1,7 +1,15 @@
 import { render, type RenderOptions } from "@testing-library/react";
 import { MemoryRouter, type MemoryRouterProps } from "react-router-dom";
-import { type ReactNode } from "react";
+import { type ReactNode, createContext, useState } from "react";
 import { App } from "antd";
+
+const ApprovalContext = createContext<{
+  approvals: any[];
+  setApprovals: (approvals: any[]) => void;
+}>({
+  approvals: [],
+  setApprovals: () => {},
+});
 
 interface RenderWithProvidersOptions extends Omit<RenderOptions, "wrapper"> {
   initialEntries?: string[];
@@ -14,10 +22,13 @@ function AllProviders({
   children: ReactNode;
   routerProps?: MemoryRouterProps;
 }) {
+  const [approvals, setApprovals] = useState<any[]>([]);
   return (
-    <App>
-      <MemoryRouter {...routerProps}>{children}</MemoryRouter>
-    </App>
+    <ApprovalContext.Provider value={{ approvals, setApprovals }}>
+      <App>
+        <MemoryRouter {...routerProps}>{children}</MemoryRouter>
+      </App>
+    </ApprovalContext.Provider>
   );
 }
 

@@ -19,7 +19,7 @@ from typing import Any
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 
@@ -33,6 +33,7 @@ from ...agents.skill_system import (
     SkillConflictError,
     SkillPoolService,
     SkillService,
+    run_pool_auto_update_sync,
 )
 from ...agents.skill_system.models import SkillInfo
 from ...agents.skill_system.registry import (
@@ -59,10 +60,12 @@ from ...agents.skill_system.store import (
     read_skill_from_dir,
     read_skill_manifest,
     read_skill_pool_manifest,
+    resolve_pool_skill_dir,
     suggest_conflict_name,
 )
 from ...security.skill_scanner import SkillScanError
-from ..utils import schedule_agent_reload
+from ..inbox_store import append_event as append_inbox_event
+from ..utils import check_upload_size, schedule_agent_reload
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +73,78 @@ router = APIRouter(prefix="/skills", tags=["skills"])
 
 MAX_TAGS = 8
 MAX_TAG_LENGTH = 16
+
+# Source type for skill auto-update inbox events.
+AUTO_UPDATE_INBOX_SOURCE = "skill_autoupdate"
+
+
+async def post_auto_update_inbox(
+    result: dict[str, Any] | None,
+) -> None:
+    """Post one inbox notification summarising an auto-update run.
+
+    A single sync run (startup / refresh / enable) becomes one event listing
+    the synced skills plus any failures. Severity is ``error`` when any skill
+    failed, otherwise ``info``. Nothing is posted when no skill propagated.
+    """
+    if not result:
+        return
+    synced = [
+        item for item in (result.get("synced") or []) if item.get("agents")
+    ]
+    failed = result.get("failed") or []
+    if not synced and not failed:
+        return
+
+    synced_names = [str(item["skill"]) for item in synced]
+    failed_names = [str(item["skill"]) for item in failed]
+    has_failure = bool(failed_names)
+
+    lines: list[str] = []
+    for item in synced:
+        agents = ", ".join(item.get("agents") or [])
+        lines.append(f"{item['skill']} → {agents}")
+    for item in failed:
+        agents = ", ".join(item.get("agents") or []) or "unknown"
+        lines.append(f"{item['skill']} (failed) → {agents}")
+
+    if has_failure:
+        title = (
+            f"Auto-update: {len(synced_names)} updated, "
+            f"{len(failed_names)} failed"
+        )
+    else:
+        title = f"Auto-update: {len(synced_names)} skill(s) updated"
+
+    await append_inbox_event(
+        agent_id="default",
+        source_type=AUTO_UPDATE_INBOX_SOURCE,
+        source_id="",
+        event_type="auto_update",
+        status="error" if has_failure else "success",
+        severity="error" if has_failure else "info",
+        title=title,
+        body="; ".join(lines),
+        payload={"synced": synced, "failed": failed},
+    )
+
+
+async def _follow_auto_update(skill_name: str | None = None) -> None:
+    """Propagate + notify after any pool-content change.
+
+    Called by the content-mutating endpoints (edit / rename / builtin update /
+    builtin import) so auto-update skills sync to their workspaces immediately
+    instead of waiting for the next refresh or startup. The hash gate means
+    only skills that actually changed are propagated.
+    """
+    try:
+        result = await asyncio.to_thread(
+            run_pool_auto_update_sync,
+            skill_name=skill_name,
+        )
+        await post_auto_update_inbox(result)
+    except Exception:
+        logger.warning("auto-update follow-up failed", exc_info=True)
 
 
 def _scan_error_payload(exc: SkillScanError) -> dict[str, Any]:
@@ -121,10 +196,13 @@ class SkillSpec(SkillInfo):
     tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
+    installed_from: str = ""
 
 
 class PoolSkillSpec(SkillInfo):
     protected: bool = False
+    external: bool = False
+    external_path: str = ""
     commit_text: str = ""
     sync_status: str = ""
     latest_version_text: str = ""
@@ -133,6 +211,9 @@ class PoolSkillSpec(SkillInfo):
     tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
+    installed_from: str = ""
+    auto_update: bool = False
+    auto_update_targets: list[str] | None = None
 
 
 class WorkspaceSkillSummary(BaseModel):
@@ -148,6 +229,8 @@ class HubSkillSpec(BaseModel):
     description: str = ""
     version: str = ""
     source_url: str = ""
+    author: str = ""
+    icon_url: str = ""
 
 
 class BuiltinImportSpec(BaseModel):
@@ -229,6 +312,11 @@ class SkillConfigRequest(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
 
 
+class AutoUpdateRequest(BaseModel):
+    enabled: bool
+    targets: list[str] | None = None
+
+
 class SavePoolSkillRequest(BaseModel):
     name: str
     content: str
@@ -277,12 +365,21 @@ _hub_install_runtime_tasks: dict[str, asyncio.Task] = {}
 _hub_install_cancel_events: dict[str, threading.Event] = {}
 _hub_install_lock = asyncio.Lock()
 
+_HUB_INSTALL_TASK_TTL_SECONDS = 10 * 60
+_HUB_INSTALL_TASK_MAX_HISTORY = 100
+_HUB_INSTALL_TERMINAL_STATUSES = frozenset(
+    {
+        HubInstallTaskStatus.COMPLETED,
+        HubInstallTaskStatus.FAILED,
+        HubInstallTaskStatus.CANCELLED,
+    },
+)
+
 _ALLOWED_ZIP_TYPES = {
     "application/zip",
     "application/x-zip-compressed",
     "application/octet-stream",
 }
-_MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
 def _workspace_dir_for_agent(agent_id: str) -> Path:
@@ -374,17 +471,46 @@ async def _hub_task_set_status(
 
 async def _hub_task_get(task_id: str) -> HubInstallTask | None:
     async with _hub_install_lock:
+        _hub_task_cleanup_locked()
         return _hub_install_tasks.get(task_id)
 
 
-async def _hub_task_register_runtime(task_id: str, task: asyncio.Task) -> None:
-    async with _hub_install_lock:
-        _hub_install_runtime_tasks[task_id] = task
+def _hub_task_cleanup_locked(*, now: float | None = None) -> None:
+    """Remove expired/excess finished tasks while the registry lock is held."""
+    current_time = time.time() if now is None else now
+    finished = [
+        task
+        for task_id, task in _hub_install_tasks.items()
+        if task.status in _HUB_INSTALL_TERMINAL_STATUSES
+        and task_id not in _hub_install_runtime_tasks
+    ]
+
+    expired_ids = {
+        task.task_id
+        for task in finished
+        if current_time - task.updated_at > _HUB_INSTALL_TASK_TTL_SECONDS
+    }
+    retained = [task for task in finished if task.task_id not in expired_ids]
+    excess = max(0, len(retained) - _HUB_INSTALL_TASK_MAX_HISTORY)
+    if excess:
+        retained.sort(key=lambda task: (task.updated_at, task.created_at))
+        expired_ids.update(task.task_id for task in retained[:excess])
+
+    for expired_id in expired_ids:
+        _hub_install_tasks.pop(expired_id, None)
+        _hub_install_cancel_events.pop(expired_id, None)
 
 
-async def _hub_task_pop_runtime(task_id: str) -> asyncio.Task | None:
+async def _hub_task_finish_runtime(task_id: str) -> None:
     async with _hub_install_lock:
-        return _hub_install_runtime_tasks.pop(task_id, None)
+        _hub_install_runtime_tasks.pop(task_id, None)
+        _hub_install_cancel_events.pop(task_id, None)
+        task = _hub_install_tasks.get(task_id)
+        if task is not None and task.status in _HUB_INSTALL_TERMINAL_STATUSES:
+            # Retention starts when the worker actually stops, which can be
+            # later than the cancel endpoint's terminal response.
+            task.updated_at = time.time()
+        _hub_task_cleanup_locked()
 
 
 async def _read_validated_zip_upload(file: UploadFile) -> bytes:
@@ -398,14 +524,7 @@ async def _read_validated_zip_upload(file: UploadFile) -> bytes:
         )
 
     data = await file.read()
-    if len(data) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"File too large ({len(data) // (1024 * 1024)} MB). "
-                f"Maximum is {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
-            ),
-        )
+    check_upload_size(data)
     return data
 
 
@@ -434,17 +553,13 @@ async def _run_hub_install_task(
     await _hub_task_set_status(task_id, HubInstallTaskStatus.IMPORTING)
     imported_skill_name: str | None = None
     try:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            None,
-            lambda: install_skill_from_hub(
-                workspace_dir=workspace_dir,
-                bundle_url=body.bundle_url,
-                version=body.version,
-                enable=body.enable,
-                target_name=body.target_name,
-                cancel_checker=cancel_event.is_set,
-            ),
+        result = await install_skill_from_hub(
+            workspace_dir=workspace_dir,
+            bundle_url=body.bundle_url,
+            version=body.version,
+            enable=body.enable,
+            target_name=body.target_name,
+            cancel_checker=cancel_event.is_set,
         )
         imported_skill_name = result.name
         if cancel_event.is_set():
@@ -457,6 +572,7 @@ async def _run_hub_install_task(
                     "name": result.name,
                     "enabled": False,
                     "source_url": result.source_url,
+                    "installed_from": result.installed_from,
                 },
             )
             return
@@ -468,12 +584,16 @@ async def _run_hub_install_task(
                 "name": result.name,
                 "enabled": result.enabled,
                 "source_url": result.source_url,
+                "installed_from": result.installed_from,
             },
         )
     except SkillImportCancelled:
         if imported_skill_name:
             _cleanup_imported_skill(workspace_dir, imported_skill_name)
         await _hub_task_set_status(task_id, HubInstallTaskStatus.CANCELLED)
+    except asyncio.CancelledError:
+        await _hub_task_set_status(task_id, HubInstallTaskStatus.CANCELLED)
+        raise
     except SkillScanError as exc:
         await _hub_task_set_status(
             task_id,
@@ -481,18 +601,18 @@ async def _run_hub_install_task(
             error=str(exc),
             result=_scan_error_payload(exc),
         )
-    except (ValueError, AppBaseException) as exc:
-        await _hub_task_set_status(
-            task_id,
-            HubInstallTaskStatus.FAILED,
-            error=str(exc),
-        )
     except SkillConflictError as exc:
         await _hub_task_set_status(
             task_id,
             HubInstallTaskStatus.FAILED,
             error=str(exc),
             result=exc.detail,
+        )
+    except (ValueError, AppBaseException) as exc:
+        await _hub_task_set_status(
+            task_id,
+            HubInstallTaskStatus.FAILED,
+            error=str(exc),
         )
     except RuntimeError as exc:
         await _hub_task_set_status(
@@ -507,7 +627,7 @@ async def _run_hub_install_task(
             error=f"Skill hub import failed: {exc}",
         )
     finally:
-        await _hub_task_pop_runtime(task_id)
+        await _hub_task_finish_runtime(task_id)
 
 
 def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
@@ -537,6 +657,9 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                     channels=entry.get("channels") or ["all"],
                     config=entry.get("config") or {},
                     last_updated=get_skill_mtime(skill_dir),
+                    installed_from=str(
+                        entry.get("installed_from", "") or "",
+                    ),
                 ),
             )
         except Exception:
@@ -563,17 +686,22 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
             )
         try:
             source = entry.get("source", "customized")
-            skill_dir = pool_dir / skill_name
+            skill_dir = resolve_pool_skill_dir(skill_name) or (
+                pool_dir / skill_name
+            )
             skill = read_skill_from_dir(skill_dir, source)
             if skill is None:
                 continue
             info = sync_info.get(skill_name, {})
             dump = skill.model_dump(exclude={"version_text"})
             dump["tags"] = entry.get("tags") or []
+            is_external = bool(entry.get("external", False))
             specs.append(
                 PoolSkillSpec(
                     **dump,
                     protected=bool(entry.get("protected", False)),
+                    external=is_external,
+                    external_path=str(skill_dir) if is_external else "",
                     version_text=str(entry.get("version_text", "") or ""),
                     commit_text=str(entry.get("commit_text", "") or ""),
                     sync_status=str(info.get("sync_status", "") or ""),
@@ -594,6 +722,18 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                     ],
                     config=entry.get("config") or {},
                     last_updated=get_skill_mtime(skill_dir),
+                    installed_from=str(
+                        entry.get("installed_from", "") or "",
+                    ),
+                    auto_update=bool(entry.get("auto_update", False)),
+                    auto_update_targets=(
+                        list(entry["auto_update_targets"])
+                        if isinstance(
+                            entry.get("auto_update_targets"),
+                            list,
+                        )
+                        else None
+                    ),
                 ),
             )
         except Exception:
@@ -624,7 +764,7 @@ async def search_hub(
     q: str = "",
     limit: int = 20,
 ) -> list[HubSkillSpec]:
-    results = search_hub_skills(q, limit=limit)
+    results = await search_hub_skills(q, limit=limit)
     return [
         HubSkillSpec(
             slug=item.slug,
@@ -632,6 +772,8 @@ async def search_hub(
             description=item.description,
             version=item.version,
             source_url=item.source_url,
+            author=item.author,
+            icon_url=item.icon_url,
         )
         for item in results
     ]
@@ -667,19 +809,19 @@ async def start_install_from_hub(
     )
     cancel_event = threading.Event()
     async with _hub_install_lock:
+        _hub_task_cleanup_locked()
         _hub_install_tasks[task.task_id] = task
         _hub_install_cancel_events[task.task_id] = cancel_event
-
-    runtime_task = asyncio.create_task(
-        _run_hub_install_task(
-            task_id=task.task_id,
-            workspace_dir=workspace_dir,
-            body=request_body,
-            cancel_event=cancel_event,
-        ),
-        name=f"skill-hub-install-{task.task_id}",
-    )
-    await _hub_task_register_runtime(task.task_id, runtime_task)
+        runtime_task = asyncio.create_task(
+            _run_hub_install_task(
+                task_id=task.task_id,
+                workspace_dir=workspace_dir,
+                body=request_body,
+                cancel_event=cancel_event,
+            ),
+            name=f"skill-hub-install-{task.task_id}",
+        )
+        _hub_install_runtime_tasks[task.task_id] = runtime_task
     return task
 
 
@@ -700,11 +842,7 @@ async def cancel_hub_install(task_id: str) -> dict[str, Any]:
                 status_code=404,
                 detail="install task not found",
             )
-        if task.status in (
-            HubInstallTaskStatus.COMPLETED,
-            HubInstallTaskStatus.FAILED,
-            HubInstallTaskStatus.CANCELLED,
-        ):
+        if task.status in _HUB_INSTALL_TERMINAL_STATUSES:
             return {"task_id": task_id, "status": task.status.value}
         cancel_event = _hub_install_cancel_events.get(task_id)
         if cancel_event is not None:
@@ -723,6 +861,7 @@ async def list_pool_skills() -> list[PoolSkillSpec]:
 async def refresh_pool_skills() -> list[PoolSkillSpec]:
     """Force reconcile and return updated pool skill list."""
     reconcile_pool_manifest()
+    await _follow_auto_update()
     return _build_pool_skill_specs()
 
 
@@ -888,6 +1027,7 @@ async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
         reason = result.get("reason")
         status = 404 if reason == "not_found" else 409
         raise HTTPException(status_code=status, detail=result)
+    await _follow_auto_update(result.get("name"))
     return result
 
 
@@ -925,6 +1065,7 @@ async def upload_skill_pool_zip(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if result.get("conflicts"):
         raise HTTPException(status_code=409, detail=result)
+    await _follow_auto_update()
     return result
 
 
@@ -933,24 +1074,26 @@ async def import_skill_pool_from_hub(
     body: HubInstallRequest,
 ) -> dict[str, Any]:
     try:
-        result = import_pool_skill_from_hub(
+        result = await import_pool_skill_from_hub(
             bundle_url=body.bundle_url,
             version=body.version,
             target_name=body.target_name,
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)
-    except (ValueError, AppBaseException) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except SkillConflictError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await _follow_auto_update(result.name)
     return {
         "installed": True,
         "name": result.name,
         "enabled": False,
         "source_url": result.source_url,
+        "installed_from": result.installed_from,
     }
 
 
@@ -973,6 +1116,8 @@ async def upload_workspace_skill_to_pool(
     if not result.get("success"):
         status = 404 if result.get("reason") == "not_found" else 409
         raise HTTPException(status_code=status, detail=result)
+    if not body.preview_only:
+        await _follow_auto_update(result.get("name"))
     return result
 
 
@@ -992,6 +1137,8 @@ def _preflight_download_conflicts(
             overwrite=overwrite,
         )
         if not result.get("success"):
+            if result.get("reason") == "not_found":
+                raise HTTPException(status_code=404, detail=result)
             conflicts.append(result)
     return conflicts
 
@@ -1057,6 +1204,40 @@ def _build_download_plan(
     return plan
 
 
+def _download_one_or_raise(
+    hub_service: SkillPoolService,
+    plan: dict[str, Any],
+    execution_plan: list[dict[str, Any]],
+    *,
+    skill_name: str,
+    overwrite: bool,
+) -> dict[str, str]:
+    """Download into one workspace; on failure roll back all and raise.
+
+    A missing pool skill is a target-independent 404; any other failure is
+    a per-target 409 conflict.
+    """
+    result = hub_service.download_to_workspace(
+        skill_name=skill_name,
+        workspace_dir=plan["workspace_dir"],
+        overwrite=overwrite,
+    )
+    if not result.get("success"):
+        for rollback in reversed(execution_plan):
+            _restore_workspace_skill(rollback["snapshot"])
+        if result.get("reason") == "not_found":
+            raise HTTPException(status_code=404, detail=result)
+        raise HTTPException(
+            status_code=409,
+            detail={"downloaded": [], "conflicts": [result]},
+        )
+    return {
+        "workspace_id": str(plan["workspace_id"]),
+        "workspace_name": str(result.get("workspace_name", "") or ""),
+        "name": str(result.get("name", "")),
+    }
+
+
 @router.post("/pool/download")
 async def download_pool_skill_to_workspaces(
     body: DownloadFromPoolRequest,
@@ -1074,29 +1255,14 @@ async def download_pool_skill_to_workspaces(
     downloaded: list[dict[str, str]] = []
     try:
         for plan in execution_plan:
-            result = hub_service.download_to_workspace(
-                skill_name=body.skill_name,
-                workspace_dir=plan["workspace_dir"],
-                overwrite=body.overwrite,
-            )
-            if not result.get("success"):
-                for rollback in reversed(execution_plan):
-                    _restore_workspace_skill(rollback["snapshot"])
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "downloaded": [],
-                        "conflicts": [result],
-                    },
-                )
             downloaded.append(
-                {
-                    "workspace_id": str(plan["workspace_id"]),
-                    "workspace_name": str(
-                        result.get("workspace_name", "") or "",
-                    ),
-                    "name": str(result.get("name", "")),
-                },
+                _download_one_or_raise(
+                    hub_service,
+                    plan,
+                    execution_plan,
+                    skill_name=body.skill_name,
+                    overwrite=body.overwrite,
+                ),
             )
     except HTTPException:
         raise
@@ -1132,6 +1298,7 @@ async def import_pool_builtins(
     )
     if result.get("conflicts") and not body.overwrite_conflicts:
         raise HTTPException(status_code=409, detail=result)
+    await _follow_auto_update()
     return result
 
 
@@ -1148,9 +1315,11 @@ async def update_pool_builtin(
             f"must be one of {BUILTIN_SKILL_LANGUAGES}",
         )
     try:
-        return update_single_builtin(skill_name, language=language or None)
+        result = update_single_builtin(skill_name, language=language or None)
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await _follow_auto_update()
+    return result
 
 
 @router.delete("/pool/{skill_name}")
@@ -1237,6 +1406,33 @@ async def update_pool_skill_tags(
             detail="Pool skill not found",
         )
     return {"updated": True, "tags": tags}
+
+
+@router.put("/pool/{skill_name}/auto-update")
+async def update_pool_skill_auto_update(
+    skill_name: str,
+    body: AutoUpdateRequest,
+) -> dict[str, Any]:
+    """Toggle auto-update for a pool skill and persist its target agents.
+
+    Enabling triggers an immediate sync of the configured workspaces.
+    """
+    result = SkillPoolService().set_skill_auto_update(
+        skill_name,
+        enabled=body.enabled,
+        targets=body.targets,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Pool skill not found",
+        )
+    await post_auto_update_inbox(result)
+    return {
+        "updated": True,
+        "enabled": body.enabled,
+        "targets": body.targets,
+    }
 
 
 @router.post("/batch-delete")

@@ -1,92 +1,60 @@
-import { Suspense } from "react";
+import { Suspense, useMemo } from "react";
 import { Layout, Spin } from "antd";
-import { Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { Routes, Route, useLocation, matchPath } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
 import ConsolePollService from "../../components/ConsolePollService";
+import { AgentStatusPollingController } from "../../components/AgentStatusPollingController";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
-import { lazyImportWithRetry } from "../../utils/lazyWithRetry";
-import { usePlugins } from "../../plugins/PluginContext";
+import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
 import styles from "../index.module.less";
-
-// Chat is eagerly loaded (default landing page)
-import Chat from "../../pages/Chat";
-
-// All other pages are lazily loaded with automatic retry on chunk failure
-const ChannelsPage = lazyImportWithRetry("../../pages/Control/Channels");
-const SessionsPage = lazyImportWithRetry("../../pages/Control/Sessions");
-const InboxPage = lazyImportWithRetry("../../pages/Inbox");
-const CronJobsPage = lazyImportWithRetry("../../pages/Control/CronJobs");
-const HeartbeatPage = lazyImportWithRetry("../../pages/Control/Heartbeat");
-const AgentConfigPage = lazyImportWithRetry("../../pages/Agent/Config");
-const SkillsPage = lazyImportWithRetry("../../pages/Agent/Skills");
-const SkillPoolPage = lazyImportWithRetry("../../pages/Settings/SkillPool");
-const ToolsPage = lazyImportWithRetry("../../pages/Agent/Tools");
-const WorkspacePage = lazyImportWithRetry("../../pages/Agent/Workspace");
-const MCPPage = lazyImportWithRetry("../../pages/Agent/MCP");
-const ACPPage = lazyImportWithRetry("../../pages/Agent/ACP");
-const ModelsPage = lazyImportWithRetry("../../pages/Settings/Models");
-const EnvironmentsPage = lazyImportWithRetry(
-  "../../pages/Settings/Environments",
-);
-const SecurityPage = lazyImportWithRetry("../../pages/Settings/Security");
-const TokenUsagePage = lazyImportWithRetry("../../pages/Settings/TokenUsage");
-const AgentStatsPage = lazyImportWithRetry("../../pages/Settings/AgentStats");
-const VoiceTranscriptionPage = lazyImportWithRetry(
-  "../../pages/Settings/VoiceTranscription",
-);
-const AgentsPage = lazyImportWithRetry("../../pages/Settings/Agents");
-const DebugPage = lazyImportWithRetry("../../pages/Settings/Debug");
-const BackupsPage = lazyImportWithRetry("../../pages/Settings/Backups");
-const PluginManagerPage = lazyImportWithRetry(
-  "../../pages/Settings/PluginManager",
-);
+import { useRoutes } from "../../plugins/registry/hooks";
+import { Slot } from "../../plugins/registry/Slot";
 
 const { Content } = Layout;
 
-const pathToKey: Record<string, string> = {
-  "/chat": "chat",
-  "/channels": "channels",
-  "/sessions": "sessions",
-  "/inbox": "inbox",
-  "/cron-jobs": "cron-jobs",
-  "/heartbeat": "heartbeat",
-  "/skills": "skills",
-  "/skill-pool": "skill-pool",
-  "/tools": "tools",
-  "/mcp": "mcp",
-  "/acp": "acp",
-  "/workspace": "workspace",
-  "/agents": "agents",
-  "/models": "models",
-  "/environments": "environments",
-  "/agent-config": "agent-config",
-  "/security": "security",
-  "/token-usage": "token-usage",
-  "/agent-stats": "agent-stats",
-  "/voice-transcription": "voice-transcription",
-  "/debug": "debug",
-  "/backups": "backups",
-  "/plugin-manager": "plugin-manager",
-};
+/**
+ * Find the registered route whose path pattern matches the current URL.
+ * Falls back to "core.chat" so the sidebar always has a sensible
+ * highlight, mirroring the old `pathToKey` default.
+ */
+function pickSelectedKey(
+  currentPath: string,
+  routes: ReturnType<typeof useRoutes>,
+): string {
+  for (const r of routes) {
+    if (matchPath({ path: r.path, end: r.path === "/" }, currentPath)) {
+      return r.id;
+    }
+  }
+  return "core.chat";
+}
 
 export default function MainLayout() {
   const { t } = useTranslation();
   const location = useLocation();
   const currentPath = location.pathname;
-  const { pluginRoutes } = usePlugins();
+  const routes = useRoutes();
 
-  // Resolve selected key: check static routes first, then plugin routes
-  let selectedKey = pathToKey[currentPath] || "";
-  if (!selectedKey) {
-    const matchedPlugin = pluginRoutes.find(
-      (route) => currentPath === route.path,
-    );
-    selectedKey = matchedPlugin
-      ? matchedPlugin.path.replace(/^\//, "")
-      : "chat";
-  }
+  // Backend is the source of truth for Coding Mode state — refill the
+  // in-memory store every time the selected agent changes.
+  useSyncCodingMode();
+
+  const selectedKey = useMemo(
+    () => pickSelectedKey(currentPath, routes),
+    [currentPath, routes],
+  );
+
+  // PawApp inline routes (`/apps/<id>`) are rendered *inside* the App Center
+  // page (with its "← App Center" bar), never as standalone full-page routes.
+  // They stay in the registry so the App Center can look up their component;
+  // we just skip them here. The App Center's own `/apps/:appId` route (with a
+  // colon) is kept, so a deep-link / refresh lands on the App Center wrapper.
+  const renderableRoutes = useMemo(
+    () => routes.filter((r) => !/^\/apps\/(?!:)/.test(r.path)),
+    [routes],
+  );
 
   return (
     <Layout className={styles.mainLayout}>
@@ -95,6 +63,8 @@ export default function MainLayout() {
         <Sidebar selectedKey={selectedKey} />
         <Content className="page-container">
           <ConsolePollService />
+          <AgentStatusPollingController />
+          <Slot name="content.statusBar" kind="fill" />
           <div className="page-content">
             <ChunkErrorBoundary resetKey={currentPath}>
               <Suspense
@@ -106,45 +76,8 @@ export default function MainLayout() {
                 }
               >
                 <Routes>
-                  <Route path="/" element={<Navigate to="/chat" replace />} />
-                  <Route path="/chat/*" element={<Chat />} />
-                  <Route path="/channels" element={<ChannelsPage />} />
-                  <Route path="/sessions" element={<SessionsPage />} />
-                  <Route path="/inbox" element={<InboxPage />} />
-                  <Route path="/cron-jobs" element={<CronJobsPage />} />
-                  <Route path="/heartbeat" element={<HeartbeatPage />} />
-                  <Route path="/skills" element={<SkillsPage />} />
-                  <Route path="/skill-pool" element={<SkillPoolPage />} />
-                  <Route path="/tools" element={<ToolsPage />} />
-                  <Route path="/mcp" element={<MCPPage />} />
-                  <Route path="/acp" element={<ACPPage />} />
-                  <Route path="/ACP" element={<Navigate to="/acp" replace />} />
-                  <Route path="/workspace" element={<WorkspacePage />} />
-                  <Route path="/agents" element={<AgentsPage />} />
-                  <Route path="/models" element={<ModelsPage />} />
-                  <Route path="/environments" element={<EnvironmentsPage />} />
-                  <Route path="/agent-config" element={<AgentConfigPage />} />
-                  <Route path="/security" element={<SecurityPage />} />
-                  <Route path="/token-usage" element={<TokenUsagePage />} />
-                  <Route path="/agent-stats" element={<AgentStatsPage />} />
-                  <Route
-                    path="/voice-transcription"
-                    element={<VoiceTranscriptionPage />}
-                  />
-                  <Route path="/debug" element={<DebugPage />} />
-                  <Route path="/backups" element={<BackupsPage />} />
-                  <Route
-                    path="/plugin-manager"
-                    element={<PluginManagerPage />}
-                  />
-
-                  {/* Plugin routes — dynamically injected at runtime */}
-                  {pluginRoutes.map((route) => (
-                    <Route
-                      key={route.path}
-                      path={route.path}
-                      element={<route.component />}
-                    />
+                  {renderableRoutes.map((r) => (
+                    <Route key={r.id} path={r.path} element={<r.Component />} />
                   ))}
                 </Routes>
               </Suspense>
@@ -152,6 +85,7 @@ export default function MainLayout() {
           </div>
         </Content>
       </Layout>
+      <Slot name="overlay.global" kind="fill" />
     </Layout>
   );
 }

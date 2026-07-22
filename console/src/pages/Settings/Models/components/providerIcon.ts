@@ -23,6 +23,7 @@ export const providerIcon = (provider: string) => {
     case "minimax":
       return "https://gw.alicdn.com/imgextra/i1/O1CN01B0FaVn1VzBcO4nF1C_!!6000000002723-2-tps-400-400.png";
     case "openai":
+    case "openai-response":
       return "https://gw.alicdn.com/imgextra/i3/O1CN01rQSexq1D7S4AYstKh_!!6000000000169-2-tps-400-400.png";
     case "dashscope":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01aDHDeq1mgj7gbRkhi_!!6000000004984-2-tps-400-400.png";
@@ -42,9 +43,15 @@ export const providerIcon = (provider: string) => {
       return "https://gw.alicdn.com/imgextra/i4/O1CN01oX74jS1ciQR9xBtZ2_!!6000000003634-2-tps-252-252.png";
     case "opencode":
       return "https://gw.alicdn.com/imgextra/i1/O1CN01d3RfoB28G5dbN4i97_!!6000000007904-2-tps-30-30.png";
+    case "kilo":
+      return "https://kilo.ai/favicon/android-chrome-192x192.png";
+    case "github-models":
+      return "https://github.githubassets.com/assets/GitHub-Mark-ea2971cee799.png";
     case "volcengine-cn":
     case "volcengine-cn-codingplan":
       return "https://img.alicdn.com/imgextra/i1/O1CN01KusRg42AJPkUV5ken_!!6000000008182-2-tps-1892-1660.png";
+    case "mimo-tokenplan":
+      return "https://img.alicdn.com/imgextra/i1/O1CN01TSCOAt1XP7fywLDei_!!6000000002915-2-tps-3483-3483.png";
     default:
       return "https://gw.alicdn.com/imgextra/i4/O1CN01IWnlOw1lebfpiFrIL_!!6000000004844-0-tps-100-100.jpg";
   }
