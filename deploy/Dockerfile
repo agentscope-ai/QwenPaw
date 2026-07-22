@@ -103,7 +103,13 @@ RUN uv pip install --no-cache-dir . && rm -rf ./build
 # QwenPaw app port (default 8088). Override at runtime with -e QWENPAW_PORT=3000.
 ENV QWENPAW_PORT=8088
 
+# First-party plugins shipped with the image. They are NOT part of the Python
+# package (PluginLoader discovers plugins from ``<working_dir>/plugins``), so
+# the entrypoint syncs them into the working dir on start.
+COPY plugins/bundle/nocobase_auth /app/bundled-plugins/nocobase_auth
+
 COPY deploy/config/supervisord.conf.template /etc/supervisor/conf.d/supervisord.conf.template
+COPY --chmod=755 deploy/sync-bundled-plugins.sh /sync-bundled-plugins.sh
 COPY --chmod=755 deploy/entrypoint.sh /entrypoint.sh
 
 EXPOSE 8088
