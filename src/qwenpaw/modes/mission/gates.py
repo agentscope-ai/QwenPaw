@@ -121,6 +121,15 @@ class MissionGate(LoopGate):
             )
 
         stories = prd.get("userStories", [])
+        if not isinstance(stories, list) or not all(
+            isinstance(story, dict) for story in stories
+        ):
+            self.deactivate()
+            return StopHandlerResult(
+                action=StopAction.TERMINATE,
+                reason="Invalid user stories in prd.json",
+            )
+
         if not stories:
             self.deactivate()
             return StopHandlerResult(
