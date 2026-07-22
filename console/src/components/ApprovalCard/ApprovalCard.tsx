@@ -367,6 +367,8 @@ export function ApprovalCard({
             {isGeneralized ? (
               <>
                 <Button
+                  type="primary"
+                  icon={<Check size={14} />}
                   onClick={() => handleApprove("exact")}
                   loading={loading === "approve-exact"}
                   disabled={loading !== null}
@@ -385,8 +387,6 @@ export function ApprovalCard({
                   }
                 >
                   <Button
-                    type="primary"
-                    icon={<Check size={14} />}
                     onClick={() => handleApprove("similar")}
                     loading={loading === "approve-pattern"}
                     disabled={isAlwaysAllowDisabled || loading !== null}
@@ -405,7 +405,7 @@ export function ApprovalCard({
                   loading === "approve-exact" || loading === "approve-pattern"
                 }
                 disabled={loading !== null}
-                className={styles.approveAlwaysButton}
+                className={styles.approveOnceButton}
               >
                 {t("approval.approve", "Approve")}
               </Button>
