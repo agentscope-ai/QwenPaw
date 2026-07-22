@@ -23,7 +23,7 @@ from agentscope.event import (
     TextBlockEndEvent,
     TextBlockStartEvent,
 )
-from agentscope.message import Msg, TextBlock
+from agentscope.message import HintBlock, Msg, TextBlock
 from agentscope.model import FinishedReason
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
@@ -153,6 +153,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
     async def compress_context(
         self,
         context_config: Any = None,
+        instructions: HintBlock | None = None,
     ) -> None:
         """Delegate to the context manager, else native compression.
 
@@ -180,7 +181,16 @@ class QwenPawAgent(CodingModeMixin, Agent):
             pass
 
         if self._context_manager is not None:
-            await self._context_manager.compress(self, context_config)
+            if instructions is None:
+                # Preserve compatibility with third-party managers that
+                # implemented the original two-argument protocol.
+                await self._context_manager.compress(self, context_config)
+            else:
+                await self._context_manager.compress(
+                    self,
+                    context_config,
+                    instructions=instructions,
+                )
             return
         try:
             lcc = self._agent_config.running.light_context_config
@@ -188,7 +198,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 return
         except Exception:
             pass
-        await super().compress_context(context_config)
+        await super().compress_context(
+            context_config,
+            instructions=instructions,
+        )
 
     def _save_to_context(self, blocks: Any, usage: Any = None) -> None:
         """Append blocks, then let the context manager write them through."""

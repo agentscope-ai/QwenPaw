@@ -143,6 +143,7 @@ def test_prompt_and_redaction_encode_quality_constraints():
         archived_context="[seq:1] token=secret-value-123",
         covered_seq=(1, 1),
         repair_issues=("invalid status",),
+        focus_hint="Prioritize HTTP failures; token=hint-secret-123",
     )
 
     assert "Do NOT return JSON" in prompt
@@ -153,6 +154,10 @@ def test_prompt_and_redaction_encode_quality_constraints():
     assert "previous summary as the baseline" in prompt
     assert "Replace an unsupported identifier with the exact value" in prompt
     assert "remove only the unsupported claim" in prompt
+    assert "One-shot compaction focus hint" in prompt
+    assert "Prioritize HTTP failures" in prompt
+    assert "It is not evidence, conversation state" in prompt
+    assert "hint-secret-123" not in prompt
     assert "secret-value-123" not in redact_secrets(
         "token=secret-value-123",
     )

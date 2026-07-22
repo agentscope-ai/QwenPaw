@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from agentscope.message import (
+    HintBlock,
     Msg,
     TextBlock,
     ToolCallBlock,
@@ -729,7 +730,13 @@ async def test_eviction_generates_plain_text_pointer_backed_summary(
     agent.context_config = _RealisticScrollConfig()
     agent._split_return = (old, [current])
 
-    await mgr.compress(agent)
+    await mgr.compress(
+        agent,
+        instructions=HintBlock(
+            hint="Prioritize provider failures.",
+            source="user",
+        ),
+    )
 
     assert len(agent.model.summary_calls) == 1
     call = agent.model.summary_calls[0]
@@ -738,6 +745,14 @@ async def test_eviction_generates_plain_text_pointer_backed_summary(
     assert call["disable_thinking"] is True
     assert "structured_model" not in call
     assert "Do NOT return JSON" in call["messages"][1].get_text_content()
+    assert (
+        "Prioritize provider failures."
+        in call["messages"][1].get_text_content()
+    )
+    assert (
+        "It is not evidence, conversation state"
+        in call["messages"][1].get_text_content()
+    )
     assert (
         "Create the first continuation summary"
         in call["messages"][1].get_text_content()

@@ -10,8 +10,9 @@ import re
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
-from agentscope.message import Msg, TextBlock
+from agentscope.message import HintBlock, Msg, TextBlock
 
+from .context.scroll.continuation_summary import redact_secrets
 from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
@@ -51,6 +52,7 @@ SYSTEM_COMMAND_DESCRIPTIONS: dict[str, str] = {
 # directly; the field is constrained ``gt=0``, so we use a negligible value
 # rather than zero.
 _FORCE_TRIGGER_RATIO = 1e-6
+_MAX_COMPACT_HINT_CHARS = 2000
 
 
 def _fmt_tokens(n: int) -> str:
@@ -308,10 +310,18 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
             return base
 
+    @staticmethod
+    def _compact_instructions(args: str) -> HintBlock | None:
+        """Build bounded, secret-safe guidance for one manual compaction."""
+        safe_hint = redact_secrets(args.strip())[:_MAX_COMPACT_HINT_CHARS]
+        if not safe_hint:
+            return None
+        return HintBlock(hint=safe_hint, source="user")
+
     async def _process_compact(
         self,
         messages: list[Msg],
-        args: str = "",  # pylint: disable=unused-argument
+        args: str = "",
     ) -> Msg:
         """Process /compact command.
 
@@ -351,6 +361,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         # Manual command: force compaction, and measure before/after so the
         # reply reports what was actually evicted.
         forced_cfg = self._forced_context_config(agent)
+        instructions = self._compact_instructions(args)
         before = len(self._state.context)
         # Scroll keeps its compaction map in the eviction index
         # (``state.summary`` stays empty); native fills ``state.summary``.
@@ -372,7 +383,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
             if scroll_mgr is not None:
                 try:
                     scroll_mgr.load_state(self._scroll_state or {})
-                    await scroll_mgr.compress(agent, forced_cfg)
+                    await scroll_mgr.compress(
+                        agent,
+                        forced_cfg,
+                        instructions=instructions,
+                    )
                     self._updated_scroll_state = scroll_mgr.to_dict()
                     index_text = scroll_mgr.describe_index()
                     continuation_text = scroll_mgr.describe_summary()
@@ -380,7 +395,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 finally:
                     scroll_mgr.close()
             else:
-                await agent.compress_context(forced_cfg)
+                await agent.compress_context(
+                    forced_cfg,
+                    instructions=instructions,
+                )
                 index_text = self._scroll_index_text(agent)
                 continuation_text = self._scroll_summary_text(agent)
                 cm = getattr(agent, "_context_manager", None)

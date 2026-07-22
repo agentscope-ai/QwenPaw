@@ -20,11 +20,18 @@ from typing import Any, Protocol, Sequence, runtime_checkable
 class ContextManager(Protocol):
     """Strategy that drives an agent's context management."""
 
-    async def compress(self, agent: Any, context_config: Any = None) -> None:
+    async def compress(
+        self,
+        agent: Any,
+        context_config: Any = None,
+        instructions: Any = None,
+    ) -> None:
         """Compress ``agent.state.context`` when it exceeds the threshold.
 
         Called from ``QwenPawAgent.compress_context`` in place of the native
-        AgentScope compression.
+        AgentScope compression. ``instructions`` is optional, one-shot
+        guidance for a manual compaction and must not be persisted as active
+        conversation state.
         """
 
     def on_save(self, agent: Any, blocks: Sequence[Any]) -> None:

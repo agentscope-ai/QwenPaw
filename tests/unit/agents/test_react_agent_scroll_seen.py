@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from agentscope.agent import Agent
 from agentscope.event import ModelCallEndEvent
-from agentscope.message import Msg, TextBlock
+from agentscope.message import HintBlock, Msg, TextBlock
 from agentscope.model import FinishedReason
 
 from qwenpaw.agents.react_agent import QwenPawAgent
@@ -25,6 +25,16 @@ class SeenTracker:
 
     def acknowledge_model_input_tool_results(self, ids: set[str]) -> None:
         self.acknowledged.append(set(ids))
+
+
+class CompressionTracker:
+    """Capture context-manager compression delegation arguments."""
+
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def compress(self, agent, context_config=None, instructions=None):
+        self.calls.append((agent, context_config, instructions))
 
 
 def make_agent(tracker: SeenTracker) -> QwenPawAgent:
@@ -105,3 +115,16 @@ async def test_interrupted_model_call_does_not_acknowledge_results(
 
     assert len(events) == 1
     assert not tracker.acknowledged
+
+
+async def test_compress_context_forwards_one_shot_instructions():
+    tracker = CompressionTracker()
+    agent = object.__new__(QwenPawAgent)
+    agent._context_manager = tracker
+    agent.state = SimpleNamespace(context=[])
+    config = SimpleNamespace(trigger_ratio=0.1)
+    instructions = HintBlock(hint="prioritize failures", source="user")
+
+    await agent.compress_context(config, instructions=instructions)
+
+    assert tracker.calls == [(agent, config, instructions)]

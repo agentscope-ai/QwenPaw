@@ -318,6 +318,7 @@ class ScrollContextManager:
         self,
         agent: Any,
         context_config: Any = None,
+        instructions: Any = None,
     ) -> None:
         """Evict the middle into the index; fold tool results under pressure.
 
@@ -512,7 +513,11 @@ class ScrollContextManager:
             # 5) Update the pointer-backed continuation state from bounded
             #    previews. Failure is non-fatal: the previous valid summary
             #    stays in place and the exact rows remain in history.db.
-            await self._update_continuation_summary(agent, middle)
+            await self._update_continuation_summary(
+                agent,
+                middle,
+                focus_hint=self._summary_focus_hint(instructions),
+            )
             mark("continuation_summary")
 
             # 6) Fold the evicted middle into the index as a new Tier 0 block.
@@ -827,6 +832,32 @@ class ScrollContextManager:
                 )
         return "".join(parts).strip()
 
+    @staticmethod
+    def _summary_focus_hint(instructions: Any) -> str:
+        """Extract text-only, one-shot compaction guidance."""
+        value = getattr(instructions, "hint", instructions)
+        if isinstance(value, str):
+            return value
+        if not isinstance(value, list):
+            return ""
+        parts: list[str] = []
+        for block in value:
+            block_type = (
+                block.get("type")
+                if isinstance(block, dict)
+                else getattr(block, "type", None)
+            )
+            if block_type != "text":
+                continue
+            text = (
+                block.get("text", "")
+                if isinstance(block, dict)
+                else getattr(block, "text", "")
+            )
+            if text:
+                parts.append(str(text))
+        return "\n".join(parts)
+
     async def _generate_plain_summary(
         self,
         agent: Any,
@@ -868,6 +899,8 @@ class ScrollContextManager:
         self,
         agent: Any,
         middle: list[Msg],
+        *,
+        focus_hint: str = "",
     ) -> None:
         """Update, validate, and at most once retry the plain summary."""
         new_span = self._evicted_span(middle)
@@ -908,6 +941,7 @@ class ScrollContextManager:
                 archived_context=new_context,
                 covered_seq=covered,
                 repair_issues=repair_issues,
+                focus_hint=focus_hint,
             )
             try:
                 plain_text = await self._generate_plain_summary(

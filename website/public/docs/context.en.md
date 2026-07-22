@@ -305,7 +305,7 @@ Important fields:
 
 ## Manual Compaction
 
-`/compact` still exists. Under scroll it forces archival; when turns are actually evicted it also updates the pointer-backed continuation summary and shows the current eviction-index map.
+`/compact` still exists. Under scroll it forces archival; when turns are actually evicted it also updates the pointer-backed continuation summary and shows the current eviction-index map. `/compact <hint>` supplies one-shot focus guidance to that compression only. The hint is secret-redacted and bounded; under scroll it is not treated as evidence or persisted task state, and auto-compaction remains unchanged.
 
 Typical result:
 

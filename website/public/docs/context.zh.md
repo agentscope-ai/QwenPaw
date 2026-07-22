@@ -304,7 +304,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 ## 手动压缩
 
-`/compact` 仍然存在。在 scroll 策略下，它会强制归档；真正驱逐轮次时也会更新带指针的 continuation summary，并展示当前驱逐索引。
+`/compact` 仍然存在。在 scroll 策略下，它会强制归档；真正驱逐轮次时也会更新带指针的 continuation summary，并展示当前驱逐索引。`/compact <hint>` 只为本次压缩提供取舍重点；hint 会先脱敏并限制长度，在 scroll 下既不作为 evidence，也不持久化为任务状态，自动压缩行为不受影响。
 
 典型返回：
 

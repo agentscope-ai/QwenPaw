@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from agentscope.message import Msg, TextBlock
+from agentscope.message import HintBlock, Msg, TextBlock
 
 from qwenpaw.agents.command_handler import CommandHandler
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
@@ -440,7 +440,8 @@ async def test_compact_uses_manual_force_context_config() -> None:
 
     captured = {}
 
-    async def _compress_context(context_config=None):
+    async def _compress_context(context_config=None, instructions=None):
+        del instructions
         captured["context_config"] = context_config
         agent.state.summary = "summary"
 
@@ -495,7 +496,8 @@ async def test_compact_under_native_keeps_configured_reserve() -> None:
 
     captured = {}
 
-    async def _compress_context(context_config=None):
+    async def _compress_context(context_config=None, instructions=None):
+        del instructions
         captured["context_config"] = context_config
         agent.state.summary = "summary"
 
@@ -521,3 +523,37 @@ async def test_compact_under_native_keeps_configured_reserve() -> None:
     # ...but the reserve is left at the agent's configured value (the base),
     # NOT shrunk to the scroll-only _FORCE_RESERVE_RATIO.
     assert context_config.reserve_ratio == 0.2
+
+
+@pytest.mark.asyncio
+async def test_compact_forwards_one_shot_redacted_instruction() -> None:
+    captured = {}
+
+    async def _compress_context(context_config=None, instructions=None):
+        captured["context_config"] = context_config
+        captured["instructions"] = instructions
+        agent.state.summary = "summary"
+
+    agent = _make_agent()
+    agent.state = SimpleNamespace(
+        context=[object()],
+        summary="",
+    )
+    agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
+    agent.compress_context = _compress_context
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+    handler._get_agent_config = lambda: _make_config(
+        reserve_ratio=0.2,
+        strategy="native",
+    )
+
+    await handler.handle_command(
+        "/compact prioritize failures token=hint-secret-123",
+    )
+
+    instructions = captured["instructions"]
+    assert isinstance(instructions, HintBlock)
+    assert instructions.source == "user"
+    assert "prioritize failures" in instructions.hint
+    assert "hint-secret-123" not in instructions.hint
+    assert "[secret redacted]" in instructions.hint
