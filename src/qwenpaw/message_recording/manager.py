@@ -65,6 +65,16 @@ class MessageRecordingManager:
         )
         self._buffer.start()
 
+    def update_retention_days(self, days: int) -> None:
+        """Update retention policy on the running buffer.
+
+        Called from the workspace API endpoint when the user
+        changes retention_days in the UI. NOT called from
+        builder.py to avoid multi-agent pollution.
+        """
+        if self._buffer is not None:
+            self._buffer.update_retention_days(days)
+
     async def stop(self) -> None:
         """Stop buffer and flush remaining records."""
         if self._buffer is not None:
