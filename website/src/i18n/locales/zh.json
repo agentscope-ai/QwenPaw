@@ -519,7 +519,7 @@
     "helpLink": "安装向导",
     "helpSuffix": "了解详细的安装步骤和配置说明。",
     "pluginsTitle": "插件",
-    "pluginsDesc": "QwenPaw 仓库中已发布的 Bundle 与 Tool 插件。下载 zip 包后可在本地安装。",
+    "pluginsDesc": "下载 QwenPaw 仓库中已发布的插件 zip 包，可在本地安装使用。",
     "downloadZip": "下载 zip"
   },
   "releaseNotes": {
