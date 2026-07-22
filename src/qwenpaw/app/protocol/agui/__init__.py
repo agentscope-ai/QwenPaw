@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AG-UI protocol adapter for QwenPaw.
-
-This module implements the AG-UI protocol endpoint at /protocol/agui/chat,
-which converts AgentScope events to AG-UI protocol format.
-"""
+"""AG-UI protocol adapter — SSE endpoint at /protocol/agui/chat."""
 from .router import router  # noqa: F401
 
 __all__ = ["router"]

@@ -150,6 +150,3 @@ e2e/__pycache__/
 graphify-out/
 local-docs/
 docs-site/
-
-# Local design docs and implementation plans
-docs/
