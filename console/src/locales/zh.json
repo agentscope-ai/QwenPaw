@@ -3082,7 +3082,7 @@
     },
     "loading": "处理中...",
     "inputProgress": "已接收 {{count}} 个字符",
-    "rawInputPreview": "实时原始参数（最后 4 KiB）",
+    "rawInputPreview": "实时原始参数（最后 4096 个字符）",
     "browserAction": {
       "startHeaded": "启动浏览器(有界面)",
       "start": "启动浏览器",

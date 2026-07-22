@@ -417,7 +417,9 @@ class Envelope:
                 # The frontend appends string fields from DATA deltas. Only
                 # send the incremental argument fragment here; repeating the
                 # call ID or name would concatenate those fields as well.
-                data={"arguments": event.delta or ""},
+                data=FunctionCall(
+                    arguments=event.delta or "",
+                ).model_dump(exclude_none=True),
                 delta=True,
                 index=0,
             )

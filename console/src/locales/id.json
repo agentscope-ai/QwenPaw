@@ -1524,6 +1524,8 @@
       "status": "Status"
     },
     "loading": "Memuat...",
+    "inputProgress": "{{count}} karakter diterima",
+    "rawInputPreview": "Input mentah langsung (4.096 karakter terakhir)",
     "browserAction": {
       "startHeaded": "Mulai browser (dengan tampilan)",
       "start": "Mulai browser",

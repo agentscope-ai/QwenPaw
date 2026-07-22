@@ -2974,6 +2974,8 @@
       "status": "Status"
     },
     "loading": "Carregando...",
+    "inputProgress": "{{count}} caracteres recebidos",
+    "rawInputPreview": "Entrada bruta em tempo real (últimos 4.096 caracteres)",
     "browserAction": {
       "startHeaded": "Iniciar navegador (com interface)",
       "start": "Iniciar navegador",
