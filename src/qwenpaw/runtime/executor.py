@@ -36,12 +36,16 @@ class AgentExecutor:
     async def run(
         self,
         msgs: list[Any],
+        raw: bool = False,
     ) -> AsyncGenerator[Any, None]:
         """Drive ``agent.reply_stream`` and yield SSE envelope objects.
 
         Wraps the raw event stream with ``_iter_with_heartbeat`` so long
         idle periods (e.g. tool-guard approval waits) emit keep-alive
         envelopes instead of letting the connection drop.
+
+        When *raw* is True, the executor skips envelope translation and
+        yields the raw AgentScope ``AgentEvent`` objects directly.
         """
         agent_iter = self._agent.reply_stream(inputs=msgs).__aiter__()
         async for event in _iter_with_heartbeat(
@@ -49,8 +53,14 @@ class AgentExecutor:
             HEARTBEAT_INTERVAL_SECONDS,
         ):
             if event is _HEARTBEAT_TICK:
+                if raw:
+                    continue  # no heartbeat frames in raw mode
                 async for obj in self._envelope.heartbeat():
                     yield obj
+                continue
+
+            if raw:
+                yield event  # raw AgentScope AgentEvent
                 continue
 
             async for obj in self._envelope.translate_event(event):

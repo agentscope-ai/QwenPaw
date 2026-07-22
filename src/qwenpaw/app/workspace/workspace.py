@@ -289,10 +289,14 @@ class Workspace:
     async def stream_query(
         self,
         request: Any,
+        raw: bool = False,
     ) -> AsyncGenerator[Any, None]:
         """Process a request through the Runtime pipeline.
 
         Drop-in replacement for the old ``Runner.stream_query()``.
+
+        When *raw* is True, raw AgentScope AgentEvent objects are yielded
+        instead of frontend SSE envelope objects.
         """
         config = load_agent_config(self.agent_id)
         backend = config.backend
@@ -326,7 +330,7 @@ class Workspace:
         from ...runtime import Runtime
 
         rt = Runtime(workspace=self, app_services=self._app_services)
-        async for item in rt.run(request):
+        async for item in rt.run(request, raw=raw):
             yield item
 
     def _register_services(  # pylint: disable=too-many-statements

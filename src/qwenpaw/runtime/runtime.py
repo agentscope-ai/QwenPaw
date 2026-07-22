@@ -49,8 +49,13 @@ class Runtime:
     async def run(  # pylint: disable=too-many-branches,too-many-statements
         self,
         request: Any,
+        raw: bool = False,
     ) -> AsyncGenerator[Any, None]:
-        """8-phase lifecycle orchestration."""
+        """Orchestrate request lifecycle and yield SSE envelope objects.
+
+        When *raw* is True the pipeline yields raw AgentScope ``AgentEvent``
+        objects instead of the frontend envelope format.
+        """
         request = self._normalize(request)
         ctx = self._build_context(request)
         hooks = self.workspace.plugins.hook_registry
@@ -120,8 +125,9 @@ class Runtime:
             if not skip_agent:
                 self._apply_context_injections(ctx)
                 # --- [fixed 3] execute agent ---
-                async for ev in envelope.emit_response_created():
-                    yield ev
+                if not raw:
+                    async for ev in envelope.emit_response_created():
+                        yield ev
                 executor = AgentExecutor(ctx.agent, envelope)
                 logger.debug(
                     "Agent input: %s",
@@ -130,15 +136,16 @@ class Runtime:
                     )
                     or "(empty)",
                 )
-                async for ev in executor.run(ctx.input_msgs):
+                async for ev in executor.run(ctx.input_msgs, raw=raw):
                     yield ev
 
             # --- [phase 6] POST_RESPONSE ---
             await hooks.run(Phase.POST_RESPONSE, ctx)
 
             # Finalize envelope (complete message + response).
-            async for ev in envelope.finalize():
-                yield ev
+            if not raw:
+                async for ev in envelope.finalize():
+                    yield ev
 
         except (asyncio.CancelledError, KeyboardInterrupt) as e:
             ctx.error = e
@@ -161,8 +168,9 @@ class Runtime:
             # asyncio.shield protects the save from task re-cancellation.
             await self._try_save_on_cancel(ctx)
 
-            async for ev in envelope.cancel_envelope():
-                yield ev
+            if not raw:
+                async for ev in envelope.cancel_envelope():
+                    yield ev
             raise
         except BaseException as e:
             await self._try_save_on_cancel(ctx)
@@ -183,11 +191,12 @@ class Runtime:
                 "_error_code",
                 e.__class__.__name__,
             )
-            async for ev in envelope.error_envelope(
-                err_text,
-                err_code,
-            ):
-                yield ev
+            if not raw:
+                async for ev in envelope.error_envelope(
+                    err_text,
+                    err_code,
+                ):
+                    yield ev
             raise
         finally:
             # Close agent first so governor can flush audit log and persist
