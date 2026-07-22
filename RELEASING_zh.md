@@ -86,6 +86,7 @@ release 就仍是草稿。
 | 发布阶段某 publish 失败（如 PyPI 已传、Docker 推失败） | `finalize` 需要全部 publish 成功，故草稿**未翻**；但部分产物可能已上线 | **Re-run failed jobs**（已成功的不会重跑；Docker 重推幂等、OSS 用 `--force`）→ 补齐后自动翻。若某个 PyPI 版本已被占用无法重用，改用 `.postN` 重发。 |
 | `finalize` 失败 | 产物都发了但 release 没翻 | 重跑 `finalize`，或手动 `gh release edit <tag> --draft=false --target <sha>`（或 UI 点 *Publish*）。 |
 | `duty-issue` 失败 | release 已发布，只是缺验收 issue | 重跑该 job，或用 `tag` 手动 dispatch `release-duty.yml`。不阻塞发布。 |
+| `promote-desktop` 失败 | release 已发布，但桌面 `latest` 文件 / 更新清单 / index 未刷新（存量用户的自动更新暂时看不到新版；版本化下载仍可用） | 重跑该 job，幂等（`ossutil cp --force`）。对首装用户不阻塞。 |
 | "Multiple draft releases found" | 存在多个草稿 | 重跑 *Run workflow* 时显式填 `tag`。 |
 | "No draft release found" / "not a draft" | 没有草稿，或 tag 填错 | 先建草稿 / 改正 tag，再重跑。 |
 

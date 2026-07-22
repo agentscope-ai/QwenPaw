@@ -99,6 +99,7 @@ jobs succeed. If anything fails, the release stays a draft.
 | A publish job fails after the gate (e.g. Docker push fails after PyPI already uploaded) | `finalize` needs all publishes, so the draft is **not** flipped; but some artifacts may already be live | **Re-run failed jobs** (already-succeeded jobs are not re-run; Docker re-push is idempotent, OSS uses `--force`) → the draft flips once they pass. If a published PyPI version is now taken and cannot be reused, cut a `.postN` instead. |
 | `finalize` fails | All artifacts published but the release was not flipped | Re-run `finalize`, or manually `gh release edit <tag> --draft=false --target <sha>` (or click *Publish*). |
 | `duty-issue` fails | Release is published; only the tracking issue is missing | Re-run the job, or dispatch `release-duty.yml` with the `tag`. Non-blocking. |
+| `promote-desktop` fails | Release is published, but the desktop `latest` files / updater manifest / index were not refreshed (existing users' auto-updater does not see the new version yet; versioned downloads still work) | Re-run the job — it is idempotent (`ossutil cp --force`). Non-blocking for first-install users. |
 | "Multiple draft releases found" | More than one draft exists | Re-run *Run workflow* with an explicit `tag`. |
 | "No draft release found" / "not a draft" | No draft, or wrong tag | Create the draft / fix the tag, then re-run. |
 

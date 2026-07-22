@@ -4,9 +4,11 @@
 # Called by release.yml during the gated publish phase. Performs two things:
 #   - upload-release: attach the installers to the (draft) GitHub Release by tag
 #     (this is safe to run on a fork, where it targets the fork's own release).
-#   - upload-oss: push versioned + latest files, updater sidecars and index
-#     metadata to the download OSS bucket. Skipped when dry_run=true so fork
-#     verification never touches the shared production bucket.
+#   - upload-oss: push the VERSIONED files + metadata to the download OSS
+#     bucket. The `latest` files, updater manifest and index are promoted
+#     separately AFTER the release is published — see desktop-promote.yml.
+#     Skipped when dry_run=true so fork verification never touches the shared
+#     production bucket.
 
 name: Desktop Publish (reusable)
 
