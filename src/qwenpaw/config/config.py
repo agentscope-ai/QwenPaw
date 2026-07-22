@@ -644,6 +644,47 @@ class EmbeddingModelConfig(BaseModel):
     )
 
 
+class RerankerConfig(BaseModel):
+    """Reranker model configuration for post-search reordering."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Whether to enable reranker for memory search reordering"
+        ),
+    )
+    api_key: str = Field(
+        default="",
+        description="API key for reranker provider",
+    )
+    base_url: str = Field(
+        default="",
+        description=(
+            "Base URL for reranker API (SiliconFlow: "
+            "https://api.siliconflow.cn/v1)"
+        ),
+    )
+    model_name: str = Field(
+        default="",
+        description="Reranker model name (e.g. BAAI/bge-reranker-v2-m3)",
+    )
+    candidate_multiplier: int = Field(
+        default=3,
+        ge=1,
+        description=(
+            "Over-fetch multiplier: search N x multiplier candidates, "
+            "rerank, then return top-N"
+        ),
+    )
+    timeout: float = Field(
+        default=10.0,
+        ge=1.0,
+        description="Reranker API timeout in seconds",
+    )
+
+
 class ADBPGMemoryConfig(BaseModel):
     """ADBPG (AnalyticDB for PostgreSQL) REST memory configuration."""
 
@@ -742,6 +783,10 @@ class ReMeLightMemoryConfig(BaseModel):
 
     embedding_model_config: EmbeddingModelConfig = Field(
         default_factory=EmbeddingModelConfig,
+    )
+
+    reranker_config: RerankerConfig = Field(
+        default_factory=RerankerConfig,
     )
 
 
