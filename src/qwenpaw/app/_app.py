@@ -260,7 +260,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         factory_kwargs = WorkspaceBootstrapFactory.build_bootstrap_kwargs(
             app_services,
             extra_command_specs=(
-                _api_action_command_specs if _api_action_command_specs else None
+                _api_action_command_specs
+                if _api_action_command_specs
+                else None
             ),
         )
         # Merge factory output into workspace_registry._bootstrap_kwargs
@@ -497,7 +499,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             plugin_loader.registry.set_plugin_http_app(app)
 
             config = load_config(get_config_path())
-            plugin_configs = config.plugins if hasattr(config, "plugins") else {}
+            plugin_configs = (
+                config.plugins if hasattr(config, "plugins") else {}
+            )
             logger.debug(
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
@@ -515,9 +519,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 startup_display.mark_core_ready(core_elapsed)
                 app.state.startup_ready.set()
 
-            startup_results = await workspace_registry.start_all_configured_agents(
-                on_core_ready=_mark_core_agents_ready,
-                startup_display=startup_display,
+            startup_results = (
+                await workspace_registry.start_all_configured_agents(
+                    on_core_ready=_mark_core_agents_ready,
+                    startup_display=startup_display,
+                )
             )
             if startup_results.get("default") is False:
                 startup_display.mark_failed(
@@ -651,7 +657,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             startup_elapsed = time.time() - startup_start_time
             logger.info(
-                "Background startup completed in " f"{startup_elapsed:.3f} seconds",
+                "Background startup completed in "
+                f"{startup_elapsed:.3f} seconds",
             )
             if app.state.startup_ready.is_set():
                 startup_display.complete(startup_elapsed)
