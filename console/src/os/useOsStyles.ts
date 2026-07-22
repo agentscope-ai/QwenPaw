@@ -2,10 +2,15 @@
  * useOsStyles.ts — Desktop OS PoC styling via antd-style createStyles.
  *
  * Uses the existing antd-style stack (no Tailwind CDN) so the shell stays
- * consistent with the console theme system. Palette: deep neutral gradient
- * wallpaper + glassmorphism panels, single brand-orange accent (#FF7F16).
+ * consistent with the console theme system. All chrome colours come from a
+ * semantic palette with a dark and a light variant, driven by the console
+ * theme (ThemeContext.isDark), so switching the theme restyles the whole
+ * shell. Wallpaper-layer pieces (desktop icons, watermark, boot splash)
+ * stay constant — they sit on the user-chosen wallpaper, not on a themed
+ * surface. Single brand-orange accent (#FF7F16).
  */
 import { createStyles } from "antd-style";
+import { useTheme } from "../contexts/ThemeContext";
 
 export const ACCENT = "#FF7F16";
 /** Legacy bottom-bar height, kept for existing imports. */
@@ -15,7 +20,132 @@ export const MENUBAR_H = 28;
 /** Reserved bottom band for the floating Dock. */
 export const DOCK_H = 78;
 
-export const useOsStyles = createStyles(({ css }) => ({
+/** Semantic colour roles for the OS chrome (dark / light variants below). */
+interface OsPalette {
+  textStrong: string;
+  text: string;
+  textSecondary: string;
+  textMuted: string;
+  textFaint: string;
+  /** Text colour on hovered/active chrome controls. */
+  hoverText: string;
+  winBg: string;
+  panelBg: string;
+  barBg: string;
+  barBgStrong: string;
+  cardBg: string;
+  floatBg: string;
+  floatBgHover: string;
+  toastBg: string;
+  winCardBg: string;
+  overlayBg: string;
+  dimBg: string;
+  inputBg: string;
+  tooltipBg: string;
+  sideBg: string;
+  hoverBg: string;
+  hoverBgStrong: string;
+  subtleBg: string;
+  faintBg: string;
+  contentBg: string;
+  border: string;
+  borderStrong: string;
+  borderSolid: string;
+  chipBg: string;
+  dockBorder: string;
+  dockDivider: string;
+  badgeRing: string;
+  shadowWindow: string;
+  shadowPanel: string;
+  shadowFloat: string;
+  shadowToast: string;
+}
+
+const DARK: OsPalette = {
+  textStrong: "#f1f5f9",
+  text: "#e2e8f0",
+  textSecondary: "#cbd5e1",
+  textMuted: "#94a3b8",
+  textFaint: "#64748b",
+  hoverText: "#fff",
+  winBg: "rgba(15, 23, 42, 0.86)",
+  panelBg: "rgba(15, 23, 42, 0.95)",
+  barBg: "rgba(2, 6, 23, 0.58)",
+  barBgStrong: "rgba(2, 6, 23, 0.72)",
+  cardBg: "rgba(2, 6, 23, 0.45)",
+  floatBg: "rgba(30, 41, 59, 0.55)",
+  floatBgHover: "rgba(30, 41, 59, 0.8)",
+  toastBg: "rgba(30, 41, 59, 0.92)",
+  winCardBg: "rgba(15, 23, 42, 0.7)",
+  overlayBg: "rgba(2, 6, 23, 0.72)",
+  dimBg: "rgba(2, 6, 23, 0.5)",
+  inputBg: "rgba(2, 6, 23, 0.6)",
+  tooltipBg: "rgba(2, 6, 23, 0.9)",
+  sideBg: "rgba(2, 6, 23, 0.3)",
+  hoverBg: "rgba(255, 255, 255, 0.08)",
+  hoverBgStrong: "rgba(255, 255, 255, 0.1)",
+  subtleBg: "rgba(255, 255, 255, 0.06)",
+  faintBg: "rgba(255, 255, 255, 0.03)",
+  contentBg: "rgba(255, 255, 255, 0.02)",
+  border: "rgba(148, 163, 184, 0.14)",
+  borderStrong: "rgba(148, 163, 184, 0.28)",
+  borderSolid: "rgba(148, 163, 184, 0.6)",
+  chipBg: "rgba(148, 163, 184, 0.14)",
+  dockBorder: "rgba(255, 255, 255, 0.12)",
+  dockDivider: "rgba(255, 255, 255, 0.16)",
+  badgeRing: "rgba(30, 41, 59, 0.9)",
+  shadowWindow:
+    "0 30px 70px rgba(0, 0, 0, 0.62), 0 10px 24px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.08)",
+  shadowPanel: "0 24px 60px rgba(0, 0, 0, 0.6)",
+  shadowFloat: "0 12px 40px rgba(0, 0, 0, 0.5)",
+  shadowToast: "0 14px 40px rgba(0, 0, 0, 0.5)",
+};
+
+const LIGHT: OsPalette = {
+  textStrong: "#0f172a",
+  text: "#1e293b",
+  textSecondary: "#475569",
+  textMuted: "#64748b",
+  textFaint: "#94a3b8",
+  hoverText: "#0f172a",
+  winBg: "rgba(250, 250, 252, 0.9)",
+  panelBg: "rgba(255, 255, 255, 0.95)",
+  barBg: "rgba(255, 255, 255, 0.65)",
+  barBgStrong: "rgba(255, 255, 255, 0.78)",
+  cardBg: "rgba(255, 255, 255, 0.72)",
+  floatBg: "rgba(255, 255, 255, 0.6)",
+  floatBgHover: "rgba(255, 255, 255, 0.85)",
+  toastBg: "rgba(255, 255, 255, 0.92)",
+  winCardBg: "rgba(255, 255, 255, 0.78)",
+  overlayBg: "rgba(241, 245, 249, 0.72)",
+  dimBg: "rgba(241, 245, 249, 0.55)",
+  inputBg: "rgba(15, 23, 42, 0.05)",
+  tooltipBg: "rgba(255, 255, 255, 0.96)",
+  sideBg: "rgba(15, 23, 42, 0.04)",
+  hoverBg: "rgba(15, 23, 42, 0.05)",
+  hoverBgStrong: "rgba(15, 23, 42, 0.07)",
+  subtleBg: "rgba(15, 23, 42, 0.04)",
+  faintBg: "rgba(15, 23, 42, 0.03)",
+  contentBg: "rgba(15, 23, 42, 0.02)",
+  border: "rgba(15, 23, 42, 0.1)",
+  borderStrong: "rgba(15, 23, 42, 0.2)",
+  borderSolid: "rgba(71, 85, 105, 0.55)",
+  chipBg: "rgba(15, 23, 42, 0.07)",
+  dockBorder: "rgba(15, 23, 42, 0.08)",
+  dockDivider: "rgba(15, 23, 42, 0.12)",
+  badgeRing: "#ffffff",
+  shadowWindow:
+    "0 30px 70px rgba(15, 23, 42, 0.18), 0 10px 24px rgba(15, 23, 42, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.7)",
+  shadowPanel: "0 24px 60px rgba(15, 23, 42, 0.16)",
+  shadowFloat: "0 12px 40px rgba(15, 23, 42, 0.15)",
+  shadowToast: "0 14px 40px rgba(15, 23, 42, 0.15)",
+};
+
+/** Stable props objects so antd-style can memoise per theme. */
+const DARK_PROPS = { p: DARK };
+const LIGHT_PROPS = { p: LIGHT };
+
+const useOsStylesBase = createStyles(({ css }, { p }: { p: OsPalette }) => ({
   desktop: css`
     position: fixed;
     inset: 0;
@@ -101,14 +231,11 @@ export const useOsStyles = createStyles(({ css }) => ({
     overflow: hidden;
     border-radius: 12px;
     pointer-events: auto;
-    background: rgba(15, 23, 42, 0.86);
+    background: ${p.winBg};
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(148, 163, 184, 0.14);
-    box-shadow:
-      0 30px 70px rgba(0, 0, 0, 0.62),
-      0 10px 24px rgba(0, 0, 0, 0.42),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    border: 1px solid ${p.border};
+    box-shadow: ${p.shadowWindow};
   `,
   windowActive: css`
     border-color: rgba(255, 127, 22, 0.4);
@@ -120,8 +247,8 @@ export const useOsStyles = createStyles(({ css }) => ({
     align-items: center;
     justify-content: space-between;
     padding: 0 10px 0 12px;
-    background: rgba(2, 6, 23, 0.55);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    background: ${p.barBg};
+    border-bottom: 1px solid ${p.border};
     cursor: grab;
     &:active {
       cursor: grabbing;
@@ -133,7 +260,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     gap: 8px;
     font-size: 13px;
     font-weight: 500;
-    color: #e2e8f0;
+    color: ${p.text};
   `,
   headerBtns: css`
     display: flex;
@@ -145,7 +272,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     height: 26px;
     border: none;
     background: transparent;
-    color: #94a3b8;
+    color: ${p.textMuted};
     border-radius: 7px;
     display: flex;
     align-items: center;
@@ -153,8 +280,8 @@ export const useOsStyles = createStyles(({ css }) => ({
     cursor: pointer;
     transition: all 0.12s ease;
     &:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: #fff;
+      background: ${p.hoverBgStrong};
+      color: ${p.hoverText};
     }
   `,
   winBtnClose: css`
@@ -167,7 +294,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     flex: 1;
     overflow: auto;
     position: relative;
-    background: rgba(255, 255, 255, 0.02);
+    background: ${p.contentBg};
   `,
   resizeHandle: css`
     position: absolute;
@@ -184,8 +311,8 @@ export const useOsStyles = createStyles(({ css }) => ({
       bottom: 3px;
       width: 7px;
       height: 7px;
-      border-right: 2px solid rgba(148, 163, 184, 0.6);
-      border-bottom: 2px solid rgba(148, 163, 184, 0.6);
+      border-right: 2px solid ${p.borderSolid};
+      border-bottom: 2px solid ${p.borderSolid};
     }
   `,
   /** Invisible edge/corner resize zones (positioning + cursor set inline). */
@@ -212,10 +339,10 @@ export const useOsStyles = createStyles(({ css }) => ({
     align-items: center;
     justify-content: space-between;
     padding: 0 12px;
-    background: rgba(2, 6, 23, 0.7);
+    background: ${p.barBgStrong};
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    border-top: 1px solid rgba(148, 163, 184, 0.14);
+    border-top: 1px solid ${p.border};
   `,
   startBtn: css`
     width: 40px;
@@ -230,7 +357,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     cursor: pointer;
     transition: background 0.12s ease;
     &:hover {
-      background: rgba(255, 255, 255, 0.1);
+      background: ${p.hoverBgStrong};
     }
   `,
   taskbarApps: css`
@@ -247,7 +374,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     border: none;
     border-radius: 8px;
     background: transparent;
-    color: #cbd5e1;
+    color: ${p.textSecondary};
     display: flex;
     align-items: center;
     gap: 8px;
@@ -256,8 +383,8 @@ export const useOsStyles = createStyles(({ css }) => ({
     max-width: 180px;
     transition: all 0.12s ease;
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
-      color: #fff;
+      background: ${p.hoverBg};
+      color: ${p.hoverText};
     }
     span {
       overflow: hidden;
@@ -266,15 +393,15 @@ export const useOsStyles = createStyles(({ css }) => ({
     }
   `,
   taskItemActive: css`
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+    background: ${p.hoverBgStrong};
+    color: ${p.hoverText};
     border-bottom: 2px solid ${ACCENT};
   `,
   tray: css`
     display: flex;
     align-items: center;
     gap: 14px;
-    color: #cbd5e1;
+    color: ${p.textSecondary};
     font-size: 12px;
   `,
   clock: css`
@@ -282,7 +409,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     line-height: 1.2;
     .date {
       font-size: 10px;
-      color: #94a3b8;
+      color: ${p.textMuted};
     }
   `,
   // ── Launcher ─────────────────────────────────────────────────────────────
@@ -298,11 +425,11 @@ export const useOsStyles = createStyles(({ css }) => ({
     flex-direction: column;
     padding: 18px;
     border-radius: 16px;
-    background: rgba(15, 23, 42, 0.92);
+    background: ${p.panelBg};
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(148, 163, 184, 0.14);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    border: 1px solid ${p.border};
+    box-shadow: ${p.shadowPanel};
   `,
   launcherSearch: css`
     display: flex;
@@ -311,14 +438,14 @@ export const useOsStyles = createStyles(({ css }) => ({
     padding: 10px 12px;
     margin-bottom: 14px;
     border-radius: 10px;
-    background: rgba(2, 6, 23, 0.6);
-    border: 1px solid rgba(148, 163, 184, 0.16);
+    background: ${p.inputBg};
+    border: 1px solid ${p.border};
     input {
       flex: 1;
       background: transparent;
       border: none;
       outline: none;
-      color: #e2e8f0;
+      color: ${p.text};
       font-size: 14px;
     }
   `,
@@ -338,11 +465,11 @@ export const useOsStyles = createStyles(({ css }) => ({
     cursor: pointer;
     transition: background 0.12s ease;
     &:hover {
-      background: rgba(255, 255, 255, 0.06);
+      background: ${p.subtleBg};
     }
     span {
       font-size: 12px;
-      color: #cbd5e1;
+      color: ${p.textSecondary};
       text-align: center;
     }
   `,
@@ -379,7 +506,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     display: flex;
     flex-direction: column;
     height: 100%;
-    color: #e2e8f0;
+    color: ${p.text};
   `,
   storeHead: css`
     padding: 20px 24px 12px;
@@ -391,7 +518,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     p {
       margin: 4px 0 0;
       font-size: 13px;
-      color: #94a3b8;
+      color: ${p.textMuted};
     }
   `,
   storeToolbar: css`
@@ -399,7 +526,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     align-items: center;
     justify-content: space-between;
     padding: 0 24px 12px;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    border-bottom: 1px solid ${p.border};
   `,
   storeBody: css`
     flex: 1;
@@ -419,8 +546,8 @@ export const useOsStyles = createStyles(({ css }) => ({
     gap: 12px;
     padding: 16px;
     border-radius: 14px;
-    background: rgba(2, 6, 23, 0.45);
-    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: ${p.cardBg};
+    border: 1px solid ${p.border};
     transition: border-color 0.15s ease;
     &:hover {
       border-color: rgba(255, 127, 22, 0.35);
@@ -454,9 +581,9 @@ export const useOsStyles = createStyles(({ css }) => ({
   `,
   storeBtn: css`
     height: 32px;
-    border: 1px solid rgba(148, 163, 184, 0.24);
+    border: 1px solid ${p.borderStrong};
     background: transparent;
-    color: #e2e8f0;
+    color: ${p.text};
     border-radius: 8px;
     display: flex;
     align-items: center;
@@ -466,7 +593,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     font-size: 13px;
     transition: all 0.12s ease;
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
+      background: ${p.hoverBg};
     }
   `,
   storeBtnInstall: css`
@@ -485,11 +612,11 @@ export const useOsStyles = createStyles(({ css }) => ({
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: #94a3b8;
+    color: ${p.textMuted};
   `,
   storeEmpty: css`
     padding: 14px 24px;
-    color: #64748b;
+    color: ${p.textFaint};
     font-size: 13px;
   `,
   pluginBadge: css`
@@ -498,8 +625,8 @@ export const useOsStyles = createStyles(({ css }) => ({
     padding: 1px 8px;
     border-radius: 999px;
     font-size: 11px;
-    background: rgba(148, 163, 184, 0.16);
-    color: #cbd5e1;
+    background: ${p.chipBg};
+    color: ${p.textSecondary};
   `,
   storeToolbarRow: css`
     display: flex;
@@ -519,22 +646,22 @@ export const useOsStyles = createStyles(({ css }) => ({
     border-radius: 999px;
     font-size: 12px;
     cursor: pointer;
-    color: #cbd5e1;
-    background: rgba(148, 163, 184, 0.12);
+    color: ${p.textSecondary};
+    background: ${p.chipBg};
     border: 1px solid transparent;
     transition: all 0.12s ease;
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
+      background: ${p.hoverBg};
     }
   `,
   storeChipActive: css`
     background: rgba(255, 127, 22, 0.16);
     border-color: ${ACCENT};
-    color: #fff;
+    color: ${p.hoverText};
   `,
   storeCardDesc: css`
     font-size: 12px;
-    color: #94a3b8;
+    color: ${p.textMuted};
     margin-top: 2px;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -544,7 +671,7 @@ export const useOsStyles = createStyles(({ css }) => ({
   `,
   storeCardMeta: css`
     font-size: 11px;
-    color: #64748b;
+    color: ${p.textFaint};
     margin-top: 4px;
   `,
   storeActions: css`
@@ -566,7 +693,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     flex-direction: column;
     padding: 24px 32px;
     gap: 20px;
-    background: rgba(2, 6, 23, 0.72);
+    background: ${p.overlayBg};
     backdrop-filter: blur(22px);
     -webkit-backdrop-filter: blur(22px);
     animation: mcFade 0.18s ease-out;
@@ -592,7 +719,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     width: 176px;
     height: 104px;
     border-radius: 12px;
-    background: rgba(30, 41, 59, 0.55);
+    background: ${p.floatBg};
     border: 2px solid transparent;
     display: flex;
     flex-direction: column;
@@ -601,8 +728,9 @@ export const useOsStyles = createStyles(({ css }) => ({
     gap: 8px;
     cursor: pointer;
     transition: all 0.15s ease;
+    color: ${p.text};
     &:hover {
-      background: rgba(30, 41, 59, 0.8);
+      background: ${p.floatBgHover};
       transform: translateY(-2px);
     }
     .avatar {
@@ -625,7 +753,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     }
     .count {
       font-size: 11px;
-      color: #94a3b8;
+      color: ${p.textMuted};
     }
   `,
   mcSpaceActive: css`
@@ -636,9 +764,9 @@ export const useOsStyles = createStyles(({ css }) => ({
     width: 56px;
     height: 104px;
     border-radius: 12px;
-    border: 2px dashed rgba(148, 163, 184, 0.3);
+    border: 2px dashed ${p.borderStrong};
     background: transparent;
-    color: #94a3b8;
+    color: ${p.textMuted};
     display: flex;
     align-items: center;
     justify-content: center;
@@ -657,13 +785,13 @@ export const useOsStyles = createStyles(({ css }) => ({
     gap: 16px;
     align-content: start;
     padding-top: 12px;
-    border-top: 1px solid rgba(148, 163, 184, 0.14);
+    border-top: 1px solid ${p.border};
   `,
   mcWindowCard: css`
     height: 130px;
     border-radius: 12px;
-    background: rgba(15, 23, 42, 0.7);
-    border: 1px solid rgba(148, 163, 184, 0.14);
+    background: ${p.winCardBg};
+    border: 1px solid ${p.border};
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -671,6 +799,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     gap: 10px;
     cursor: pointer;
     transition: all 0.15s ease;
+    color: ${p.text};
     &:hover {
       border-color: ${ACCENT};
       transform: translateY(-2px);
@@ -682,7 +811,7 @@ export const useOsStyles = createStyles(({ css }) => ({
   `,
   mcHint: css`
     text-align: center;
-    color: #64748b;
+    color: ${p.textFaint};
     font-size: 13px;
     padding: 40px 0;
   `,
@@ -693,8 +822,8 @@ export const useOsStyles = createStyles(({ css }) => ({
     display: flex;
     align-items: center;
     padding: 0 12px;
-    background: rgba(2, 6, 23, 0.55);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    background: ${p.barBg};
+    border-bottom: 1px solid ${p.border};
     cursor: grab;
     &:active {
       cursor: grabbing;
@@ -739,7 +868,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     text-align: center;
     font-size: 13px;
     font-weight: 600;
-    color: #e2e8f0;
+    color: ${p.text};
     display: flex;
     align-items: center;
     justify-content: center;
@@ -760,12 +889,12 @@ export const useOsStyles = createStyles(({ css }) => ({
     align-items: center;
     justify-content: space-between;
     padding: 0 14px;
-    background: rgba(2, 6, 23, 0.6);
+    background: ${p.barBg};
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    border-bottom: 1px solid ${p.border};
     font-size: 13px;
-    color: #e2e8f0;
+    color: ${p.text};
   `,
   menubarLeft: css`
     display: flex;
@@ -781,28 +910,28 @@ export const useOsStyles = createStyles(({ css }) => ({
     font-weight: 700;
   `,
   menubarItem: css`
-    color: #cbd5e1;
+    color: ${p.textSecondary};
     cursor: pointer;
     &:hover {
-      color: #fff;
+      color: ${p.hoverText};
     }
   `,
   menubarRight: css`
     display: flex;
     align-items: center;
     gap: 16px;
-    color: #cbd5e1;
+    color: ${p.textSecondary};
   `,
   menubarBtn: css`
     display: flex;
     align-items: center;
     background: none;
     border: none;
-    color: #cbd5e1;
+    color: ${p.textSecondary};
     cursor: pointer;
     padding: 0;
     &:hover {
-      color: #fff;
+      color: ${p.hoverText};
     }
   `,
   // ── macOS Dock ───────────────────────────────────────────
@@ -817,11 +946,11 @@ export const useOsStyles = createStyles(({ css }) => ({
     gap: 8px;
     padding: 8px 12px;
     border-radius: 20px;
-    background: rgba(30, 41, 59, 0.55);
+    background: ${p.floatBg};
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    border: 1px solid ${p.dockBorder};
+    box-shadow: ${p.shadowFloat};
     transition:
       transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 0.24s ease;
@@ -861,7 +990,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     width: 4px;
     height: 4px;
     border-radius: 50%;
-    background: #e2e8f0;
+    background: ${p.textStrong};
   `,
   dockTooltip: css`
     position: absolute;
@@ -870,8 +999,9 @@ export const useOsStyles = createStyles(({ css }) => ({
     transform: translateX(-50%);
     padding: 4px 10px;
     border-radius: 8px;
-    background: rgba(2, 6, 23, 0.9);
-    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: ${p.tooltipBg};
+    border: 1px solid ${p.borderStrong};
+    color: ${p.text};
     font-size: 12px;
     white-space: nowrap;
     opacity: 0;
@@ -882,7 +1012,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     width: 1px;
     height: 46px;
     margin: 0 4px;
-    background: rgba(255, 255, 255, 0.16);
+    background: ${p.dockDivider};
   `,
   dockBadge: css`
     position: absolute;
@@ -899,7 +1029,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 2px solid rgba(30, 41, 59, 0.9);
+    border: 2px solid ${p.badgeRing};
   `,
   // ── Menu-bar bell badge ────────────────────────────────────
   bellWrap: css`
@@ -944,11 +1074,11 @@ export const useOsStyles = createStyles(({ css }) => ({
     padding: 12px;
     border-radius: 14px;
     cursor: pointer;
-    background: rgba(30, 41, 59, 0.92);
+    background: ${p.toastBg};
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(148, 163, 184, 0.16);
-    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+    border: 1px solid ${p.border};
+    box-shadow: ${p.shadowToast};
     transition: transform 0.12s ease;
     &:hover {
       transform: scale(1.01);
@@ -975,7 +1105,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, 0.06);
+    background: ${p.subtleBg};
   `,
   toastBody: css`
     flex: 1;
@@ -984,14 +1114,14 @@ export const useOsStyles = createStyles(({ css }) => ({
   toastTitle: css`
     font-size: 13px;
     font-weight: 600;
-    color: #f1f5f9;
+    color: ${p.textStrong};
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   `,
   toastText: css`
     font-size: 12px;
-    color: #cbd5e1;
+    color: ${p.textSecondary};
     margin-top: 2px;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -1000,7 +1130,7 @@ export const useOsStyles = createStyles(({ css }) => ({
   `,
   toastMeta: css`
     font-size: 10px;
-    color: #94a3b8;
+    color: ${p.textMuted};
     margin-top: 4px;
   `,
   toastClose: css`
@@ -1009,15 +1139,15 @@ export const useOsStyles = createStyles(({ css }) => ({
     height: 22px;
     border: none;
     background: transparent;
-    color: #94a3b8;
+    color: ${p.textMuted};
     border-radius: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     &:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: #fff;
+      background: ${p.hoverBgStrong};
+      color: ${p.hoverText};
     }
   `,
   // Quick approve/deny actions on approval notifications.
@@ -1047,15 +1177,15 @@ export const useOsStyles = createStyles(({ css }) => ({
   notifyDenyBtn: css`
     flex: 1;
     height: 28px;
-    border: 1px solid rgba(148, 163, 184, 0.3);
+    border: 1px solid ${p.borderStrong};
     border-radius: 8px;
     background: transparent;
-    color: #e2e8f0;
+    color: ${p.text};
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
+      background: ${p.hoverBg};
     }
     &:disabled {
       opacity: 0.5;
@@ -1074,11 +1204,11 @@ export const useOsStyles = createStyles(({ css }) => ({
     display: flex;
     flex-direction: column;
     border-radius: 16px;
-    background: rgba(15, 23, 42, 0.95);
+    background: ${p.panelBg};
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(148, 163, 184, 0.16);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    border: 1px solid ${p.border};
+    box-shadow: ${p.shadowPanel};
     overflow: hidden;
   `,
   ncHeader: css`
@@ -1087,7 +1217,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     align-items: center;
     justify-content: space-between;
     padding: 12px 14px;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    border-bottom: 1px solid ${p.border};
   `,
   ncTitle: css`
     display: flex;
@@ -1095,22 +1225,22 @@ export const useOsStyles = createStyles(({ css }) => ({
     gap: 8px;
     font-size: 14px;
     font-weight: 600;
-    color: #f1f5f9;
+    color: ${p.textStrong};
   `,
   ncIconBtn: css`
     width: 26px;
     height: 26px;
     border: none;
     background: transparent;
-    color: #94a3b8;
+    color: ${p.textMuted};
     border-radius: 7px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     &:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: #fff;
+      background: ${p.hoverBgStrong};
+      color: ${p.hoverText};
     }
   `,
   ncList: css`
@@ -1128,7 +1258,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     align-items: center;
     justify-content: center;
     gap: 10px;
-    color: #64748b;
+    color: ${p.textFaint};
     font-size: 13px;
     padding: 40px 0;
   `,
@@ -1139,10 +1269,10 @@ export const useOsStyles = createStyles(({ css }) => ({
     padding: 10px;
     border-radius: 12px;
     cursor: pointer;
-    background: rgba(255, 255, 255, 0.03);
+    background: ${p.faintBg};
     transition: background 0.12s ease;
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
+      background: ${p.hoverBg};
     }
   `,
   ncItemIcon: css`
@@ -1153,7 +1283,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(255, 255, 255, 0.06);
+    background: ${p.subtleBg};
   `,
   ncItemBody: css`
     flex: 1;
@@ -1162,14 +1292,14 @@ export const useOsStyles = createStyles(({ css }) => ({
   ncItemTitle: css`
     font-size: 13px;
     font-weight: 600;
-    color: #e2e8f0;
+    color: ${p.text};
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   `,
   ncItemText: css`
     font-size: 12px;
-    color: #94a3b8;
+    color: ${p.textMuted};
     margin-top: 2px;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -1179,7 +1309,7 @@ export const useOsStyles = createStyles(({ css }) => ({
   ncItemTime: css`
     flex: 0 0 auto;
     font-size: 10px;
-    color: #64748b;
+    color: ${p.textFaint};
   `,
   // ── System Settings app (macOS-style aggregate) ───────────────────
   settingsRoot: css`
@@ -1191,8 +1321,8 @@ export const useOsStyles = createStyles(({ css }) => ({
     width: 220px;
     overflow-y: auto;
     padding: 10px;
-    border-right: 1px solid rgba(148, 163, 184, 0.12);
-    background: rgba(2, 6, 23, 0.3);
+    border-right: 1px solid ${p.border};
+    background: ${p.sideBg};
   `,
   settingsNavItem: css`
     display: flex;
@@ -1201,17 +1331,17 @@ export const useOsStyles = createStyles(({ css }) => ({
     padding: 9px 12px;
     border-radius: 8px;
     cursor: pointer;
-    color: #cbd5e1;
+    color: ${p.textSecondary};
     font-size: 13px;
     margin-bottom: 2px;
     transition: background 0.12s ease;
     &:hover {
-      background: rgba(255, 255, 255, 0.06);
+      background: ${p.subtleBg};
     }
   `,
   settingsNavActive: css`
     background: rgba(255, 127, 22, 0.16);
-    color: #fff;
+    color: ${p.hoverText};
   `,
   settingsPane: css`
     flex: 1;
@@ -1312,11 +1442,11 @@ export const useOsStyles = createStyles(({ css }) => ({
     min-width: 160px;
     padding: 6px;
     border-radius: 10px;
-    background: rgba(15, 23, 42, 0.95);
+    background: ${p.panelBg};
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(148, 163, 184, 0.16);
-    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+    border: 1px solid ${p.border};
+    box-shadow: ${p.shadowPanel};
   `,
   desktopMenuItem: css`
     display: flex;
@@ -1325,11 +1455,11 @@ export const useOsStyles = createStyles(({ css }) => ({
     padding: 8px 10px;
     border-radius: 7px;
     font-size: 13px;
-    color: #e2e8f0;
+    color: ${p.text};
     cursor: pointer;
     transition: background 0.12s ease;
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
+      background: ${p.hoverBg};
     }
   `,
   // ── Wallpaper picker overlay ───────────────────────────────────────
@@ -1340,7 +1470,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(2, 6, 23, 0.5);
+    background: ${p.dimBg};
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
     animation: bootFadeIn 0.16s ease-out;
@@ -1351,9 +1481,9 @@ export const useOsStyles = createStyles(({ css }) => ({
     display: flex;
     flex-direction: column;
     border-radius: 16px;
-    background: rgba(15, 23, 42, 0.96);
-    border: 1px solid rgba(148, 163, 184, 0.16);
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    background: ${p.panelBg};
+    border: 1px solid ${p.border};
+    box-shadow: ${p.shadowPanel};
     overflow: hidden;
   `,
   wpHead: css`
@@ -1363,23 +1493,23 @@ export const useOsStyles = createStyles(({ css }) => ({
     padding: 14px 16px;
     font-size: 14px;
     font-weight: 600;
-    color: #f1f5f9;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    color: ${p.textStrong};
+    border-bottom: 1px solid ${p.border};
   `,
   wpClose: css`
     width: 26px;
     height: 26px;
     border: none;
     background: transparent;
-    color: #94a3b8;
+    color: ${p.textMuted};
     border-radius: 7px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     &:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: #fff;
+      background: ${p.hoverBgStrong};
+      color: ${p.hoverText};
     }
   `,
   wpGrid: css`
@@ -1396,13 +1526,13 @@ export const useOsStyles = createStyles(({ css }) => ({
     cursor: pointer;
     span {
       font-size: 12px;
-      color: #cbd5e1;
+      color: ${p.textSecondary};
       text-align: center;
     }
   `,
   wpItemActive: css`
     span {
-      color: #fff;
+      color: ${p.hoverText};
       font-weight: 600;
     }
   `,
@@ -1444,10 +1574,10 @@ export const useOsStyles = createStyles(({ css }) => ({
     justify-content: center;
     gap: 14px;
     padding: 12px 18px;
-    background: rgba(2, 6, 23, 0.72);
+    background: ${p.barBgStrong};
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+    border-bottom: 1px solid ${p.border};
     transform: translateY(0);
     transition:
       transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -1468,7 +1598,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     border: 1px solid transparent;
     transition: background 0.15s ease;
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
+      background: ${p.hoverBg};
     }
     .avatar {
       width: 30px;
@@ -1483,7 +1613,7 @@ export const useOsStyles = createStyles(({ css }) => ({
     }
     .name {
       font-size: 13px;
-      color: #e2e8f0;
+      color: ${p.text};
       white-space: nowrap;
     }
   `,
@@ -1504,13 +1634,17 @@ export const useOsStyles = createStyles(({ css }) => ({
       width 0.12s ease,
       height 0.12s ease;
   `,
+  /** Positioning layer only — lets clicks on empty desktop reach the root
+   *  (context menu / wallpaper). Icons re-enable pointer events below. */
   iconsLayer: css`
     position: absolute;
     inset: 0;
     z-index: 0;
+    pointer-events: none;
   `,
   iconAbsolute: css`
     position: absolute;
+    pointer-events: auto;
     touch-action: none;
   `,
   windowMinimizing: css`
@@ -1522,3 +1656,13 @@ export const useOsStyles = createStyles(({ css }) => ({
     transform-origin: bottom center;
   `,
 }));
+
+/**
+ * Theme-aware wrapper: resolves the OS palette from the console theme so
+ * every chrome piece restyles when the user switches light/dark. Call sites
+ * keep the original `useOsStyles()` signature.
+ */
+export function useOsStyles() {
+  const { isDark } = useTheme();
+  return useOsStylesBase(isDark ? DARK_PROPS : LIGHT_PROPS);
+}

@@ -8,7 +8,9 @@
  * On small viewports windows are forced full-screen and drag is disabled.
  */
 import { useCallback, useRef, useState } from "react";
+import { theme as antdTheme } from "antd";
 import { Minus, X, Maximize2, type LucideIcon } from "lucide-react";
+import { useTheme } from "../contexts/ThemeContext";
 import { useOsWindows, type OsWindow, type OsRect } from "./osWindowStore";
 import { computeSnapRect, type SnapZone } from "./snap";
 import { OsWindowContainerContext } from "./osWindowContainer";
@@ -20,6 +22,14 @@ interface WindowFrameProps {
   Icon: LucideIcon;
   accent: string;
   isMobile: boolean;
+  /**
+   * Route-backed app windows set this so the content area becomes a themed
+   * surface (antd token background + text colour). Pages assume the layout
+   * beneath them supplies colorBgLayout — the classic MainLayout does, so the
+   * OS window must too, or light-theme pages render dark text on the dark
+   * glass. OS-native apps (App Store, Settings) keep the dark glass styling.
+   */
+  themedSurface?: boolean;
   children: React.ReactNode;
 }
 
@@ -111,9 +121,12 @@ export default function WindowFrame({
   Icon,
   accent,
   isMobile,
+  themedSurface = false,
   children,
 }: WindowFrameProps) {
   const { styles, cx } = useOsStyles();
+  const { isDark } = useTheme();
+  const { token } = antdTheme.useToken();
   const {
     focus,
     close,
@@ -269,6 +282,16 @@ export default function WindowFrame({
         zIndex: win.z,
       };
 
+  // Themed surface for route-backed pages: in dark mode the existing glass
+  // already matches the dark tokens; in light mode swap in the theme
+  // background so light-theme pages stay readable.
+  const contentStyle: React.CSSProperties | undefined = themedSurface
+    ? {
+        background: isDark ? undefined : token.colorBgLayout,
+        color: token.colorText,
+      }
+    : undefined;
+
   if (win.minimized) return null;
 
   return (
@@ -320,7 +343,7 @@ export default function WindowFrame({
         <div style={{ width: 70 }} />
       </div>
 
-      <div className={styles.content} ref={setContentEl}>
+      <div className={styles.content} style={contentStyle} ref={setContentEl}>
         <OsWindowContainerContext.Provider value={contentEl}>
           {children}
         </OsWindowContainerContext.Provider>

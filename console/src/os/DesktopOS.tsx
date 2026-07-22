@@ -387,6 +387,7 @@ export default function DesktopOS() {
               Icon={def.Icon}
               accent={def.accent}
               isMobile={isMobile}
+              themedSurface={!isStore && !isSettings}
             >
               <ChunkErrorBoundary resetKey={win.id}>
                 <Suspense
