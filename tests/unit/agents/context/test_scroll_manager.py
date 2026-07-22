@@ -7,6 +7,7 @@ window), the boundary-Msg double-presence fix, tool-result preview persistence,
 degraded-durability fail-safe (no eviction when a write fails), and retention.
 """
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +22,7 @@ from agentscope.message import (
 )
 from agentscope.model import ChatResponse
 
+from qwenpaw.agents.context.scroll import manager as scroll_manager_module
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
 from qwenpaw.agents.context.scroll.recall_tool import (
@@ -108,6 +110,19 @@ class PlainSummaryModel(FakeModel):
 
     async def generate_structured_output(self, *args, **kwargs):
         raise AssertionError("structured output must not be used")
+
+
+class HangingSummaryModel(FakeModel):
+    """Chat model that stalls until the summary timeout cancels it."""
+
+    def __init__(self, tokens) -> None:
+        super().__init__(tokens)
+        self.summary_calls = 0
+
+    async def __call__(self, **kwargs):
+        del kwargs
+        self.summary_calls += 1
+        await asyncio.Event().wait()
 
 
 class FakeConfig:
@@ -938,6 +953,81 @@ async def test_invalid_summary_update_preserves_previous_and_marks_stale(
     )
 
 
+async def test_summary_timeout_preserves_valid_previous_without_retry(
+    store: HistoryStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    old = [user("fix discovery"), assistant("DashScope passes")]
+    current = user("continue")
+    mgr = make_manager(store)
+    agent = FakeAgent([*old, current], tokens=[900, 300])
+    agent.model = PlainSummaryModel(
+        [900, 300],
+        [_VALID_CONTINUATION_SUMMARY],
+    )
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (old, [current])
+    await mgr.compress(agent)
+    previous = mgr.describe_summary()
+
+    hanging = HangingSummaryModel([900, 300])
+    agent.model = hanging
+    finished = assistant("OpenAI is still pending")
+    next_request = user("continue again")
+    context = [*agent.state.context, finished, next_request]
+    agent.state.context = context
+    agent._split_return = (context[:-1], [next_request])
+    monkeypatch.setattr(
+        scroll_manager_module,
+        "_SUMMARY_UPDATE_TIMEOUT_SECONDS",
+        0.01,
+    )
+
+    await mgr.compress(agent)
+
+    assert hanging.summary_calls == 1
+    assert mgr.describe_summary() == previous
+    assert "Summary status: stale" in agent.state.context[0].get_text_content()
+
+
+async def test_expired_summary_coverage_rebuilds_from_new_evidence(
+    store: HistoryStore,
+):
+    old = [user("fix discovery"), assistant("DashScope passes")]
+    for msg in old:
+        msg.created_at = "2000-01-01T00:00:00+00:00"
+    current = user("continue")
+    mgr = make_manager(store)
+    agent = FakeAgent([*old, current], tokens=[900, 300, 900, 300])
+    agent.model = PlainSummaryModel(
+        [900, 300, 900, 300],
+        [_VALID_CONTINUATION_SUMMARY, _VALID_CONTINUATION_SUMMARY],
+    )
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (old, [current])
+    await mgr.compress(agent)
+    expired_range = mgr._continuation_summary.covered_seq
+
+    assert store.purge(before="2001-01-01T00:00:00+00:00") == 2
+    assert store.existing_seqs(set(expired_range)) != set(expired_range)
+
+    finished = assistant("OpenAI is still pending")
+    next_request = user("continue again")
+    context = [*agent.state.context, finished, next_request]
+    agent.state.context = context
+    agent._split_return = (context[:-1], [next_request])
+
+    await mgr.compress(agent)
+
+    rebuilt = mgr._continuation_summary
+    assert rebuilt is not None
+    assert rebuilt.covered_seq[0] > expired_range[0]
+    assert not mgr._summary_update_failed
+    prompt = agent.model.summary_calls[1]["messages"][1].get_text_content()
+    assert "Create the first continuation summary" in prompt
+    assert "Update the previous continuation summary" not in prompt
+
+
 async def test_invalid_summary_is_retried_once_with_quality_feedback(
     store: HistoryStore,
 ):
@@ -1000,6 +1090,25 @@ async def test_pretrim_avoids_eviction_at_or_below_trigger(
         "folded": 2,
     }
     assert agent.model.calls == 2
+
+
+async def test_exactly_at_trigger_does_not_evict_without_fold_candidates(
+    store: HistoryStore,
+):
+    old = [user("old request"), assistant("old response")]
+    current = user("current request")
+    context = [*old, current]
+    mgr = make_manager(store)
+    agent = FakeAgent(context, tokens=800)
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (old, [current])
+
+    await mgr.compress(agent)
+
+    assert agent.state.context == context
+    assert mgr._index.is_empty
+    assert mgr.last_compress["evicted"] == 0
+    assert agent.model.calls == 1
 
 
 async def test_pretrim_insufficient_then_continues_to_eviction(

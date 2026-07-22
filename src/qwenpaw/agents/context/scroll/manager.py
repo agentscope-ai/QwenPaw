@@ -57,6 +57,7 @@ _PRE_TRIM_MIN_CHARS = 200
 _PROTECTED_RECENT_TOOL_RESULTS = 5
 _OUTPUT_RESERVE_RATIO = 0.05
 _MAX_OUTPUT_RESERVE_TOKENS = 4096
+_SUMMARY_UPDATE_TIMEOUT_SECONDS = 60.0
 
 
 class ScrollContextManager:
@@ -410,9 +411,9 @@ class ScrollContextManager:
         trigger = cfg.trigger_ratio * agent.model.context_size
         tokens = await agent.model.count_tokens(**kwargs)
         mark("count_tokens")
-        if tokens < trigger:
+        if tokens <= trigger:
             self._overflow_warned = False
-            log_timings("below_trigger")
+            log_timings("at_or_below_trigger")
             return
 
         # 3) Before evicting dialogue, reclaim recoverable tool output from
@@ -903,6 +904,72 @@ class ScrollContextManager:
                 deltas.append(text)
         return final or "".join(deltas).strip()
 
+    def _source_backed_previous_summary(
+        self,
+    ) -> ContinuationSummary | None:
+        """Return the previous summary only while its range is durable."""
+        previous = self._continuation_summary
+        if previous is None:
+            return None
+        endpoints = set(previous.covered_seq)
+        if self._history.existing_seqs(endpoints) == endpoints:
+            return previous
+        logger.info(
+            "scroll: previous continuation summary references expired "
+            "history; rebuilding from new durable evidence",
+        )
+        # Never reassign claims from purged evidence to a newer seq range
+        # merely to satisfy pointer validation. The expired summary is no
+        # longer source-backed, so discard it and build a fresh state from the
+        # newly archived, durable span.
+        self._continuation_summary = None
+        return None
+
+    async def _validated_summary_attempt(
+        self,
+        agent: Any,
+        prompt: str,
+        *,
+        output_tokens: int,
+        language: str,
+        covered: tuple[int, int],
+        evidence_text: str,
+        timeout: float,
+    ) -> ContinuationSummary:
+        """Generate and locally validate one summary candidate."""
+        if timeout <= 0:
+            raise asyncio.TimeoutError
+        plain_text = await asyncio.wait_for(
+            self._generate_plain_summary(
+                agent,
+                prompt,
+                max_tokens=output_tokens,
+                language=language,
+            ),
+            timeout=timeout,
+        )
+        if len(plain_text) > 16_000:
+            raise ValueError("plain Markdown summary exceeds hard limit")
+        candidate = parse_plain_markdown(
+            plain_text,
+            covered_seq=covered,
+        )
+        if candidate is None:
+            raise ValueError("empty or malformed plain Markdown summary")
+        endpoints = {
+            endpoint
+            for lo, hi in candidate.seq_spans()
+            for endpoint in (lo, hi)
+        }
+        issues = validate_summary_quality(
+            candidate,
+            evidence_text=evidence_text,
+            existing_seqs=self._history.existing_seqs(endpoints),
+        )
+        if issues:
+            raise ValueError("; ".join(issues))
+        return candidate
+
     async def _update_continuation_summary(
         self,
         agent: Any,
@@ -914,7 +981,7 @@ class ScrollContextManager:
         new_span = self._evicted_span(middle)
         if new_span is None or not callable(getattr(agent, "model", None)):
             return
-        previous = self._continuation_summary
+        previous = self._source_backed_previous_summary()
         language = str(
             getattr(
                 getattr(agent, "_agent_config", None),
@@ -947,6 +1014,7 @@ class ScrollContextManager:
         repair_issues: tuple[str, ...] = ()
         updated: ContinuationSummary | None = None
         failure: Exception | None = None
+        deadline = time.monotonic() + _SUMMARY_UPDATE_TIMEOUT_SECONDS
         for attempt in range(2):
             summary_mode: SummaryMode = (
                 "update" if previous is not None else "initial"
@@ -961,37 +1029,24 @@ class ScrollContextManager:
                 language=language,
             )
             try:
-                plain_text = await self._generate_plain_summary(
+                updated = await self._validated_summary_attempt(
                     agent,
                     prompt,
-                    max_tokens=output_tokens,
+                    output_tokens=output_tokens,
                     language=language,
-                )
-                if len(plain_text) > 16_000:
-                    raise ValueError(
-                        "plain Markdown summary exceeds hard limit",
-                    )
-                candidate = parse_plain_markdown(
-                    plain_text,
-                    covered_seq=covered,
-                )
-                if candidate is None:
-                    raise ValueError(
-                        "empty or malformed plain Markdown summary",
-                    )
-                endpoints = {
-                    endpoint
-                    for lo, hi in candidate.seq_spans()
-                    for endpoint in (lo, hi)
-                }
-                issues = validate_summary_quality(
-                    candidate,
+                    covered=covered,
                     evidence_text=evidence_text,
-                    existing_seqs=self._history.existing_seqs(endpoints),
+                    timeout=deadline - time.monotonic(),
                 )
-                if issues:
-                    raise ValueError("; ".join(issues))
-                updated = candidate
+                break
+            except asyncio.TimeoutError:
+                failure = TimeoutError(
+                    "continuation summary generation timed out after "
+                    f"{_SUMMARY_UPDATE_TIMEOUT_SECONDS:g} seconds",
+                )
+                # The timeout is a provider/connection failure, not a quality
+                # issue that a repair prompt can fix. Preserve a still-valid
+                # previous summary as stale without making a second call.
                 break
             except Exception as exc:  # noqa: BLE001 - retry is best-effort
                 failure = exc
