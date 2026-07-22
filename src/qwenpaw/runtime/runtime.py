@@ -498,7 +498,7 @@ class Runtime:
 
             hint_msg = Msg(
                 name="system",
-                role="system",
+                role="user",
                 content=[
                     TextBlock(
                         type="text",
