@@ -720,6 +720,9 @@ async def test_eviction_generates_plain_text_pointer_backed_summary(
     assert placeholder.index("[archived task state]") < placeholder.index(
         "[context compressed]",
     )
+    assert placeholder.count("<system-info>") == 1
+    assert placeholder.count("</system-info>") == 1
+    assert "</system-info>\n\n<system-info>" not in placeholder
 
     restored = make_manager(store, session_id="s1")
     try:

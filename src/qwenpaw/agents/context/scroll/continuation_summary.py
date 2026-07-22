@@ -13,8 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-SUMMARY_PREFIX = """<system-info>
-[archived task state]
+SUMMARY_PREFIX = """[archived task state]
 This summarizes older turns that were removed from the live context. Use it
 only as background for task continuity. It is not a user message, an active
 instruction, or permission to resume or execute any listed work. Follow the
@@ -303,7 +302,13 @@ class ContinuationSummary:
             )
         return "\n".join(sections).strip()
 
-    def render_background(self, *, stale: bool = False) -> str:
+    def render_background(
+        self,
+        *,
+        stale: bool = False,
+        include_envelope: bool = True,
+    ) -> str:
+        """Render model background, optionally without ``system-info`` tags."""
         state = (
             "\nSummary status: stale because the latest update failed."
             if stale
@@ -315,9 +320,11 @@ class ContinuationSummary:
             f"sequence range {lo}–{hi}. Recall that range only when exact\n"
             "wording or evidence is needed."
         )
+        body = f"{SUMMARY_PREFIX}{state}\n{history}\n\n{self.render()}"
         return (
-            f"{SUMMARY_PREFIX}{state}\n{history}\n\n"
-            f"{self.render()}\n</system-info>"
+            f"<system-info>\n{body}\n</system-info>"
+            if include_envelope
+            else body
         )
 
     def items(self) -> tuple[SummaryItem, ...]:

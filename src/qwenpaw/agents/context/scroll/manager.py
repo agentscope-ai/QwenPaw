@@ -1465,13 +1465,15 @@ class ScrollContextManager:
         """Rebuild from separate summary/index state plus the live tail."""
         memory = self._index.render()
         if self._continuation_summary is not None:
-            memory = (
+            body = (
                 self._continuation_summary.render_background(
                     stale=self._summary_update_failed,
+                    include_envelope=False,
                 )
                 + "\n\n"
-                + memory
+                + self._index.render(include_envelope=False)
             )
+            memory = f"<system-info>\n{body}\n</system-info>"
         placeholder = UserMsg(name="memory", content=memory)
         self._synthetic_ids.add(placeholder.id)
         agent.state.context = [placeholder] + tail

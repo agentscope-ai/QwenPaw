@@ -102,6 +102,7 @@ Headlines label individual milestones; the continuation summary maintains the la
 
 - **Plain text generation**: the model is called normally with thinking disabled and asked for Markdown. Scroll never invokes `generate_structured_output`, JSON mode, or a response schema for this update.
 - **Local parsing and deterministic rendering**: code parses the Markdown into JSON-safe internal state and renders the six sections itself. The model does not generate inline source links; code tracks one trusted archived seq range and states it separately in the background banner.
+- **Single background envelope**: when both the continuation summary and eviction index are present, Scroll places them in one shared `<system-info>` block rather than emitting adjacent wrappers.
 - **Role-aware bounded evidence**: evicted user text and headlines are budgeted first, so independent constraints and facts are not hidden by tool-heavy middle turns. Remaining space is shared between assistant/tool-call context and bounded tool-result previews; complete results stay durable behind real `seq`, `tool_call_id`, artifact, and file pointers.
 - **Incremental update**: the previous valid summary and newly evicted span are supplied together, so obsolete state can be removed rather than accumulated as a log.
 - **Deterministic quality guard**: code validates the exact section order and status, checks that the code-managed seq range exists, rejects invented opaque identifiers and likely secrets, and enforces the output limit. This does not use a separate LLM judge.

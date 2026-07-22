@@ -242,7 +242,7 @@ class EvictionIndex:
 
     # -- rendering -----------------------------------------------------------
 
-    def render(self) -> str:
+    def render(self, *, include_envelope: bool = True) -> str:
         """The single placeholder message: the whole map + how to expand it.
 
         Tiers print oldest-first (highest tier on top) down to ``Tier 0`` (the
@@ -255,7 +255,6 @@ class EvictionIndex:
         then, which is inherent to the roll-up.)
         """
         out = [
-            "<system-info>",
             "[context compressed] The turns below were evicted from the live "
             "window but remain durable in conversation_history. This is an "
             "ARCHIVED MAP for reference only — NOT the live conversation. "
@@ -277,8 +276,12 @@ class EvictionIndex:
         # structural anchor that keeps the model answering the request below,
         # not a headline in the map above.
         out.extend(_LIVE_TURN_BANNER)
-        out.append("</system-info>")
-        return "\n".join(out)
+        body = "\n".join(out)
+        return (
+            f"<system-info>\n{body}\n</system-info>"
+            if include_envelope
+            else body
+        )
 
     def describe(self) -> str:
         """The tier/span map without the ``render`` preamble — for the
