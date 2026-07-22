@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -52,13 +53,23 @@ def parse_mission_args(
         "max_iterations": default_max_iterations,
     }
 
-    tokens = raw_args.split()
+    try:
+        tokens = shlex.split(raw_args, posix=False)
+    except ValueError:
+        tokens = raw_args.split()
     task_parts: list[str] = []
     i = 0
     while i < len(tokens):
         tok = tokens[i]
         if tok == "--verify" and i + 1 < len(tokens):
-            args["verify_commands"] = tokens[i + 1]
+            verify_command = tokens[i + 1]
+            if (
+                len(verify_command) >= 2
+                and verify_command[0] == verify_command[-1]
+                and verify_command[0] in {'"', "'"}
+            ):
+                verify_command = verify_command[1:-1]
+            args["verify_commands"] = verify_command
             i += 2
         elif tok == "--max-iterations" and i + 1 < len(tokens):
             try:
@@ -165,7 +176,7 @@ def format_help(
         "- `/mission status` \u2014 current progress\n"
         "- `/mission list` \u2014 list all missions\n\n"
         "Options:\n"
-        "- `--verify <cmd>` \u2014 verification command\n"
+        '- `--verify "<cmd>"` \u2014 verification command\n'
         f"- `--max-iterations <n>` \u2014 "
         f"({_MIN_MAX_ITERATIONS}-{_MAX_MAX_ITERATIONS}, "
         f"default {default_max_iterations})\n\n"
