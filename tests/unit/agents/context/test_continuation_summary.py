@@ -185,6 +185,39 @@ def test_prompt_modes_share_one_output_protocol():
         assert "## Evidence" not in prompt
 
 
+def test_chinese_prompt_localizes_instructions_but_keeps_protocol_headings():
+    prompt = build_update_prompt(
+        mode="update",
+        previous=None,
+        archived_context="[seq:1] 修复 provider discovery",
+        covered_seq=(1, 1),
+        repair_issues=("invalid status",),
+        focus_hint="优先保留用户约束",
+        language="zh",
+    )
+
+    assert "更新上一份 continuation summary" in prompt
+    assert "所有自然语言内容均使用中文" in prompt
+    assert "本次压缩的临时关注提示" in prompt
+    assert "上一份候选 summary 未通过本地校验" in prompt
+    assert "## Active Task" in prompt
+    assert "Status: in_progress | blocked | completed | unknown" in prompt
+    assert "## Open Work" in prompt
+
+
+def test_unknown_summary_language_falls_back_to_english():
+    prompt = build_update_prompt(
+        mode="initial",
+        previous=None,
+        archived_context="[seq:1] task state",
+        covered_seq=(1, 1),
+        language="ru",
+    )
+
+    assert "Create the first continuation summary" in prompt
+    assert "write natural-language content in English" in prompt
+
+
 def test_quality_guard_rejects_only_exact_duplicate_state_items():
     summary = parse_plain_markdown(
         """## Active Task

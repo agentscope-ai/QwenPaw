@@ -9,6 +9,7 @@ degraded-durability fail-safe (no eviction when a write fails), and retention.
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from agentscope.message import (
@@ -765,8 +766,14 @@ async def test_eviction_generates_plain_text_pointer_backed_summary(
     assert "[archived task state]" in placeholder
     assert "not a user message" in placeholder
     assert "sequence range 1–2" in placeholder
+    assert placeholder.index("[context compressed]") < placeholder.index(
+        "[archived task state]",
+    )
+    assert placeholder.index("END OF ARCHIVED INDEX") < placeholder.index(
+        "[archived task state]",
+    )
     assert placeholder.index("[archived task state]") < placeholder.index(
-        "[context compressed]",
+        "CURRENT LIVE TURN",
     )
     assert placeholder.count("<system-info>") == 1
     assert placeholder.count("</system-info>") == 1
@@ -778,6 +785,31 @@ async def test_eviction_generates_plain_text_pointer_backed_summary(
         assert restored.describe_summary() == summary
     finally:
         restored.close()
+
+
+async def test_summary_prompt_uses_agent_config_language(
+    store: HistoryStore,
+):
+    old = [user("修复模型发现"), assistant("DashScope 已通过")]
+    current = user("继续")
+    chinese_summary = _VALID_CONTINUATION_SUMMARY.replace(
+        "Fix provider discovery.",
+        "修复模型自动发现。",
+    )
+    mgr = make_manager(store)
+    agent = FakeAgent([*old, current], tokens=[900, 300])
+    agent.model = PlainSummaryModel([900, 300], [chinese_summary])
+    agent.context_config = _RealisticScrollConfig()
+    agent._agent_config = SimpleNamespace(language="zh")
+    agent._split_return = (old, [current])
+
+    await mgr.compress(agent)
+
+    call = agent.model.summary_calls[0]
+    assert "使用中文填写自然语言内容" in call["messages"][0].get_text_content()
+    prompt = call["messages"][1].get_text_content()
+    assert "生成第一份 continuation summary" in prompt
+    assert "所有自然语言内容均使用中文" in prompt
 
 
 def test_summary_input_prioritizes_all_user_facts_over_tool_noise(

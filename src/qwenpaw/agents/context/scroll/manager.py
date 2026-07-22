@@ -40,7 +40,7 @@ from .continuation_summary import (
     redact_secrets,
     validate_summary_quality,
 )
-from .eviction_index import EvictionIndex, Leaf
+from .eviction_index import EvictionIndex, Leaf, render_live_turn_banner
 from .history import HistoryStore
 from .serialize import msg_to_entries
 from ..types import ContextWindowUnfitError
@@ -864,18 +864,26 @@ class ScrollContextManager:
         prompt: str,
         *,
         max_tokens: int,
+        language: str = "en",
     ) -> str:
         """Call the chat model normally; structured output is never used."""
         if not callable(getattr(agent, "model", None)):
             return ""
+        system_content = (
+            "你负责更新一份紧凑的 continuation summary。严格遵循指定的 "
+            "Markdown headings，并使用中文填写自然语言内容。"
+            if str(language).lower().startswith("zh")
+            else (
+                "You update a compact continuation summary. Follow the "
+                "requested Markdown headings exactly and write natural-"
+                "language content in English."
+            )
+        )
         response = await agent.model(
             messages=[
                 SystemMsg(
                     name="system",
-                    content=(
-                        "You update a compact continuation summary. Follow "
-                        "the requested Markdown headings exactly."
-                    ),
+                    content=system_content,
                 ),
                 UserMsg(name="user", content=prompt),
             ],
@@ -907,6 +915,14 @@ class ScrollContextManager:
         if new_span is None or not callable(getattr(agent, "model", None)):
             return
         previous = self._continuation_summary
+        language = str(
+            getattr(
+                getattr(agent, "_agent_config", None),
+                "language",
+                getattr(agent, "_language", "en"),
+            )
+            or "en",
+        )
         covered = (
             (
                 min(previous.covered_seq[0], new_span[0]),
@@ -942,12 +958,14 @@ class ScrollContextManager:
                 covered_seq=covered,
                 repair_issues=repair_issues,
                 focus_hint=focus_hint,
+                language=language,
             )
             try:
                 plain_text = await self._generate_plain_summary(
                     agent,
                     prompt,
                     max_tokens=output_tokens,
+                    language=language,
                 )
                 if len(plain_text) > 16_000:
                     raise ValueError(
@@ -1420,12 +1438,17 @@ class ScrollContextManager:
         memory = self._index.render()
         if self._continuation_summary is not None:
             body = (
-                self._continuation_summary.render_background(
+                self._index.render(
+                    include_envelope=False,
+                    include_live_banner=False,
+                )
+                + "\n\n"
+                + self._continuation_summary.render_background(
                     stale=self._summary_update_failed,
                     include_envelope=False,
                 )
-                + "\n\n"
-                + self._index.render(include_envelope=False)
+                + "\n"
+                + render_live_turn_banner()
             )
             memory = f"<system-info>\n{body}\n</system-info>"
         placeholder = UserMsg(name="memory", content=memory)

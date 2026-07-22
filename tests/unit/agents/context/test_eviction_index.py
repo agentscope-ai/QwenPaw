@@ -53,6 +53,15 @@ def test_render_closes_with_live_turn_banner():
     assert out.index("CURRENT LIVE TURN") < out.index("</system-info>")
 
 
+def test_render_can_defer_live_turn_banner_after_the_index():
+    """The manager may place task state between the map and live seam."""
+    idx = EvictionIndex(session_id="s")
+    _add(idx, 5, "old headline")
+    out = idx.render(include_live_banner=False)
+    assert "END OF ARCHIVED INDEX" in out
+    assert "CURRENT LIVE TURN" not in out
+
+
 def test_describe_omits_the_model_facing_banner():
     """``describe()`` feeds the user-facing /compact reply — it should show the
     tier/span map only, not the model-only 'answer THIS' banner."""

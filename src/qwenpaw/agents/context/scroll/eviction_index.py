@@ -41,9 +41,13 @@ _TIER_CAP = 10
 # ``[CONTEXT SUMMARY]`` label — telling the model, at the seam, which side is
 # archive and which side is the request. Constant text, so it never breaks the
 # placeholder's KV-cache prefix.
-_LIVE_TURN_BANNER = [
+_ARCHIVED_INDEX_END = [
     "",
     "═══════════════ END OF ARCHIVED INDEX ═══════════════",
+]
+
+_LIVE_TURN_BANNER = [
+    "",
     "The CURRENT LIVE TURN is the message(s) that follow this one. Answer the "
     "most recent USER message there — NEVER a ⟦headline⟧ listed in the map "
     "above; those are archived, not requests. If your current request is not "
@@ -51,6 +55,11 @@ _LIVE_TURN_BANNER = [
     "retrieve it, say so — never answer an older message as if it were the "
     "request.",
 ]
+
+
+def render_live_turn_banner() -> str:
+    """Render the stable seam immediately before the live conversation."""
+    return "\n".join(_LIVE_TURN_BANNER)
 
 
 @dataclass(frozen=True)
@@ -242,7 +251,12 @@ class EvictionIndex:
 
     # -- rendering -----------------------------------------------------------
 
-    def render(self, *, include_envelope: bool = True) -> str:
+    def render(
+        self,
+        *,
+        include_envelope: bool = True,
+        include_live_banner: bool = True,
+    ) -> str:
         """The single placeholder message: the whole map + how to expand it.
 
         Tiers print oldest-first (highest tier on top) down to ``Tier 0`` (the
@@ -272,10 +286,12 @@ class EvictionIndex:
             "",
         ]
         out.extend(self._tier_lines())
-        # The seam banner closes the block right before the live tail — the
-        # structural anchor that keeps the model answering the request below,
-        # not a headline in the map above.
-        out.extend(_LIVE_TURN_BANNER)
+        out.extend(_ARCHIVED_INDEX_END)
+        if include_live_banner:
+            # With no continuation summary, the seam closes the block right
+            # before the live tail. The manager can defer it until after task
+            # state so that task state remains closest to the live request.
+            out.extend(_LIVE_TURN_BANNER)
         body = "\n".join(out)
         return (
             f"<system-info>\n{body}\n</system-info>"
