@@ -23,15 +23,16 @@ class AGUIErrorResponse(BaseModel):
     error_code: str = "agui_error"
 
 
-def _normalize_request(request_data: Union[AgentRequest, dict]) -> AgentRequest:
-    """Coerce the request body to a validated AgentRequest with non-empty input.
+def _normalize_request(
+    request_data: Union[AgentRequest, dict],
+) -> AgentRequest:
+    """Validate the body, failing fast (422) when input is empty.
 
     FastAPI may deliver a ``dict`` when the JSON does not fully match the
-    AgentRequest schema.  Passing a raw channel-native dict (``{content_parts,
-    ...}``) to ``workspace.stream_query`` would drop the user's message because
-    ``Runtime._normalize`` creates an ``AgentRequest`` whose ``input`` defaults
-    to an empty list.  We re-validate here so we can fail fast with a clear
-    422 if the body is malformed or has no input.
+    AgentRequest schema.  Passing a raw channel-native dict
+    (``{content_parts, ...}``) to ``workspace.stream_query`` would drop the
+    user's message because ``Runtime._normalize`` creates an ``AgentRequest``
+    whose ``input`` defaults to an empty list.
     """
     if isinstance(request_data, AgentRequest):
         req = request_data
@@ -92,7 +93,10 @@ async def _stream_agui_events(
     ),
     responses={
         422: {"description": "Invalid or empty agent request"},
-        500: {"model": AGUIErrorResponse, "description": "ag-ui-protocol not installed"},
+        500: {
+            "model": AGUIErrorResponse,
+            "description": "ag-ui-protocol not installed",
+        },
     },
 )
 async def post_agui_chat(

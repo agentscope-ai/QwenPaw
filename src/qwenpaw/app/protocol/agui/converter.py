@@ -26,6 +26,7 @@ try:
         ToolCallResultEvent as AGUIToolCallResultEvent,
         ToolCallStartEvent as AGUIToolCallStartEvent,
     )
+
     AG_UI_AVAILABLE = True
 except ImportError:
     AG_UI_AVAILABLE = False
@@ -47,7 +48,7 @@ class QwenPawToAGUIConverter:
         if not AG_UI_AVAILABLE:
             raise ImportError(
                 "ag-ui-protocol is required for AG-UI support. "
-                "Install it: pip install 'ag-ui-protocol>=0.1.10,<0.2.0'"
+                "Install it: pip install 'ag-ui-protocol>=0.1.10,<0.2.0'",
             )
         self._run_id: str = ""
         # Tracks whether the current open message is reasoning or text so
@@ -75,7 +76,9 @@ class QwenPawToAGUIConverter:
 
     # -- conversion ----------------------------------------------------------
 
-    def _to_agui_event(self, ev: Dict[str, Any]) -> "AGUIBaseEvent":  # noqa: C901
+    def _to_agui_event(
+        self, ev: Dict[str, Any]
+    ) -> "AGUIBaseEvent":  # noqa: C901,E501
         obj = ev.get("object", "")
 
         # ---- response ------------------------------------------------------
@@ -92,7 +95,7 @@ class QwenPawToAGUIConverter:
 
         return AGUICustomEvent(name="unknown", value=ev)
 
-    # ------------------------------------------------------------------ helpers
+    # -- helpers ------------------------------------------------------------
 
     def _handle_response(self, ev: Dict[str, Any]) -> "AGUIBaseEvent":
         status = ev.get("status")
@@ -168,7 +171,10 @@ class QwenPawToAGUIConverter:
         return False
 
     def _handle_tool_message(
-        self, ev: Dict[str, Any], msg_id: str, status: str
+        self,
+        ev: Dict[str, Any],
+        msg_id: str,
+        status: str,
     ) -> "AGUIBaseEvent":
         content = ev.get("content") or []
         tool_name = ""
@@ -189,10 +195,12 @@ class QwenPawToAGUIConverter:
         return AGUICustomEvent(name="tool_call_info", value=ev)
 
     def _handle_tool_result(
-        self, ev: Dict[str, Any], msg_id: str
-    ) -> "AGUIBaseEvent":
+        self,
+        ev: Dict[str, Any],
+        msg_id: str,
+    ) -> "AGUIBaseEvent":  # noqa: E501
         result = None
-        for block in (ev.get("content") or []):
+        for block in ev.get("content") or []:
             data = block.get("data") if isinstance(block, dict) else {}
             if isinstance(data, dict) and "output" in data:
                 result = data
@@ -202,8 +210,10 @@ class QwenPawToAGUIConverter:
             output = result.get("output")
             if output is None:
                 output = result.get("text", "")
-            output_str = output if isinstance(output, str) else json.dumps(
-                output, ensure_ascii=False
+            output_str = (
+                output
+                if isinstance(output, str)
+                else json.dumps(output, ensure_ascii=False)
             )
             return AGUIToolCallResultEvent(
                 tool_call_id=msg_id,
@@ -217,8 +227,10 @@ class QwenPawToAGUIConverter:
         )
 
     def _handle_data_content(
-        self, ev: Dict[str, Any], msg_id: str
-    ) -> "AGUIBaseEvent":
+        self,
+        ev: Dict[str, Any],
+        msg_id: str,
+    ) -> "AGUIBaseEvent":  # noqa: E501
         data = ev.get("data")
         if not isinstance(data, dict):
             return AGUICustomEvent(name="content_data", value=ev)
@@ -235,8 +247,10 @@ class QwenPawToAGUIConverter:
             output = data.get("output")
             if output is None:
                 output = data.get("text", "")
-            output_str = output if isinstance(output, str) else json.dumps(
-                output, ensure_ascii=False
+            output_str = (
+                output
+                if isinstance(output, str)
+                else json.dumps(output, ensure_ascii=False)
             )
             return AGUIToolCallResultEvent(
                 tool_call_id=msg_id,
@@ -249,7 +263,10 @@ class QwenPawToAGUIConverter:
     # -- message types -------------------------------------------------------
 
     def _handle_reasoning(
-        self, ev: Dict[str, Any], msg_id: str, status: str
+        self,
+        ev: Dict[str, Any],
+        msg_id: str,
+        status: str,
     ) -> "AGUIBaseEvent":
         if status == "in_progress":
             self._msg_type = "reasoning"
@@ -263,7 +280,10 @@ class QwenPawToAGUIConverter:
         return AGUICustomEvent(name="reasoning_status", value=ev)
 
     def _handle_text(
-        self, ev: Dict[str, Any], msg_id: str, status: str
+        self,
+        ev: Dict[str, Any],
+        msg_id: str,
+        status: str,
     ) -> "AGUIBaseEvent":
         if status == "in_progress":
             self._msg_type = "text"
@@ -274,7 +294,10 @@ class QwenPawToAGUIConverter:
         return AGUICustomEvent(name="text_status", value=ev)
 
     def _handle_text_content(
-        self, msg_id: str, text: str, delta: bool
+        self,
+        msg_id: str,
+        text: str,
+        delta: bool,
     ) -> "AGUIBaseEvent":
         # Skip final non-delta (full-replay) chunks when we already streamed
         # deltas — avoids duplicating accumulated text at end of each block.
@@ -311,11 +334,13 @@ def create_run_error_event(message: str, code: str | None = None) -> dict:
     if not AG_UI_AVAILABLE:
         raise ImportError(
             "ag-ui-protocol is required for AG-UI support. "
-            "Install it: pip install 'ag-ui-protocol>=0.1.10,<0.2.0'"
+            "Install it: pip install 'ag-ui-protocol>=0.1.10,<0.2.0'",
         )
     kwargs: Dict[str, Any] = {"message": message}
     if code:
         kwargs["code"] = code
     return AGUIRunErrorEvent(**kwargs).model_dump(
-        mode="json", exclude_none=True, by_alias=True
+        mode="json",
+        exclude_none=True,
+        by_alias=True,
     )
