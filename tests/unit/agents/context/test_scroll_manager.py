@@ -729,6 +729,44 @@ async def test_eviction_generates_plain_text_pointer_backed_summary(
         restored.close()
 
 
+def test_summary_input_prioritizes_all_user_facts_over_tool_noise(
+    store: HistoryStore,
+):
+    """Middle user facts must survive a tight summary-input budget."""
+    mgr = make_manager(store)
+    messages = []
+    for index in range(20):
+        messages.extend(
+            [
+                assistant("noise-before-" + "x" * 4000),
+                user(f"CRITICAL-MEMO-{index:02d}: value-{index:02d}"),
+                _completed_tool_turn(f"tool-{index}", padding=4000),
+            ],
+        )
+
+    rendered = mgr._summary_archived_context(messages, max_chars=5000)
+
+    for index in range(20):
+        assert f"CRITICAL-MEMO-{index:02d}" in rendered
+    assert len(rendered) <= 5000
+
+
+def test_summary_input_keeps_tool_outcome_budget(store: HistoryStore):
+    """User priority must not starve every tool-result preview."""
+    mgr = make_manager(store)
+    messages = [
+        user("fix the provider timeout"),
+        *[assistant("analysis-" + "x" * 3000) for _ in range(10)],
+        assistant_with_tool("failure", "ERR-7731" + "z" * 3000),
+    ]
+
+    rendered = mgr._summary_archived_context(messages, max_chars=3000)
+
+    assert "fix the provider timeout" in rendered
+    assert "ERR-7731" in rendered
+    assert len(rendered) <= 3000
+
+
 async def test_invalid_summary_update_preserves_previous_and_marks_stale(
     store: HistoryStore,
 ):

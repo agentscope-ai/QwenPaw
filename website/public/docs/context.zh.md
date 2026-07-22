@@ -102,7 +102,7 @@ Headline 用来标记单个里程碑；continuation summary 则跨多个已驱�
 
 - **普通文本生成**：模型通过关闭 thinking 的正常 chat completion 返回 Markdown；Scroll 不调用 `generate_structured_output`、JSON mode 或 response schema。
 - **本地解析、确定性渲染**：代码把 Markdown 解析成 JSON-safe 内部状态，再自行渲染六个 section。模型不生成内联来源链接；代码维护一个可信的已归档 seq 范围，并在背景 banner 中单独说明。
-- **有界证据**：完整工具输出不会进入 summary prompt，只提供有限 preview 以及真实 `seq`、`tool_call_id`、artifact、file 指针。
+- **按角色分配的有界证据**：优先为已驱逐的 user 原文和 headline 分配预算，避免独立约束与事实被工具密集的中间轮遮住；剩余空间由 assistant/tool-call 上下文与有界 tool-result preview 共享，完整结果仍通过真实 `seq`、`tool_call_id`、artifact、file 指针持久可取回。
 - **增量更新**：上一份有效 summary 与新驱逐区段一起输入，让过时状态被删除，而不是不断追加成日志。
 - **确定性质量检查**：代码检查 section 顺序与 status、确认代码维护的 seq 范围真实存在，并拒绝凭空出现的 opaque identifier、疑似 secret 和超长输出；这里不使用单独的 LLM judge。
 - **一次条件重试**：不合格输出会携带简短校验错误再生成一次；第二次仍失败时保留上一份 summary 并标记 stale，空结果绝不覆盖有效状态。

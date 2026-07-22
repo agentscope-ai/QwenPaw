@@ -140,6 +140,10 @@ Rules:
 - Keep only claims explicitly supported by the supplied evidence. Do not infer
   completion, success, decisions, or blockers.
 - Distinguish verified, planned, attempted, failed, and tentative state.
+- Preserve each independent user-provided constraint, preference, exact value,
+  decision, and unresolved requirement as its own bullet until it is explicitly
+  superseded, withdrawn, or no longer relevant to the current task. Do not
+  merge or drop such items merely for concision.
 - Preserve UUIDs, Git SHAs, error codes, file paths, function names, PR/issue
   numbers, versions, ports, timeouts, and other opaque identifiers exactly.
 - Do not write [seq:...], [artifact:...], or [file:...] links anywhere in the
@@ -148,6 +152,8 @@ Rules:
 - Never copy credentials, tokens, API keys, passwords, connection strings, or
   other secrets. Retain only a safe, non-sensitive description.
 - Do not copy complete tool output. Keep only state needed to resume the task.
+- In Evidence, consolidate repetitive successful runs instead of enumerating
+  them. Keep distinct failures, decisive results, and recovery pointers.
 - Be concise: target 1500-2500 tokens and never exceed 4000 tokens.
 - Use `(none)` for an empty list section. Do not add other headings.
 

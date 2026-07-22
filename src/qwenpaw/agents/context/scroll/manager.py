@@ -573,10 +573,17 @@ class ScrollContextManager:
     def _bounded_summary_text(value: Any, limit: int) -> str:
         """Return a compact head/tail preview without losing both endpoints."""
         text = redact_secrets(" ".join(str(value or "").split()))
+        if limit <= 0:
+            return ""
         if len(text) <= limit:
             return text
-        half = max(1, (limit - 25) // 2)
-        return f"{text[:half]} [… omitted …] {text[-half:]}"
+        marker = " [… omitted …] "
+        if limit <= len(marker) + 1:
+            return text[:limit]
+        content_budget = limit - len(marker)
+        head = content_budget // 2
+        tail = content_budget - head
+        return f"{text[:head]}{marker}{text[-tail:]}"
 
     def _evicted_span(self, messages: list[Msg]) -> tuple[int, int] | None:
         ranges = [
@@ -612,53 +619,107 @@ class ScrollContextManager:
         *,
         max_chars: int,
     ) -> str:
-        """Render bounded evidence for the summary model.
+        """Render role-aware bounded evidence for the summary model.
 
-        Tool outputs are capped aggressively; exact values remain available by
-        the seq/tool-call pointers printed beside each preview.
+        The summary exists to preserve the semantics of what is about to be
+        evicted.  A global head/tail truncation can hide every user fact in the
+        middle of a long tool-heavy span, so allocate the budget by semantic
+        priority instead: user text and headlines first, assistant state and
+        tool calls second, bounded tool-result previews last.  Exact tool
+        output remains recoverable through the printed durable pointers.
         """
-        chunks: list[str] = []
+        essential: list[tuple[int, str]] = []
+        supporting: list[tuple[int, str]] = []
+        tool_results: list[tuple[int, str]] = []
+        order = 0
         for msg in middle:
             mid = getattr(msg, "id", None) or str(id(msg))
             span = self._seq_by_id.get(mid)
             pointer = f"[seq:{span[0]}-{span[1]}]" if span else "[seq:unknown]"
-            chunks.append(f"{pointer} role={getattr(msg, 'role', 'unknown')}")
+            role = getattr(msg, "role", "unknown")
+            prefix = f"{pointer} role={role}"
             for entry in msg_to_entries(msg):
                 if entry.kind == "tool_result":
                     preview = self._bounded_summary_text(entry.content, 600)
-                    chunks.append(
-                        "  tool_result "
+                    chunk = (
+                        f"{prefix}\n  tool_result "
                         f"name={entry.name!r} id={entry.tool_call_id!r} "
-                        f"state={entry.tool_state!r} preview={preview!r}",
+                        f"state={entry.tool_state!r} preview={preview!r}"
                     )
                     pointers = self._summary_metadata_pointers(entry.metadata)
                     if pointers:
-                        chunks.append(f"  recovery={' '.join(pointers)}")
+                        chunk += f"\n  recovery={' '.join(pointers)}"
+                    tool_results.append((order, chunk))
+                    order += 1
                     continue
-                text = self._bounded_summary_text(entry.content, 2000)
+                text_limit = 8000 if role == "user" else 2000
+                text = self._bounded_summary_text(entry.content, text_limit)
                 if text:
-                    chunks.append(f"  text={text!r}")
+                    target = essential if role == "user" else supporting
+                    target.append((order, f"{prefix}\n  text={text!r}"))
+                    order += 1
                 if entry.headline:
                     headline = self._bounded_summary_text(
                         entry.headline,
                         2000,
                     )
-                    chunks.append(
-                        f"  headline={headline!r}",
+                    essential.append(
+                        (order, f"{prefix}\n  headline={headline!r}"),
                     )
+                    order += 1
                 if entry.name or entry.tool_call_id:
                     tool_input = self._bounded_summary_text(
                         entry.tool_input,
                         600,
                     )
-                    chunks.append(
-                        f"  tool_call name={entry.name!r} "
-                        f"id={entry.tool_call_id!r} input={tool_input!r}",
+                    supporting.append(
+                        (
+                            order,
+                            f"{prefix}\n  tool_call name={entry.name!r} "
+                            f"id={entry.tool_call_id!r} "
+                            f"input={tool_input!r}",
+                        ),
                     )
-        rendered = "\n".join(chunks)
-        if len(rendered) <= max_chars:
-            return rendered
-        return self._bounded_summary_text(rendered, max_chars)
+                    order += 1
+
+        selected = self._fit_summary_records(essential, max_chars)
+        used = sum(len(text) + 1 for _, text in selected)
+        remaining = max(0, max_chars - used)
+
+        # Preserve a share for actual tool outcomes. Assistant narration is
+        # useful, but it must not consume the whole remainder before an error
+        # or exact result preview can be seen.
+        tool_budget = min(
+            sum(len(text) + 1 for _, text in tool_results),
+            remaining // 3,
+        )
+        support_budget = remaining - tool_budget
+        selected.extend(
+            self._fit_summary_records(supporting, support_budget),
+        )
+        selected.extend(
+            self._fit_summary_records(tool_results, tool_budget),
+        )
+        selected.sort(key=lambda item: item[0])
+        return "\n".join(text for _, text in selected)
+
+    @classmethod
+    def _fit_summary_records(
+        cls,
+        records: list[tuple[int, str]],
+        budget: int,
+    ) -> list[tuple[int, str]]:
+        """Fit every record fairly instead of dropping the middle records."""
+        if not records or budget <= 0:
+            return []
+        total = sum(len(text) + 1 for _, text in records)
+        if total <= budget:
+            return list(records)
+        share = max(1, budget // len(records) - 1)
+        return [
+            (order, cls._bounded_summary_text(text, share))
+            for order, text in records
+        ]
 
     def _summary_rebase_context(
         self,
