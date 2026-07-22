@@ -8,6 +8,21 @@ ARG UV_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/uv:la
 FROM ${NODE_IMAGE} AS console-builder
 WORKDIR /app
 COPY console /app/console
+
+# Site branding (title, logo, welcome nick) is kept as a patch instead of in
+# the source tree so the fork stays close to upstream. Opt in with
+# --build-arg APPLY_PROD_CUSTOMIZATIONS=1.
+ARG APPLY_PROD_CUSTOMIZATIONS=0
+COPY deploy/prod-v118-customizations.patch /tmp/customizations.patch
+RUN if [ "${APPLY_PROD_CUSTOMIZATIONS}" = "1" ]; then \
+      if ! command -v git >/dev/null 2>&1; then \
+        apt-get update \
+          && apt-get install -y --no-install-recommends git \
+          && rm -rf /var/lib/apt/lists/*; \
+      fi; \
+      git apply --verbose /tmp/customizations.patch; \
+    fi
+
 RUN cd /app/console && npm ci --include=dev && npm run build
 
 # Alias for uv binary so COPY --from can reference a build-arg image.
