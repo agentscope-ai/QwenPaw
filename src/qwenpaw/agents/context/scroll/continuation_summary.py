@@ -6,12 +6,12 @@ output or JSON. Parsing into this internal representation happens locally and
 fails closed, so provider/model formatting quirks cannot break compaction or
 replace the last valid summary with an empty value.
 """
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
-
 
 SUMMARY_PREFIX = """[archived task state]
 This summarizes older turns that were removed from the live context. Use it
@@ -28,7 +28,7 @@ _SECTIONS = (
     "Open Work",
 )
 _ITEM_SECTIONS = _SECTIONS[1:]
-SummaryMode = Literal["initial", "update", "rebase"]
+SummaryMode = Literal["initial", "update"]
 _VALID_STATUSES = {"in_progress", "blocked", "completed", "unknown"}
 _HEADING_RE = re.compile(r"^##\s+(.+?)\s*$")
 _STATUS_RE = re.compile(r"^Status:\s*(\S.*?)\s*$", re.IGNORECASE)
@@ -69,7 +69,6 @@ _IDENTIFIER_PATTERNS = (
     re.compile(r"\b[A-Za-z_][A-Za-z0-9_.]*\(\)"),
     re.compile(r"(?<!\w)v?\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b"),
 )
-_NUMBER_RE = re.compile(r"(?<!\d)\d+(?:\.\d+)?(?![\d.])")
 
 
 def build_update_prompt(
@@ -93,15 +92,14 @@ def build_update_prompt(
         ),
         "update": (
             "Update the previous continuation summary using the newly "
-            "archived context. Return one complete replacement state: merge "
-            "new facts, remove stale or superseded state, and move completed "
-            "work out of Open Work. Do not append a change log."
-        ),
-        "rebase": (
-            "Rebuild the continuation summary from the cited durable "
-            "evidence and newly archived context. Treat the previous summary "
-            "as a candidate, not as authoritative evidence. Resolve "
-            "conflicts in favor of the durable evidence."
+            "archived context. Return one complete replacement state. Treat "
+            "the previous summary as the baseline: preserve items that remain "
+            "relevant and are not contradicted; incorporate new facts; remove "
+            "items only when they are explicitly superseded, completed, "
+            "withdrawn, or clearly obsolete; and move completed work out of "
+            "Open Work. When source material conflicts with the previous "
+            "summary, prefer the exact source material; when facts changed "
+            "over time, prefer the newer state. Do not append a change log."
         ),
     }[mode]
     safe_issues = tuple(redact_secrets(issue)[:500] for issue in repair_issues)
@@ -109,8 +107,10 @@ def build_update_prompt(
         "\nThe previous candidate failed local validation:\n- "
         + "\n- ".join(safe_issues)
         + "\nThis feedback is authoritative. Regenerate from the supplied "
-        "evidence, correct every issue, and completely remove any identifier "
-        "reported as absent; do not explain or paraphrase it.\n"
+        "evidence and correct every issue. Replace an unsupported identifier "
+        "with the exact value found in the supplied evidence. If there is no "
+        "supporting value, remove only the unsupported claim; do not explain "
+        "the validation failure.\n"
         if repair_issues
         else ""
     )
@@ -193,12 +193,11 @@ def contains_secret(text: str) -> bool:
 
 def extract_identifiers(text: str) -> set[str]:
     """Extract opaque values whose exact spelling must be source-backed."""
-    # Numbers are compared independently from their surrounding unit. This
-    # accepts evidence such as "default 5000" when the summary writes
-    # "5000ms", while still rejecting an invented numeric value.
-    identifiers: set[str] = {
-        match.group(0) for match in _NUMBER_RE.finditer(text)
-    }
+    # Ordinary numbers are intentionally excluded: formatting, unit
+    # conversion, and natural-language paraphrases would otherwise cause
+    # false rejections. The prompt still asks the model to preserve important
+    # exact values, while this hard guard is limited to opaque identifiers.
+    identifiers: set[str] = set()
     for pattern in _IDENTIFIER_PATTERNS:
         identifiers.update(match.group(0) for match in pattern.finditer(text))
     return identifiers

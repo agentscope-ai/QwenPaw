@@ -436,36 +436,6 @@ class HistoryStore:
             ).fetchall()
         return {int(row["seq"]) for row in rows}
 
-    def read_summary_evidence(
-        self,
-        spans: tuple[tuple[int, int], ...],
-        *,
-        per_span: int = 20,
-    ) -> list[dict[str, Any]]:
-        """Read bounded head/tail rows for a source-backed summary rebase."""
-        if not spans or per_span <= 0:
-            return []
-        half = max(1, per_span // 2)
-        selected: dict[int, dict[str, Any]] = {}
-        columns = (
-            "seq, role, name, kind, content, tool_call_id, tool_state, "
-            "headline, metadata"
-        )
-        with self._lock:
-            for lo, hi in spans[:100]:
-                if lo > hi:
-                    continue
-                for direction in ("ASC", "DESC"):
-                    rows = self._conn.execute(
-                        f"SELECT {columns} FROM conversation_history "
-                        f"WHERE seq BETWEEN ? AND ? ORDER BY seq {direction} "
-                        "LIMIT ?",
-                        (lo, hi, half),
-                    ).fetchall()
-                    for row in rows:
-                        selected[int(row["seq"])] = dict(row)
-        return [selected[seq] for seq in sorted(selected)]
-
     @staticmethod
     def _purge_where(
         before: str,

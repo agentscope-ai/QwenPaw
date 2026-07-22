@@ -19,9 +19,6 @@ from agentscope.message import (
 )
 from agentscope.model import ChatResponse
 
-from qwenpaw.agents.context.scroll.continuation_summary import (
-    parse_plain_markdown,
-)
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
 from qwenpaw.agents.context.scroll.recall_tool import (
@@ -882,34 +879,6 @@ async def test_invalid_summary_is_retried_once_with_quality_feedback(
     assert "failed local validation" in retry_prompt.get_text_content()
     assert mgr.last_compress["summary_retries"] == 1
     assert "Fix provider discovery." in mgr.describe_summary()
-
-
-async def test_periodic_rebase_reads_cited_durable_sources(
-    store: HistoryStore,
-):
-    old = [user("fix discovery"), assistant("DashScope passes")]
-    current = user("continue")
-    mgr = make_manager(store)
-    agent = FakeAgent([*old, current], tokens=[900, 300])
-    agent.model = PlainSummaryModel([900, 300], [_VALID_CONTINUATION_SUMMARY])
-    agent.context_config = _RealisticScrollConfig()
-    agent._split_return = (old, [current])
-    # The eighth successful update is a rebase. Seed the counter without
-    # changing the persisted source ranges created by this eviction.
-    mgr._summary_update_count = 7
-    mgr._continuation_summary = parse_plain_markdown(
-        _VALID_CONTINUATION_SUMMARY,
-        covered_seq=(1, 2),
-    )
-
-    await mgr.compress(agent)
-
-    prompt = agent.model.summary_calls[0]["messages"][1].get_text_content()
-    assert "candidate, not as authoritative evidence" in prompt
-    assert "Durable evidence cited by the previous summary" in prompt
-    assert "fix discovery" in prompt
-    assert mgr.last_compress["summary_rebased"] == 1
-    assert mgr._summary_update_count == 8
 
 
 @pytest.mark.parametrize("after_trim", [730, 790])

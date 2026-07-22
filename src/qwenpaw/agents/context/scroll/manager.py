@@ -57,7 +57,6 @@ _PRE_TRIM_MIN_CHARS = 200
 _PROTECTED_RECENT_TOOL_RESULTS = 5
 _OUTPUT_RESERVE_RATIO = 0.05
 _MAX_OUTPUT_RESERVE_TOKENS = 4096
-_SUMMARY_REBASE_INTERVAL = 8
 
 
 class ScrollContextManager:
@@ -124,7 +123,6 @@ class ScrollContextManager:
         self._index = EvictionIndex(session_id=session_id, agent_id=agent_id)
         self._continuation_summary: ContinuationSummary | None = None
         self._summary_update_failed = False
-        self._summary_update_count = 0
         # What the most recent compress() actually did — /compact reads this
         # to report honestly (an in-place fold changes no message count, so
         # the reply can't infer it from a before/after len()). Transient, not
@@ -776,51 +774,6 @@ class ScrollContextManager:
             for index, (order, text) in enumerate(records)
         ]
 
-    def _summary_rebase_context(
-        self,
-        summary: ContinuationSummary,
-        *,
-        max_chars: int,
-    ) -> str:
-        """Read bounded durable evidence cited by the current summary."""
-        rows = self._history.read_summary_evidence(summary.seq_spans())
-        chunks: list[str] = []
-        for row in rows:
-            pointer = f"[seq:{row['seq']}]"
-            kind = str(row.get("kind") or "unknown")
-            chunks.append(
-                f"{pointer} role={row.get('role')!r} kind={kind!r} "
-                f"name={row.get('name')!r}",
-            )
-            preview_limit = 600 if kind == "tool_result" else 2000
-            preview = self._bounded_summary_text(
-                row.get("content"),
-                preview_limit,
-            )
-            if preview:
-                chunks.append(f"  text={preview!r}")
-            headline = self._bounded_summary_text(row.get("headline"), 2000)
-            if headline:
-                chunks.append(f"  headline={headline!r}")
-            if row.get("tool_call_id"):
-                chunks.append(
-                    f"  tool_call_id={row['tool_call_id']!r} "
-                    f"state={row.get('tool_state')!r}",
-                )
-            metadata = row.get("metadata")
-            if isinstance(metadata, str) and metadata:
-                try:
-                    metadata = json.loads(metadata)
-                except (TypeError, ValueError):
-                    metadata = {}
-            pointers = self._summary_metadata_pointers(metadata)
-            if pointers:
-                chunks.append(f"  recovery={' '.join(pointers)}")
-        rendered = "\n".join(chunks)
-        if len(rendered) <= max_chars:
-            return rendered
-        return self._bounded_summary_text(rendered, max_chars)
-
     @staticmethod
     def _response_text(response: Any) -> str:
         parts: list[str] = []
@@ -901,57 +854,24 @@ class ScrollContextManager:
         )
         output_tokens = max(256, min(4000, context_size // 4))
         input_chars = max(4000, min(80_000, context_size * 2))
-        rebase_due = bool(
-            previous is not None
-            and (self._summary_update_count + 1) % _SUMMARY_REBASE_INTERVAL
-            == 0,
-        )
-        previous_spans = previous.seq_spans() if previous is not None else ()
-        # A rebase must not pretend that a head/tail sample proves hundreds of
-        # omitted rows. Defer it until the cited evidence is small enough to
-        # read faithfully within the bounded summary input.
-        source_backed_rebase = bool(
-            rebase_due
-            and previous_spans
-            and sum(hi - lo + 1 for lo, hi in previous_spans) <= 20,
-        )
         new_context = self._summary_archived_context(
             middle,
-            max_chars=(
-                input_chars // 2 if source_backed_rebase else input_chars
-            ),
+            max_chars=input_chars,
         )
-        if source_backed_rebase and previous is not None:
-            durable_context = self._summary_rebase_context(
-                previous,
-                max_chars=input_chars // 2,
-            )
-            archived_context = (
-                "Durable evidence cited by the previous summary:\n"
-                f"{durable_context}\n\nNewly archived context:\n{new_context}"
-            )
-            self.last_compress["summary_rebased"] = 1
-        else:
-            archived_context = new_context
-
-        evidence_text = archived_context
-        if not source_backed_rebase and previous is not None:
+        evidence_text = new_context
+        if previous is not None:
             evidence_text = previous.render() + "\n" + evidence_text
         repair_issues: tuple[str, ...] = ()
         updated: ContinuationSummary | None = None
         failure: Exception | None = None
         for attempt in range(2):
             summary_mode: SummaryMode = (
-                "rebase"
-                if source_backed_rebase
-                else "update"
-                if previous is not None
-                else "initial"
+                "update" if previous is not None else "initial"
             )
             prompt = build_update_prompt(
                 mode=summary_mode,
                 previous=previous,
-                archived_context=archived_context,
+                archived_context=new_context,
                 covered_seq=covered,
                 repair_issues=repair_issues,
             )
@@ -1009,7 +929,6 @@ class ScrollContextManager:
             return
         self._continuation_summary = updated
         self._summary_update_failed = False
-        self._summary_update_count += 1
 
     async def _live_tokens(self, agent: Any) -> int:
         """Token count of the live context as the model would receive it."""
@@ -1575,7 +1494,6 @@ class ScrollContextManager:
                 else None
             ),
             "summary_update_failed": self._summary_update_failed,
-            "summary_update_count": self._summary_update_count,
         }
 
     def load_state(self, data: Any) -> None:
@@ -1610,13 +1528,6 @@ class ScrollContextManager:
         self._summary_update_failed = bool(
             data.get("summary_update_failed", False),
         )
-        try:
-            self._summary_update_count = max(
-                0,
-                int(data.get("summary_update_count", 0) or 0),
-            )
-        except (TypeError, ValueError):
-            self._summary_update_count = 0
 
     def purge_old(self, retention_days: int, *, dry_run: bool = False) -> int:
         """Drop durable history older than ``retention_days`` (0 = keep

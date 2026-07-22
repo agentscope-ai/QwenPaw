@@ -138,7 +138,7 @@ def test_legacy_checkpoint_evidence_is_ignored_on_load():
 
 def test_prompt_and_redaction_encode_quality_constraints():
     prompt = build_update_prompt(
-        mode="rebase",
+        mode="update",
         previous=None,
         archived_context="[seq:1] token=secret-value-123",
         covered_seq=(1, 1),
@@ -150,7 +150,9 @@ def test_prompt_and_redaction_encode_quality_constraints():
     assert "Never copy credentials" in prompt
     assert "Do not write [seq:...]" in prompt
     assert "invalid status" in prompt
-    assert "candidate, not as authoritative evidence" in prompt
+    assert "previous summary as the baseline" in prompt
+    assert "Replace an unsupported identifier with the exact value" in prompt
+    assert "remove only the unsupported claim" in prompt
     assert "secret-value-123" not in redact_secrets(
         "token=secret-value-123",
     )
@@ -169,17 +171,11 @@ def test_prompt_modes_share_one_output_protocol():
         archived_context="[seq:1] task state",
         covered_seq=(1, 1),
     )
-    rebase = build_update_prompt(
-        mode="rebase",
-        previous=None,
-        archived_context="[seq:1] task state",
-        covered_seq=(1, 1),
-    )
-
     assert "Create the first continuation summary" in initial
     assert "Update the previous continuation summary" in update
-    assert "Rebuild the continuation summary" in rebase
-    for prompt in (initial, update, rebase):
+    assert "previous summary as the baseline" in update
+    assert "prefer the newer state" in update
+    for prompt in (initial, update):
         assert "## Open Work" in prompt
         assert "## Evidence" not in prompt
 
@@ -279,9 +275,9 @@ Status: in_progress
     assert "[artifact:" not in summary.render()
 
 
-def test_identifier_validation_normalizes_numeric_units():
-    assert "5000" in extract_identifiers("timeout defaults to 5000")
-    assert "5000" in extract_identifiers("timeout is 5000ms")
+def test_identifier_validation_ignores_ordinary_numbers():
+    assert "5000" not in extract_identifiers("timeout defaults to 5000")
+    assert "5000" not in extract_identifiers("timeout is 5000ms")
     assert "src/qwenpaw/models" not in extract_identifiers(
         "code under src/qwenpaw/models",
     )
@@ -315,3 +311,35 @@ Status: in_progress
     )
 
     assert not any("identifiers not present" in issue for issue in issues)
+
+
+def test_identifier_validation_still_rejects_invented_opaque_values():
+    summary = parse_plain_markdown(
+        """## Active Task
+Fix request #999.
+Status: in_progress
+
+## Current State
+- The provider returns HTTP 403.
+
+## Constraints
+(none)
+
+## Decisions
+(none)
+
+## Open Work
+(none)
+""",
+        covered_seq=(1, 1),
+    )
+    assert summary is not None
+
+    issues = validate_summary_quality(
+        summary,
+        evidence_text="[seq:1] Fix request #123 after HTTP 403.",
+        existing_seqs={1},
+    )
+
+    assert any("#999" in issue for issue in issues)
+    assert not any("403" in issue for issue in issues)
