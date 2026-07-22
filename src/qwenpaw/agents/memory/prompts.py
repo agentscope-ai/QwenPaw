@@ -13,6 +13,7 @@ MEMORY_GUIDANCE_ZH_TEMPLATE = """\
 - **MEMORY.md** — 长期记忆：持久的事实、偏好与决策。这是你精选、提炼的记忆（不是原始日志）；后台有一个定期运行的总结进程（dream），会自动把每日笔记里值得长期保留的内容整理进来。
 - **每日笔记**（`{daily_dir}/YYYY-MM-DD.md`）— 运行中的上下文与观察；这是轻量的短期记录，也是上述总结进程的来源。
 - **重要：** 避免覆盖 — 先 `read_file`，再用 `write_file` / `edit_file`。除非用户明确要求，否则不要记录敏感信息。
+- **编辑失败时：** `edit_file` 只在已知精确原文时使用。如果替换失败，不要对同一个 replacement 重试；重新 `read_file`，再用合并后的完整内容调用 `write_file`。
 
 因此你通常不必手动维护 MEMORY.md。只有当用户明确要求你记住某事，或形成了值得长期保留的决策或偏好时，才直接编辑它。
 
@@ -30,6 +31,7 @@ Each session is fresh; the working-directory files are your memory continuity.
 - **MEMORY.md** — long-term memory: durable facts, preferences, and decisions. Your curated, distilled memory (not a raw log); a background summarization job (the periodic "dream" process) automatically consolidates worthwhile daily-note content into it.
 - **Daily notes** (`{daily_dir}/YYYY-MM-DD.md`) — running context and observations; the lightweight short-term log that the summarization job draws from.
 - **Important:** Avoid overwriting — `read_file` first, then `write_file` / `edit_file`. Unless the user explicitly asks, do not record sensitive information.
+- **When an edit fails:** Use `edit_file` only when you know the exact existing text. If a replacement fails, do not retry the same replacement. Instead, read the file again and use `write_file` with the merged full content.
 
 So you usually don't need to maintain MEMORY.md by hand. Edit it directly only when the user explicitly asks you to remember something, or a decision or preference worth keeping long-term is settled.
 
