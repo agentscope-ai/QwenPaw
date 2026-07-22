@@ -11,13 +11,22 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 SCRIPT = (
     Path(__file__).resolve().parents[3] / "deploy" / "sync-bundled-plugins.sh"
+)
+
+# The script only ever runs inside the Linux image; Windows runners have no
+# dependable POSIX shell (nor cp -a / date).
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("sh") is None,
+    reason="requires a POSIX shell",
 )
 
 
