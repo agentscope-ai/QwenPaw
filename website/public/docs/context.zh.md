@@ -55,7 +55,7 @@ flowchart LR
 - **跨会话历史**：历史行包含 `session_id` 和 `agent_id`，默认可检索当前 Agent 的所有历史会话；显式放宽时也能查询同一工作区内其他 Agent 的历史。
 - **安全降级**：如果 scroll 无法构建，或 recall 工具无法安全运行，QwenPaw 会退回 native 上下文管理，避免把历史驱逐到无法读取的位置。
 
-索引层级只会在达到 10 个 block 的容量时向上归并；压力不会提前压实索引。达到自动压缩触发线（默认 80%）时，Scroll 会批量折叠所有超过 200 字符的已完成轮次工具结果，但完整保护活动轮次和全局最新 5 个工具结果。整批替换后只重新统计一次；如果已不高于触发线，则直接停止、不驱逐对话，否则继续正常驱逐。重建后，只有上下文仍高于 `max(trigger, reserve)` 时才启用已完成结果折叠作为最终泄压阀；如果输入仍高于有效硬上限，则批量折叠已确认读取的早期活动轮次结果并再统计一次。显式 `/compact` 会跳过预裁剪，执行用户要求的驱逐。
+索引层级只会在达到 10 个 block 的容量时向上归并；压力不会提前压实索引。只有输入**严格超过**自动压缩触发线（默认 80%）时，Scroll 才会批量折叠所有超过 200 字符的已完成轮次工具结果；恰好位于或低于触发线时直接停止，不折叠工具结果，也不驱逐对话。预裁剪会完整保护活动轮次和全局最新 5 个工具结果。整批替换后只重新统计一次；如果已不高于触发线，则停止，否则继续正常驱逐。重建后，只有上下文仍高于 `max(trigger, reserve)` 时才启用已完成结果折叠作为最终泄压阀；如果输入仍高于有效硬上限，则批量折叠已确认读取的早期活动轮次结果并再统计一次。显式 `/compact` 会跳过预裁剪，执行用户要求的驱逐。
 
 ## 存储布局
 
@@ -101,12 +101,13 @@ flowchart LR
 Headline 用来标记单个里程碑；continuation summary 则跨多个已驱逐轮次维护“当前仍有效”的任务状态。它只在真正发生对话驱逐时更新，固定包含 `Active Task`、`Current State`、`Constraints`、`Decisions` 和 `Open Work` 五段；checkpoint 与恢复锚点继续由 eviction index 负责。
 
 - **普通文本生成**：模型通过关闭 thinking 的正常 chat completion 返回 Markdown；Scroll 不调用 `generate_structured_output`、JSON mode 或 response schema。
-- **本地解析、确定性渲染**：代码把 Markdown 解析成 JSON-safe 内部状态，再自行渲染六个 section。模型不生成内联来源链接；代码维护一个可信的已归档 seq 范围，并在背景 banner 中单独说明。
+- **本地解析、确定性渲染**：代码把 Markdown 解析成 JSON-safe 内部状态，再自行渲染五个 section。模型不生成内联来源链接；代码维护一个可信的已归档 seq 范围，并在背景 banner 中单独说明。
 - **单一背景 envelope**：continuation summary 与 eviction index 同时存在时，Scroll 会把两者放在同一个 `<system-info>` 块中，不输出首尾相接的两组 wrapper。
 - **按角色分配的有界证据**：优先为已驱逐的 user 原文和 headline 分配预算，避免独立约束与事实被工具密集的中间轮遮住。消息时间会随证据提供：带时区的值统一转换为 UTC，缺少时区的本地墙钟时间明确标为 `timezone=unspecified`；排序和取回仍以 `seq` 为准。剩余空间由 assistant/tool-call 上下文与有界 tool-result preview 共享，完整结果仍通过真实 `seq`、`tool_call_id`、artifact、file 指针持久可取回。
-- **两种显式 summary 模式**：`initial` 建立第一份状态；之后每次驱逐都使用 `update`，把上一份 summary 作为 baseline，保留仍然有效的条目，并与新驱逐区段进行状态协调。两种模式共用同一套五段 Markdown 协议。
+- **两种显式 summary 模式**：`initial` 建立第一份状态；只要上一份 summary 的持久化来源仍然有效，之后的驱逐就使用 `update`，把它作为 baseline，与新驱逐区段协调。两种模式共用同一套五段 Markdown 协议。
 - **确定性质量检查**：代码检查 section 顺序与 status、确认代码维护的 seq 范围真实存在，并拒绝完全重复的状态条目、凭空出现的 opaque identifier、疑似 secret 和超长输出；检查刻意避免容易误拒的语义推断，也不使用单独的 LLM judge。
-- **一次条件重试**：不合格输出会携带简短校验错误再生成一次；第二次仍失败时保留上一份 summary 并标记 stale，空结果绝不覆盖有效状态。
+- **有界生成与一次条件重试**：首次输出不合格时，会携带简短校验错误再生成一次；生成和 repair 共享 60 秒总预算，而不是每次各等待 60 秒。超时不会触发第二次调用。超时或第二次校验仍失败时，保留来源仍有效的上一份 summary 并标记 stale；空结果绝不覆盖有效状态。
+- **遵循历史保留期**：每次更新前都会检查上一份 summary 的 `covered_seq` 端点。若 retention 已删除任一端点，该 summary 就不再被视为 source-backed，也不会被错误映射到新的 seq 范围；Scroll 会丢弃失效状态，并从本次新持久化的 evidence 重新执行 `initial`，避免更新永久卡在 stale 状态。
 - **Secret-safe preview**：有界证据送入 summary 模型前会移除疑似 credential value；summary 只保留非敏感状态和持久指针。
 - **只作背景**：注入前缀明确说明 summary 不是活动指令，当前 live user request 始终优先。
 
@@ -258,6 +259,8 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 相关配置位于 `running.light_context_config`：
 
+控制台“工作区 → 运行配置 → ReAct 智能体”只显示长期记忆管理后端，不再显示上下文管理后端或上下文策略选择器。这样可以避免在普通运行设置中切换底层 context 协议。需要在 Scroll 与 Native 之间切换时，请编辑 Agent 的 `running.light_context_config.strategy`，保存后重启 QwenPaw；控制台中的“上下文管理”页签仍会展示当前策略对应的详细参数。
+
 ```json
 {
   "running": {
@@ -334,4 +337,4 @@ Context compressed.
 
 native 模式不会接入 `ScrollContextManager` 或 `recall_history_python`。它会使用 AgentScope 的上下文压缩，并继续映射 `compact_threshold_ratio` 和 `reserve_threshold_ratio`。
 
-> **提示：** 通常通过控制台（工作区 → 运行配置）管理上下文配置，无需手动编辑 `agent.json`。
+> **提示：** 控制台不再提供上下文策略选择器。切换到 Native 或切回 Scroll 需要编辑 Agent 配置中的 `running.light_context_config.strategy`，并重启 QwenPaw。

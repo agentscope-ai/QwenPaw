@@ -55,7 +55,7 @@ Key properties:
 - **Cross-session memory**: history rows include `session_id` and `agent_id`, so recall can search this agent's past sessions and, when explicitly widened, other agents in the same workspace.
 - **Fallback-safe**: if scroll cannot be wired or its recall tools cannot run safely, QwenPaw falls back to native context management instead of evicting history that cannot be recalled.
 
-Index tiers roll up only when they reach their 10-block capacity; pressure does not compact the index early. At the automatic trigger (80% by default), Scroll batch-folds every completed-turn tool result over 200 characters except those in the active turn and the five newest results globally. It then recounts once. If the context is now at or below the trigger, it stops without evicting dialogue; otherwise it proceeds with normal eviction. After rebuilding, completed-result folding remains the final pressure valve above `max(trigger, reserve)`. If the input still exceeds the effective hard limit, Scroll batch-folds acknowledged old active-turn results and recounts once. Explicit `/compact` skips the pre-trim stage and performs the requested eviction.
+Index tiers roll up only when they reach their 10-block capacity; pressure does not compact the index early. Scroll enters pre-trimming only when input is **strictly above** the automatic trigger (80% by default); input exactly at or below the trigger stops without folding tool results or evicting dialogue. Above the trigger, Scroll batch-folds every completed-turn tool result over 200 characters except those in the active turn and the five newest results globally, then recounts once. If the context is now at or below the trigger, it stops; otherwise it proceeds with normal eviction. After rebuilding, completed-result folding remains the final pressure valve above `max(trigger, reserve)`. If the input still exceeds the effective hard limit, Scroll batch-folds acknowledged old active-turn results and recounts once. Explicit `/compact` skips the pre-trim stage and performs the requested eviction.
 
 ## Storage Layout
 
@@ -101,12 +101,13 @@ During normal replies, every substantive task turn appends one hidden retrieval 
 Headlines label individual milestones; the continuation summary maintains the latest effective task state across many evicted turns. It is updated only when dialogue is actually evicted and contains five fixed sections: `Active Task`, `Current State`, `Constraints`, `Decisions`, and `Open Work`. Checkpoints and recovery anchors remain the eviction index's responsibility.
 
 - **Plain text generation**: the model is called normally with thinking disabled and asked for Markdown. Scroll never invokes `generate_structured_output`, JSON mode, or a response schema for this update.
-- **Local parsing and deterministic rendering**: code parses the Markdown into JSON-safe internal state and renders the six sections itself. The model does not generate inline source links; code tracks one trusted archived seq range and states it separately in the background banner.
+- **Local parsing and deterministic rendering**: code parses the Markdown into JSON-safe internal state and renders the five sections itself. The model does not generate inline source links; code tracks one trusted archived seq range and states it separately in the background banner.
 - **Single background envelope**: when both the continuation summary and eviction index are present, Scroll places them in one shared `<system-info>` block rather than emitting adjacent wrappers.
 - **Role-aware bounded evidence**: evicted user text and headlines are budgeted first, so independent constraints and facts are not hidden by tool-heavy middle turns. Message times accompany this evidence: timezone-aware values are normalized to UTC, while naive local wall-clock values are explicitly marked `timezone=unspecified`; `seq` remains authoritative for ordering and recall. Remaining space is shared between assistant/tool-call context and bounded tool-result previews; complete results stay durable behind real `seq`, `tool_call_id`, artifact, and file pointers.
-- **Two explicit summary modes**: `initial` creates the first state; every later eviction uses `update`, which treats the previous summary as a baseline, preserves still-relevant items, and reconciles it with the newly evicted span. Both modes use the same five-section Markdown protocol.
+- **Two explicit summary modes**: `initial` creates the first state. Later evictions use `update` while the previous summary's durable sources remain valid, treating it as a baseline and reconciling it with the newly evicted span. Both modes use the same five-section Markdown protocol.
 - **Deterministic quality guard**: code validates the exact section order and status, checks that the code-managed seq range exists, rejects exact duplicate state items, invented opaque identifiers, and likely secrets, and enforces the output limit. The checks deliberately avoid semantic guesses that would cause false rejection, and do not use a separate LLM judge.
-- **One conditional retry**: invalid output is regenerated once with concise validation feedback. A second failure retains the previous summary and marks it stale; an empty result never overwrites valid state.
+- **Bounded generation with one conditional retry**: invalid first output is regenerated once with concise validation feedback. Generation and repair share one 60-second total budget rather than receiving 60 seconds each, and a timeout does not start a second call. A timeout or second validation failure retains a still-source-backed previous summary and marks it stale; an empty result never overwrites valid state.
+- **Retention-aware rebuilding**: before each update, Scroll verifies the previous summary's `covered_seq` endpoints. If retention has purged either endpoint, that summary is no longer source-backed and is never reassigned to a newer seq range. Scroll discards it and runs `initial` from the newly persisted evidence, preventing all future updates from remaining permanently stale.
 - **Secret-safe previews**: likely credential values are removed from bounded evidence before the summary model sees it; summaries keep only non-sensitive state and durable pointers.
 - **Background-only semantics**: the injected prefix says the summary is background, not an active instruction, and that the current live user request always has priority.
 
@@ -259,6 +260,8 @@ Conversations that predate scroll — or any chats already stored as `sessions/*
 
 Relevant configuration is under `running.light_context_config`:
 
+The Console's **Workspace → Running Config → ReAct Agent** section now exposes only the long-term memory backend; it no longer shows context-manager-backend or context-strategy selectors. This avoids switching the underlying context protocol from general runtime settings. To switch between Scroll and Native, edit the agent's `running.light_context_config.strategy`, save it, and restart QwenPaw. The Console's **Context Management** tab still shows detailed settings for the active strategy.
+
 ```json
 {
   "running": {
@@ -335,4 +338,4 @@ Set this when you want AgentScope's built-in behavior instead of scroll:
 
 Native mode does not wire `ScrollContextManager` or `recall_history_python`. It uses AgentScope context compression with the same `compact_threshold_ratio` and `reserve_threshold_ratio` mapping.
 
-> **Tip:** Context configuration is typically managed through the Console (**Workspace → Running Config**) without manually editing `agent.json`.
+> **Tip:** The Console no longer exposes a context-strategy selector. Switching to Native or back to Scroll requires editing `running.light_context_config.strategy` in the agent configuration and restarting QwenPaw.
