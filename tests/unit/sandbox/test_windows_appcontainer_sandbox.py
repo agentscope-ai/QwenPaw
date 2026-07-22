@@ -504,7 +504,7 @@ class TestSandboxReuse:
             )
 
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._get_appcontainer_sid"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._get_appcontainer_sid",
     )
     @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_userenv")
     def test_find_reusable_container_exists(
@@ -658,7 +658,7 @@ class TestAppContainerProfileLifecycle:
         mock_sid_to_str.assert_called_once()
 
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._get_appcontainer_sid"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._get_appcontainer_sid",
     )
     @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_advapi32")
     @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_userenv")
@@ -689,7 +689,7 @@ class TestAppContainerProfileLifecycle:
         mock_get_sid.assert_called_once_with("qwenpaw_existing")
 
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._get_appcontainer_sid"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._get_appcontainer_sid",
     )
     @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_advapi32")
     @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_userenv")
@@ -803,10 +803,11 @@ class TestWindowsSandboxExecute:
         return sandbox
 
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process",
     )
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._create_process_in_appcontainer"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox"
+        "._create_process_in_appcontainer",
     )
     def test_execute_success(self, mock_create, mock_wait):
         """Successful command returns exit_code=0, no violation."""
@@ -831,10 +832,11 @@ class TestWindowsSandboxExecute:
         assert result.timed_out is False
 
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process",
     )
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._create_process_in_appcontainer"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox"
+        "._create_process_in_appcontainer",
     )
     def test_execute_violation_detected(self, mock_create, mock_wait):
         """Access denied in stderr → sandbox_violation is populated."""
@@ -858,10 +860,11 @@ class TestWindowsSandboxExecute:
         assert "Access is denied" in result.sandbox_violation
 
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process",
     )
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._create_process_in_appcontainer"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox"
+        "._create_process_in_appcontainer",
     )
     def test_execute_timeout(self, mock_create, mock_wait):
         """Process exceeds timeout → timed_out=True."""
@@ -883,10 +886,11 @@ class TestWindowsSandboxExecute:
         assert result.timed_out is True
 
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process",
     )
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._create_process_in_appcontainer"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox"
+        "._create_process_in_appcontainer",
     )
     def test_execute_oserror(self, mock_create, mock_wait):
         """CreateProcessW failure → exit_code=-1, error in stderr."""
@@ -899,10 +903,11 @@ class TestWindowsSandboxExecute:
         assert "CreateProcessW failed" in result.stderr
 
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process",
     )
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._create_process_in_appcontainer"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox"
+        "._create_process_in_appcontainer",
     )
     def test_execute_violation_in_stdout_on_failure(
         self,
@@ -929,10 +934,11 @@ class TestWindowsSandboxExecute:
         assert "error 5" in result.sandbox_violation
 
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process",
     )
     @patch(
-        "qwenpaw.sandbox.windows_appcontainer_sandbox._create_process_in_appcontainer"
+        "qwenpaw.sandbox.windows_appcontainer_sandbox"
+        "._create_process_in_appcontainer",
     )
     def test_execute_chinese_violation(self, mock_create, mock_wait):
         """Chinese locale violation patterns are detected."""
@@ -960,10 +966,10 @@ class TestWindowsSandboxExecute:
 
 
 class TestWindowsSandboxRejectsAllowReadAll:
-    """Test that WindowsAppContainerSandbox refuses allow_read_all=True configs."""
+    """Test that AppContainerSandbox refuses allow_read_all=True."""
 
     def test_raises_value_error(self):
-        """WindowsAppContainerSandbox.__init__ raises ValueError if allow_read_all=True."""
+        """__init__ raises ValueError if allow_read_all=True."""
         config = SandboxConfig(
             mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\project",
@@ -973,7 +979,7 @@ class TestWindowsSandboxRejectsAllowReadAll:
             WindowsAppContainerSandbox(config)
 
     def test_accepts_allow_read_all_false(self):
-        """WindowsAppContainerSandbox.__init__ succeeds with allow_read_all=False."""
+        """__init__ succeeds with allow_read_all=False."""
         config = SandboxConfig(
             mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\project",

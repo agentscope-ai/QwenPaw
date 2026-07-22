@@ -2,33 +2,34 @@
 """Sandbox — lightweight local execution isolation.
 
 Supported modes:
-  - SEATBELT:      macOS sandbox-exec kernel isolation
-  - BUBBLEWRAP:    Linux bubblewrap mount-namespace isolation (preferred)
-  - LANDLOCK:      Linux Landlock LSM kernel isolation (5.13+, fallback)
-  - WINDOWS:      Windows native isolation (Windows 10+). Dispatches on
-    allow_read_all and admin privilege:
-    allow_read_all=False → WindowsAppContainerSandbox (AppContainer)
-    allow_read_all=True + admin → WindowsElevatedSandbox (WRITE_RESTRICTED
-        token with dedicated user)
-    allow_read_all=True + no admin → WindowsUnelevatedSandbox
-        (WRITE_RESTRICTED token, no admin required)
-  - NONE:          no isolation, direct execution
+  - SEATBELT:      macOS sandbox-exec kernel isolation.
+  - BUBBLEWRAP:    Linux bubblewrap mount-namespace isolation (preferred).
+  - LANDLOCK:      Linux Landlock LSM kernel isolation (5.13+, fallback).
+  - WINDOWS:       Windows native isolation (Windows 10+). Dispatches on
+    ``allow_read_all`` and admin privilege:
+
+    - ``allow_read_all=False`` →
+      ``WindowsAppContainerSandbox`` (AppContainer).
+    - ``allow_read_all=True`` + admin →
+      ``WindowsElevatedSandbox`` (WRITE_RESTRICTED + dedicated user).
+    - ``allow_read_all=True`` + no admin →
+      ``WindowsUnelevatedSandbox`` (WRITE_RESTRICTED, no admin).
+  - NONE:          no isolation, direct execution.
 
 Lifecycle: per-tool-call (created and destroyed for each invocation).
 
-Usage:
-    from qwenpaw.sandbox import (
-        create_sandbox, SandboxConfig, SandboxMode, MountSpec,
-    )
+Example:
+    ::
 
-    config = SandboxConfig(
-        mode=SandboxMode.SEATBELT,
-        workspace_dir="/path/to/project",
-        mounts=[MountSpec(path="/path/to/project", writable=True)],
-    )
-    async with create_sandbox(config) as sandbox:
-        result = await sandbox.execute("echo hello")
-        print(result.stdout)
+        from qwenpaw.sandbox import create_sandbox, SandboxConfig, SandboxMode
+
+        config = SandboxConfig(
+            mode=SandboxMode.SEATBELT,
+            workspace_dir="/path/to/project",
+        )
+        async with create_sandbox(config) as sandbox:
+            result = await sandbox.execute("echo hello")
+            print(result.stdout)
 """
 
 from .bubblewrap_sandbox import BubblewrapSandbox
@@ -91,8 +92,8 @@ __all__ = [
 def shutdown_all_sandboxes() -> None:
     """Destroys all Windows sandbox artifacts on application exit.
 
-    Calls all sandbox backend cleanups. Safe to call on non-Windows
-    platforms (no-op). Safe to call multiple times.
+    Calls cleanup for all three Windows sandbox backends. Safe to call
+    on non-Windows platforms (no-op) and safe to call multiple times.
     """
     import sys
 

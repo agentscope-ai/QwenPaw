@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
-"""Windows AppContainer sandbox implementation (allow_read_all=False).
+"""Windows AppContainer sandbox implementation.
 
-Uses Windows AppContainer (SID S-1-15-2-*) for native process isolation.
-Only paths declared in mounts (plus the workspace) are readable. When
-allow_read_all is True, WindowsElevatedSandbox is used instead.
+Uses the Windows AppContainer isolation mechanism (SID ``S-1-15-2-*``)
+for native process isolation. Only paths with explicit ACEs for the
+container SID are accessible — all other filesystem access is denied.
 
-Requires Windows 10 1507+ (build 10240), icacls.exe, and Python ctypes.
+Selected when ``allow_read_all=False``. When ``allow_read_all=True``,
+``WindowsElevatedSandbox`` or ``WindowsUnelevatedSandbox`` is used
+instead.
+
+Requires Windows 10 1507+ (build 10240) and Python ctypes.
 """
 
 import asyncio
@@ -16,7 +20,6 @@ import hashlib
 import json
 import logging
 import os
-import subprocess
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -28,7 +31,6 @@ from .windows_unelevated_sandbox import (
     _STARTUPINFOW,
     _WC,
     WindowsSandboxBase,
-    _build_explicit_access,
     _build_shell_command_line,
     _create_stdio_pipes,
     _decode_pipe_output,
@@ -108,7 +110,22 @@ def _create_appcontainer_profile(
     display_name: str,
     description: str,
 ) -> str:
-    """Creates an AppContainer profile and returns its SID string."""
+    """Creates an AppContainer profile and returns its SID string.
+
+    If a profile with the same name already exists, its SID is derived
+    and returned without error.
+
+    Args:
+        container_name: Unique name for the container profile.
+        display_name: Human-readable display name.
+        description: Profile description.
+
+    Returns:
+        SID string for the created or existing profile.
+
+    Raises:
+        OSError: If profile creation fails with an unexpected HRESULT.
+    """
     userenv = _get_userenv()
     advapi32 = _get_advapi32()
 
@@ -144,7 +161,14 @@ def _create_appcontainer_profile(
 
 
 def _delete_appcontainer_profile(container_name: str) -> bool:
-    """Deletes an AppContainer profile by name."""
+    """Deletes an AppContainer profile by name.
+
+    Args:
+        container_name: Profile name to delete.
+
+    Returns:
+        True if deletion succeeded.
+    """
     try:
         userenv = _get_userenv()
         hr = userenv.DeleteAppContainerProfile(
@@ -156,7 +180,14 @@ def _delete_appcontainer_profile(container_name: str) -> bool:
 
 
 def _get_appcontainer_sid(container_name: str) -> Optional[str]:
-    """Derives the SID string for an existing AppContainer profile."""
+    """Derives the SID string for an existing AppContainer profile.
+
+    Args:
+        container_name: Profile name.
+
+    Returns:
+        SID string, or None if the profile does not exist.
+    """
     try:
         userenv = _get_userenv()
         advapi32 = _get_advapi32()
@@ -197,8 +228,15 @@ _ACL_DENY_ALL = _ACL_FULL_ACCESS | _WC.GENERIC_ALL
 def _apply_all_acls(config: SandboxConfig, sid: str) -> Dict[str, Any]:
     """Applies all filesystem ACLs for an AppContainer profile.
 
-    Uses Win32 API (SetEntriesInAclW / SetNamedSecurityInfoW) to set
-    inheritable ACEs on workspace, mounts, and Python install directory.
+    Sets inheritable ACEs via Win32 API on workspace, mounts, Python
+    install directory, and deny paths.
+
+    Args:
+        config: Sandbox configuration.
+        sid: AppContainer SID string.
+
+    Returns:
+        Manifest dict with ``"grant_paths"`` and ``"deny_paths"`` lists.
     """
     kernel32 = _get_kernel32()
     psid = _string_to_sid(sid)
@@ -266,14 +304,22 @@ def _apply_all_acls(config: SandboxConfig, sid: str) -> Dict[str, Any]:
 def _compute_network_capabilities(
     config: SandboxConfig,
 ) -> List[str]:
-    """Determines AppContainer network capabilities from sandbox config."""
+    """Determines AppContainer network capabilities from sandbox config.
+
+    Args:
+        config: Sandbox configuration.
+
+    Returns:
+        List of capability names to grant (empty if network is blocked).
+    """
     if not config.network_allow:
         return []
 
     if "*" not in config.network_allow:
         logger.warning(
-            "WindowsAppContainerSandbox: domain-level network filtering not supported "
-            "by AppContainer. Allowing all network access.",
+            "WindowsAppContainerSandbox: domain-level network"
+            " filtering not supported by AppContainer."
+            " Allowing all network access.",
         )
 
     return [
@@ -314,7 +360,20 @@ def _setup_security_capabilities(
     container_sid: str,
     capabilities: List[str],
 ) -> Tuple[ctypes.c_void_p, List[ctypes.c_void_p], Any, Any]:
-    """Builds SECURITY_CAPABILITIES and proc thread attribute list."""
+    """Builds SECURITY_CAPABILITIES and a proc-thread attribute list.
+
+    Args:
+        kernel32: Loaded kernel32 DLL handle.
+        container_sid: AppContainer SID string.
+        capabilities: Network capability names to include.
+
+    Returns:
+        Tuple of ``(app_container_psid, cap_psids, sec_cap,
+        attr_list)``. All PSIDs must be freed by the caller.
+
+    Raises:
+        OSError: If attribute list initialization or update fails.
+    """
     app_container_psid = _string_to_sid(container_sid)
 
     cap_sids = []
@@ -388,7 +447,22 @@ def _create_process_in_appcontainer(
     ctypes.wintypes.HANDLE,
     ctypes.wintypes.HANDLE,
 ]:
-    """Launches a process inside the AppContainer via ``CreateProcessW``."""
+    """Launches a process inside the AppContainer via ``CreateProcessW``.
+
+    Args:
+        cmd: Command to execute.
+        container_sid: AppContainer SID string.
+        capabilities: Network capability names.
+        cwd: Working directory for the child process.
+        env: Optional environment variables.
+        shell_executable: Shell binary path.
+
+    Returns:
+        Tuple of ``(pid, process_handle, stdout_read, stderr_read)``.
+
+    Raises:
+        OSError: If ``CreateProcessW`` fails.
+    """
     kernel32 = _get_kernel32()
 
     stdout_read, stdout_write, stderr_read, stderr_write = _create_stdio_pipes(
@@ -466,7 +540,20 @@ async def _wait_and_read_process(
     stderr_handle: ctypes.wintypes.HANDLE,
     timeout_seconds: int,
 ) -> Tuple[int, str, str, bool]:
-    """Waits for process completion, reads pipe output, and closes handles."""
+    """Waits for process completion and reads pipe output.
+
+    Drains stdout/stderr in parallel with the process wait. Terminates
+    the process on timeout.
+
+    Args:
+        process_handle: Handle to the child process.
+        stdout_handle: Read end of the stdout pipe.
+        stderr_handle: Read end of the stderr pipe.
+        timeout_seconds: Maximum seconds to wait.
+
+    Returns:
+        Tuple of ``(exit_code, stdout, stderr, timed_out)``.
+    """
     kernel32 = _get_kernel32()
     loop = asyncio.get_event_loop()
 
@@ -512,7 +599,17 @@ async def _wait_and_read_process(
 
 
 def _compute_acl_fingerprint(config: SandboxConfig) -> str:
-    """Computes a deterministic hash of the ACL-relevant configuration."""
+    """Computes a deterministic hash of ACL-relevant configuration.
+
+    Used to derive a stable container name for profile reuse across
+    invocations with identical sandbox constraints.
+
+    Args:
+        config: Sandbox configuration.
+
+    Returns:
+        16-character hex fingerprint string.
+    """
     python_dir = _get_python_install_dir()
     data = {
         "workspace_dir": os.path.normpath(config.workspace_dir),
@@ -534,7 +631,14 @@ def _compute_acl_fingerprint(config: SandboxConfig) -> str:
 def _find_reusable_container(
     container_name: str,
 ) -> Optional[str]:
-    """Checks if an AppContainer profile already exists by name."""
+    """Checks if an AppContainer profile already exists.
+
+    Args:
+        container_name: Profile name to look up.
+
+    Returns:
+        SID string if the profile exists, None otherwise.
+    """
     try:
         userenv = _get_userenv()
         path_ptr = ctypes.c_wchar_p()
@@ -557,7 +661,15 @@ def _save_container_metadata(
     workspace_dir: str,
     acl_manifest: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Persists container metadata for the cleanup script."""
+    """Persists AppContainer metadata for the cleanup script.
+
+    Args:
+        state_dir: Base state directory (``~/.qwenpaw``).
+        container_name: AppContainer profile name.
+        sid: Container SID string.
+        workspace_dir: Workspace directory path.
+        acl_manifest: Optional dict of granted/denied paths.
+    """
     containers_dir = state_dir / "containers"
     containers_dir.mkdir(parents=True, exist_ok=True)
 
@@ -584,15 +696,18 @@ def _save_container_metadata(
 class WindowsAppContainerSandbox(WindowsSandboxBase):
     """Windows AppContainer sandbox providing native process isolation.
 
-    Filesystem access is controlled via Win32 API ACLs on the AppContainer
-    SID. Network access is controlled via AppContainer capabilities
-    (``internetClient``, ``internetClientServer``,
-    ``privateNetworkClientServer``).
+    Filesystem access is controlled via Win32 API ACLs on the
+    AppContainer SID. Network access is controlled via AppContainer
+    capabilities.
+
+    Only used when ``allow_read_all=False``. Raises ``ValueError``
+    if instantiated with ``allow_read_all=True``.
 
     Lifecycle:
-        ``__aenter__``: Creates or reuses an AppContainer profile and sets
-            filesystem ACLs (only on first creation).
-        ``execute``: Launches a command with the AppContainer security token.
+        ``__aenter__``: Creates or reuses an AppContainer profile and
+            applies filesystem ACLs (only on first creation).
+        ``execute``: Launches a command with the AppContainer security
+            token.
         ``__aexit__`` / ``stop``: Terminates any running child process.
             The AppContainer profile is preserved for reuse.
     """
@@ -600,8 +715,10 @@ class WindowsAppContainerSandbox(WindowsSandboxBase):
     def __init__(self, config: SandboxConfig):
         if config.allow_read_all:
             raise ValueError(
-                "WindowsAppContainerSandbox (AppContainer backend) does not support "
-                "allow_read_all=True — it would require granting read access "
+                "WindowsAppContainerSandbox (AppContainer"
+                " backend) does not support"
+                " allow_read_all=True — it would require"
+                " granting read access "
                 "on a large set of system directories. Use "
                 "WindowsElevatedSandbox (the allow_read_all=True backend) "
                 "instead, or let create_sandbox() pick the right backend.",
@@ -771,7 +888,15 @@ _state_dir = (
 
 
 def _cleanup_single_container(meta: dict, meta_file: Path) -> None:
-    """Cleans up a single AppContainer sandbox from its metadata."""
+    """Cleans up a single AppContainer sandbox from its metadata.
+
+    Removes ACLs, deletes the AppContainer profile, and removes the
+    metadata file.
+
+    Args:
+        meta: Container metadata dict.
+        meta_file: Path to the metadata JSON file.
+    """
     container_name = meta.get("container_name", "")
     sid = meta.get("sid", "")
     workspace_dir = meta.get("workspace_dir", "")
@@ -808,7 +933,12 @@ def _cleanup_single_container(meta: dict, meta_file: Path) -> None:
 
 
 def shutdown_cleanup() -> None:
-    """Destroys AppContainer sandboxes owned by this process or orphaned."""
+    """Destroys AppContainer sandboxes owned by this process or orphaned.
+
+    Iterates metadata files under ``~/.qwenpaw/containers/``, skips
+    containers whose owner process is still alive, and cleans up the
+    rest.
+    """
     containers_dir = _state_dir / "containers"
     if not containers_dir.exists() or not list(containers_dir.glob("*.json")):
         return

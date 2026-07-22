@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Windows restricted-token sandbox implementation (allow_read_all=True).
+"""Windows elevated sandbox implementation.
 
-Uses dedicated local user accounts with CreateRestrictedToken in
-WRITE_RESTRICTED mode and WFP firewall rules for native process isolation.
-Only write operations check the restricting SID list; read/execute access
-uses normal DACL evaluation, so no per-directory read ACEs are needed.
+Uses a dedicated local user account with a WRITE_RESTRICTED token and
+WFP firewall rules for process isolation. Read/execute access uses
+normal DACL evaluation (no per-directory read ACEs needed); only write
+operations check the restricting SID list.
+
+Selected when ``allow_read_all=True`` and the process has administrator
+privileges. Without admin, ``WindowsUnelevatedSandbox`` is used instead.
 
 Requires Windows 10 1507+, administrator privileges, and Python ctypes.
 """
@@ -18,6 +21,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 import struct
 import subprocess
 import time
@@ -27,15 +31,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .config import ExecutionResult, SandboxConfig
 from .windows_unelevated_sandbox import (
-    _EXPLICIT_ACCESS_W,
-    _IO_COUNTERS,
-    _JOBOBJECT_BASIC_LIMIT_INFORMATION,
-    _JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     _PROCESS_INFORMATION,
     _SID_AND_ATTRIBUTES,
     _STARTUPINFOW,
-    _TOKEN_DEFAULT_DACL,
-    _TRUSTEE_W,
     _WC,
     WindowsSandboxBase,
     _build_explicit_access,
@@ -428,7 +426,15 @@ def _get_userenv():
 def _lookup_account_sid(
     account_name: str,
 ) -> Optional[Tuple[ctypes.Array, int]]:
-    """Resolves an account name to a SID buffer via LookupAccountNameW."""
+    """Resolves an account name to a SID buffer.
+
+    Args:
+        account_name: Local account or group name.
+
+    Returns:
+        Tuple of ``(sid_buffer, sid_size)``, or None if the account
+        is not found.
+    """
     advapi32 = _get_advapi32()
     sid_size = ctypes.wintypes.DWORD(0)
     domain_size = ctypes.wintypes.DWORD(0)
@@ -464,11 +470,16 @@ def _lookup_account_sid(
 # Sandbox user provisioning
 # ═══════════════════════════════════════════════════════════════════════════
 
-import random
-
 
 def _random_password(length: int = 24) -> str:
-    """Generates a random password for the sandbox user account."""
+    """Generates a random password for sandbox user accounts.
+
+    Args:
+        length: Password length.
+
+    Returns:
+        Random password string.
+    """
     chars = (
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         "0123456789!@#$%^&*()-_=+"
@@ -488,7 +499,17 @@ def _local_free(ptr: int) -> None:
 
 
 def _dpapi_encrypt(plaintext: str) -> str:
-    """Encrypts a string using DPAPI (current user scope)."""
+    """Encrypts a string using DPAPI (current user scope).
+
+    Args:
+        plaintext: String to encrypt.
+
+    Returns:
+        Base64-encoded ciphertext.
+
+    Raises:
+        OSError: If ``CryptProtectData`` fails.
+    """
     data = plaintext.encode("utf-8")
     blob_in = _DATA_BLOB(
         cbData=len(data),
@@ -522,7 +543,17 @@ def _dpapi_encrypt(plaintext: str) -> str:
 
 
 def _dpapi_decrypt(ciphertext_b64: str) -> str:
-    """Decrypts a DPAPI-protected base64-encoded string."""
+    """Decrypts a DPAPI-protected base64-encoded string.
+
+    Args:
+        ciphertext_b64: Base64-encoded DPAPI ciphertext.
+
+    Returns:
+        Decrypted plaintext string.
+
+    Raises:
+        OSError: If ``CryptUnprotectData`` fails.
+    """
     data = base64.b64decode(ciphertext_b64)
     blob_in = _DATA_BLOB(
         cbData=len(data),
@@ -853,13 +884,24 @@ def _create_restricted_token(
     h_base_token: ctypes.wintypes.HANDLE,
     cap_sid_strings: List[str],
 ) -> ctypes.wintypes.HANDLE:
-    """Creates a WRITE_RESTRICTED token with capability SIDs.
+    """Creates a WRITE_RESTRICTED token for the elevated sandbox.
 
-    In WRITE_RESTRICTED mode only WRITE access checks the restricting SID
-    list; read/execute access uses normal DACL evaluation.
+    In WRITE_RESTRICTED mode only write access checks the restricting
+    SID list; read/execute access uses normal DACL evaluation.
 
-    The restricting SID list includes:
-      [capabilities..., user_sid, logon_sid, Everyone]
+    The restricting SID list is:
+    ``[capabilities…, user_sid, logon_sid, Everyone]``.
+
+    Args:
+        h_base_token: Handle to the sandbox user's logon token.
+        cap_sid_strings: Capability SID strings to include in the
+            restricting list.
+
+    Returns:
+        Handle to the new restricted token.
+
+    Raises:
+        OSError: If ``CreateRestrictedToken`` fails.
     """
     advapi32 = _get_advapi32()
     kernel32 = _get_kernel32()
@@ -938,7 +980,14 @@ _privileges_enabled = False
 
 
 def _ensure_privileges() -> None:
-    """Enables all required privileges on the current process token."""
+    """Enables required security privileges on the current process token.
+
+    Privileges enabled: ``SeRestorePrivilege``, ``SeBackupPrivilege``,
+    ``SeTakeOwnershipPrivilege``, ``SeImpersonatePrivilege``,
+    ``SeAssignPrimaryTokenPrivilege``, ``SeIncreaseQuotaPrivilege``.
+
+    Called once and cached; subsequent calls are no-ops.
+    """
     global _privileges_enabled
     if _privileges_enabled:
         return
@@ -979,7 +1028,18 @@ def _set_path_ace(
     access_mask: int,
     access_mode: int,
 ) -> bool:
-    """Sets a single ACE on a filesystem path's DACL."""
+    """Sets a single inheritable ACE on a filesystem path's DACL.
+
+    Args:
+        path: Filesystem path.
+        psid: Pointer to the trustee SID.
+        access_mask: Access rights bitmask.
+        access_mode: ``SET_ACCESS``, ``GRANT_ACCESS``, or
+            ``DENY_ACCESS``.
+
+    Returns:
+        True if the ACE was set successfully.
+    """
     _ensure_privileges()
     advapi32 = _get_advapi32()
     kernel32 = _get_kernel32()
@@ -1136,7 +1196,13 @@ _python_dir_acl_granted: bool = False
 
 
 def _ensure_python_dir_group_acl() -> None:
-    """Grants RX to the QwenpawUsers group on the Python install directory."""
+    """Grants read/execute access to the ``QwenpawUsers`` group.
+
+    Targets the Python install directory.
+
+    This is a one-time operation: a marker file is written after the
+    ACL is set to skip the grant on subsequent calls.
+    """
     global _python_dir_acl_granted
     if _python_dir_acl_granted:
         return
@@ -1217,7 +1283,21 @@ def _apply_all_acls(
     cap_sid_string: str,
     user_sid_string: str,
 ) -> List[_AclEntry]:
-    """Applies filesystem ACLs for WRITE_RESTRICTED mode."""
+    """Applies filesystem ACLs for the elevated sandbox.
+
+    Grants write access to workspace and mounts for both the capability
+    SID and the user SID, denies access to deny_paths for the user SID,
+    and ensures the Python install directory is readable via the
+    ``QwenpawUsers`` group.
+
+    Args:
+        config: Sandbox configuration.
+        cap_sid_string: Capability SID string for the restricting list.
+        user_sid_string: Sandbox user's SID string.
+
+    Returns:
+        List of ``_AclEntry`` records describing the ACLs applied.
+    """
     kernel32 = _get_kernel32()
     psid = _string_to_sid(cap_sid_string)
     entries: List[_AclEntry] = []
@@ -1334,7 +1414,7 @@ def _grant_winsta_desktop_access(user_sid_string: str) -> None:
         kernel32.LocalFree(psid)
 
 
-def _grant_object_access(
+def _grant_object_access(  # pylint: disable=too-many-return-statements
     h_obj: ctypes.wintypes.HANDLE,
     psid: ctypes.c_void_p,
     label: str,
@@ -1485,8 +1565,22 @@ def _create_process_with_token(
 ]:
     """Launches a process with the restricted token.
 
-    Tries ``CreateProcessWithTokenW`` first, falls back to
-    ``CreateProcessAsUserW``.
+    Tries ``CreateProcessWithTokenW`` first and falls back to
+    ``CreateProcessAsUserW`` on failure.
+
+    Args:
+        h_token: Restricted token handle.
+        cmd: Command to execute.
+        cwd: Working directory for the child process.
+        env: Environment variables for the child process.
+        shell_executable: Shell binary path.
+
+    Returns:
+        Tuple of ``(pid, process_handle, stdout_read, stderr_read,
+        job_handle)``.
+
+    Raises:
+        OSError: If both process creation methods fail.
     """
     kernel32 = _get_kernel32()
     advapi32 = _get_advapi32()
@@ -1585,7 +1679,21 @@ async def _wait_and_read_process(
     timeout_seconds: int,
     job_handle: Optional[ctypes.wintypes.HANDLE] = None,
 ) -> Tuple[int, str, str, bool]:
-    """Waits for process completion, reads output, closes handles."""
+    """Waits for process completion and reads pipe output.
+
+    Drains stdout/stderr in parallel with the process wait. On timeout,
+    terminates via the Job Object (if available) or directly.
+
+    Args:
+        process_handle: Handle to the child process.
+        stdout_handle: Read end of the stdout pipe.
+        stderr_handle: Read end of the stderr pipe.
+        timeout_seconds: Maximum seconds to wait.
+        job_handle: Optional Job Object handle for group termination.
+
+    Returns:
+        Tuple of ``(exit_code, stdout, stderr, timed_out)``.
+    """
     kernel32 = _get_kernel32()
     loop = asyncio.get_event_loop()
 
@@ -1947,17 +2055,23 @@ async def _release_sandbox(instance: _SandboxInstance) -> None:
 
 
 class WindowsElevatedSandbox(WindowsSandboxBase):
-    """Windows elevated sandbox using WRITE_RESTRICTED token with a
-    dedicated user account.
+    """Windows elevated sandbox with a WRITE_RESTRICTED token.
 
-    Used when ``allow_read_all=True``: reads work automatically via normal
-    DACL evaluation, writes are gated by the restricting SID list.
+    Uses a dedicated user account for process isolation.
+
+    Used when ``allow_read_all=True`` and the process has administrator
+    privileges. Reads work via normal DACL evaluation; writes are gated
+    by the restricting SID list. Network is blocked via WFP firewall
+    rules when ``network_allow`` is empty.
+
+    Sandbox instances are cached on disk and reused across invocations
+    with identical configurations.
 
     Lifecycle:
-        ``__aenter__``: Acquires a sandbox instance from the registry.
+        ``__aenter__``: Acquires a sandbox instance (creates or reuses).
         ``execute``: Launches a command with the restricted token.
-        ``__aexit__`` / ``stop``: Terminates running process and releases
-            the registry reference.
+        ``__aexit__`` / ``stop``: Terminates the running process and
+            releases the instance reference.
     """
 
     def __init__(self, config: SandboxConfig):
@@ -2205,9 +2319,19 @@ def _remaining_budget() -> float:
 
 
 def _run_icacls_sync_local(
-    args: List[str], timeout: Optional[float] = None
+    args: List[str],
+    timeout: Optional[float] = None,
 ) -> bool:
-    """Module-local icacls runner with budget-aware timeout."""
+    """Module-local ``icacls`` runner with budget-aware timeout.
+
+    Args:
+        args: Arguments to pass to ``icacls``.
+        timeout: Maximum seconds. Defaults to the remaining shutdown
+            budget (capped at 180 s).
+
+    Returns:
+        True if icacls exited with code 0.
+    """
     if timeout is None:
         timeout = min(180.0, _remaining_budget())
     if timeout <= 0:
@@ -2250,14 +2374,27 @@ def _remove_acl_with_verify_sync_local(
     *,
     reset_only: bool = False,
 ) -> bool:
-    """Budget-aware ACL removal for shutdown cleanup."""
+    """Budget-aware ACL removal for elevated sandbox shutdown cleanup.
+
+    Uses the same multi-strategy approach as the shared
+    ``_remove_acl_with_verify_sync``, but respects the module-level
+    shutdown deadline.
+
+    Args:
+        path: Filesystem path to clean.
+        sid: SID string to remove from the DACL.
+        reset_only: If True, only use the reset+remove strategy.
+
+    Returns:
+        True if the SID was successfully removed.
+    """
     if not os.path.exists(path):
         return True
 
     strategies = [
         lambda: _run_icacls_sync_local([path, "/remove", f"*{sid}"]),
         lambda: _run_icacls_sync_local(
-            [path, "/remove", f"*{sid}", "/T", "/C"]
+            [path, "/remove", f"*{sid}", "/T", "/C"],
         ),
         lambda: (
             _run_icacls_sync_local([path, "/remove:g", f"*{sid}", "/T", "/C"]),
@@ -2318,7 +2455,13 @@ def _remove_acl_with_verify_sync_local(
 
 
 def shutdown_cleanup() -> None:
-    """Destroys sandbox instances owned by this process or orphaned."""
+    """Destroys elevated sandbox instances owned by this process or orphaned.
+
+    Iterates metadata files under ``~/.qwenpaw/sandboxes/``, skips
+    sandboxes whose owner process is still alive, and cleans up the
+    rest (ACLs, firewall rules, local user accounts, profile
+    directories).
+    """
     global _SHUTDOWN_ACL_DEADLINE
 
     from ..utils.platform import is_windows_admin

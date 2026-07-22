@@ -1,20 +1,32 @@
 # -*- coding: utf-8 -*-
-"""Windows sandbox shared utilities, base class, and unelevated sandbox.
+"""Windows sandbox shared infrastructure and unelevated sandbox.
 
-This module serves as the canonical location for code shared across all
-Windows sandbox implementations:
+This module provides the shared foundation for all Windows sandbox backends
+and the ``WindowsUnelevatedSandbox`` implementation.
 
-  - ``WindowsSandboxBase``: abstract base class for Windows sandboxes.
-  - Shared ctypes structures, constants, SID/token/ACL helpers.
-  - Pipe output decoding (OEM/ANSI/UTF-16LE).
-  - Process helpers (shell command building, pipe I/O, Job Object).
-  - ACL cleanup helpers (icacls-based removal with multi-strategy retry).
+Shared infrastructure:
+    ``WindowsSandboxBase``:
+        Abstract base class for all Windows sandboxes.
+    Ctypes structures:
+        Win32 structs (``_SID_AND_ATTRIBUTES``, ``_STARTUPINFOW``, etc.)
+        and the ``_WC`` constants namespace.
+    SID / token / ACL helpers:
+        ``_string_to_sid``, ``_sid_to_string``, ``_build_explicit_access``,
+        ``_set_default_dacl``, ``_enable_privilege``, etc.
+    Pipe output decoding:
+        Multi-codec fallback (UTF-16LE, OEM, ANSI, UTF-8).
+    Process helpers:
+        Shell command line building, stdio pipe I/O, Job Object creation.
+    ACL cleanup:
+        Multi-strategy icacls-based removal with verification.
 
-It also contains the ``WindowsUnelevatedSandbox`` implementation, which
-uses a WRITE_RESTRICTED token without requiring administrator privileges.
+``WindowsUnelevatedSandbox`` uses a WRITE_RESTRICTED token derived from
+the current process token without requiring administrator privileges.
+Write access is gated by a fabricated capability SID; read/execute access
+is unrestricted.
 
-Other Windows sandbox modules (``windows_appcontainer_sandbox.py`` and
-``windows_elevated_sandbox.py``) import shared code from here.
+``WindowsAppContainerSandbox`` and ``WindowsElevatedSandbox`` (defined in
+sibling modules) import shared code from here.
 """
 
 from __future__ import annotations
@@ -23,7 +35,6 @@ import asyncio
 import atexit
 import ctypes
 import ctypes.wintypes
-import hashlib
 import json
 import logging
 import os
@@ -47,11 +58,10 @@ logger = logging.getLogger(__name__)
 
 
 class _WC:
-    """Windows sandbox constants.
+    """Win32 numeric and string constants shared across all Windows sandboxes.
 
-    Grouping all Win32 numeric/string constants into a single class so
-    that consuming modules can ``from … import _WC`` instead of listing
-    dozens of individual names.
+    Grouped into a single namespace so that sibling modules can
+    ``from … import _WC`` instead of listing dozens of individual names.
     """
 
     # Violation detection regex (includes Chinese locale patterns)
@@ -284,7 +294,7 @@ _cached_ansi_encoding: Optional[str] = None
 
 
 def _get_system_ansi_encoding() -> str:
-    """Returns the Python codec name for the system ANSI code page (GetACP)."""
+    """Returns the Python codec name for the system ANSI code page."""
     global _cached_ansi_encoding
     if _cached_ansi_encoding is not None:
         return _cached_ansi_encoding
@@ -310,7 +320,17 @@ def _get_system_oem_encoding() -> str:
 
 
 def _try_decode_utf16le(raw: bytes) -> Optional[str]:
-    """Attempts to decode raw bytes as UTF-16LE via BOM or heuristic."""
+    """Attempts to decode raw bytes as UTF-16LE.
+
+    Checks for a BOM first, then falls back to a null-byte heuristic
+    on the first 64 bytes.
+
+    Args:
+        raw: Raw byte content from a pipe.
+
+    Returns:
+        Decoded string if UTF-16LE was detected, None otherwise.
+    """
     if len(raw) < 2:
         return None
     if raw[:2] == b"\xff\xfe":
@@ -335,8 +355,14 @@ def _try_decode_utf16le(raw: bytes) -> Optional[str]:
 def _decode_pipe_output(raw: bytes) -> str:
     """Decodes raw pipe output using a multi-codec fallback strategy.
 
-    Tries UTF-16LE (BOM + heuristic), system OEM code page, system ANSI
-    code page, then UTF-8 with replacement characters.
+    Codec order: UTF-16LE (BOM + heuristic) → system OEM code page →
+    system ANSI code page → UTF-8 with replacement.
+
+    Args:
+        raw: Raw byte content from a pipe.
+
+    Returns:
+        Decoded string (always succeeds; worst case uses replacement chars).
     """
     if not raw:
         return ""
@@ -604,29 +630,51 @@ def _make_random_cap_sid_string() -> str:
 
 
 def _string_to_sid(sid_string: str) -> ctypes.c_void_p:
-    """Convert a SID string to a PSID (must be freed with LocalFree)."""
+    """Converts a SID string to a PSID pointer.
+
+    Args:
+        sid_string: SID in string form (e.g. ``"S-1-5-21-…"``).
+
+    Returns:
+        PSID pointer. Caller must free with ``LocalFree``.
+
+    Raises:
+        OSError: If ``ConvertStringSidToSidW`` fails.
+    """
     advapi32 = _get_advapi32()
     psid = ctypes.c_void_p()
     ok = advapi32.ConvertStringSidToSidW(
-        ctypes.c_wchar_p(sid_string), ctypes.byref(psid)
+        ctypes.c_wchar_p(sid_string),
+        ctypes.byref(psid),
     )
     if not ok:
         raise OSError(
             f"ConvertStringSidToSidW failed for '{sid_string}': "
-            f"error={ctypes.get_last_error()}"
+            f"error={ctypes.get_last_error()}",
         )
     return psid
 
 
 def _sid_to_string(psid: ctypes.c_void_p, advapi32: Any = None) -> str:
-    """Convert a PSID pointer to its string representation."""
+    """Converts a PSID pointer to its string representation.
+
+    Args:
+        psid: Pointer to a SID structure.
+        advapi32: Optional pre-loaded advapi32 DLL handle.
+
+    Returns:
+        SID string (e.g. ``"S-1-5-21-…"``).
+
+    Raises:
+        OSError: If ``ConvertSidToStringSidW`` fails or returns NULL.
+    """
     if advapi32 is None:
         advapi32 = _get_advapi32()
     string_sid = ctypes.c_wchar_p()
     ret = advapi32.ConvertSidToStringSidW(psid, ctypes.byref(string_sid))
     if not ret:
         raise OSError(
-            f"ConvertSidToStringSidW failed: error={ctypes.get_last_error()}"
+            f"ConvertSidToStringSidW failed: error={ctypes.get_last_error()}",
         )
     try:
         sid_value = string_sid.value
@@ -638,7 +686,18 @@ def _sid_to_string(psid: ctypes.c_void_p, advapi32: Any = None) -> str:
 
 
 def _create_well_known_sid(sid_type: int) -> bytes:
-    """Create a well-known SID (e.g. Everyone = WinWorldSid = 1)."""
+    """Creates a well-known SID by type constant.
+
+    Args:
+        sid_type: Well-known SID type (e.g. ``WinWorldSid = 1``
+            for Everyone).
+
+    Returns:
+        Raw SID bytes.
+
+    Raises:
+        OSError: If ``CreateWellKnownSid`` fails.
+    """
     advapi32 = _get_advapi32()
     size = ctypes.wintypes.DWORD(0)
     advapi32.CreateWellKnownSid(sid_type, None, None, ctypes.byref(size))
@@ -649,13 +708,20 @@ def _create_well_known_sid(sid_type: int) -> bytes:
     if not ok:
         raise OSError(
             f"CreateWellKnownSid({sid_type}) failed: "
-            f"error={ctypes.get_last_error()}"
+            f"error={ctypes.get_last_error()}",
         )
     return bytes(buf[: size.value])
 
 
 def _copy_sid_from_ptr(sid_ptr_val: int) -> bytes:
-    """Copy a SID from a raw pointer value to a bytes buffer."""
+    """Copies a SID from a raw pointer value into a bytes buffer.
+
+    Args:
+        sid_ptr_val: Integer value of a PSID pointer.
+
+    Returns:
+        Raw SID bytes, or empty bytes if the pointer is invalid.
+    """
     advapi32 = _get_advapi32()
     psid = ctypes.c_void_p(sid_ptr_val)
     length = advapi32.GetLengthSid(psid)
@@ -667,20 +733,39 @@ def _copy_sid_from_ptr(sid_ptr_val: int) -> bytes:
 
 
 def _get_logon_sid_bytes(h_token: ctypes.wintypes.HANDLE) -> bytes:
-    """Extract the Logon SID from a token."""
+    """Extracts the Logon SID from a token's group list.
+
+    Args:
+        h_token: Handle to an access token.
+
+    Returns:
+        Raw SID bytes of the logon SID.
+
+    Raises:
+        OSError: If token information cannot be read or no logon SID
+            is found.
+    """
     advapi32 = _get_advapi32()
     needed = ctypes.wintypes.DWORD(0)
     advapi32.GetTokenInformation(
-        h_token, _WC.TokenGroups, None, 0, ctypes.byref(needed)
+        h_token,
+        _WC.TokenGroups,
+        None,
+        0,
+        ctypes.byref(needed),
     )
     buf = (ctypes.c_ubyte * needed.value)()
     ok = advapi32.GetTokenInformation(
-        h_token, _WC.TokenGroups, buf, needed.value, ctypes.byref(needed)
+        h_token,
+        _WC.TokenGroups,
+        buf,
+        needed.value,
+        ctypes.byref(needed),
     )
     if not ok:
         raise OSError(
             f"GetTokenInformation(TokenGroups) failed: "
-            f"error={ctypes.get_last_error()}"
+            f"error={ctypes.get_last_error()}",
         )
 
     raw = bytes(buf)
@@ -716,7 +801,18 @@ def _build_explicit_access(
     access_mode: int,
     inheritance: int = 0,
 ) -> _EXPLICIT_ACCESS_W:
-    """Build an EXPLICIT_ACCESS_W entry for a given SID."""
+    """Builds an ``EXPLICIT_ACCESS_W`` entry for a given SID.
+
+    Args:
+        psid: Pointer to the trustee SID.
+        access_mask: Access rights bitmask.
+        access_mode: Access mode (``GRANT_ACCESS``, ``SET_ACCESS``,
+            ``DENY_ACCESS``).
+        inheritance: Inheritance flags (e.g. ``CONTAINER_INHERIT_ACE``).
+
+    Returns:
+        Populated ``_EXPLICIT_ACCESS_W`` structure.
+    """
     entry = _EXPLICIT_ACCESS_W()
     entry.grfAccessPermissions = access_mask
     entry.grfAccessMode = access_mode
@@ -730,9 +826,15 @@ def _build_explicit_access(
 
 
 def _set_default_dacl(
-    h_token: ctypes.wintypes.HANDLE, sid_ptrs: List[ctypes.c_void_p]
+    h_token: ctypes.wintypes.HANDLE,
+    sid_ptrs: List[ctypes.c_void_p],
 ) -> None:
-    """Set the token's default DACL so child objects are accessible."""
+    """Sets the token's default DACL so child objects are accessible.
+
+    Args:
+        h_token: Handle to the token to modify.
+        sid_ptrs: List of PSID pointers to grant ``GENERIC_ALL``.
+    """
     if not sid_ptrs:
         return
     advapi32 = _get_advapi32()
@@ -756,18 +858,31 @@ def _set_default_dacl(
 
     info = _TOKEN_DEFAULT_DACL(DefaultDacl=new_dacl)
     advapi32.SetTokenInformation(
-        h_token, _WC.TokenDefaultDacl, ctypes.byref(info), ctypes.sizeof(info)
+        h_token,
+        _WC.TokenDefaultDacl,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
     )
     if new_dacl:
         kernel32.LocalFree(new_dacl)
 
 
 def _enable_privilege(h_token: ctypes.wintypes.HANDLE, name: str) -> bool:
-    """Enable a privilege on a token. Returns True if successful."""
+    """Enables a named privilege on a token.
+
+    Args:
+        h_token: Handle to the token.
+        name: Privilege name (e.g. ``"SeChangeNotifyPrivilege"``).
+
+    Returns:
+        True if the privilege was successfully enabled.
+    """
     advapi32 = _get_advapi32()
     luid = _LUID()
     if not advapi32.LookupPrivilegeValueW(
-        None, ctypes.c_wchar_p(name), ctypes.byref(luid)
+        None,
+        ctypes.c_wchar_p(name),
+        ctypes.byref(luid),
     ):
         return False
     tp = _TOKEN_PRIVILEGES()
@@ -775,7 +890,12 @@ def _enable_privilege(h_token: ctypes.wintypes.HANDLE, name: str) -> bool:
     tp.Privileges[0].Luid = luid
     tp.Privileges[0].Attributes = _WC.SE_PRIVILEGE_ENABLED
     advapi32.AdjustTokenPrivileges(
-        h_token, False, ctypes.byref(tp), 0, None, None
+        h_token,
+        False,
+        ctypes.byref(tp),
+        0,
+        None,
+        None,
     )
     return ctypes.get_last_error() != 1300
 
@@ -789,7 +909,18 @@ def _build_shell_command_line(
     cmd: str,
     shell_executable: Optional[str] = None,
 ) -> str:
-    """Build the command line string for launching a command via a shell."""
+    """Builds the full command line string for launching a shell command.
+
+    Dispatches by shell type: PowerShell, cmd.exe, or generic
+    (``-c`` flag).
+
+    Args:
+        cmd: User command to execute.
+        shell_executable: Shell binary path. Defaults to ``cmd.exe``.
+
+    Returns:
+        Complete command line string ready for ``CreateProcessW``.
+    """
     name = (
         os.path.basename(shell_executable).lower() if shell_executable else ""
     )
@@ -808,7 +939,14 @@ def _build_shell_command_line(
 
 
 def _make_env_block(env: Dict[str, str]) -> ctypes.Array:
-    """Build a null-terminated Unicode environment block."""
+    """Builds a null-terminated Unicode environment block for CreateProcess.
+
+    Args:
+        env: Environment variable mapping.
+
+    Returns:
+        ctypes unicode buffer containing the double-null-terminated block.
+    """
     items = sorted(env.items(), key=lambda kv: kv[0].upper())
     env_str = "\x00".join(f"{k}={v}" for k, v in items) + "\x00\x00"
     return ctypes.create_unicode_buffer(env_str)
@@ -822,9 +960,17 @@ def _create_stdio_pipes(
     ctypes.wintypes.HANDLE,
     ctypes.wintypes.HANDLE,
 ]:
-    """Create inheritable stdout/stderr pipes for child process I/O.
+    """Creates inheritable stdout/stderr pipes for child process I/O.
 
-    Returns (stdout_read, stdout_write, stderr_read, stderr_write).
+    Args:
+        kernel32: Optional pre-loaded kernel32 DLL handle.
+
+    Returns:
+        Tuple of ``(stdout_read, stdout_write, stderr_read, stderr_write)``
+        handles.
+
+    Raises:
+        OSError: If ``CreatePipe`` fails.
     """
     if kernel32 is None:
         kernel32 = _get_kernel32()
@@ -846,7 +992,7 @@ def _create_stdio_pipes(
         0,
     ):
         raise OSError(
-            f"CreatePipe(stdout) failed: error={ctypes.get_last_error()}"
+            f"CreatePipe(stdout) failed: error={ctypes.get_last_error()}",
         )
     if not kernel32.CreatePipe(
         ctypes.byref(stderr_read),
@@ -857,7 +1003,7 @@ def _create_stdio_pipes(
         kernel32.CloseHandle(stdout_read)
         kernel32.CloseHandle(stdout_write)
         raise OSError(
-            f"CreatePipe(stderr) failed: error={ctypes.get_last_error()}"
+            f"CreatePipe(stderr) failed: error={ctypes.get_last_error()}",
         )
 
     kernel32.SetHandleInformation(stdout_read, _WC.HANDLE_FLAG_INHERIT, 0)
@@ -867,10 +1013,17 @@ def _create_stdio_pipes(
 
 
 def _read_pipe(handle: ctypes.wintypes.HANDLE, kernel32: Any = None) -> bytes:
-    """Drain a pipe handle until EOF."""
+    """Drains a pipe handle until EOF.
+
+    Args:
+        handle: Read end of a pipe.
+        kernel32: Optional pre-loaded kernel32 DLL handle.
+
+    Returns:
+        All bytes read from the pipe.
+    """
     if kernel32 is None:
         kernel32 = _get_kernel32()
-    _ERROR_BROKEN_PIPE = 109
     chunks: List[bytes] = []
     buf_size = 8192
     buf = (ctypes.c_ubyte * buf_size)()
@@ -878,7 +1031,11 @@ def _read_pipe(handle: ctypes.wintypes.HANDLE, kernel32: Any = None) -> bytes:
 
     while True:
         ok = kernel32.ReadFile(
-            handle, buf, buf_size, ctypes.byref(bytes_read), None
+            handle,
+            buf,
+            buf_size,
+            ctypes.byref(bytes_read),
+            None,
         )
         if not ok:
             if bytes_read.value > 0:
@@ -892,7 +1049,11 @@ def _read_pipe(handle: ctypes.wintypes.HANDLE, kernel32: Any = None) -> bytes:
 
 
 def _create_job_object() -> Optional[ctypes.wintypes.HANDLE]:
-    """Create a Job Object configured to kill all child processes on close."""
+    """Creates a Job Object that kills all children when closed.
+
+    Returns:
+        Job Object handle, or None if creation fails.
+    """
     kernel32 = _get_kernel32()
     h_job = kernel32.CreateJobObjectW(None, None)
     if not h_job:
@@ -920,14 +1081,23 @@ def _create_job_object() -> Optional[ctypes.wintypes.HANDLE]:
 
 
 def _is_pid_alive(pid: int) -> bool:
-    """Check whether a process with the given PID is still running."""
+    """Checks whether a process with the given PID is still running.
+
+    Args:
+        pid: Process ID to check.
+
+    Returns:
+        True if the process exists and has not exited.
+    """
     if pid <= 0:
         return False
     _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
     try:
         kernel32 = _get_kernel32()
         handle = kernel32.OpenProcess(
-            _PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+            _PROCESS_QUERY_LIMITED_INFORMATION,
+            False,
+            pid,
         )
         if not handle:
             return False
@@ -940,7 +1110,15 @@ def _is_pid_alive(pid: int) -> bool:
 
 
 def _run_icacls_sync(args: List[str], timeout: float = 30.0) -> bool:
-    """Run icacls synchronously. Returns True on success."""
+    """Runs ``icacls`` synchronously.
+
+    Args:
+        args: Arguments to pass to ``icacls``.
+        timeout: Maximum seconds to wait.
+
+    Returns:
+        True if icacls exited with code 0.
+    """
     if timeout <= 0:
         return False
     try:
@@ -956,9 +1134,21 @@ def _run_icacls_sync(args: List[str], timeout: float = 30.0) -> bool:
 
 
 def _verify_acl_removed_sync(
-    path: str, sid: str, timeout: float = 180.0
+    path: str,
+    sid: str,
+    timeout: float = 180.0,
 ) -> bool:
-    """Verify that a SID no longer appears in the DACL of a path."""
+    """Verifies that a SID no longer appears in a path's DACL.
+
+    Args:
+        path: Filesystem path to check.
+        sid: SID string to look for in the ACL output.
+        timeout: Maximum seconds to wait for ``icacls``.
+
+    Returns:
+        True if the SID is absent from the path's ACL (or the path
+        does not exist).
+    """
     if not os.path.exists(path):
         return True
     if timeout <= 0:
@@ -987,19 +1177,26 @@ def _remove_acl_with_verify_sync(
     reset_only: bool = False,
     deadline: float = 0.0,
 ) -> bool:
-    """Remove ACEs for a SID using multi-strategy retry with verification.
+    """Removes ACEs for a SID using multi-strategy retry with verification.
 
-    Strategies:
-      1. Basic /remove
-      2. Recursive /remove /T /C
-      3. Explicit /remove:g and /remove:d
-      4. /inheritance:e then /remove again
-      5. Break inheritance then /remove
-      6. Non-recursive /reset then /remove
+    Tries up to six escalating strategies, verifying removal after each:
+        1. Basic ``/remove``
+        2. Recursive ``/remove /T /C``
+        3. Explicit ``/remove:g`` and ``/remove:d``
+        4. Enable inheritance then ``/remove``
+        5. Break inheritance then ``/remove``
+        6. ``/reset`` then ``/remove``
 
     Args:
-        deadline: monotonic time deadline; 0.0 means no deadline.
-        reset_only: skip strategies 1-5, use only reset+remove.
+        path: Filesystem path to clean.
+        sid: SID string to remove from the DACL.
+        reset_only: If True, skip strategies 1-5 and only use
+            reset+remove.
+        deadline: Monotonic time deadline. 0.0 means no deadline.
+
+    Returns:
+        True if the SID was successfully removed (or the path does
+        not exist).
     """
     if not os.path.exists(path):
         return True
@@ -1014,10 +1211,12 @@ def _remove_acl_with_verify_sync(
 
     strategies = [
         lambda: _run_icacls_sync(
-            [path, "/remove", f"*{sid}"], timeout=_budget_timeout()
+            [path, "/remove", f"*{sid}"],
+            timeout=_budget_timeout(),
         ),
         lambda: _run_icacls_sync(
-            [path, "/remove", f"*{sid}", "/T", "/C"], timeout=_budget_timeout()
+            [path, "/remove", f"*{sid}", "/T", "/C"],
+            timeout=_budget_timeout(),
         ),
         lambda: (
             _run_icacls_sync(
@@ -1031,7 +1230,8 @@ def _remove_acl_with_verify_sync(
         ),
         lambda: (
             _run_icacls_sync(
-                [path, "/inheritance:e"], timeout=_budget_timeout()
+                [path, "/inheritance:e"],
+                timeout=_budget_timeout(),
             ),
             _run_icacls_sync(
                 [path, "/remove", f"*{sid}", "/T", "/C"],
@@ -1040,7 +1240,8 @@ def _remove_acl_with_verify_sync(
         ),
         lambda: (
             _run_icacls_sync(
-                [path, "/inheritance:d"], timeout=_budget_timeout()
+                [path, "/inheritance:d"],
+                timeout=_budget_timeout(),
             ),
             _run_icacls_sync(
                 [path, "/remove", f"*{sid}", "/T", "/C"],
@@ -1098,14 +1299,17 @@ def _remove_acl_with_verify_sync(
 
 
 class WindowsSandboxBase(ABC):
-    """Abstract base class for Windows sandbox implementations.
+    """Abstract base class for all Windows sandbox implementations.
 
-    Provides common infrastructure shared by all Windows sandbox backends:
-      - Config storage and ``config`` property.
-      - Async context manager (``__aenter__``/``__aexit__``).
-      - Process termination via Job Object or direct handle.
-      - Sandbox violation detection.
-      - Base environment building.
+    Provides shared infrastructure:
+        - Config storage and ``config`` property.
+        - Async context manager protocol.
+        - Process termination via Job Object or direct handle.
+        - Sandbox violation detection via regex.
+        - Base environment building (inherits + config env_vars).
+
+    Attributes:
+        config: The sandbox configuration.
     """
 
     def __init__(self, config: SandboxConfig):
@@ -1119,7 +1323,9 @@ class WindowsSandboxBase(ABC):
 
     @abstractmethod
     async def execute(
-        self, cmd: str, cwd: Optional[str] = None
+        self,
+        cmd: str,
+        cwd: Optional[str] = None,
     ) -> ExecutionResult:
         """Execute a command inside the sandbox."""
 
@@ -1150,9 +1356,21 @@ class WindowsSandboxBase(ABC):
             self._process_handle = None
 
     def _detect_violation(
-        self, exit_code: int, stdout: str, stderr: str
+        self,
+        exit_code: int,
+        stdout: str,
+        stderr: str,
     ) -> Optional[str]:
-        """Detect sandbox violations in process output."""
+        """Detects sandbox access violations in process output.
+
+        Args:
+            exit_code: Process exit code.
+            stdout: Captured stdout text.
+            stderr: Captured stderr text.
+
+        Returns:
+            The violating output text, or None if no violation detected.
+        """
         if _WC.VIOLATION_RE.search(stderr):
             return stderr.strip()
         if exit_code != 0 and _WC.VIOLATION_RE.search(stdout):
@@ -1160,10 +1378,13 @@ class WindowsSandboxBase(ABC):
         return None
 
     def _build_base_env(self) -> Dict[str, str]:
-        """Build base child process environment.
+        """Builds the base child process environment.
 
-        Inherits current environment, applies config env_vars, and ensures
-        PYTHONHOME is set.
+        Inherits the current process environment, applies config
+        ``env_vars``, and ensures ``PYTHONHOME`` is set.
+
+        Returns:
+            Mutable environment dict for the child process.
         """
         env = dict(os.environ)
         if self._config.env_vars:
@@ -1180,16 +1401,40 @@ class WindowsSandboxBase(ABC):
 
 
 def _add_write_allow_ace(path: str, cap_psid: ctypes.c_void_p) -> bool:
-    """Add an inheritable write-allow ACE for cap_sid on a path."""
+    """Adds an inheritable write-allow ACE for a capability SID on a path.
+
+    Args:
+        path: Filesystem path to grant write access to.
+        cap_psid: Pointer to the capability SID.
+
+    Returns:
+        True if the ACE was set successfully.
+    """
     return _set_path_ace(
-        path, cap_psid, _WC.WRITE_ALLOW_MASK, _WC.SET_ACCESS, inherit=True
+        path,
+        cap_psid,
+        _WC.WRITE_ALLOW_MASK,
+        _WC.SET_ACCESS,
+        inherit=True,
     )
 
 
 def _add_deny_write_ace(path: str, cap_psid: ctypes.c_void_p) -> bool:
-    """Add an inheritable deny-write ACE for cap_sid on a path."""
+    """Adds an inheritable deny-write ACE for a capability SID on a path.
+
+    Args:
+        path: Filesystem path to deny write access to.
+        cap_psid: Pointer to the capability SID.
+
+    Returns:
+        True if the ACE was set successfully.
+    """
     return _set_path_ace(
-        path, cap_psid, _WC.DENY_WRITE_MASK, _WC.DENY_ACCESS, inherit=True
+        path,
+        cap_psid,
+        _WC.DENY_WRITE_MASK,
+        _WC.DENY_ACCESS,
+        inherit=True,
     )
 
 
@@ -1200,7 +1445,19 @@ def _set_path_ace(
     access_mode: int,
     inherit: bool = True,
 ) -> bool:
-    """Set an ACE on a filesystem path."""
+    """Sets a single ACE on a filesystem path's DACL.
+
+    Args:
+        path: Filesystem path.
+        psid: Pointer to the trustee SID.
+        access_mask: Access rights bitmask.
+        access_mode: ``SET_ACCESS``, ``GRANT_ACCESS``, or
+            ``DENY_ACCESS``.
+        inherit: Whether to apply container/object inheritance.
+
+    Returns:
+        True if the ACE was set successfully.
+    """
     advapi32 = _get_advapi32()
     kernel32 = _get_kernel32()
 
@@ -1229,7 +1486,10 @@ def _set_path_ace(
 
     new_dacl = ctypes.c_void_p()
     rc2 = advapi32.SetEntriesInAclW(
-        1, ctypes.byref(ea), p_dacl, ctypes.byref(new_dacl)
+        1,
+        ctypes.byref(ea),
+        p_dacl,
+        ctypes.byref(new_dacl),
     )
     if rc2 != 0:
         logger.warning("SetEntriesInAclW(%s) failed: rc=%d", path, rc2)
@@ -1259,7 +1519,15 @@ def _set_path_ace(
 
 
 def _remove_ace_sync(path: str, cap_sid_string: str) -> bool:
-    """Remove all ACEs for cap_sid from a path using icacls."""
+    """Removes all ACEs for a SID from a path using ``icacls``.
+
+    Args:
+        path: Filesystem path to clean.
+        cap_sid_string: SID string to remove.
+
+    Returns:
+        True if removal succeeded.
+    """
     try:
         result = subprocess.run(
             ["icacls", path, "/remove", f"*{cap_sid_string}"],
@@ -1281,10 +1549,23 @@ def _create_restricted_token(
     h_base_token: ctypes.wintypes.HANDLE,
     cap_sid_string: str,
 ) -> Tuple[ctypes.wintypes.HANDLE, ctypes.c_void_p]:
-    """Create a WRITE_RESTRICTED token with [cap_sid, logon_sid, Everyone].
+    """Creates a WRITE_RESTRICTED token for the unelevated sandbox.
 
-    Returns (new_token_handle, cap_psid). The caller must free cap_psid
-    with LocalFree after it is no longer needed for ACL operations.
+    The restricting SID list is ``[cap_sid, logon_sid, Everyone]``.
+    Only write access checks the restricting SID list; read/execute
+    access uses normal DACL evaluation.
+
+    Args:
+        h_base_token: Handle to the base process token.
+        cap_sid_string: Fabricated capability SID string used to gate
+            write access.
+
+    Returns:
+        Tuple of ``(new_token_handle, cap_psid)``. Caller must free
+        ``cap_psid`` with ``LocalFree`` after ACL operations complete.
+
+    Raises:
+        OSError: If ``CreateRestrictedToken`` fails.
     """
     advapi32 = _get_advapi32()
     kernel32 = _get_kernel32()
@@ -1322,7 +1603,7 @@ def _create_restricted_token(
     if not ok:
         kernel32.LocalFree(cap_psid)
         raise OSError(
-            f"CreateRestrictedToken failed: error={ctypes.get_last_error()}"
+            f"CreateRestrictedToken failed: error={ctypes.get_last_error()}",
         )
 
     try:
@@ -1355,15 +1636,30 @@ def _create_process_as_user(
     ctypes.wintypes.HANDLE,
     Optional[ctypes.wintypes.HANDLE],
 ]:
-    """Create a process under the restricted token.
+    """Creates a process under the restricted token.
 
-    Returns: (pid, process_handle, stdout_read, stderr_read, job_handle)
+    The process is created suspended, assigned to a Job Object, then
+    resumed.
+
+    Args:
+        h_token: Restricted token handle.
+        cmd: Command to execute.
+        cwd: Working directory for the child process.
+        env: Environment variables for the child process.
+        shell_executable: Shell binary path.
+
+    Returns:
+        Tuple of ``(pid, process_handle, stdout_read, stderr_read,
+        job_handle)``.
+
+    Raises:
+        OSError: If ``CreateProcessAsUserW`` fails.
     """
     kernel32 = _get_kernel32()
     advapi32 = _get_advapi32()
 
     stdout_read, stdout_write, stderr_read, stderr_write = _create_stdio_pipes(
-        kernel32
+        kernel32,
     )
 
     si = _STARTUPINFOW()
@@ -1434,7 +1730,13 @@ def _save_state(
     acl_paths: List[str],
     deny_paths: List[str],
 ) -> None:
-    """Persist sandbox state for cleanup on restart."""
+    """Persists unelevated sandbox state for cleanup on restart.
+
+    Args:
+        cap_sid: Capability SID string.
+        acl_paths: Paths with allow ACEs applied.
+        deny_paths: Paths with deny ACEs applied.
+    """
     state_file = _state_file_path()
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state = {
@@ -1451,7 +1753,11 @@ def _save_state(
 
 
 def _load_state() -> Optional[dict]:
-    """Load persisted sandbox state."""
+    """Loads persisted unelevated sandbox state.
+
+    Returns:
+        State dict, or None if no state file exists or it is corrupt.
+    """
     state_file = _state_file_path()
     if not state_file.exists():
         return None
@@ -1476,16 +1782,20 @@ def _clear_state() -> None:
 
 
 class WindowsUnelevatedSandbox(WindowsSandboxBase):
-    """Windows sandbox using WRITE_RESTRICTED token without admin privileges.
+    """Windows sandbox using a WRITE_RESTRICTED token without admin privileges.
 
-    Write operations are gated by a fabricated capability SID: only filesystem
-    paths with an explicit allow ACE for this SID can be written to by the
-    sandboxed process. Read/execute access is unrestricted.
+    Write operations are gated by a fabricated capability SID: only
+    filesystem paths with an explicit allow ACE for this SID can be
+    written to by the sandboxed process. Read/execute access is
+    unrestricted. Network is soft-blocked via proxy environment variables
+    when ``network_allow`` is empty.
 
     Lifecycle:
-        ``__aenter__``: Creates restricted token, applies workspace ACE.
-        ``execute``: Launches command under restricted token.
-        ``__aexit__`` / ``stop``: Kills process, removes ACEs, closes token.
+        ``__aenter__``: Creates the restricted token and applies
+            workspace/mount ACEs.
+        ``execute``: Launches a command under the restricted token.
+        ``__aexit__`` / ``stop``: Terminates the process, removes ACEs,
+            and closes the token handle.
     """
 
     def __init__(self, config: SandboxConfig):
@@ -1528,46 +1838,66 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
 
         h_base = ctypes.wintypes.HANDLE()
         ok = advapi32.OpenProcessToken(
-            kernel32.GetCurrentProcess(), 0x000F01FF, ctypes.byref(h_base)
+            kernel32.GetCurrentProcess(),
+            0x000F01FF,
+            ctypes.byref(h_base),
         )
         if not ok:
             raise OSError(
-                f"OpenProcessToken failed: error={ctypes.get_last_error()}"
+                f"OpenProcessToken failed: error={ctypes.get_last_error()}",
             )
 
         try:
             self._h_token, self._cap_psid = _create_restricted_token(
-                h_base, self._cap_sid_string
+                h_base,
+                self._cap_sid_string,
             )
         finally:
             kernel32.CloseHandle(h_base)
 
         if not _add_write_allow_ace(workspace, self._cap_psid):
-            logger.error("Failed to set write ACE on workspace: %s", workspace)
+            logger.error(
+                "Failed to set write ACE on workspace: %s",
+                workspace,
+            )
         else:
             self._acl_paths.append(workspace)
 
-        for mount in self._config.mounts:
-            if os.path.exists(mount.path):
-                mount_path = os.path.abspath(mount.path)
-                if mount_path != os.path.abspath(workspace):
-                    if _add_write_allow_ace(mount_path, self._cap_psid):
-                        self._acl_paths.append(mount_path)
-                    else:
-                        logger.warning(
-                            "Failed to set ACE on mount: %s", mount_path
-                        )
+        self._apply_mount_acls(workspace)
+        self._apply_deny_acls()
 
-        for deny_path in self._config.deny_paths:
-            if os.path.exists(deny_path):
-                if _add_deny_write_ace(deny_path, self._cap_psid):
-                    self._deny_acl_paths.append(deny_path)
-                else:
-                    logger.warning("Failed to set deny ACE on: %s", deny_path)
-
+        assert self._cap_sid_string is not None
         _save_state(
-            self._cap_sid_string, self._acl_paths, self._deny_acl_paths
+            self._cap_sid_string,
+            self._acl_paths,
+            self._deny_acl_paths,
         )
+
+    def _apply_mount_acls(self, workspace: str) -> None:
+        """Applies write-allow ACEs on configured mounts."""
+        assert self._cap_psid is not None
+        ws_abs = os.path.abspath(workspace)
+        for mount in self._config.mounts:
+            if not os.path.exists(mount.path):
+                continue
+            mount_path = os.path.abspath(mount.path)
+            if mount_path == ws_abs:
+                continue
+            if _add_write_allow_ace(mount_path, self._cap_psid):
+                self._acl_paths.append(mount_path)
+            else:
+                logger.warning("Failed to set ACE on mount: %s", mount_path)
+
+    def _apply_deny_acls(self) -> None:
+        """Applies deny-write ACEs on configured deny paths."""
+        assert self._cap_psid is not None
+        for deny_path in self._config.deny_paths:
+            if not os.path.exists(deny_path):
+                continue
+            if _add_deny_write_ace(deny_path, self._cap_psid):
+                self._deny_acl_paths.append(deny_path)
+            else:
+                logger.warning("Failed to set deny ACE on: %s", deny_path)
 
     async def execute(
         self,
@@ -1593,7 +1923,8 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
                 env["https_proxy"] = "http://127.0.0.1:9"
                 env["no_proxy"] = ""
 
-            pid, h_proc, h_stdout, h_stderr, h_job = await asyncio.to_thread(
+            assert self._h_token is not None
+            _, h_proc, h_stdout, h_stderr, h_job = await asyncio.to_thread(
                 _create_process_as_user,
                 self._h_token,
                 cmd,
@@ -1644,7 +1975,17 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         h_stderr: ctypes.wintypes.HANDLE,
         h_job: Optional[ctypes.wintypes.HANDLE],
     ) -> Tuple[int, str, str, bool]:
-        """Wait for process and drain output pipes."""
+        """Waits for process exit and drains output pipes.
+
+        Args:
+            h_proc: Process handle.
+            h_stdout: Stdout read pipe handle.
+            h_stderr: Stderr read pipe handle.
+            h_job: Optional Job Object handle for group termination.
+
+        Returns:
+            Tuple of ``(exit_code, stdout, stderr, timed_out)``.
+        """
         kernel32 = _get_kernel32()
         timeout_ms = self._config.timeout_seconds * 1000
 
@@ -1721,7 +2062,11 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
 
 
 def shutdown_cleanup() -> None:
-    """Best-effort cleanup of sandbox ACLs on process exit."""
+    """Best-effort cleanup of unelevated sandbox ACLs on process exit.
+
+    Loads persisted state, checks that the owning process is no longer
+    alive, and removes all ACEs via ``icacls``.
+    """
     import sys
 
     if sys.platform != "win32":
@@ -1745,7 +2090,8 @@ def shutdown_cleanup() -> None:
                 check=False,
             )
             if str(saved_pid) in result.stdout.decode(
-                "utf-8", errors="replace"
+                "utf-8",
+                errors="replace",
             ):
                 return
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):

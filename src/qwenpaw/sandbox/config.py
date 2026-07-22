@@ -1,37 +1,41 @@
 # -*- coding: utf-8 -*-
-"""Sandbox — configuration, capability probing, and factory (entry point).
+"""Sandbox configuration, capability probing, and factory.
 
-This is the natural entry point into the :mod:`qwenpaw.sandbox` package:
-it defines the constraint vocabulary (modes, mounts, ports), probes what
-the current platform actually supports, and ships the factory that maps a
-``SandboxConfig`` to a concrete backend.
+This is the entry point of the :mod:`qwenpaw.sandbox` package: it defines
+the constraint vocabulary (modes, mounts, ports), probes platform sandbox
+support, and provides the factory that maps a ``SandboxConfig`` to a
+concrete backend.
 
-Backend layout (``create_sandbox`` dispatches to these by ``SandboxMode``):
-  - SEATBELT     → mod:`qwenpaw.sandbox.macos_sandbox`      (MacOSSandbox)
-  - BUBBLEWRAP   → mod:`qwenpaw.sandbox.bubblewrap_sandbox` (BubblewrapSandbox)
-  - LANDLOCK     → mod:`qwenpaw.sandbox.linux_sandbox`      (LinuxSandbox)
-  - WINDOWS      → Windows sandbox (Windows 10+ native). Dispatches on
-      ``allow_read_all`` and admin status:
-      allow_read_all=False → WindowsAppContainerSandbox (AppContainer)
-      allow_read_all=True + admin → WindowsElevatedSandbox (WRITE_RESTRICTED
-          token with dedicated user)
-      allow_read_all=True + no admin → WindowsUnelevatedSandbox
-          (WRITE_RESTRICTED token, no admin required)
-  - NONE         → mod:`qwenpaw.sandbox.local_sandbox`      (NoneSandbox)
+Backend dispatch (via ``create_sandbox``):
+    SEATBELT:
+        ``MacOSSandbox`` — macOS sandbox-exec.
+    BUBBLEWRAP:
+        ``BubblewrapSandbox`` — Linux bubblewrap (preferred).
+    LANDLOCK:
+        ``LinuxSandbox`` — Linux Landlock LSM (fallback).
+    WINDOWS:
+        Dispatches on ``allow_read_all`` and admin privilege:
 
-Shared base class for all backends:
-  - :class:`qwenpaw.sandbox.local_sandbox.LocalSandbox`
+        - ``allow_read_all=False`` →
+          ``WindowsAppContainerSandbox`` (AppContainer).
+        - ``allow_read_all=True`` + admin →
+          ``WindowsElevatedSandbox`` (WRITE_RESTRICTED + dedicated user).
+        - ``allow_read_all=True`` + no admin →
+          ``WindowsUnelevatedSandbox`` (WRITE_RESTRICTED, no admin).
+    NONE:
+        ``NoneSandbox`` — no isolation.
 
-Typical usage:
-    from .sandbox import create_sandbox, SandboxConfig, SandboxMode, MountSpec
-    config = SandboxConfig(
-        mode=SandboxMode.BUBBLEWRAP,
-        workspace_dir="/path/to/project",
-        mounts=[MountSpec(path="/path/to/project", writable=True)],
-    )
-    async with create_sandbox(config) as sandbox:
-        result = await sandbox.execute("echo hello")
-        print(result.stdout)
+Example:
+    ::
+
+        from .sandbox import create_sandbox, SandboxConfig, SandboxMode
+
+        config = SandboxConfig(
+            mode=SandboxMode.BUBBLEWRAP,
+            workspace_dir="/path/to/project",
+        )
+        async with create_sandbox(config) as sandbox:
+            result = await sandbox.execute("echo hello")
 """
 
 from __future__ import annotations
@@ -45,7 +49,15 @@ from typing import Any, Dict, List, Optional
 
 
 class SandboxMode(str, Enum):
-    """Sandbox isolation mode."""
+    """Sandbox isolation mode.
+
+    Attributes:
+        SEATBELT: macOS sandbox-exec.
+        BUBBLEWRAP: Linux bubblewrap (preferred).
+        LANDLOCK: Linux Landlock LSM (fallback).
+        WINDOWS: Windows native (AppContainer / WRITE_RESTRICTED token).
+        NONE: No isolation, direct execution.
+    """
 
     SEATBELT = "seatbelt"  # macOS sandbox-exec
     BUBBLEWRAP = "bubblewrap"  # Linux bubblewrap (preferred)
@@ -88,64 +100,66 @@ class PortRule:
 class SandboxConfig:
     """Complete sandbox constraint configuration.
 
-    Allowlist model: unlisted = deny.
+    Uses an allowlist model: unlisted paths and capabilities are denied.
+
+    Attributes:
+        mode: Sandbox isolation mode.
+        workspace_dir: Root working directory for the sandbox.
+        mounts: Additional path permission declarations.
+        allow_read_all: If True, allows reading all files by default
+            (deny-list mode). If False, only paths in ``mounts`` are
+            readable (allow-list mode).
+        deny_paths: Sensitive paths explicitly denied regardless of
+            other settings.
+        network_allow: Domain allowlist. ``["*"]`` opens all network
+            access; ``[]`` blocks all. Domain-level filtering is
+            best-effort.
+        network_ports: TCP port-level control. Native on Linux
+            Landlock v4; other platforms degrade to all-open/all-blocked.
+        max_processes: Max subprocess count (Windows Job / Linux cgroups).
+        max_memory_mb: Max memory in MB (Windows Job / Linux cgroups).
+        timeout_seconds: Command execution timeout.
+        env_vars: Additional environment variables.
+        env_mode: ``"inject"`` appends to current environment;
+            ``"allowlist"`` passes only declared variables.
+        shell_executable: Shell for command execution. When None, the
+            platform backend chooses its default.
+        platform_hints: Pass-through for platform-native parameters.
     """
 
     mode: SandboxMode
     workspace_dir: str
     mounts: List[MountSpec] = field(default_factory=list)
 
-    # --- Read control ---
     allow_read_all: bool = True
-    """True = allow reading all files by default (deny-list mode).
-    False = only paths declared in mounts are readable (allow-list mode)."""
-
     deny_paths: List[str] = field(default_factory=list)
-    """Sensitive paths explicitly denied for read/write (takes priority over
-    allow_read_all and mounts)."""
 
-    # --- Network ---
     network_allow: List[str] = field(default_factory=list)
-    """Domain allowlist. ["*"] = all open, [] = all blocked.
-    Domain-level filtering is best-effort (requires proxy layer support)."""
-
     network_ports: Optional[List[PortRule]] = None
-    """TCP port-level control (Linux Landlock v4 native; other platforms
-    degrade to all-open/all-blocked)."""
 
-    # --- Resource limits ---
     max_processes: Optional[int] = None
-    """Max subprocess count. Windows Job native, Linux cgroups,
-    macOS unsupported (ignored)."""
-
     max_memory_mb: Optional[int] = None
-    """Max memory (MB). Windows Job native, Linux cgroups,
-    macOS unsupported (ignored)."""
 
-    # --- Execution control ---
     timeout_seconds: int = 30
     env_vars: Dict[str, str] = field(default_factory=dict)
     env_mode: str = "inject"
-    """'inject' = append to current environment,
-    'allowlist' = only pass declared variables."""
-
     shell_executable: Optional[str] = None
-    """Shell to use for command execution inside the sandbox.
-    Supports: powershell.exe, pwsh.exe, cmd.exe, or a full path.
-    When None, the platform backend chooses its default:
-      - Windows AppContainer / Restricted: cmd.exe
-      - Linux / macOS: /bin/sh
-    Set via running.shell_command_executable or $SHELL."""
-
-    # --- Platform passthrough (escape hatch) ---
     platform_hints: Dict[str, Any] = field(default_factory=dict)
-    """Rarely used. Pass-through for platform-native parameters such as
-    seatbelt_extra_rules / landlock_extra_flags."""
 
 
 @dataclass
 class ExecutionResult:
-    """Return value of sandbox.execute()."""
+    """Result of a sandbox command execution.
+
+    Attributes:
+        exit_code: Process exit code.
+        stdout: Captured standard output.
+        stderr: Captured standard error.
+        timed_out: Whether the command was killed due to timeout.
+        duration_ms: Wall-clock execution time in milliseconds.
+        sandbox_violation: Violation message if access was denied,
+            None otherwise.
+    """
 
     exit_code: int
     stdout: str
@@ -159,7 +173,14 @@ class ExecutionResult:
 class SandboxCapability:
     """Platform sandbox capability probe result.
 
-    Obtained at startup via probe_sandbox_support().
+    Obtained via ``probe_sandbox_support()`` at startup.
+
+    Attributes:
+        supported: Whether sandbox isolation is available.
+        mode: Detected sandbox mode (``NONE`` if unsupported).
+        reason: Human-readable explanation.
+        landlock_abi_version: Linux Landlock ABI version
+            (0 = unsupported).
     """
 
     supported: bool
@@ -173,12 +194,15 @@ class SandboxCapability:
 def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements
     SandboxCapability
 ):
-    """Probe Linux Landlock support.
+    """Probes Linux Landlock support.
 
     Detection steps:
-        1. Kernel version >= 5.13
-        2. /sys/kernel/security/lsm contains "landlock"
-        3. Attempt landlock_create_ruleset syscall to detect ABI version
+        1. Kernel version >= 5.13.
+        2. ``/sys/kernel/security/lsm`` contains ``"landlock"``.
+        3. ``landlock_create_ruleset`` syscall returns ABI version.
+
+    Returns:
+        Probe result with ``mode=LANDLOCK`` on success.
     """
     import ctypes
     import ctypes.util
@@ -290,7 +314,11 @@ def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements
 
 
 def _probe_macos_seatbelt() -> SandboxCapability:
-    """Probe macOS Seatbelt (sandbox-exec) support."""
+    """Probes macOS Seatbelt (sandbox-exec) support.
+
+    Returns:
+        Probe result with ``mode=SEATBELT`` if ``sandbox-exec`` is found.
+    """
     if shutil.which("sandbox-exec"):
         return SandboxCapability(
             supported=True,
@@ -305,17 +333,18 @@ def _probe_macos_seatbelt() -> SandboxCapability:
 
 
 def _probe_windows() -> SandboxCapability:
-    """Probe Windows sandbox support.
+    """Probes Windows sandbox support.
 
     Detection steps:
-        1. sys.platform == "win32"
-        2. Windows 10+ (build 10240+)
-        3. CreateRestrictedToken API is callable (advapi32.dll)
-        4. Optionally, icacls.exe + AppContainer API (userenv.dll)
+        1. ``sys.platform == "win32"``
+        2. Windows 10+ (build 10240+).
+        3. ``CreateRestrictedToken`` API is callable (advapi32.dll).
+        4. Optional: AppContainer API (userenv.dll) + ``icacls.exe``.
 
     Succeeds if at least the WRITE_RESTRICTED token path is available.
-    AppContainer availability is noted in the reason string but is not
-    required — ``create_sandbox`` picks the concrete backend at runtime.
+
+    Returns:
+        Probe result with ``mode=WINDOWS`` on success.
     """
     import sys
 
@@ -383,11 +412,14 @@ def _probe_windows() -> SandboxCapability:
 
 
 def _probe_linux_bubblewrap() -> SandboxCapability:
-    """Probe bubblewrap (bwrap) availability on Linux.
+    """Probes bubblewrap (bwrap) availability on Linux.
 
     Detection steps:
-        1. bwrap binary exists on PATH
-        2. User namespaces work (test run with --unshare-user)
+        1. ``bwrap`` binary exists on ``PATH``.
+        2. Test run with ``--unshare-user`` confirms user namespaces work.
+
+    Returns:
+        Probe result with ``mode=BUBBLEWRAP`` on success.
     """
     bwrap = shutil.which("bwrap")
     if not bwrap:
@@ -447,18 +479,16 @@ def _probe_linux_bubblewrap() -> SandboxCapability:
 
 @functools.lru_cache(maxsize=1)
 def probe_sandbox_support() -> SandboxCapability:
-    """Probe current platform sandbox support at startup.
-
-    Returns a SandboxCapability describing whether sandbox isolation is
-    available. If unsupported, mode is NONE and callers should block
-    the SANDBOX_FALLBACK path.
+    """Probes current platform sandbox support.
 
     On Linux the priority is: bubblewrap > Landlock > NONE.
 
-    The result is cached (``lru_cache(maxsize=1)``) because OS-level
-    sandbox capability does not change during the process lifetime.
-    The first call may block (e.g. ``subprocess.run`` with a timeout
-    on Linux); subsequent calls return instantly from cache.
+    The result is cached (single invocation per process) because
+    OS-level sandbox capability does not change at runtime. The first
+    call may block briefly (e.g. a subprocess probe on Linux).
+
+    Returns:
+        ``SandboxCapability`` describing available isolation.
     """
     import sys
 
@@ -480,10 +510,10 @@ def probe_sandbox_support() -> SandboxCapability:
 
 
 def detect_platform_mode() -> SandboxMode:
-    """Auto-detect sandbox mode based on current OS.
+    """Auto-detects sandbox mode for the current OS.
 
-    Calls probe_sandbox_support() for real capability probing.
-    Returns NONE if the platform does not support sandbox isolation.
+    Returns:
+        Detected ``SandboxMode``, or ``NONE`` if unsupported.
     """
     cap = probe_sandbox_support()
     return cap.mode
@@ -494,19 +524,23 @@ def detect_platform_mode() -> SandboxMode:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def create_sandbox(config: SandboxConfig) -> Any:
-    """Create a sandbox instance based on ``config.mode``.
+def create_sandbox(  # pylint: disable=too-many-return-statements
+    config: SandboxConfig,
+) -> Any:
+    """Creates a sandbox instance for the given configuration.
 
-    Supported modes:
-      - SEATBELT      → MacOSSandbox
-      - BUBBLEWRAP    → BubblewrapSandbox (Linux preferred)
-      - LANDLOCK      → LinuxSandbox (Linux fallback)
-      - WINDOWS       → Windows sandbox (Windows 10+ native). Dispatches on
-        ``allow_read_all`` and admin privilege:
-        allow_read_all=False → WindowsAppContainerSandbox (AppContainer)
-        allow_read_all=True + admin → WindowsElevatedSandbox
-        allow_read_all=True + no admin → WindowsUnelevatedSandbox
-      - NONE          → NoneSandbox
+    Dispatches to the appropriate backend based on ``config.mode``.
+    For Windows mode, further dispatches on ``allow_read_all`` and
+    admin privilege.
+
+    Args:
+        config: Sandbox configuration.
+
+    Returns:
+        A sandbox instance (async context manager with ``execute()``).
+
+    Raises:
+        ValueError: If ``config.mode`` is unknown.
     """
     if config.mode == SandboxMode.SEATBELT:
         from .macos_sandbox import MacOSSandbox

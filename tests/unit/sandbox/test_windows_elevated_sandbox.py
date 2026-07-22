@@ -16,7 +16,6 @@ Test structure mirrors test_windows_sandbox.py:
 """
 
 import asyncio
-import os
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -62,7 +61,7 @@ class TestFactoryRouting:
         assert isinstance(sandbox, WindowsElevatedSandbox)
 
     def test_allow_read_all_false_does_not_route_here(self):
-        """allow_read_all=False → WindowsAppContainerSandbox (not this backend)."""
+        """allow_read_all=False routes to AppContainerSandbox."""
         from qwenpaw.sandbox import create_sandbox
         from qwenpaw.sandbox.windows_appcontainer_sandbox import (
             WindowsAppContainerSandbox,
@@ -1139,7 +1138,7 @@ class TestShutdownBudget:
             wrs._SHUTDOWN_ACL_DEADLINE = old_deadline
 
     def test_run_icacls_sync_uses_min_of_180_and_budget(self):
-        """_run_icacls_sync_local caps timeout at min(180, remaining_budget)."""
+        """_run_icacls_sync_local caps timeout at budget."""
         import time
 
         import qwenpaw.sandbox.windows_elevated_sandbox as wrs
@@ -1167,7 +1166,7 @@ class TestShutdownBudget:
             wrs._SHUTDOWN_ACL_DEADLINE = old_deadline
 
     def test_verify_acl_removed_returns_false_when_budget_exhausted(self):
-        """_verify_acl_removed_sync_local must return False when budget is 0."""
+        """_verify_acl_removed_sync_local returns False on expiry."""
         import time
 
         import qwenpaw.sandbox.windows_elevated_sandbox as wrs
