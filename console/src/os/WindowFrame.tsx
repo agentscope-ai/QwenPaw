@@ -2,13 +2,14 @@
  * WindowFrame.tsx — A single draggable / resizable OS window.
  *
  * Reads geometry from osWindowStore and renders app content passed as
- * children. Dragging uses pointer events on the header; resizing uses a
- * bottom-right handle. Maximise fills the desktop minus the taskbar.
+ * children. Dragging uses pointer events on the header; resizing works from
+ * every edge and corner (8 directions), with a visible grip at the
+ * bottom-right. Maximise fills the desktop minus the taskbar.
  * On small viewports windows are forced full-screen and drag is disabled.
  */
 import { useCallback, useRef, useState } from "react";
 import { Minus, X, Maximize2, type LucideIcon } from "lucide-react";
-import { useOsWindows, type OsWindow } from "./osWindowStore";
+import { useOsWindows, type OsWindow, type OsRect } from "./osWindowStore";
 import { computeSnapRect, type SnapZone } from "./snap";
 import { OsWindowContainerContext } from "./osWindowContainer";
 import { useOsStyles, MENUBAR_H, DOCK_H } from "./useOsStyles";
@@ -24,6 +25,85 @@ interface WindowFrameProps {
 
 const MIN_W = 360;
 const MIN_H = 260;
+
+type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+
+/** Invisible hit-area thickness for edge/corner resize zones. */
+const RESIZE_EDGE = 6;
+
+/** Edge + corner resize zones (the SE corner keeps the visible grip). */
+const RESIZE_HANDLES: { dir: ResizeDir; style: React.CSSProperties }[] = [
+  {
+    dir: "n",
+    style: {
+      top: -RESIZE_EDGE / 2,
+      left: RESIZE_EDGE,
+      right: RESIZE_EDGE,
+      height: RESIZE_EDGE,
+      cursor: "ns-resize",
+    },
+  },
+  {
+    dir: "s",
+    style: {
+      bottom: -RESIZE_EDGE / 2,
+      left: RESIZE_EDGE,
+      right: RESIZE_EDGE,
+      height: RESIZE_EDGE,
+      cursor: "ns-resize",
+    },
+  },
+  {
+    dir: "e",
+    style: {
+      right: -RESIZE_EDGE / 2,
+      top: RESIZE_EDGE,
+      bottom: RESIZE_EDGE,
+      width: RESIZE_EDGE,
+      cursor: "ew-resize",
+    },
+  },
+  {
+    dir: "w",
+    style: {
+      left: -RESIZE_EDGE / 2,
+      top: RESIZE_EDGE,
+      bottom: RESIZE_EDGE,
+      width: RESIZE_EDGE,
+      cursor: "ew-resize",
+    },
+  },
+  {
+    dir: "nw",
+    style: {
+      top: -RESIZE_EDGE / 2,
+      left: -RESIZE_EDGE / 2,
+      width: RESIZE_EDGE * 2,
+      height: RESIZE_EDGE * 2,
+      cursor: "nwse-resize",
+    },
+  },
+  {
+    dir: "ne",
+    style: {
+      top: -RESIZE_EDGE / 2,
+      right: -RESIZE_EDGE / 2,
+      width: RESIZE_EDGE * 2,
+      height: RESIZE_EDGE * 2,
+      cursor: "nesw-resize",
+    },
+  },
+  {
+    dir: "sw",
+    style: {
+      bottom: -RESIZE_EDGE / 2,
+      left: -RESIZE_EDGE / 2,
+      width: RESIZE_EDGE * 2,
+      height: RESIZE_EDGE * 2,
+      cursor: "nesw-resize",
+    },
+  },
+];
 
 export default function WindowFrame({
   win,
@@ -45,12 +125,9 @@ export default function WindowFrame({
     activeId,
   } = useOsWindows();
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
-  const resizeRef = useRef<{
-    sx: number;
-    sy: number;
-    w: number;
-    h: number;
-  } | null>(null);
+  const resizeRef = useRef<
+    ({ dir: ResizeDir; sx: number; sy: number } & OsRect) | null
+  >(null);
   // Exposed to descendant overlays (Drawer/Modal) as their render container so
   // they stay within this window instead of covering the whole desktop.
   const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
@@ -110,27 +187,50 @@ export default function WindowFrame({
   );
 
   const onResizePointerDown = useCallback(
-    (e: React.PointerEvent) => {
+    (e: React.PointerEvent, dir: ResizeDir) => {
       e.stopPropagation();
       focus(win.id);
-      resizeRef.current = { sx: e.clientX, sy: e.clientY, w: win.w, h: win.h };
+      resizeRef.current = {
+        dir,
+        sx: e.clientX,
+        sy: e.clientY,
+        x: win.x,
+        y: win.y,
+        w: win.w,
+        h: win.h,
+      };
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [focus, win.id, win.w, win.h],
+    [focus, win.id, win.x, win.y, win.w, win.h],
   );
 
   const onResizePointerMove = useCallback(
     (e: React.PointerEvent) => {
-      if (!resizeRef.current) return;
-      const nw = Math.max(
-        MIN_W,
-        resizeRef.current.w + (e.clientX - resizeRef.current.sx),
-      );
-      const nh = Math.max(
-        MIN_H,
-        resizeRef.current.h + (e.clientY - resizeRef.current.sy),
-      );
-      resize(win.id, { w: nw, h: nh });
+      const r = resizeRef.current;
+      if (!r) return;
+      const dx = e.clientX - r.sx;
+      const dy = e.clientY - r.sy;
+      const rect: Partial<OsRect> = {};
+      if (r.dir.includes("e")) rect.w = Math.max(MIN_W, r.w + dx);
+      if (r.dir.includes("s")) rect.h = Math.max(MIN_H, r.h + dy);
+      if (r.dir.includes("w")) {
+        // Left edge moves: keep the right edge anchored.
+        const nw = Math.max(MIN_W, r.w - dx);
+        rect.w = nw;
+        rect.x = r.x + (r.w - nw);
+      }
+      if (r.dir.includes("n")) {
+        // Top edge moves: keep the bottom edge anchored, never cross the menu bar.
+        let nh = Math.max(MIN_H, r.h - dy);
+        let ny = r.y + (r.h - nh);
+        if (ny < MENUBAR_H) {
+          ny = MENUBAR_H;
+          nh = r.y + r.h - MENUBAR_H;
+        }
+        rect.h = nh;
+        rect.y = ny;
+      }
+      resize(win.id, rect);
     },
     [resize, win.id],
   );
@@ -227,12 +327,24 @@ export default function WindowFrame({
       </div>
 
       {!isFull && (
-        <div
-          className={styles.resizeHandle}
-          onPointerDown={onResizePointerDown}
-          onPointerMove={onResizePointerMove}
-          onPointerUp={endResize}
-        />
+        <>
+          {RESIZE_HANDLES.map(({ dir, style }) => (
+            <div
+              key={dir}
+              className={styles.resizeArea}
+              style={style}
+              onPointerDown={(e) => onResizePointerDown(e, dir)}
+              onPointerMove={onResizePointerMove}
+              onPointerUp={endResize}
+            />
+          ))}
+          <div
+            className={styles.resizeHandle}
+            onPointerDown={(e) => onResizePointerDown(e, "se")}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={endResize}
+          />
+        </>
       )}
     </div>
   );

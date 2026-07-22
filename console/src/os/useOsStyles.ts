@@ -188,6 +188,11 @@ export const useOsStyles = createStyles(({ css }) => ({
       border-bottom: 2px solid rgba(148, 163, 184, 0.6);
     }
   `,
+  /** Invisible edge/corner resize zones (positioning + cursor set inline). */
+  resizeArea: css`
+    position: absolute;
+    z-index: 5;
+  `,
   loading: css`
     position: absolute;
     inset: 0;
