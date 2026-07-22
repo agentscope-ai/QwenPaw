@@ -40,7 +40,7 @@ flowchart LR
     K -->|否| M[保留重建后的实时上下文]
     L --> N{高于有效硬上限?}
     N -->|否| M
-    N -->|是| O[把最新文本结果缩成可见的首尾 preview]
+    N -->|是| O[批量折叠已确认读取的早期活动轮次结果]
     O --> P{已装入有效硬上限?}
     P -->|是| M
     P -->|否| Q[CONTEXT_UNFIT]
@@ -49,13 +49,13 @@ flowchart LR
 核心特性：
 
 - **先持久化**：`ScrollContextManager` 在任何驱逐前，都会先把实时上下文写入 `{working_dir}/history.db`。
-- **保护当前活动轮次**：最新的用户请求及其进行中的工具链绝不会在任务中途被驱逐——即使压缩恰好在一个长工具任务中间触发，模型也不会丢失（进而答非所问）当前请求。
+- **保护当前活动轮次**：最新的用户请求及其进行中的工具链绝不会在任务中途被驱逐。只有达到有效硬上限时，已经被一次成功模型调用确认读取的早期工具结果才可能折叠为精确 recall 指针；pending、未读和最新 5 条结果继续原样保留。
 - **不依赖有损摘要**：被驱逐的原文仍以 `history.db` 和 `EvictionIndex` 为准。Continuation summary 只是带指针的任务状态路由；更新失败会保留上一份有效摘要，绝不阻塞驱逐。
 - **可回溯原文**：索引中的每一行都带 `seq` 区间。Agent 可以调用 `recall_history(op="expand", lo, hi)` 读取完整原始记录（或在 `recall_history_python` REPL 中用 `ms.expand(lo, hi)`）。
 - **跨会话历史**：历史行包含 `session_id` 和 `agent_id`，默认可检索当前 Agent 的所有历史会话；显式放宽时也能查询同一工作区内其他 Agent 的历史。
 - **安全降级**：如果 scroll 无法构建，或 recall 工具无法安全运行，QwenPaw 会退回 native 上下文管理，避免把历史驱逐到无法读取的位置。
 
-索引层级只会在达到 10 个 block 的容量时向上归并；压力不会提前压实索引。达到自动压缩触发线（默认 80%）时，Scroll 会批量折叠所有超过 200 字符的已完成轮次工具结果，但完整保护活动轮次和全局最新 5 个工具结果。整批替换后只重新统计一次；如果已不高于触发线，则直接停止、不驱逐对话，否则继续正常驱逐。重建后，只有上下文仍高于 `max(trigger, reserve)` 时才启用已完成结果折叠作为最终泄压阀。显式 `/compact` 会跳过预裁剪，执行用户要求的驱逐。
+索引层级只会在达到 10 个 block 的容量时向上归并；压力不会提前压实索引。达到自动压缩触发线（默认 80%）时，Scroll 会批量折叠所有超过 200 字符的已完成轮次工具结果，但完整保护活动轮次和全局最新 5 个工具结果。整批替换后只重新统计一次；如果已不高于触发线，则直接停止、不驱逐对话，否则继续正常驱逐。重建后，只有上下文仍高于 `max(trigger, reserve)` 时才启用已完成结果折叠作为最终泄压阀；如果输入仍高于有效硬上限，则批量折叠已确认读取的早期活动轮次结果并再统计一次。显式 `/compact` 会跳过预裁剪，执行用户要求的驱逐。
 
 ## 存储布局
 
@@ -98,14 +98,14 @@ flowchart LR
 
 ### 带指针的 Continuation Summary
 
-Headline 用来标记单个里程碑；continuation summary 则跨多个已驱逐轮次维护“当前仍有效”的任务状态。它只在真正发生对话驱逐时更新，固定包含 `Active Task`、`Current State`、`Constraints`、`Decisions`、`Open Work` 和 `Evidence` 六段。
+Headline 用来标记单个里程碑；continuation summary 则跨多个已驱逐轮次维护“当前仍有效”的任务状态。它只在真正发生对话驱逐时更新，固定包含 `Active Task`、`Current State`、`Constraints`、`Decisions` 和 `Open Work` 五段；checkpoint 与恢复锚点继续由 eviction index 负责。
 
 - **普通文本生成**：模型通过关闭 thinking 的正常 chat completion 返回 Markdown；Scroll 不调用 `generate_structured_output`、JSON mode 或 response schema。
 - **本地解析、确定性渲染**：代码把 Markdown 解析成 JSON-safe 内部状态，再自行渲染六个 section。模型不生成内联来源链接；代码维护一个可信的已归档 seq 范围，并在背景 banner 中单独说明。
 - **单一背景 envelope**：continuation summary 与 eviction index 同时存在时，Scroll 会把两者放在同一个 `<system-info>` 块中，不输出首尾相接的两组 wrapper。
 - **按角色分配的有界证据**：优先为已驱逐的 user 原文和 headline 分配预算，避免独立约束与事实被工具密集的中间轮遮住；剩余空间由 assistant/tool-call 上下文与有界 tool-result preview 共享，完整结果仍通过真实 `seq`、`tool_call_id`、artifact、file 指针持久可取回。
-- **增量更新**：上一份有效 summary 与新驱逐区段一起输入，让过时状态被删除，而不是不断追加成日志。
-- **确定性质量检查**：代码检查 section 顺序与 status、确认代码维护的 seq 范围真实存在，并拒绝凭空出现的 opaque identifier、疑似 secret 和超长输出；这里不使用单独的 LLM judge。
+- **显式 summary 模式**：`initial` 建立第一份状态，`update` 用新驱逐区段替换式更新上一份状态，`rebase` 从持久证据重建状态；三种模式共用同一套五段 Markdown 协议。
+- **确定性质量检查**：代码检查 section 顺序与 status、确认代码维护的 seq 范围真实存在，并拒绝完全重复的状态条目、凭空出现的 opaque identifier、疑似 secret 和超长输出；检查刻意避免容易误拒的语义推断，也不使用单独的 LLM judge。
 - **一次条件重试**：不合格输出会携带简短校验错误再生成一次；第二次仍失败时保留上一份 summary 并标记 stale，空结果绝不覆盖有效状态。
 - **Source-backed rebase**：每成功更新八次，当 summary 已引用的 seq 区间合计不超过 20 行时，用这些持久原文与本次新驱逐内容替代普通增量输入；更宽的区间会推迟 rebase，避免拿有损采样冒充完整证据。它替代该周期的普通更新，不额外调用一次模型。
 - **Secret-safe preview**：有界证据送入 summary 模型前会移除疑似 credential value；summary 只保留非敏感状态和持久指针。
@@ -146,7 +146,7 @@ Headline 用来标记单个里程碑；continuation summary 则跨多个已驱�
 
    正常压力下，请求原文、工具调用、推理文本、完整活动轮次和最近结果尾部全部原样保留；每条被折叠的输出都和其他历史一样在折叠前已持久化，可以通过准确的 tool call ID 取回。`recall_tool` 使用有界分页；返回 `next_cursor` 时按该 cursor 继续。如果结果提供了完整输出的 `file_path`，再用 `read_file` 分段读取该 artifact。stub 特意指向结构化工具：它在进程内运行、不依赖沙箱，所以即使在 Python REPL 无法运行的平台上也能读回。
 
-4. **硬上限紧急恢复**——Scroll 为下一次模型输出预留 `min(4096, context_size 的 5%)` 个 token。输入仍超过由此得到的有效硬上限时，把最新且尚未读取的**文本**工具结果缩成可见的首尾 preview，并附上精确 `recall_tool` 指针。非文本结果、pending tool call 和用户输入绝不会被静默丢弃；这些必要内容仍装不下时，Scroll 明确抛出 `CONTEXT_UNFIT`，不会重置会话或无限重试。
+4. **活动轮次硬上限折叠**——Scroll 为下一次模型输出预留 `min(4096, context_size 的 5%)` 个 token。输入仍超过由此得到的有效硬上限时，会把已经进入一次成功模型调用的早期活动轮次工具结果批量替换为精确 `recall_tool` 指针，然后只重新统计一次。当前请求、pending call、未读结果和最新 5 条结果继续原样保留；失败或中断的模型请求不会确认其输入已读。这些受保护内容仍装不下时，Scroll 明确抛出 `CONTEXT_UNFIT`，不会修改未读证据、重置会话或无限重试。
 
 ### 驱逐索引
 

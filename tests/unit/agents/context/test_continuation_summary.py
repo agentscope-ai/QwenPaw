@@ -29,9 +29,6 @@ Status: in_progress
 
 ## Open Work
 - Fix OpenAI timeout.
-
-## Evidence
-- Test artifact. [artifact:test-a]
 ```"""
 
     summary = parse_plain_markdown(raw, covered_seq=(10, 30))
@@ -42,7 +39,8 @@ Status: in_progress
     # All items receive the real, code-supplied durable range internally.
     assert summary.constraints[0].sources[0].render() == "[seq:10-30]"
     rendered = summary.render()
-    assert rendered.index("## Current State") < rendered.index("## Evidence")
+    assert rendered.index("## Current State") < rendered.index("## Open Work")
+    assert "## Evidence" not in rendered
     assert "[seq:" not in rendered
     assert "[artifact:" not in rendered
     assert "(none)" not in rendered
@@ -68,9 +66,7 @@ Status: in_progress
 (none)
 ## Open Work
 (none)
-## Evidence
-- evidence
-## Evidence
+## Open Work
 - duplicate
 """
     assert parse_plain_markdown(duplicate, covered_seq=(1, 2)) is None
@@ -93,9 +89,6 @@ Status: blocked
 
 ## Open Work
 - Obtain credentials. [file:/tmp/request.txt]
-
-## Evidence
-- Archived range. [seq:1-8]
 """,
         covered_seq=(1, 8),
     )
@@ -113,13 +106,43 @@ Status: blocked
     assert "sequence range 1–8" in background
 
 
+def test_legacy_checkpoint_evidence_is_ignored_on_load():
+    summary = ContinuationSummary.from_dict(
+        {
+            "version": 1,
+            "covered_seq": [1, 3],
+            "active_task": "Resume migration.",
+            "status": "in_progress",
+            "current_state": [
+                {
+                    "text": "Migration started.",
+                    "sources": [{"type": "seq", "lo": 1, "hi": 3}],
+                },
+            ],
+            "constraints": [],
+            "decisions": [],
+            "open_work": [],
+            "evidence": [
+                {
+                    "text": "Legacy evidence entry.",
+                    "sources": [{"type": "seq", "lo": 1, "hi": 3}],
+                },
+            ],
+        },
+    )
+
+    assert summary is not None
+    assert "Legacy evidence entry" not in summary.render()
+    assert "evidence" not in summary.to_dict()
+
+
 def test_prompt_and_redaction_encode_quality_constraints():
     prompt = build_update_prompt(
+        mode="rebase",
         previous=None,
         archived_context="[seq:1] token=secret-value-123",
         covered_seq=(1, 1),
         repair_issues=("invalid status",),
-        source_backed_rebase=True,
     )
 
     assert "Do NOT return JSON" in prompt
@@ -131,6 +154,65 @@ def test_prompt_and_redaction_encode_quality_constraints():
     assert "secret-value-123" not in redact_secrets(
         "token=secret-value-123",
     )
+
+
+def test_prompt_modes_share_one_output_protocol():
+    initial = build_update_prompt(
+        mode="initial",
+        previous=None,
+        archived_context="[seq:1] task state",
+        covered_seq=(1, 1),
+    )
+    update = build_update_prompt(
+        mode="update",
+        previous=None,
+        archived_context="[seq:1] task state",
+        covered_seq=(1, 1),
+    )
+    rebase = build_update_prompt(
+        mode="rebase",
+        previous=None,
+        archived_context="[seq:1] task state",
+        covered_seq=(1, 1),
+    )
+
+    assert "Create the first continuation summary" in initial
+    assert "Update the previous continuation summary" in update
+    assert "Rebuild the continuation summary" in rebase
+    for prompt in (initial, update, rebase):
+        assert "## Open Work" in prompt
+        assert "## Evidence" not in prompt
+
+
+def test_quality_guard_rejects_only_exact_duplicate_state_items():
+    summary = parse_plain_markdown(
+        """## Active Task
+Fix discovery.
+Status: in_progress
+
+## Current State
+- DashScope passes.
+
+## Constraints
+(none)
+
+## Decisions
+- dashscope   PASSES.
+
+## Open Work
+- Fix OpenAI.
+""",
+        covered_seq=(1, 2),
+    )
+    assert summary is not None
+
+    issues = validate_summary_quality(
+        summary,
+        evidence_text="[seq:1-2] DashScope passes. Fix OpenAI.",
+        existing_seqs={1, 2},
+    )
+
+    assert "summary contains duplicate state items" in issues
 
 
 def test_quality_guard_rejects_missing_endpoints_identifiers_and_secrets():
@@ -150,9 +232,6 @@ Status: in_progress
 
 ## Open Work
 (none)
-
-## Evidence
-- Missing artifact. [artifact:invented]
 """,
         covered_seq=(1, 2),
     )
@@ -187,9 +266,6 @@ Status: in_progress
 
 ## Open Work
 - Verify the adapter. [file:invented.py]
-
-## Evidence
-- Test output. [artifact:invented]
 """,
         covered_seq=(10, 20),
     )
@@ -227,9 +303,6 @@ Status: in_progress
 
 ## Open Work
 (none)
-
-## Evidence
-- Configuration record. [seq:1]
 """,
         covered_seq=(1, 1),
     )

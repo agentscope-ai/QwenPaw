@@ -299,6 +299,24 @@ def test_checkpoint_round_trip_prevents_reappend(store: HistoryStore):
     assert store.count("s1") == 3  # nothing re-appended
 
 
+def test_checkpoint_round_trip_preserves_seen_tool_results(
+    store: HistoryStore,
+):
+    """Active-turn folding eligibility survives a session resume."""
+    ctx = [user("run it"), assistant_with_tool("call-seen", "x" * 500)]
+    agent = FakeAgent(ctx)
+    mgr1 = make_manager(store)
+    mgr1._persist_new(agent)
+    captured = mgr1.model_input_tool_result_ids(agent)
+    assert captured == {"call-seen"}
+    mgr1.acknowledge_model_input_tool_results(captured)
+
+    mgr2 = make_manager(store)
+    mgr2.load_state(mgr1.to_dict())
+
+    assert mgr2._seen_tool_result_ids == {"call-seen"}
+
+
 def test_reappend_blocked_by_db_even_without_checkpoint(store: HistoryStore):
     """Belt-and-suspenders: even a fresh manager with no checkpoint cannot
     duplicate rows, because the ux_dedup unique index drops them."""
@@ -699,9 +717,6 @@ Status: in_progress
 
 ## Open Work
 - Fix the OpenAI timeout.
-
-## Evidence
-- Archived conversation.
 """
 
 
@@ -726,6 +741,10 @@ async def test_eviction_generates_plain_text_pointer_backed_summary(
     assert call["disable_thinking"] is True
     assert "structured_model" not in call
     assert "Do NOT return JSON" in call["messages"][1].get_text_content()
+    assert (
+        "Create the first continuation summary"
+        in call["messages"][1].get_text_content()
+    )
     summary = mgr.describe_summary()
     assert "## Active Task\nFix provider discovery." in summary
     # The model-visible summary stays clean; code retains the range internally.
@@ -836,6 +855,10 @@ async def test_invalid_summary_update_preserves_previous_and_marks_stale(
     assert "Fix provider discovery." in placeholder
     assert len(agent.model.summary_calls) == 3
     assert mgr.last_compress["summary_retries"] == 1
+    update_prompt = agent.model.summary_calls[1]["messages"][1]
+    assert "Update the previous continuation summary" in (
+        update_prompt.get_text_content()
+    )
 
 
 async def test_invalid_summary_is_retried_once_with_quality_feedback(
@@ -924,7 +947,7 @@ async def test_pretrim_avoids_eviction_at_or_below_trigger(
         "evicted": 0,
         "pre_folded": 2,
         "live_folded": 0,
-        "emergency_shortened": 0,
+        "active_folded": 0,
         "folded": 2,
     }
     assert agent.model.calls == 2
@@ -959,7 +982,7 @@ async def test_pretrim_insufficient_then_continues_to_eviction(
         "evicted": len(history),
         "pre_folded": 2,
         "live_folded": 0,
-        "emergency_shortened": 0,
+        "active_folded": 0,
         "folded": 2,
     }
     assert agent.model.calls == 3
@@ -1107,7 +1130,7 @@ async def test_pressure_fold_preserves_complete_active_turn(
 
     assert mgr.last_compress["folded"] == 0
     assert mgr.last_compress["live_folded"] == 0
-    assert mgr.last_compress["emergency_shortened"] == 0
+    assert mgr.last_compress["active_folded"] == 0
 
     # Idempotent: a second round still preserves the active results.
     await mgr.compress(agent)
@@ -1152,30 +1175,90 @@ async def test_parallel_unconsumed_active_results_remain_visible(
     assert mgr.last_compress["live_folded"] == 0
 
 
-async def test_hard_limit_emergency_shortens_newest_unread_preview(
+async def test_hard_limit_folds_seen_old_active_results(
     store: HistoryStore,
 ):
-    """The newest unread result keeps visible evidence above the safe limit."""
-    turn = assistant_with_tool("fresh", "HEAD-" + "x" * 5000 + "-TAIL")
-    ctx = [user("inspect the result"), turn]
+    """Hard-limit recovery folds only acknowledged active-turn results."""
+    turn = _multi_tool_turn(n=7, padding=5000)
+    ctx = [user("run the long tool workflow"), turn]
     mgr = make_manager(store)
-    agent = FakeAgent(ctx, tokens=[980, 940])
+    agent = FakeAgent(ctx, tokens=[980, 900])
     agent._split_return = (ctx, [])
+    mgr.acknowledge_model_input_tool_results({f"c{i}" for i in range(7)})
 
     await mgr.compress(agent)
 
-    preview = turn.content[2].output[0].text
-    assert preview.startswith("[scroll emergency preview]")
-    assert "HEAD-" in preview
-    assert "-TAIL" in preview
-    assert "tool_call_id='fresh'" in preview
+    assert turn.content[2].output[0].text.startswith("[scroll folded]")
+    assert turn.content[5].output[0].text.startswith("[scroll folded]")
+    for index in range(2, 7):
+        assert (
+            turn.content[3 * index + 2]
+            .output[0]
+            .text.startswith(
+                f"RESULT-{index}",
+            )
+        )
     durable = store._conn.execute(
         "SELECT content FROM conversation_history "
-        "WHERE kind='tool_result' AND tool_call_id='fresh'",
+        "WHERE kind='tool_result' AND tool_call_id='c0'",
     ).fetchone()
-    assert durable["content"] == "HEAD-" + "x" * 5000 + "-TAIL"
-    assert mgr.last_compress["emergency_shortened"] == 1
+    assert durable["content"].startswith("RESULT-0")
+    assert mgr.last_compress["active_folded"] == 2
     assert mgr.last_compress["live_folded"] == 0
+    assert mgr.last_compress["folded"] == 2
+    assert agent.model.calls == 2
+
+
+async def test_hard_limit_keeps_unread_active_results_and_fails_closed(
+    store: HistoryStore,
+):
+    """Unread active evidence is never shortened merely to force a fit."""
+    turn = _multi_tool_turn(n=7, padding=5000)
+    ctx = [user("run the long tool workflow"), turn]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=980)
+    agent._split_return = (ctx, [])
+
+    with pytest.raises(ContextWindowUnfitError):
+        await mgr.compress(agent)
+
+    for index in range(7):
+        assert (
+            turn.content[3 * index + 2]
+            .output[0]
+            .text.startswith(
+                f"RESULT-{index}",
+            )
+        )
+    assert mgr.last_compress["active_folded"] == 0
+    assert agent.model.calls == 1
+
+
+async def test_hard_limit_still_unfit_after_safe_active_fold(
+    store: HistoryStore,
+):
+    """No second lossy fallback runs when acknowledged folding is
+    insufficient."""
+    turn = _multi_tool_turn(n=7, padding=5000)
+    ctx = [user("run the long tool workflow"), turn]
+    mgr = make_manager(store)
+    agent = FakeAgent(ctx, tokens=[980, 970])
+    agent._split_return = (ctx, [])
+    mgr.acknowledge_model_input_tool_results({f"c{i}" for i in range(7)})
+
+    with pytest.raises(ContextWindowUnfitError) as exc:
+        await mgr.compress(agent)
+
+    assert exc.value.tokens == 970
+    assert mgr.last_compress["active_folded"] == 2
+    for index in range(2, 7):
+        assert (
+            turn.content[3 * index + 2]
+            .output[0]
+            .text.startswith(
+                f"RESULT-{index}",
+            )
+        )
     assert agent.model.calls == 2
 
 

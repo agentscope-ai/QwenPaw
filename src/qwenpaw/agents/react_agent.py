@@ -18,11 +18,13 @@ from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from agentscope.agent import Agent, ReActConfig
 from agentscope.event import (
+    ModelCallEndEvent,
     TextBlockDeltaEvent,
     TextBlockEndEvent,
     TextBlockStartEvent,
 )
 from agentscope.message import Msg, TextBlock
+from agentscope.model import FinishedReason
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
@@ -473,8 +475,34 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         # ── Model call with passive retry on media error ──
         final_msg: Msg | None = None
+        context_manager = self._context_manager
+        pending_seen_ids: set[str] = set()
+        if context_manager is not None and hasattr(
+            context_manager,
+            "model_input_tool_result_ids",
+        ):
+            pending_seen_ids = context_manager.model_input_tool_result_ids(
+                self,
+            )
+
+        def acknowledge_seen_results(evt: Any) -> None:
+            """Acknowledge inputs only after a completed model request."""
+            if (
+                isinstance(evt, ModelCallEndEvent)
+                and evt.finished_reason != FinishedReason.INTERRUPTED
+                and context_manager is not None
+                and hasattr(
+                    context_manager,
+                    "acknowledge_model_input_tool_results",
+                )
+            ):
+                context_manager.acknowledge_model_input_tool_results(
+                    pending_seen_ids,
+                )
+
         try:
             async for evt in super()._reasoning(tool_choice=tool_choice):
+                acknowledge_seen_results(evt)
                 if isinstance(evt, Msg):
                     final_msg = evt
                 else:
@@ -504,6 +532,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 async for evt in super()._reasoning(
                     tool_choice=tool_choice,
                 ):
+                    acknowledge_seen_results(evt)
                     if isinstance(evt, Msg):
                         final_msg = evt
                     else:

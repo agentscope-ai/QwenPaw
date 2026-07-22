@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 
 SUMMARY_PREFIX = """[archived task state]
@@ -26,9 +26,9 @@ _SECTIONS = (
     "Constraints",
     "Decisions",
     "Open Work",
-    "Evidence",
 )
 _ITEM_SECTIONS = _SECTIONS[1:]
+SummaryMode = Literal["initial", "update", "rebase"]
 _VALID_STATUSES = {"in_progress", "blocked", "completed", "unknown"}
 _HEADING_RE = re.compile(r"^##\s+(.+?)\s*$")
 _STATUS_RE = re.compile(r"^Status:\s*(\S.*?)\s*$", re.IGNORECASE)
@@ -74,27 +74,36 @@ _NUMBER_RE = re.compile(r"(?<!\d)\d+(?:\.\d+)?(?![\d.])")
 
 def build_update_prompt(
     *,
+    mode: SummaryMode,
     previous: "ContinuationSummary | None",
     archived_context: str,
     covered_seq: tuple[int, int],
     repair_issues: tuple[str, ...] = (),
-    source_backed_rebase: bool = False,
 ) -> str:
     """Build the plain-text incremental summary request."""
     previous_text = (
         redact_secrets(previous.render()) if previous is not None else "(none)"
     )
     archived_context = redact_secrets(archived_context)
-    mode = (
-        "Rebuild the continuation summary from the cited durable evidence "
-        "and newly archived context. Treat the previous summary as a "
-        "candidate, not as authoritative evidence."
-        if source_backed_rebase
-        else (
-            "Update the continuation summary using the newly archived "
-            "context."
-        )
-    )
+    instructions = {
+        "initial": (
+            "Create the first continuation summary from the newly archived "
+            "context. Extract the effective task state; do not narrate the "
+            "conversation."
+        ),
+        "update": (
+            "Update the previous continuation summary using the newly "
+            "archived context. Return one complete replacement state: merge "
+            "new facts, remove stale or superseded state, and move completed "
+            "work out of Open Work. Do not append a change log."
+        ),
+        "rebase": (
+            "Rebuild the continuation summary from the cited durable "
+            "evidence and newly archived context. Treat the previous summary "
+            "as a candidate, not as authoritative evidence. Resolve "
+            "conflicts in favor of the durable evidence."
+        ),
+    }[mode]
     safe_issues = tuple(redact_secrets(issue)[:500] for issue in repair_issues)
     repair = (
         "\nThe previous candidate failed local validation:\n- "
@@ -105,7 +114,7 @@ def build_update_prompt(
         if repair_issues
         else ""
     )
-    return f"""{mode}
+    return f"""{instructions}
 {repair}
 
 Return ordinary Markdown text only. Do NOT return JSON, a schema, a tool call,
@@ -126,9 +135,6 @@ Status: in_progress | blocked | completed | unknown
 
 ## Open Work
 - pending work, blockers, and next actions
-
-## Evidence
-- brief descriptions of the most relevant archived evidence
 
 Rules:
 - This is background state, never a place to preserve active instructions.
@@ -151,8 +157,9 @@ Rules:
 - Never copy credentials, tokens, API keys, passwords, connection strings, or
   other secrets. Retain only a safe, non-sensitive description.
 - Do not copy complete tool output. Keep only state needed to resume the task.
-- In Evidence, consolidate repetitive successful runs instead of enumerating
-  them. Keep distinct failures, decisive results, and recovery pointers.
+- Consolidate repetitive successful runs. Keep distinct failures and decisive
+  results as task state; exact checkpoints and recovery pointers belong to the
+  eviction index, not this summary.
 - Be concise: target 1500-2500 tokens and never exceed 4000 tokens.
 - Use `(none)` for an empty list section. Do not add other headings.
 
@@ -280,7 +287,6 @@ class ContinuationSummary:
     constraints: tuple[SummaryItem, ...] = field(default_factory=tuple)
     decisions: tuple[SummaryItem, ...] = field(default_factory=tuple)
     open_work: tuple[SummaryItem, ...] = field(default_factory=tuple)
-    evidence: tuple[SummaryItem, ...] = field(default_factory=tuple)
     version: int = 1
 
     def render(self) -> str:
@@ -294,7 +300,6 @@ class ContinuationSummary:
             ("Constraints", self.constraints),
             ("Decisions", self.decisions),
             ("Open Work", self.open_work),
-            ("Evidence", self.evidence),
         ):
             sections.extend(["", f"## {title}"])
             sections.extend(
@@ -334,7 +339,6 @@ class ContinuationSummary:
             + self.constraints
             + self.decisions
             + self.open_work
-            + self.evidence
         )
 
     def seq_spans(self) -> tuple[tuple[int, int], ...]:
@@ -360,7 +364,6 @@ class ContinuationSummary:
             "constraints": [item.to_dict() for item in self.constraints],
             "decisions": [item.to_dict() for item in self.decisions],
             "open_work": [item.to_dict() for item in self.open_work],
-            "evidence": [item.to_dict() for item in self.evidence],
         }
 
     @classmethod
@@ -392,7 +395,6 @@ class ContinuationSummary:
                         "constraints",
                         "decisions",
                         "open_work",
-                        "evidence",
                     )
                 },
             )
@@ -530,7 +532,6 @@ def parse_plain_markdown(
         constraints=parsed["constraints"],
         decisions=parsed["decisions"],
         open_work=parsed["open_work"],
-        evidence=parsed["evidence"],
     )
 
 
@@ -550,6 +551,12 @@ def validate_summary_quality(
         issues.append("too many factual items")
     if contains_secret(rendered):
         issues.append("summary contains a possible secret")
+
+    normalized_items = [
+        " ".join(item.text.casefold().split()) for item in summary.items()
+    ]
+    if len(normalized_items) != len(set(normalized_items)):
+        issues.append("summary contains duplicate state items")
 
     allowed_identifiers = extract_identifiers(evidence_text)
     invented = sorted(extract_identifiers(rendered) - allowed_identifiers)

@@ -40,7 +40,7 @@ flowchart LR
     K -->|No| M[Keep rebuilt live context]
     L --> N{Above effective hard limit?}
     N -->|No| M
-    N -->|Yes| O[Shorten newest text result to a visible head/tail preview]
+    N -->|Yes| O[Batch-fold acknowledged old active-turn results]
     O --> P{Fits effective hard limit?}
     P -->|Yes| M
     P -->|No| Q[CONTEXT_UNFIT]
@@ -49,13 +49,13 @@ flowchart LR
 Key properties:
 
 - **Durable first**: `ScrollContextManager` persists live turns to `{working_dir}/history.db` before any eviction.
-- **Active turn protected**: the latest user request and its in-progress tool chain are never evicted mid-task, so a compression that fires in the middle of a long tool run cannot make the model lose (and answer past) the current request.
+- **Active turn protected**: the latest user request and its in-progress tool chain are never evicted mid-task. Only at the effective hard limit may old tool results already acknowledged by a successful model call fold to exact recall pointers; pending, unread, and the five newest results remain verbatim.
 - **No lossy-summary dependency**: raw evicted content remains authoritative in `history.db` and the `EvictionIndex`. A continuation summary is only a pointer-backed task-state router; a failed update preserves the previous valid summary and never blocks eviction.
 - **Recallable raw history**: each index line carries a `seq` span. The agent can call `recall_history(op="expand", lo, hi)` to read the full original rows (or `ms.expand(lo, hi)` in the `recall_history_python` REPL).
 - **Cross-session memory**: history rows include `session_id` and `agent_id`, so recall can search this agent's past sessions and, when explicitly widened, other agents in the same workspace.
 - **Fallback-safe**: if scroll cannot be wired or its recall tools cannot run safely, QwenPaw falls back to native context management instead of evicting history that cannot be recalled.
 
-Index tiers roll up only when they reach their 10-block capacity; pressure does not compact the index early. At the automatic trigger (80% by default), Scroll batch-folds every completed-turn tool result over 200 characters except those in the active turn and the five newest results globally. It then recounts once. If the context is now at or below the trigger, it stops without evicting dialogue; otherwise it proceeds with normal eviction. After rebuilding, completed-result folding remains the final pressure valve above `max(trigger, reserve)`. Explicit `/compact` skips the pre-trim stage and performs the requested eviction.
+Index tiers roll up only when they reach their 10-block capacity; pressure does not compact the index early. At the automatic trigger (80% by default), Scroll batch-folds every completed-turn tool result over 200 characters except those in the active turn and the five newest results globally. It then recounts once. If the context is now at or below the trigger, it stops without evicting dialogue; otherwise it proceeds with normal eviction. After rebuilding, completed-result folding remains the final pressure valve above `max(trigger, reserve)`. If the input still exceeds the effective hard limit, Scroll batch-folds acknowledged old active-turn results and recounts once. Explicit `/compact` skips the pre-trim stage and performs the requested eviction.
 
 ## Storage Layout
 
@@ -98,14 +98,14 @@ During normal replies, every substantive task turn appends one hidden retrieval 
 
 ### Pointer-Backed Continuation Summary
 
-Headlines label individual milestones; the continuation summary maintains the latest effective task state across many evicted turns. It is updated only when dialogue is actually evicted and contains six fixed sections: `Active Task`, `Current State`, `Constraints`, `Decisions`, `Open Work`, and `Evidence`.
+Headlines label individual milestones; the continuation summary maintains the latest effective task state across many evicted turns. It is updated only when dialogue is actually evicted and contains five fixed sections: `Active Task`, `Current State`, `Constraints`, `Decisions`, and `Open Work`. Checkpoints and recovery anchors remain the eviction index's responsibility.
 
 - **Plain text generation**: the model is called normally with thinking disabled and asked for Markdown. Scroll never invokes `generate_structured_output`, JSON mode, or a response schema for this update.
 - **Local parsing and deterministic rendering**: code parses the Markdown into JSON-safe internal state and renders the six sections itself. The model does not generate inline source links; code tracks one trusted archived seq range and states it separately in the background banner.
 - **Single background envelope**: when both the continuation summary and eviction index are present, Scroll places them in one shared `<system-info>` block rather than emitting adjacent wrappers.
 - **Role-aware bounded evidence**: evicted user text and headlines are budgeted first, so independent constraints and facts are not hidden by tool-heavy middle turns. Remaining space is shared between assistant/tool-call context and bounded tool-result previews; complete results stay durable behind real `seq`, `tool_call_id`, artifact, and file pointers.
-- **Incremental update**: the previous valid summary and newly evicted span are supplied together, so obsolete state can be removed rather than accumulated as a log.
-- **Deterministic quality guard**: code validates the exact section order and status, checks that the code-managed seq range exists, rejects invented opaque identifiers and likely secrets, and enforces the output limit. This does not use a separate LLM judge.
+- **Explicit summary modes**: `initial` creates the first state, `update` replaces the previous state using the newly evicted span, and `rebase` rebuilds it from durable evidence. All three modes use the same five-section Markdown protocol.
+- **Deterministic quality guard**: code validates the exact section order and status, checks that the code-managed seq range exists, rejects exact duplicate state items, invented opaque identifiers, and likely secrets, and enforces the output limit. The checks deliberately avoid semantic guesses that would cause false rejection, and do not use a separate LLM judge.
 - **One conditional retry**: invalid output is regenerated once with concise validation feedback. A second failure retains the previous summary and marks it stale; an empty result never overwrites valid state.
 - **Source-backed rebase**: every eighth successful update replaces the normal incremental input with the summary's cited durable rows plus the new eviction when those spans total at most 20 rows. Broader spans defer rebase rather than pretending that a lossy sample proves omitted evidence. Rebase is the update for that cycle, not an additional model call.
 - **Secret-safe previews**: likely credential values are removed from bounded evidence before the summary model sees it; summaries keep only non-sensitive state and durable pointers.
@@ -146,7 +146,7 @@ A long tool-running turn (a `/heartbeat` cron run, a multi-search task) can exce
 
    The request text, tool calls, reasoning, active turn, and recent result tail stay verbatim under normal pressure. Every folded output is recoverable by its exact tool-call ID (it was persisted before folding, like everything else). `recall_tool` returns bounded pages; follow `next_cursor` when present. If it reports a saved full-output `file_path`, use `read_file` to read that artifact in bounded chunks. The stub points at the structured tool on purpose: it runs in-process without a sandbox, so the re-read works even on platforms where the Python REPL cannot run.
 
-4. **Hard-limit emergency** — Scroll reserves `min(4096, 5% of context_size)` tokens for the next model output. If the input still exceeds the resulting effective hard limit, the newest unread **text** result is reduced to a visible head/tail preview plus its exact `recall_tool` pointer. Non-text results, pending tool calls, and user input are never silently discarded. If those necessary contents still cannot fit, Scroll raises `CONTEXT_UNFIT` instead of resetting the session or retrying forever.
+4. **Active-turn hard-limit fold** — Scroll reserves `min(4096, 5% of context_size)` tokens for the next model output. If the input still exceeds the resulting effective hard limit, it batch-replaces old active-turn tool results already included in a successful model request with exact `recall_tool` pointers, then recounts once. The current request, pending calls, unread results, and five newest results remain verbatim. A failed or interrupted model request never acknowledges its inputs. If the protected contents still cannot fit, Scroll raises `CONTEXT_UNFIT` instead of changing unread evidence, resetting the session, or retrying forever.
 
 ### Eviction Index
 

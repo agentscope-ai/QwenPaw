@@ -34,6 +34,7 @@ from ....constant import (
 from . import _as_internals as as_internals
 from .continuation_summary import (
     ContinuationSummary,
+    SummaryMode,
     build_update_prompt,
     parse_plain_markdown,
     redact_secrets,
@@ -52,12 +53,10 @@ logger = logging.getLogger(__name__)
 # stub and is never folded (or counted as reclaimable) again.
 _FOLD_MARK = "[scroll folded]"
 _RECALL_FOLD_MARK = "[scroll recall folded]"
-_EMERGENCY_PREVIEW_MARK = "[scroll emergency preview]"
 _PRE_TRIM_MIN_CHARS = 200
 _PROTECTED_RECENT_TOOL_RESULTS = 5
 _OUTPUT_RESERVE_RATIO = 0.05
 _MAX_OUTPUT_RESERVE_TOKENS = 4096
-_MIN_EMERGENCY_PREVIEW_BYTES = 1024
 _SUMMARY_REBASE_INTERVAL = 8
 
 
@@ -99,6 +98,11 @@ class ScrollContextManager:
         self._persisted_tcids: set[
             str
         ] = set()  # tool_call_ids whose result row is stored
+        # Tool results included in a model request that completed
+        # successfully. This explicit acknowledgement lets hard-limit
+        # recovery fold old results in the active turn without guessing from
+        # block order. It is checkpointed with the rest of the manager state.
+        self._seen_tool_result_ids: set[str] = set()
         self._seq_by_tcid: dict[
             str,
             int,
@@ -129,7 +133,7 @@ class ScrollContextManager:
             "evicted": 0,
             "pre_folded": 0,
             "live_folded": 0,
-            "emergency_shortened": 0,
+            "active_folded": 0,
             "folded": 0,
         }
         # Warn once per overflow episode, not once per reasoning step.
@@ -225,6 +229,33 @@ class ScrollContextManager:
         """
         self._persist_guarded(agent)
 
+    def model_input_tool_result_ids(self, agent: Any) -> set[str]:
+        """Snapshot tool results about to be submitted to the model.
+
+        The caller must acknowledge this snapshot only after the model call
+        succeeds. Capturing and acknowledgement are deliberately separate so
+        a rejected/failed request cannot make unread evidence foldable.
+        """
+        ids: set[str] = set()
+        for _, block in self._live_tool_results(agent):
+            tcid = (
+                block.get("id")
+                if isinstance(block, dict)
+                else getattr(block, "id", None)
+            )
+            if tcid:
+                ids.add(str(tcid))
+        return ids
+
+    def acknowledge_model_input_tool_results(
+        self,
+        tool_result_ids: set[str],
+    ) -> None:
+        """Mark a successfully submitted model input's results as seen."""
+        self._seen_tool_result_ids.update(
+            str(item) for item in tool_result_ids
+        )
+
     def _persist_guarded(self, agent: Any) -> bool:
         """Write through, swallowing only disk/SQLite failures.
 
@@ -311,15 +342,15 @@ class ScrollContextManager:
         7. live-fold   — still under real pressure after finished turns are
                          evicted: replace remaining eligible completed-turn
                          results with recovery pointers.
-        8. emergency  — above the effective hard limit, shorten the newest
-                         unread text result to a visible head/tail preview.
+        8. active-fold— above the effective hard limit, fold old active-turn
+                         results that a successful model call already read.
         """
         cfg = context_config or agent.context_config
         self.last_compress = {
             "evicted": 0,
             "pre_folded": 0,
             "live_folded": 0,
-            "emergency_shortened": 0,
+            "active_folded": 0,
             "folded": 0,
         }
         hard_limit = int(agent.model.context_size)
@@ -519,25 +550,25 @@ class ScrollContextManager:
                     "scroll: pressure-folded %d live tool result(s)",
                     folded,
                 )
-        # The newest result may not have received its first model read, so it
-        # is excluded from normal pointer folding. If the remaining input
-        # would leave no safe output budget, degrade that result only to a
-        # visible head/tail preview. Its exact persisted row stays recallable.
+        # 8) A single long tool-running turn can itself exceed the input hard
+        #    limit after every completed turn has been folded/evicted. At this
+        #    final boundary, reclaim only active-turn results proven to have
+        #    appeared in a successful prior model request. The current user
+        #    request, pending/unread results, and the five newest results stay
+        #    verbatim. Fold the whole safe batch, then recount exactly once.
         if tokens > effective_hard_limit:
-            (
-                emergency_shortened,
-                tokens,
-            ) = await self._shorten_newest_result_for_emergency(
+            active_folded, tokens = await self._batch_fold_seen_active_results(
                 agent,
                 tokens=tokens,
-                target=effective_hard_limit,
             )
-            mark("emergency_preview")
-            if emergency_shortened:
-                self.last_compress["emergency_shortened"] = emergency_shortened
-                logger.warning(
-                    "scroll: shortened newest tool result preview to preserve "
-                    "model output capacity",
+            mark("active_turn_fold")
+            if active_folded:
+                self.last_compress["active_folded"] = active_folded
+                self.last_compress["folded"] += active_folded
+                logger.info(
+                    "scroll: hard-limit-folded %d seen active-turn tool "
+                    "result(s)",
+                    active_folded,
                 )
         # Once per overflow episode, not once per reasoning step — the stuck
         # state repeats every step until the turn ends. Manual /compact
@@ -910,12 +941,19 @@ class ScrollContextManager:
         updated: ContinuationSummary | None = None
         failure: Exception | None = None
         for attempt in range(2):
+            summary_mode: SummaryMode = (
+                "rebase"
+                if source_backed_rebase
+                else "update"
+                if previous is not None
+                else "initial"
+            )
             prompt = build_update_prompt(
+                mode=summary_mode,
                 previous=previous,
                 archived_context=archived_context,
                 covered_seq=covered,
                 repair_issues=repair_issues,
-                source_backed_rebase=source_backed_rebase,
             )
             try:
                 plain_text = await self._generate_plain_summary(
@@ -1038,13 +1076,17 @@ class ScrollContextManager:
     def _tool_result_fold_candidates(
         self,
         agent: Any,
+        *,
+        seen_active_only: bool = False,
     ) -> list[tuple[int, int, Any, str]]:
         """Return profitable fold candidates ordered by recovery priority.
 
-        Only completed-turn results are returned; the complete active turn and
-        five newest results in the entire live context are always protected. A
-        result is eligible only when it has more than 200 visible text
-        characters and its pointer is actually smaller than its output.
+        Normally only completed-turn results are returned. For hard-limit
+        recovery, ``seen_active_only`` selects only results in the active turn
+        that a successful model request already consumed. The five newest
+        results are always protected. A result is eligible only when it has
+        more than 200 visible text characters and its pointer is actually
+        smaller than its output.
         """
         results = self._live_tool_results(agent)
         active_messages = {id(msg) for msg in self._active_turn_tail(agent)}
@@ -1055,8 +1097,7 @@ class ScrollContextManager:
 
         candidates: list[tuple[int, int, Any, str]] = []
         for ordinal, (msg, block) in enumerate(results):
-            if id(msg) in active_messages:
-                continue
+            is_active = id(msg) in active_messages
             if id(block) in protected_results:
                 continue
             if self._is_folded_stub(block):
@@ -1078,6 +1119,16 @@ class ScrollContextManager:
                 if isinstance(block, dict)
                 else getattr(block, "id", None)
             )
+            tool_call_id = str(tool_call_id or "")
+            if seen_active_only:
+                if (
+                    not is_active
+                    or tool_call_id not in self._seen_tool_result_ids
+                    or tool_call_id not in self._persisted_tcids
+                ):
+                    continue
+            elif is_active:
+                continue
             if name == "recall_history":
                 text = self._recall_page_stub(
                     block,
@@ -1112,6 +1163,23 @@ class ScrollContextManager:
             return 0, tokens
         return len(candidates), await self._live_tokens(agent)
 
+    async def _batch_fold_seen_active_results(
+        self,
+        agent: Any,
+        *,
+        tokens: int,
+    ) -> tuple[int, int]:
+        """Fold all acknowledged active results, then recount exactly once."""
+        candidates = self._tool_result_fold_candidates(
+            agent,
+            seen_active_only=True,
+        )
+        for _, _, block, text in candidates:
+            self._replace_tool_result_with_pointer(block, text)
+        if not candidates:
+            return 0, tokens
+        return len(candidates), await self._live_tokens(agent)
+
     async def _fold_tool_results_under_pressure(
         self,
         agent: Any,
@@ -1129,113 +1197,6 @@ class ScrollContextManager:
             if tokens <= target:
                 break
         return folded, tokens
-
-    @staticmethod
-    def _emergency_preview_text(
-        text: str,
-        *,
-        max_bytes: int,
-        tool_call_id: str,
-    ) -> str:
-        """Build a bounded, visible head/tail preview with an exact pointer."""
-        recovery = (
-            'recover the exact result with recall_history(op="recall_tool", '
-            f"tool_call_id={tool_call_id!r})"
-        )
-        framing = (
-            f"{_EMERGENCY_PREVIEW_MARK}\n"
-            "[… middle removed to preserve model output capacity …]\n"
-            f"{recovery}"
-        )
-        budget = max(0, max_bytes - len(framing.encode("utf-8")) - 2)
-        raw = text.encode("utf-8")
-        head_size = budget // 2
-        tail_size = budget - head_size
-        head = raw[:head_size].decode("utf-8", errors="ignore")
-        tail = raw[-tail_size:].decode("utf-8", errors="ignore")
-        return (
-            f"{_EMERGENCY_PREVIEW_MARK}\n{head}\n"
-            "[… middle removed to preserve model output capacity …]\n"
-            f"{tail}\n{recovery}"
-        )
-
-    async def _shorten_newest_result_for_emergency(
-        self,
-        agent: Any,
-        *,
-        tokens: int,
-        target: int,
-    ) -> tuple[int, int]:
-        """Shrink the newest unread result only to avoid ``CONTEXT_UNFIT``.
-
-        Normal folding deliberately protects the newest result because the
-        model may not have read it yet. Above the effective hard limit, retain
-        a progressively smaller visible head/tail preview instead of replacing
-        it with an opaque pointer. The exact result is already durable.
-        """
-        results = self._live_tool_results(agent)
-        if not results:
-            return 0, tokens
-        _, block = results[-1]
-        tool_call_id = (
-            block.get("id")
-            if isinstance(block, dict)
-            else getattr(block, "id", None)
-        )
-        if not tool_call_id or str(tool_call_id) not in self._persisted_tcids:
-            return 0, tokens
-        output = (
-            block.get("output")
-            if isinstance(block, dict)
-            else getattr(block, "output", None)
-        )
-        if isinstance(output, str):
-            source = output
-        elif isinstance(output, list) and output:
-            if any(self._block_type(item) != "text" for item in output):
-                return 0, tokens
-            source = "\n".join(
-                str(
-                    item.get("text", "")
-                    if isinstance(item, dict)
-                    else getattr(item, "text", "") or "",
-                )
-                for item in output
-            )
-        else:
-            return 0, tokens
-
-        source_bytes = len(source.encode("utf-8"))
-        if source_bytes <= _MIN_EMERGENCY_PREVIEW_BYTES:
-            return 0, tokens
-        preview_bytes = max(
-            _MIN_EMERGENCY_PREVIEW_BYTES,
-            min(8192, source_bytes // 2),
-        )
-        changed = False
-        while tokens > target:
-            preview = self._emergency_preview_text(
-                source,
-                max_bytes=preview_bytes,
-                tool_call_id=str(tool_call_id),
-            )
-            replacement = [TextBlock(type="text", text=preview)]
-            if isinstance(block, dict):
-                block["output"] = replacement
-            else:
-                block.output = replacement
-            changed = True
-            tokens = await self._live_tokens(agent)
-            if (
-                tokens <= target
-                or preview_bytes <= _MIN_EMERGENCY_PREVIEW_BYTES
-            ):
-                break
-            preview_bytes = max(
-                _MIN_EMERGENCY_PREVIEW_BYTES,
-                preview_bytes // 2,
-            )
-        return int(changed), tokens
 
     # -- write-through -------------------------------------------------------
 
@@ -1516,6 +1477,7 @@ class ScrollContextManager:
 
         self._persisted_ids.intersection_update(live_msg_ids)
         self._persisted_tcids.intersection_update(live_tool_ids)
+        self._seen_tool_result_ids.intersection_update(live_tool_ids)
         self._synthetic_ids.intersection_update(live_msg_ids)
         self._seq_by_id = {
             key: value
@@ -1595,6 +1557,7 @@ class ScrollContextManager:
         return {
             "persisted_ids": sorted(self._persisted_ids),
             "persisted_tcids": sorted(self._persisted_tcids),
+            "seen_tool_result_ids": sorted(self._seen_tool_result_ids),
             "seq_by_tcid": dict(self._seq_by_tcid),
             "synthetic_ids": sorted(self._synthetic_ids),
             "seq_by_id": {
@@ -1623,6 +1586,9 @@ class ScrollContextManager:
             return
         self._persisted_ids = set(data.get("persisted_ids", ()))
         self._persisted_tcids = set(data.get("persisted_tcids", ()))
+        self._seen_tool_result_ids = set(
+            data.get("seen_tool_result_ids", ()),
+        )
         self._seq_by_tcid = dict(data.get("seq_by_tcid", {}))
         self._synthetic_ids = set(data.get("synthetic_ids", ()))
         self._seq_by_id = {
