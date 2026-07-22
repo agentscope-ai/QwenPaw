@@ -48,7 +48,9 @@ dependencies = [
     "modelscope>=1.35.0",
     "huggingface_hub>=0.20.0",
     "pillow>=10.0.0",
-    "agent-client-protocol>=0.9.0",
+    # 0.11 restructured the package and dropped SetSessionModelRequest /
+    # SetSessionModelResponse, which agents/acp/server.py still uses.
+    "agent-client-protocol>=0.9.0,<0.11",
     # Streaming-markdown terminal UI for the bundled `qwenpaw` TUI
     # (v4+ adds the streaming Markdown widget). 8.2.8 fixes parsing of
     # multi-codepoint Kitty "associated text" so input methods (Chinese,
