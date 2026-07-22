@@ -602,7 +602,7 @@ class TestConsoleStreaming:
             BaseChannel,
             _external_acl_checkers,
         )
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             TextContent,
             ContentType,
         )
@@ -647,7 +647,7 @@ class TestConsoleStreaming:
             BaseChannel,
             _external_acl_checkers,
         )
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             RunStatus,
             Event,
             Message,
