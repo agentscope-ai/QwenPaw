@@ -3,6 +3,7 @@
 
 from qwenpaw.agents.context.scroll.continuation_summary import (
     ContinuationSummary,
+    SummarySource,
     build_update_prompt,
     extract_identifiers,
     redact_secrets,
@@ -38,12 +39,12 @@ Status: in_progress
     assert summary is not None
     assert summary.active_task == "Fix provider discovery."
     assert summary.status == "in_progress"
-    # Missing citations receive a real, code-supplied durable range.
+    # All items receive the real, code-supplied durable range internally.
     assert summary.constraints[0].sources[0].render() == "[seq:10-30]"
     rendered = summary.render()
     assert rendered.index("## Current State") < rendered.index("## Evidence")
-    assert "[seq:12-18]" in rendered
-    assert "[artifact:test-a]" in rendered
+    assert "[seq:" not in rendered
+    assert "[artifact:" not in rendered
     assert "(none)" not in rendered
 
 
@@ -107,8 +108,9 @@ Status: blocked
     assert "## Constraints\n(none)" in restored.render()
     assert "## Decisions\n(none)" in restored.render()
     background = restored.render_background(stale=True)
-    assert "NOT a user request" in background
-    assert "summary status: stale" in background
+    assert "not a user message" in background
+    assert "Summary status: stale" in background
+    assert "sequence range 1–8" in background
 
 
 def test_prompt_and_redaction_encode_quality_constraints():
@@ -123,6 +125,7 @@ def test_prompt_and_redaction_encode_quality_constraints():
     assert "Do NOT return JSON" in prompt
     assert "completion, success, decisions, or blockers" in prompt
     assert "Never copy credentials" in prompt
+    assert "Do not write [seq:...]" in prompt
     assert "invalid status" in prompt
     assert "candidate, not as authoritative evidence" in prompt
     assert "secret-value-123" not in redact_secrets(
@@ -130,7 +133,7 @@ def test_prompt_and_redaction_encode_quality_constraints():
     )
 
 
-def test_quality_guard_rejects_missing_pointers_identifiers_and_secrets():
+def test_quality_guard_rejects_missing_endpoints_identifiers_and_secrets():
     summary = parse_plain_markdown(
         """## Active Task
 Fix request #999 using token=secret-value-123.
@@ -164,12 +167,49 @@ Status: in_progress
     assert "summary contains a possible secret" in issues
     assert any("#999" in issue for issue in issues)
     assert any("endpoint does not exist: 2" in issue for issue in issues)
-    assert any("artifact:invented" in issue for issue in issues)
+    assert not any("artifact:invented" in issue for issue in issues)
+
+
+def test_model_source_links_are_replaced_by_the_trusted_covered_range():
+    summary = parse_plain_markdown(
+        """## Active Task
+Fix discovery.
+Status: in_progress
+
+## Current State
+- DashScope passes. [seq:999]
+
+## Constraints
+(none)
+
+## Decisions
+(none)
+
+## Open Work
+- Verify the adapter. [file:invented.py]
+
+## Evidence
+- Test output. [artifact:invented]
+""",
+        covered_seq=(10, 20),
+    )
+    assert summary is not None
+    assert all(
+        item.sources == (SummarySource(type="seq", lo=10, hi=20),)
+        for item in summary.items()
+    )
+    assert "[seq:" not in summary.render()
+    assert "[file:" not in summary.render()
+    assert "[artifact:" not in summary.render()
 
 
 def test_identifier_validation_normalizes_numeric_units():
     assert "5000" in extract_identifiers("timeout defaults to 5000")
     assert "5000" in extract_identifiers("timeout is 5000ms")
+    assert "src/qwenpaw/models" not in extract_identifiers(
+        "code under src/qwenpaw/models",
+    )
+    assert "HIT/MISS" not in extract_identifiers("cache was HIT/MISS")
 
     summary = parse_plain_markdown(
         """## Active Task

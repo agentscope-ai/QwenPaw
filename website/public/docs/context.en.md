@@ -101,10 +101,10 @@ During normal replies, a turn that establishes a durable task-state change may a
 Headlines label individual milestones; the continuation summary maintains the latest effective task state across many evicted turns. It is updated only when dialogue is actually evicted and contains six fixed sections: `Active Task`, `Current State`, `Constraints`, `Decisions`, `Open Work`, and `Evidence`.
 
 - **Plain text generation**: the model is called normally with thinking disabled and asked for Markdown. Scroll never invokes `generate_structured_output`, JSON mode, or a response schema for this update.
-- **Local parsing and deterministic rendering**: code parses the Markdown into JSON-safe internal state and renders the six sections itself. Missing citations receive the real covered seq range supplied by code.
+- **Local parsing and deterministic rendering**: code parses the Markdown into JSON-safe internal state and renders the six sections itself. The model does not generate inline source links; code tracks one trusted archived seq range and states it separately in the background banner.
 - **Bounded evidence**: complete tool outputs are excluded from the summary prompt. It receives limited previews plus real `seq`, `tool_call_id`, artifact, and file pointers.
 - **Incremental update**: the previous valid summary and newly evicted span are supplied together, so obsolete state can be removed rather than accumulated as a log.
-- **Deterministic quality guard**: code validates the exact section order and status, checks that cited seq endpoints exist and artifact/file pointers came from supplied evidence, rejects invented opaque identifiers and likely secrets, and enforces the output limit. This does not use a separate LLM judge.
+- **Deterministic quality guard**: code validates the exact section order and status, checks that the code-managed seq range exists, rejects invented opaque identifiers and likely secrets, and enforces the output limit. This does not use a separate LLM judge.
 - **One conditional retry**: invalid output is regenerated once with concise validation feedback. A second failure retains the previous summary and marks it stale; an empty result never overwrites valid state.
 - **Source-backed rebase**: every eighth successful update replaces the normal incremental input with the summary's cited durable rows plus the new eviction when those spans total at most 20 rows. Broader spans defer rebase rather than pretending that a lossy sample proves omitted evidence. Rebase is the update for that cycle, not an additional model call.
 - **Secret-safe previews**: likely credential values are removed from bounded evidence before the summary model sees it; summaries keep only non-sensitive state and durable pointers.
@@ -116,7 +116,7 @@ After eviction, the live context is rebuilt as:
 
 ```text
 Pointer-backed continuation summary
-  Current effective task state with durable seq/artifact/file citations.
+  Current effective task state plus one code-managed archived seq range.
   It is explicitly labeled background-only, never an active user instruction.
 
 Eviction index (a synthetic placeholder message named "memory")

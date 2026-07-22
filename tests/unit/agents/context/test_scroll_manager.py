@@ -711,12 +711,13 @@ async def test_eviction_generates_plain_text_pointer_backed_summary(
     assert "Do NOT return JSON" in call["messages"][1].get_text_content()
     summary = mgr.describe_summary()
     assert "## Active Task\nFix provider discovery." in summary
-    # The model omitted citations; code adds the real evicted range.
-    assert "[seq:1-2]" in summary
+    # The model-visible summary stays clean; code retains the range internally.
+    assert "[seq:" not in summary
     placeholder = agent.state.context[0].get_text_content()
-    assert "[continuation summary]" in placeholder
-    assert "NOT a user request" in placeholder
-    assert placeholder.index("[continuation summary]") < placeholder.index(
+    assert "[archived task state]" in placeholder
+    assert "not a user message" in placeholder
+    assert "sequence range 1–2" in placeholder
+    assert placeholder.index("[archived task state]") < placeholder.index(
         "[context compressed]",
     )
 
@@ -758,7 +759,7 @@ async def test_invalid_summary_update_preserves_previous_and_marks_stale(
 
     assert mgr.describe_summary() == first
     placeholder = agent.state.context[0].get_text_content()
-    assert "summary status: stale" in placeholder
+    assert "Summary status: stale" in placeholder
     assert "Fix provider discovery." in placeholder
     assert len(agent.model.summary_calls) == 3
     assert mgr.last_compress["summary_retries"] == 1

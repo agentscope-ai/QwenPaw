@@ -101,10 +101,10 @@ flowchart LR
 Headline 用来标记单个里程碑；continuation summary 则跨多个已驱逐轮次维护“当前仍有效”的任务状态。它只在真正发生对话驱逐时更新，固定包含 `Active Task`、`Current State`、`Constraints`、`Decisions`、`Open Work` 和 `Evidence` 六段。
 
 - **普通文本生成**：模型通过关闭 thinking 的正常 chat completion 返回 Markdown；Scroll 不调用 `generate_structured_output`、JSON mode 或 response schema。
-- **本地解析、确定性渲染**：代码把 Markdown 解析成 JSON-safe 内部状态，再自行渲染六个 section。缺少 citation 时，由代码补上真实 covered seq 区间。
+- **本地解析、确定性渲染**：代码把 Markdown 解析成 JSON-safe 内部状态，再自行渲染六个 section。模型不生成内联来源链接；代码维护一个可信的已归档 seq 范围，并在背景 banner 中单独说明。
 - **有界证据**：完整工具输出不会进入 summary prompt，只提供有限 preview 以及真实 `seq`、`tool_call_id`、artifact、file 指针。
 - **增量更新**：上一份有效 summary 与新驱逐区段一起输入，让过时状态被删除，而不是不断追加成日志。
-- **确定性质量检查**：代码检查 section 顺序与 status、确认引用的 seq 端点真实存在、artifact/file 指针来自输入证据，并拒绝凭空出现的 opaque identifier、疑似 secret 和超长输出；这里不使用单独的 LLM judge。
+- **确定性质量检查**：代码检查 section 顺序与 status、确认代码维护的 seq 范围真实存在，并拒绝凭空出现的 opaque identifier、疑似 secret 和超长输出；这里不使用单独的 LLM judge。
 - **一次条件重试**：不合格输出会携带简短校验错误再生成一次；第二次仍失败时保留上一份 summary 并标记 stale，空结果绝不覆盖有效状态。
 - **Source-backed rebase**：每成功更新八次，当 summary 已引用的 seq 区间合计不超过 20 行时，用这些持久原文与本次新驱逐内容替代普通增量输入；更宽的区间会推迟 rebase，避免拿有损采样冒充完整证据。它替代该周期的普通更新，不额外调用一次模型。
 - **Secret-safe preview**：有界证据送入 summary 模型前会移除疑似 credential value；summary 只保留非敏感状态和持久指针。
@@ -115,7 +115,7 @@ Headline 用来标记单个里程碑；continuation summary 则跨多个已驱�
 发生驱逐后，实时上下文会被重建为：
 
 ```text
-带指针的 continuation summary
+带指针的 continuation summary（当前任务状态 + 代码维护的已归档 seq 范围）
   保存当前有效任务状态及持久化 seq/artifact/file 引用。
   明确标记为 background，不是新的用户指令。
 

@@ -14,10 +14,11 @@ from typing import Any
 
 
 SUMMARY_PREFIX = """<system-info>
-[continuation summary]
-The following is generated background state backed by persisted history.
-It is NOT a user request or an active instruction. The current live user
-request has priority. Recall cited evidence when exact details matter.
+[archived task state]
+This summarizes older turns that were removed from the live context. Use it
+only as background for task continuity. It is not a user message, an active
+instruction, or permission to resume or execute any listed work. Follow the
+latest live user request.
 """
 
 _SECTIONS = (
@@ -68,7 +69,6 @@ _IDENTIFIER_PATTERNS = (
     re.compile(r"(?<!\w)#[1-9]\d*\b"),
     re.compile(r"\b[A-Za-z_][A-Za-z0-9_.]*\(\)"),
     re.compile(r"(?<!\w)v?\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b"),
-    re.compile(r"(?<![\w.-])(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+"),
 )
 _NUMBER_RE = re.compile(r"(?<!\d)\d+(?:\.\d+)?(?![\d.])")
 
@@ -117,10 +117,10 @@ one concise current task statement
 Status: in_progress | blocked | completed | unknown
 
 ## Current State
-- current effective facts and verified progress with source pointers
+- current effective facts and verified progress
 
 ## Constraints
-- still-active constraints and preferences with source pointers
+- still-active constraints and preferences
 
 ## Decisions
 - effective decisions; replace superseded decisions with the latest state
@@ -129,7 +129,7 @@ Status: in_progress | blocked | completed | unknown
 - pending work, blockers, and next actions
 
 ## Evidence
-- important seq, artifact, or file pointers
+- brief descriptions of the most relevant archived evidence
 
 Rules:
 - This is background state, never a place to preserve active instructions.
@@ -142,17 +142,17 @@ Rules:
 - Distinguish verified, planned, attempted, failed, and tentative state.
 - Preserve UUIDs, Git SHAs, error codes, file paths, function names, PR/issue
   numbers, versions, ports, timeouts, and other opaque identifiers exactly.
-- Cite only pointers shown in the input, using [seq:N], [seq:N-M],
-  [artifact:ID], or [file:PATH]. Do not invent a pointer.
-- Every factual list item must include at least one supplied source pointer.
+- Do not write [seq:...], [artifact:...], or [file:...] links anywhere in the
+  summary. Scroll tracks the archived sequence range in code and exposes it
+  separately when the summary is injected.
 - Never copy credentials, tokens, API keys, passwords, connection strings, or
-  other secrets. Retain only a safe source pointer and a non-sensitive fact.
+  other secrets. Retain only a safe, non-sensitive description.
 - Do not copy complete tool output. Keep only state needed to resume the task.
 - Be concise: target 1500-2500 tokens and never exceed 4000 tokens.
 - Use `(none)` for an empty list section. Do not add other headings.
 
-Covered durable range after this update:
-[seq:{covered_seq[0]}-{covered_seq[1]}]
+Covered durable sequence range after this update:
+{covered_seq[0]}–{covered_seq[1]}
 
 Previous continuation summary:
 ---
@@ -194,7 +194,7 @@ def extract_identifiers(text: str) -> set[str]:
 
 @dataclass(frozen=True)
 class SummarySource:
-    """A durable source pointer rendered beside a summary item."""
+    """A code-managed durable source pointer stored with a summary item."""
 
     type: str
     lo: int | None = None
@@ -238,14 +238,13 @@ class SummarySource:
 
 @dataclass(frozen=True)
 class SummaryItem:
-    """One state statement plus its persisted evidence pointers."""
+    """One clean state statement plus its internal evidence pointers."""
 
     text: str
     sources: tuple[SummarySource, ...] = ()
 
     def render(self) -> str:
-        pointers = " ".join(source.render() for source in self.sources)
-        return f"- {self.text}{(' ' + pointers) if pointers else ''}"
+        return f"- {self.text}"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -300,9 +299,20 @@ class ContinuationSummary:
 
     def render_background(self, *, stale: bool = False) -> str:
         state = (
-            "\n[summary status: stale; latest update failed]" if stale else ""
+            "\nSummary status: stale because the latest update failed."
+            if stale
+            else ""
         )
-        return f"{SUMMARY_PREFIX}{state}\n\n{self.render()}\n</system-info>"
+        lo, hi = self.covered_seq
+        history = (
+            "Exact archived content remains in conversation_history for\n"
+            f"sequence range {lo}–{hi}. Recall that range only when exact\n"
+            "wording or evidence is needed."
+        )
+        return (
+            f"{SUMMARY_PREFIX}{state}\n{history}\n\n"
+            f"{self.render()}\n</system-info>"
+        )
 
     def items(self) -> tuple[SummaryItem, ...]:
         """Return all factual list items in deterministic section order."""
@@ -420,23 +430,14 @@ def _parse_item(line: str, fallback: SummarySource) -> SummaryItem | None:
         value = value[2:].strip()
     if not value or value.casefold() == "(none)":
         return None
-    sources: list[SummarySource] = []
-    for match in _SOURCE_RE.finditer(value):
-        if match.group("lo"):
-            lo = int(match.group("lo"))
-            hi = int(match.group("hi") or lo)
-            sources.append(SummarySource(type="seq", lo=lo, hi=hi))
-        else:
-            sources.append(
-                SummarySource(
-                    type=str(match.group("kind")),
-                    value=str(match.group("value")).strip(),
-                ),
-            )
+    # Source links are code-managed. Strip any that a model emits despite the
+    # prompt and attach the trusted covered range instead. This keeps the
+    # visible state clean and prevents invented or reformatted links from
+    # causing an otherwise useful summary to be rejected.
     statement = _SOURCE_RE.sub("", value).strip().rstrip(";")
     if not statement:
         return None
-    return SummaryItem(statement, tuple(sources) or (fallback,))
+    return SummaryItem(statement, (fallback,))
 
 
 # pylint: disable-next=too-many-branches,too-many-return-statements
