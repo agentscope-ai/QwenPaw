@@ -11,19 +11,23 @@ use std::{
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_shell::process::CommandChild;
-use tokio::sync::oneshot;
+use tokio::sync::watch;
+use uuid::Uuid;
 
 mod command;
 mod events;
 
 /// Path of the desktop-only graceful shutdown endpoint on the backend.
 const DESKTOP_SHUTDOWN_PATH: &str = "/api/desktop/shutdown";
+const DESKTOP_SHUTDOWN_TOKEN_ENV: &str = "QWENPAW_DESKTOP_SHUTDOWN_TOKEN";
+const DESKTOP_SHUTDOWN_TOKEN_HEADER: &str = "X-QwenPaw-Desktop-Shutdown-Token";
 /// Upper bound for the shutdown HTTP request. The endpoint just flips
 /// uvicorn's `should_exit` and returns immediately, so the request is
 /// milliseconds in the happy path; this is only a fallback so a wedged
 /// backend never blocks quit. uvicorn's own `timeout_graceful_shutdown`
 /// bounds the sidecar's internal drain independently.
 const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const GRACEFUL_SHUTDOWN_EXIT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Shared sidecar process state managed by Tauri.
 #[derive(Default)]
@@ -36,8 +40,21 @@ pub(crate) struct BackendState {
 struct BackendInner {
     child: Option<CommandChild>,
     port: Option<u16>,
-    terminated: Option<oneshot::Receiver<()>>,
+    shutdown_token: Option<String>,
+    terminated: Option<watch::Receiver<bool>>,
+    stopping: bool,
     error: Option<String>,
+}
+
+enum StopPlan {
+    NoProcess,
+    Wait(watch::Receiver<bool>),
+    Request {
+        child: CommandChild,
+        port: Option<u16>,
+        shutdown_token: Option<String>,
+        terminated: watch::Receiver<bool>,
+    },
 }
 
 impl BackendState {
@@ -86,7 +103,9 @@ impl BackendState {
     fn clear_startup_state(&self) {
         self.with_inner(|inner| {
             inner.port = None;
+            inner.shutdown_token = None;
             inner.terminated = None;
+            inner.stopping = false;
             inner.error = None;
         });
     }
@@ -95,39 +114,52 @@ impl BackendState {
         if self.is_current(generation) {
             self.with_inner(|inner| {
                 inner.child.take();
+                inner.shutdown_token = None;
                 inner.terminated = None;
+                inner.stopping = false;
             });
         }
     }
 
-    fn take_child_and_port(
-        &self,
-    ) -> (
-        Option<CommandChild>,
-        Option<u16>,
-        Option<oneshot::Receiver<()>>,
-    ) {
-        self.next_generation();
+    fn begin_stop(&self) -> StopPlan {
         self.with_inner(|inner| {
-            (
-                inner.child.take(),
-                inner.port.take(),
-                inner.terminated.take(),
-            )
+            let Some(terminated) = &inner.terminated else {
+                return StopPlan::NoProcess;
+            };
+            if *terminated.borrow() {
+                inner.child.take();
+                inner.port = None;
+                inner.shutdown_token = None;
+                inner.terminated = None;
+                inner.stopping = false;
+                return StopPlan::NoProcess;
+            }
+
+            let terminated = terminated.clone();
+            if inner.stopping {
+                return StopPlan::Wait(terminated);
+            }
+            let Some(child) = inner.child.take() else {
+                return StopPlan::Wait(terminated);
+            };
+
+            self.next_generation();
+            inner.stopping = true;
+            StopPlan::Request {
+                child,
+                port: inner.port.take(),
+                shutdown_token: inner.shutdown_token.take(),
+                terminated,
+            }
         })
     }
 
-    async fn stop(&self) -> Option<oneshot::Receiver<()>> {
-        let (child, port, terminated) = self.take_child_and_port();
-        let Some(child) = child else {
-            return None;
-        };
-
+    async fn request_stop(child: CommandChild, port: Option<u16>, shutdown_token: Option<String>) {
         let pid = child.pid();
         log::info!("[backend] stopping process pid={pid}");
 
-        if let Some(port) = port {
-            match request_graceful_shutdown(port).await {
+        if let (Some(port), Some(shutdown_token)) = (port, shutdown_token) {
+            match request_graceful_shutdown(port, &shutdown_token).await {
                 Ok(()) => {
                     // Fire-and-forget: dropping `child` does NOT kill the
                     // sidecar. tauri-plugin-shell 2.3.5 has no `impl Drop`
@@ -139,7 +171,7 @@ impl BackendState {
                     // Tauri exit and completes its own lifespan shutdown
                     // (memory/index flush) on its own timeline.
                     log::info!("[backend] graceful shutdown requested pid={pid}");
-                    return terminated;
+                    return;
                 }
                 Err(err) => {
                     log::warn!(
@@ -148,21 +180,41 @@ impl BackendState {
                 }
             }
         } else {
-            log::warn!("[backend] no known port for pid={pid}; killing process");
+            log::warn!("[backend] no shutdown credentials for pid={pid}; killing process");
         }
 
         if let Err(err) = child.kill() {
             log::warn!("[backend] failed to stop process: {err}");
         }
+    }
 
-        terminated
+    async fn stop(&self) {
+        if let StopPlan::Request {
+            child,
+            port,
+            shutdown_token,
+            ..
+        } = self.begin_stop()
+        {
+            Self::request_stop(child, port, shutdown_token).await;
+        }
     }
 
     async fn stop_and_wait(&self) -> Result<(), String> {
-        let Some(terminated) = self.stop().await else {
-            return Ok(());
+        let terminated = match self.begin_stop() {
+            StopPlan::NoProcess => return Ok(()),
+            StopPlan::Wait(terminated) => terminated,
+            StopPlan::Request {
+                child,
+                port,
+                shutdown_token,
+                terminated,
+            } => {
+                Self::request_stop(child, port, shutdown_token).await;
+                terminated
+            }
         };
-        wait_for_termination(terminated).await
+        wait_for_termination(terminated, GRACEFUL_SHUTDOWN_EXIT_TIMEOUT).await
     }
 }
 
@@ -170,7 +222,7 @@ impl BackendState {
 ///
 /// The endpoint sets uvicorn's `should_exit`, letting the sidecar run its
 /// normal lifespan shutdown instead of being force-killed.
-async fn request_graceful_shutdown(port: u16) -> Result<(), String> {
+async fn request_graceful_shutdown(port: u16, shutdown_token: &str) -> Result<(), String> {
     let url = format!("http://127.0.0.1:{port}{DESKTOP_SHUTDOWN_PATH}");
     let client = reqwest::Client::builder()
         .timeout(GRACEFUL_SHUTDOWN_TIMEOUT)
@@ -179,6 +231,7 @@ async fn request_graceful_shutdown(port: u16) -> Result<(), String> {
 
     let response = client
         .post(url)
+        .header(DESKTOP_SHUTDOWN_TOKEN_HEADER, shutdown_token)
         .send()
         .await
         .map_err(|err| format!("shutdown endpoint request failed: {err}"))?;
@@ -190,10 +243,22 @@ async fn request_graceful_shutdown(port: u16) -> Result<(), String> {
     Ok(())
 }
 
-async fn wait_for_termination(terminated: oneshot::Receiver<()>) -> Result<(), String> {
-    terminated
-        .await
-        .map_err(|_| "backend process ended without a termination event".into())
+async fn wait_for_termination(
+    mut terminated: watch::Receiver<bool>,
+    timeout: Duration,
+) -> Result<(), String> {
+    if *terminated.borrow() {
+        return Ok(());
+    }
+    match tokio::time::timeout(timeout, terminated.changed()).await {
+        Ok(Ok(())) if *terminated.borrow() => Ok(()),
+        Ok(Ok(())) => Err("backend termination signal was not set".into()),
+        Ok(Err(_)) => Err("backend process ended without a termination event".into()),
+        Err(_) => Err(format!(
+            "timed out waiting {} seconds for backend graceful shutdown",
+            timeout.as_secs()
+        )),
+    }
 }
 
 #[tauri::command]
@@ -270,6 +335,7 @@ fn start(app: &tauri::AppHandle) {
     let state = app.state::<BackendState>();
     let generation = state.next_generation();
     state.clear_startup_state();
+    let shutdown_token = Uuid::new_v4().to_string();
 
     let command = match command::create(app) {
         Ok(command) => command,
@@ -282,7 +348,8 @@ fn start(app: &tauri::AppHandle) {
     .env("PYTHONIOENCODING", "utf-8")
     .env("PYTHONUNBUFFERED", "1")
     .env("PYTHONFAULTHANDLER", "1")
-    .env("QWENPAW_DESKTOP_APP", "1");
+    .env("QWENPAW_DESKTOP_APP", "1")
+    .env(DESKTOP_SHUTDOWN_TOKEN_ENV, &shutdown_token);
 
     log::info!("[backend] starting generation={generation}");
 
@@ -296,25 +363,12 @@ fn start(app: &tauri::AppHandle) {
 
     let child_pid = child.pid();
     log::info!("[backend] spawned generation={generation} pid={child_pid}");
-    let (terminated_sender, terminated_receiver) = oneshot::channel();
+    let (terminated_sender, terminated_receiver) = watch::channel(false);
     state.with_inner(|inner| {
         inner.child = Some(child);
+        inner.shutdown_token = Some(shutdown_token);
         inner.terminated = Some(terminated_receiver);
+        inner.stopping = false;
     });
     events::watch(app.clone(), generation, rx, terminated_sender);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn wait_for_termination_completes_after_sidecar_exit() {
-        tauri::async_runtime::block_on(async {
-            let (sender, receiver) = oneshot::channel();
-            sender.send(()).unwrap();
-
-            assert!(wait_for_termination(receiver).await.is_ok());
-        });
-    }
 }

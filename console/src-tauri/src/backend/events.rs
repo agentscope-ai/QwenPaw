@@ -3,7 +3,7 @@
 use serde::Deserialize;
 use tauri::Manager;
 use tauri_plugin_shell::process::{CommandEvent, TerminatedPayload};
-use tokio::sync::oneshot;
+use tokio::sync::watch;
 
 use super::BackendState;
 
@@ -21,11 +21,10 @@ pub(super) fn watch(
     app: tauri::AppHandle,
     generation: u64,
     mut rx: tauri::async_runtime::Receiver<CommandEvent>,
-    terminated: oneshot::Sender<()>,
+    terminated: watch::Sender<bool>,
 ) {
     tauri::async_runtime::spawn(async move {
         let mut last_stderr = String::new();
-        let mut terminated = Some(terminated);
         log::info!("[backend] watching process generation={generation}");
         while let Some(event) = rx.recv().await {
             match event {
@@ -52,9 +51,7 @@ pub(super) fn watch(
                     let message = termination_message(payload, &last_stderr);
                     let state = app.state::<BackendState>();
                     let stopping = !state.is_current(generation);
-                    if let Some(terminated) = terminated.take() {
-                        let _ = terminated.send(());
-                    }
+                    terminated.send_replace(true);
                     if stopping {
                         log::info!(
                             "[backend:{generation}] process terminated after shutdown request"
