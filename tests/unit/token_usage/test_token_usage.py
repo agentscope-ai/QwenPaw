@@ -135,7 +135,7 @@ class TestStorage:
         """Should write data to file atomically."""
         path = tmp_path / "token_usage.json"
         data = {"2026-04-24": {"openai:gpt-4": {"prompt_tokens": 100}}}
-        save_data_sync(path, data)
+        assert save_data_sync(path, data) is True
         assert path.exists()
         loaded = json.loads(path.read_text())
         assert loaded == data
@@ -143,8 +143,27 @@ class TestStorage:
     def test_save_data_sync_creates_parent_dirs(self, tmp_path):
         """Should create parent directories if needed."""
         path = tmp_path / "subdir" / "token_usage.json"
-        save_data_sync(path, {"test": "data"})
+        assert save_data_sync(path, {"test": "data"}) is True
         assert path.exists()
+
+    def test_save_data_sync_reports_failed_atomic_write(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Should report a failed replace so callers can retry."""
+        path = tmp_path / "token_usage.json"
+
+        def fail_replace(*_args, **_kwargs):
+            raise OSError("simulated transient disk failure")
+
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.storage.os.replace",
+            fail_replace,
+        )
+
+        assert save_data_sync(path, {"test": "data"}) is False
+        assert not path.exists()
 
 
 # =============================================================================
@@ -201,6 +220,44 @@ class TestTokenUsageBuffer:
         entry = buffer._disk_cache["2026-04-24"]["openai:gpt-4"]
         assert entry["prompt_tokens"] == 300
         assert entry["call_count"] == 3
+
+    @pytest.mark.asyncio
+    async def test_flush_retries_after_save_failure(
+        self, tmp_path, monkeypatch
+    ):
+        """A failed save should remain dirty for the next flush."""
+        buffer = TokenUsageBuffer(tmp_path / "test.json")
+        buffer._cache_loaded = True
+        _apply_event(
+            buffer._disk_cache,
+            _UsageEvent(
+                provider_id="openai",
+                model_name="gpt-4",
+                prompt_tokens=100,
+                completion_tokens=50,
+                date_str="2026-04-24",
+                now_iso="2026-04-24T10:00:00+00:00",
+            ),
+        )
+        buffer._dirty = True
+        attempts = 0
+
+        def fail_once(*_args, **_kwargs):
+            nonlocal attempts
+            attempts += 1
+            return attempts > 1
+
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.buffer.save_data_sync",
+            fail_once,
+        )
+
+        await buffer._flush_once()
+        assert buffer._dirty is True
+
+        await buffer._flush_once()
+        assert attempts == 2
+        assert buffer._dirty is False
 
     @pytest.mark.asyncio
     async def test_stop_does_not_wipe_history_when_seed_interrupted(

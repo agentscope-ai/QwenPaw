@@ -32,11 +32,15 @@ async def load_data(path: Path) -> dict:
     return data
 
 
-def save_data_sync(path: Path, data: dict) -> None:
+def save_data_sync(path: Path, data: dict) -> bool:
     """Persist *data* to *path* using an atomic write (tmp → replace).
 
     This is intentionally synchronous so it can be called from the buffer
     flush task without blocking the event loop via ``asyncio.to_thread``.
+
+    Returns:
+        ``True`` when the atomic write succeeds, otherwise ``False`` after a
+        handled ``OSError``.
     """
     tmp_path = path.with_suffix(".tmp")
     try:
@@ -57,6 +61,9 @@ def save_data_sync(path: Path, data: dict) -> None:
                 tmp_path.unlink()
         except OSError:
             pass
+        return False
+
+    return True
 
 
 __all__ = [
