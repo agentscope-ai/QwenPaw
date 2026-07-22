@@ -157,6 +157,8 @@ def test_prompt_and_redaction_encode_quality_constraints():
     assert "One-shot compaction focus hint" in prompt
     assert "Prioritize HTTP failures" in prompt
     assert "It is not evidence, conversation state" in prompt
+    assert "Prioritize independent user constraints" in prompt
+    assert "Do not speculate that more tasks" in prompt
     assert "hint-secret-123" not in prompt
     assert "secret-value-123" not in redact_secrets(
         "token=secret-value-123",
@@ -200,6 +202,8 @@ def test_chinese_prompt_localizes_instructions_but_keeps_protocol_headings():
     assert "所有自然语言内容均使用中文" in prompt
     assert "本次压缩的临时关注提示" in prompt
     assert "上一份候选 summary 未通过本地校验" in prompt
+    assert "独立的用户约束和未解决要求优先" in prompt
+    assert "不要猜测将来还会出现更多任务" in prompt
     assert "## Active Task" in prompt
     assert "Status: in_progress | blocked | completed | unknown" in prompt
     assert "## Open Work" in prompt

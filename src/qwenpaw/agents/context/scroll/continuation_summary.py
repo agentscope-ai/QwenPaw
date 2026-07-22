@@ -205,8 +205,12 @@ Status: in_progress | blocked | completed | unknown
 - 不得复制 credential、token、API key、password、连接串或其他 secret；只保留安全的
   非敏感描述。
 - 不要复制完整 tool output，只保留恢复任务所需的状态。
+- 独立的用户约束和未解决要求优先于重复的成功 tool telemetry。不得为了保留测试数量、
+  耗时、tool-call ID 或常规成功细节而遗漏用户事实。
 - 合并重复的成功运行；不同失败和决定性结果应作为任务状态保留。精确 checkpoint 与
-  recovery pointer 属于 eviction index，不属于这份 summary。
+  recovery pointer 属于 eviction index，不属于这份 summary。除非会影响下一步，否则
+  省略单次运行的测试数量、耗时和 tool-call ID。
+- 不要猜测将来还会出现更多任务、要求或用户消息；证据中没有待办事项时写 `(none)`。
 - 保持简洁：目标为 1500～2500 tokens，绝不能超过 4000 tokens。
 - 列表为空时写 `(none)`，不要增加其他 heading。
 
@@ -272,9 +276,15 @@ Rules:
 - Never copy credentials, tokens, API keys, passwords, connection strings, or
   other secrets. Retain only a safe, non-sensitive description.
 - Do not copy complete tool output. Keep only state needed to resume the task.
+- Prioritize independent user constraints and unresolved requirements over
+  repetitive successful-tool telemetry. Do not omit a user fact to preserve
+  test counts, timings, tool-call IDs, or routine success details.
 - Consolidate repetitive successful runs. Keep distinct failures and decisive
-  results as task state; exact checkpoints and recovery pointers belong to the
-  eviction index, not this summary.
+  results as task state. Unless they affect the next action, omit individual
+  run counts, timings, and tool-call IDs; exact checkpoints and recovery
+  pointers belong to the eviction index, not this summary.
+- Do not speculate that more tasks, requirements, or user messages are coming.
+  If the evidence contains no open work, use `(none)`.
 - Be concise: target 1500-2500 tokens and never exceed 4000 tokens.
 - Use `(none)` for an empty list section. Do not add other headings.
 
