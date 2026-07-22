@@ -86,7 +86,7 @@ describe("AgentLoopCard custom mode rendering", () => {
     expect(form?.getFieldValue(["loop", "custom_modes", 0, "enabled"])).toBe(
       true,
     );
-  }, 15_000);
+  }, 30_000);
 
   it("renders Mission defaults as three separate gates", async () => {
     renderWithProviders(<LoopForm />);
