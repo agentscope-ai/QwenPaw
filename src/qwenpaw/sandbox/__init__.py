@@ -8,6 +8,8 @@ Supported modes:
   - APPCONTAINER:  Windows native isolation (Windows 10+). Dispatches on
     allow_read_all: True → WindowsRestrictedSandbox (WRITE_RESTRICTED token),
     False → WindowsSandbox (AppContainer).
+  - UNELEVATED:    Windows write-restricted token (no admin required).
+    Reads unrestricted, writes gated by capability SID ACE.
   - NONE:          no isolation, direct execution
 
 Lifecycle: per-tool-call (created and destroyed for each invocation).
@@ -54,6 +56,10 @@ from .windows_sandbox import WindowsSandbox
 from .windows_sandbox import (
     shutdown_cleanup as _appcontainer_shutdown_cleanup,
 )
+from .windows_unelevated_sandbox import WindowsUnelevatedSandbox
+from .windows_unelevated_sandbox import (
+    shutdown_cleanup as _unelevated_shutdown_cleanup,
+)
 
 __all__ = [
     "BubblewrapSandbox",
@@ -68,6 +74,7 @@ __all__ = [
     "SandboxMode",
     "WindowsRestrictedSandbox",
     "WindowsSandbox",
+    "WindowsUnelevatedSandbox",
     "create_sandbox",
     "detect_platform_mode",
     "probe_sandbox_support",
@@ -78,7 +85,7 @@ __all__ = [
 def shutdown_all_sandboxes() -> None:
     """Destroys all Windows sandbox artifacts on application exit.
 
-    Calls both sandbox backend cleanups. Safe to call on non-Windows
+    Calls all sandbox backend cleanups. Safe to call on non-Windows
     platforms (no-op). Safe to call multiple times.
     """
     import sys
@@ -86,3 +93,4 @@ def shutdown_all_sandboxes() -> None:
     if sys.platform == "win32":
         _restricted_shutdown_cleanup()
         _appcontainer_shutdown_cleanup()
+        _unelevated_shutdown_cleanup()

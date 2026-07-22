@@ -13,6 +13,8 @@ Backend layout (``create_sandbox`` dispatches to these by ``SandboxMode``):
   - APPCONTAINER → Windows sandbox, dispatched on ``allow_read_all``:
       True  → windows_restricted_sandbox (WindowsRestrictedSandbox)
       False → mod:`qwenpaw.sandbox.windows_sandbox`            (WindowsSandbox)
+  - UNELEVATED   → mod:`qwenpaw.sandbox.windows_unelevated_sandbox`
+      (WindowsUnelevatedSandbox) — write-restricted token, no admin required
   - NONE         → mod:`qwenpaw.sandbox.local_sandbox`      (NoneSandbox)
 
 Shared base class for all backends:
@@ -47,6 +49,7 @@ class SandboxMode(str, Enum):
     BUBBLEWRAP = "bubblewrap"  # Linux bubblewrap (preferred)
     LANDLOCK = "landlock"  # Linux Landlock LSM (fallback)
     APPCONTAINER = "appcontainer"  # Windows AppContainer (native)
+    UNELEVATED = "unelevated"  # Windows write-restricted token (no admin)
     NONE = "none"  # No isolation, direct execution
 
 
@@ -432,6 +435,65 @@ def _probe_linux_bubblewrap() -> SandboxCapability:
         )
 
 
+def _probe_windows_unelevated() -> SandboxCapability:
+    """Probe Windows unelevated sandbox support (WRITE_RESTRICTED token).
+
+    Detection steps:
+        1. sys.platform == "win32"
+        2. Windows 10+ (build 10240+)
+        3. CreateRestrictedToken API is callable (advapi32.dll)
+        4. Does NOT require admin — that's the whole point.
+    """
+    import sys
+
+    if sys.platform != "win32":
+        return SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason="Not running on Windows",
+        )
+
+    try:
+        ver = sys.getwindowsversion()
+        if ver.major < 10:
+            return SandboxCapability(
+                supported=False,
+                mode=SandboxMode.NONE,
+                reason=(
+                    f"Windows {ver.major}.{ver.minor} < 10.0; "
+                    f"WRITE_RESTRICTED token requires Windows 10+"
+                ),
+            )
+    except AttributeError:
+        return SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason="Cannot determine Windows version",
+        )
+
+    # Check that advapi32 CreateRestrictedToken is available
+    try:
+        import ctypes
+
+        advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+        _ = advapi32.CreateRestrictedToken
+    except (OSError, AttributeError) as e:
+        return SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason=f"CreateRestrictedToken API not available: {e}",
+        )
+
+    return SandboxCapability(
+        supported=True,
+        mode=SandboxMode.UNELEVATED,
+        reason=(
+            f"Windows {ver.major}.{ver.minor} build {ver.build}; "
+            f"WRITE_RESTRICTED token available (no admin required)"
+        ),
+    )
+
+
 @functools.lru_cache(maxsize=1)
 def probe_sandbox_support() -> SandboxCapability:
     """Probe current platform sandbox support at startup.
@@ -457,7 +519,11 @@ def probe_sandbox_support() -> SandboxCapability:
             return cap
         return _probe_linux_landlock()
     elif sys.platform == "win32":
-        return _probe_windows_appcontainer()
+        # Prefer elevated AppContainer if admin; fall back to unelevated
+        cap = _probe_windows_appcontainer()
+        if cap.supported:
+            return cap
+        return _probe_windows_unelevated()
     else:
         return SandboxCapability(
             supported=False,
@@ -492,6 +558,8 @@ def create_sandbox(config: SandboxConfig) -> Any:
         ``allow_read_all``: True → WindowsRestrictedSandbox (WRITE_RESTRICTED
         token, reads work automatically), False → WindowsSandbox
         (AppContainer, explicit read allow-list).
+      - UNELEVATED    → WindowsUnelevatedSandbox (write-restricted token,
+        no admin required, reads unrestricted).
       - NONE          → NoneSandbox
     """
     if config.mode == SandboxMode.SEATBELT:
@@ -518,5 +586,9 @@ def create_sandbox(config: SandboxConfig) -> Any:
         from .windows_sandbox import WindowsSandbox
 
         return WindowsSandbox(config)
+    elif config.mode == SandboxMode.UNELEVATED:
+        from .windows_unelevated_sandbox import WindowsUnelevatedSandbox
+
+        return WindowsUnelevatedSandbox(config)
     else:
         raise ValueError(f"Unknown sandbox mode: {config.mode}")
