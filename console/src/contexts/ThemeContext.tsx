@@ -352,12 +352,16 @@ function sanitizeThemeColors(colors: Partial<ThemeColors>): ThemeColors {
 }
 
 function areThemeColorsEqual(first: ThemeColors, second: ThemeColors): boolean {
-  return THEME_COLOR_KEYS.every((colorKey) => first[colorKey] === second[colorKey]);
+  return THEME_COLOR_KEYS.every(
+    (colorKey) => first[colorKey] === second[colorKey],
+  );
 }
 
 function hasThemeColorInput(value: unknown): value is Partial<ThemeColors> {
   if (!isRecord(value)) return false;
-  return THEME_COLOR_KEYS.some((colorKey) => normalizeHexColor(value[colorKey]) !== null);
+  return THEME_COLOR_KEYS.some(
+    (colorKey) => normalizeHexColor(value[colorKey]) !== null,
+  );
 }
 
 function createThemePresetId(): string {
@@ -375,7 +379,9 @@ function getDefaultThemePreset(isDark = false): ThemePreset {
   const defaultPresetId = isDark
     ? DEFAULT_DARK_THEME_PRESET_ID
     : DEFAULT_LIGHT_THEME_PRESET_ID;
-  const preset = BUILT_IN_THEME_PRESETS.find((item) => item.id === defaultPresetId);
+  const preset = BUILT_IN_THEME_PRESETS.find(
+    (item) => item.id === defaultPresetId,
+  );
   return cloneThemePreset(preset ?? BUILT_IN_THEME_PRESETS[0]);
 }
 
@@ -391,7 +397,9 @@ export function isBuiltInThemePreset(preset?: ThemePreset | null): boolean {
 }
 
 function getBuiltInThemePresetOrder(preset: ThemePreset): number {
-  const index = BUILT_IN_THEME_PRESETS.findIndex((item) => item.id === preset.id);
+  const index = BUILT_IN_THEME_PRESETS.findIndex(
+    (item) => item.id === preset.id,
+  );
   return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 }
 
@@ -421,14 +429,18 @@ export function sortThemePresets(presets: ThemePreset[]): ThemePreset[] {
 function sanitizePreset(value: unknown, index: number): ThemePreset | null {
   if (!isRecord(value) || !hasThemeColorInput(value.colors)) return null;
 
-  const id = typeof value.id === "string" && value.id.trim()
-    ? value.id.trim()
-    : `theme-imported-${index}`;
-  const builtInPreset = BUILT_IN_THEME_PRESETS.find((preset) => preset.id === id);
+  const id =
+    typeof value.id === "string" && value.id.trim()
+      ? value.id.trim()
+      : `theme-imported-${index}`;
+  const builtInPreset = BUILT_IN_THEME_PRESETS.find(
+    (preset) => preset.id === id,
+  );
   const fallbackName = builtInPreset?.name ?? "Custom Theme";
-  const name = typeof value.name === "string" && value.name.trim()
-    ? value.name.trim()
-    : fallbackName;
+  const name =
+    typeof value.name === "string" && value.name.trim()
+      ? value.name.trim()
+      : fallbackName;
   const now = new Date().toISOString();
   const appearance =
     value.appearance === "light" || value.appearance === "dark"
@@ -504,7 +516,8 @@ function getInitialThemeLibrary(isDark: boolean): ThemeLibraryState {
     if (!stored) return fallback;
     const parsed = JSON.parse(stored) as unknown;
     if (!isRecord(parsed)) return fallback;
-    const storedVersion = typeof parsed.version === "number" ? parsed.version : 1;
+    const storedVersion =
+      typeof parsed.version === "number" ? parsed.version : 1;
     const parsedPresetValue = parsed.presets;
     const hasPresetLibrary = Array.isArray(parsedPresetValue);
 
@@ -525,8 +538,8 @@ function getInitialThemeLibrary(isDark: boolean): ThemeLibraryState {
     const rawColors = hasThemeColorInput(parsed.colors)
       ? parsed.colors
       : hasThemeColorInput(parsed)
-        ? parsed
-        : null;
+      ? parsed
+      : null;
 
     if (
       rawColors &&
@@ -578,10 +591,7 @@ function applyThemeColorVariables(colors: ThemeColors) {
     "--qwenpaw-color-primary-rgb",
     getRgbTriplet(colors.primary),
   );
-  root.style.setProperty(
-    "--qwenpaw-color-button-bg",
-    colors.buttonBackground,
-  );
+  root.style.setProperty("--qwenpaw-color-button-bg", colors.buttonBackground);
   root.style.setProperty(
     "--qwenpaw-color-button-bg-rgb",
     getRgbTriplet(colors.buttonBackground),
@@ -605,18 +615,30 @@ function applyThemeColorVariables(colors: ThemeColors) {
     getRgbTriplet(colors.info),
   );
   root.style.setProperty("--qwenpaw-color-page-bg", colors.pageBackground);
-  root.style.setProperty("--qwenpaw-color-surface-bg", colors.surfaceBackground);
+  root.style.setProperty(
+    "--qwenpaw-color-surface-bg",
+    colors.surfaceBackground,
+  );
   root.style.setProperty("--qwenpaw-color-border", colors.border);
   root.style.setProperty("--qwenpaw-color-text", colors.text);
-  root.style.setProperty("--qwenpaw-color-text-secondary", colors.textSecondary);
+  root.style.setProperty(
+    "--qwenpaw-color-text-secondary",
+    colors.textSecondary,
+  );
   root.style.setProperty("--qwenpaw-color-text-muted", colors.textMuted);
   root.style.setProperty("--qwenpaw-color-heading", colors.headingText);
   root.style.setProperty("--qwenpaw-color-code-bg", colors.codeBackground);
   root.style.setProperty("--qwenpaw-color-code-text", colors.codeText);
   root.style.setProperty("--qwenpaw-color-code-keyword", colors.codeKeyword);
-  root.style.setProperty("--qwenpaw-color-terminal-bg", colors.terminalBackground);
+  root.style.setProperty(
+    "--qwenpaw-color-terminal-bg",
+    colors.terminalBackground,
+  );
   root.style.setProperty("--qwenpaw-color-terminal-text", colors.terminalText);
-  root.style.setProperty("--qwenpaw-color-terminal-prompt", colors.terminalPrompt);
+  root.style.setProperty(
+    "--qwenpaw-color-terminal-prompt",
+    colors.terminalPrompt,
+  );
   root.style.setProperty("--colorPrimary", colors.primary);
   root.style.setProperty("--colorErrorText", colors.error);
   root.style.setProperty("--colorWarningText", colors.warning);
@@ -646,12 +668,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [isDark, setIsDark] = useState<boolean>(() =>
     resolveIsDark(getInitialMode()),
   );
-  const [themeLibrary, setThemeLibrary] =
-    useState<ThemeLibraryState>(() =>
-      getInitialThemeLibrary(resolveIsDark(getInitialMode())),
-    );
-  const { activePresetId, colors: themeColors, presets: themePresets } =
-    themeLibrary;
+  const [themeLibrary, setThemeLibrary] = useState<ThemeLibraryState>(() =>
+    getInitialThemeLibrary(resolveIsDark(getInitialMode())),
+  );
+  const {
+    activePresetId,
+    colors: themeColors,
+    presets: themePresets,
+  } = themeLibrary;
 
   // Apply dark/light class to <html> element for global CSS variable overrides
   useEffect(() => {
@@ -790,52 +814,58 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     [isDark],
   );
 
-  const saveThemePreset = useCallback((name: string, colors?: ThemeColors) => {
-    const presetId = createThemePresetId();
-    setThemeLibrary((prev) => {
-      const now = new Date().toISOString();
-      const nextColors = sanitizeThemeColors(colors ?? prev.colors);
-      const appearance: ResolvedTheme = isDark ? "dark" : "light";
-      const nextLibrary = {
-        activePresetId: presetId,
-        colors: nextColors,
-        presets: ensureBuiltInPresets([
-          ...prev.presets,
-          {
-            id: presetId,
-            name: normalizePresetName(name),
-            colors: nextColors,
-            favorite: false,
-            appearance,
-            createdAt: now,
-            updatedAt: now,
-          },
-        ]),
-      };
-      persistThemeLibrary(nextLibrary);
-      return nextLibrary;
-    });
-    return presetId;
-  }, [isDark]);
+  const saveThemePreset = useCallback(
+    (name: string, colors?: ThemeColors) => {
+      const presetId = createThemePresetId();
+      setThemeLibrary((prev) => {
+        const now = new Date().toISOString();
+        const nextColors = sanitizeThemeColors(colors ?? prev.colors);
+        const appearance: ResolvedTheme = isDark ? "dark" : "light";
+        const nextLibrary = {
+          activePresetId: presetId,
+          colors: nextColors,
+          presets: ensureBuiltInPresets([
+            ...prev.presets,
+            {
+              id: presetId,
+              name: normalizePresetName(name),
+              colors: nextColors,
+              favorite: false,
+              appearance,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ]),
+        };
+        persistThemeLibrary(nextLibrary);
+        return nextLibrary;
+      });
+      return presetId;
+    },
+    [isDark],
+  );
 
-  const selectThemePreset = useCallback((presetId: string) => {
-    const selectedPreset = themePresets.find((item) => item.id === presetId);
-    if (selectedPreset?.appearance) {
-      setThemeMode(selectedPreset.appearance);
-    }
+  const selectThemePreset = useCallback(
+    (presetId: string) => {
+      const selectedPreset = themePresets.find((item) => item.id === presetId);
+      if (selectedPreset?.appearance) {
+        setThemeMode(selectedPreset.appearance);
+      }
 
-    setThemeLibrary((prev) => {
-      const preset = prev.presets.find((item) => item.id === presetId);
-      if (!preset) return prev;
-      const nextLibrary = {
-        ...prev,
-        activePresetId: preset.id,
-        colors: preset.colors,
-      };
-      persistThemeLibrary(nextLibrary);
-      return nextLibrary;
-    });
-  }, [setThemeMode, themePresets]);
+      setThemeLibrary((prev) => {
+        const preset = prev.presets.find((item) => item.id === presetId);
+        if (!preset) return prev;
+        const nextLibrary = {
+          ...prev,
+          activePresetId: preset.id,
+          colors: preset.colors,
+        };
+        persistThemeLibrary(nextLibrary);
+        return nextLibrary;
+      });
+    },
+    [setThemeMode, themePresets],
+  );
 
   const toggleThemePresetFavorite = useCallback((presetId: string) => {
     setThemeLibrary((prev) => {
@@ -854,31 +884,37 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const deleteThemePreset = useCallback((presetId: string) => {
-    setThemeLibrary((prev) => {
-      const presetToDelete = prev.presets.find((preset) => preset.id === presetId);
-      if (isBuiltInThemePreset(presetToDelete)) return prev;
+  const deleteThemePreset = useCallback(
+    (presetId: string) => {
+      setThemeLibrary((prev) => {
+        const presetToDelete = prev.presets.find(
+          (preset) => preset.id === presetId,
+        );
+        if (isBuiltInThemePreset(presetToDelete)) return prev;
 
-      const nextPresets = ensureBuiltInPresets(
-        prev.presets.filter((preset) => preset.id !== presetId),
-      );
-      const defaultPreset =
-        nextPresets.find((preset) => preset.id === getDefaultThemePreset(isDark).id) ??
-        nextPresets[0];
-      const activePreset =
-        prev.activePresetId === presetId
-          ? defaultPreset
-          : nextPresets.find((preset) => preset.id === prev.activePresetId) ??
-            defaultPreset;
-      const nextLibrary = {
-        activePresetId: activePreset.id,
-        colors: activePreset.colors,
-        presets: nextPresets,
-      };
-      persistThemeLibrary(nextLibrary);
-      return nextLibrary;
-    });
-  }, [isDark]);
+        const nextPresets = ensureBuiltInPresets(
+          prev.presets.filter((preset) => preset.id !== presetId),
+        );
+        const defaultPreset =
+          nextPresets.find(
+            (preset) => preset.id === getDefaultThemePreset(isDark).id,
+          ) ?? nextPresets[0];
+        const activePreset =
+          prev.activePresetId === presetId
+            ? defaultPreset
+            : nextPresets.find((preset) => preset.id === prev.activePresetId) ??
+              defaultPreset;
+        const nextLibrary = {
+          activePresetId: activePreset.id,
+          colors: activePreset.colors,
+          presets: nextPresets,
+        };
+        persistThemeLibrary(nextLibrary);
+        return nextLibrary;
+      });
+    },
+    [isDark],
+  );
 
   const resetThemeColors = useCallback(() => {
     setThemeLibrary((prev) => {

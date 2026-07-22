@@ -104,12 +104,16 @@ export default function ThemeToggleButton() {
             className={styles.themePresetMenuSwatch}
             style={
               {
-                "--theme-preset-gradient": getThemePresetGradient(preset.colors),
+                "--theme-preset-gradient": getThemePresetGradient(
+                  preset.colors,
+                ),
               } as CSSProperties
             }
           />
           <span className={styles.themePresetMenuName}>{preset.name}</span>
-          {active && <Check size={14} className={styles.themePresetMenuCheck} />}
+          {active && (
+            <Check size={14} className={styles.themePresetMenuCheck} />
+          )}
           <button
             type="button"
             className={`${styles.themePresetMenuAction} ${
@@ -156,7 +160,10 @@ export default function ThemeToggleButton() {
 
   return (
     <Dropdown
-      menu={{ items, selectedKeys: [themeMode, `preset-${activeThemePresetId}`] }}
+      menu={{
+        items,
+        selectedKeys: [themeMode, `preset-${activeThemePresetId}`],
+      }}
       placement="bottomRight"
       overlayClassName={styles.themeDropdown}
     >

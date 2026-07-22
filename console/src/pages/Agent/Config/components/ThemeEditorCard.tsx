@@ -7,7 +7,13 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Button, Card, Input, InputNumber, Slider } from "@agentscope-ai/design";
+import {
+  Button,
+  Card,
+  Input,
+  InputNumber,
+  Slider,
+} from "@agentscope-ai/design";
 import {
   Check,
   Download,
@@ -255,9 +261,7 @@ function hexToHsla(value: string): HslaColor {
 
   const lightness = (maxChannel + minChannel) / 2;
   const saturation =
-    channelDelta === 0
-      ? 0
-      : channelDelta / (1 - Math.abs(2 * lightness - 1));
+    channelDelta === 0 ? 0 : channelDelta / (1 - Math.abs(2 * lightness - 1));
 
   return {
     hue: Math.round((hue + 360) % 360),
@@ -305,7 +309,9 @@ function hslaToHex(color: HslaColor): string {
   const blue = (bluePrime + lightnessOffset) * 255;
   const alphaHex = alpha < 1 ? channelToHex(Math.round(alpha * 255)) : "";
 
-  return `#${channelToHex(red)}${channelToHex(green)}${channelToHex(blue)}${alphaHex}`;
+  return `#${channelToHex(red)}${channelToHex(green)}${channelToHex(
+    blue,
+  )}${alphaHex}`;
 }
 
 function getSliderNumber(value: number | number[] | null): number {
@@ -323,9 +329,11 @@ const HUE_RANGE_TRACK =
   "linear-gradient(to right, #ff0000, #ffff00 17%, #00ff00 33%, #00ffff 50%, #0000ff 67%, #ff00ff 83%, #ff0000)";
 
 function getSaturationRangeTrack(color: HslaColor): string {
-  return `linear-gradient(to right, hsl(${Math.round(color.hue)}, 0%, ${Math.round(
-    color.lightness,
-  )}%), hsl(${Math.round(color.hue)}, 100%, ${Math.round(color.lightness)}%))`;
+  return `linear-gradient(to right, hsl(${Math.round(
+    color.hue,
+  )}, 0%, ${Math.round(color.lightness)}%), hsl(${Math.round(
+    color.hue,
+  )}, 100%, ${Math.round(color.lightness)}%))`;
 }
 
 function getLightnessRangeTrack(color: HslaColor): string {
@@ -374,7 +382,9 @@ function ColorRangeControl({
           max={max}
           value={value}
           addonAfter={suffix}
-          onChange={(nextValue) => onChange(clampValue(Number(nextValue ?? 0), min, max))}
+          onChange={(nextValue) =>
+            onChange(clampValue(Number(nextValue ?? 0), min, max))
+          }
         />
       </label>
       <Slider min={min} max={max} value={value} onChange={handleChange} />
@@ -427,7 +437,9 @@ function ColorWheel({
     const offsetY = clientY - centerY;
     const distance = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
     const hue = (Math.atan2(offsetY, offsetX) * 180) / Math.PI;
-    const saturation = Math.round(clampValue((distance / radius) * 100, 0, 100));
+    const saturation = Math.round(
+      clampValue((distance / radius) * 100, 0, 100),
+    );
     const lightness =
       value.lightness >= 98 || value.lightness <= 2 ? 50 : value.lightness;
 
@@ -540,7 +552,8 @@ export function ThemeEditorCard() {
 
   useEffect(() => {
     const nextColor =
-      normalizeHexColor(draftColors[selectedKey]) ?? DEFAULT_THEME_COLORS[selectedKey];
+      normalizeHexColor(draftColors[selectedKey]) ??
+      DEFAULT_THEME_COLORS[selectedKey];
 
     setHexInput(nextColor);
     setSelectedHsla((previousHsla) => {
@@ -818,7 +831,9 @@ export function ThemeEditorCard() {
                     }
                   />
                   <span className={styles.themePresetName}>{preset.name}</span>
-                  {active && <Check size={14} className={styles.themePresetCheck} />}
+                  {active && (
+                    <Check size={14} className={styles.themePresetCheck} />
+                  )}
                   <span
                     role="button"
                     tabIndex={0}
@@ -893,8 +908,12 @@ export function ThemeEditorCard() {
                     style={{ background: draftColors[target.key] }}
                   />
                   <span className={styles.themeTargetMeta}>
-                    <span className={styles.themeTargetName}>{target.label}</span>
-                    <span className={styles.themeTargetGroup}>{target.group}</span>
+                    <span className={styles.themeTargetName}>
+                      {target.label}
+                    </span>
+                    <span className={styles.themeTargetGroup}>
+                      {target.group}
+                    </span>
                   </span>
                 </button>
               );
@@ -910,7 +929,9 @@ export function ThemeEditorCard() {
                 style={{ background: draftColors[selectedKey] }}
               />
               <div>
-                <div className={styles.themeSelectedName}>{selectedTarget.label}</div>
+                <div className={styles.themeSelectedName}>
+                  {selectedTarget.label}
+                </div>
                 <div className={styles.themeSelectedDescription}>
                   {selectedTarget.description}
                 </div>
@@ -935,7 +956,9 @@ export function ThemeEditorCard() {
                   value={saturationValue}
                   suffix="%"
                   track={getSaturationRangeTrack(selectedHsla)}
-                  onChange={(value) => updateSelectedHsla({ saturation: value })}
+                  onChange={(value) =>
+                    updateSelectedHsla({ saturation: value })
+                  }
                 />
                 <ColorRangeControl
                   label="L"
@@ -957,7 +980,9 @@ export function ThemeEditorCard() {
                   value={alphaValue}
                   suffix="%"
                   track={getAlphaRangeTrack(selectedHsla)}
-                  onChange={(value) => updateSelectedHsla({ alpha: value / 100 })}
+                  onChange={(value) =>
+                    updateSelectedHsla({ alpha: value / 100 })
+                  }
                 />
               </div>
             </div>
@@ -969,8 +994,12 @@ export function ThemeEditorCard() {
             </div>
             <div className={styles.themePreviewGrid}>
               <div className={styles.themePreviewSampleBlock}>
-                <div className={styles.themePreviewHeading}>Workspace heading</div>
-                <div className={styles.themePreviewBody}>Readable body text</div>
+                <div className={styles.themePreviewHeading}>
+                  Workspace heading
+                </div>
+                <div className={styles.themePreviewBody}>
+                  Readable body text
+                </div>
                 <div className={styles.themePreviewSecondary}>
                   Secondary description text
                 </div>
@@ -979,33 +1008,48 @@ export function ThemeEditorCard() {
                 </a>
               </div>
               <div className={styles.themePreviewSampleBlock}>
-                <button type="button" className={styles.themePreviewPrimaryButton}>
+                <button
+                  type="button"
+                  className={styles.themePreviewPrimaryButton}
+                >
                   {t("themeEditor.primaryButton", "Primary Button")}
                 </button>
-                <button type="button" className={styles.themePreviewDefaultButton}>
+                <button
+                  type="button"
+                  className={styles.themePreviewDefaultButton}
+                >
                   {t("themeEditor.defaultButton", "Default Button")}
                 </button>
               </div>
               <div className={styles.themePreviewStatusGrid}>
-                <div className={`${styles.themePreviewStatus} ${styles.themePreviewError}`}>
+                <div
+                  className={`${styles.themePreviewStatus} ${styles.themePreviewError}`}
+                >
                   {t("themeEditor.error", "Error message")}
                 </div>
-                <div className={`${styles.themePreviewStatus} ${styles.themePreviewWarning}`}>
+                <div
+                  className={`${styles.themePreviewStatus} ${styles.themePreviewWarning}`}
+                >
                   {t("themeEditor.warning", "Warning message")}
                 </div>
-                <div className={`${styles.themePreviewStatus} ${styles.themePreviewSuccess}`}>
+                <div
+                  className={`${styles.themePreviewStatus} ${styles.themePreviewSuccess}`}
+                >
                   {t("themeEditor.success", "Success message")}
                 </div>
               </div>
               <div className={styles.themePreviewCodeStack}>
                 <pre className={styles.themePreviewCode}>
                   <code>
-                    <span className={styles.themePreviewCodeKeyword}>const</span> theme =
-                    "QwenPaw";
+                    <span className={styles.themePreviewCodeKeyword}>
+                      const
+                    </span>{" "}
+                    theme = "QwenPaw";
                   </code>
                 </pre>
                 <div className={styles.themePreviewTerminal}>
-                  <span className={styles.themePreviewTerminalPrompt}>$</span> qwenpaw app
+                  <span className={styles.themePreviewTerminalPrompt}>$</span>{" "}
+                  qwenpaw app
                 </div>
               </div>
             </div>

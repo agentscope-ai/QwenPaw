@@ -235,8 +235,10 @@
 .themeToolbarActionButton.themeToolbarActionButton:hover,
 .themeToolbarActionButton.themeToolbarActionButton:focus,
 :global(html.dark-mode) .themeToolbarActionButton.themeToolbarActionButton,
-:global(html.dark-mode) .themeToolbarActionButton.themeToolbarActionButton:hover,
-:global(html.dark-mode) .themeToolbarActionButton.themeToolbarActionButton:focus {
+:global(html.dark-mode)
+  .themeToolbarActionButton.themeToolbarActionButton:hover,
+:global(html.dark-mode)
+  .themeToolbarActionButton.themeToolbarActionButton:focus {
   background: var(--qwenpaw-color-button-bg, #ff7f16) !important;
   border-color: var(--qwenpaw-color-button-bg, #ff7f16) !important;
   color: var(--qwenpaw-color-button-text, #fff) !important;
@@ -507,8 +509,7 @@
   border-radius: 50%;
   position: relative;
   cursor: crosshair;
-  background:
-    radial-gradient(circle, #fff 0%, rgba(255, 255, 255, 0) 72%),
+  background: radial-gradient(circle, #fff 0%, rgba(255, 255, 255, 0) 72%),
     conic-gradient(red, yellow, lime, cyan, blue, magenta, red);
   box-shadow:
     inset 0 0 0 1px rgba(0, 0, 0, 0.08),
