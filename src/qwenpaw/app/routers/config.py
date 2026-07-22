@@ -208,9 +208,15 @@ async def install_channel_dependencies(
             detail="Runtime dependency installation is disabled",
         )
     if channel_name not in BUILTIN_CHANNEL_CATALOG:
-        raise HTTPException(status_code=404, detail="Built-in channel not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Built-in channel not found",
+        )
     if body.source not in {"auto", "system", "pypi", "aliyun", "custom"}:
-        raise HTTPException(status_code=422, detail="Unsupported package source")
+        raise HTTPException(
+            status_code=422,
+            detail="Unsupported package source",
+        )
     if body.source == "custom" and not body.custom_index_url:
         raise HTTPException(
             status_code=422,
@@ -247,7 +253,10 @@ async def install_channel_dependencies(
 )
 async def recheck_channel_dependencies(channel_name: str) -> dict:
     if channel_name not in BUILTIN_CHANNEL_CATALOG:
-        raise HTTPException(status_code=404, detail="Built-in channel not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Built-in channel not found",
+        )
     return await asyncio.to_thread(
         channel_dependency_service.channel_status,
         channel_name,

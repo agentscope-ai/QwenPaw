@@ -75,7 +75,9 @@ def _redact_url_credentials(value: str | None) -> str | None:
 
 
 def _safe_source_label(value: str) -> str:
-    if value in {"system-config", "pypi", "aliyun"} or value.startswith("custom:"):
+    if value in {"system-config", "pypi", "aliyun"} or value.startswith(
+        "custom:",
+    ):
         return value
     parsed = urlsplit(value)
     if parsed.scheme in {"http", "https"} and parsed.hostname:
@@ -147,7 +149,9 @@ def requirements_for_extra(extra: str | None) -> list[str]:
     pyproject = _source_pyproject()
     if pyproject is not None:
         data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-        values = data.get("project", {}).get("optional-dependencies", {}).get(extra)
+        values = (
+            data.get("project", {}).get("optional-dependencies", {}).get(extra)
+        )
         if isinstance(values, list):
             return [str(value) for value in values]
     return _requirements_from_metadata(extra)
@@ -166,7 +170,7 @@ def missing_requirements(spec: ChannelSpec) -> list[str]:
         req = Requirement(raw)
         if _requirement_applies(
             raw,
-        ) and not PluginLoader._is_requirement_satisfied(req):
+        ) and not PluginLoader.is_requirement_satisfied(req):
             missing.append(raw)
     return missing
 
@@ -217,11 +221,19 @@ class ChannelDependencyService:
         try:
             self._refresh_jobs_from_disk()
         except Exception:
-            logger.warning("Failed to restore channel dependency jobs", exc_info=True)
+            logger.warning(
+                "Failed to restore channel dependency jobs",
+                exc_info=True,
+            )
             self._jobs.clear()
             self._active_by_channel.clear()
 
-    def channel_status(self, key: str, *, refresh: bool = True) -> dict[str, Any]:
+    def channel_status(
+        self,
+        key: str,
+        *,
+        refresh: bool = True,
+    ) -> dict[str, Any]:
         if refresh:
             self._refresh_jobs_from_disk()
         spec = BUILTIN_CHANNEL_CATALOG[key]
@@ -259,9 +271,12 @@ class ChannelDependencyService:
         error = None
         if not missing:
             try:
-                module = importlib.import_module(spec.module, package=__package__)
+                module = importlib.import_module(
+                    spec.module,
+                    package=__package__,
+                )
                 getattr(module, spec.class_name)
-            except Exception as exc:  # dependency-ready code failures are distinct
+            except Exception as exc:
                 status = "load_error"
                 error = f"{type(exc).__name__}: {exc}"
         result = {
@@ -284,7 +299,10 @@ class ChannelDependencyService:
             try:
                 result[key] = self.channel_status(key, refresh=False)
             except Exception as exc:
-                logger.exception("Failed to inspect channel dependencies: %s", key)
+                logger.exception(
+                    "Failed to inspect channel dependencies: %s",
+                    key,
+                )
                 result[key] = {
                     "channel": key,
                     "status": "load_error",
@@ -321,11 +339,17 @@ class ChannelDependencyService:
             raise ValueError("Channel dependencies are already installed")
         with self._persist_lock, self._jobs_file_lock() as acquired:
             if not acquired:
-                raise RuntimeError("Timed out waiting for channel job state lock")
+                raise RuntimeError(
+                    "Timed out waiting for channel job state lock",
+                )
             jobs, changed = self._read_jobs_file()
             changed = self._mark_interrupted_jobs(jobs) or changed
             existing = self._latest_channel_job(jobs, channel)
-            if existing and existing.status in {"queued", "installing", "verifying"}:
+            if existing and existing.status in {
+                "queued",
+                "installing",
+                "verifying",
+            }:
                 if changed:
                     self._write_jobs_file(jobs)
                 self._replace_cached_jobs(jobs)
@@ -371,12 +395,15 @@ class ChannelDependencyService:
             )
             if remaining:
                 raise RuntimeError(
-                    "Installation completed but dependencies are still missing: "
-                    + ", ".join(remaining)
+                    "Installation completed but dependencies are still "
+                    "missing: " + ", ".join(remaining),
                 )
             spec = BUILTIN_CHANNEL_CATALOG[job.channel]
             try:
-                module = importlib.import_module(spec.module, package=__package__)
+                module = importlib.import_module(
+                    spec.module,
+                    package=__package__,
+                )
                 getattr(module, spec.class_name)
             except Exception as exc:
                 raise RuntimeError(
@@ -392,7 +419,10 @@ class ChannelDependencyService:
                         job.channel,
                     )
         except Exception as exc:
-            logger.exception("Channel dependency installation failed: %s", job.channel)
+            logger.exception(
+                "Channel dependency installation failed: %s",
+                job.channel,
+            )
             self._update_job(job, status="failed", error=str(exc)[-4000:])
 
     def _install_locked(self, job: InstallJob) -> None:
@@ -403,29 +433,41 @@ class ChannelDependencyService:
                 raise RuntimeError(
                     "Timed out waiting for another channel dependency install",
                 )
-            current = missing_requirements(BUILTIN_CHANNEL_CATALOG[job.channel])
+            current = missing_requirements(
+                BUILTIN_CHANNEL_CATALOG[job.channel],
+            )
             if not current:
                 return
             self._install_with_sources(job, current)
 
-    def _source_candidates(self, job: InstallJob) -> list[tuple[str | None, str]]:
+    def _source_candidates(
+        self,
+        job: InstallJob,
+    ) -> list[tuple[str | None, str]]:
         if job.source == "system":
             return [(None, "system-config")]
         if job.source == "custom":
             if not job.custom_index_url:
-                raise ValueError("custom_index_url is required for custom source")
+                raise ValueError(
+                    "custom_index_url is required for custom source",
+                )
             hostname = urlsplit(job.custom_index_url).hostname or "configured"
             return [(job.custom_index_url, f"custom:{hostname}")]
         if job.source in _SOURCE_URLS:
             return [(_SOURCE_URLS[job.source], job.source)]
         # Let pip/uv resolve their complete native configuration first. This
-        # includes environment variables, pip.conf and conda environment config.
+        # This includes environment variables, pip.conf and conda environment
+        # configuration.
         return [
             (None, "system-config"),
             (_SOURCE_URLS["aliyun"], "aliyun"),
         ]
 
-    def _install_with_sources(self, job: InstallJob, requirements: list[str]) -> None:
+    def _install_with_sources(
+        self,
+        job: InstallJob,
+        requirements: list[str],
+    ) -> None:
         last_output = ""
         for index_url, label in self._source_candidates(job):
             self._append_attempted_source(job, label)
@@ -433,7 +475,9 @@ class ChannelDependencyService:
             if result.returncode == 0:
                 return
             last_output = (
-                result.stdout or result.stderr or "dependency installation failed"
+                result.stdout
+                or result.stderr
+                or "dependency installation failed"
             )
             if not self._is_network_failure(last_output):
                 break
@@ -460,7 +504,9 @@ class ChannelDependencyService:
                 if parsed.password is not None:
                     credential += f":{parsed.password}"
                 credential += "@"
-            redact_values = [value for value in (index_url, credential) if value]
+            redact_values = [
+                value for value in (index_url, credential) if value
+            ]
             # Keep credentials out of the process command line. Both pip and uv
             # honour these variables, and blank extra indexes prevent an
             # explicitly selected source from silently consulting another one.
@@ -485,7 +531,9 @@ class ChannelDependencyService:
             if _is_frozen():
                 python = _desktop_python()
                 if python is None:
-                    raise RuntimeError("Bundled desktop Python runtime is unavailable")
+                    raise RuntimeError(
+                        "Bundled desktop Python runtime is unavailable",
+                    )
                 cmd = [
                     python,
                     "-m",
@@ -517,7 +565,7 @@ class ChannelDependencyService:
                     "-r",
                     req_path,
                 ]
-            result = PluginLoader._run_subprocess_with_streaming_log(
+            result = PluginLoader.run_subprocess_with_streaming_log(
                 cmd,
                 timeout=600,
                 plugin_id=f"channel-{channel}",
@@ -529,7 +577,7 @@ class ChannelDependencyService:
                 and result.returncode != 0
                 and "No module named pip" in result.stdout
             ):
-                uv = PluginLoader._find_uv()
+                uv = PluginLoader.find_uv()
                 if uv:
                     cmd = [
                         uv,
@@ -544,7 +592,7 @@ class ChannelDependencyService:
                         "-r",
                         req_path,
                     ]
-                    result = PluginLoader._run_subprocess_with_streaming_log(
+                    result = PluginLoader.run_subprocess_with_streaming_log(
                         cmd,
                         timeout=600,
                         plugin_id=f"channel-{channel}",
@@ -557,7 +605,10 @@ class ChannelDependencyService:
 
     def _jobs_file_lock(self):
         self._state_dir.mkdir(parents=True, exist_ok=True)
-        return plugin_install_lock(self._state_dir / "install_jobs.lock", timeout=30)
+        return plugin_install_lock(
+            self._state_dir / "install_jobs.lock",
+            timeout=30,
+        )
 
     def _read_jobs_file(self) -> tuple[dict[str, InstallJob], bool]:
         path = self._state_dir / "install_jobs.json"
@@ -577,7 +628,10 @@ class ChannelDependencyService:
                 _safe_source_label(value) for value in job.attempted_sources
             ]
             safe_error = _redact_url_credentials(job.error)
-            if safe_sources != job.attempted_sources or safe_error != job.error:
+            if (
+                safe_sources != job.attempted_sources
+                or safe_error != job.error
+            ):
                 job.attempted_sources = safe_sources
                 job.error = safe_error
                 changed = True
@@ -654,7 +708,9 @@ class ChannelDependencyService:
             return
         with self._persist_lock, self._jobs_file_lock() as acquired:
             if not acquired:
-                raise RuntimeError("Timed out waiting for channel job state lock")
+                raise RuntimeError(
+                    "Timed out waiting for channel job state lock",
+                )
             jobs, changed = self._read_jobs_file()
             changed = self._mark_interrupted_jobs(jobs) or changed
             if changed:
@@ -664,7 +720,9 @@ class ChannelDependencyService:
     def _persist_job(self, job: InstallJob) -> None:
         with self._persist_lock, self._jobs_file_lock() as acquired:
             if not acquired:
-                raise RuntimeError("Timed out waiting for channel job state lock")
+                raise RuntimeError(
+                    "Timed out waiting for channel job state lock",
+                )
             jobs, _ = self._read_jobs_file()
             jobs[job.id] = replace(job)
             self._write_jobs_file(jobs)

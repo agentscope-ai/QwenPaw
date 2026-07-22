@@ -396,7 +396,9 @@ def get_available_channels() -> Tuple[str, ...]:
     from ..app.channels.registry import get_channel_registry
 
     registry = get_channel_registry()
-    all_keys = tuple(dict.fromkeys((*BUILTIN_CHANNEL_CATALOG.keys(), *registry.keys())))
+    all_keys = tuple(
+        dict.fromkeys((*BUILTIN_CHANNEL_CATALOG.keys(), *registry.keys())),
+    )
 
     raw_enabled = EnvVarLoader.get_str("QWENPAW_ENABLED_CHANNELS", "").strip()
     if raw_enabled:

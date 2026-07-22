@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import logging
 import sys
 
@@ -8,7 +9,7 @@ def test_install_subprocess_redacts_credentials(caplog):
     secret_url = "https://user:secret@example.com/simple/"
 
     with caplog.at_level(logging.DEBUG, logger="qwenpaw.plugins.loader"):
-        result = PluginLoader._run_subprocess_with_streaming_log(
+        result = PluginLoader.run_subprocess_with_streaming_log(
             [sys.executable, "-c", f"print({secret_url!r})", secret_url],
             timeout=10,
             plugin_id="redaction-test",
@@ -21,3 +22,28 @@ def test_install_subprocess_redacts_credentials(caplog):
     assert secret_url not in caplog.text
     assert "secret" not in caplog.text
     assert "<redacted>" in caplog.text
+
+
+def test_install_subprocess_uses_utf8_with_replacement():
+    environment = {"QWENPAW_ENCODING_TEST": "custom"}
+    result = PluginLoader.run_subprocess_with_streaming_log(
+        [
+            sys.executable,
+            "-c",
+            "import os, sys; "
+            "sys.stdout.buffer.write(b'bad-byte: \\x80\\n'); "
+            "print(os.environ['PYTHONUTF8']); "
+            "print(os.environ['PYTHONIOENCODING']); "
+            "print(os.environ['QWENPAW_ENCODING_TEST'])",
+        ],
+        timeout=10,
+        plugin_id="encoding-test",
+        environment=environment,
+    )
+
+    assert result.returncode == 0
+    assert "bad-byte: \ufffd" in result.stdout
+    assert "1" in result.stdout.splitlines()
+    assert "utf-8" in result.stdout.splitlines()
+    assert "custom" in result.stdout.splitlines()
+    assert environment == {"QWENPAW_ENCODING_TEST": "custom"}

@@ -323,7 +323,7 @@ class PluginLoader:
         return check_plugin_version_compat(manifest)
 
     @staticmethod
-    def _is_requirement_satisfied(req: Requirement) -> bool:
+    def is_requirement_satisfied(req: Requirement) -> bool:
         """Return True if *req* is already available.
 
         Two complementary probes are combined so neither environment causes a
@@ -362,6 +362,8 @@ class PluginLoader:
         except (ImportError, ValueError):
             return False
 
+    _is_requirement_satisfied = is_requirement_satisfied
+
     @staticmethod
     def _find_unsatisfied_dependencies(
         requirements_file: Path,
@@ -379,7 +381,7 @@ class PluginLoader:
                 req = Requirement(line)
             except Exception:
                 continue
-            if not PluginLoader._is_requirement_satisfied(req):
+            if not PluginLoader.is_requirement_satisfied(req):
                 missing.append(line)
 
         return missing
@@ -776,7 +778,7 @@ class PluginLoader:
         return self._loaded_plugins
 
     @staticmethod
-    def _find_uv() -> Optional[str]:
+    def find_uv() -> Optional[str]:
         """Return the path to the ``uv`` binary, or ``None`` if not found.
 
         Checks PATH first, then well-known install locations for both
@@ -806,8 +808,10 @@ class PluginLoader:
                 return str(candidate)
         return None
 
+    _find_uv = find_uv
+
     @staticmethod
-    def _run_subprocess_with_streaming_log(
+    def run_subprocess_with_streaming_log(
         cmd: list[str],
         *,
         timeout: int,
@@ -816,6 +820,12 @@ class PluginLoader:
         environment: Optional[Dict[str, str]] = None,
     ) -> subprocess.CompletedProcess:
         """Run *cmd*; stream stdout/stderr to debug logs in real time."""
+        process_env = os.environ.copy()
+        if environment:
+            process_env.update(environment)
+        process_env["PYTHONUTF8"] = "1"
+        process_env["PYTHONIOENCODING"] = "utf-8"
+
         secrets = sorted(
             (value for value in (redact_values or []) if value),
             key=len,
@@ -838,8 +848,10 @@ class PluginLoader:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
-            env=environment,
+            env=process_env,
         ) as proc:
 
             def _read_output() -> None:
@@ -869,6 +881,8 @@ class PluginLoader:
             stdout=combined,
             stderr="",
         )
+
+    _run_subprocess_with_streaming_log = run_subprocess_with_streaming_log
 
     def _install_requirements(
         self,
@@ -906,7 +920,7 @@ class PluginLoader:
 
         # ── Attempt 1: python -m pip ──────────────────────────────────
         try:
-            result = self._run_subprocess_with_streaming_log(
+            result = self.run_subprocess_with_streaming_log(
                 [
                     sys.executable,
                     "-m",
@@ -945,7 +959,7 @@ class PluginLoader:
             )
 
         # ── Attempt 2: uv pip install ─────────────────────────────────
-        uv = self._find_uv()
+        uv = self.find_uv()
         if uv is None:
             raise RuntimeError(
                 f"pip is not available in the current Python environment "
@@ -957,7 +971,7 @@ class PluginLoader:
             f"pip not available; retrying with uv for plugin '{plugin_id}'",
         )
         try:
-            uv_result = self._run_subprocess_with_streaming_log(
+            uv_result = self.run_subprocess_with_streaming_log(
                 [
                     uv,
                     "pip",
@@ -1009,7 +1023,7 @@ class PluginLoader:
             )
         target = str(_plugin_site_dir())
         try:
-            result = self._run_subprocess_with_streaming_log(
+            result = self.run_subprocess_with_streaming_log(
                 [
                     python,
                     "-m",

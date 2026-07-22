@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 import json
 from pathlib import Path
 import subprocess
@@ -96,7 +98,10 @@ def test_every_catalog_extra_exists_and_channels_all_is_complete():
 def test_channel_only_sdks_are_not_core_dependencies():
     pyproject = Path(__file__).resolve().parents[3] / "pyproject.toml"
     data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-    core = {Requirement(raw).name.lower() for raw in data["project"]["dependencies"]}
+    core = {
+        Requirement(raw).name.lower()
+        for raw in data["project"]["dependencies"]
+    }
     channel_only = {
         "discord-py",
         "dingtalk-stream",
@@ -133,7 +138,9 @@ def test_legacy_sip_extras_keep_their_original_scope():
     data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
     extras = data["project"]["optional-dependencies"]
     sip = {Requirement(raw).name.lower() for raw in extras["sip"]}
-    sip_livekit = {Requirement(raw).name.lower() for raw in extras["sip-livekit"]}
+    sip_livekit = {
+        Requirement(raw).name.lower() for raw in extras["sip-livekit"]
+    }
 
     assert "livekit" not in sip
     assert "livekit-api" not in sip
@@ -159,7 +166,8 @@ def test_source_pyproject_skips_unrelated_parent_project(tmp_path):
 def test_missing_requirements_returns_only_unsatisfied_items():
     spec = BUILTIN_CHANNEL_CATALOG["dingtalk"]
     with patch(
-        "qwenpaw.app.channels.dependencies.PluginLoader._is_requirement_satisfied",
+        "qwenpaw.app.channels.dependencies."
+        "PluginLoader.is_requirement_satisfied",
         side_effect=lambda req: req.name != "dingtalk-stream",
     ):
         assert missing_requirements(spec) == ["dingtalk-stream>=0.24.3"]
@@ -191,7 +199,9 @@ def test_failed_install_is_reported_as_retryable(tmp_path):
         error="network unavailable",
     )
     service._jobs[job.id] = job  # pylint: disable=protected-access
-    service._active_by_channel[job.channel] = job.id  # pylint: disable=protected-access
+    service._active_by_channel[
+        job.channel
+    ] = job.id  # pylint: disable=protected-access
 
     with patch(
         "qwenpaw.app.channels.dependencies.missing_requirements",
@@ -275,7 +285,9 @@ def test_auto_source_uses_native_pip_configuration_first(tmp_path):
     )
 
     with patch.dict("os.environ", {}, clear=True):
-        assert service._source_candidates(job) == [  # pylint: disable=protected-access
+        assert service._source_candidates(
+            job,
+        ) == [  # pylint: disable=protected-access
             (None, "system-config"),
             ("https://mirrors.aliyun.com/pypi/simple/", "aliyun"),
         ]
@@ -293,7 +305,9 @@ def test_custom_source_credentials_are_not_exposed_or_persisted(tmp_path):
         owner_pid=123,
     )
 
-    assert service._source_candidates(job) == [  # pylint: disable=protected-access
+    assert service._source_candidates(
+        job,
+    ) == [  # pylint: disable=protected-access
         ("https://user:secret@example.com/simple/", "custom:example.com"),
     ]
     service._append_attempted_source(  # pylint: disable=protected-access
@@ -329,7 +343,8 @@ def test_legacy_job_source_credentials_are_sanitized_on_load(tmp_path):
                         "https://user:secret@example.com/simple/",
                     ],
                     "error": (
-                        "Could not fetch https://user:secret@example.com/simple/package"
+                        "Could not fetch "
+                        "https://user:secret@example.com/simple/package"
                     ),
                 },
             ],
@@ -378,7 +393,9 @@ def test_services_merge_jobs_through_shared_state_file(tmp_path):
     assert {item["id"] for item in payload} == {first_job.id, second_job.id}
 
 
-def test_running_job_owned_by_another_process_is_not_marked_interrupted(tmp_path):
+def test_running_job_owned_by_another_process_is_not_marked_interrupted(
+    tmp_path,
+):
     state_dir = tmp_path / "channel_runtime"
     state_dir.mkdir()
     job = InstallJob(
@@ -396,7 +413,11 @@ def test_running_job_owned_by_another_process_is_not_marked_interrupted(tmp_path
 
     with (
         patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path),
-        patch.object(ChannelDependencyService, "_pid_is_running", return_value=True),
+        patch.object(
+            ChannelDependencyService,
+            "_pid_is_running",
+            return_value=True,
+        ),
     ):
         service = ChannelDependencyService()
         restored = service.get_job(job.id)
@@ -411,7 +432,7 @@ def test_custom_source_is_passed_via_environment_not_command_line(tmp_path):
 
     with patch(
         "qwenpaw.app.channels.dependencies.PluginLoader."
-        "_run_subprocess_with_streaming_log",
+        "run_subprocess_with_streaming_log",
         return_value=subprocess.CompletedProcess([], 0, "", ""),
     ) as run:
         service._run_install(  # pylint: disable=protected-access

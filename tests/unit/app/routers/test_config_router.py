@@ -123,7 +123,8 @@ def test_install_channel_dependencies_starts_background_job(client):
     )
     with (
         patch(
-            "qwenpaw.app.routers.config.channel_dependency_service.start_install",
+            "qwenpaw.app.routers.config."
+            "channel_dependency_service.start_install",
             new=AsyncMock(return_value=job),
         ) as start_install,
         patch(
