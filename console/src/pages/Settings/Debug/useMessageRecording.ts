@@ -98,8 +98,6 @@ export function useMessageRecording() {
 
   return {
     enabled,
-    maxContentLength,
-    retentionDays,
     storagePath,
     loading,
     toggleEnabled,

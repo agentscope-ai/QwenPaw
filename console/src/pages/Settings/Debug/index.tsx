@@ -43,8 +43,6 @@ export default function DebugPage() {
 
   const {
     enabled,
-    maxContentLength,
-    retentionDays,
     storagePath,
     loading: recordingLoading,
     toggleEnabled,
