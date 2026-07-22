@@ -5,11 +5,13 @@ Supported modes:
   - SEATBELT:      macOS sandbox-exec kernel isolation
   - BUBBLEWRAP:    Linux bubblewrap mount-namespace isolation (preferred)
   - LANDLOCK:      Linux Landlock LSM kernel isolation (5.13+, fallback)
-  - APPCONTAINER:  Windows native isolation (Windows 10+). Dispatches on
-    allow_read_all: True → WindowsRestrictedSandbox (WRITE_RESTRICTED token),
-    False → WindowsSandbox (AppContainer).
-  - UNELEVATED:    Windows write-restricted token (no admin required).
-    Reads unrestricted, writes gated by capability SID ACE.
+  - WINDOWS:      Windows native isolation (Windows 10+). Dispatches on
+    allow_read_all and admin privilege:
+    allow_read_all=False → WindowsAppContainerSandbox (AppContainer)
+    allow_read_all=True + admin → WindowsElevatedSandbox (WRITE_RESTRICTED
+        token with dedicated user)
+    allow_read_all=True + no admin → WindowsUnelevatedSandbox
+        (WRITE_RESTRICTED token, no admin required)
   - NONE:          no isolation, direct execution
 
 Lifecycle: per-tool-call (created and destroyed for each invocation).
@@ -46,17 +48,20 @@ from .local_sandbox import (
     NoneSandbox,
 )
 from .macos_sandbox import MacOSSandbox
-from .windows_restricted_sandbox import (
-    WindowsRestrictedSandbox,
-)
-from .windows_restricted_sandbox import (
-    shutdown_cleanup as _restricted_shutdown_cleanup,
-)
-from .windows_sandbox import WindowsSandbox
-from .windows_sandbox import (
+from .windows_appcontainer_sandbox import WindowsAppContainerSandbox
+from .windows_appcontainer_sandbox import (
     shutdown_cleanup as _appcontainer_shutdown_cleanup,
 )
-from .windows_unelevated_sandbox import WindowsUnelevatedSandbox
+from .windows_elevated_sandbox import (
+    WindowsElevatedSandbox,
+)
+from .windows_elevated_sandbox import (
+    shutdown_cleanup as _restricted_shutdown_cleanup,
+)
+from .windows_unelevated_sandbox import (
+    WindowsSandboxBase,
+    WindowsUnelevatedSandbox,
+)
 from .windows_unelevated_sandbox import (
     shutdown_cleanup as _unelevated_shutdown_cleanup,
 )
@@ -72,8 +77,9 @@ __all__ = [
     "SandboxCapability",
     "SandboxConfig",
     "SandboxMode",
-    "WindowsRestrictedSandbox",
-    "WindowsSandbox",
+    "WindowsElevatedSandbox",
+    "WindowsAppContainerSandbox",
+    "WindowsSandboxBase",
     "WindowsUnelevatedSandbox",
     "create_sandbox",
     "detect_platform_mode",

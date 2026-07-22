@@ -10,11 +10,13 @@ Backend layout (``create_sandbox`` dispatches to these by ``SandboxMode``):
   - SEATBELT     → mod:`qwenpaw.sandbox.macos_sandbox`      (MacOSSandbox)
   - BUBBLEWRAP   → mod:`qwenpaw.sandbox.bubblewrap_sandbox` (BubblewrapSandbox)
   - LANDLOCK     → mod:`qwenpaw.sandbox.linux_sandbox`      (LinuxSandbox)
-  - APPCONTAINER → Windows sandbox, dispatched on ``allow_read_all``:
-      True  → windows_restricted_sandbox (WindowsRestrictedSandbox)
-      False → mod:`qwenpaw.sandbox.windows_sandbox`            (WindowsSandbox)
-  - UNELEVATED   → mod:`qwenpaw.sandbox.windows_unelevated_sandbox`
-      (WindowsUnelevatedSandbox) — write-restricted token, no admin required
+  - WINDOWS      → Windows sandbox (Windows 10+ native). Dispatches on
+      ``allow_read_all`` and admin status:
+      allow_read_all=False → WindowsAppContainerSandbox (AppContainer)
+      allow_read_all=True + admin → WindowsElevatedSandbox (WRITE_RESTRICTED
+          token with dedicated user)
+      allow_read_all=True + no admin → WindowsUnelevatedSandbox
+          (WRITE_RESTRICTED token, no admin required)
   - NONE         → mod:`qwenpaw.sandbox.local_sandbox`      (NoneSandbox)
 
 Shared base class for all backends:
@@ -48,8 +50,7 @@ class SandboxMode(str, Enum):
     SEATBELT = "seatbelt"  # macOS sandbox-exec
     BUBBLEWRAP = "bubblewrap"  # Linux bubblewrap (preferred)
     LANDLOCK = "landlock"  # Linux Landlock LSM (fallback)
-    APPCONTAINER = "appcontainer"  # Windows AppContainer (native)
-    UNELEVATED = "unelevated"  # Windows write-restricted token (no admin)
+    WINDOWS = "windows"  # Windows (AppContainer / WRITE_RESTRICTED token)
     NONE = "none"  # No isolation, direct execution
 
 
@@ -303,14 +304,18 @@ def _probe_macos_seatbelt() -> SandboxCapability:
     )
 
 
-def _probe_windows_appcontainer() -> SandboxCapability:
-    """Probe Windows AppContainer support.
+def _probe_windows() -> SandboxCapability:
+    """Probe Windows sandbox support.
 
     Detection steps:
         1. sys.platform == "win32"
         2. Windows 10+ (build 10240+)
-        3. icacls.exe is on PATH
-        4. CreateAppContainerProfile API is callable (via ctypes)
+        3. CreateRestrictedToken API is callable (advapi32.dll)
+        4. Optionally, icacls.exe + AppContainer API (userenv.dll)
+
+    Succeeds if at least the WRITE_RESTRICTED token path is available.
+    AppContainer availability is noted in the reason string but is not
+    required — ``create_sandbox`` picks the concrete backend at runtime.
     """
     import sys
 
@@ -321,7 +326,6 @@ def _probe_windows_appcontainer() -> SandboxCapability:
             reason="Not running on Windows",
         )
 
-    # Check Windows version (need 10+)
     try:
         ver = sys.getwindowsversion()
         if ver.major < 10:
@@ -330,7 +334,7 @@ def _probe_windows_appcontainer() -> SandboxCapability:
                 mode=SandboxMode.NONE,
                 reason=(
                     f"Windows {ver.major}.{ver.minor} < 10.0; "
-                    f"AppContainer requires Windows 10+"
+                    f"sandbox requires Windows 10+"
                 ),
             )
     except AttributeError:
@@ -340,34 +344,40 @@ def _probe_windows_appcontainer() -> SandboxCapability:
             reason="Cannot determine Windows version",
         )
 
-    # Check icacls.exe
-    if not shutil.which("icacls"):
-        return SandboxCapability(
-            supported=False,
-            mode=SandboxMode.NONE,
-            reason="icacls.exe not found on PATH",
-        )
-
-    # Check that AppContainer APIs are available (userenv.dll)
+    # CreateRestrictedToken is the minimum requirement (used by both
+    # the unelevated and elevated backends).
     try:
         import ctypes
 
-        userenv = ctypes.WinDLL("userenv.dll", use_last_error=True)
-        # Verify the function pointer exists
-        _ = userenv.CreateAppContainerProfile
+        advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
+        _ = advapi32.CreateRestrictedToken
     except (OSError, AttributeError) as e:
         return SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,
-            reason=f"AppContainer API not available: {e}",
+            reason=f"CreateRestrictedToken API not available: {e}",
         )
+
+    # AppContainer is optional (needs icacls + userenv.dll).
+    has_appcontainer = False
+    if shutil.which("icacls"):
+        try:
+            userenv = ctypes.WinDLL("userenv.dll", use_last_error=True)
+            _ = userenv.CreateAppContainerProfile
+            has_appcontainer = True
+        except (OSError, AttributeError):
+            pass
+
+    backends = "WRITE_RESTRICTED token"
+    if has_appcontainer:
+        backends += " + AppContainer"
 
     return SandboxCapability(
         supported=True,
-        mode=SandboxMode.APPCONTAINER,
+        mode=SandboxMode.WINDOWS,
         reason=(
             f"Windows {ver.major}.{ver.minor} build {ver.build}; "
-            f"AppContainer available"
+            f"{backends} available"
         ),
     )
 
@@ -435,65 +445,6 @@ def _probe_linux_bubblewrap() -> SandboxCapability:
         )
 
 
-def _probe_windows_unelevated() -> SandboxCapability:
-    """Probe Windows unelevated sandbox support (WRITE_RESTRICTED token).
-
-    Detection steps:
-        1. sys.platform == "win32"
-        2. Windows 10+ (build 10240+)
-        3. CreateRestrictedToken API is callable (advapi32.dll)
-        4. Does NOT require admin — that's the whole point.
-    """
-    import sys
-
-    if sys.platform != "win32":
-        return SandboxCapability(
-            supported=False,
-            mode=SandboxMode.NONE,
-            reason="Not running on Windows",
-        )
-
-    try:
-        ver = sys.getwindowsversion()
-        if ver.major < 10:
-            return SandboxCapability(
-                supported=False,
-                mode=SandboxMode.NONE,
-                reason=(
-                    f"Windows {ver.major}.{ver.minor} < 10.0; "
-                    f"WRITE_RESTRICTED token requires Windows 10+"
-                ),
-            )
-    except AttributeError:
-        return SandboxCapability(
-            supported=False,
-            mode=SandboxMode.NONE,
-            reason="Cannot determine Windows version",
-        )
-
-    # Check that advapi32 CreateRestrictedToken is available
-    try:
-        import ctypes
-
-        advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
-        _ = advapi32.CreateRestrictedToken
-    except (OSError, AttributeError) as e:
-        return SandboxCapability(
-            supported=False,
-            mode=SandboxMode.NONE,
-            reason=f"CreateRestrictedToken API not available: {e}",
-        )
-
-    return SandboxCapability(
-        supported=True,
-        mode=SandboxMode.UNELEVATED,
-        reason=(
-            f"Windows {ver.major}.{ver.minor} build {ver.build}; "
-            f"WRITE_RESTRICTED token available (no admin required)"
-        ),
-    )
-
-
 @functools.lru_cache(maxsize=1)
 def probe_sandbox_support() -> SandboxCapability:
     """Probe current platform sandbox support at startup.
@@ -519,11 +470,7 @@ def probe_sandbox_support() -> SandboxCapability:
             return cap
         return _probe_linux_landlock()
     elif sys.platform == "win32":
-        # Prefer elevated AppContainer if admin; fall back to unelevated
-        cap = _probe_windows_appcontainer()
-        if cap.supported:
-            return cap
-        return _probe_windows_unelevated()
+        return _probe_windows()
     else:
         return SandboxCapability(
             supported=False,
@@ -554,12 +501,11 @@ def create_sandbox(config: SandboxConfig) -> Any:
       - SEATBELT      → MacOSSandbox
       - BUBBLEWRAP    → BubblewrapSandbox (Linux preferred)
       - LANDLOCK      → LinuxSandbox (Linux fallback)
-      - APPCONTAINER  → Windows sandbox (Windows 10+ native). Dispatches on
-        ``allow_read_all``: True → WindowsRestrictedSandbox (WRITE_RESTRICTED
-        token, reads work automatically), False → WindowsSandbox
-        (AppContainer, explicit read allow-list).
-      - UNELEVATED    → WindowsUnelevatedSandbox (write-restricted token,
-        no admin required, reads unrestricted).
+      - WINDOWS       → Windows sandbox (Windows 10+ native). Dispatches on
+        ``allow_read_all`` and admin privilege:
+        allow_read_all=False → WindowsAppContainerSandbox (AppContainer)
+        allow_read_all=True + admin → WindowsElevatedSandbox
+        allow_read_all=True + no admin → WindowsUnelevatedSandbox
       - NONE          → NoneSandbox
     """
     if config.mode == SandboxMode.SEATBELT:
@@ -578,15 +524,19 @@ def create_sandbox(config: SandboxConfig) -> Any:
         from .linux_sandbox import LinuxSandbox
 
         return LinuxSandbox(config)
-    elif config.mode == SandboxMode.APPCONTAINER:
-        if config.allow_read_all:
-            from .windows_restricted_sandbox import WindowsRestrictedSandbox
+    elif config.mode == SandboxMode.WINDOWS:
+        if not config.allow_read_all:
+            from .windows_appcontainer_sandbox import (
+                WindowsAppContainerSandbox,
+            )
 
-            return WindowsRestrictedSandbox(config)
-        from .windows_sandbox import WindowsSandbox
+            return WindowsAppContainerSandbox(config)
+        from .windows_unelevated_sandbox import _is_admin
 
-        return WindowsSandbox(config)
-    elif config.mode == SandboxMode.UNELEVATED:
+        if _is_admin():
+            from .windows_elevated_sandbox import WindowsElevatedSandbox
+
+            return WindowsElevatedSandbox(config)
         from .windows_unelevated_sandbox import WindowsUnelevatedSandbox
 
         return WindowsUnelevatedSandbox(config)

@@ -11,8 +11,8 @@ Test structure aligns with test_linux_sandbox.py:
     6. Container reuse (Windows-specific)
     7. Factory (create_sandbox routing)
     8. AppContainer profile creation / deletion lifecycle
-    9. WindowsSandbox.execute() — success / violation / timeout
-    10. WindowsSandbox rejects allow_read_all=True
+    9. WindowsAppContainerSandbox.execute() — success / violation / timeout
+    10. WindowsAppContainerSandbox rejects allow_read_all=True
 """
 
 import asyncio
@@ -25,14 +25,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from qwenpaw.sandbox import MountSpec, SandboxConfig, SandboxMode
-from qwenpaw.sandbox.windows_sandbox import (
-    _VIOLATION_RE,
-    WindowsSandbox,
+from qwenpaw.sandbox.windows_appcontainer_sandbox import (
+    WindowsAppContainerSandbox,
     _compute_acl_fingerprint,
     _compute_network_capabilities,
     _find_reusable_container,
     _save_container_metadata,
 )
+from qwenpaw.sandbox.windows_unelevated_sandbox import _WC
 
 # ============================================================================
 # probe_sandbox_support() — platform routing
@@ -40,7 +40,7 @@ from qwenpaw.sandbox.windows_sandbox import (
 
 
 class TestProbeSandboxSupport:
-    """Test probe_sandbox_support delegates to AppContainer probe."""
+    """Test probe_sandbox_support delegates to Windows probe."""
 
     @pytest.fixture(autouse=True)
     def _clear_probe_cache(self):
@@ -52,8 +52,8 @@ class TestProbeSandboxSupport:
         probe_sandbox_support.cache_clear()
 
     @patch("sys.platform", "win32")
-    @patch("qwenpaw.sandbox.config._probe_windows_appcontainer")
-    def test_windows_calls_appcontainer_probe(self, mock_probe):
+    @patch("qwenpaw.sandbox.config._probe_windows")
+    def test_windows_calls_probe(self, mock_probe):
         from qwenpaw.sandbox.config import (
             SandboxCapability,
             probe_sandbox_support,
@@ -61,28 +61,28 @@ class TestProbeSandboxSupport:
 
         mock_probe.return_value = SandboxCapability(
             supported=True,
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             reason="AppContainer available",
         )
         result = probe_sandbox_support()
         mock_probe.assert_called_once()
         assert result.supported is True
-        assert result.mode == SandboxMode.APPCONTAINER
+        assert result.mode == SandboxMode.WINDOWS
 
 
 # ============================================================================
-# _probe_windows_appcontainer() — detailed probe logic
+# _probe_windows() — detailed probe logic
 # ============================================================================
 
 
-class TestProbeAppContainer:
-    """Test AppContainer probe under various Windows version scenarios."""
+class TestProbeWindows:
+    """Test Windows probe under various version and API scenarios."""
 
     @patch("sys.platform", "linux")
     def test_non_windows_returns_unsupported(self):
-        from qwenpaw.sandbox.config import _probe_windows_appcontainer
+        from qwenpaw.sandbox.config import _probe_windows
 
-        result = _probe_windows_appcontainer()
+        result = _probe_windows()
         assert result.supported is False
         assert "Not running on Windows" in result.reason
 
@@ -97,29 +97,36 @@ class TestProbeAppContainer:
             create=True,
             return_value=mock_ver,
         ):
-            from qwenpaw.sandbox.config import _probe_windows_appcontainer
+            from qwenpaw.sandbox.config import _probe_windows
 
-            result = _probe_windows_appcontainer()
+            result = _probe_windows()
             assert result.supported is False
             assert "Windows 10+" in result.reason
 
     @patch("sys.platform", "win32")
     @patch("shutil.which", return_value=None)
-    def test_no_icacls_returns_unsupported(self, mock_which):
+    def test_no_icacls_omits_appcontainer(self, mock_which):
+        import ctypes
         import sys
 
         mock_ver = MagicMock(major=10, minor=0, build=19045)
-        with patch.object(
-            sys,
-            "getwindowsversion",
-            create=True,
-            return_value=mock_ver,
-        ):
-            from qwenpaw.sandbox.config import _probe_windows_appcontainer
+        mock_dll = MagicMock()
 
-            result = _probe_windows_appcontainer()
-            assert result.supported is False
-            assert "icacls" in result.reason
+        with (
+            patch.object(
+                sys,
+                "getwindowsversion",
+                create=True,
+                return_value=mock_ver,
+            ),
+            patch.object(ctypes, "WinDLL", create=True, return_value=mock_dll),
+        ):
+            from qwenpaw.sandbox.config import _probe_windows
+
+            result = _probe_windows()
+            assert result.supported is True
+            assert "WRITE_RESTRICTED" in result.reason
+            assert "AppContainer" not in result.reason
 
     @patch("sys.platform", "win32")
     @patch("shutil.which", return_value=r"C:\Windows\System32\icacls.exe")
@@ -140,26 +147,31 @@ class TestProbeAppContainer:
             ),
             patch.object(ctypes, "WinDLL", create=True, return_value=mock_dll),
         ):
-            from qwenpaw.sandbox.config import _probe_windows_appcontainer
+            from qwenpaw.sandbox.config import _probe_windows
 
-            result = _probe_windows_appcontainer()
+            result = _probe_windows()
             assert result.supported is True
-            assert result.mode == SandboxMode.APPCONTAINER
-            assert "AppContainer available" in result.reason
+            assert result.mode == SandboxMode.WINDOWS
+            assert "AppContainer" in result.reason
 
 
 # ============================================================================
-# ACL rule compilation — correct icacls commands generated
+# ACL rule compilation — _apply_all_acls via Win32 API (_set_path_ace)
 # ============================================================================
 
 
 class TestACLCommandGeneration:
-    """Test that _apply_all_acls generates correct icacls commands.
+    """Test that _apply_all_acls calls _set_path_ace with correct parameters.
 
     Analogous to TestLinuxSandboxRuleCompilation in test_linux_sandbox.py.
     """
 
-    @patch("qwenpaw.sandbox.windows_sandbox._run_icacls")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._set_path_ace")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._string_to_sid",
+        return_value=MagicMock(),
+    )
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_kernel32")
     @patch("os.path.isdir", return_value=True)
     @patch("os.path.exists", return_value=True)
     @patch.dict(
@@ -170,35 +182,37 @@ class TestACLCommandGeneration:
         self,
         mock_exists,
         mock_isdir,
-        mock_icacls,
+        mock_kernel32,
+        mock_str2sid,
+        mock_ace,
     ):
-        """Workspace directory receives (F) grant."""
-
-        async def fake_icacls(args):
-            return True, ""
-
-        mock_icacls.side_effect = fake_icacls
+        """Workspace directory receives full-access ACE."""
+        from qwenpaw.sandbox.windows_appcontainer_sandbox import (
+            _ACL_FULL_ACCESS,
+            _apply_all_acls,
+        )
 
         config = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\project",
             allow_read_all=False,
         )
+        _apply_all_acls(config, "S-1-15-2-12345")
 
-        from qwenpaw.sandbox.windows_sandbox import _apply_all_acls
-
-        asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
-
-        all_calls = mock_icacls.call_args_list
-        workspace_calls = [
-            call[0][0]
-            for call in all_calls
-            if call[0][0][0] == r"C:\project" and "/grant" in call[0][0]
+        ws_calls = [
+            c
+            for c in mock_ace.call_args_list
+            if c[0][0] == r"C:\project" and c[0][2] == _ACL_FULL_ACCESS
         ]
-        assert len(workspace_calls) == 1
-        assert "(F)" in workspace_calls[0][2]
+        assert len(ws_calls) == 1
+        assert ws_calls[0][0][3] == _WC.SET_ACCESS
 
-    @patch("qwenpaw.sandbox.windows_sandbox._run_icacls")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._set_path_ace")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._string_to_sid",
+        return_value=MagicMock(),
+    )
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_kernel32")
     @patch("os.path.isdir", return_value=True)
     @patch("os.path.exists", return_value=True)
     @patch.dict(
@@ -209,17 +223,18 @@ class TestACLCommandGeneration:
         self,
         mock_exists,
         mock_isdir,
-        mock_icacls,
+        mock_kernel32,
+        mock_str2sid,
+        mock_ace,
     ):
-        """Read-only mount gets RX grant (simple additive, no break)."""
-
-        async def fake_icacls(args):
-            return True, ""
-
-        mock_icacls.side_effect = fake_icacls
+        """Read-only mount gets READ_EXECUTE ACE."""
+        from qwenpaw.sandbox.windows_appcontainer_sandbox import (
+            _ACL_READ_EXECUTE,
+            _apply_all_acls,
+        )
 
         config = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\project",
             mounts=[
                 MountSpec(
@@ -230,61 +245,62 @@ class TestACLCommandGeneration:
             ],
             allow_read_all=False,
         )
+        _apply_all_acls(config, "S-1-15-2-12345")
 
-        from qwenpaw.sandbox.windows_sandbox import _apply_all_acls
-
-        asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
-
-        all_calls = mock_icacls.call_args_list
         mount_calls = [
-            call[0][0]
-            for call in all_calls
-            if len(call[0][0]) > 0
-            and call[0][0][0] == r"C:\readonly_dir"
-            and "/grant" in call[0][0]
+            c for c in mock_ace.call_args_list if c[0][0] == r"C:\readonly_dir"
         ]
         assert len(mount_calls) == 1
-        assert "(RX)" in mount_calls[0][2]
+        assert mount_calls[0][0][2] == _ACL_READ_EXECUTE
+        assert mount_calls[0][0][3] == _WC.SET_ACCESS
 
-    @patch("qwenpaw.sandbox.windows_sandbox._run_icacls")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._set_path_ace")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._string_to_sid",
+        return_value=MagicMock(),
+    )
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_kernel32")
     @patch("os.path.isdir", return_value=True)
     @patch("os.path.exists", return_value=True)
     @patch.dict(
         os.environ,
         {"SystemDrive": "C:", "USERPROFILE": r"C:\Users\testuser"},
     )
-    def test_deny_path_uses_deny_flag(
+    def test_deny_path_uses_deny_access(
         self,
         mock_exists,
         mock_isdir,
-        mock_icacls,
+        mock_kernel32,
+        mock_str2sid,
+        mock_ace,
     ):
-        """Deny paths get /deny ACE with inheritance break."""
-
-        async def fake_icacls(args):
-            return True, ""
-
-        mock_icacls.side_effect = fake_icacls
+        """Deny paths get DENY_ACCESS ACE."""
+        from qwenpaw.sandbox.windows_appcontainer_sandbox import (
+            _ACL_DENY_ALL,
+            _apply_all_acls,
+        )
 
         config = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\project",
             deny_paths=[r"C:\Users\testuser\.ssh"],
             allow_read_all=False,
         )
+        _apply_all_acls(config, "S-1-15-2-12345")
 
-        from qwenpaw.sandbox.windows_sandbox import _apply_all_acls
-
-        asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
-
-        all_calls = mock_icacls.call_args_list
         deny_calls = [
-            call[0][0] for call in all_calls if "/deny" in call[0][0]
+            c for c in mock_ace.call_args_list if c[0][3] == _WC.DENY_ACCESS
         ]
         assert len(deny_calls) == 1
-        assert r"C:\Users\testuser\.ssh" in deny_calls[0]
+        assert deny_calls[0][0][0] == r"C:\Users\testuser\.ssh"
+        assert deny_calls[0][0][2] == _ACL_DENY_ALL
 
-    @patch("qwenpaw.sandbox.windows_sandbox._run_icacls")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._set_path_ace")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._string_to_sid",
+        return_value=MagicMock(),
+    )
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_kernel32")
     @patch("os.path.isdir", return_value=True)
     @patch("os.path.exists", return_value=False)
     @patch.dict(
@@ -295,31 +311,31 @@ class TestACLCommandGeneration:
         self,
         mock_exists,
         mock_isdir,
-        mock_icacls,
+        mock_kernel32,
+        mock_str2sid,
+        mock_ace,
     ):
         """allow_read_all=False does not grant C:\\ root."""
-
-        async def fake_icacls(args):
-            return True, ""
-
-        mock_icacls.side_effect = fake_icacls
+        from qwenpaw.sandbox.windows_appcontainer_sandbox import (
+            _apply_all_acls,
+        )
 
         config = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\Users\testuser\project",
             allow_read_all=False,
         )
+        _apply_all_acls(config, "S-1-15-2-12345")
 
-        from qwenpaw.sandbox.windows_sandbox import _apply_all_acls
+        all_paths = [c[0][0] for c in mock_ace.call_args_list]
+        assert "C:\\" not in all_paths
 
-        asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
-
-        all_calls = mock_icacls.call_args_list
-        all_args = [call[0][0] for call in all_calls]
-        for args in all_args:
-            assert args[0] != "C:\\" or "/grant" not in " ".join(args)
-
-    @patch("qwenpaw.sandbox.windows_sandbox._run_icacls")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._set_path_ace")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._string_to_sid",
+        return_value=MagicMock(),
+    )
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_kernel32")
     @patch("os.path.isdir", return_value=True)
     @patch("os.path.exists", return_value=True)
     @patch.dict(
@@ -330,26 +346,23 @@ class TestACLCommandGeneration:
         self,
         mock_exists,
         mock_isdir,
-        mock_icacls,
+        mock_kernel32,
+        mock_str2sid,
+        mock_ace,
     ):
         """_apply_all_acls returns a manifest of all modified paths."""
-
-        async def fake_icacls(args):
-            return True, ""
-
-        mock_icacls.side_effect = fake_icacls
+        from qwenpaw.sandbox.windows_appcontainer_sandbox import (
+            _apply_all_acls,
+        )
 
         config = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\project",
             mounts=[MountSpec(path=r"C:\data", writable=False)],
             deny_paths=[r"C:\Users\testuser\.ssh"],
             allow_read_all=False,
         )
-
-        from qwenpaw.sandbox.windows_sandbox import _apply_all_acls
-
-        manifest = asyncio.run(_apply_all_acls(config, "S-1-15-2-12345"))
+        manifest = _apply_all_acls(config, "S-1-15-2-12345")
 
         assert "grant_paths" in manifest
         assert "deny_paths" in manifest
@@ -366,22 +379,24 @@ class TestViolationDetection:
     """Test that access-denied patterns are correctly flagged."""
 
     def test_access_is_denied(self):
-        assert _VIOLATION_RE.search("Access is denied")
+        assert _WC.VIOLATION_RE.search("Access is denied")
 
     def test_error_5(self):
-        assert _VIOLATION_RE.search("System error 5 has occurred")
+        assert _WC.VIOLATION_RE.search("System error 5 has occurred")
 
     def test_hresult(self):
-        assert _VIOLATION_RE.search("Failed with 0x80070005")
+        assert _WC.VIOLATION_RE.search("Failed with 0x80070005")
 
     def test_permission_denied(self):
-        assert _VIOLATION_RE.search("Permission denied")
+        assert _WC.VIOLATION_RE.search("Permission denied")
 
     def test_no_violation(self):
-        assert _VIOLATION_RE.search("Command completed successfully") is None
+        assert (
+            _WC.VIOLATION_RE.search("Command completed successfully") is None
+        )
 
     def test_case_insensitive(self):
-        assert _VIOLATION_RE.search("ACCESS IS DENIED")
+        assert _WC.VIOLATION_RE.search("ACCESS IS DENIED")
 
 
 # ============================================================================
@@ -394,7 +409,7 @@ class TestNetworkCapabilities:
 
     def test_no_network_returns_empty(self):
         config = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\project",
             network_allow=[],
         )
@@ -402,7 +417,7 @@ class TestNetworkCapabilities:
 
     def test_full_network(self):
         config = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\project",
             network_allow=["*"],
         )
@@ -413,7 +428,7 @@ class TestNetworkCapabilities:
 
     def test_domain_list_falls_back_to_all(self):
         config = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\project",
             network_allow=["example.com", "api.example.com"],
         )
@@ -488,8 +503,10 @@ class TestSandboxReuse:
                 == acl_manifest["inheritance_broken_paths"]
             )
 
-    @patch("qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid")
-    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._get_appcontainer_sid"
+    )
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_userenv")
     def test_find_reusable_container_exists(
         self,
         mock_userenv_fn,
@@ -510,7 +527,7 @@ class TestSandboxReuse:
 
         assert result == "S-1-15-2-12345"
 
-    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_userenv")
     def test_find_reusable_container_not_exists(self, mock_userenv_fn):
         """_find_reusable_container returns None when profile doesn't exist."""
         mock_userenv = MagicMock()
@@ -521,7 +538,7 @@ class TestSandboxReuse:
         result = _find_reusable_container("qwenpaw_nonexistent")
         assert result is None
 
-    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_userenv")
     def test_find_reusable_container_oserror(self, mock_userenv_fn):
         """_find_reusable_container returns None on OSError."""
         mock_userenv = MagicMock()
@@ -534,17 +551,17 @@ class TestSandboxReuse:
     def test_fingerprint_deterministic(self):
         """Same config produces same fingerprint; different config differs."""
         config1 = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\project",
             deny_paths=["~/.ssh"],
         )
         config2 = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\project",
             deny_paths=["~/.ssh"],
         )
         config3 = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\other",
             deny_paths=["~/.ssh"],
         )
@@ -566,31 +583,35 @@ class TestFactoryAppContainer:
     """Test that create_sandbox routes to the right sandbox backend."""
 
     def test_create_sandbox_appcontainer_allow_read_all_false(self):
-        """allow_read_all=False routes to WindowsSandbox."""
+        """allow_read_all=False routes to WindowsAppContainerSandbox."""
         from qwenpaw.sandbox import create_sandbox
 
         config = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\Users\foo\project",
             allow_read_all=False,
         )
         sandbox = create_sandbox(config)
-        assert isinstance(sandbox, WindowsSandbox)
+        assert isinstance(sandbox, WindowsAppContainerSandbox)
 
-    def test_create_sandbox_appcontainer_allow_read_all_true(self):
-        """allow_read_all=True routes to WindowsRestrictedSandbox."""
+    @patch(
+        "qwenpaw.sandbox.windows_unelevated_sandbox._is_admin",
+        return_value=True,
+    )
+    def test_create_sandbox_appcontainer_allow_read_all_true(self, mock_admin):
+        """allow_read_all=True + admin routes to WindowsElevatedSandbox."""
         from qwenpaw.sandbox import create_sandbox
-        from qwenpaw.sandbox.windows_restricted_sandbox import (
-            WindowsRestrictedSandbox,
+        from qwenpaw.sandbox.windows_elevated_sandbox import (
+            WindowsElevatedSandbox,
         )
 
         config = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\Users\foo\project",
             allow_read_all=True,
         )
         sandbox = create_sandbox(config)
-        assert isinstance(sandbox, WindowsRestrictedSandbox)
+        assert isinstance(sandbox, WindowsElevatedSandbox)
 
 
 # ============================================================================
@@ -601,10 +622,10 @@ class TestFactoryAppContainer:
 class TestAppContainerProfileLifecycle:
     """Test profile creation and deletion via mocked Win32 APIs."""
 
-    @patch("qwenpaw.sandbox.windows_sandbox._sid_to_string")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._sid_to_string")
     @patch("ctypes.windll", create=True)
-    @patch("qwenpaw.sandbox.windows_sandbox._get_advapi32")
-    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_advapi32")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_userenv")
     def test_create_profile_success(
         self,
         mock_userenv_fn,
@@ -623,7 +644,7 @@ class TestAppContainerProfileLifecycle:
         mock_windll.ole32.CoTaskMemFree = MagicMock()
         mock_sid_to_str.return_value = "S-1-15-2-111-222-333"
 
-        from qwenpaw.sandbox.windows_sandbox import (
+        from qwenpaw.sandbox.windows_appcontainer_sandbox import (
             _create_appcontainer_profile,
         )
 
@@ -636,9 +657,11 @@ class TestAppContainerProfileLifecycle:
         mock_userenv.CreateAppContainerProfile.assert_called_once()
         mock_sid_to_str.assert_called_once()
 
-    @patch("qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid")
-    @patch("qwenpaw.sandbox.windows_sandbox._get_advapi32")
-    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._get_appcontainer_sid"
+    )
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_advapi32")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_userenv")
     def test_create_profile_already_exists(
         self,
         mock_userenv_fn,
@@ -653,7 +676,7 @@ class TestAppContainerProfileLifecycle:
 
         mock_get_sid.return_value = "S-1-15-2-999-888-777"
 
-        from qwenpaw.sandbox.windows_sandbox import (
+        from qwenpaw.sandbox.windows_appcontainer_sandbox import (
             _create_appcontainer_profile,
         )
 
@@ -665,9 +688,11 @@ class TestAppContainerProfileLifecycle:
         assert sid == "S-1-15-2-999-888-777"
         mock_get_sid.assert_called_once_with("qwenpaw_existing")
 
-    @patch("qwenpaw.sandbox.windows_sandbox._get_appcontainer_sid")
-    @patch("qwenpaw.sandbox.windows_sandbox._get_advapi32")
-    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._get_appcontainer_sid"
+    )
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_advapi32")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_userenv")
     def test_create_profile_already_exists_no_sid(
         self,
         mock_userenv_fn,
@@ -682,7 +707,7 @@ class TestAppContainerProfileLifecycle:
 
         mock_get_sid.return_value = None
 
-        from qwenpaw.sandbox.windows_sandbox import (
+        from qwenpaw.sandbox.windows_appcontainer_sandbox import (
             _create_appcontainer_profile,
         )
 
@@ -693,8 +718,8 @@ class TestAppContainerProfileLifecycle:
                 "Broken container",
             )
 
-    @patch("qwenpaw.sandbox.windows_sandbox._get_advapi32")
-    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_advapi32")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_userenv")
     def test_create_profile_unexpected_hresult(
         self,
         mock_userenv_fn,
@@ -705,7 +730,7 @@ class TestAppContainerProfileLifecycle:
         mock_userenv.CreateAppContainerProfile.return_value = -2147024891
         mock_userenv_fn.return_value = mock_userenv
 
-        from qwenpaw.sandbox.windows_sandbox import (
+        from qwenpaw.sandbox.windows_appcontainer_sandbox import (
             _create_appcontainer_profile,
         )
 
@@ -716,40 +741,40 @@ class TestAppContainerProfileLifecycle:
                 "Failing container",
             )
 
-    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_userenv")
     def test_delete_profile_success(self, mock_userenv_fn):
         """DeleteAppContainerProfile returns 0 → True."""
         mock_userenv = MagicMock()
         mock_userenv.DeleteAppContainerProfile.return_value = 0
         mock_userenv_fn.return_value = mock_userenv
 
-        from qwenpaw.sandbox.windows_sandbox import (
+        from qwenpaw.sandbox.windows_appcontainer_sandbox import (
             _delete_appcontainer_profile,
         )
 
         assert _delete_appcontainer_profile("qwenpaw_test") is True
 
-    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_userenv")
     def test_delete_profile_failure(self, mock_userenv_fn):
         """DeleteAppContainerProfile returns non-zero → False."""
         mock_userenv = MagicMock()
         mock_userenv.DeleteAppContainerProfile.return_value = -1
         mock_userenv_fn.return_value = mock_userenv
 
-        from qwenpaw.sandbox.windows_sandbox import (
+        from qwenpaw.sandbox.windows_appcontainer_sandbox import (
             _delete_appcontainer_profile,
         )
 
         assert _delete_appcontainer_profile("qwenpaw_missing") is False
 
-    @patch("qwenpaw.sandbox.windows_sandbox._get_userenv")
+    @patch("qwenpaw.sandbox.windows_appcontainer_sandbox._get_userenv")
     def test_delete_profile_oserror(self, mock_userenv_fn):
         """OSError during delete → returns False."""
         mock_userenv = MagicMock()
         mock_userenv.DeleteAppContainerProfile.side_effect = OSError("fail")
         mock_userenv_fn.return_value = mock_userenv
 
-        from qwenpaw.sandbox.windows_sandbox import (
+        from qwenpaw.sandbox.windows_appcontainer_sandbox import (
             _delete_appcontainer_profile,
         )
 
@@ -757,7 +782,7 @@ class TestAppContainerProfileLifecycle:
 
 
 # ============================================================================
-# WindowsSandbox.execute() — success / violation / timeout
+# WindowsAppContainerSandbox.execute() — success / violation / timeout
 # ============================================================================
 
 
@@ -766,19 +791,23 @@ class TestWindowsSandboxExecute:
 
     def _make_sandbox(self, **kwargs):
         defaults = {
-            "mode": SandboxMode.APPCONTAINER,
+            "mode": SandboxMode.WINDOWS,
             "workspace_dir": r"C:\project",
             "allow_read_all": False,
         }
         defaults.update(kwargs)
         config = SandboxConfig(**defaults)
-        sandbox = WindowsSandbox(config)
+        sandbox = WindowsAppContainerSandbox(config)
         sandbox._container_sid = "S-1-15-2-12345"
         sandbox._container_name = "qwenpaw_test"
         return sandbox
 
-    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
-    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process"
+    )
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._create_process_in_appcontainer"
+    )
     def test_execute_success(self, mock_create, mock_wait):
         """Successful command returns exit_code=0, no violation."""
         mock_create.return_value = (
@@ -801,8 +830,12 @@ class TestWindowsSandboxExecute:
         assert result.sandbox_violation is None
         assert result.timed_out is False
 
-    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
-    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process"
+    )
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._create_process_in_appcontainer"
+    )
     def test_execute_violation_detected(self, mock_create, mock_wait):
         """Access denied in stderr → sandbox_violation is populated."""
         mock_create.return_value = (
@@ -824,8 +857,12 @@ class TestWindowsSandboxExecute:
         assert result.sandbox_violation is not None
         assert "Access is denied" in result.sandbox_violation
 
-    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
-    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process"
+    )
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._create_process_in_appcontainer"
+    )
     def test_execute_timeout(self, mock_create, mock_wait):
         """Process exceeds timeout → timed_out=True."""
         mock_create.return_value = (
@@ -845,8 +882,12 @@ class TestWindowsSandboxExecute:
 
         assert result.timed_out is True
 
-    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
-    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process"
+    )
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._create_process_in_appcontainer"
+    )
     def test_execute_oserror(self, mock_create, mock_wait):
         """CreateProcessW failure → exit_code=-1, error in stderr."""
         mock_create.side_effect = OSError("CreateProcessW failed: error=5")
@@ -857,8 +898,12 @@ class TestWindowsSandboxExecute:
         assert result.exit_code == -1
         assert "CreateProcessW failed" in result.stderr
 
-    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
-    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process"
+    )
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._create_process_in_appcontainer"
+    )
     def test_execute_violation_in_stdout_on_failure(
         self,
         mock_create,
@@ -883,8 +928,12 @@ class TestWindowsSandboxExecute:
         assert result.sandbox_violation is not None
         assert "error 5" in result.sandbox_violation
 
-    @patch("qwenpaw.sandbox.windows_sandbox._wait_and_read_process")
-    @patch("qwenpaw.sandbox.windows_sandbox._create_process_in_appcontainer")
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._wait_and_read_process"
+    )
+    @patch(
+        "qwenpaw.sandbox.windows_appcontainer_sandbox._create_process_in_appcontainer"
+    )
     def test_execute_chinese_violation(self, mock_create, mock_wait):
         """Chinese locale violation patterns are detected."""
         mock_create.return_value = (
@@ -906,29 +955,29 @@ class TestWindowsSandboxExecute:
 
 
 # ============================================================================
-# WindowsSandbox rejects allow_read_all=True
+# WindowsAppContainerSandbox rejects allow_read_all=True
 # ============================================================================
 
 
 class TestWindowsSandboxRejectsAllowReadAll:
-    """Test that WindowsSandbox refuses allow_read_all=True configs."""
+    """Test that WindowsAppContainerSandbox refuses allow_read_all=True configs."""
 
     def test_raises_value_error(self):
-        """WindowsSandbox.__init__ raises ValueError if allow_read_all=True."""
+        """WindowsAppContainerSandbox.__init__ raises ValueError if allow_read_all=True."""
         config = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\project",
             allow_read_all=True,
         )
         with pytest.raises(ValueError, match="allow_read_all=True"):
-            WindowsSandbox(config)
+            WindowsAppContainerSandbox(config)
 
     def test_accepts_allow_read_all_false(self):
-        """WindowsSandbox.__init__ succeeds with allow_read_all=False."""
+        """WindowsAppContainerSandbox.__init__ succeeds with allow_read_all=False."""
         config = SandboxConfig(
-            mode=SandboxMode.APPCONTAINER,
+            mode=SandboxMode.WINDOWS,
             workspace_dir=r"C:\project",
             allow_read_all=False,
         )
-        sandbox = WindowsSandbox(config)
+        sandbox = WindowsAppContainerSandbox(config)
         assert sandbox.config is config
