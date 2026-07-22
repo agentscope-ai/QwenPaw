@@ -142,6 +142,13 @@ local-docs/
 # E2E test artifacts
 e2e/reports/
 e2e/data/
+
+# Local dev working dirs (QWENPAW_WORKING_DIR overrides) — the .secret one
+# holds keyring-backed credentials and must never be committed.
+.qwenpaw-dev/
+.qwenpaw-dev.secret/
+.qwenpaw-dev.backups/
+.playwright-mcp/
 e2e/.pytest_cache/
 e2e/__pycache__/
 

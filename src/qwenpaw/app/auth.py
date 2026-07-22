@@ -15,6 +15,7 @@ Uses only Python stdlib (hashlib, hmac, secrets) to avoid adding new
 dependencies.  The password is stored as a salted SHA-256 hash in
 ``auth.json`` under ``SECRET_DIR``.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -24,7 +25,8 @@ import logging
 import os
 import secrets
 import time
-from typing import Optional
+from dataclasses import dataclass
+from typing import Awaitable, Callable, Optional
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -70,6 +72,149 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/qwenpaw-symbol.svg",
     "/api/frontend_plugin/",
 )
+
+
+# ---------------------------------------------------------------------------
+# External identity resolvers (e.g. NocoBase SSO plugin)
+# ---------------------------------------------------------------------------
+# A resolver maps an incoming request to an identity string (the sender_id
+# used by channel ACL) or None when it has no opinion. Mirrors the
+# BaseChannel._external_acl_checkers pattern: the core stays ignorant of any
+# specific identity provider; plugins fill this in.
+IdentityResolver = Callable[["Request"], Awaitable[Optional[str]]]
+_external_identity_resolvers: list[IdentityResolver] = []
+
+# A login authenticator maps a username/password pair to an identity string
+# or None when the credentials are invalid / the provider has no opinion.
+# It may raise ExternalLoginDenied when the credentials are valid but the
+# account is not allowed in (e.g. rejected by the console ACL) so the login
+# route can answer 403 instead of the generic 401.
+LoginAuthenticator = Callable[
+    [str, str],
+    Awaitable[Optional["ExternalLogin | str"]],
+]
+_external_login_authenticators: list[LoginAuthenticator] = []
+
+
+class ExternalLoginDenied(Exception):
+    """Valid credentials, but the account is denied access by an ACL."""
+
+    def __init__(
+        self,
+        detail: str = "This account is not allowed to access the console",
+    ):
+        super().__init__(detail)
+        self.detail = detail
+
+
+@dataclass
+class ExternalLogin:
+    """Result of a successful external (e.g. NocoBase) login.
+
+    ``token`` is the provider-issued access token.  When present, the login
+    route returns it verbatim so the provider owns token issuing *and*
+    verification end-to-end; when absent, the route falls back to minting a
+    local QwenPaw token (legacy plugin behavior).
+    """
+
+    identity: str
+    token: Optional[str] = None
+
+
+def register_external_identity_resolver(resolver: IdentityResolver) -> None:
+    """Register a resolver consulted when no valid QwenPaw token is present."""
+    if resolver not in _external_identity_resolvers:
+        _external_identity_resolvers.append(resolver)
+
+
+def unregister_external_identity_resolver(
+    resolver: IdentityResolver,
+) -> None:
+    """Remove a previously registered resolver (no-op if absent)."""
+    try:
+        _external_identity_resolvers.remove(resolver)
+    except ValueError:
+        pass
+
+
+def has_external_identity_resolvers() -> bool:
+    """Return True if at least one external identity resolver is registered."""
+    return bool(_external_identity_resolvers)
+
+
+def register_external_login_authenticator(
+    authenticator: LoginAuthenticator,
+) -> None:
+    """Register a username/password authenticator provided by a plugin."""
+    if authenticator not in _external_login_authenticators:
+        _external_login_authenticators.append(authenticator)
+
+
+def unregister_external_login_authenticator(
+    authenticator: LoginAuthenticator,
+) -> None:
+    """Remove a previously registered login authenticator."""
+    try:
+        _external_login_authenticators.remove(authenticator)
+    except ValueError:
+        pass
+
+
+def has_external_login_authenticators() -> bool:
+    """Return True if a plugin can authenticate login credentials."""
+    return bool(_external_login_authenticators)
+
+
+async def authenticate_external_login(
+    username: str,
+    password: str,
+) -> Optional[ExternalLogin]:
+    """Return the first login accepted by an external provider.
+
+    Legacy authenticators return a bare identity string; it is normalized
+    to :class:`ExternalLogin` without a provider token.
+
+    Raises:
+        ExternalLoginDenied: an authenticator verified the credentials but
+            the account is denied access; the login route maps this to 403.
+    """
+    for authenticator in _external_login_authenticators:
+        try:
+            result = await authenticator(username, password)
+        except ExternalLoginDenied:
+            raise
+        except Exception:
+            logger.exception(
+                "external login authenticator %s failed",
+                getattr(authenticator, "__qualname__", repr(authenticator)),
+            )
+            continue
+        if isinstance(result, str):
+            if result:
+                return ExternalLogin(identity=result)
+        elif result is not None and result.identity:
+            return result
+    return None
+
+
+async def _resolve_external_identity(request: Request) -> Optional[str]:
+    """Return the first non-empty identity from registered resolvers.
+
+    A resolver that raises is logged and skipped so one bad plugin never
+    fails the request pipeline.
+    """
+    for resolver in _external_identity_resolvers:
+        try:
+            identity = await resolver(request)
+        except Exception:
+            logger.exception(
+                "external identity resolver %s failed",
+                getattr(resolver, "__qualname__", repr(resolver)),
+            )
+            continue
+        if identity:
+            return identity
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -583,6 +728,10 @@ def _resolve_client_ip(request: Request) -> str:
 # imported from routers
 resolve_client_ip = _resolve_client_ip
 
+# Public alias so routers can resolve an identity via registered external
+# resolvers (e.g. verifying a NocoBase-issued Bearer token).
+resolve_external_identity = _resolve_external_identity
+
 
 # Cached config for hot-path auth checks (avoids disk read per request)
 _auth_config_cache: tuple = (0, None)  # (mtime_ns, config)
@@ -617,19 +766,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         token = self._extract_token(request)
-        if not token:
-            return Response(
-                content=json.dumps({"detail": "Not authenticated"}),
-                status_code=401,
-                media_type="application/json",
-            )
-
-        user = verify_token(token)
+        user: Optional[str] = None
+        # When an external provider owns the user system (e.g. NocoBase),
+        # token verification is delegated to it entirely — locally minted
+        # QwenPaw tokens are no longer accepted.
+        if token and not has_external_login_authenticators():
+            user = verify_token(token)
         if user is None:
+            user = await _resolve_external_identity(request)
+        if user is None:
+            detail = (
+                "Invalid or expired token" if token else "Not authenticated"
+            )
             return Response(
-                content=json.dumps(
-                    {"detail": "Invalid or expired token"},
-                ),
+                content=json.dumps({"detail": detail}),
                 status_code=401,
                 media_type="application/json",
             )
@@ -640,7 +790,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
     @staticmethod
     def _should_skip_auth(request: Request) -> bool:
         """Return ``True`` when the request does not require auth."""
-        if not is_auth_enabled() or not has_registered_users():
+        if not is_auth_enabled():
+            return True
+        # Enforce auth when SOMEONE can be authenticated: either a local
+        # registered user OR an external identity provider (NocoBase SSO).
+        # Only skip when neither exists — preserving first-user bootstrap in
+        # local-only mode (register/login stay in _PUBLIC_PATHS regardless).
+        if (
+            not has_registered_users()
+            and not has_external_identity_resolvers()
+            and not has_external_login_authenticators()
+        ):
             return True
 
         path = request.url.path

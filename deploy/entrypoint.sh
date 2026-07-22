@@ -43,6 +43,12 @@ else
   echo "✓ Config found in ${QWENPAW_WORKING_DIR}, skipping initialization."
 fi
 
+# Plugins baked into the image live outside the working dir; copy them in so
+# PluginLoader can discover them.
+if [ -x /sync-bundled-plugins.sh ]; then
+  /sync-bundled-plugins.sh
+fi
+
 export QWENPAW_PORT="${QWENPAW_PORT:-8088}"
 warn_if_auth_off_container_bind
 envsubst '${QWENPAW_PORT}' \
