@@ -58,14 +58,14 @@ class MessageRecordingBuffer:
         self._pending: list[_MessageEvent] = []
         self._consumer_task: Optional[asyncio.Task] = None
         self._flush_task: Optional[asyncio.Task] = None
-        self._stopped = False
+        self._stop_event: Optional[asyncio.Event] = None
         self._last_cleanup_time: float = 0.0
 
     def start(self) -> None:
         """Start consumer and flush tasks."""
         if self._consumer_task is not None:
             return
-        self._stopped = False
+        self._stop_event = asyncio.Event()
         self._consumer_task = asyncio.create_task(
             self._consumer_loop(),
             name="msg-recording-consumer",
@@ -76,19 +76,22 @@ class MessageRecordingBuffer:
         )
 
     async def stop(self) -> None:
-        """Drain queue, stop tasks, perform final flush."""
-        self._stopped = True
+        """Signal stop, drain queue, await final flush.
 
+        The flush loop handles its own final flush before
+        exiting, so stop() never spawns a competing writer.
+        """
+        if self._stop_event is not None:
+            self._stop_event.set()
+
+        # Wait for flush loop to finish (includes final
+        # flush — no cancel, so no orphaned writer thread).
         if self._flush_task is not None:
-            self._flush_task.cancel()
-            try:
-                await self._flush_task
-            except asyncio.CancelledError:
-                pass
+            await self._flush_task
             self._flush_task = None
 
+        # Drain consumer into pending
         if self._consumer_task is not None:
-            await self._queue.join()
             self._consumer_task.cancel()
             try:
                 await self._consumer_task
@@ -96,7 +99,15 @@ class MessageRecordingBuffer:
                 pass
             self._consumer_task = None
 
-        await self._flush_once()
+        # Flush anything the consumer drained after the
+        # flush loop exited.
+        if self._pending:
+            await asyncio.to_thread(
+                _serialize_and_write,
+                self._pending,
+                self._base_dir,
+            )
+            self._pending = []
 
     def enqueue(self, event: _MessageEvent) -> None:
         """Put an event on the queue (sync, non-blocking)."""
@@ -145,33 +156,47 @@ class MessageRecordingBuffer:
     async def _flush_loop(self) -> None:
         """Periodically flush pending records and cleanup.
 
-        First cleanup runs after the first flush interval
-        (not immediately on start), ensuring retention_days
-        has been loaded from config.
+        Uses _stop_event for clean shutdown instead of task
+        cancellation. This ensures no in-flight writer thread
+        is orphaned.
         """
         _first_cleanup_done = False
-        try:
-            while not self._stopped:
-                await asyncio.sleep(self._flush_interval)
-                try:
-                    await self._flush_once()
-                except Exception:
-                    logger.warning(
-                        "message_recording: flush error",
-                        exc_info=True,
-                    )
-                # First cleanup after first flush interval;
-                # subsequent cleanups once per day.
-                if not _first_cleanup_done:
-                    _first_cleanup_done = True
+        while True:
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(),
+                    timeout=self._flush_interval,
+                )
+                # Stop event was set — do final flush and exit
+                break
+            except asyncio.TimeoutError:
+                pass
+            try:
+                await self._flush_once()
+            except Exception:
+                logger.warning(
+                    "message_recording: flush error",
+                    exc_info=True,
+                )
+            # First cleanup after first flush interval;
+            # subsequent cleanups once per day.
+            if not _first_cleanup_done:
+                _first_cleanup_done = True
+                await self._run_cleanup()
+            else:
+                now = time.monotonic()
+                elapsed = now - self._last_cleanup_time
+                if elapsed >= _CLEANUP_INTERVAL:
                     await self._run_cleanup()
-                else:
-                    now = time.monotonic()
-                    elapsed = now - self._last_cleanup_time
-                    if elapsed >= _CLEANUP_INTERVAL:
-                        await self._run_cleanup()
-        except asyncio.CancelledError:
-            pass
+
+        # Final flush before exiting
+        try:
+            await self._flush_once()
+        except Exception:
+            logger.warning(
+                "message_recording: final flush error",
+                exc_info=True,
+            )
 
     async def _run_cleanup(self) -> None:
         """Delete JSONL files older than retention_days."""
