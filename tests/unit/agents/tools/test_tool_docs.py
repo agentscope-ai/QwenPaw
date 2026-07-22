@@ -18,6 +18,15 @@ def test_normalize_tool_doc_lang() -> None:
     assert normalize_tool_doc_lang("pt-BR") == "pt-BR"
     assert normalize_tool_doc_lang("") == "en"
     assert normalize_tool_doc_lang(None) == "en"
+    assert normalize_tool_doc_lang("../etc") == "en"
+
+
+def test_load_tool_doc_rejects_path_escape() -> None:
+    assert load_tool_doc("../etc/passwd", "zh") is None
+    # Unsafe lang falls back to English curated docs rather than path escape.
+    fallback = load_tool_doc("read_file", "../zh")
+    assert fallback is not None
+    assert "Read file" in fallback["summary"]
 
 
 def test_load_tool_doc_zh_and_en() -> None:

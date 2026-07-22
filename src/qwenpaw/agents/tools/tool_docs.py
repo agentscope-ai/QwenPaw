@@ -9,6 +9,7 @@ docstring / config description.
 from __future__ import annotations
 
 import logging
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
@@ -16,6 +17,9 @@ from typing import Any, Callable
 logger = logging.getLogger(__name__)
 
 _DOCS_ROOT = Path(__file__).resolve().parent / "docs"
+# Tool doc paths are package-local; reject anything that could escape.
+_SAFE_TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+_SAFE_LANG_RE = re.compile(r"^[A-Za-z]{2}(?:-[A-Za-z]{2})?$")
 
 
 def normalize_tool_doc_lang(lang: str | None) -> str:
@@ -37,8 +41,12 @@ def normalize_tool_doc_lang(lang: str | None) -> str:
         primary, region = raw.split("-", 1)
         if primary.lower() == "pt" and region.upper() == "BR":
             return "pt-BR"
-        return primary.lower()
-    return lower
+        candidate = primary.lower()
+    else:
+        candidate = lower
+    if not _SAFE_LANG_RE.fullmatch(candidate):
+        return "en"
+    return candidate
 
 
 def _lang_candidates(lang: str | None) -> list[str]:
@@ -46,7 +54,7 @@ def _lang_candidates(lang: str | None) -> list[str]:
     normalized = normalize_tool_doc_lang(lang)
     candidates: list[str] = []
     for item in (normalized, normalized.split("-")[0], "en"):
-        if item and item not in candidates:
+        if item and item not in candidates and _SAFE_LANG_RE.fullmatch(item):
             candidates.append(item)
     return candidates
 
@@ -68,14 +76,33 @@ def _parse_doc_markdown(text: str) -> dict[str, str]:
     return {"summary": summary, "body": body}
 
 
+def _safe_doc_path(tool_name: str, lang: str) -> Path | None:
+    """Return a docs path only when name/lang are safe and stay under docs."""
+    if not _SAFE_TOOL_NAME_RE.fullmatch(tool_name):
+        return None
+    if not _SAFE_LANG_RE.fullmatch(lang):
+        return None
+    path = (_DOCS_ROOT / lang / f"{tool_name}.md").resolve()
+    try:
+        path.relative_to(_DOCS_ROOT.resolve())
+    except ValueError:
+        return None
+    return path
+
+
 def _read_doc_file(tool_name: str, lang: str) -> dict[str, str] | None:
-    path = _DOCS_ROOT / lang / f"{tool_name}.md"
-    if not path.is_file():
+    path = _safe_doc_path(tool_name, lang)
+    if path is None or not path.is_file():
         return None
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        logger.warning("Failed to read tool doc %s: %s", path, exc)
+        logger.warning(
+            "Failed to read tool doc for %s/%s: %s",
+            lang,
+            tool_name,
+            exc,
+        )
         return None
     parsed = _parse_doc_markdown(text)
     if not parsed["summary"] and not parsed["body"]:
