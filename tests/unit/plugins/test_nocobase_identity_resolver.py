@@ -29,8 +29,10 @@ class _FakeEngine:
 
 
 class _Req:
-    def __init__(self, headers):
+    def __init__(self, headers, query_params=None):
         self.headers = headers
+        if query_params is not None:
+            self.query_params = query_params
 
 
 def _cache():
@@ -48,6 +50,38 @@ async def test_no_header_returns_none() -> None:
     resolve = build_identity_resolver(eng, _cache())
     assert await resolve(_Req({})) is None
     assert eng.calls == 0
+
+
+async def test_bearer_header_resolves() -> None:
+    """The login route hands clients the NocoBase token itself, so a plain
+    ``Authorization: Bearer`` header carries a NocoBase token."""
+    eng = _FakeEngine(_Cfg(), user={"id": 1, "email": "eve@example.com"})
+    resolve = build_identity_resolver(eng, _cache())
+    req = _Req({"Authorization": "Bearer nb-tok"})
+    assert await resolve(req) == "eve@example.com"
+    assert eng.calls == 1
+
+
+async def test_query_param_token_resolves() -> None:
+    """WebSocket / file-preview URLs pass the token as ``?token=``."""
+    eng = _FakeEngine(_Cfg(), user={"id": 1, "email": "eve@example.com"})
+    resolve = build_identity_resolver(eng, _cache())
+    req = _Req({}, {"token": "nb-tok"})
+    assert await resolve(req) == "eve@example.com"
+    assert eng.calls == 1
+
+
+async def test_dedicated_header_wins_over_bearer() -> None:
+    eng = _FakeEngine(_Cfg(), user={"id": 1, "email": "eve@example.com"})
+    resolve = build_identity_resolver(eng, _cache())
+    req = _Req(
+        {
+            "X-NocoBase-Token": "dedicated-tok",
+            "Authorization": "Bearer other-tok",
+        },
+    )
+    assert await resolve(req) == "eve@example.com"
+    assert eng.calls == 1
 
 
 async def test_success_extracts_email_and_caches() -> None:

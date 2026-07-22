@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Sync engine that keeps the local permission cache in sync with NocoBase."""
+
 from __future__ import annotations
 
 import logging
@@ -139,6 +140,25 @@ class SyncEngine:
             )
             logger.info("NocoBase auth disabled; permission cache cleared")
 
+    @staticmethod
+    def _extract_login_identity(
+        payload: Dict[str, Any],
+        user_id_field: str,
+    ) -> str:
+        """Extract a stable QwenPaw identity from a NocoBase login payload."""
+        user = payload.get("user")
+        row = user if isinstance(user, dict) else payload
+
+        sender_id = NocoBaseClient.extract_sender_id(row, user_id_field)
+        if sender_id:
+            return sender_id
+
+        for fallback in ("username", "email", "phone", "nickname", "id"):
+            sender_id = NocoBaseClient.extract_sender_id(row, fallback)
+            if sender_id:
+                return sender_id
+        return ""
+
     async def test_connection(self) -> Dict[str, Any]:
         """Test connectivity and authentication with NocoBase."""
         client = self._get_client()
@@ -169,3 +189,52 @@ class SyncEngine:
         if client is None:
             return None
         return await client.verify_user_token(user_token)
+
+    async def authenticate_credentials(
+        self,
+        username: str,
+        password: str,
+    ) -> Optional[tuple[str, Optional[str]]]:
+        """Authenticate NocoBase credentials.
+
+        Returns ``(sender_id, nocobase_token)`` on success — the QwenPaw
+        identity plus the NocoBase-issued access token, which the login
+        route passes through to the client so NocoBase owns the token
+        system end-to-end.  Returns ``None`` for invalid credentials.
+        """
+        if not self.config.enabled or not self.config.base_url:
+            return None
+
+        client = NocoBaseClient(
+            base_url=self.config.base_url,
+            api_token=self.config.api_token,
+        )
+
+        try:
+            user = await client.sign_in(
+                username,
+                password,
+                authenticator=self.config.authenticator or "basic",
+            )
+            if user is None:
+                return None
+
+            sender_id = self._extract_login_identity(
+                user,
+                self.config.user_id_field,
+            )
+            token = user.get("token")
+            if not isinstance(token, str) or not token:
+                token = None
+            if not sender_id and token:
+                checked = await client.verify_user_token(token)
+                if checked:
+                    sender_id = self._extract_login_identity(
+                        checked,
+                        self.config.user_id_field,
+                    )
+            if not sender_id:
+                return None
+            return sender_id, token
+        finally:
+            await client.close()

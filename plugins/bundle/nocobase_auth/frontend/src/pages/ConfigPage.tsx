@@ -23,6 +23,7 @@ export function ConfigPage() {
           enabled: config.enabled ?? false,
           base_url: config.base_url ?? "",
           api_token: config.api_token ?? "",
+          authenticator: config.authenticator ?? "basic",
           user_id_field: config.user_id_field ?? "email",
         });
       })
@@ -107,11 +108,21 @@ export function ConfigPage() {
         Form.Item,
         {
           name: "api_token",
-          label: "API Token",
-          rules: [{ required: true, message: "请输入 API Token" }],
+          label: "API Token（用于同步用户/角色）",
         },
         React.createElement(Input.Password, {
           placeholder: "NocoBase API Token",
+        }),
+      ),
+      React.createElement(
+        Form.Item,
+        {
+          name: "authenticator",
+          label: "登录认证器",
+          rules: [{ required: true, message: "请输入登录认证器" }],
+        },
+        React.createElement(Input, {
+          placeholder: "basic",
         }),
       ),
       React.createElement(

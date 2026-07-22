@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """NocoBase auth plugin entry point."""
+
 from __future__ import annotations
 
 import logging
@@ -22,6 +23,7 @@ class NocoBaseAuthPlugin:
             Callable[[str, str, dict], Optional[str]]
         ] = None
         self._identity_resolver: Optional[Callable[..., Any]] = None
+        self._login_authenticator: Optional[Callable[..., Any]] = None
         self._sync_engine: Optional[Any] = None
 
     def register(self, api: Any) -> None:
@@ -68,7 +70,10 @@ class NocoBaseAuthPlugin:
 
         try:
             from qwenpaw.app.auth import (
+                ExternalLogin,
+                ExternalLoginDenied,
                 register_external_identity_resolver,
+                register_external_login_authenticator,
             )
 
             from .identity_cache import TokenIdentityCache
@@ -81,9 +86,41 @@ class NocoBaseAuthPlugin:
             )
             register_external_identity_resolver(self._identity_resolver)
             logger.info("NocoBase auth identity resolver registered")
+
+            checker = self._checker
+
+            async def _login_with_console_acl(
+                username: str,
+                password: str,
+            ) -> Optional[ExternalLogin]:
+                # Same checker as the per-message channel gate, so login
+                # and chat can never disagree on who is allowed in.
+                result = await engine.authenticate_credentials(
+                    username,
+                    password,
+                )
+                if not result:
+                    return None
+                sender_id, nb_token = result
+                if (
+                    checker is not None
+                    and checker("console", sender_id, {}) == "deny"
+                ):
+                    raise ExternalLoginDenied(
+                        "This account is not allowed to access the console",
+                    )
+                # Pass the NocoBase-issued token through so NocoBase owns
+                # the token system (issuing + verification) end-to-end.
+                return ExternalLogin(identity=sender_id, token=nb_token)
+
+            self._login_authenticator = _login_with_console_acl
+            register_external_login_authenticator(
+                self._login_authenticator,
+            )
+            logger.info("NocoBase auth login authenticator registered")
         except Exception as exc:
             logger.error(
-                "Failed to register identity resolver: %s",
+                "Failed to register identity/login resolver: %s",
                 exc,
             )
 
@@ -123,6 +160,23 @@ class NocoBaseAuthPlugin:
                     exc,
                 )
             self._identity_resolver = None
+
+        if self._login_authenticator is not None:
+            try:
+                from qwenpaw.app.auth import (
+                    unregister_external_login_authenticator,
+                )
+
+                unregister_external_login_authenticator(
+                    self._login_authenticator,
+                )
+                logger.info("NocoBase auth login authenticator removed")
+            except Exception as exc:
+                logger.error(
+                    "Failed to unregister login authenticator: %s",
+                    exc,
+                )
+            self._login_authenticator = None
 
         if self._sync_engine is not None:
             from .sync_engine import set_sync_engine

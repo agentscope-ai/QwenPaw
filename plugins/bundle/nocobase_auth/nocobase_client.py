@@ -36,10 +36,12 @@ class NocoBaseClient:
         base_url: str,
         api_token: str,
         timeout: float = DEFAULT_TIMEOUT,
+        transport: Optional[httpx.AsyncBaseTransport] = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_token = api_token
         self.timeout = timeout
+        self.transport = transport
         self._client: Optional[httpx.AsyncClient] = None
 
     def _get_client(self) -> httpx.AsyncClient:
@@ -58,6 +60,7 @@ class NocoBaseClient:
                 # silently hijack localhost (e.g. corporate security agents)
                 # and break the integration with confusing 5xx responses.
                 trust_env=False,
+                transport=self.transport,
             )
         return self._client
 
@@ -186,6 +189,48 @@ class NocoBaseClient:
                 f"auth:check failed: {response.status_code}",
                 status_code=response.status_code,
             )
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return data if isinstance(data, dict) else None
+
+    async def sign_in(
+        self,
+        username: str,
+        password: str,
+        *,
+        authenticator: str = "basic",
+    ) -> Optional[Dict[str, Any]]:
+        """Authenticate username/password against NocoBase.
+
+        Returns the NocoBase ``data`` payload on success, ``None`` for
+        invalid credentials, and raises on network/server errors.
+        """
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url,
+                headers={"X-Authenticator": authenticator},
+                timeout=self.timeout,
+                follow_redirects=True,
+                trust_env=False,
+                transport=self.transport,
+            ) as client:
+                response = await client.post(
+                    "/api/auth:signIn",
+                    json={"account": username, "password": password},
+                )
+        except httpx.HTTPError as exc:
+            raise NocoBaseRequestError(
+                f"auth:signIn request failed: {exc}",
+            ) from exc
+
+        if response.status_code == 401:
+            return None
+        if response.status_code >= 400:
+            raise NocoBaseRequestError(
+                f"auth:signIn failed: {response.status_code}",
+                status_code=response.status_code,
+            )
+
         payload = response.json()
         data = payload.get("data") if isinstance(payload, dict) else None
         return data if isinstance(data, dict) else None

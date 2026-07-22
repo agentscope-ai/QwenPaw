@@ -15,6 +15,7 @@
   },
   "dependencies": ["httpx"],
   "min_version": "1.1.7",
+  "max_version": "2.1.0",
   "meta": {
     "category": "auth",
     "features": ["nocobase-sync", "channel-access-control", "role-mapping"]

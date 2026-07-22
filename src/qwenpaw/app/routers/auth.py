@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Authentication API endpoints."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
@@ -7,10 +8,15 @@ from pydantic import BaseModel
 
 from ...constant import EnvVarLoader
 from ..auth import (
+    ExternalLoginDenied,
     authenticate,
+    authenticate_external_login,
+    create_token,
     has_registered_users,
+    has_external_login_authenticators,
     is_auth_enabled,
     register_user,
+    resolve_external_identity,
     revoke_all_tokens,
     revoke_token,
     update_credentials,
@@ -84,7 +90,36 @@ async def login(request: Request, req: LoginRequest):
         )
 
     # Attempt authentication
+    username = req.username
     token = authenticate(req.username, req.password, req.expires_in)
+    if token is None:
+        try:
+            external_login = await authenticate_external_login(
+                req.username,
+                req.password,
+            )
+        except ExternalLoginDenied as exc:
+            # Valid credentials, but the account is denied by an ACL
+            # (e.g. the NocoBase console gate) — distinct from 401.
+            rate_limiter.record_login_attempt(
+                client_ip,
+                req.username,
+                success=False,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail=exc.detail,
+            ) from exc
+        if external_login:
+            username = external_login.identity
+            # Prefer the provider-issued token (e.g. the NocoBase JWT) so
+            # the external user system owns token issuing and verification
+            # end-to-end; mint a local token only when the provider
+            # returns none (legacy plugin behavior).
+            token = external_login.token or create_token(
+                external_login.identity,
+                req.expires_in,
+            )
     if token is None:
         # Record failed attempt
         rate_limiter.record_login_attempt(
@@ -100,7 +135,7 @@ async def login(request: Request, req: LoginRequest):
     # Record successful attempt
     rate_limiter.record_login_attempt(client_ip, req.username, success=True)
 
-    return LoginResponse(token=token, username=req.username)
+    return LoginResponse(token=token, username=username)
 
 
 @router.post("/register")
@@ -117,6 +152,14 @@ async def register(req: RegisterRequest):
         raise HTTPException(
             status_code=403,
             detail="Authentication is not enabled",
+        )
+
+    if has_external_login_authenticators():
+        # An external provider (e.g. NocoBase) owns the user system —
+        # local self-registration would bypass it.
+        raise HTTPException(
+            status_code=403,
+            detail="Registration is managed by the external identity provider",
         )
 
     if has_registered_users():
@@ -146,7 +189,9 @@ async def auth_status():
     """Check if authentication is enabled and whether a user exists."""
     return AuthStatusResponse(
         enabled=is_auth_enabled(),
-        has_users=has_registered_users(),
+        has_users=(
+            has_registered_users() or has_external_login_authenticators()
+        ),
     )
 
 
@@ -161,7 +206,12 @@ async def verify(request: Request):
     if not token:
         raise HTTPException(status_code=401, detail="No token provided")
 
-    username = verify_token(token)
+    if has_external_login_authenticators():
+        # An external provider (e.g. NocoBase) owns the token system —
+        # verify the provider token instead of a local one.
+        username = await resolve_external_identity(request)
+    else:
+        username = verify_token(token)
     if username is None:
         raise HTTPException(
             status_code=401,

@@ -87,6 +87,10 @@ class NocoBaseAuthConfig(BaseModel):
     enabled: bool = Field(default=False, description="Enable NocoBase ACL")
     base_url: str = Field(default="", description="NocoBase base URL")
     api_token: str = Field(default="", description="NocoBase API token")
+    authenticator: str = Field(
+        default="basic",
+        description="NocoBase authenticator name for password sign-in",
+    )
     user_id_field: str = Field(
         default="email",
         description="NocoBase user field to use as channel sender_id",
