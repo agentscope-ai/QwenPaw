@@ -51,6 +51,7 @@ from .migration import (
 from .routers import create_agent_scoped_router
 from .routers import router as api_router
 from .routers.agent_scoped import AgentContextMiddleware
+from .protocol.agui import router as agui_router
 from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
 from .routers.healthz import router as healthz_router
@@ -933,6 +934,9 @@ async def post_desktop_shutdown(
 
 
 app.include_router(api_router, prefix="/api")
+
+# AG-UI protocol endpoint
+app.include_router(agui_router)
 
 # These registrations require the fully constructed application instance.
 # pylint: disable-next=wrong-import-position,wrong-import-order
