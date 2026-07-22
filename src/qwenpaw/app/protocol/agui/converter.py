@@ -7,6 +7,7 @@ custom event format to AG-UI protocol event format.
 QwenPaw uses its own event system (response → message → content),
 not standard AgentScope AgentEvent hierarchy.
 """
+import json
 from typing import TYPE_CHECKING, Any, Dict
 
 if TYPE_CHECKING:
@@ -20,14 +21,16 @@ try:
         ReasoningMessageContentEvent as AGUIReasoningMessageContentEvent,
         ReasoningMessageEndEvent as AGUIReasoningMessageEndEvent,
         ReasoningMessageStartEvent as AGUIReasoningMessageStartEvent,
+        RunErrorEvent as AGUIRunErrorEvent,
         RunFinishedEvent as AGUIRunFinishedEvent,
         RunStartedEvent as AGUIRunStartedEvent,
         TextMessageContentEvent as AGUITextMessageContentEvent,
         TextMessageEndEvent as AGUITextMessageEndEvent,
         TextMessageStartEvent as AGUITextMessageStartEvent,
-        ToolCallStartEvent as AGUIToolCallStartEvent,
+        ToolCallArgsEvent as AGUIToolCallArgsEvent,
         ToolCallEndEvent as AGUIToolCallEndEvent,
         ToolCallResultEvent as AGUIToolCallResultEvent,
+        ToolCallStartEvent as AGUIToolCallStartEvent,
     )
     AG_UI_AVAILABLE = True
 except ImportError:
@@ -38,6 +41,8 @@ class QwenPawToAGUIConverter:
     """Convert QwenPaw events to AG-UI protocol format.
 
     Handles QwenPaw's custom event format: response → message → content.
+    Create one instance per request (via :func:`create_converter`) to keep
+    per-run state isolated across concurrent streams.
     """
 
     def __init__(self) -> None:
@@ -47,12 +52,11 @@ class QwenPawToAGUIConverter:
                 "ag-ui-protocol is required for AG-UI support. "
                 "Install it: pip install 'ag-ui-protocol>=0.1.10,<0.2.0'"
             )
-        # State tracking
+        # Per-run state (instance is request-scoped, so this is concurrency-safe)
         self._run_id: str = ""
-        self._current_message_id: str = ""
-        self._current_message_type: str = ""  # "text" or "reasoning"
-        self._last_model_name: str = "model"
-        self._tool_result_buffers: dict[str, list[str]] = {}
+        # Tracks whether the current open message is reasoning or text, so that
+        # nested content deltas can be routed to the correct message type.
+        self._current_message_type: str = ""
 
     def convert(self, event: Any) -> dict:
         """Convert a QwenPaw event to AG-UI protocol dict.
@@ -68,13 +72,16 @@ class QwenPawToAGUIConverter:
             event_dict = event
         else:
             # Try to get dict representation
-            if hasattr(event, 'model_dump'):
+            if hasattr(event, "model_dump"):
                 event_dict = event.model_dump(exclude_none=True)
-            elif hasattr(event, 'dict'):
+            elif hasattr(event, "dict"):
                 event_dict = event.dict()
             else:
                 # Fallback to unknown
-                event_dict = {"raw_type": str(type(event)), "raw_data": str(event)}
+                event_dict = {
+                    "raw_type": str(type(event)),
+                    "raw_data": str(event),
+                }
 
         # Convert based on event structure
         agui_event = self._to_agui_event(event_dict)
@@ -91,7 +98,7 @@ class QwenPawToAGUIConverter:
         - Response events → RunStarted/RunFinished
         - Message events → MessageStart/MessageEnd
         - Content events → MessageContent
-        - Tool events → ToolCallStart/ToolCallEnd/ToolCallResult
+        - Tool events → ToolCallStart/Args/End/Result
         """
         # Check for response events (highest level)
         if event.get("object") == "response":
@@ -107,28 +114,26 @@ class QwenPawToAGUIConverter:
                     thread_id=event.get("session_id", ""),
                     run_id=self._run_id,
                 )
-            else:
-                # In-progress or other states, emit as custom
-                return AGUICustomEvent(
-                    name="response_status",
-                    value=event,
-                )
+            # In-progress or other states, emit as custom
+            return AGUICustomEvent(
+                name="response_status",
+                value=event,
+            )
 
         # Check for message events
-        elif event.get("object") == "message":
+        if event.get("object") == "message":
             msg_type = event.get("type", "")
             msg_id = event.get("id", "")
             status = event.get("status", "")
 
             if msg_type == "reasoning":
                 if status == "in_progress":
-                    self._current_message_id = msg_id
                     self._current_message_type = "reasoning"
                     return AGUIReasoningMessageStartEvent(
                         message_id=msg_id,
                         role="reasoning",  # AG-UI spec requires literal "reasoning"
                     )
-                elif status == "completed":
+                if status == "completed":
                     self._current_message_type = ""
                     return AGUIReasoningMessageEndEvent(
                         message_id=msg_id,
@@ -137,12 +142,11 @@ class QwenPawToAGUIConverter:
             elif msg_type in ("text", "message"):
                 # Treat type="message" (assistant messages) as text messages
                 if status == "in_progress":
-                    self._current_message_id = msg_id
                     self._current_message_type = "text"
                     return AGUITextMessageStartEvent(
                         message_id=msg_id,
                     )
-                elif status == "completed":
+                if status == "completed":
                     self._current_message_type = ""
                     return AGUITextMessageEndEvent(
                         message_id=msg_id,
@@ -155,24 +159,22 @@ class QwenPawToAGUIConverter:
             )
 
         # Check for content events (nested inside messages)
-        elif event.get("object") == "content":
+        if event.get("object") == "content":
             content_type = event.get("type", "")
             msg_id = event.get("msg_id", "")
-            delta = event.get("delta", False)
             text = event.get("text", "")
 
             if content_type == "text" and text:
-                # Use current message type to decide reasoning vs text content
+                # Route content delta based on the currently open message type
                 if self._current_message_type == "reasoning":
                     return AGUIReasoningMessageContentEvent(
                         message_id=msg_id,
                         delta=text,
                     )
-                else:
-                    return AGUITextMessageContentEvent(
-                        message_id=msg_id,
-                        delta=text,
-                    )
+                return AGUITextMessageContentEvent(
+                    message_id=msg_id,
+                    delta=text,
+                )
 
             # Fallback for other content types
             return AGUICustomEvent(
@@ -181,7 +183,7 @@ class QwenPawToAGUIConverter:
             )
 
         # Check for tool events
-        elif event.get("object") == "tool_call":
+        if event.get("object") == "tool_call":
             tool_call_id = event.get("id", "")
             tool_name = event.get("name", "")
             status = event.get("status", "")
@@ -192,19 +194,27 @@ class QwenPawToAGUIConverter:
                     tool_call_name=tool_name,
                     parent_message_id=self._run_id,
                 )
-            elif status == "completed":
+            if status == "completed":
                 return AGUIToolCallEndEvent(
                     tool_call_id=tool_call_id,
                 )
 
-            # Tool arguments (would be separate events)
+            # In-progress tool call: stream arguments as TOOL_CALL_ARGS deltas
+            # so clients can reconstruct the tool input (AG-UI spec requires it).
+            args_delta = self._extract_tool_args_delta(event)
+            if args_delta is not None:
+                return AGUIToolCallArgsEvent(
+                    tool_call_id=tool_call_id,
+                    delta=args_delta,
+                )
+
             return AGUICustomEvent(
                 name="tool_call_info",
                 value=event,
             )
 
         # Check for tool result events
-        elif event.get("object") == "tool_result":
+        if event.get("object") == "tool_result":
             tool_call_id = event.get("tool_call_id", "")
             content = event.get("content", "")
             status = event.get("status", "")
@@ -213,7 +223,7 @@ class QwenPawToAGUIConverter:
                 return AGUIToolCallResultEvent(
                     tool_call_id=tool_call_id,
                     message_id=self._run_id,
-                    content=content,
+                    content=self._stringify_tool_content(content),
                 )
 
             return AGUICustomEvent(
@@ -227,43 +237,35 @@ class QwenPawToAGUIConverter:
             value=event,
         )
 
+    @staticmethod
+    def _extract_tool_args_delta(event: Dict[str, Any]) -> str | None:
+        """Extract a tool-call arguments delta from a QwenPaw tool event.
 
-# Create global converter instance
-_converter_instance: QwenPawToAGUIConverter | None = None
+        QwenPaw may carry tool input in ``arguments``/``input``/``args``
+        (either a string fragment or a JSON-serializable object). Returns the
+        serialized delta, or None if no arguments are present.
+        """
+        for key in ("arguments", "input", "args"):
+            value = event.get(key)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                return value
+            return json.dumps(value, ensure_ascii=False)
+        return None
 
+    @staticmethod
+    def _stringify_tool_content(content: Any) -> str:
+        """Coerce a tool result content value to a string for AG-UI.
 
-def get_converter() -> QwenPawToAGUIConverter:
-    """获取或创建全局转换器实例.
-
-    Returns:
-        全局转换器实例
-
-    Raises:
-        ImportError: 如果 ag-ui-protocol 未安装
-    """
-    global _converter_instance
-    if _converter_instance is None:
-        _converter_instance = QwenPawToAGUIConverter()
-    return _converter_instance
-
-
-def convert_agent_event_to_agui(event: Any) -> dict:
-    """将 QwenPaw 事件转换为 AG-UI 协议格式.
-
-    注意：此函数使用全局单例转换器，在并发请求中可能产生竞态条件。
-    建议在需要高并发场景时为每个请求创建独立的转换器实例。
-
-    Args:
-        event: 要转换的 QwenPaw 事件
-
-    Returns:
-        AG-UI 协议格式的字典
-
-    Raises:
-        ImportError: 如果 ag-ui-protocol 未安装
-    """
-    converter = get_converter()
-    return converter.convert(event)
+        AG-UI ToolCallResultEvent.content must be a str; QwenPaw may emit
+        dict/list/None payloads.
+        """
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        return json.dumps(content, ensure_ascii=False)
 
 
 def create_converter() -> QwenPawToAGUIConverter:
@@ -278,3 +280,31 @@ def create_converter() -> QwenPawToAGUIConverter:
         ImportError: 如果 ag-ui-protocol 未安装
     """
     return QwenPawToAGUIConverter()
+
+
+def create_run_error_event(message: str, code: str | None = None) -> dict:
+    """构造一个符合 AG-UI 规范的 RUN_ERROR 事件字典.
+
+    用于在流式过程中发生异常时向客户端发送标准错误事件，
+    而非非规范的 ``{"type": "error"}``。
+
+    Args:
+        message: 错误描述
+        code: 可选的错误代码
+
+    Returns:
+        AG-UI RUN_ERROR 事件字典（已序列化、camelCase 别名）
+
+    Raises:
+        ImportError: 如果 ag-ui-protocol 未安装
+    """
+    if not AG_UI_AVAILABLE:
+        raise ImportError(
+            "ag-ui-protocol is required for AG-UI support. "
+            "Install it: pip install 'ag-ui-protocol>=0.1.10,<0.2.0'"
+        )
+    kwargs: Dict[str, Any] = {"message": message}
+    if code:
+        kwargs["code"] = code
+    event = AGUIRunErrorEvent(**kwargs)
+    return event.model_dump(mode="json", exclude_none=True, by_alias=True)
