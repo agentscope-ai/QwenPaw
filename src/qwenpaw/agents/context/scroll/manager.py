@@ -689,6 +689,10 @@ class ScrollContextManager:
         # Preserve a share for actual tool outcomes. Assistant narration is
         # useful, but it must not consume the whole remainder before an error
         # or exact result preview can be seen.
+        if supporting and tool_results and remaining > 0:
+            # The per-group fitter accounts for separators within each group;
+            # reserve the separator introduced when the two groups are joined.
+            remaining -= 1
         tool_budget = min(
             sum(len(text) + 1 for _, text in tool_results),
             remaining // 3,
@@ -715,10 +719,33 @@ class ScrollContextManager:
         total = sum(len(text) + 1 for _, text in records)
         if total <= budget:
             return list(records)
-        share = max(1, budget // len(records) - 1)
+
+        # A non-empty record plus its separator costs at least two chars. In
+        # pathological histories with more records than the budget can encode,
+        # sample across the full time range instead of overflowing the hard
+        # input bound or retaining only a head/tail slice.
+        max_records = max(1, (budget + 1) // 2)
+        if len(records) > max_records:
+            if max_records == 1:
+                records = [records[-1]]
+            else:
+                last = len(records) - 1
+                records = [
+                    records[round(index * last / (max_records - 1))]
+                    for index in range(max_records)
+                ]
+
+        text_budget = max(1, budget - (len(records) - 1))
+        share, extra = divmod(text_budget, len(records))
         return [
-            (order, cls._bounded_summary_text(text, share))
-            for order, text in records
+            (
+                order,
+                cls._bounded_summary_text(
+                    text,
+                    share + (1 if index < extra else 0),
+                ),
+            )
+            for index, (order, text) in enumerate(records)
         ]
 
     def _summary_rebase_context(

@@ -767,6 +767,21 @@ def test_summary_input_keeps_tool_outcome_budget(store: HistoryStore):
     assert len(rendered) <= 3000
 
 
+def test_summary_record_fitting_never_exceeds_tiny_budget(
+    store: HistoryStore,
+):
+    """Even pathological record counts must respect the hard input bound."""
+    mgr = make_manager(store)
+    records = [(index, f"record-{index}") for index in range(100)]
+
+    selected = mgr._fit_summary_records(records, 17)
+    rendered = "\n".join(text for _, text in selected)
+
+    assert len(rendered) <= 17
+    assert selected[0][0] == 0
+    assert selected[-1][0] == 99
+
+
 async def test_invalid_summary_update_preserves_previous_and_marks_stale(
     store: HistoryStore,
 ):
