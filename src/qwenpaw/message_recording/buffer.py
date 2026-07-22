@@ -5,6 +5,7 @@ import asyncio
 import datetime
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
@@ -13,6 +14,10 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_FLUSH_INTERVAL = 5  # seconds
 _CLEANUP_INTERVAL = 86400  # 1 day in seconds
+
+# Serialize file writes so a cancelled flush and a final
+# flush never interleave on the same JSONL file.
+_write_lock = threading.Lock()
 
 
 class _MessageEvent(NamedTuple):
@@ -190,7 +195,9 @@ def _serialize_and_write(
 ) -> None:
     """Serialize events and write to JSONL (runs in worker thread).
 
-    This keeps all json.dumps() work off the event loop.
+    Acquires _write_lock to prevent concurrent writes when a
+    cancelled flush's thread overlaps with the final shutdown
+    flush.
     """
     by_date: dict[str, list[str]] = {}
     for event in records:
@@ -205,18 +212,26 @@ def _serialize_and_write(
             continue
         by_date.setdefault(date_str, []).append(line)
 
-    for date_str, lines in by_date.items():
-        file_path = base_dir / f"{date_str}.jsonl"
-        try:
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(file_path, "a", encoding="utf-8") as f:
-                f.writelines(lines)
-        except Exception:
-            logger.warning(
-                "message_recording: failed to write %s",
-                file_path,
-                exc_info=True,
-            )
+    with _write_lock:
+        for date_str, lines in by_date.items():
+            file_path = base_dir / f"{date_str}.jsonl"
+            try:
+                file_path.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+                with open(
+                    file_path,
+                    "a",
+                    encoding="utf-8",
+                ) as f:
+                    f.writelines(lines)
+            except Exception:
+                logger.warning(
+                    "message_recording: failed to write %s",
+                    file_path,
+                    exc_info=True,
+                )
 
 
 def _cleanup_old_files(

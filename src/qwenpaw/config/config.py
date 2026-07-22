@@ -1062,8 +1062,22 @@ class MessageRecordingConfig(BaseModel):
 
     storage_dir: str = Field(
         default=str(WORKING_DIR / "message_logs"),
-        description=("Storage directory for JSONL files (read-only)."),
+        description=(
+            "Storage directory for JSONL files. "
+            "Always derived from WORKING_DIR; "
+            "API input is ignored."
+        ),
     )
+
+    # pylint: disable=no-self-argument
+    @field_validator("storage_dir", mode="before")
+    @classmethod
+    def _force_storage_dir(
+        cls,
+        v: Any,  # pylint: disable=unused-argument
+    ) -> str:
+        """Override any user input with the canonical path."""
+        return str(WORKING_DIR / "message_logs")
 
 
 class DoomLoopStageConfig(BaseModel):
