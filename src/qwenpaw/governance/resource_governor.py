@@ -330,6 +330,8 @@ class ResourceGovernor:
             decision = governor.assert_policy(tc_spec)
             governor.audit(tc_spec, decision)
         """
+        if self._policy is not None and self._policy.audit_level == "none":
+            return
         self.audit_log.record(
             str(self.workspace_dir),
             tc_spec,

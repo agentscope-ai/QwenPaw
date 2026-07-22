@@ -550,6 +550,28 @@ class TestAssertPolicySSHCommands:
             GovernanceAction.ALLOW,
         )
 
+    def test_audit_level_none_skips_persistence(self, governor):
+        """The explicit none level must not write to the audit database."""
+        governor.policy.audit_level = "none"
+        tc = _tc("Write", "/tmp/audit-level-none.txt")
+        decision = governor.assert_policy(tc)
+        before = governor.audit_log.count
+
+        governor.audit(tc, decision)
+
+        assert governor.audit_log.count == before
+
+    def test_audit_level_all_persists_decision(self, governor):
+        """The default all level continues to persist audit events."""
+        governor.policy.audit_level = "all"
+        tc = _tc("Write", "/tmp/audit-level-all.txt")
+        decision = governor.assert_policy(tc)
+        before = governor.audit_log.count
+
+        governor.audit(tc, decision)
+
+        assert governor.audit_log.count == before + 1
+
 
 # ---------------------------------------------------------------------------
 # Test: GovernancePolicy.evaluate directly (without governor / audit)
