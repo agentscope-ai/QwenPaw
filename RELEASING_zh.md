@@ -89,6 +89,7 @@ release 就仍是草稿。
 | `promote-desktop` 失败 | release 已发布，但桌面 `latest` 文件 / 更新清单 / index 未刷新（存量用户的自动更新暂时看不到新版；版本化下载仍可用） | 重跑该 job，幂等（`ossutil cp --force`）。对首装用户不阻塞。 |
 | "Multiple draft releases found" | 存在多个草稿 | 重跑 *Run workflow* 时显式填 `tag`。 |
 | "No draft release found" / "not a draft" | 没有草稿，或 tag 填错 | 先建草稿 / 改正 tag，再重跑。 |
+| resolve 拒绝该 tag（版本不匹配） | 草稿 tag 与 `src/qwenpaw/__version__.py` 不一致 | 让 tag 与版本对齐（`packaging` 归一化，如 `v2.0.1-beta.1` ↔ `2.0.1b1`），再重跑。 |
 
 ## 回退到旧流程
 

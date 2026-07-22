@@ -102,6 +102,7 @@ jobs succeed. If anything fails, the release stays a draft.
 | `promote-desktop` fails | Release is published, but the desktop `latest` files / updater manifest / index were not refreshed (existing users' auto-updater does not see the new version yet; versioned downloads still work) | Re-run the job — it is idempotent (`ossutil cp --force`). Non-blocking for first-install users. |
 | "Multiple draft releases found" | More than one draft exists | Re-run *Run workflow* with an explicit `tag`. |
 | "No draft release found" / "not a draft" | No draft, or wrong tag | Create the draft / fix the tag, then re-run. |
+| resolve rejects the tag (version mismatch) | The draft tag doesn't match `src/qwenpaw/__version__.py` | Align the tag with the version (packaging-normalized, e.g. `v2.0.1-beta.1` ↔ `2.0.1b1`), then re-run. |
 
 ## Rollback to the legacy flow
 
