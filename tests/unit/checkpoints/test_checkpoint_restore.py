@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import threading
 from pathlib import Path
 
 import pytest
@@ -570,7 +571,7 @@ async def test_memory_restore_fails_when_workspace_does_not_quiesce(
     )
 
     with pytest.raises(CheckpointError, match="did not become idle"):
-        await restorer._quiesce_workspace()
+        await restorer.quiesce_workspace()
 
 
 @pytest.mark.asyncio
@@ -584,13 +585,18 @@ async def test_restore_with_memory_rolls_back_session_on_failure(
     _write_session(tmp_path, "second")
     second_commit = await _checkpoint(engine, "second")
 
-    async def fail_for_target_commit(self, commit: str):
-        del self
+    original_restore_sync = MemoryRestorer.restore_sync
+
+    def fail_for_target_commit(self, commit: str):
         if commit == first_commit:
             raise RuntimeError("memory restore failed")
-        return [], []
+        return original_restore_sync(self, commit)
 
-    monkeypatch.setattr(MemoryRestorer, "apply", fail_for_target_commit)
+    monkeypatch.setattr(
+        MemoryRestorer,
+        "restore_sync",
+        fail_for_target_commit,
+    )
 
     with pytest.raises(RuntimeError, match="memory restore failed"):
         await engine.restore_with_memory(
@@ -601,6 +607,190 @@ async def test_restore_with_memory_rolls_back_session_on_failure(
         )
 
     assert _session_text(session_path) == "second"
+    assert (
+        engine.session_head(
+            session_key(
+                channel=CHANNEL,
+                user_id=USER_ID,
+                session_id=SESSION_ID,
+            ),
+        )
+        == second_commit
+    )
+
+
+@pytest.mark.asyncio
+async def test_restore_io_does_not_block_event_loop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    _write_session(tmp_path, "first")
+    first_commit = await _checkpoint(engine, "first")
+    _write_session(tmp_path, "second")
+    await _checkpoint(engine, "second")
+    started = threading.Event()
+    release = threading.Event()
+    original_restore_paths = engine.repository.restore_paths
+
+    def slow_restore_paths(blobs: dict[str, bytes]) -> None:
+        started.set()
+        if not release.wait(timeout=5):
+            raise RuntimeError("test restore release timed out")
+        original_restore_paths(blobs)
+
+    monkeypatch.setattr(
+        engine.repository,
+        "restore_paths",
+        slow_restore_paths,
+    )
+    restore_task = asyncio.create_task(
+        engine.restore(
+            target=first_commit[:12],
+            session_id=SESSION_ID,
+            user_id=USER_ID,
+            channel=CHANNEL,
+        ),
+    )
+    assert await asyncio.to_thread(started.wait, 5)
+
+    heartbeats = 0
+
+    async def heartbeat() -> None:
+        nonlocal heartbeats
+        for _ in range(5):
+            await asyncio.sleep(0.01)
+            heartbeats += 1
+
+    await heartbeat()
+    assert heartbeats == 5
+    assert not restore_task.done()
+    release.set()
+    await restore_task
+
+
+@pytest.mark.asyncio
+async def test_cancelled_memory_restore_waits_for_transaction_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    session_path = _write_session(tmp_path, "first")
+    memory_path = tmp_path / "MEMORY.md"
+    memory_path.write_text("memory first", encoding="utf-8")
+    first_commit = await _checkpoint(engine, "first")
+    _write_session(tmp_path, "second")
+    memory_path.write_text("memory second", encoding="utf-8")
+    await _checkpoint(engine, "second")
+    started = threading.Event()
+    release = threading.Event()
+    original_restore_sync = MemoryRestorer.restore_sync
+
+    def slow_restore_sync(self, commit: str):
+        if commit == first_commit:
+            started.set()
+            if not release.wait(timeout=5):
+                raise RuntimeError("test memory release timed out")
+        return original_restore_sync(self, commit)
+
+    monkeypatch.setattr(
+        MemoryRestorer,
+        "restore_sync",
+        slow_restore_sync,
+    )
+    restore_task = asyncio.create_task(
+        engine.restore_with_memory(
+            target=first_commit[:12],
+            session_id=SESSION_ID,
+            user_id=USER_ID,
+            channel=CHANNEL,
+        ),
+    )
+    assert await asyncio.to_thread(started.wait, 5)
+
+    restore_task.cancel()
+    await asyncio.sleep(0.02)
+    gate_waiter = asyncio.create_task(engine.query_gate.wait())
+    await asyncio.sleep(0.02)
+
+    assert not restore_task.done()
+    assert not gate_waiter.done()
+    assert engine.maintenance_lock.locked()
+    assert engine.lock.locked()
+
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await restore_task
+    await gate_waiter
+
+    assert _session_text(session_path) == "first"
+    assert memory_path.read_text(encoding="utf-8") == "memory first"
+    assert engine.query_gate.is_set()
+    assert not engine.maintenance_lock.locked()
+    assert not engine.lock.locked()
+    assert (
+        engine.session_head(
+            session_key(
+                channel=CHANNEL,
+                user_id=USER_ID,
+                session_id=SESSION_ID,
+            ),
+        )
+        == first_commit
+    )
+
+
+@pytest.mark.asyncio
+async def test_cancelled_memory_restore_waits_for_rollback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    session_path = _write_session(tmp_path, "first")
+    memory_path = tmp_path / "MEMORY.md"
+    memory_path.write_text("memory first", encoding="utf-8")
+    first_commit = await _checkpoint(engine, "first")
+    _write_session(tmp_path, "second")
+    memory_path.write_text("memory second", encoding="utf-8")
+    second_commit = await _checkpoint(engine, "second")
+    started = threading.Event()
+    release = threading.Event()
+    original_restore_sync = MemoryRestorer.restore_sync
+
+    def fail_target_restore(self, commit: str):
+        if commit == first_commit:
+            started.set()
+            if not release.wait(timeout=5):
+                raise RuntimeError("test memory release timed out")
+            raise RuntimeError("memory restore failed")
+        return original_restore_sync(self, commit)
+
+    monkeypatch.setattr(
+        MemoryRestorer,
+        "restore_sync",
+        fail_target_restore,
+    )
+    restore_task = asyncio.create_task(
+        engine.restore_with_memory(
+            target=first_commit[:12],
+            session_id=SESSION_ID,
+            user_id=USER_ID,
+            channel=CHANNEL,
+        ),
+    )
+    assert await asyncio.to_thread(started.wait, 5)
+    restore_task.cancel()
+    await asyncio.sleep(0.02)
+
+    assert not restore_task.done()
+    assert not engine.query_gate.is_set()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await restore_task
+
+    assert _session_text(session_path) == "second"
+    assert memory_path.read_text(encoding="utf-8") == "memory second"
+    assert engine.query_gate.is_set()
     assert (
         engine.session_head(
             session_key(

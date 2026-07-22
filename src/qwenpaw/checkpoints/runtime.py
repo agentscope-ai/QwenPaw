@@ -10,7 +10,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Coroutine
 
-from .policy import DEFAULT_AUTO_DEBOUNCE_SECONDS
+from .policy import CheckpointPolicy, DEFAULT_AUTO_DEBOUNCE_SECONDS
+from .repository import CheckpointRepository
 from .service import CheckpointService
 from .policy import session_key
 
@@ -83,6 +84,10 @@ class CheckpointRuntime:
 
     def __init__(self) -> None:
         self._services: dict[str, CheckpointService] = {}
+        self._initializing: dict[
+            str,
+            asyncio.Task[CheckpointService],
+        ] = {}
         self._lock = threading.Lock()
         self._generation = 0
         self._last_auto_gc: dict[str, float] = {}
@@ -92,6 +97,83 @@ class CheckpointRuntime:
         service = self.get_for_workspace_dir(workspace.workspace_dir)
         service.workspace = workspace
         return service
+
+    async def get_for_workspace_async(
+        self,
+        workspace: Any,
+    ) -> CheckpointService:
+        """Return a service without blocking the event loop on first use."""
+        service = await self.get_for_workspace_dir_async(
+            workspace.workspace_dir,
+        )
+        service.workspace = workspace
+        return service
+
+    async def get_for_workspace_dir_async(
+        self,
+        workspace_dir: str | Path,
+    ) -> CheckpointService:
+        """Initialize one workspace service in a worker, single-flight."""
+        key = str(Path(workspace_dir).expanduser().resolve())
+        with self._lock:
+            service = self._services.get(key)
+            if service is not None:
+                return service
+            task = self._initializing.get(key)
+            if task is None:
+                task = asyncio.create_task(
+                    self._initialize_service(key),
+                    name=f"checkpoint-init:{key}",
+                )
+                self._initializing[key] = task
+
+                def _completed(
+                    completed: asyncio.Task[CheckpointService],
+                ) -> None:
+                    self._finish_initialization(key, completed)
+
+                task.add_done_callback(_completed)
+        return await asyncio.shield(task)
+
+    async def _initialize_service(self, key: str) -> CheckpointService:
+        repository, policy = await asyncio.to_thread(
+            self._initialize_storage,
+            key,
+        )
+        # Construct asyncio primitives on the application event loop.
+        return CheckpointService(
+            key,
+            repository=repository,
+            policy=policy,
+        )
+
+    @staticmethod
+    def _initialize_storage(
+        key: str,
+    ) -> tuple[CheckpointRepository, CheckpointPolicy]:
+        repository = CheckpointRepository(key)
+        return repository, CheckpointPolicy(repository.config_file)
+
+    def _finish_initialization(
+        self,
+        key: str,
+        task: asyncio.Task[CheckpointService],
+    ) -> None:
+        with self._lock:
+            if self._initializing.get(key) is task:
+                self._initializing.pop(key, None)
+            if task.cancelled():
+                return
+            try:
+                service = task.result()
+            except Exception:
+                logger.exception(
+                    "Checkpoint service initialization failed for %s",
+                    key,
+                )
+                return
+            self._services.setdefault(key, service)
+            self._last_auto_gc.setdefault(key, time.monotonic())
 
     def get_for_workspace_dir(
         self,
@@ -106,7 +188,7 @@ class CheckpointRuntime:
                 self._last_auto_gc[key] = time.monotonic()
             return service
 
-    def schedule_auto_snapshot(
+    async def schedule_auto_snapshot(
         self,
         workspace: Any,
         *,
@@ -117,7 +199,7 @@ class CheckpointRuntime:
     ) -> None:
         if not session_id:
             return
-        service = self.get_for_workspace(workspace)
+        service = await self.get_for_workspace_async(workspace)
         if not service.auto_enabled:
             return
         key = session_key(
@@ -174,6 +256,9 @@ class CheckpointRuntime:
         self.debouncer.cancel_all()
         with self._lock:
             self._generation += 1
+            initializing = tuple(self._initializing.values())
+        if initializing:
+            await asyncio.gather(*initializing, return_exceptions=True)
         await self.debouncer.wait_all()
         with self._lock:
             self._services.clear()
@@ -192,7 +277,7 @@ class CheckpointRuntime:
         if service is None:
             if not (workspace_dir / "checkpoints" / "shadow.git").is_dir():
                 return ()
-            service = self.get_for_workspace_dir(workspace_dir)
+            service = await self.get_for_workspace_dir_async(workspace_dir)
         service.workspace = workspace
         active_tasks: set[asyncio.Task[None]] = set()
         for session_id, user_id, channel in sessions:

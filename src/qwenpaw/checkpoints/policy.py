@@ -8,6 +8,7 @@ import os
 import re
 import hashlib
 import json
+import tempfile
 import unicodedata
 from pathlib import Path
 from typing import Any, TypeVar, cast
@@ -283,34 +284,103 @@ class CheckpointPolicy:
         return value
 
     def set_auto_enabled(self, enabled: bool) -> None:
-        value = "true" if enabled else "false"
+        self._set_config_values(
+            "auto",
+            {"enabled": "true" if enabled else "false"},
+        )
+
+    def set_gc_retention(
+        self,
+        *,
+        gc_keep_count: int,
+        gc_keep_days: int,
+        pre_restore_retention_days: int,
+    ) -> None:
+        """Persist validated checkpoint retention settings."""
+        values = {
+            "gc_keep_count": (gc_keep_count, 1_000_000),
+            "gc_keep_days": (gc_keep_days, 36_500),
+            "pre_restore_retention_days": (
+                pre_restore_retention_days,
+                36_500,
+            ),
+        }
+        for key, (value, maximum) in values.items():
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise CheckpointError(f"Config gc.{key} must be int")
+            if value < 0 or value > maximum:
+                raise CheckpointError(
+                    f"Config gc.{key} must be between 0 and {maximum}",
+                )
+        self._set_config_values(
+            "gc",
+            {key: str(value) for key, (value, _maximum) in values.items()},
+        )
+
+    def _set_config_values(
+        self,
+        section_name: str,
+        values: dict[str, str],
+    ) -> None:
+        """Replace selected scalar values while preserving other sections."""
         try:
             text = self.config_file.read_text(encoding="utf-8")
         except FileNotFoundError:
             text = DEFAULT_CONFIG
-        match = re.search(r"(?ms)^\[auto\]\s*$.*?(?=^\[|\Z)", text)
+        match = re.search(
+            rf"(?ms)^\[{re.escape(section_name)}\]\s*$.*?(?=^\[|\Z)",
+            text,
+        )
         if match:
             section = match.group(0)
-            if re.search(r"(?m)^enabled\s*=", section):
-                section = re.sub(
-                    r"(?m)^enabled\s*=.*$",
-                    f"enabled = {value}",
-                    section,
-                    count=1,
+            missing: list[tuple[str, str]] = []
+            for key, value in values.items():
+                if re.search(rf"(?m)^{re.escape(key)}\s*=", section):
+                    section = re.sub(
+                        rf"(?m)^{re.escape(key)}\s*=.*$",
+                        f"{key} = {value}",
+                        section,
+                        count=1,
+                    )
+                else:
+                    missing.append((key, value))
+            if missing:
+                additions = "\n".join(
+                    f"{key} = {value}" for key, value in missing
                 )
-            else:
-                section = section.replace(
-                    "[auto]",
-                    f"[auto]\nenabled = {value}",
-                    1,
-                )
+                section = section.rstrip() + f"\n{additions}\n\n"
             text = text[: match.start()] + section + text[match.end() :]
         else:
-            text = text.rstrip() + f"\n\n[auto]\nenabled = {value}\n"
-        temporary = self.config_file.with_suffix(".toml.tmp")
-        temporary.write_text(text, encoding="utf-8")
-        os.replace(temporary, self.config_file)
+            body = "\n".join(
+                f"{key} = {value}" for key, value in values.items()
+            )
+            text = text.rstrip() + f"\n\n[{section_name}]\n{body}\n"
+        self._atomic_write(text)
         self.reload(force=True)
+
+    def _atomic_write(self, text: str) -> None:
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self.config_file.parent,
+                prefix=".config.toml.",
+                suffix=".tmp",
+                delete=False,
+            ) as stream:
+                stream.write(text)
+                stream.flush()
+                os.fsync(stream.fileno())
+                temporary = Path(stream.name)
+            os.replace(temporary, self.config_file)
+        except OSError as exc:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+            raise CheckpointError(
+                "Failed to write checkpoints config "
+                f"{self.config_file}: {exc}",
+            ) from exc
 
 
 # Characters forbidden in Windows filenames, matching SafeJSONSession.
@@ -374,14 +444,25 @@ def session_file_path(
 
 
 def session_key(*, channel: str, user_id: str, session_id: str) -> str:
-    """Return a filesystem/ref-safe key for a QwenPaw session."""
-    parts = (
-        channel or "unknown",
-        user_id or "anonymous",
-        session_id or "default",
+    """Return a bounded, collision-resistant key for a QwenPaw session."""
+    identity = [channel, user_id, session_id]
+    encoded = json.dumps(
+        identity,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()
+
+    readable = "-".join(part for part in identity if part)
+    readable = (
+        unicodedata.normalize("NFKD", readable)
+        .encode("ascii", errors="ignore")
+        .decode("ascii")
+        .lower()
     )
-    safe = sanitize_filename("-".join(parts)).strip("-_.")
-    return safe or "default"
+    readable = re.sub(r"[^a-z0-9]+", "-", readable).strip("-")
+    prefix = readable[:24].rstrip("-") or "session"
+    return f"{prefix}-{digest}"
 
 
 def sanitize_ref_component(value: str, *, fallback: str = "snapshot") -> str:

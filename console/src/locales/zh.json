@@ -311,9 +311,20 @@
       "placeholder": "可选的快照名称"
     },
     "gc": {
+      "settingsAction": "自动清理设置",
+      "settingsTitle": "自动清理设置",
+      "keepCount": "自动检查点保留数量",
+      "keepDays": "自动检查点保留天数",
+      "preRestoreDays": "恢复前快照保留天数",
+      "settingsSaved": "自动清理设置已保存",
+      "thoroughAction": "彻底压缩检查点",
+      "thoroughTitle": "彻底压缩检查点？",
+      "thoroughDescription": "将忽略自动检查点的保留策略，清理 {{count}} 个检查点，并保留各会话 HEAD。",
+      "thoroughConfirm": "彻底压缩",
+      "thoroughSuccess": "彻底压缩已删除 {{count}} 个检查点",
       "action": "清理检查点",
-      "title": "清理检查点？",
-      "description": "有 {{count}} 个检查点可以清理。",
+      "title": "按保留策略清理检查点？",
+      "description": "将按当前保留策略清理 {{count}} 个过期检查点，并保留各会话 HEAD。",
       "confirm": "清理",
       "success": "已清理 {{count}} 个检查点"
     },

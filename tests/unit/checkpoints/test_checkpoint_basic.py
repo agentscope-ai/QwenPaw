@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +21,7 @@ from qwenpaw.checkpoints.service import CheckpointService
 from qwenpaw.checkpoints.policy import session_file_path, session_key
 from qwenpaw.checkpoints.models import CheckpointError
 from qwenpaw.checkpoints.runtime import RUNTIME
+from qwenpaw.checkpoints.repository import CheckpointRepository
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None,
@@ -96,6 +98,49 @@ def _engine(workspace: _Workspace):
     return RUNTIME.get_for_workspace(workspace)
 
 
+def test_session_key_is_unambiguous_and_bounded() -> None:
+    left = session_key(channel="a-b", user_id="c", session_id="d")
+    right = session_key(channel="a", user_id="b-c", session_id="d")
+    punctuation = session_key(channel="a:b", user_id="c", session_id="d")
+    repeated = session_key(channel="a--b", user_id="c", session_id="d")
+    long_key = session_key(
+        channel="频" * 300,
+        user_id="user" * 300,
+        session_id="session" * 300,
+    )
+
+    assert len({left, right, punctuation, repeated}) == 4
+    assert len(long_key.encode("ascii")) <= 89
+    assert long_key.rsplit("-", 1)[-1].isalnum()
+    assert len(long_key.rsplit("-", 1)[-1]) == 64
+
+
+def test_shadow_git_preserves_crlf_despite_user_git_rules(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    global_config = tmp_path / "user.gitconfig"
+    global_config.write_text("[core]\n\tautocrlf = true\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+    (tmp_path / ".gitattributes").write_text(
+        "*.txt text eol=lf\n",
+        encoding="utf-8",
+    )
+    source = tmp_path / "sample.txt"
+    expected = b"first\r\nsecond\r\n"
+    source.write_bytes(expected)
+
+    repository = CheckpointRepository(tmp_path)
+    tree = repository.write_workspace_tree()
+
+    assert repository.read_blob(tree, "sample.txt") == expected
+    source.write_bytes(b"changed\n")
+    restored, deleted = repository.restore_tree_paths(tree, {"sample.txt"})
+    assert restored == ["sample.txt"]
+    assert deleted == []
+    assert source.read_bytes() == expected
+
+
 def test_config_fields_are_validated_lazily(tmp_path: Path) -> None:
     engine = CheckpointService(tmp_path)
     config = engine.repository.config_file
@@ -108,6 +153,70 @@ def test_config_fields_are_validated_lazily(tmp_path: Path) -> None:
     assert engine.auto_enabled is False
     with pytest.raises(CheckpointError, match="gc.gc_keep_count"):
         _ = engine.gc_keep_count
+
+
+def test_gc_settings_are_persisted_without_overwriting_other_sections(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    engine.set_auto_enabled(True)
+
+    result = engine.set_gc_settings(
+        gc_keep_count=42,
+        gc_keep_days=9,
+        pre_restore_retention_days=5,
+    )
+
+    assert result == {
+        "gc_keep_count": 42,
+        "gc_keep_days": 9,
+        "pre_restore_retention_days": 5,
+    }
+    assert engine.auto_enabled is True
+    config = engine.repository.config_file.read_text(encoding="utf-8")
+    assert "gc_keep_count = 42" in config
+    assert "gc_keep_days = 9" in config
+    assert "pre_restore_retention_days = 5" in config
+    assert "enabled = true" in config
+
+
+@pytest.mark.asyncio
+async def test_first_service_initialization_does_not_block_event_loop(
+    workspace: _Workspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    original_init = CheckpointRepository.__init__
+
+    def slow_init(self, workspace_dir) -> None:
+        started.set()
+        if not release.wait(timeout=5):
+            raise RuntimeError("test initialization release timed out")
+        original_init(self, workspace_dir)
+
+    monkeypatch.setattr(CheckpointRepository, "__init__", slow_init)
+    init_task = asyncio.create_task(
+        RUNTIME.get_for_workspace_async(workspace),
+    )
+    assert await asyncio.to_thread(started.wait, 5)
+    second_init_task = asyncio.create_task(
+        RUNTIME.get_for_workspace_async(workspace),
+    )
+
+    heartbeats = 0
+    for _ in range(5):
+        await asyncio.sleep(0.01)
+        heartbeats += 1
+
+    assert heartbeats == 5
+    assert not init_task.done()
+    assert not second_init_task.done()
+    release.set()
+    service = await init_task
+    second_service = await second_init_task
+    assert second_service is service
+    assert service.workspace_dir == workspace.workspace_dir.resolve()
 
 
 @pytest.mark.asyncio

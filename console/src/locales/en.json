@@ -528,9 +528,20 @@
       "placeholder": "Optional snapshot name"
     },
     "gc": {
+      "settingsAction": "Automatic cleanup settings",
+      "settingsTitle": "Automatic cleanup settings",
+      "keepCount": "Automatic checkpoints to keep",
+      "keepDays": "Automatic checkpoint retention (days)",
+      "preRestoreDays": "Pre-restore snapshot retention (days)",
+      "settingsSaved": "Automatic cleanup settings saved",
+      "thoroughAction": "Thoroughly compact checkpoints",
+      "thoroughTitle": "Thoroughly compact checkpoints?",
+      "thoroughDescription": "Removes {{count}} checkpoint(s), ignoring auto-checkpoint retention. Session HEADs are kept.",
+      "thoroughConfirm": "Thoroughly compact",
+      "thoroughSuccess": "Removed {{count}} checkpoint(s) during thorough compaction",
       "action": "Clean up checkpoints",
-      "title": "Clean up checkpoints?",
-      "description": "{{count}} checkpoint(s) are eligible for removal.",
+      "title": "Clean up checkpoints using retention policy?",
+      "description": "Removes {{count}} expired checkpoint(s) under the current retention policy. Session HEADs are kept.",
       "confirm": "Clean up",
       "success": "Removed {{count}} checkpoint(s)"
     },

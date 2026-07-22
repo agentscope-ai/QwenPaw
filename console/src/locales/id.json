@@ -801,9 +801,20 @@
       "placeholder": "Nama snapshot opsional"
     },
     "gc": {
+      "settingsAction": "Pengaturan pembersihan otomatis",
+      "settingsTitle": "Pengaturan pembersihan otomatis",
+      "keepCount": "Jumlah checkpoint otomatis yang disimpan",
+      "keepDays": "Retensi checkpoint otomatis (hari)",
+      "preRestoreDays": "Retensi snapshot pra-pemulihan (hari)",
+      "settingsSaved": "Pengaturan pembersihan otomatis disimpan",
+      "thoroughAction": "Thoroughly compact checkpoints",
+      "thoroughTitle": "Thoroughly compact checkpoints?",
+      "thoroughDescription": "Menghapus {{count}} checkpoint dengan mengabaikan retensi checkpoint otomatis. HEAD setiap sesi tetap disimpan.",
+      "thoroughConfirm": "Thoroughly compact",
+      "thoroughSuccess": "Removed {{count}} checkpoint(s) during thorough compaction",
       "action": "Bersihkan checkpoint",
-      "title": "Bersihkan checkpoint?",
-      "description": "{{count}} checkpoint dapat dihapus.",
+      "title": "Bersihkan checkpoint sesuai kebijakan retensi?",
+      "description": "Menghapus {{count}} checkpoint kedaluwarsa sesuai kebijakan retensi saat ini. HEAD setiap sesi tetap disimpan.",
       "confirm": "Bersihkan",
       "success": "{{count}} checkpoint dihapus"
     },

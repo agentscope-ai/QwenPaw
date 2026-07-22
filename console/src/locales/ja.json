@@ -339,9 +339,20 @@
       "placeholder": "任意の名前"
     },
     "gc": {
+      "settingsAction": "自動整理設定",
+      "settingsTitle": "自動整理設定",
+      "keepCount": "保持する自動チェックポイント数",
+      "keepDays": "自動チェックポイントの保持日数",
+      "preRestoreDays": "復元前スナップショットの保持日数",
+      "settingsSaved": "自動整理設定を保存しました",
+      "thoroughAction": "Thoroughly compact checkpoints",
+      "thoroughTitle": "Thoroughly compact checkpoints?",
+      "thoroughDescription": "自動チェックポイントの保持ポリシーを無視して {{count}} 件を削除します。各セッションの HEAD は保持されます。",
+      "thoroughConfirm": "Thoroughly compact",
+      "thoroughSuccess": "Removed {{count}} checkpoint(s) during thorough compaction",
       "action": "チェックポイントを整理",
-      "title": "チェックポイントを整理しますか？",
-      "description": "{{count}}件を削除できます。",
+      "title": "保持ポリシーに従ってチェックポイントを整理しますか？",
+      "description": "現在の保持ポリシーに従い、期限切れのチェックポイント {{count}} 件を削除します。各セッションの HEAD は保持されます。",
       "confirm": "整理",
       "success": "{{count}}件を削除しました"
     },

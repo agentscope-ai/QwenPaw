@@ -48,4 +48,47 @@ describe("checkpointsApi", () => {
       expect.objectContaining({ body: JSON.stringify(body) }),
     );
   });
+
+  it("uses retention GC by default and compact GC only when explicit", async () => {
+    vi.mocked(request).mockResolvedValue({});
+
+    await checkpointsApi.previewGc();
+    await checkpointsApi.gc({ compact: true });
+
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      "/workspace/checkpoints/gc/preview",
+      expect.objectContaining({ body: "{}" }),
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "/workspace/checkpoints/gc",
+      expect.objectContaining({ body: JSON.stringify({ compact: true }) }),
+    );
+  });
+
+  it("reads and updates automatic cleanup settings", async () => {
+    vi.mocked(request).mockResolvedValue({});
+    const settings = {
+      gc_keep_count: 30,
+      gc_keep_days: 14,
+      pre_restore_retention_days: 5,
+    };
+
+    await checkpointsApi.getGcSettings();
+    await checkpointsApi.updateGcSettings(settings);
+
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      "/workspace/checkpoints/gc/settings",
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "/workspace/checkpoints/gc/settings",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify(settings),
+      }),
+    );
+  });
 });

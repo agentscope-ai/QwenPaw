@@ -1,7 +1,9 @@
 import { request } from "../request";
 import type {
+  CheckpointGcSettings,
   CheckpointGraphResponse,
   CheckpointStatus,
+  GcRequest,
   GcResult,
   RestoreRequest,
   RestoreResult,
@@ -49,18 +51,26 @@ export const checkpointsApi = {
       timeout: 120_000,
     }),
 
-  previewGc: () =>
+  previewGc: (body: GcRequest = {}) =>
     request<GcResult>(`${base}/gc/preview`, {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify(body),
       timeout: 120_000,
     }),
 
-  gc: () =>
+  gc: (body: GcRequest = {}) =>
     request<GcResult>(`${base}/gc`, {
       method: "POST",
-      body: "{}",
+      body: JSON.stringify(body),
       timeout: 120_000,
+    }),
+
+  getGcSettings: () => request<CheckpointGcSettings>(`${base}/gc/settings`),
+
+  updateGcSettings: (body: CheckpointGcSettings) =>
+    request<CheckpointGcSettings>(`${base}/gc/settings`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
     }),
 
   reset: () =>

@@ -44,7 +44,7 @@ class CheckpointQueryGateHook(LifecycleHook):
     async def run(self, ctx: HookContext) -> HookResult:
         try:
             if ctx.workspace is not None:
-                engine = RUNTIME.get_for_workspace(ctx.workspace)
+                engine = await RUNTIME.get_for_workspace_async(ctx.workspace)
                 await engine.query_gate.wait()
         except Exception:
             logger.exception("Checkpoint query gate failed")
@@ -65,7 +65,7 @@ class CheckpointAutoSnapshotHook(LifecycleHook):
             text = _last_user_text(ctx)
             if is_slash_like_input(text):
                 return HookResult()
-            RUNTIME.schedule_auto_snapshot(
+            await RUNTIME.schedule_auto_snapshot(
                 ctx.workspace,
                 session_id=ctx.session_id,
                 user_id=_request_user_id(ctx),

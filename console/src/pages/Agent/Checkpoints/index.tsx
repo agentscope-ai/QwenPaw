@@ -4,7 +4,9 @@ import {
   Descriptions,
   Drawer,
   Dropdown,
+  Form,
   Input,
+  InputNumber,
   Modal,
   Select,
   Spin,
@@ -19,12 +21,14 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  Settings2,
   Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
 import { checkpointsApi } from "@/api/modules/checkpoints";
 import type {
+  CheckpointGcSettings,
   CheckpointGraphResponse,
   CheckpointNode,
   CheckpointStatus,
@@ -69,6 +73,10 @@ export default function CheckpointsPage() {
   const [snapshotName, setSnapshotName] = useState("");
   const [snapshotSession, setSnapshotSession] = useState("");
   const [snapshotSaving, setSnapshotSaving] = useState(false);
+  const [gcSettingsOpen, setGcSettingsOpen] = useState(false);
+  const [gcSettingsLoading, setGcSettingsLoading] = useState(false);
+  const [gcSettingsSaving, setGcSettingsSaving] = useState(false);
+  const [gcSettingsForm] = Form.useForm<CheckpointGcSettings>();
   const loadVersion = useRef(0);
 
   const load = useCallback(async (quiet = false, signal?: AbortSignal) => {
@@ -197,27 +205,72 @@ export default function CheckpointsPage() {
     }
   };
 
-  const runGc = async () => {
+  const runGc = async (compact = false) => {
+    const body = compact ? { compact: true } : {};
+    const titleKey = compact
+      ? "checkpoints.gc.thoroughTitle"
+      : "checkpoints.gc.title";
+    const descriptionKey = compact
+      ? "checkpoints.gc.thoroughDescription"
+      : "checkpoints.gc.description";
+    const confirmKey = compact
+      ? "checkpoints.gc.thoroughConfirm"
+      : "checkpoints.gc.confirm";
+    const successKey = compact
+      ? "checkpoints.gc.thoroughSuccess"
+      : "checkpoints.gc.success";
     try {
-      const preview = await checkpointsApi.previewGc();
+      const preview = await checkpointsApi.previewGc(body);
       modal.confirm({
-        title: t("checkpoints.gc.title"),
-        content: t("checkpoints.gc.description", {
+        title: t(titleKey),
+        content: t(descriptionKey, {
           count: preview.deleted_refs.length,
         }),
-        okText: t("checkpoints.gc.confirm"),
+        okText: t(confirmKey),
         cancelText: t("common.cancel"),
         okButtonProps: { danger: true },
         onOk: async () => {
-          const result = await checkpointsApi.gc();
-          message.success(
-            t("checkpoints.gc.success", { count: result.deleted_refs.length }),
-          );
+          const result = await checkpointsApi.gc(body);
+          message.success(t(successKey, { count: result.deleted_refs.length }));
           await load(true);
         },
       });
     } catch (caught) {
       message.error((caught as Error).message);
+    }
+  };
+
+  const openGcSettings = async () => {
+    setGcSettingsOpen(true);
+    setGcSettingsLoading(true);
+    try {
+      const settings = await checkpointsApi.getGcSettings();
+      gcSettingsForm.setFieldsValue(settings);
+    } catch (caught) {
+      setGcSettingsOpen(false);
+      message.error((caught as Error).message);
+    } finally {
+      setGcSettingsLoading(false);
+    }
+  };
+
+  const saveGcSettings = async () => {
+    let values: CheckpointGcSettings;
+    try {
+      values = await gcSettingsForm.validateFields();
+    } catch {
+      return;
+    }
+    setGcSettingsSaving(true);
+    try {
+      const saved = await checkpointsApi.updateGcSettings(values);
+      gcSettingsForm.setFieldsValue(saved);
+      setGcSettingsOpen(false);
+      message.success(t("checkpoints.gc.settingsSaved"));
+    } catch (caught) {
+      message.error((caught as Error).message);
+    } finally {
+      setGcSettingsSaving(false);
     }
   };
 
@@ -288,6 +341,19 @@ export default function CheckpointsPage() {
                     icon: <Trash2 size={15} />,
                     label: t("checkpoints.gc.action"),
                     onClick: () => void runGc(),
+                  },
+                  {
+                    key: "compact-gc",
+                    danger: true,
+                    icon: <Trash2 size={15} />,
+                    label: t("checkpoints.gc.thoroughAction"),
+                    onClick: () => void runGc(true),
+                  },
+                  {
+                    key: "gc-settings",
+                    icon: <Settings2 size={15} />,
+                    label: t("checkpoints.gc.settingsAction"),
+                    onClick: () => void openGcSettings(),
                   },
                   { type: "divider" },
                   {
@@ -494,6 +560,59 @@ export default function CheckpointsPage() {
             placeholder={t("checkpoints.snapshotDialog.placeholder")}
           />
         </div>
+      </Modal>
+
+      <Modal
+        open={gcSettingsOpen}
+        title={t("checkpoints.gc.settingsTitle")}
+        onCancel={() => setGcSettingsOpen(false)}
+        onOk={() => void saveGcSettings()}
+        confirmLoading={gcSettingsSaving}
+        okButtonProps={{ disabled: gcSettingsLoading }}
+        okText={t("common.save")}
+        cancelText={t("common.cancel")}
+        destroyOnHidden
+      >
+        <Spin spinning={gcSettingsLoading}>
+          <Form form={gcSettingsForm} layout="vertical">
+            <Form.Item
+              name="gc_keep_count"
+              label={t("checkpoints.gc.keepCount")}
+              rules={[{ required: true }]}
+            >
+              <InputNumber
+                min={0}
+                max={1_000_000}
+                precision={0}
+                style={{ width: "100%" }}
+              />
+            </Form.Item>
+            <Form.Item
+              name="gc_keep_days"
+              label={t("checkpoints.gc.keepDays")}
+              rules={[{ required: true }]}
+            >
+              <InputNumber
+                min={0}
+                max={36_500}
+                precision={0}
+                style={{ width: "100%" }}
+              />
+            </Form.Item>
+            <Form.Item
+              name="pre_restore_retention_days"
+              label={t("checkpoints.gc.preRestoreDays")}
+              rules={[{ required: true }]}
+            >
+              <InputNumber
+                min={0}
+                max={36_500}
+                precision={0}
+                style={{ width: "100%" }}
+              />
+            </Form.Item>
+          </Form>
+        </Spin>
       </Modal>
 
       <RestoreModal

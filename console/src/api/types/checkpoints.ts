@@ -74,3 +74,16 @@ export interface GcResult {
   kept_refs: string[];
   dry_run: boolean;
 }
+
+export interface GcRequest {
+  compact?: boolean;
+  keep_count?: number;
+  keep_days?: number;
+  pre_restore_days?: number;
+}
+
+export interface CheckpointGcSettings {
+  gc_keep_count: number;
+  gc_keep_days: number;
+  pre_restore_retention_days: number;
+}

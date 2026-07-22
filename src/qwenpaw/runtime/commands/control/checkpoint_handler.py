@@ -196,7 +196,7 @@ class CheckpointCommandHandler(BaseControlCommandHandler):
 
     @staticmethod
     async def _auto(context: ControlContext, raw: str) -> str:
-        engine = RUNTIME.get_for_workspace(context.workspace)
+        engine = await RUNTIME.get_for_workspace_async(context.workspace)
         arg = raw.strip().lower()
         if arg in ("on", "true", "enable", "1"):
             engine.set_auto_enabled(True)
@@ -232,7 +232,7 @@ class CheckpointCommandHandler(BaseControlCommandHandler):
             allowed={"--all"},
             allowed_prefixes=("--limit=",),
         )
-        engine = RUNTIME.get_for_workspace(context.workspace)
+        engine = await RUNTIME.get_for_workspace_async(context.workspace)
         include_all = "--all" in _parse_flags(raw)
         entries = await engine.timeline(
             session_id=context.session_id,
@@ -253,7 +253,7 @@ class CheckpointCommandHandler(BaseControlCommandHandler):
 
     @staticmethod
     async def _snapshot(context: ControlContext, raw: str) -> str:
-        engine = RUNTIME.get_for_workspace(context.workspace)
+        engine = await RUNTIME.get_for_workspace_async(context.workspace)
         name = await engine.snapshot(
             session_id=context.session_id,
             user_id=context.user_id,
@@ -345,7 +345,7 @@ class CheckpointCommandHandler(BaseControlCommandHandler):
                 "A safety checkpoint is created before applying changes."
             )
 
-        engine = RUNTIME.get_for_workspace(context.workspace)
+        engine = await RUNTIME.get_for_workspace_async(context.workspace)
         chan = context_channel(context)
         if include_files:
             result = await engine.restore_with_files(
@@ -403,7 +403,7 @@ class CheckpointCommandHandler(BaseControlCommandHandler):
                 "- Aggressive: `/checkpoint gc --compact --confirm`\n"
                 "- All sessions: `/checkpoint gc --all-sessions --confirm`"
             )
-        engine = RUNTIME.get_for_workspace(context.workspace)
+        engine = await RUNTIME.get_for_workspace_async(context.workspace)
         result = await engine.gc(
             session_id=context.session_id,
             user_id=context.user_id,
@@ -427,7 +427,7 @@ class CheckpointCommandHandler(BaseControlCommandHandler):
                 "deleted.\n\n"
                 "Run `/checkpoint reset --confirm` to continue."
             )
-        engine = RUNTIME.get_for_workspace(context.workspace)
+        engine = await RUNTIME.get_for_workspace_async(context.workspace)
         await engine.reset()
         return (
             "**Checkpoint data reset**\n\n"

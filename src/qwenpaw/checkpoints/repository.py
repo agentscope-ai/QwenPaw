@@ -21,6 +21,12 @@ from .policy import (
 )
 from .models import CheckpointError
 
+_GIT_TIMEOUT_SECONDS = 120
+_INDEX_CONTENT_POLICY = "byte-preserving"
+_BYTE_PRESERVING_ATTRIBUTES = (
+    "* -text -eol -filter -ident -working-tree-encoding\n"
+)
+
 
 class CheckpointRepository:
     """Own shadow Git persistence without checkpoint business semantics."""
@@ -32,6 +38,8 @@ class CheckpointRepository:
         self.git_dir = self.state_dir / "shadow.git"
         self.index_file = self.state_dir / "index"
         self.index_policy_file = self.state_dir / "index.policy"
+        self.git_global_config = self.state_dir / "gitconfig"
+        self.git_attributes_file = self.state_dir / "gitattributes"
         self.config_file = self.state_dir / "config.toml"
         self.heads_file = self.state_dir / "heads.json"
         self._git_process_env = self._build_git_env()
@@ -46,6 +54,9 @@ class CheckpointRepository:
                 "GIT_DIR": str(self.git_dir),
                 "GIT_WORK_TREE": str(self.workspace_dir),
                 "GIT_INDEX_FILE": str(self.index_file),
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": str(self.git_global_config),
+                "GIT_ATTR_NOSYSTEM": "1",
                 "GIT_AUTHOR_NAME": "QwenPaw",
                 "GIT_AUTHOR_EMAIL": "checkpoints@qwenpaw.local",
                 "GIT_COMMITTER_NAME": "QwenPaw",
@@ -54,14 +65,36 @@ class CheckpointRepository:
         )
         return env
 
+    def _git_command(self, *args: str) -> list[str]:
+        """Build a Git command isolated from content-changing user config."""
+        return [
+            "git",
+            "-c",
+            "core.quotePath=false",
+            "-c",
+            "core.autocrlf=false",
+            "-c",
+            "core.safecrlf=false",
+            "-c",
+            f"core.attributesFile={self.git_attributes_file}",
+            *args,
+        ]
+
     def _git_env(self) -> dict[str, str]:
         """Return the immutable process environment shared by Git calls."""
         return self._git_process_env
 
+    def _git_init_env(self) -> dict[str, str]:
+        """Return isolated config without binding init to an existing repo."""
+        env = self._git_env().copy()
+        for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+            env.pop(name, None)
+        return env
+
     def run_git(self, *args: str, input_text: str | None = None) -> str:
         try:
             proc = subprocess.run(
-                ["git", "-c", "core.quotePath=false", *args],
+                self._git_command(*args),
                 cwd=str(self.workspace_dir),
                 env=self._git_env(),
                 input=(
@@ -71,13 +104,15 @@ class CheckpointRepository:
                 ),
                 capture_output=True,
                 check=False,
-                timeout=120,
+                timeout=_GIT_TIMEOUT_SECONDS,
             )
         except FileNotFoundError as exc:
             raise CheckpointError(GIT_REQUIRED_MESSAGE) from exc
         except subprocess.TimeoutExpired as exc:
             raise CheckpointError(
-                f"git {' '.join(args)} timed out after 120 seconds",
+                "git "
+                f"{' '.join(args)} timed out after "
+                f"{_GIT_TIMEOUT_SECONDS} seconds",
             ) from exc
         if proc.returncode != 0:
             detail = (
@@ -93,20 +128,41 @@ class CheckpointRepository:
 
     def ensure_repo(self) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.git_global_config.write_text("", encoding="utf-8")
+        self.git_attributes_file.write_text(
+            _BYTE_PRESERVING_ATTRIBUTES,
+            encoding="utf-8",
+        )
         if not self.git_dir.exists():
             try:
                 subprocess.run(
                     ["git", "init", "--bare", str(self.git_dir)],
+                    env=self._git_init_env(),
                     capture_output=True,
                     text=True,
                     encoding="utf-8",
                     errors="replace",
                     check=True,
+                    timeout=_GIT_TIMEOUT_SECONDS,
                 )
             except FileNotFoundError as exc:
                 raise CheckpointError(GIT_REQUIRED_MESSAGE) from exc
+            except subprocess.TimeoutExpired as exc:
+                raise CheckpointError(
+                    "git init timed out after "
+                    f"{_GIT_TIMEOUT_SECONDS} seconds",
+                ) from exc
+            except subprocess.CalledProcessError as exc:
+                detail = (exc.stderr or exc.stdout or "").strip()
+                raise CheckpointError(
+                    f"git init failed: {detail}",
+                ) from exc
         info_dir = self.git_dir / "info"
         info_dir.mkdir(parents=True, exist_ok=True)
+        (info_dir / "attributes").write_text(
+            _BYTE_PRESERVING_ATTRIBUTES,
+            encoding="utf-8",
+        )
         exclude_path = info_dir / "exclude"
         existing = (
             exclude_path.read_text(encoding="utf-8").splitlines()
@@ -171,7 +227,7 @@ class CheckpointRepository:
     def _index_policy_matches(self, pathspecs: tuple[str, ...]) -> bool:
         """Return whether the persistent index uses the current boundary."""
         digest = hashlib.sha256(
-            "\0".join(pathspecs).encode("utf-8"),
+            "\0".join((_INDEX_CONTENT_POLICY, *pathspecs)).encode("utf-8"),
         ).hexdigest()
         try:
             current = self.index_policy_file.read_text(
@@ -256,26 +312,41 @@ class CheckpointRepository:
             ) from exc
 
     def ref_exists(self, ref: str) -> bool:
-        proc = subprocess.run(
-            ["git", "show-ref", "--verify", "--quiet", ref],
-            cwd=str(self.workspace_dir),
-            env=self._git_env(),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
+        try:
+            proc = subprocess.run(
+                self._git_command("show-ref", "--verify", "--quiet", ref),
+                cwd=str(self.workspace_dir),
+                env=self._git_env(),
+                capture_output=True,
+                check=False,
+                timeout=_GIT_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise CheckpointError(
+                "git show-ref timed out after "
+                f"{_GIT_TIMEOUT_SECONDS} seconds",
+            ) from exc
         return proc.returncode == 0
 
     def read_blob(self, commit: str, rel: str) -> bytes:
-        proc = subprocess.run(
-            ["git", "cat-file", "blob", f"{commit}:{rel}"],
-            cwd=str(self.workspace_dir),
-            env=self._git_env(),
-            capture_output=True,
-            check=False,
-        )
+        try:
+            proc = subprocess.run(
+                self._git_command(
+                    "cat-file",
+                    "blob",
+                    f"{commit}:{rel}",
+                ),
+                cwd=str(self.workspace_dir),
+                env=self._git_env(),
+                capture_output=True,
+                check=False,
+                timeout=_GIT_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise CheckpointError(
+                "git cat-file timed out after "
+                f"{_GIT_TIMEOUT_SECONDS} seconds",
+            ) from exc
         if proc.returncode != 0:
             detail = proc.stderr.decode(errors="replace").strip()
             raise CheckpointError(

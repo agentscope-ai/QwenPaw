@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict
 import logging
 
@@ -50,6 +51,12 @@ class GcRequest(BaseModel):
     pre_restore_days: int | None = Field(default=None, ge=0)
 
 
+class GcSettingsRequest(BaseModel):
+    gc_keep_count: int = Field(ge=0, le=1_000_000)
+    gc_keep_days: int = Field(ge=0, le=36_500)
+    pre_restore_retention_days: int = Field(ge=0, le=36_500)
+
+
 def _entry_payload(
     entry: CheckpointEntry,
     session_titles: dict[tuple[str, str, str], str] | None = None,
@@ -70,7 +77,7 @@ def _restore_payload(result: RestoreResult) -> dict:
 async def _service(request: Request):
     workspace = await get_agent_for_request(request)
     try:
-        return RUNTIME.get_for_workspace(workspace)
+        return await RUNTIME.get_for_workspace_async(workspace)
     except CheckpointError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -234,7 +241,7 @@ async def _run_gc(body: GcRequest, request: Request, *, dry_run: bool) -> dict:
             session_id="console",
             user_id="console",
             channel="console",
-            compact=True,
+            compact=body.compact,
             all_sessions=True,
             dry_run=dry_run,
             keep_count=body.keep_count,
@@ -254,6 +261,32 @@ async def preview_checkpoint_gc(body: GcRequest, request: Request) -> dict:
 @router.post("/gc")
 async def apply_checkpoint_gc(body: GcRequest, request: Request) -> dict:
     return await _run_gc(body, request, dry_run=False)
+
+
+@router.get("/gc/settings")
+async def get_checkpoint_gc_settings(request: Request) -> dict:
+    service = await _service(request)
+    try:
+        return await asyncio.to_thread(service.gc_settings)
+    except CheckpointError as exc:
+        raise _checkpoint_error(exc) from exc
+
+
+@router.patch("/gc/settings")
+async def update_checkpoint_gc_settings(
+    body: GcSettingsRequest,
+    request: Request,
+) -> dict:
+    service = await _service(request)
+    try:
+        return await asyncio.to_thread(
+            service.set_gc_settings,
+            gc_keep_count=body.gc_keep_count,
+            gc_keep_days=body.gc_keep_days,
+            pre_restore_retention_days=body.pre_restore_retention_days,
+        )
+    except CheckpointError as exc:
+        raise _checkpoint_error(exc) from exc
 
 
 @router.delete("")

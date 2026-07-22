@@ -501,9 +501,20 @@
       "placeholder": "Tên ảnh chụp không bắt buộc"
     },
     "gc": {
+      "settingsAction": "Cài đặt dọn dẹp tự động",
+      "settingsTitle": "Cài đặt dọn dẹp tự động",
+      "keepCount": "Số điểm kiểm tra tự động được giữ",
+      "keepDays": "Thời gian giữ điểm tự động (ngày)",
+      "preRestoreDays": "Thời gian giữ ảnh trước khôi phục (ngày)",
+      "settingsSaved": "Đã lưu cài đặt dọn dẹp tự động",
+      "thoroughAction": "Nén triệt để các điểm kiểm tra",
+      "thoroughTitle": "Nén triệt để các điểm kiểm tra?",
+      "thoroughDescription": "Xóa {{count}} điểm kiểm tra, bỏ qua chính sách lưu giữ điểm tự động. HEAD của mỗi phiên được giữ lại.",
+      "thoroughConfirm": "Nén triệt để",
+      "thoroughSuccess": "Đã xóa {{count}} điểm kiểm tra khi nén triệt để",
       "action": "Dọn dẹp điểm kiểm tra",
-      "title": "Dọn dẹp điểm kiểm tra?",
-      "description": "Có thể xóa {{count}} điểm.",
+      "title": "Dọn dẹp điểm kiểm tra theo chính sách lưu giữ?",
+      "description": "Xóa {{count}} điểm kiểm tra đã hết hạn theo chính sách lưu giữ hiện tại. HEAD của mỗi phiên được giữ lại.",
       "confirm": "Dọn dẹp",
       "success": "Đã xóa {{count}} điểm"
     },

@@ -62,9 +62,15 @@ class _RefRecord:
 class CheckpointService:
     """Coordinate checkpoint use cases for one workspace."""
 
-    def __init__(self, workspace_dir: str | Path):
-        self.repository = CheckpointRepository(workspace_dir)
-        self.policy = CheckpointPolicy(self.repository.config_file)
+    def __init__(
+        self,
+        workspace_dir: str | Path,
+        *,
+        repository: CheckpointRepository | None = None,
+        policy: CheckpointPolicy | None = None,
+    ):
+        self.repository = repository or CheckpointRepository(workspace_dir)
+        self.policy = policy or CheckpointPolicy(self.repository.config_file)
         # Set by the registry when a live request is available; memory restore
         # needs it to quiesce tasks and pause cron.
         self._workspace_ref = None
@@ -108,6 +114,29 @@ class CheckpointService:
     def set_auto_enabled(self, enabled: bool) -> None:
         """Toggle auto-snapshot in config.toml."""
         self.policy.set_auto_enabled(enabled)
+
+    def gc_settings(self) -> dict[str, int]:
+        """Return the effective automatic cleanup settings."""
+        return {
+            "gc_keep_count": self.gc_keep_count,
+            "gc_keep_days": self.gc_keep_days,
+            "pre_restore_retention_days": self.pre_restore_retention_days,
+        }
+
+    def set_gc_settings(
+        self,
+        *,
+        gc_keep_count: int,
+        gc_keep_days: int,
+        pre_restore_retention_days: int,
+    ) -> dict[str, int]:
+        """Persist and return automatic cleanup settings."""
+        self.policy.set_gc_retention(
+            gc_keep_count=gc_keep_count,
+            gc_keep_days=gc_keep_days,
+            pre_restore_retention_days=pre_restore_retention_days,
+        )
+        return self.gc_settings()
 
     @property
     def auto_debounce_seconds(self) -> float:

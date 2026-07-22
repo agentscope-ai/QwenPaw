@@ -372,9 +372,20 @@
       "placeholder": "Nome opcional"
     },
     "gc": {
+      "settingsAction": "Configurações de limpeza automática",
+      "settingsTitle": "Configurações de limpeza automática",
+      "keepCount": "Pontos automáticos a manter",
+      "keepDays": "Retenção de pontos automáticos (dias)",
+      "preRestoreDays": "Retenção de snapshots pré-restauração (dias)",
+      "settingsSaved": "Configurações de limpeza automática salvas",
+      "thoroughAction": "Thoroughly compact checkpoints",
+      "thoroughTitle": "Thoroughly compact checkpoints?",
+      "thoroughDescription": "Remove {{count}} ponto(s), ignorando a retenção de pontos automáticos. O HEAD de cada sessão será mantido.",
+      "thoroughConfirm": "Thoroughly compact",
+      "thoroughSuccess": "Removed {{count}} checkpoint(s) during thorough compaction",
       "action": "Limpar pontos",
-      "title": "Limpar pontos de controle?",
-      "description": "{{count}} ponto(s) podem ser removidos.",
+      "title": "Limpar pontos conforme a política de retenção?",
+      "description": "Remove {{count}} ponto(s) expirado(s) conforme a política de retenção atual. O HEAD de cada sessão será mantido.",
       "confirm": "Limpar",
       "success": "{{count}} ponto(s) removidos"
     },

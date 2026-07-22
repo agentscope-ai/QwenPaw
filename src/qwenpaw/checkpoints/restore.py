@@ -7,9 +7,10 @@ import asyncio
 import logging
 import os
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from .policy import is_qwenpaw_state_path
 from .policy import session_file_path, session_key
@@ -24,6 +25,37 @@ if TYPE_CHECKING:
     from .service import CheckpointService
 
 logger = logging.getLogger("qwenpaw.checkpoints")
+
+_T = TypeVar("_T")
+
+
+@dataclass(frozen=True)
+class _PreparedRestore:
+    entry: CheckpointEntry
+    previous_head: str | None
+    plan: RestorePlan
+    conversation_blob: bytes
+    touched: frozenset[str]
+
+
+async def _wait_for_task_completion(
+    task: asyncio.Task[_T],
+) -> tuple[_T, asyncio.CancelledError | None]:
+    """Wait for a shielded task to finish before propagating cancellation."""
+    cancelled: asyncio.CancelledError | None = None
+    while True:
+        try:
+            result = await asyncio.shield(task)
+            return result, cancelled
+        except Exception as exc:
+            if cancelled is not None:
+                raise cancelled from exc
+            raise
+        except asyncio.CancelledError as exc:
+            if cancelled is None:
+                cancelled = exc
+            if task.done():
+                return task.result(), cancelled
 
 
 def _changed_paths(
@@ -166,38 +198,44 @@ class RestoreService:
             session_id=session_id,
         )
         memory = self._memory_restorer() if include_memory else None
-        entry = None
-        previous_head = None
-        touched: set[str] = set()
-        pre_ref = None
-        pre_commit = None
+        prepared: _PreparedRestore | None = None
+        pre_ref: str | None = None
+        pending_cancel: asyncio.CancelledError | None = None
+        resume_callbacks: list[Callable[[], None]] = []
         async with service.maintenance_lock:
             if not dry_run:
                 service.query_gate.clear()
             try:
                 async with service.lock:
-                    (
-                        entry,
-                        previous_head,
-                        plan,
-                        conv_blob,
-                        touched,
-                    ) = await asyncio.to_thread(
-                        self._prepare_restore,
-                        target=target,
-                        session_id=session_id,
-                        user_id=user_id,
-                        channel=channel,
-                        session_key_str=skey,
-                        conversation_path=conv_rel,
-                        include_memory=include_memory,
-                        include_files=include_files,
-                        selected_files=selected_files,
-                        memory=memory,
+                    prepare_task = asyncio.create_task(
+                        asyncio.to_thread(
+                            self._prepare_restore,
+                            target=target,
+                            session_id=session_id,
+                            user_id=user_id,
+                            channel=channel,
+                            session_key_str=skey,
+                            conversation_path=conv_rel,
+                            include_memory=include_memory,
+                            include_files=include_files,
+                            selected_files=selected_files,
+                            memory=memory,
+                        ),
+                        name="checkpoint-restore-prepare",
                     )
+                    prepared, pending_cancel = await _wait_for_task_completion(
+                        prepare_task,
+                    )
+                    assert prepared is not None
+
+                    if pending_cancel is not None:
+                        raise pending_cancel
 
                     if dry_run:
-                        return self._result_from_plan(plan, dry_run=True)
+                        return self._result_from_plan(
+                            prepared.plan,
+                            dry_run=True,
+                        )
 
                     if include_files:
                         description = f"Before file restore to {target}"
@@ -205,52 +243,130 @@ class RestoreService:
                         description = f"Before memory restore to {target}"
                     else:
                         description = f"Before restore to {target}"
-                    pre_snapshot = await asyncio.to_thread(
-                        service.create_snapshot_unlocked,
-                        "pre-restore",
-                        session_id,
-                        user_id,
-                        channel,
-                        None,
-                        description,
-                        None,
-                    )
-                    pre_ref = pre_snapshot.ref
-                    pre_commit = pre_snapshot.commit
-                    service.repository.restore_paths({conv_rel: conv_blob})
 
-                    if include_files:
-                        self.repository.restore_tree_paths(
-                            entry.commit,
-                            touched,
-                        )
+                    if memory is not None:
+                        resume_callbacks = await memory.quiesce_workspace()
 
-                if memory is not None:
-                    await memory.apply(entry.commit)
-                async with service.lock:
-                    service.repository.set_session_head(skey, entry.commit)
-            except Exception as exc:
-                if pre_commit:
-                    await self._rollback_failed_restore(
-                        exc,
-                        pre_commit,
-                        paths={conv_rel, *touched},
-                        include_memory=(
-                            memory is not None and memory.mutation_started
+                    transaction_task = asyncio.create_task(
+                        asyncio.to_thread(
+                            self._apply_restore_transaction_sync,
+                            prepared,
+                            session_id=session_id,
+                            user_id=user_id,
+                            channel=channel,
+                            session_key_str=skey,
+                            conversation_path=conv_rel,
+                            include_files=include_files,
+                            description=description,
+                            memory=memory,
                         ),
-                        session_key_str=skey,
-                        previous_head=previous_head,
+                        name="checkpoint-restore-transaction",
                     )
-                raise
+                    pre_ref, pending_cancel = await _wait_for_task_completion(
+                        transaction_task,
+                    )
             finally:
+                if memory is not None:
+                    memory.resume_workspace(resume_callbacks)
                 if not dry_run:
                     service.query_gate.set()
 
-        assert entry is not None
+        if pending_cancel is not None:
+            raise pending_cancel
+        assert prepared is not None
         return self._result_from_plan(
-            plan,
+            prepared.plan,
             dry_run=False,
             pre_restore_ref=pre_ref,
+        )
+
+    def _apply_restore_transaction_sync(
+        self,
+        prepared: _PreparedRestore,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        session_key_str: str,
+        conversation_path: str,
+        include_files: bool,
+        description: str,
+        memory: "MemoryRestorer | None",
+    ) -> str:
+        """Apply and, on failure, roll back all repository mutations."""
+        pre_snapshot = None
+        try:
+            pre_snapshot = self.service.create_snapshot_unlocked(
+                "pre-restore",
+                session_id,
+                user_id,
+                channel,
+                None,
+                description,
+                None,
+            )
+            self.repository.restore_paths(
+                {conversation_path: prepared.conversation_blob},
+            )
+            if include_files:
+                self.repository.restore_tree_paths(
+                    prepared.entry.commit,
+                    set(prepared.touched),
+                )
+            if memory is not None:
+                memory.mutation_started = True
+                memory.restore_sync(prepared.entry.commit)
+            self.repository.set_session_head(
+                session_key_str,
+                prepared.entry.commit,
+            )
+            return pre_snapshot.ref
+        except Exception as exc:
+            if pre_snapshot is not None:
+                self._rollback_restore_transaction_sync(
+                    original=exc,
+                    pre_commit=pre_snapshot.commit,
+                    paths={conversation_path, *prepared.touched},
+                    include_memory=(
+                        memory is not None and memory.mutation_started
+                    ),
+                    session_key_str=session_key_str,
+                    previous_head=prepared.previous_head,
+                    memory=memory,
+                )
+            raise
+
+    def _rollback_restore_transaction_sync(
+        self,
+        *,
+        original: BaseException,
+        pre_commit: str,
+        paths: set[str],
+        include_memory: bool,
+        session_key_str: str,
+        previous_head: str | None,
+        memory: "MemoryRestorer | None",
+    ) -> None:
+        try:
+            self.repository.restore_tree_paths(pre_commit, paths)
+            if include_memory and memory is not None:
+                memory.restore_sync(pre_commit)
+            if previous_head is None:
+                self.repository.remove_session_heads({session_key_str})
+            else:
+                self.repository.set_session_head(
+                    session_key_str,
+                    previous_head,
+                )
+        except Exception as rollback_exc:
+            logger.exception("Checkpoint restore rollback failed")
+            raise CheckpointError(
+                "Restore failed and rollback to the pre-restore checkpoint "
+                "also failed; inspect the pre-restore ref manually.",
+            ) from rollback_exc
+        logger.info(
+            "Rolled back failed checkpoint restore after error: %s",
+            original,
         )
 
     def _prepare_restore(
@@ -266,7 +382,7 @@ class RestoreService:
         include_files: bool,
         selected_files: tuple[str, ...] | None,
         memory: "MemoryRestorer | None",
-    ) -> tuple[CheckpointEntry, str | None, RestorePlan, bytes, set[str]]:
+    ) -> _PreparedRestore:
         entry = self.service.resolve_target(
             target,
             session_id,
@@ -296,7 +412,13 @@ class RestoreService:
             entry.commit,
             conversation_path,
         )
-        return entry, previous_head, plan, conversation, touched
+        return _PreparedRestore(
+            entry=entry,
+            previous_head=previous_head,
+            plan=plan,
+            conversation_blob=conversation,
+            touched=frozenset(touched),
+        )
 
     def _build_plan(
         self,
@@ -434,41 +556,6 @@ class RestoreService:
             return False
         return True
 
-    async def _rollback_failed_restore(
-        self,
-        original: BaseException,
-        pre_commit: str,
-        *,
-        paths: set[str],
-        include_memory: bool,
-        session_key_str: str,
-        previous_head: str | None,
-    ) -> None:
-        try:
-            async with self.service.lock:
-                await asyncio.to_thread(
-                    self.repository.restore_tree_paths,
-                    pre_commit,
-                    paths,
-                )
-                if previous_head:
-                    self.service.repository.set_session_head(
-                        session_key_str,
-                        previous_head,
-                    )
-            if include_memory:
-                await self._memory_restorer().apply(pre_commit)
-        except Exception as rollback_exc:
-            logger.exception("Checkpoint restore rollback failed")
-            raise CheckpointError(
-                "Restore failed and rollback to the pre-restore checkpoint "
-                "also failed; inspect the pre-restore ref manually.",
-            ) from rollback_exc
-        logger.info(
-            "Rolled back failed checkpoint restore after error: %s",
-            original,
-        )
-
     def _memory_restorer(self) -> MemoryRestorer:
         return MemoryRestorer(
             repository=self.repository,
@@ -506,33 +593,22 @@ class MemoryRestorer:
         return would_restore, would_delete
 
     async def apply(self, commit: str) -> tuple[list[str], list[str]]:
-        """Shielded memory restore with best-effort workspace quiesce."""
-        return await asyncio.shield(self._apply(commit))
-
-    async def _apply(self, commit: str) -> tuple[list[str], list[str]]:
-        self.mutation_started = False
-        resume_callbacks: list[Callable[[], None]] = []
-        if self.workspace is not None:
-            resume_callbacks = await self._quiesce_workspace()
+        """Restore memory without releasing quiesce state on cancellation."""
+        resume_callbacks = await self.quiesce_workspace()
+        task = asyncio.create_task(
+            asyncio.to_thread(self.restore_sync, commit),
+            name="checkpoint-memory-restore",
+        )
+        self.mutation_started = True
         try:
-            self.mutation_started = True
-            restored, deleted = await asyncio.to_thread(
-                self._restore_sync,
-                commit,
-            )
-            logger.info(
-                "Memory restore complete: %d restored, %d deleted",
-                len(restored),
-                len(deleted),
-            )
-            return restored, deleted
-        except Exception:
-            logger.exception("Memory restore failed")
-            raise
+            result, cancelled = await _wait_for_task_completion(task)
         finally:
-            self._resume_workspace(resume_callbacks)
+            self.resume_workspace(resume_callbacks)
+        if cancelled is not None:
+            raise cancelled
+        return result
 
-    def _restore_sync(self, commit: str) -> tuple[list[str], list[str]]:
+    def restore_sync(self, commit: str) -> tuple[list[str], list[str]]:
         target_paths = self._checkpoint_paths(commit)
         current_paths = self._current_memory_paths()
         restored, deleted = self.repository.restore_tree_paths(
@@ -586,12 +662,16 @@ class MemoryRestorer:
             except OSError:
                 pass
 
-    async def _quiesce_workspace(self) -> list[Callable[[], None]]:
+    async def quiesce_workspace(self) -> list[Callable[[], None]]:
         resume_callbacks: list[Callable[[], None]] = []
         workspace = self.workspace
 
         resume_callbacks.extend(self._pause_workspace_cron(workspace))
-        await self._wait_workspace_idle(workspace, resume_callbacks)
+        try:
+            await self._wait_workspace_idle(workspace)
+        except BaseException:
+            self.resume_workspace(resume_callbacks)
+            raise
         return resume_callbacks
 
     def _pause_workspace_cron(self, workspace) -> list[Callable[[], None]]:
@@ -626,7 +706,6 @@ class MemoryRestorer:
     async def _wait_workspace_idle(
         self,
         workspace,
-        resume_callbacks: list[Callable[[], None]],
     ) -> None:
         task_tracker = getattr(workspace, "task_tracker", None)
         if task_tracker is not None and hasattr(task_tracker, "wait_all_idle"):
@@ -636,13 +715,11 @@ class MemoryRestorer:
                     timeout=self.quiesce_timeout,
                 )
             except asyncio.TimeoutError as exc:
-                self._resume_workspace(resume_callbacks)
                 raise CheckpointError(
                     "Memory restore was cancelled because workspace tasks did "
                     f"not become idle within {self.quiesce_timeout:.1f}s.",
                 ) from exc
             except Exception as exc:
-                self._resume_workspace(resume_callbacks)
                 raise CheckpointError(
                     "Memory restore was cancelled because workspace idle "
                     "state could not be verified.",
@@ -657,13 +734,11 @@ class MemoryRestorer:
                     timeout=self.quiesce_timeout,
                 )
             except asyncio.TimeoutError as exc:
-                self._resume_workspace(resume_callbacks)
                 raise CheckpointError(
                     "Memory restore was cancelled because workspace tasks did "
                     f"not become idle within {self.quiesce_timeout:.1f}s.",
                 ) from exc
             except Exception as exc:
-                self._resume_workspace(resume_callbacks)
                 raise CheckpointError(
                     "Memory restore was cancelled because active tasks could "
                     "not be inspected.",
@@ -678,7 +753,7 @@ class MemoryRestorer:
             await asyncio.sleep(0.5)
 
     @staticmethod
-    def _resume_workspace(callbacks: list[Callable[[], None]]) -> None:
+    def resume_workspace(callbacks: list[Callable[[], None]]) -> None:
         for resume in reversed(callbacks):
             try:
                 resume()

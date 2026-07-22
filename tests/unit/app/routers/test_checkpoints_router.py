@@ -8,14 +8,16 @@ import pytest
 from fastapi import HTTPException
 
 from qwenpaw.app.routers import checkpoints as router
-from qwenpaw.checkpoints.models import CheckpointEntry, RestoreResult
+from qwenpaw.checkpoints.models import CheckpointEntry, GcResult, RestoreResult
+from qwenpaw.checkpoints.policy import session_key
 
 
 def _entry() -> CheckpointEntry:
+    key = session_key(channel="console", user_id="user", session_id="session")
     return CheckpointEntry(
-        ref="refs/auto/console-user-session/1",
+        ref=f"refs/auto/{key}/1",
         kind="auto",
-        session_key="console-user-session",
+        session_key=key,
         name="1",
         commit="a" * 40,
         timestamp_ms=1,
@@ -32,6 +34,9 @@ def _entry() -> CheckpointEntry:
 class FakeService:
     auto_enabled = True
     workspace_dir = Path("/workspace")
+    gc_keep_count = 20
+    gc_keep_days = 7
+    pre_restore_retention_days = 7
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
@@ -75,6 +80,26 @@ class FakeService:
             include_memory=kwargs["include_memory"],
         )
 
+    async def gc(self, **kwargs):
+        self.calls.append(("gc", kwargs))
+        return GcResult(
+            deleted_refs=(),
+            kept_refs=(),
+            dry_run=kwargs["dry_run"],
+        )
+
+    def gc_settings(self):
+        self.calls.append(("gc_settings", {}))
+        return {
+            "gc_keep_count": self.gc_keep_count,
+            "gc_keep_days": self.gc_keep_days,
+            "pre_restore_retention_days": self.pre_restore_retention_days,
+        }
+
+    def set_gc_settings(self, **kwargs):
+        self.calls.append(("set_gc_settings", kwargs))
+        return kwargs
+
 
 @pytest.fixture(name="checkpoint_service")
 def _checkpoint_service(monkeypatch) -> FakeService:
@@ -99,7 +124,11 @@ async def test_graph_returns_topology_and_exact_session_identity():
     assert result["nodes"][0]["sha"] == "a" * 12
     assert result["sessions"] == [
         {
-            "session_key": "console-user-session",
+            "session_key": session_key(
+                channel="console",
+                user_id="user",
+                session_id="session",
+            ),
             "session_id": "session",
             "user_id": "user",
             "channel": "console",
@@ -107,7 +136,11 @@ async def test_graph_returns_topology_and_exact_session_identity():
             "archived": False,
         },
         {
-            "session_key": "console-user-empty-session",
+            "session_key": session_key(
+                channel="console",
+                user_id="user",
+                session_id="empty-session",
+            ),
             "session_id": "empty-session",
             "user_id": "user",
             "channel": "console",
@@ -122,6 +155,65 @@ async def test_graph_returns_topology_and_exact_session_identity():
         "safety": 0,
         "heads": 1,
     }
+
+
+@pytest.mark.asyncio
+async def test_gc_uses_retention_unless_compact_is_explicit(
+    checkpoint_service,
+):
+    await router.preview_checkpoint_gc(
+        router.GcRequest(),
+        SimpleNamespace(),
+    )
+    assert checkpoint_service.calls[-1] == (
+        "gc",
+        {
+            "session_id": "console",
+            "user_id": "console",
+            "channel": "console",
+            "compact": False,
+            "all_sessions": True,
+            "dry_run": True,
+            "keep_count": None,
+            "keep_days": None,
+            "pre_restore_days": None,
+        },
+    )
+
+    await router.apply_checkpoint_gc(
+        router.GcRequest(compact=True),
+        SimpleNamespace(),
+    )
+    assert checkpoint_service.calls[-1][1]["compact"] is True
+    assert checkpoint_service.calls[-1][1]["dry_run"] is False
+
+
+@pytest.mark.asyncio
+async def test_gc_settings_are_read_and_updated(checkpoint_service):
+    current = await router.get_checkpoint_gc_settings(SimpleNamespace())
+    assert current == {
+        "gc_keep_count": 20,
+        "gc_keep_days": 7,
+        "pre_restore_retention_days": 7,
+    }
+
+    updated = await router.update_checkpoint_gc_settings(
+        router.GcSettingsRequest(
+            gc_keep_count=30,
+            gc_keep_days=14,
+            pre_restore_retention_days=3,
+        ),
+        SimpleNamespace(),
+    )
+    assert updated == {
+        "gc_keep_count": 30,
+        "gc_keep_days": 14,
+        "pre_restore_retention_days": 3,
+    }
+    assert checkpoint_service.calls[-1] == (
+        "set_gc_settings",
+        updated,
+    )
 
 
 @pytest.mark.asyncio
