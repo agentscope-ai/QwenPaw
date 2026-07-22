@@ -4,7 +4,7 @@
 
 QwenPaw 当前默认的上下文策略是 **scroll**：旧轮次不会被总结后丢弃，而是先写入持久化 SQLite 历史库；当模型窗口接近上限时，再把中间历史从实时上下文中驱逐出去，并用一条紧凑的上下文内索引表示。之后 Agent 可以按需把原始历史读回来。
 
-旧的 AgentScope 原生压缩路径仍然可用，配置 `strategy: "native"` 即可切回；新配置默认使用 `strategy: "scroll"`。
+Scroll 是面向用户的默认方案。已有的 `strategy: "native"` 配置仍会为向后兼容和安全降级而被接受，但控制台不再提供策略切换入口。
 
 ## 三种记忆系统
 
@@ -12,7 +12,7 @@ QwenPaw 把记忆组织为三套互补的系统——工作记忆（Working）�
 
 | 记忆系统     | 是什么                                                                                     | 文档                    |
 | ------------ | ------------------------------------------------------------------------------------------ | ----------------------- |
-| **工作记忆** | 实时提示词窗口。较早轮次驱逐后由可展开索引和带指针的任务状态摘要表示；原始轮次持久保留。   | [上下文管理](./context) |
+| **工作记忆** | 实时提示词窗口。较早轮次驱逐后由可展开索引和紧凑的任务状态摘要表示；原始轮次持久保留。     | [上下文管理](./context) |
 | **情景记忆** | 跨会话、逐字的持久记录，通过 `recall_history`（或 `recall_history_python` REPL）按需取回。 | [上下文管理](./context) |
 | **语义记忆** | 提炼后的事实、偏好与知识；ReMe 把每日记忆沉淀进 `digest/`，用 `memory_search` 检索。       | [长期记忆](./memory)    |
 
@@ -32,7 +32,7 @@ flowchart LR
     F -->|是| D
     F -->|否| G[保护当前活动轮次 + 最近尾部]
     G --> H[驱逐已完成的中间历史]
-    H --> I[更新带指针的 continuation summary]
+    H --> I[更新 continuation summary]
     I --> J[把 seq 区间加入驱逐索引]
     J --> R[用 summary + index + live tail 重建]
     R --> K{仍超出压力目标?}
@@ -50,7 +50,7 @@ flowchart LR
 
 - **先持久化**：`ScrollContextManager` 在任何驱逐前，都会先把实时上下文写入 `{working_dir}/history.db`。
 - **保护当前活动轮次**：最新的用户请求及其进行中的工具链绝不会在任务中途被驱逐。只有达到有效硬上限时，已经被一次成功模型调用确认读取的早期工具结果才可能折叠为精确 recall 指针；pending、未读和最新 5 条结果继续原样保留。
-- **不依赖有损摘要**：被驱逐的原文仍以 `history.db` 和 `EvictionIndex` 为准。Continuation summary 只是带指针的任务状态路由；更新失败会保留上一份有效摘要，绝不阻塞驱逐。
+- **不依赖有损摘要**：被驱逐的原文仍以 `history.db` 和 `EvictionIndex` 为准。Continuation summary 只是紧凑的任务状态缓存；更新失败会保留上一份有效摘要，绝不阻塞驱逐。
 - **可回溯原文**：索引中的每一行都带 `seq` 区间。Agent 可以调用 `recall_history(op="expand", lo, hi)` 读取完整原始记录（或在 `recall_history_python` REPL 中用 `ms.expand(lo, hi)`）。
 - **跨会话历史**：历史行包含 `session_id` 和 `agent_id`，默认可检索当前 Agent 的所有历史会话；显式放宽时也能查询同一工作区内其他 Agent 的历史。
 - **安全降级**：如果 scroll 无法构建，或 recall 工具无法安全运行，QwenPaw 会退回 native 上下文管理，避免把历史驱逐到无法读取的位置。
@@ -81,7 +81,7 @@ flowchart LR
 
 ## 工作记忆（Working Memory）
 
-**工作记忆** 就是实时的提示词窗口——模型此刻能看到的内容。窗口写满时，scroll 先持久化并驱逐较早轮次，再保留一份带指针的任务状态摘要和可展开索引；摘要永远不会替代精确原文。每个有实质任务信息的轮次还会为检索和导航提供一行 **headline（检索标题）**。
+**工作记忆** 就是实时的提示词窗口——模型此刻能看到的内容。窗口写满时，scroll 先持久化并驱逐较早轮次，再保留一份紧凑的任务状态摘要和可展开索引；摘要永远不会替代精确原文。每个有实质任务信息的轮次还会为检索和导航提供一行 **headline（检索标题）**。
 
 ### Headlines（检索标题）
 
@@ -96,9 +96,11 @@ flowchart LR
 - **作用**：headline 是紧凑的语义检查点和导航标签，不是真相来源。原始轮次被驱逐后，它会成为该轮的 `seq · ⟦ … ⟧` 索引叶子；精确细节仍从 `history.db` recall。
 - **高覆盖打标**：确认、尝试、被排除的假设、决定、修改、验证结果、失败、暂停和 blocker，即使没有改变任务整体状态，也会生成 headline。只有纯社交闲聊、裸确认和完全没有新增任务相关信息的回复才省略。未打标区段仍以 `seq lo–hi · (no milestone)` 精确召回；压缩阶段不会额外调用模型补写。
 
-### 带指针的 Continuation Summary
+### Continuation Summary
 
 Headline 用来标记单个里程碑；continuation summary 则跨多个已驱逐轮次维护“当前仍有效”的任务状态。它只在真正发生对话驱逐时更新，固定包含 `Active Task`、`Current State`、`Constraints`、`Decisions` 和 `Open Work` 五段；checkpoint 与恢复锚点继续由 eviction index 负责。
+
+- **职责分离**：summary 维护当前任务状态。代码只为整份 summary 记录一个 `covered_seq` 来源范围，它不是逐条事实的引用机制；具体的 `seq` 导航和恢复指针由 Eviction Index 负责。
 
 - **普通文本生成**：模型通过关闭 thinking 的正常 chat completion 返回 Markdown；Scroll 不调用 `generate_structured_output`、JSON mode 或 response schema。
 - **本地解析、确定性渲染**：代码把 Markdown 解析成 JSON-safe 内部状态，再自行渲染五个 section。模型不生成内联来源链接；代码维护一个可信的已归档 seq 范围，并在背景 banner 中单独说明。
@@ -116,8 +118,8 @@ Headline 用来标记单个里程碑；continuation summary 则跨多个已驱�
 发生驱逐后，实时上下文会被重建为：
 
 ```text
-带指针的 continuation summary（当前任务状态 + 代码维护的已归档 seq 范围）
-  保存当前有效任务状态及持久化 seq/artifact/file 引用。
+Continuation summary（当前任务状态 + 代码维护的来源范围）
+  保存当前有效任务状态；精确恢复指针由驱逐索引维护。
   明确标记为 background，不是新的用户指令。
 
 驱逐索引（名为 "memory" 的合成占位消息，不是真实对话轮次）
@@ -170,7 +172,7 @@ Re-expand a span with the recall_history tool: recall_history(op="expand", lo, h
 ===== Tier 0 (recently compressed) =====
   [seq 81-96]
     · seq 84  ⟦ implemented context builder wiring ⟧
-    · seq 93  ⟦ verified fallback to native strategy ⟧
+    · seq 93  ⟦ verified recall fallback behavior ⟧
 </system-info>
 ```
 
@@ -237,7 +239,7 @@ print(ms.agents())
 | ----------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ToolResultPruningMiddleware` | 所有上下文策略下均注册，由 `tool_result_pruning_config.enabled` 控制 | 按字节裁剪当前和历史工具结果，把超大原始输出保存到 `tool_results/`，并记录按文本块隔离的恢复 metadata 与 `read_file` 续读提示；当 coordinator offload 启用时，后台完成路径也使用同一个 pruner。 |
 
-scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使用 `pruning_recent_msg_max_bytes`。达到自动压缩触发线时，Scroll 会把所有超过 200 字符且符合条件的已完成轮次结果批量替换为精确 `recall_history` 指针，同时保护完整活动轮次和最新 5 个结果，然后只重新统计一次；驱逐后，如果实时上下文仍高于压力目标，也会用同样的恢复指针继续折叠剩余的已完成结果。`pruning_recent_n` 和 `pruning_old_msg_max_bytes` 只适用于 Native 策略。
+scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使用 `pruning_recent_msg_max_bytes`。达到自动压缩触发线时，Scroll 会把所有超过 200 字符且符合条件的已完成轮次结果批量替换为精确 `recall_history` 指针，同时保护完整活动轮次和最新 5 个结果，然后只重新统计一次；驱逐后，如果实时上下文仍高于压力目标，也会用同样的恢复指针继续折叠剩余的已完成结果。旧版分层裁剪设置会被 Scroll 忽略。
 
 启用统一 pruning 时，QwenPaw 会让 AgentScope 内置的 token 工具结果上限不再触发，避免已经按 bytes 裁剪的 preview 被二次截断并丢失按文本块隔离的恢复 metadata。关闭统一 pruning 时，AgentScope 的默认上限仍作为安全兜底保留。
 
@@ -259,7 +261,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 相关配置位于 `running.light_context_config`：
 
-控制台“工作区 → 运行配置 → ReAct 智能体”只显示长期记忆管理后端，不再显示上下文管理后端或上下文策略选择器。这样可以避免在普通运行设置中切换底层 context 协议。需要在 Scroll 与 Native 之间切换时，请编辑 Agent 的 `running.light_context_config.strategy`，保存后重启 QwenPaw；控制台中的“上下文管理”页签仍会展示当前策略对应的详细参数。
+控制台“工作区 → 运行配置 → ReAct 智能体”只显示长期记忆管理后端，不显示上下文管理后端或上下文策略选择器。已有 Native 配置仍可为向后兼容和安全降级而加载，但 Native 不再作为用户可选项展示。控制台中的“上下文管理”页签展示 Scroll 的详细参数。
 
 ```json
 {
@@ -290,13 +292,13 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 }
 ```
 
-对于 Native 策略，`pruning_recent_n` 和 `pruning_old_msg_max_bytes` 分别控制 recent 与 older preview 层级；Scroll 会忽略这两个分层设置。
+旧版 `pruning_recent_n` 和 `pruning_old_msg_max_bytes` 分层设置会被 Scroll 忽略。
 
 重要字段：
 
 | 字段                                             | 默认值         | 含义                                                                              |
 | ------------------------------------------------ | -------------- | --------------------------------------------------------------------------------- |
-| `strategy`                                       | `"scroll"`     | `"scroll"` 使用持久历史 + 驱逐索引；`"native"` 使用 AgentScope 原生压缩。         |
+| `strategy`                                       | `"scroll"`     | 选择 Scroll 的持久历史协议；旧版 Native 值仅为兼容和安全降级而保留。              |
 | `context_compact_config.compact_threshold_ratio` | `0.8`          | 模型输入达到上下文窗口该比例时触发。                                              |
 | `context_compact_config.reserve_threshold_ratio` | `0.1`          | 驱逐后保留最近尾部的预算。                                                        |
 | `scroll_config.db_filename`                      | `"history.db"` | 相对工作区的 SQLite 文件名。                                                      |
@@ -307,7 +309,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 
 ## 手动压缩
 
-`/compact` 仍然存在。在 scroll 策略下，它会强制归档；真正驱逐轮次时也会更新带指针的 continuation summary，并展示当前驱逐索引。`/compact <hint>` 只为本次压缩提供取舍重点；hint 会先脱敏并限制长度，在 scroll 下既不作为 evidence，也不持久化为任务状态，自动压缩行为不受影响。
+`/compact` 仍然存在。在 scroll 策略下，它会强制归档；真正驱逐轮次时也会更新 continuation summary，并展示当前驱逐索引。`/compact <hint>` 只为本次压缩提供取舍重点；hint 会先脱敏并限制长度，在 scroll 下既不作为 evidence，也不持久化为任务状态，自动压缩行为不受影响。
 
 典型返回：
 
@@ -321,20 +323,6 @@ Context compressed.
 
 如果没有可驱逐消息，或者上下文本来就足够小，可能不会产生新的驱逐。
 
-## Native 策略
+## 旧版兼容
 
-如果希望使用 AgentScope 内置行为而不是 scroll，可以配置：
-
-```json
-{
-  "running": {
-    "light_context_config": {
-      "strategy": "native"
-    }
-  }
-}
-```
-
-native 模式不会接入 `ScrollContextManager` 或 `recall_history_python`。它会使用 AgentScope 的上下文压缩，并继续映射 `compact_threshold_ratio` 和 `reserve_threshold_ratio`。
-
-> **提示：** 控制台不再提供上下文策略选择器。切换到 Native 或切回 Scroll 需要编辑 Agent 配置中的 `running.light_context_config.strategy`，并重启 QwenPaw。
+已经使用 AgentScope 原生路径的配置仍可继续加载，用于向后兼容和安全降级。Native 不在控制台中作为选项展示；Scroll 是文档面向用户介绍的上下文协议。

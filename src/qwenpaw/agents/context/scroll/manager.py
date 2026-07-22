@@ -8,10 +8,10 @@ two delegated hooks.
 * :meth:`on_save` — every live turn is persisted to the durable
   ``conversation_history`` as it enters the window (write-through).
 * :meth:`compress` — past the token threshold, keep the recent tail (and the
-  active turn), update a pointer-backed continuation summary, and fold the
+  active turn), update a continuation summary, and fold the
   evicted middle into an in-context :class:`EvictionIndex`. The summary is a
-  state router, never a replacement for raw history: every claim points back
-  to durable evidence recallable through ``recall_history``.
+  state cache, never a replacement for raw history. Code records its durable
+  provenance range; exact navigation and recovery stay in the eviction index.
 """
 
 from __future__ import annotations
@@ -335,7 +335,7 @@ class ScrollContextManager:
                          recent tail. If the context falls to the trigger or
                          below, stop without eviction.
         4. split       — evictable middle | recent tail (+ active turn).
-        5. summarize   — update pointer-backed task state from bounded input;
+        5. summarize   — update compact task state from bounded input;
                          preserve the previous value on any failure.
         6. add_eviction— fold the middle (if any) into the index as a new
                          Tier 0 block, rebuild context = [index] + tail.
@@ -511,7 +511,7 @@ class ScrollContextManager:
             await self._offload_dialog(middle)
             mark("offload_dialog")
 
-            # 5) Update the pointer-backed continuation state from bounded
+            # 5) Update the continuation state from bounded
             #    previews. Failure is non-fatal: the previous valid summary
             #    stays in place and the exact rows remain in history.db.
             await self._update_continuation_summary(

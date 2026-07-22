@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Plain-text continuation summaries backed by durable Scroll pointers.
+"""Plain-text continuation summaries with code-managed durable provenance.
 
 The model is deliberately asked for ordinary Markdown, never structured
 output or JSON. Parsing into this internal representation happens locally and

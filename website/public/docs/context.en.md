@@ -4,7 +4,7 @@
 
 QwenPaw's default context strategy is **scroll**: older turns are not summarized and discarded. They are written to a durable SQLite history store, evicted from the live model window when needed, and represented by a compact in-context index that can be expanded on demand.
 
-The old AgentScope-native compression path is still available with `strategy: "native"`, but new configurations default to `strategy: "scroll"`.
+Scroll is the user-facing default. Existing `strategy: "native"` configurations remain accepted for backward compatibility and fallback, but strategy switching is not exposed in the Console.
 
 ## The Three Memory Systems
 
@@ -12,7 +12,7 @@ QwenPaw organizes memory into three complementary systems, loosely mirroring hum
 
 | System              | What it is                                                                                                                               | Documented in                   |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| **Working memory**  | The live prompt window. Older turns evict into an expandable index plus a pointer-backed task-state summary; raw turns remain durable.   | [Context Management](./context) |
+| **Working memory**  | The live prompt window. Older turns evict into an expandable index plus a compact task-state summary; raw turns remain durable.          | [Context Management](./context) |
 | **Episodic memory** | A durable, verbatim record of every turn across sessions, recalled on demand via `recall_history` (or the `recall_history_python` REPL). | [Context Management](./context) |
 | **Semantic memory** | Distilled facts, preferences, and knowledge; ReMe consolidates daily notes into `digest/`, searched by `memory_search`.                  | [Long-term Memory](./memory)    |
 
@@ -32,7 +32,7 @@ flowchart LR
     F -->|Yes| D
     F -->|No| G[Protect the active turn + recent tail]
     G --> H[Evict finished middle turns]
-    H --> I[Update pointer-backed continuation summary]
+    H --> I[Update continuation summary]
     I --> J[Add seq span to eviction index]
     J --> R[Rebuild summary + index + live tail]
     R --> K{Still over the pressure target?}
@@ -50,7 +50,7 @@ Key properties:
 
 - **Durable first**: `ScrollContextManager` persists live turns to `{working_dir}/history.db` before any eviction.
 - **Active turn protected**: the latest user request and its in-progress tool chain are never evicted mid-task. Only at the effective hard limit may old tool results already acknowledged by a successful model call fold to exact recall pointers; pending, unread, and the five newest results remain verbatim.
-- **No lossy-summary dependency**: raw evicted content remains authoritative in `history.db` and the `EvictionIndex`. A continuation summary is only a pointer-backed task-state router; a failed update preserves the previous valid summary and never blocks eviction.
+- **No lossy-summary dependency**: raw evicted content remains authoritative in `history.db` and the `EvictionIndex`. A continuation summary is only a compact task-state cache; a failed update preserves the previous valid summary and never blocks eviction.
 - **Recallable raw history**: each index line carries a `seq` span. The agent can call `recall_history(op="expand", lo, hi)` to read the full original rows (or `ms.expand(lo, hi)` in the `recall_history_python` REPL).
 - **Cross-session memory**: history rows include `session_id` and `agent_id`, so recall can search this agent's past sessions and, when explicitly widened, other agents in the same workspace.
 - **Fallback-safe**: if scroll cannot be wired or its recall tools cannot run safely, QwenPaw falls back to native context management instead of evicting history that cannot be recalled.
@@ -81,7 +81,7 @@ If SQLite FTS5 is available, QwenPaw also keeps a `conversation_history_fts` ind
 
 ## Working Memory
 
-**Working memory** is the live prompt window — what the model can attend to right now. When it fills, scroll keeps it within budget by persisting and evicting older turns, then retaining a pointer-backed task-state summary and an expandable index. The summary never replaces the exact rows. Each substantive task turn also supplies a one-line **headline** for retrieval and navigation.
+**Working memory** is the live prompt window — what the model can attend to right now. When it fills, scroll keeps it within budget by persisting and evicting older turns, then retaining a compact task-state summary and an expandable index. The summary never replaces the exact rows. Each substantive task turn also supplies a one-line **headline** for retrieval and navigation.
 
 ### Headlines
 
@@ -96,9 +96,11 @@ During normal replies, every substantive task turn appends one hidden retrieval 
 - **What it's for**: the headline is a compact semantic checkpoint and navigation label, not the source of truth. Once the raw turn leaves the live window, it becomes the turn's `seq · ⟦ … ⟧` leaf in the eviction index; exact details remain recallable from `history.db`.
 - **High-coverage labelling**: confirmations, attempts, rejected hypotheses, decisions, changes, verification results, failures, pauses, and blockers are labelled even when the overall task state is unchanged. Only pure social conversation, bare acknowledgements, and replies with no new task-relevant information omit the headline. An unlabelled span remains exactly recallable as `seq lo–hi · (no milestone)`; compaction does not make an extra model call to backfill it.
 
-### Pointer-Backed Continuation Summary
+### Continuation Summary
 
 Headlines label individual milestones; the continuation summary maintains the latest effective task state across many evicted turns. It is updated only when dialogue is actually evicted and contains five fixed sections: `Active Task`, `Current State`, `Constraints`, `Decisions`, and `Open Work`. Checkpoints and recovery anchors remain the eviction index's responsibility.
+
+- **Separated responsibilities**: the summary maintains current task state. Code records one `covered_seq` range as provenance for the summary as a whole; it is not a per-item citation mechanism. The Eviction Index owns concrete `seq` navigation and recovery pointers.
 
 - **Plain text generation**: the model is called normally with thinking disabled and asked for Markdown. Scroll never invokes `generate_structured_output`, JSON mode, or a response schema for this update.
 - **Local parsing and deterministic rendering**: code parses the Markdown into JSON-safe internal state and renders the five sections itself. The model does not generate inline source links; code tracks one trusted archived seq range and states it separately in the background banner.
@@ -116,8 +118,8 @@ Headlines label individual milestones; the continuation summary maintains the la
 After eviction, the live context is rebuilt as:
 
 ```text
-Pointer-backed continuation summary
-  Current effective task state plus one code-managed archived seq range.
+Continuation summary
+  Current effective task state plus one code-managed provenance range.
   It is explicitly labeled background-only, never an active user instruction.
 
 Eviction index (a synthetic placeholder message named "memory")
@@ -171,7 +173,7 @@ Re-expand a span with the recall_history tool: recall_history(op="expand", lo, h
 ===== Tier 0 (recently compressed) =====
   [seq 81-96]
     · seq 84  ⟦ implemented context builder wiring ⟧
-    · seq 93  ⟦ verified fallback to native strategy ⟧
+    · seq 93  ⟦ verified recall fallback behavior ⟧
 </system-info>
 ```
 
@@ -238,7 +240,7 @@ Tool results are handled by one mechanism:
 | ----------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ToolResultPruningMiddleware` | registered for every context strategy; controlled by `tool_result_pruning_config.enabled` | Prunes current and historical tool results by bytes, saves oversized raw output under `tool_results/`, and records block-scoped recovery metadata plus a `read_file` continuation hint. The background-completion path uses the same pruner when coordinator offload is enabled. |
 
-Scroll no longer has a separate token-based tool-result cap. All live previews use `pruning_recent_msg_max_bytes`. At the automatic compression trigger, Scroll batch-replaces every eligible completed-turn result over 200 characters with an exact `recall_history` pointer, while preserving the active turn and five newest results, then recounts once. After eviction it can apply the same recovery-pointer fold to remaining completed results above the pressure target. `pruning_recent_n` and `pruning_old_msg_max_bytes` apply only to the Native strategy.
+Scroll no longer has a separate token-based tool-result cap. All live previews use `pruning_recent_msg_max_bytes`. At the automatic compression trigger, Scroll batch-replaces every eligible completed-turn result over 200 characters with an exact `recall_history` pointer, while preserving the active turn and five newest results, then recounts once. After eviction it can apply the same recovery-pointer fold to remaining completed results above the pressure target. Legacy tier settings are ignored by Scroll.
 
 When unified pruning is enabled, QwenPaw makes AgentScope's built-in token-based tool-result cap non-binding. This prevents a second truncation pass from replacing the byte-bounded preview and discarding its block-scoped recovery metadata. If unified pruning is disabled, AgentScope's default cap remains active as a safety net.
 
@@ -260,7 +262,7 @@ Conversations that predate scroll — or any chats already stored as `sessions/*
 
 Relevant configuration is under `running.light_context_config`:
 
-The Console's **Workspace → Running Config → ReAct Agent** section now exposes only the long-term memory backend; it no longer shows context-manager-backend or context-strategy selectors. This avoids switching the underlying context protocol from general runtime settings. To switch between Scroll and Native, edit the agent's `running.light_context_config.strategy`, save it, and restart QwenPaw. The Console's **Context Management** tab still shows detailed settings for the active strategy.
+The Console's **Workspace → Running Config → ReAct Agent** section exposes only the long-term memory backend; it does not show context-manager-backend or context-strategy selectors. Existing Native configurations remain loadable for backward compatibility and fallback, but Native is not presented as a user-selectable option. The Console's **Context Management** tab shows Scroll's detailed settings.
 
 ```json
 {
@@ -291,24 +293,24 @@ The Console's **Workspace → Running Config → ReAct Agent** section now expos
 }
 ```
 
-For the Native strategy, `pruning_recent_n` and `pruning_old_msg_max_bytes` control the recent and older preview tiers. Scroll ignores those tier settings.
+The legacy `pruning_recent_n` and `pruning_old_msg_max_bytes` tier settings are ignored by Scroll.
 
 Important fields:
 
-| Field                                            | Default        | Meaning                                                                                          |
-| ------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------ |
-| `strategy`                                       | `"scroll"`     | `"scroll"` uses durable history + eviction index. `"native"` uses AgentScope-native compression. |
-| `context_compact_config.compact_threshold_ratio` | `0.8`          | Trigger when model input reaches this fraction of context size.                                  |
-| `context_compact_config.reserve_threshold_ratio` | `0.1`          | Recent tail budget kept after eviction.                                                          |
-| `scroll_config.db_filename`                      | `"history.db"` | SQLite filename relative to the workspace.                                                       |
-| `scroll_config.tool_output_token_cap`            | `3000`         | Deprecated and ignored; explicit values log a warning. Use `pruning_recent_msg_max_bytes`.       |
-| `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                                    |
-| `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                              |
-| `scroll_config.offload_dialog`                   | `false`        | Also write legacy `dialog/*.jsonl` archive. `history.db` remains the source of truth.            |
+| Field                                            | Default        | Meaning                                                                                                           |
+| ------------------------------------------------ | -------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `strategy`                                       | `"scroll"`     | Selects Scroll's durable-history protocol. Legacy Native values are accepted only for compatibility and fallback. |
+| `context_compact_config.compact_threshold_ratio` | `0.8`          | Trigger when model input reaches this fraction of context size.                                                   |
+| `context_compact_config.reserve_threshold_ratio` | `0.1`          | Recent tail budget kept after eviction.                                                                           |
+| `scroll_config.db_filename`                      | `"history.db"` | SQLite filename relative to the workspace.                                                                        |
+| `scroll_config.tool_output_token_cap`            | `3000`         | Deprecated and ignored; explicit values log a warning. Use `pruning_recent_msg_max_bytes`.                        |
+| `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                                                     |
+| `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                                               |
+| `scroll_config.offload_dialog`                   | `false`        | Also write legacy `dialog/*.jsonl` archive. `history.db` remains the source of truth.                             |
 
 ## Manual Compaction
 
-`/compact` still exists. Under scroll it forces archival; when turns are actually evicted it also updates the pointer-backed continuation summary and shows the current eviction-index map. `/compact <hint>` supplies one-shot focus guidance to that compression only. The hint is secret-redacted and bounded; under scroll it is not treated as evidence or persisted task state, and auto-compaction remains unchanged.
+`/compact` still exists. Under scroll it forces archival; when turns are actually evicted it also updates the continuation summary and shows the current eviction-index map. `/compact <hint>` supplies one-shot focus guidance to that compression only. The hint is secret-redacted and bounded; under scroll it is not treated as evidence or persisted task state, and auto-compaction remains unchanged.
 
 Typical result:
 
@@ -322,20 +324,6 @@ Context compressed.
 
 If no messages are eligible or the context is already small enough, there may be no new eviction.
 
-## Native Strategy
+## Legacy Compatibility
 
-Set this when you want AgentScope's built-in behavior instead of scroll:
-
-```json
-{
-  "running": {
-    "light_context_config": {
-      "strategy": "native"
-    }
-  }
-}
-```
-
-Native mode does not wire `ScrollContextManager` or `recall_history_python`. It uses AgentScope context compression with the same `compact_threshold_ratio` and `reserve_threshold_ratio` mapping.
-
-> **Tip:** The Console no longer exposes a context-strategy selector. Switching to Native or back to Scroll requires editing `running.light_context_config.strategy` in the agent configuration and restarting QwenPaw.
+Existing configurations that already use the AgentScope-native path continue to load for backward compatibility and fallback. Native is not exposed as a Console option; Scroll is the documented user-facing context protocol.
