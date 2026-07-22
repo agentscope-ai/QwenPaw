@@ -4,6 +4,9 @@
 Curated markdown lives under ``docs/{lang}/{tool_name}.md`` (zh/en). Console
 UI may request any locale; resolution falls back exact → base → en → runtime
 docstring / config description.
+
+Docs are loaded by scanning the package docs directory once and looking up
+by key. User-provided names never participate in filesystem path joins.
 """
 
 from __future__ import annotations
@@ -17,7 +20,6 @@ from typing import Any, Callable
 logger = logging.getLogger(__name__)
 
 _DOCS_ROOT = Path(__file__).resolve().parent / "docs"
-# Tool doc paths are package-local; reject anything that could escape.
 _SAFE_TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _SAFE_LANG_RE = re.compile(r"^[A-Za-z]{2}(?:-[A-Za-z]{2})?$")
 
@@ -76,38 +78,35 @@ def _parse_doc_markdown(text: str) -> dict[str, str]:
     return {"summary": summary, "body": body}
 
 
-def _safe_doc_path(tool_name: str, lang: str) -> Path | None:
-    """Return a docs path only when name/lang are safe and stay under docs."""
-    if not _SAFE_TOOL_NAME_RE.fullmatch(tool_name):
-        return None
-    if not _SAFE_LANG_RE.fullmatch(lang):
-        return None
-    path = (_DOCS_ROOT / lang / f"{tool_name}.md").resolve()
-    try:
-        path.relative_to(_DOCS_ROOT.resolve())
-    except ValueError:
-        return None
-    return path
-
-
-def _read_doc_file(tool_name: str, lang: str) -> dict[str, str] | None:
-    path = _safe_doc_path(tool_name, lang)
-    if path is None or not path.is_file():
-        return None
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        logger.warning(
-            "Failed to read tool doc for %s/%s: %s",
-            lang,
-            tool_name,
-            exc,
-        )
-        return None
-    parsed = _parse_doc_markdown(text)
-    if not parsed["summary"] and not parsed["body"]:
-        return None
-    return parsed
+@lru_cache(maxsize=1)
+def _curated_doc_catalog() -> dict[tuple[str, str], dict[str, str]]:
+    """Scan package docs into an in-memory catalog keyed by (lang, tool)."""
+    catalog: dict[tuple[str, str], dict[str, str]] = {}
+    if not _DOCS_ROOT.is_dir():
+        return catalog
+    for lang_dir in _DOCS_ROOT.iterdir():
+        if not lang_dir.is_dir():
+            continue
+        lang = lang_dir.name
+        if not _SAFE_LANG_RE.fullmatch(lang):
+            continue
+        for path in lang_dir.glob("*.md"):
+            tool_name = path.stem
+            if not _SAFE_TOOL_NAME_RE.fullmatch(tool_name):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError as exc:
+                logger.warning(
+                    "Failed to read curated tool doc %s: %s",
+                    path.name,
+                    exc,
+                )
+                continue
+            parsed = _parse_doc_markdown(text)
+            if parsed["summary"] or parsed["body"]:
+                catalog[(lang, tool_name)] = parsed
+    return catalog
 
 
 def load_tool_doc(
@@ -120,8 +119,11 @@ def load_tool_doc(
         ``{"summary": str, "body": str}`` or ``None`` when no curated file
         exists for any candidate language.
     """
+    if not _SAFE_TOOL_NAME_RE.fullmatch(tool_name or ""):
+        return None
+    catalog = _curated_doc_catalog()
     for candidate in _lang_candidates(lang):
-        doc = _read_doc_file(tool_name, candidate)
+        doc = catalog.get((candidate, tool_name))
         if doc is not None:
             return doc
     return None
@@ -156,9 +158,8 @@ def get_tool_input_schema(tool_name: str) -> dict[str, Any]:
         return dict(FunctionTool(func).input_schema or {})
     except Exception as exc:
         logger.warning(
-            "Failed to build input_schema for tool %s: %s",
-            tool_name,
-            exc,
+            "Failed to build input_schema for a tool: %s",
+            type(exc).__name__,
         )
         return {}
 
@@ -175,9 +176,8 @@ def get_tool_runtime_description(tool_name: str) -> str:
         return str(FunctionTool(func).description or "").strip()
     except Exception as exc:
         logger.warning(
-            "Failed to build runtime description for tool %s: %s",
-            tool_name,
-            exc,
+            "Failed to build runtime description for a tool: %s",
+            type(exc).__name__,
         )
         return ""
 
