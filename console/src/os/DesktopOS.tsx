@@ -203,6 +203,8 @@ export default function DesktopOS() {
     id: string;
     dx: number;
     dy: number;
+    sx: number;
+    sy: number;
     moved: boolean;
   } | null>(null);
 
@@ -309,27 +311,37 @@ export default function DesktopOS() {
                 style={{ left: pos.x, top: pos.y }}
                 onPointerDown={(e) => {
                   if ((e.target as HTMLElement).closest("button")) return;
+                  // No pointer capture here: capturing on pointerdown would
+                  // redirect the compatibility click/dblclick events to this
+                  // wrapper, so the icon's onDoubleClick (open app) would
+                  // never fire. Capture is deferred until a real drag starts.
                   iconDrag.current = {
                     id: a.routeId,
                     dx: e.clientX - pos.x,
                     dy: e.clientY - pos.y,
+                    sx: e.clientX,
+                    sy: e.clientY,
                     moved: false,
                   };
-                  (e.currentTarget as HTMLElement).setPointerCapture(
-                    e.pointerId,
-                  );
                 }}
                 onPointerMove={(e) => {
                   const d = iconDrag.current;
                   if (!d || d.id !== a.routeId) return;
+                  if (!d.moved) {
+                    // Still within the click slop — leave clicks untouched.
+                    if (
+                      Math.abs(e.clientX - d.sx) <= 3 &&
+                      Math.abs(e.clientY - d.sy) <= 3
+                    ) {
+                      return;
+                    }
+                    d.moved = true;
+                    (e.currentTarget as HTMLElement).setPointerCapture(
+                      e.pointerId,
+                    );
+                  }
                   const nx = Math.max(0, e.clientX - d.dx);
                   const ny = Math.max(MENUBAR_H, e.clientY - d.dy);
-                  if (
-                    Math.abs(e.clientX - (d.dx + pos.x)) > 3 ||
-                    Math.abs(e.clientY - (d.dy + pos.y)) > 3
-                  ) {
-                    d.moved = true;
-                  }
                   setPosition(a.routeId, nx, ny);
                 }}
                 onPointerUp={(e) => {
