@@ -98,6 +98,19 @@
       "refreshBackend": "Обновить backend-логи",
       "refreshSuccess": "Логи обновлены",
       "copyBackend": "Копировать backend-логи"
+    },
+    "messageRecording": {
+      "title": "Запись сообщений",
+      "desc": "Записывать входные и выходные данные вызовов LLM в файлы JSONL для отладки.",
+      "enabled": "Включить запись",
+      "maxContentLength": "Макс. длина содержимого",
+      "maxContentLengthTooltip": "Обрезать текстовое содержимое, превышающее эту длину. Оставьте пустым для отключения обрезки.",
+      "retentionDays": "Дни хранения",
+      "retentionDaysTooltip": "Автоматически удалять файлы JSONL старше указанного количества дней.",
+      "status": "Статус",
+      "statusRecording": "Запись",
+      "statusStopped": "Остановлено",
+      "storagePath": "Путь хранения"
     }
   },
   "agent": {

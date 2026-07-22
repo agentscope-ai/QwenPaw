@@ -251,12 +251,23 @@ def tool_descriptor(
     def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
         import inspect
 
+        from ..governance.tool_registry import (
+            validate_default_policy,
+            validate_tool_type,
+        )
+
         resolved_name = name or fn.__name__
         is_async = (
             async_execution
             if async_execution is not None
             else inspect.iscoroutinefunction(fn)
         )
+        # Empty tool_type is allowed here (governance gap / non-collected
+        # tools); non-empty values must be one of the known types.
+        resolved_tool_type = tool_type
+        if resolved_tool_type:
+            resolved_tool_type = validate_tool_type(resolved_tool_type)
+        resolved_default_policy = validate_default_policy(default_policy)
         # pylint: disable=protected-access
         fn._tool_descriptor = ToolDescriptor(  # type: ignore[attr-defined]
             name=resolved_name,
@@ -274,12 +285,12 @@ def tool_descriptor(
             ),
             metadata=dict(metadata),
             governance=ToolGovernanceSpec(
-                tool_type=tool_type,
+                tool_type=resolved_tool_type,
                 target_param=target_param,
                 pattern_param=pattern_param,
                 policy_name=policy_name,
                 fail_without_sandbox=fail_without_sandbox,
-                default_policy=default_policy,
+                default_policy=resolved_default_policy,
                 policy_reason=policy_reason,
             ),
             ui=ToolUISpec(

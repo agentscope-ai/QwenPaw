@@ -4,15 +4,19 @@ import {
   Button,
   Card,
   Input,
+  InputNumber,
   Select,
   Space,
   Switch,
   Tag,
+  Tooltip,
   Typography,
 } from "antd";
+import { QuestionCircleOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { PageHeader } from "@/components/PageHeader";
 import { useDebugLogs, backendLevelColor } from "./useDebugLogs";
+import { useMessageRecording } from "./useMessageRecording";
 import { LogViewer } from "./components";
 import styles from "./index.module.less";
 
@@ -37,6 +41,21 @@ export default function DebugPage() {
     handleCopyBackend,
   } = useDebugLogs();
 
+  const {
+    enabled,
+    maxContentLength,
+    retentionDays,
+    storagePath,
+    loading: recordingLoading,
+    toggleEnabled,
+    draftMaxLen,
+    setDraftMaxLen,
+    commitMaxContentLength,
+    draftRetention,
+    setDraftRetention,
+    commitRetentionDays,
+  } = useMessageRecording();
+
   return (
     <div className={styles.debugPage}>
       <PageHeader
@@ -54,6 +73,7 @@ export default function DebugPage() {
             "View backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
           )}
         />
+
         <Card
           title={t("debug.backend.title", "Backend logs")}
           extra={
@@ -163,6 +183,94 @@ export default function DebugPage() {
               query={backendQuery}
               loading={initialLoading}
             />
+          </Space>
+        </Card>
+
+        <Card
+          title={t("debug.messageRecording.title", "Message Recording")}
+          extra={
+            <Switch
+              checked={enabled}
+              loading={recordingLoading}
+              onChange={toggleEnabled}
+            />
+          }
+        >
+          <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+            <Text type="secondary">
+              {t(
+                "debug.messageRecording.desc",
+                "Record LLM call inputs and outputs to JSONL files for debugging.",
+              )}
+            </Text>
+            <div className={styles.recordingFields}>
+              <div className={styles.recordingField}>
+                <Text>
+                  {t(
+                    "debug.messageRecording.maxContentLength",
+                    "Max content length",
+                  )}
+                  <Tooltip
+                    title={t(
+                      "debug.messageRecording.maxContentLengthTooltip",
+                      "Truncate text content exceeding this length. Leave empty for no truncation.",
+                    )}
+                  >
+                    <QuestionCircleOutlined
+                      style={{ marginLeft: 4, color: "rgba(0,0,0,0.45)" }}
+                    />
+                  </Tooltip>
+                </Text>
+                <InputNumber
+                  min={1}
+                  value={draftMaxLen}
+                  onChange={(v) => setDraftMaxLen(v)}
+                  onBlur={() => commitMaxContentLength()}
+                  onPressEnter={() => commitMaxContentLength()}
+                  style={{ width: 200 }}
+                  disabled={!enabled}
+                />
+              </div>
+              <div className={styles.recordingField}>
+                <Text>
+                  {t("debug.messageRecording.retentionDays", "Retention days")}
+                  <Tooltip
+                    title={t(
+                      "debug.messageRecording.retentionDaysTooltip",
+                      "Automatically delete JSONL files older than this many days.",
+                    )}
+                  >
+                    <QuestionCircleOutlined
+                      style={{ marginLeft: 4, color: "rgba(0,0,0,0.45)" }}
+                    />
+                  </Tooltip>
+                </Text>
+                <InputNumber
+                  min={1}
+                  max={90}
+                  value={draftRetention}
+                  onChange={(v) => setDraftRetention(v ?? 3)}
+                  onBlur={() => commitRetentionDays()}
+                  onPressEnter={() => commitRetentionDays()}
+                  style={{ width: 200 }}
+                  disabled={!enabled}
+                />
+              </div>
+            </div>
+            <div className={styles.recordingStatus}>
+              <Text type="secondary">
+                {t("debug.messageRecording.status", "Status")}:{" "}
+                {enabled
+                  ? t("debug.messageRecording.statusRecording", "Recording")
+                  : t("debug.messageRecording.statusStopped", "Stopped")}
+              </Text>
+              {storagePath && (
+                <Text type="secondary">
+                  {t("debug.messageRecording.storagePath", "Storage path")}:{" "}
+                  <code>{storagePath}</code>
+                </Text>
+              )}
+            </div>
           </Space>
         </Card>
       </div>

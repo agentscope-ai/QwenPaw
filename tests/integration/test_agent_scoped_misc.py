@@ -16,9 +16,7 @@ from tests.integration.helpers import (
     scoped,
 )
 
-# Same floor as Windows CI (QWENPAW_INTEGRATION_HTTP_TIMEOUT=120): list tools
-# awaits workspace startup and can exceed the 15s default on slow runners.
-_HTTP_TIMEOUT = default_http_timeout(120.0)
+_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 
 # ------------------------------------------------------------------ #

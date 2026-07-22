@@ -180,8 +180,34 @@ def snake_to_pascal(name: str) -> str:
     return "".join(p.capitalize() for p in name.split("_"))
 
 
+ALLOWED_TOOL_TYPES = frozenset({"file", "network", "shell", "internal"})
+ALLOWED_DEFAULT_POLICIES = frozenset({"allow", "ask", "deny", ""})
+
+
 class GovernanceRegistrationConflict(ValueError):
     """Raised when a governance policy identity would be reused unsafely."""
+
+
+def validate_tool_type(tool_type: str) -> str:
+    """Return *tool_type* or raise if it is not a known governance type."""
+    if tool_type not in ALLOWED_TOOL_TYPES:
+        raise GovernanceRegistrationConflict(
+            f"Invalid governance tool_type {tool_type!r}; "
+            f"expected one of {sorted(ALLOWED_TOOL_TYPES)}",
+        )
+    return tool_type
+
+
+def validate_default_policy(default_policy: str) -> str:
+    """Return normalized *default_policy* or raise on unknown values."""
+    normalized = (default_policy or "").strip().lower()
+    if normalized not in ALLOWED_DEFAULT_POLICIES:
+        allowed = sorted(p for p in ALLOWED_DEFAULT_POLICIES if p)
+        raise GovernanceRegistrationConflict(
+            f"Invalid governance default_policy {default_policy!r}; "
+            f"expected one of {allowed} or empty",
+        )
+    return normalized
 
 
 def register_tool_governance(
@@ -207,6 +233,7 @@ def register_tool_governance(
     Returns the policy-layer tool name that was registered
     (or already present with identical metadata).
     """
+    tool_type = validate_tool_type(tool_type)
     pname = policy_name or snake_to_pascal(python_name)
     new_identity = (
         tool_type,

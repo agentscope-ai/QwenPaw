@@ -464,7 +464,7 @@ async def list_agents(
 @tool_descriptor(
     async_execution=True,
     tool_type="internal",
-    target_param="agent_id",
+    target_param="to_agent",
     policy_name="ChatWithAgent",
     ui_description=(
         "Send a message to another configured agent and wait for "
@@ -558,7 +558,7 @@ async def chat_with_agent(
 @tool_descriptor(
     async_execution=True,
     tool_type="internal",
-    target_param="agent_id",
+    target_param="to_agent",
     policy_name="SubmitToAgent",
     ui_description="Submit a background task to another configured agent",
     ui_icon="📨",

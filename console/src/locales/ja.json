@@ -98,6 +98,19 @@
       "refreshBackend": "バックエンドログを更新",
       "refreshSuccess": "ログを更新しました",
       "copyBackend": "バックエンドログをコピー"
+    },
+    "messageRecording": {
+      "title": "メッセージ記録",
+      "desc": "デバッグ用にLLM呼び出しの入出力をJSONLファイルに記録します。",
+      "enabled": "記録を有効にする",
+      "maxContentLength": "最大コンテンツ長",
+      "maxContentLengthTooltip": "この長さを超えるテキストは切り詰められます。空欄の場合は切り詰めません。",
+      "retentionDays": "保持日数",
+      "retentionDaysTooltip": "この日数より古いJSONLファイルを自動削除します。",
+      "status": "ステータス",
+      "statusRecording": "記録中",
+      "statusStopped": "停止中",
+      "storagePath": "保存先パス"
     }
   },
   "agent": {

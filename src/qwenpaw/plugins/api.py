@@ -2,6 +2,7 @@
 """Plugin API for plugin developers."""
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type
 
@@ -49,6 +50,37 @@ def get_tool_config(tool_name: str) -> Optional[Dict[str, Any]]:
 # -------------------------------------------------------------------
 # Helpers for PluginApi.register_tool
 # -------------------------------------------------------------------
+
+# tool_name → owning plugin_id. Same plugin may re-register idempotently;
+# a different plugin claiming the same name fails closed.
+_TOOL_PLUGIN_OWNERS: Dict[str, str] = {}
+_TOOL_PLUGIN_OWNERS_LOCK = threading.Lock()
+
+
+def _claim_tool_ownership(tool_name: str, plugin_id: str) -> None:
+    """Record plugin ownership for *tool_name* or raise on conflict."""
+    from ..governance.tool_registry import GovernanceRegistrationConflict
+
+    with _TOOL_PLUGIN_OWNERS_LOCK:
+        owner = _TOOL_PLUGIN_OWNERS.get(tool_name)
+        if owner is not None and owner != plugin_id:
+            raise GovernanceRegistrationConflict(
+                f"Tool {tool_name!r} is already owned by plugin "
+                f"{owner!r}; plugin {plugin_id!r} cannot re-register it",
+            )
+        _TOOL_PLUGIN_OWNERS[tool_name] = plugin_id
+
+
+def release_tool_ownership_for_plugin(plugin_id: str) -> None:
+    """Drop ownership records for tools registered by *plugin_id*."""
+    with _TOOL_PLUGIN_OWNERS_LOCK:
+        stale = [
+            name
+            for name, owner in _TOOL_PLUGIN_OWNERS.items()
+            if owner == plugin_id
+        ]
+        for name in stale:
+            del _TOOL_PLUGIN_OWNERS[name]
 
 
 def _register_to_governance(
@@ -690,9 +722,11 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         """
 
         def _startup_register():
-            # Governance first: fail closed before exposing the tool in
-            # toolkit/UI/runtime (avoids #6114-style visible-but-denied).
+            # Ownership + governance first: fail closed before exposing
+            # the tool in toolkit/UI/runtime (avoids #6114-style
+            # visible-but-denied, and cross-plugin name collisions).
             try:
+                _claim_tool_ownership(tool_name, self.plugin_id)
                 _register_to_governance(
                     tool_name,
                     tool_type=tool_type,

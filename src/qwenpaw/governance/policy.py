@@ -513,9 +513,13 @@ def _auto_default_user_rules() -> List[GovernanceRule]:
             gov = getattr(desc, "governance", None)
             if gov is None or not gov.default_policy:
                 continue
-            action = action_map.get(gov.default_policy.lower())
+            policy_key = gov.default_policy.strip().lower()
+            action = action_map.get(policy_key)
             if action is None:
-                continue
+                raise ValueError(
+                    f"Invalid default_policy {gov.default_policy!r} on "
+                    f"tool {desc.name!r}; expected allow|ask|deny",
+                )
             pname = gov.policy_name or snake_to_pascal(desc.name)
             rules.append(
                 GovernanceRule(
@@ -556,14 +560,15 @@ def get_default_user_rules() -> List[GovernanceRule]:
 
 # Backward-compatible name used by tests and callers. Resolved lazily so
 # descriptor imports are available when the list is first read.
-class _DefaultUserRulesProxy(list):
-    """Lazy list-like view over :func:`get_default_user_rules`.
+class _DefaultUserRulesProxy:
+    """Lazy sequence view over :func:`get_default_user_rules`.
 
     Supported: iteration, ``len()``, integer index, ``repr``.
 
-    Unsupported / unsafe on the proxy itself: ``+``, ``==``, slice
-    assignment, in-place mutation. Prefer
-    ``list(DEFAULT_USER_RULES)`` / :func:`get_default_user_rules` first.
+    This intentionally does **not** subclass ``list`` — inherited ``+``,
+    ``==``, and in-place mutation would operate on an empty backing list
+    and silently diverge from the lazy rules. Prefer
+    ``list(DEFAULT_USER_RULES)`` / :func:`get_default_user_rules`.
     """
 
     def _rules(self) -> List[GovernanceRule]:

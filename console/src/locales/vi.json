@@ -282,6 +282,19 @@
       "refreshBackend": "Làm mới nhật ký",
       "refreshSuccess": "Đã làm mới nhật ký",
       "copyBackend": "Sao chép nhật ký"
+    },
+    "messageRecording": {
+      "title": "Ghi Tin Nhắn",
+      "desc": "Ghi lại đầu vào và đầu ra của các lời gọi LLM vào tệp JSONL để gỡ lỗi.",
+      "enabled": "Bật ghi",
+      "maxContentLength": "Độ dài nội dung tối đa",
+      "maxContentLengthTooltip": "Cắt bớt nội dung văn bản vượt quá độ dài này. Để trống nếu không muốn cắt.",
+      "retentionDays": "Số ngày lưu giữ",
+      "retentionDaysTooltip": "Tự động xóa các tệp JSONL cũ hơn số ngày này.",
+      "status": "Trạng thái",
+      "statusRecording": "Đang ghi",
+      "statusStopped": "Đã dừng",
+      "storagePath": "Đường dẫn lưu trữ"
     }
   },
   "inbox": {

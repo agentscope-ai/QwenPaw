@@ -12,12 +12,17 @@ from qwenpaw.agents.tools.delegate_external_agent import (
     delegate_external_agent,
 )
 from qwenpaw.agents.tools.file_io import append_file
-from qwenpaw.config.config import _default_builtin_tools
+from qwenpaw.config.config import (
+    ToolsConfig,
+    _default_builtin_tools,
+    _reset_builtin_tools_cache_for_tests,
+)
 from qwenpaw.governance.policy import (
     DEFAULT_USER_RULES,
     GovernanceAction,
     GovernancePolicy,
     ToolCallSpec,
+    _DefaultUserRulesProxy,
     _auto_default_user_rules,
     get_default_user_rules,
 )
@@ -28,9 +33,17 @@ from qwenpaw.governance.tool_registry import (
     assert_no_governance_gaps,
     register_tool_governance,
     snake_to_pascal,
+    validate_default_policy,
+    validate_tool_type,
     _collect_governance_gaps,
 )
-from qwenpaw.plugins.api import _register_to_governance
+from qwenpaw.plugins.api import (
+    _TOOL_PLUGIN_OWNERS,
+    _claim_tool_ownership,
+    _register_to_governance,
+    release_tool_ownership_for_plugin,
+)
+from qwenpaw.plugins.registry import PluginRegistry
 from qwenpaw.runtime.tool_registry import ToolDescriptor, ToolGovernanceSpec
 
 
@@ -310,3 +323,127 @@ class TestBuiltinToolConfigFromDescriptors:
         tools = _default_builtin_tools()
         assert tools["web_search"].icon == "🔎"
         assert tools["view_image"].display_to_user is False
+
+    def test_late_plugin_manifest_merged_after_cache_warm(
+        self,
+    ) -> None:
+        """Descriptor cache must not permanently omit late plugin tools."""
+        plugin_id = "__ut_late_plugin_manifest__"
+        tool_name = "__ut_late_plugin_tool__"
+        registry = PluginRegistry()
+        registry.unregister_plugin(plugin_id)
+        _reset_builtin_tools_cache_for_tests()
+        try:
+            before = _default_builtin_tools()
+            assert tool_name not in before
+
+            registry.register_plugin_manifest(
+                plugin_id,
+                {
+                    "name": plugin_id,
+                    "meta": {
+                        "tool_name": tool_name,
+                        "tool_description": "late plugin tool",
+                        "tool_icon": "🧪",
+                    },
+                },
+            )
+            cfg = ToolsConfig()
+            assert tool_name in cfg.builtin_tools
+            assert cfg.builtin_tools[tool_name].enabled is False
+
+            registry.unregister_plugin(plugin_id)
+            after = _default_builtin_tools()
+            assert tool_name not in after
+        finally:
+            registry.unregister_plugin(plugin_id)
+            _reset_builtin_tools_cache_for_tests()
+
+
+class TestToolTypeAndDefaultPolicyValidation:
+    def test_reject_bogus_tool_type(self):
+        registry = ToolRegistry()
+        with pytest.raises(GovernanceRegistrationConflict):
+            register_tool_governance(
+                registry,
+                python_name="__ut_bogus_type__",
+                tool_type="bogus",
+            )
+
+    def test_accept_known_tool_types(self):
+        registry = ToolRegistry()
+        for tool_type in ("file", "network", "shell", "internal"):
+            register_tool_governance(
+                registry,
+                python_name=f"__ut_type_{tool_type}__",
+                tool_type=tool_type,
+            )
+
+    def test_validate_default_policy_rejects_typo(self):
+        with pytest.raises(GovernanceRegistrationConflict):
+            validate_default_policy("alow")
+
+    def test_validate_tool_type_helpers(self):
+        assert validate_tool_type("network") == "network"
+        with pytest.raises(GovernanceRegistrationConflict):
+            validate_tool_type("")
+
+
+class TestPluginToolOwnership:
+    def test_different_plugin_same_tool_name_conflicts(self):
+        tool_name = "__ut_owned_tool__"
+        _TOOL_PLUGIN_OWNERS.pop(tool_name, None)
+        try:
+            _claim_tool_ownership(tool_name, "plugin-a")
+            with pytest.raises(GovernanceRegistrationConflict):
+                _claim_tool_ownership(tool_name, "plugin-b")
+            # Same plugin is idempotent.
+            _claim_tool_ownership(tool_name, "plugin-a")
+        finally:
+            release_tool_ownership_for_plugin("plugin-a")
+            release_tool_ownership_for_plugin("plugin-b")
+
+    def test_release_ownership_allows_other_plugin(self):
+        tool_name = "__ut_owned_tool_release__"
+        _TOOL_PLUGIN_OWNERS.pop(tool_name, None)
+        try:
+            _claim_tool_ownership(tool_name, "plugin-a")
+            release_tool_ownership_for_plugin("plugin-a")
+            _claim_tool_ownership(tool_name, "plugin-b")
+        finally:
+            release_tool_ownership_for_plugin("plugin-a")
+            release_tool_ownership_for_plugin("plugin-b")
+
+
+class TestDefaultUserRulesProxy:
+    def test_proxy_is_not_list_subclass(self):
+        assert not isinstance(DEFAULT_USER_RULES, list)
+        assert isinstance(DEFAULT_USER_RULES, _DefaultUserRulesProxy)
+
+
+class TestWindowsStylePathExtraction:
+    def test_extract_target_joins_backslash_relative_path(self):
+        """Relative targets with backslash segments still join to workspace."""
+        import ntpath
+
+        registry = ToolRegistry()
+        register_tool_governance(
+            registry,
+            python_name="__ut_win_read__",
+            tool_type="file",
+            target_param="file_path",
+            policy_name="UtWinRead",
+        )
+        # Use an absolute POSIX workspace so join works on all platforms;
+        # relative path keeps Windows-style separators as segments.
+        workspace = "/tmp/ut_win_workspace"
+        relative = r"src\main.py"
+        target = registry.extract_target(
+            "UtWinRead",
+            {"file_path": relative},
+            workspace_dir=workspace,
+        )
+        assert target.startswith(workspace)
+        assert "main.py" in target
+        # ntpath.basename still sees the leaf under Windows separators.
+        assert ntpath.basename(relative) == "main.py"

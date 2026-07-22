@@ -100,6 +100,19 @@
       "refreshBackend": "Atualizar logs do backend",
       "refreshSuccess": "Logs atualizados",
       "copyBackend": "Copiar logs do backend"
+    },
+    "messageRecording": {
+      "title": "Gravação de Mensagens",
+      "desc": "Gravar entradas e saídas de chamadas LLM em arquivos JSONL para depuração.",
+      "enabled": "Ativar gravação",
+      "maxContentLength": "Comprimento máximo do conteúdo",
+      "maxContentLengthTooltip": "Truncar conteúdo de texto que exceda este comprimento. Deixe vazio para não truncar.",
+      "retentionDays": "Dias de retenção",
+      "retentionDaysTooltip": "Excluir automaticamente arquivos JSONL mais antigos que este número de dias.",
+      "status": "Status",
+      "statusRecording": "Gravando",
+      "statusStopped": "Parado",
+      "storagePath": "Caminho de armazenamento"
     }
   },
   "acp": {
