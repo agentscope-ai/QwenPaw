@@ -498,6 +498,7 @@ qwenpaw agents chat \
 | `qwenpaw cron get <job_id>`    | 查看任务配置                   |
 | `qwenpaw cron state <job_id>`  | 查看运行状态（下次运行时间等） |
 | `qwenpaw cron create ...`      | 创建任务                       |
+| `qwenpaw cron update <job_id>` | 更新任务的指定字段             |
 | `qwenpaw cron delete <job_id>` | 删除任务                       |
 | `qwenpaw cron pause <job_id>`  | 暂停任务                       |
 | `qwenpaw cron resume <job_id>` | 恢复暂停的任务                 |
@@ -536,7 +537,8 @@ qwenpaw cron create \
   --channel dingtalk \
   --target-user "你的用户ID" \
   --target-session "会话ID" \
-  --text "我有什么待办事项？"
+  --text "我有什么待办事项？" \
+  --model openai/gpt-4o-mini
 
 # agent：后台执行，不向渠道投递回复
 qwenpaw cron create \
@@ -600,18 +602,24 @@ JSON 结构见 `qwenpaw cron get <job_id>` 的返回。
 
 ### 额外选项
 
-| 选项                                                   | 默认值   | 说明                                                              |
-| ------------------------------------------------------ | -------- | ----------------------------------------------------------------- |
-| `--timezone`                                           | 用户时区 | 调度时区（默认使用 config 中的 `user_timezone`）                  |
-| `--enabled` / `--no-enabled`                           | 启用     | 创建时启用或禁用                                                  |
-| `--mode`                                               | `final`  | `stream`（逐步发送）或 `final`（完成后一次性发送）                |
-| `--silent` / `--no-silent`                             | 关闭     | 执行 `agent` 任务但不向渠道投递回复                               |
-| `--save-result-to-inbox` / `--no-save-result-to-inbox` | 自动规则 | 是否将执行结果写入收件箱（省略时由服务端默认策略决定）            |
-| `--repeat-every-days`                                  | 不重复   | 仅 `--schedule-type scheduled` 可用；每 N 天重复                  |
-| `--repeat-end-type`                                    | `never`  | 仅重复日程可用；`never` / `until` / `count`                       |
-| `--repeat-until`                                       | —        | 当 `--repeat-end-type until` 时必填；ISO 8601 结束时间            |
-| `--repeat-count`                                       | —        | 当 `--repeat-end-type count` 时必填；最大执行次数（不含手动执行） |
-| `--base-url`                                           | 自动     | 覆盖 API 地址                                                     |
+| 选项                                                   | 默认值     | 说明                                                              |
+| ------------------------------------------------------ | ---------- | ----------------------------------------------------------------- |
+| `--timezone`                                           | 用户时区   | 调度时区（默认使用 config 中的 `user_timezone`）                  |
+| `--enabled` / `--no-enabled`                           | 启用       | 创建时启用或禁用                                                  |
+| `--mode`                                               | `final`    | `stream`（逐步发送）或 `final`（完成后一次性发送）                |
+| `--model PROVIDER/MODEL`                               | 智能体默认 | 为 `agent` 任务固定模型，不修改智能体配置                         |
+| `--clear-model`                                        | —          | 仅用于 `update`；移除固定模型并恢复运行时默认值                   |
+| `--silent` / `--no-silent`                             | 关闭       | 执行 `agent` 任务但不向渠道投递回复                               |
+| `--save-result-to-inbox` / `--no-save-result-to-inbox` | 自动规则   | 是否将执行结果写入收件箱（省略时由服务端默认策略决定）            |
+| `--repeat-every-days`                                  | 不重复     | 仅 `--schedule-type scheduled` 可用；每 N 天重复                  |
+| `--repeat-end-type`                                    | `never`    | 仅重复日程可用；`never` / `until` / `count`                       |
+| `--repeat-until`                                       | —          | 当 `--repeat-end-type until` 时必填；ISO 8601 结束时间            |
+| `--repeat-count`                                       | —          | 当 `--repeat-end-type count` 时必填；最大执行次数（不含手动执行） |
+| `--base-url`                                           | 自动       | 覆盖 API 地址                                                     |
+
+`--model` 只按第一个 `/` 分隔，因此支持
+`openrouter/meta-llama/llama-3.3-70b` 这类模型 ID。执行
+`qwenpaw cron update <job_id> --clear-model` 后，任务会重新跟随智能体或全局活跃模型。
 
 ### Cron 表达式速查
 

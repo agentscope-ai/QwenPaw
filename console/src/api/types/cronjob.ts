@@ -41,6 +41,10 @@ export interface CronJobRequest {
   input: unknown;
   session_id?: string | null;
   user_id?: string | null;
+  model_slot_override?: {
+    provider_id: string;
+    model: string;
+  } | null;
   [key: string]: unknown;
 }
 

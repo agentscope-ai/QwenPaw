@@ -8,10 +8,12 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    field_validator,
     model_validator,
 )
 
 from ..channels.schema import DEFAULT_CHANNEL
+from ...config.config import ModelSlotConfig
 
 # ---------------------------------------------------------------------------
 # APScheduler v3 uses ISO 8601 weekday numbering (0=Mon … 6=Sun) for
@@ -191,6 +193,48 @@ class CronJobRequest(BaseModel):
     input: Optional[Any] = None
     session_id: Optional[str] = None
     user_id: Optional[str] = None
+    model_slot_override: Optional[ModelSlotConfig] = Field(
+        default=None,
+        description=(
+            "Optional per-job model selection. It takes precedence over the "
+            "agent's active model without changing persisted configuration."
+        ),
+    )
+
+    @field_validator("model_slot_override", mode="before")
+    @classmethod
+    def _normalize_model_slot_override(cls, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+
+        provider_id, separator, model = value.partition(":")
+        if not separator:
+            raise ValueError(
+                "model_slot_override requires non-empty provider_id and model",
+            )
+        return {
+            "provider_id": provider_id.strip(),
+            "model": model.strip(),
+        }
+
+    @field_validator("model_slot_override")
+    @classmethod
+    def _validate_model_slot_override(
+        cls,
+        value: Optional[ModelSlotConfig],
+    ) -> Optional[ModelSlotConfig]:
+        if value is None:
+            return None
+
+        provider_id = value.provider_id.strip()
+        model = value.model.strip()
+        if not provider_id or not model:
+            raise ValueError(
+                "model_slot_override requires non-empty provider_id and model",
+            )
+        return value.model_copy(
+            update={"provider_id": provider_id, "model": model},
+        )
 
 
 TaskType = Literal["text", "agent"]
@@ -216,6 +260,13 @@ class CronJobSpec(BaseModel):
         if self.task_type == "text":
             if not (self.text and self.text.strip()):
                 raise ValueError("task_type is text but text is empty")
+            if (
+                self.request is not None
+                and self.request.model_slot_override is not None
+            ):
+                raise ValueError(
+                    "model override is only supported for agent tasks",
+                )
             if self.dispatch.silent:
                 raise ValueError(
                     "silent delivery is only supported for agent tasks",

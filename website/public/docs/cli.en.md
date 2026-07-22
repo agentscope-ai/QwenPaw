@@ -513,6 +513,7 @@ ask QwenPaw and send the reply". **Requires `qwenpaw app` to be running.**
 | `qwenpaw cron get <job_id>`    | Show a job's spec                             |
 | `qwenpaw cron state <job_id>`  | Show runtime state (next run, last run, etc.) |
 | `qwenpaw cron create ...`      | Create a job                                  |
+| `qwenpaw cron update <job_id>` | Update selected fields of a job               |
 | `qwenpaw cron delete <job_id>` | Delete a job                                  |
 | `qwenpaw cron pause <job_id>`  | Pause a job                                   |
 | `qwenpaw cron resume <job_id>` | Resume a paused job                           |
@@ -551,7 +552,8 @@ qwenpaw cron create \
   --channel dingtalk \
   --target-user "your_user_id" \
   --target-session "session_id" \
-  --text "What are my todo items?"
+  --text "What are my todo items?" \
+  --model openai/gpt-4o-mini
 
 # Agent: run in the background without channel delivery
 qwenpaw cron create \
@@ -620,6 +622,8 @@ JSON structure matches the output of `qwenpaw cron get <job_id>`.
 | `--timezone`                                           | user timezone | Schedule timezone (defaults to `user_timezone` from config)                 |
 | `--enabled` / `--no-enabled`                           | enabled       | Create enabled or disabled                                                  |
 | `--mode`                                               | `final`       | `stream` (incremental) or `final` (complete response)                       |
+| `--model PROVIDER/MODEL`                               | agent default | Fix the model for an `agent` job without changing the agent configuration   |
+| `--clear-model`                                        | —             | `update` only; remove the fixed model and return to runtime defaults        |
 | `--silent` / `--no-silent`                             | disabled      | Run an `agent` task without delivering its response to the channel          |
 | `--save-result-to-inbox` / `--no-save-result-to-inbox` | server rules  | Save execution results to Inbox (if omitted, server-side defaults are used) |
 | `--repeat-every-days`                                  | no repeat     | `--schedule-type scheduled` only; repeat every N days                       |
@@ -627,6 +631,11 @@ JSON structure matches the output of `qwenpaw cron get <job_id>`.
 | `--repeat-until`                                       | —             | Required when `--repeat-end-type until`; ISO 8601 end datetime              |
 | `--repeat-count`                                       | —             | Required when `--repeat-end-type count`; max run count                      |
 | `--base-url`                                           | auto          | Override the API base URL                                                   |
+
+`--model` splits only on the first `/`, so model IDs such as
+`openrouter/meta-llama/llama-3.3-70b` are supported. Use
+`qwenpaw cron update <job_id> --clear-model` to make the job follow the
+agent or global active model again.
 
 ### Cron expression cheat sheet
 

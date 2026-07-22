@@ -6,13 +6,13 @@ from pydantic import ValidationError
 
 from qwenpaw.app.crons.models import (
     CronJobSpec,
+    CronJobRequest,
     DispatchSpec,
     DispatchTarget,
     ScheduleSpec,
     _crontab_dow_to_name,
 )
 from tests.unit.app.conftest import make_cron_job_spec
-
 
 # ---------------------------------------------------------------------------
 # _crontab_dow_to_name — crontab numeric DOW → abbreviation
@@ -84,6 +84,53 @@ def test_schedule_once_requires_run_at():
 
 
 # ---------------------------------------------------------------------------
+# CronJobRequest model override
+# ---------------------------------------------------------------------------
+
+
+def test_cron_job_request_exposes_model_slot_override_in_schema():
+    properties = CronJobRequest.model_json_schema()["properties"]
+
+    assert "model_slot_override" in properties
+
+
+def test_cron_job_request_normalizes_model_slot_override():
+    request = CronJobRequest(
+        model_slot_override={
+            "provider_id": " openai ",
+            "model": " gpt-4o-mini ",
+        },
+    )
+
+    assert request.model_slot_override.provider_id == "openai"
+    assert request.model_slot_override.model == "gpt-4o-mini"
+    assert request.model_dump(mode="json")["model_slot_override"] == {
+        "provider_id": "openai",
+        "model": "gpt-4o-mini",
+    }
+
+
+def test_cron_job_request_keeps_colon_string_compatibility():
+    request = CronJobRequest(model_slot_override="openai:gpt-4o:2024")
+
+    assert request.model_slot_override.provider_id == "openai"
+    assert request.model_slot_override.model == "gpt-4o:2024"
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"provider_id": "", "model": "gpt-4o-mini"},
+        {"provider_id": "openai", "model": ""},
+        "missing-separator",
+    ],
+)
+def test_cron_job_request_rejects_incomplete_model_override(override):
+    with pytest.raises(ValidationError, match="provider_id.*model"):
+        CronJobRequest(model_slot_override=override)
+
+
+# ---------------------------------------------------------------------------
 # CronJobSpec validation
 # ---------------------------------------------------------------------------
 
@@ -143,3 +190,19 @@ def test_cron_job_spec_text_rejects_silent_delivery():
                 silent=True,
             ),
         )
+
+
+def test_cron_job_spec_text_rejects_model_override():
+    payload = make_cron_job_spec(task_type="text").model_dump(mode="json")
+    payload["request"] = {
+        "model_slot_override": {
+            "provider_id": "openai",
+            "model": "gpt-4o-mini",
+        },
+    }
+
+    with pytest.raises(
+        ValidationError,
+        match="model override is only supported for agent tasks",
+    ):
+        CronJobSpec.model_validate(payload)

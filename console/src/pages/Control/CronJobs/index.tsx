@@ -34,6 +34,7 @@ import {
   DEFAULT_FORM_VALUES,
 } from "./components";
 import { parseCron, serializeCron } from "./components/parseCron";
+import { mergeCronJobRequest } from "./mergeRequest";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
 
@@ -386,10 +387,10 @@ function CronJobsPage() {
       // Remove request object entirely for text tasks
       delete processedValues.request;
     } else if (processedValues.task_type === "agent") {
-      //Ensure request object exists
-      if (!processedValues.request) {
-        processedValues.request = {};
-      }
+      processedValues.request = mergeCronJobRequest(
+        editingJob?.request,
+        processedValues.request,
+      );
 
       // Parse request input JSON
       if (

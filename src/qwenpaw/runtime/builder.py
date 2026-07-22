@@ -243,6 +243,7 @@ class AgentBuilder:
             ensure_skills_initialized,
             resolve_effective_skills,
         )
+        from ..agents.model_factory import resolve_model_slot_override
         from ..config.config import load_agent_config
         from ..constant import WORKING_DIR
         from ..providers.provider_manager import ProviderManager
@@ -256,8 +257,12 @@ class AgentBuilder:
         )
         ctx.agent_config = agent_config
 
-        # Validate model availability.
-        active = agent_config.active_model
+        model_slot_override = resolve_model_slot_override(
+            getattr(ctx.request, "model_slot_override", None),
+        )
+        active = model_slot_override
+        if not (active and active.provider_id and active.model):
+            active = agent_config.active_model
         if not (active and active.provider_id and active.model):
             active = ProviderManager.get_instance().get_active_model()
         if active is None or not active.provider_id or not active.model:
@@ -341,7 +346,6 @@ class AgentBuilder:
 
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
-        model_slot_override = getattr(ctx.request, "model_slot_override", None)
         model, _formatter = self.build_model(
             agent_config,
             model_slot_override=model_slot_override,
