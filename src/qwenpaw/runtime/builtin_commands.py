@@ -514,6 +514,39 @@ def _collect_conversation_specs() -> list[CommandSpec]:
 # ======================================================================
 
 
+def _extract_block_text(block: Any) -> str:
+    """Return the text of a message content block (dict or object)."""
+    if isinstance(block, dict):
+        return block.get("text") or ""
+    return getattr(block, "text", "") or ""
+
+
+def _build_skill_injection(
+    original_text: str,
+    display_name: str,
+    skill_dir: "Path",
+    user_input: str,
+    skill_body: str,
+) -> str:
+    """Keep the typed text at the head; append the skill body in a
+    trailing ``<skill>`` block (hidden from display by
+    ``strip_injected_skill_block``).
+    """
+    return (
+        f"{original_text}\n\n"
+        f'<skill name="{display_name}" dir="{skill_dir}">\n'
+        f"This block was injected because the user invoked the "
+        f"[{display_name}] skill above. It is the full content of "
+        f"the skill's SKILL.md — do not re-read that file. Follow "
+        f"these instructions to fulfill the user's task: "
+        f"{user_input}\n"
+        f"Relative paths inside the skill (e.g. `scripts/`) resolve "
+        f"against the skill directory.\n\n"
+        f"{skill_body.strip()}\n"
+        f"</skill>"
+    )
+
+
 def _parse_skill_query(query: str) -> tuple[str, str] | None:
     """Parse ``/name [input]`` or ``/[name with spaces] [input]``."""
     stripped = query.strip()
@@ -621,13 +654,7 @@ async def _skill_fallback_handler(
             ],
         )
 
-    # Rewrite last message with skill body — agent will execute with it
-    merged = (
-        f"Use the [{display_name}] skill in "
-        f"`{skill_dir}` to fulfill "
-        f"user's task: {user_input}\n\n"
-        f"{post.content}"
-    )
+    # Append the skill body as a trailing <skill> block; typed text stays.
     msgs = getattr(ctx, "input_msgs", None)
     if msgs:
         last = msgs[-1]
@@ -640,11 +667,31 @@ async def _skill_fallback_handler(
                     else getattr(block, "type", None)
                 )
                 if btype == "text":
+                    merged = _build_skill_injection(
+                        _extract_block_text(block),
+                        display_name,
+                        skill_dir,
+                        user_input,
+                        post.content,
+                    )
                     content[i] = TextBlock(type="text", text=merged)
                     return None
+            merged = _build_skill_injection(
+                "",
+                display_name,
+                skill_dir,
+                user_input,
+                post.content,
+            )
             content.insert(0, TextBlock(type="text", text=merged))
         elif isinstance(content, str):
-            last.content = merged
+            last.content = _build_skill_injection(
+                content,
+                display_name,
+                skill_dir,
+                user_input,
+                post.content,
+            )
     return None
 
 

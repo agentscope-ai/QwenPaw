@@ -389,7 +389,8 @@ def _build_media_message_from_block(
 
 
 # Matches the trailing <skill> block appended to a user message by
-# slash-command skill expansion (runner._maybe_inject_skill).
+# slash-command skill expansion
+# (runtime.builtin_commands._skill_fallback_handler).
 _INJECTED_SKILL_BLOCK_RE = re.compile(
     r"\s*<skill\b[^>]*>.*</skill>\s*$",
     re.DOTALL,
