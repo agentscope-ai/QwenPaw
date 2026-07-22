@@ -40,11 +40,13 @@ def test_structured_task_state_headline_is_extracted_and_hidden() -> None:
 
 
 @pytest.mark.parametrize("language", ["en", "zh"])
-def test_prompt_uses_only_optional_structured_headline(language: str) -> None:
+def test_prompt_uses_high_coverage_retrieval_headline(language: str) -> None:
     prompt = build_scroll_system_prompt(language)
     assert "⟦" in prompt and "⟧" in prompt
     assert "next" in prompt.casefold() or "下一步" in prompt
-    assert "optional" in prompt.casefold() or "可选" in prompt
+    assert "anchors" in prompt.casefold() or "锚点" in prompt
+    assert "every substantive" in prompt or "每个有实质信息" in prompt
+    assert "rather than omitting" in prompt or "而不是省略" in prompt
     assert "<context-event>" not in prompt
     assert "<task-state>" not in prompt
 
@@ -55,20 +57,24 @@ def test_prompt_uses_only_optional_structured_headline(language: str) -> None:
         (
             "en",
             (
-                "continuation summary",
+                "retrieval label",
                 "VERIFIED state",
                 "success criterion",
                 "failed attempt",
+                "two to four",
+                "five high-value",
                 "2000-character limit",
             ),
         ),
         (
             "zh",
             (
-                "continuation summary",
+                "检索标签",
                 "成功标准",
                 "已经验证",
                 "失败尝试",
+                "2～4 个短分句",
+                "5 个高价值",
                 "2000 字符",
             ),
         ),

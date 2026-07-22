@@ -81,20 +81,20 @@ If SQLite FTS5 is available, QwenPaw also keeps a `conversation_history_fts` ind
 
 ## Working Memory
 
-**Working memory** is the live prompt window — what the model can attend to right now. When it fills, scroll keeps it within budget by persisting and evicting older turns, then retaining a pointer-backed task-state summary and an expandable index. The summary never replaces the exact rows. A useful turn may also supply a one-line **headline** for the index.
+**Working memory** is the live prompt window — what the model can attend to right now. When it fills, scroll keeps it within budget by persisting and evicting older turns, then retaining a pointer-backed task-state summary and an expandable index. The summary never replaces the exact rows. Each substantive task turn also supplies a one-line **headline** for retrieval and navigation.
 
 ### Headlines
 
-During normal replies, a turn that establishes a durable task-state change may append one hidden headline after all tool calls have completed:
+During normal replies, every substantive task turn appends one hidden retrieval headline after all tool calls have completed. A major or durable state change is not required:
 
 ```text
 ⟦ database migration | decided: use PostgreSQL for JSONB; MySQL superseded ⟧
 ```
 
-- **Shape**: `task | status: current effective state; next: concrete action`. The task name should stay stable; `next` is omitted when unknown or completed. Revised decisions name both the final choice and the superseded choice.
+- **Shape**: `task or topic | status: concrete outcome; next: concrete action | anchors: exact retrieval terms`. `next` and `anchors` are omitted when they add no value. Headlines normally use one sentence with two to four compact clauses and at most five high-value anchors; they do not repeat the reply, narrate reasoning, list every tool call, or stuff keywords. The 2,000-character limit remains only a compatibility ceiling.
 - **How it's captured**: Scroll extracts the `⟦ … ⟧` line into the assistant turn's `headline` column and removes it from chat display. It remains verbatim in durable history.
 - **What it's for**: the headline is a compact semantic checkpoint and navigation label, not the source of truth. Once the raw turn leaves the live window, it becomes the turn's `seq · ⟦ … ⟧` leaf in the eviction index; exact details remain recallable from `history.db`.
-- **It is optional at turn time**: routine turns, tentative thoughts, and turns without a durable task-state change emit no headline. When such a span is later evicted, it remains a `seq lo–hi · (no milestone)` entry: semantically unlabeled, but exactly recallable by that seq range. Compaction does not make an extra model call to backfill it.
+- **High-coverage labelling**: confirmations, attempts, rejected hypotheses, decisions, changes, verification results, failures, pauses, and blockers are labelled even when the overall task state is unchanged. Only pure social conversation, bare acknowledgements, and replies with no new task-relevant information omit the headline. An unlabelled span remains exactly recallable as `seq lo–hi · (no milestone)`; compaction does not make an extra model call to backfill it.
 
 ### Pointer-Backed Continuation Summary
 
