@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AG-UI protocol router — SSE endpoint at /protocol/agui/chat."""
+"""AgentScope 2.0 native event stream — SSE endpoint at /protocol/agui/chat."""
 
 import json
 import logging
@@ -11,7 +11,6 @@ from starlette.responses import StreamingResponse
 
 from qwenpaw.schemas import AgentRequest
 from ...agent_context import get_agent_for_request
-from .converter import create_converter, create_run_error_event
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +27,9 @@ def _normalize_request(
 ) -> AgentRequest:
     """Validate the body, failing fast (422) when input is empty.
 
-    FastAPI may deliver a ``dict`` when the JSON does not fully match the
-    AgentRequest schema.  Passing a raw channel-native dict
-    (``{content_parts, ...}``) to ``workspace.stream_query`` would drop the
-    user's message because ``Runtime._normalize`` creates an ``AgentRequest``
-    whose ``input`` defaults to an empty list.
+    FastAPI may deliver a ``dict`` that does not fully match the
+    AgentRequest schema.  Passing a raw channel-native dict to
+    ``workspace.stream_query`` would drop the user's message.
     """
     if isinstance(request_data, AgentRequest):
         req = request_data
@@ -58,69 +55,56 @@ def _sse_frame(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-async def _stream_agui_events(
+async def _stream_events(
     workspace,
     agent_request: AgentRequest,
-    converter,
 ) -> AsyncGenerator[str, None]:
-    """Stream agent output as AG-UI SSE frames.
+    """Stream AgentScope native events from the workspace as SSE frames.
 
-    Yields one ``data: <json>\\n\\n`` frame per AG-UI event.  A single
-    conversion failure is logged and skipped so the stream is not aborted
-    by one unexpected envelope shape.
+    Yields one ``data: <json>\\n\\n`` frame per event.  A serialization
+    failure is logged and skipped so the stream is not aborted by one
+    unexpected envelope shape.
     """
     try:
         async for event in workspace.stream_query(agent_request):
             try:
-                agui_dict = converter.convert(event)
-            except Exception:
-                logger.exception(
-                    "Failed to convert agent event to AG-UI format; skipping",
+                ev = (
+                    event.model_dump(
+                        exclude_none=True,
+                    )
+                    if hasattr(event, "model_dump")
+                    else vars(event)
                 )
+            except Exception:
+                logger.exception("Failed to serialize event; skipping")
                 continue
-            yield _sse_frame(agui_dict)
+            yield _sse_frame(ev)
     except Exception as e:  # noqa: BLE001
-        logger.exception("AG-UI event stream error")
-        yield _sse_frame(create_run_error_event(str(e)))
+        logger.exception("Event stream error")
+        yield _sse_frame({"type": "run_error", "message": str(e)})
 
 
 @router.post(
     "/chat",
-    summary="Chat with AG-UI protocol (streaming)",
+    summary="Stream AgentScope 2.0 native events",
     description=(
-        "Stream agent response in AG-UI protocol format over SSE. "
+        "Stream the agent's native AgentScope 2.0 event stream over SSE. "
         "Each event is a ``data: <json>`` line per the SSE spec."
     ),
     responses={
         422: {"description": "Invalid or empty agent request"},
-        500: {
-            "model": AGUIErrorResponse,
-            "description": "ag-ui-protocol not installed",
-        },
     },
 )
 async def post_agui_chat(
     request_data: Union[AgentRequest, dict],
     request: Request,
 ) -> StreamingResponse:
-    """Stream agent response in AG-UI protocol format (SSE)."""
-    try:
-        from ag_ui.core.events import BaseEvent  # noqa: F401,F811
-    except ImportError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "AG-UI protocol requires 'ag-ui-protocol' package. "
-                "Install it: pip install 'ag-ui-protocol>=0.1.10,<0.2.0'"
-            ),
-        ) from exc
-
+    """Stream raw AgentScope 2.0 events from the agent over SSE."""
     agent_request = _normalize_request(request_data)
     workspace = await get_agent_for_request(request)
-    converter = create_converter()
 
     return StreamingResponse(
-        content=_stream_agui_events(workspace, agent_request, converter),
+        content=_stream_events(workspace, agent_request),
         media_type="text/event-stream",
         headers={
             "X-Protocol": "ag-ui",
