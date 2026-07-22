@@ -51,6 +51,7 @@ class AgentSummary(BaseModel):
     enabled: bool
     pinned: bool
     startup_status: AgentStartupStatus
+    backend: Literal["qwenpaw", "codex"] = "qwenpaw"
     active_model: ModelSlotConfig | None = None
 
 
@@ -81,6 +82,8 @@ class CreateAgentRequest(BaseModel):
     language: str | None = None
     skill_names: list[str] | None = None
     active_model: ModelSlotConfig | None = None
+    backend: Literal["qwenpaw", "codex"] = "qwenpaw"
+    backend_project_dir: str | None = None
 
     @field_validator("id", mode="before")
     @classmethod
@@ -97,6 +100,17 @@ class CreateAgentRequest(BaseModel):
     @classmethod
     def strip_workspace_dir(cls, value: str | None) -> str | None:
         """Strip accidental whitespace"""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped if stripped else None
+        return value
+
+    @field_validator("backend_project_dir", mode="before")
+    @classmethod
+    def strip_backend_project_dir(cls, value: str | None) -> str | None:
+        """Strip accidental whitespace from the harness project path."""
         if value is None:
             return None
         if isinstance(value, str):
@@ -259,6 +273,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     enabled=enabled,
                     pinned=pinned,
                     startup_status=startup_status,
+                    backend=agent_config.backend,
                     active_model=active_model,
                 ),
             )
@@ -452,6 +467,8 @@ async def create_agent(
         name=request.name,
         description=request.description,
         workspace_dir=str(workspace_dir),
+        backend=request.backend,
+        backend_project_dir=request.backend_project_dir,
         language=language,
         channels=ChannelConfig(),
         mcp=MCPConfig(),

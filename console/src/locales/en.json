@@ -87,6 +87,14 @@
     "category": "Category",
     "description": "Description"
   },
+  "harnesses": {
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "notConnected": "Not connected",
+    "comingSoon": "Coming soon",
+    "connect": "Connect with ChatGPT",
+    "disconnect": "Disconnect"
+  },
   "nav": {
     "chat": "Chat",
     "control": "Control",
@@ -590,6 +598,25 @@
     "selectNone": "None",
     "noPoolSkills": "No skills available in pool",
     "addSkillsToAgent": "Add Skills",
+    "backend": {
+      "column": "Backend",
+      "eyebrow": "Agent architecture",
+      "typeTitle": "Choose how this agent works",
+      "typeDescription": "The agent type controls every Chat, Coding, and Channel conversation.",
+      "nativeTitle": "QwenPaw native agent",
+      "nativeBadge": "Native",
+      "nativeDescription": "Uses your configured LLM, Skills, tools, memory, and QwenPaw runtime.",
+      "thirdPartyTitle": "Third-party agent",
+      "thirdPartyBadge": "Third-party",
+      "thirdPartyDescription": "Uses an authorized external agent runtime instead of a QwenPaw model.",
+      "providerTitle": "Choose a third-party agent",
+      "providerDescription": "Authentication is shared on this device; projects and conversations stay isolated per agent.",
+      "codexHint": "ChatGPT OAuth · Local project",
+      "projectDir": "Codex project directory",
+      "projectDirRequired": "Enter the project directory Codex should work in",
+      "account": "Codex account",
+      "codexNotFound": "Codex was not found in PATH or the ChatGPT editor extension"
+    },
     "model": "Model",
     "modelHelp": "Assign a specific LLM model to this agent. Leave empty to use the global default.",
     "modelPlaceholder": "Use global default",

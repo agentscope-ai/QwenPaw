@@ -87,6 +87,14 @@
     "category": "分类",
     "description": "描述"
   },
+  "harnesses": {
+    "connected": "已连接",
+    "disconnected": "已断开",
+    "notConnected": "未连接",
+    "comingSoon": "即将推出",
+    "connect": "使用 ChatGPT 连接",
+    "disconnect": "断开连接"
+  },
   "nav": {
     "chat": "聊天",
     "control": "控制",
@@ -373,6 +381,25 @@
     "selectNone": "清空",
     "noPoolSkills": "技能池中暂无可用技能",
     "addSkillsToAgent": "添加技能",
+    "backend": {
+      "column": "后端",
+      "eyebrow": "智能体架构",
+      "typeTitle": "选择智能体的工作方式",
+      "typeDescription": "智能体类型决定它在 Chat、Coding 和所有 Channel 中的运行方式。",
+      "nativeTitle": "QwenPaw 原生智能体",
+      "nativeBadge": "原生",
+      "nativeDescription": "使用已配置的 LLM、Skills、工具、记忆和 QwenPaw Runtime。",
+      "thirdPartyTitle": "第三方智能体",
+      "thirdPartyBadge": "第三方",
+      "thirdPartyDescription": "使用已授权的外部 Agent Runtime，不依赖 QwenPaw 模型。",
+      "providerTitle": "选择第三方智能体",
+      "providerDescription": "授权在本机共享，项目与会话仍按智能体隔离。",
+      "codexHint": "ChatGPT OAuth · 本地项目",
+      "projectDir": "Codex 项目目录",
+      "projectDirRequired": "请输入 Codex 要操作的项目目录",
+      "account": "Codex 账户",
+      "codexNotFound": "未在 PATH 或 ChatGPT 编辑器扩展中找到 Codex"
+    },
     "model": "模型",
     "modelHelp": "为此智能体指定特定的 LLM 模型。留空则使用全局默认模型。",
     "modelPlaceholder": "使用全局默认",

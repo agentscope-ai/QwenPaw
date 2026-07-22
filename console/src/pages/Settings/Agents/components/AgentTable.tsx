@@ -1,4 +1,4 @@
-import { Table, Button, Space, Popconfirm, Tooltip } from "antd";
+import { Table, Button, Space, Popconfirm, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
 import {
@@ -19,7 +19,14 @@ import {
   RobotOutlined,
   CopyOutlined,
 } from "@ant-design/icons";
-import { EyeOff, Eye, Pin, PinOff } from "lucide-react";
+import {
+  EyeOff,
+  Eye,
+  PawPrint,
+  Pin,
+  PinOff,
+  SquareTerminal,
+} from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
@@ -124,6 +131,30 @@ export function AgentTable({
       title: t("agent.id"),
       dataIndex: "id",
       key: "id",
+    },
+    {
+      title: t("agent.backend.column"),
+      dataIndex: "backend",
+      key: "backend",
+      width: 120,
+      render: (backend: AgentSummary["backend"]) => (
+        <Tag
+          className={`${styles.backendTag} ${
+            backend === "codex" ? styles.backendTagThirdParty : ""
+          }`}
+          icon={
+            backend === "codex" ? (
+              <SquareTerminal size={12} />
+            ) : (
+              <PawPrint size={12} />
+            )
+          }
+        >
+          {backend === "codex"
+            ? `Codex · ${t("agent.backend.thirdPartyBadge")}`
+            : `QwenPaw · ${t("agent.backend.nativeBadge")}`}
+        </Tag>
+      ),
     },
     {
       title: t("agent.description"),

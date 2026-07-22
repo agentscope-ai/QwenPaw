@@ -8,12 +8,17 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-const agent = (id: string, pinned: boolean): AgentSummary => ({
+const agent = (
+  id: string,
+  pinned: boolean,
+  backend: AgentSummary["backend"] = "qwenpaw",
+): AgentSummary => ({
   id,
   name: id,
   description: "",
   workspace_dir: "",
   enabled: true,
+  backend,
   pinned,
   startup_status: "running",
 });
@@ -60,5 +65,24 @@ describe("AgentTable", () => {
     const defaultCopy = screen.getByTitle("agent.copyDefaultTooltip");
     expect(defaultCopy).toBeEnabled();
     expect(screen.getByTitle("agent.copyTooltip")).toBeEnabled();
+  });
+
+  it("shows each agent runtime backend", () => {
+    renderWithProviders(
+      <AgentTable
+        agents={[agent("native", false), agent("coding", false, "codex")]}
+        loading={false}
+        reordering={false}
+        onEdit={vi.fn()}
+        onCopy={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onPin={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/QwenPaw/)).toBeInTheDocument();
+    expect(screen.getByText(/Codex/)).toBeInTheDocument();
   });
 });

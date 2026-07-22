@@ -17,8 +17,11 @@ export interface AgentSummary {
   enabled: boolean;
   pinned?: boolean;
   startup_status?: AgentStartupStatus;
+  backend: AgentBackend;
   active_model?: ModelSlotConfig | null;
 }
+
+export type AgentBackend = "qwenpaw" | "codex";
 
 export interface AgentListResponse {
   agents: AgentSummary[];
@@ -34,6 +37,8 @@ export interface AgentProfileConfig {
   name: string;
   description?: string;
   workspace_dir?: string;
+  backend?: AgentBackend;
+  backend_project_dir?: string | null;
   approval_level?: string;
   active_model?: ModelSlotConfig | null;
   channels?: unknown;
@@ -54,6 +59,8 @@ export interface CreateAgentRequest {
   language?: string;
   skill_names?: string[];
   active_model?: ModelSlotConfig | null;
+  backend?: AgentBackend;
+  backend_project_dir?: string;
 }
 
 export interface CopyAgentRequest {

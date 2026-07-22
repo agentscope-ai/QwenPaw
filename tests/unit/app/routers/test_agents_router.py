@@ -104,6 +104,8 @@ def test_list_agents_returns_all_profiles(client, fake_config):
         name="Bot",
         description="",
         workspace_dir="/tmp/ws/bot",
+        backend="codex",
+        backend_project_dir="/tmp/project",
     )
 
     def fake_load(agent_id):
@@ -128,6 +130,8 @@ def test_list_agents_returns_all_profiles(client, fake_config):
     body = response.json()
     assert {a["id"] for a in body["agents"]} == {"default", "bot"}
     assert {a["startup_status"] for a in body["agents"]} == {"running"}
+    backends = {a["id"]: a["backend"] for a in body["agents"]}
+    assert backends == {"default": "qwenpaw", "bot": "codex"}
 
 
 def test_list_agents_falls_back_to_id_when_load_fails(client, fake_config):

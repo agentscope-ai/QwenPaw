@@ -1685,6 +1685,14 @@ class AgentProfileConfig(BaseModel):
         default="",
         description="Path to agent's workspace (optional, for reference)",
     )
+    backend: Literal["qwenpaw", "codex"] = Field(
+        default="qwenpaw",
+        description="Runtime backend used for every agent request",
+    )
+    backend_project_dir: Optional[str] = Field(
+        default=None,
+        description="Project directory used by third-party agent backends",
+    )
     template_id: Optional[str] = Field(
         default=None,
         description="Builtin template used when this agent was created",

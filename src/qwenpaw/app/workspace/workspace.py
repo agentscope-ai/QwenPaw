@@ -80,6 +80,7 @@ class Workspace:
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
         self._app_services: Any = None
+        self._harness_runtime = None
 
         # Register all services
         self._register_services()
@@ -135,6 +136,15 @@ class Workspace:
     def local_workspace(self) -> QwenPawLocalWorkspace:
         """AgentScope LocalWorkspace routing tools to ToolRegistry."""
         return self._local_workspace
+
+    @property
+    def harness_runtime(self):
+        """Return the lazily-created third-party agent runtime."""
+        if self._harness_runtime is None:
+            from ...harnesses import HarnessRuntime
+
+            self._harness_runtime = HarnessRuntime(self.workspace_dir)
+        return self._harness_runtime
 
     def bootstrap_plugins(  # pylint: disable=too-many-branches
         self,
@@ -270,6 +280,20 @@ class Workspace:
 
         Drop-in replacement for the old ``Runner.stream_query()``.
         """
+        config = load_agent_config(self.agent_id)
+        backend = config.backend
+        if backend != "qwenpaw":
+            project_dir = Path(
+                config.backend_project_dir or self.workspace_dir,
+            ).expanduser()
+            async for item in self.harness_runtime.stream(
+                backend=backend,
+                request=request,
+                cwd=project_dir.resolve(),
+            ):
+                yield item
+            return
+
         from ...runtime import Runtime
 
         rt = Runtime(workspace=self, app_services=self._app_services)
@@ -570,6 +594,10 @@ class Workspace:
 
         # Stop all services via ServiceManager (handles reuse automatically)
         await self._service_manager.stop_all(final=final)
+
+        if self._harness_runtime is not None:
+            await self._harness_runtime.stop()
+            self._harness_runtime = None
 
         self._started = False
         logger.info(f"Workspace stopped: {self.agent_id}")
