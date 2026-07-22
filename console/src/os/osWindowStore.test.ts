@@ -18,7 +18,20 @@ function resetStore() {
 const s = () => useOsWindows.getState();
 
 describe("osWindowStore", () => {
-  beforeEach(resetStore);
+  beforeEach(() => {
+    // Fixed desktop-sized viewport so open()'s viewport clamp stays inert.
+    Object.defineProperty(window, "innerWidth", {
+      value: 1920,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      value: 1080,
+      configurable: true,
+      writable: true,
+    });
+    resetStore();
+  });
 
   it("open creates a window with the given size and focuses it", () => {
     s().open("core.chat", { w: 880, h: 640 });
@@ -111,5 +124,17 @@ describe("osWindowStore", () => {
     s().switchSpace("default");
     expect(s().missionControlOpen).toBe(false);
     expect(s().spaceId).toBe("default");
+  });
+
+  it("open clamps the initial size to the provided minimum", () => {
+    s().open("os.settings", { w: 400, h: 300, minW: 960, minH: 560 });
+    const win = s().windows["os.settings"];
+    expect(win.w).toBeGreaterThanOrEqual(960);
+    expect(win.h).toBeGreaterThanOrEqual(560);
+  });
+
+  it("open without minimums keeps the requested size", () => {
+    s().open("core.chat", { w: 880, h: 640 });
+    expect(s().windows["core.chat"]).toMatchObject({ w: 880, h: 640 });
   });
 });

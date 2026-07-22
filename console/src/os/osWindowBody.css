@@ -1,0 +1,18 @@
+/* osWindowBody.css
+ * Scoped fallback styles for pages rendered inside OS windows.
+ * Tables scroll horizontally instead of squeezing CJK text into vertical
+ * one-character columns; page paddings tighten to fit the window chrome.
+ * Classic layout is untouched (the class only exists inside WindowFrame). */
+
+.os-window-body .ant-table-content {
+  overflow-x: auto;
+}
+
+.os-window-body .ant-table-cell {
+  white-space: nowrap;
+}
+
+.os-window-body .page-container {
+  padding-right: 0;
+  padding-bottom: 0;
+}

@@ -14,6 +14,8 @@ import { useTheme } from "../contexts/ThemeContext";
 import { useOsWindows, type OsWindow, type OsRect } from "./osWindowStore";
 import { computeSnapRect, type SnapZone } from "./snap";
 import { OsWindowContainerContext } from "./osWindowContainer";
+import { OsWindowSizeContext } from "./osWindowSizeContext";
+import { useElementWidth } from "./useElementWidth";
 import { useOsStyles, MENUBAR_H, DOCK_H } from "./useOsStyles";
 
 interface WindowFrameProps {
@@ -30,6 +32,9 @@ interface WindowFrameProps {
    * glass. OS-native apps (App Store, Settings) keep the dark glass styling.
    */
   themedSurface?: boolean;
+  /** Per-app minimum size; falls back to the global window minimums. */
+  minW?: number;
+  minH?: number;
   children: React.ReactNode;
 }
 
@@ -122,6 +127,8 @@ export default function WindowFrame({
   accent,
   isMobile,
   themedSurface = false,
+  minW = MIN_W,
+  minH = MIN_H,
   children,
 }: WindowFrameProps) {
   const { styles, cx } = useOsStyles();
@@ -144,6 +151,8 @@ export default function WindowFrame({
   // Exposed to descendant overlays (Drawer/Modal) as their render container so
   // they stay within this window instead of covering the whole desktop.
   const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
+  // Live content width for container-aware hooks (useIsMobile) inside pages.
+  const contentWidth = useElementWidth(contentEl);
   // Live edge-snap zone while dragging the header; drives the preview overlay.
   const [snapZone, setSnapZone] = useState<SnapZone | null>(null);
   // Minimize animation: keep the frame mounted briefly to play the transition.
@@ -224,17 +233,17 @@ export default function WindowFrame({
       const dx = e.clientX - r.sx;
       const dy = e.clientY - r.sy;
       const rect: Partial<OsRect> = {};
-      if (r.dir.includes("e")) rect.w = Math.max(MIN_W, r.w + dx);
-      if (r.dir.includes("s")) rect.h = Math.max(MIN_H, r.h + dy);
+      if (r.dir.includes("e")) rect.w = Math.max(minW, r.w + dx);
+      if (r.dir.includes("s")) rect.h = Math.max(minH, r.h + dy);
       if (r.dir.includes("w")) {
         // Left edge moves: keep the right edge anchored.
-        const nw = Math.max(MIN_W, r.w - dx);
+        const nw = Math.max(minW, r.w - dx);
         rect.w = nw;
         rect.x = r.x + (r.w - nw);
       }
       if (r.dir.includes("n")) {
         // Top edge moves: keep the bottom edge anchored, never cross the menu bar.
-        let nh = Math.max(MIN_H, r.h - dy);
+        let nh = Math.max(minH, r.h - dy);
         let ny = r.y + (r.h - nh);
         if (ny < MENUBAR_H) {
           ny = MENUBAR_H;
@@ -245,7 +254,7 @@ export default function WindowFrame({
       }
       resize(win.id, rect);
     },
-    [resize, win.id],
+    [resize, win.id, minW, minH],
   );
 
   const endResize = useCallback((e: React.PointerEvent) => {
@@ -343,9 +352,15 @@ export default function WindowFrame({
         <div style={{ width: 70 }} />
       </div>
 
-      <div className={styles.content} style={contentStyle} ref={setContentEl}>
+      <div
+        className={cx(styles.content, "os-window-body")}
+        style={contentStyle}
+        ref={setContentEl}
+      >
         <OsWindowContainerContext.Provider value={contentEl}>
-          {children}
+          <OsWindowSizeContext.Provider value={contentWidth}>
+            {children}
+          </OsWindowSizeContext.Provider>
         </OsWindowContainerContext.Provider>
       </div>
 

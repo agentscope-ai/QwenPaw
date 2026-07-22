@@ -13,6 +13,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { computeSnapRect, type SnapZone } from "./snap";
+import { findAppDef } from "./osApps";
 
 export interface OsRect {
   x: number;
@@ -56,7 +57,10 @@ interface OsStore {
   saved: Record<string, SavedSpace>;
   missionControlOpen: boolean;
 
-  open: (id: string, size?: { w: number; h: number }) => void;
+  open: (
+    id: string,
+    size?: { w: number; h: number; minW?: number; minH?: number },
+  ) => void;
   close: (id: string) => void;
   focus: (id: string) => void;
   minimize: (id: string) => void;
@@ -102,8 +106,11 @@ export const useOsWindows = create<OsStore>()(
           return;
         }
         const count = state.order.length;
-        const w = size?.w ?? 820;
-        const h = size?.h ?? 580;
+        // Clamp: at least the app minimum, at most the visible desktop area.
+        const maxW = Math.max(360, window.innerWidth - 40);
+        const maxH = Math.max(260, window.innerHeight - 140);
+        const w = Math.min(Math.max(size?.w ?? 820, size?.minW ?? 0), maxW);
+        const h = Math.min(Math.max(size?.h ?? 580, size?.minH ?? 0), maxH);
         const z = state.zCounter + 1;
         const win: OsWindow = {
           id,
@@ -275,7 +282,7 @@ export const useOsWindows = create<OsStore>()(
     }),
     {
       name: "qwenpaw-os-windows",
-      version: 1,
+      version: 2,
       // Persist only the window layouts (current space + saved spaces);
       // transient overlays (launcher, mission control) always start closed.
       partialize: (s) => ({
@@ -286,6 +293,30 @@ export const useOsWindows = create<OsStore>()(
         spaceId: s.spaceId,
         saved: s.saved,
       }),
+      // Clamp persisted geometry to each app's minimum so layouts stored
+      // before per-app minimums existed cannot restore unusable windows.
+      migrate: (persisted) => {
+        const st = (persisted ?? {}) as Partial<OsStore>;
+        const clamp = (
+          wins: Record<string, OsWindow> | undefined,
+        ): Record<string, OsWindow> => {
+          const next: Record<string, OsWindow> = {};
+          for (const [id, win] of Object.entries(wins ?? {})) {
+            const def = findAppDef(id);
+            next[id] = {
+              ...win,
+              w: Math.max(win.w, def?.minW ?? 0),
+              h: Math.max(win.h, def?.minH ?? 0),
+            };
+          }
+          return next;
+        };
+        const saved: Record<string, SavedSpace> = {};
+        for (const [sid, space] of Object.entries(st.saved ?? {})) {
+          saved[sid] = { ...space, windows: clamp(space.windows) };
+        }
+        return { ...st, windows: clamp(st.windows), saved } as OsStore;
+      },
     },
   ),
 );

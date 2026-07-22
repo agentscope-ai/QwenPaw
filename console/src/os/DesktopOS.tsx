@@ -48,6 +48,7 @@ import ConsolePollService from "../components/ConsolePollService";
 import WallpaperPicker from "./WallpaperPicker";
 import { useOsWallpaper } from "./osWallpaperStore";
 import { wallpaperBackground } from "./wallpapers";
+import "./osWindowBody.css";
 
 /** Session flag so the boot splash plays once per browser session. */
 const BOOT_FLAG_KEY = "qwenpaw.os.booted";
@@ -242,9 +243,22 @@ export default function DesktopOS() {
     const iconEl = (
       <div
         className={styles.desktopIcon}
-        onDoubleClick={() => open(a.routeId, { w: a.defaultW, h: a.defaultH })}
+        onDoubleClick={() =>
+          open(a.routeId, {
+            w: a.defaultW,
+            h: a.defaultH,
+            minW: a.minW,
+            minH: a.minH,
+          })
+        }
         onClick={() =>
-          isMobile && open(a.routeId, { w: a.defaultW, h: a.defaultH })
+          isMobile &&
+          open(a.routeId, {
+            w: a.defaultW,
+            h: a.defaultH,
+            minW: a.minW,
+            minH: a.minH,
+          })
         }
       >
         <div className={styles.iconTile} style={{ background: a.accent }}>
@@ -388,6 +402,8 @@ export default function DesktopOS() {
               accent={def.accent}
               isMobile={isMobile}
               themedSurface={!isStore && !isSettings}
+              minW={def.minW}
+              minH={def.minH}
             >
               <ChunkErrorBoundary resetKey={win.id}>
                 <Suspense

@@ -42,6 +42,10 @@ export interface OsAppDef {
   defaultW: number;
   /** Default window height. */
   defaultH: number;
+  /** Minimum window width (defaults to the global window minimum). */
+  minW?: number;
+  /** Minimum window height (defaults to the global window minimum). */
+  minH?: number;
   /**
    * Plugin id (source) for plugin-derived apps (PawApps). Undefined for
    * built-in catalog apps and system apps. Used to route uninstall to the
@@ -144,6 +148,8 @@ export const OS_APPS: OsAppDef[] = [
     accent: "#0ea5e9",
     defaultW: 820,
     defaultH: 600,
+    minW: 780,
+    minH: 480,
   },
   {
     routeId: "core.workspace",
@@ -169,8 +175,10 @@ export const OS_APPS: OsAppDef[] = [
     fallback: "Agent Config",
     Icon: Bot,
     accent: "#7c3aed",
-    defaultW: 820,
-    defaultH: 620,
+    defaultW: 1020,
+    defaultH: 640,
+    minW: 900,
+    minH: 520,
   },
   {
     routeId: "core.agent-stats",
@@ -180,6 +188,8 @@ export const OS_APPS: OsAppDef[] = [
     accent: "#ec4899",
     defaultW: 820,
     defaultH: 600,
+    minW: 900,
+    minH: 520,
   },
 ];
 
@@ -215,8 +225,10 @@ export const SETTINGS_APP: OsAppDef = {
   fallback: "System Settings",
   Icon: Settings,
   accent: "#6b7280",
-  defaultW: 920,
-  defaultH: 640,
+  defaultW: 1200,
+  defaultH: 720,
+  minW: 960,
+  minH: 560,
 };
 
 // ───────────────────────────────────────────────────────────────────────────

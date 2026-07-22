@@ -46,7 +46,12 @@ export default function Launcher({ apps: source }: LauncherProps) {
         {apps.map((a) => {
           const Icon = a.Icon;
           const launch = () => {
-            open(a.routeId, { w: a.defaultW, h: a.defaultH });
+            open(a.routeId, {
+              w: a.defaultW,
+              h: a.defaultH,
+              minW: a.minW,
+              minH: a.minH,
+            });
             setLauncher(false);
           };
           return (

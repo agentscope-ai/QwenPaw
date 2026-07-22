@@ -84,7 +84,12 @@ export default function Dock({ revealed = true }: { revealed?: boolean }) {
                   onClick: () =>
                     running
                       ? focus(a.routeId)
-                      : open(a.routeId, { w: a.defaultW, h: a.defaultH }),
+                      : open(a.routeId, {
+                          w: a.defaultW,
+                          h: a.defaultH,
+                          minW: a.minW,
+                          minH: a.minH,
+                        }),
                 },
                 ...(running
                   ? [
@@ -104,9 +109,22 @@ export default function Dock({ revealed = true }: { revealed?: boolean }) {
               className={styles.dockItem}
               onMouseEnter={() => setHovered(a.routeId)}
               onMouseLeave={() => setHovered(null)}
-              onClick={() => open(a.routeId, { w: a.defaultW, h: a.defaultH })}
+              onClick={() =>
+                open(a.routeId, {
+                  w: a.defaultW,
+                  h: a.defaultH,
+                  minW: a.minW,
+                  minH: a.minH,
+                })
+              }
               {...buttonRoleProps(
-                () => open(a.routeId, { w: a.defaultW, h: a.defaultH }),
+                () =>
+                  open(a.routeId, {
+                    w: a.defaultW,
+                    h: a.defaultH,
+                    minW: a.minW,
+                    minH: a.minH,
+                  }),
                 t(a.labelKey, a.fallback),
               )}
             >
