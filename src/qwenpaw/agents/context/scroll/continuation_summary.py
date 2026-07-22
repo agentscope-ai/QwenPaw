@@ -145,6 +145,9 @@ Rules:
 - Keep only claims explicitly supported by the supplied evidence. Do not infer
   completion, success, decisions, or blockers.
 - Distinguish verified, planned, attempted, failed, and tentative state.
+- `created_at` timestamps ending in `Z` are UTC. A timestamp marked
+  `timezone=unspecified` is local wall-clock evidence with an unknown offset.
+  Use sequence order, not timestamps, when ordering conflicts or is unclear.
 - Preserve each independent user-provided constraint, preference, exact value,
   decision, and unresolved requirement as its own bullet until it is explicitly
   superseded, withdrawn, or no longer relevant to the current task. Do not

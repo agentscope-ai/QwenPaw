@@ -639,6 +639,35 @@ class ScrollContextManager:
                 found.extend(cls._summary_metadata_pointers(item))
         return list(dict.fromkeys(found))
 
+    @staticmethod
+    def _summary_timestamp(value: Any) -> str | None:
+        """Render a timestamp without guessing the timezone.
+
+        AgentScope currently creates naive local wall-clock timestamps by
+        default. Aware values are normalized to UTC; naive values remain
+        useful temporal evidence but are explicitly marked as having an
+        unspecified timezone. Malformed values are omitted.
+        """
+        if not isinstance(value, str) or not value.strip():
+            return None
+        raw = value.strip()
+        try:
+            parsed = datetime.fromisoformat(
+                raw[:-1] + "+00:00" if raw.endswith(("Z", "z")) else raw,
+            )
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return (
+                f"{parsed.isoformat(timespec='seconds')} "
+                "timezone=unspecified"
+            )
+        utc_value = parsed.astimezone(timezone.utc)
+        return utc_value.isoformat(timespec="seconds").replace(
+            "+00:00",
+            "Z",
+        )
+
     def _summary_archived_context(
         self,
         middle: list[Msg],
@@ -664,6 +693,11 @@ class ScrollContextManager:
             pointer = f"[seq:{span[0]}-{span[1]}]" if span else "[seq:unknown]"
             role = getattr(msg, "role", "unknown")
             prefix = f"{pointer} role={role}"
+            timestamp = self._summary_timestamp(
+                getattr(msg, "created_at", None),
+            )
+            if timestamp:
+                prefix += f" created_at={timestamp}"
             for entry in msg_to_entries(msg):
                 if entry.kind == "tool_result":
                     preview = self._bounded_summary_text(entry.content, 600)

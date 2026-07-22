@@ -103,7 +103,7 @@ Headline 用来标记单个里程碑；continuation summary 则跨多个已驱�
 - **普通文本生成**：模型通过关闭 thinking 的正常 chat completion 返回 Markdown；Scroll 不调用 `generate_structured_output`、JSON mode 或 response schema。
 - **本地解析、确定性渲染**：代码把 Markdown 解析成 JSON-safe 内部状态，再自行渲染六个 section。模型不生成内联来源链接；代码维护一个可信的已归档 seq 范围，并在背景 banner 中单独说明。
 - **单一背景 envelope**：continuation summary 与 eviction index 同时存在时，Scroll 会把两者放在同一个 `<system-info>` 块中，不输出首尾相接的两组 wrapper。
-- **按角色分配的有界证据**：优先为已驱逐的 user 原文和 headline 分配预算，避免独立约束与事实被工具密集的中间轮遮住；剩余空间由 assistant/tool-call 上下文与有界 tool-result preview 共享，完整结果仍通过真实 `seq`、`tool_call_id`、artifact、file 指针持久可取回。
+- **按角色分配的有界证据**：优先为已驱逐的 user 原文和 headline 分配预算，避免独立约束与事实被工具密集的中间轮遮住。消息时间会随证据提供：带时区的值统一转换为 UTC，缺少时区的本地墙钟时间明确标为 `timezone=unspecified`；排序和取回仍以 `seq` 为准。剩余空间由 assistant/tool-call 上下文与有界 tool-result preview 共享，完整结果仍通过真实 `seq`、`tool_call_id`、artifact、file 指针持久可取回。
 - **两种显式 summary 模式**：`initial` 建立第一份状态；之后每次驱逐都使用 `update`，把上一份 summary 作为 baseline，保留仍然有效的条目，并与新驱逐区段进行状态协调。两种模式共用同一套五段 Markdown 协议。
 - **确定性质量检查**：代码检查 section 顺序与 status、确认代码维护的 seq 范围真实存在，并拒绝完全重复的状态条目、凭空出现的 opaque identifier、疑似 secret 和超长输出；检查刻意避免容易误拒的语义推断，也不使用单独的 LLM judge。
 - **一次条件重试**：不合格输出会携带简短校验错误再生成一次；第二次仍失败时保留上一份 summary 并标记 stale，空结果绝不覆盖有效状态。

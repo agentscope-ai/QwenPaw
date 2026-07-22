@@ -803,6 +803,39 @@ def test_summary_input_keeps_tool_outcome_budget(store: HistoryStore):
     assert len(rendered) <= 3000
 
 
+def test_summary_input_includes_timezone_safe_message_times(
+    store: HistoryStore,
+):
+    mgr = make_manager(store)
+    aware = Msg(
+        name="u",
+        role="user",
+        content=[TextBlock(type="text", text="aware timestamp")],
+        created_at="2026-07-22T10:30:45-07:00",
+    )
+    naive = Msg(
+        name="u",
+        role="user",
+        content=[TextBlock(type="text", text="naive timestamp")],
+        created_at="2026-07-22T10:31:46.123456",
+    )
+    malformed = Msg(
+        name="u",
+        role="user",
+        content=[TextBlock(type="text", text="malformed timestamp")],
+        created_at="not-a-time",
+    )
+
+    rendered = mgr._summary_archived_context(
+        [aware, naive, malformed],
+        max_chars=5000,
+    )
+
+    assert "created_at=2026-07-22T17:30:45Z" in rendered
+    assert "created_at=2026-07-22T10:31:46 timezone=unspecified" in rendered
+    assert rendered.count("created_at=") == 2
+
+
 def test_summary_record_fitting_never_exceeds_tiny_budget(
     store: HistoryStore,
 ):
