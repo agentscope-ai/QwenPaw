@@ -3,13 +3,10 @@
 
 import logging
 import threading
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from ..constant import WORKING_DIR
 from .buffer import MessageRecordingBuffer, _MessageEvent
-
-if TYPE_CHECKING:
-    from ..config.config import MessageRecordingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +20,11 @@ class MessageRecordingManager:
 
     The manager does NOT gate recording via an ``enabled`` flag.
     Middleware presence (registered only when enabled in config)
-    determines whether an agent records. This avoids multi-agent
-    isolation issues where one agent's config overwrites global
-    state affecting other agents.
+    determines whether an agent records.
+
+    ``retention_days`` is a global setting loaded once at startup.
+    Per-agent ``configure()`` calls do NOT update retention to
+    avoid multi-agent pollution (last-agent-wins problem).
     """
 
     _instance: "MessageRecordingManager | None" = None
@@ -44,35 +43,25 @@ class MessageRecordingManager:
                     cls._instance = cls()
         return cls._instance
 
-    def configure(
+    def start(
         self,
-        config: "MessageRecordingConfig",
+        retention_days: int = _DEFAULT_RETENTION_DAYS,
     ) -> None:
-        """Sync runtime-tunable settings to the buffer.
-
-        Only retention_days is propagated. Middleware presence
-        (not a global flag) controls whether recording happens.
-        """
-        if self._buffer is not None:
-            self._buffer.update_retention_days(
-                config.retention_days,
-            )
-
-    def start(self) -> None:
         """Create buffer and start background tasks.
 
-        Uses default storage_dir and flush_interval.
-        Must be called from an async context.
+        Args:
+            retention_days: File cleanup threshold. Must be
+                loaded from config BEFORE calling start() to
+                avoid deleting files with the wrong default.
         """
         if self._started:
             return
         self._started = True
 
-        storage_dir = _DEFAULT_STORAGE_DIR
         self._buffer = MessageRecordingBuffer(
-            base_dir=storage_dir,
+            base_dir=_DEFAULT_STORAGE_DIR,
             flush_interval=_DEFAULT_FLUSH_INTERVAL,
-            retention_days=_DEFAULT_RETENTION_DAYS,
+            retention_days=retention_days,
         )
         self._buffer.start()
 

@@ -1014,13 +1014,7 @@ class AgentBuilder:
 
         # Message Recording middleware
         try:
-            from ..message_recording import (
-                get_message_recording_manager,
-            )
-
             _rec_cfg = agent_config.running.message_recording
-            msg_mgr = get_message_recording_manager()
-            msg_mgr.configure(_rec_cfg)
             if _rec_cfg.enabled:
                 from ..message_recording import (
                     MessageRecordingMiddleware,

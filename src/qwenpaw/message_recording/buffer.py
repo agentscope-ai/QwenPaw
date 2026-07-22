@@ -70,10 +70,6 @@ class MessageRecordingBuffer:
             name="msg-recording-flush",
         )
 
-    def update_retention_days(self, days: int) -> None:
-        """Update retention_days for cleanup policy."""
-        self._retention_days = days
-
     async def stop(self) -> None:
         """Drain queue, stop tasks, perform final flush."""
         self._stopped = True
@@ -142,8 +138,13 @@ class MessageRecordingBuffer:
         )
 
     async def _flush_loop(self) -> None:
-        """Periodically flush pending records and cleanup."""
-        await self._run_cleanup()
+        """Periodically flush pending records and cleanup.
+
+        First cleanup runs after the first flush interval
+        (not immediately on start), ensuring retention_days
+        has been loaded from config.
+        """
+        _first_cleanup_done = False
         try:
             while not self._stopped:
                 await asyncio.sleep(self._flush_interval)
@@ -154,10 +155,16 @@ class MessageRecordingBuffer:
                         "message_recording: flush error",
                         exc_info=True,
                     )
-                # Cleanup old files once per day
-                now = time.monotonic()
-                if now - self._last_cleanup_time >= _CLEANUP_INTERVAL:
+                # First cleanup after first flush interval;
+                # subsequent cleanups once per day.
+                if not _first_cleanup_done:
+                    _first_cleanup_done = True
                     await self._run_cleanup()
+                else:
+                    now = time.monotonic()
+                    elapsed = now - self._last_cleanup_time
+                    if elapsed >= _CLEANUP_INTERVAL:
+                        await self._run_cleanup()
         except asyncio.CancelledError:
             pass
 
