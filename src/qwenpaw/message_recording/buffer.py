@@ -70,10 +70,6 @@ class MessageRecordingBuffer:
             name="msg-recording-flush",
         )
 
-    def update_retention_days(self, days: int) -> None:
-        """Update retention_days for cleanup policy."""
-        self._retention_days = days
-
     async def stop(self) -> None:
         """Drain queue, stop tasks, perform final flush."""
         self._stopped = True

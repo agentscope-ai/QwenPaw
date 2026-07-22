@@ -101,12 +101,10 @@
     },
     "messageRecording": {
       "title": "メッセージ記録",
-      "desc": "デバッグ用にLLM呼び出しの入出力をJSONLファイルに記録します。",
+      "desc": "LLM呼び出しの入出力を日付別のJSONLファイルに記録します。3日以上前のファイルは自動的にクリーンアップされます。",
       "enabled": "記録を有効にする",
       "maxContentLength": "最大コンテンツ長",
       "maxContentLengthTooltip": "この長さを超えるテキストは切り詰められます。空欄の場合は切り詰めません。",
-      "retentionDays": "保持日数",
-      "retentionDaysTooltip": "この日数より古いJSONLファイルを自動削除します。",
       "status": "ステータス",
       "statusRecording": "記録中",
       "statusStopped": "停止中",

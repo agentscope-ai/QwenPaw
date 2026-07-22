@@ -13,14 +13,12 @@ export function useMessageRecording() {
 
   // Local draft state for InputNumber fields (saved on blur)
   const [draftMaxLen, setDraftMaxLen] = useState<number | null>(null);
-  const [draftRetention, setDraftRetention] = useState<number>(3);
   const configRef = useRef(config);
   configRef.current = config;
 
   const enabled = config?.message_recording?.enabled ?? false;
   const maxContentLength =
     config?.message_recording?.max_content_length ?? null;
-  const retentionDays = config?.message_recording?.retention_days ?? 3;
   const storagePath = config?.message_recording?.storage_dir ?? "";
 
   const loadConfig = useCallback(async () => {
@@ -28,7 +26,6 @@ export function useMessageRecording() {
       const data = await agentApi.getAgentRunningConfig();
       setConfig(data);
       setDraftMaxLen(data?.message_recording?.max_content_length ?? null);
-      setDraftRetention(data?.message_recording?.retention_days ?? 3);
     } catch {
       // Silently ignore
     }
@@ -41,8 +38,7 @@ export function useMessageRecording() {
   // Sync drafts when config changes externally
   useEffect(() => {
     setDraftMaxLen(maxContentLength);
-    setDraftRetention(retentionDays);
-  }, [maxContentLength, retentionDays]);
+  }, [maxContentLength]);
 
   const updateConfig = useCallback(
     async (
@@ -55,7 +51,6 @@ export function useMessageRecording() {
         const current = cfg.message_recording ?? {
           enabled: false,
           max_content_length: null,
-          retention_days: 3,
           storage_dir: "",
         };
         const updated: AgentsRunningConfig = {
@@ -89,13 +84,6 @@ export function useMessageRecording() {
     }
   }, [draftMaxLen, maxContentLength, updateConfig]);
 
-  const commitRetentionDays = useCallback(() => {
-    const value = draftRetention;
-    if (value >= 1 && value !== retentionDays) {
-      void updateConfig({ retention_days: value });
-    }
-  }, [draftRetention, retentionDays, updateConfig]);
-
   return {
     enabled,
     storagePath,
@@ -104,8 +92,5 @@ export function useMessageRecording() {
     draftMaxLen,
     setDraftMaxLen,
     commitMaxContentLength,
-    draftRetention,
-    setDraftRetention,
-    commitRetentionDays,
   };
 }

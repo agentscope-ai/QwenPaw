@@ -266,16 +266,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     from ..message_recording import get_message_recording_manager
 
     msg_rec_manager = get_message_recording_manager()
-    try:
-        _cfg = load_config(get_config_path())
-        _active_id = _cfg.agents.active_agent or "default"
-        from ..config.config import load_agent_config
-
-        _agent_cfg = load_agent_config(_active_id)
-        _retention = _agent_cfg.running.message_recording.retention_days
-    except Exception:
-        _retention = 3
-    msg_rec_manager.start(retention_days=_retention)
+    msg_rec_manager.start()
 
     # Expose to endpoints (must be set before first request arrives).
     # WorkspaceRegistry IS-A MultiAgentManager — backward compat for

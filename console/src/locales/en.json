@@ -183,12 +183,10 @@
     },
     "messageRecording": {
       "title": "Message Recording",
-      "desc": "Record LLM call inputs and outputs to JSONL files for debugging.",
+      "desc": "Record LLM call inputs and outputs to daily JSONL files. Files older than 3 days are automatically cleaned up.",
       "enabled": "Enable recording",
       "maxContentLength": "Max content length",
       "maxContentLengthTooltip": "Truncate text content exceeding this length. Leave empty for no truncation.",
-      "retentionDays": "Retention days",
-      "retentionDaysTooltip": "Automatically delete JSONL files older than this many days.",
       "status": "Status",
       "statusRecording": "Recording",
       "statusStopped": "Stopped",

@@ -1021,12 +1021,10 @@
     },
     "messageRecording": {
       "title": "Perekaman Pesan",
-      "desc": "Rekam input dan output panggilan LLM ke file JSONL untuk debugging.",
+      "desc": "Rekam input dan output panggilan LLM ke file JSONL harian. File yang lebih dari 3 hari akan dibersihkan secara otomatis.",
       "enabled": "Aktifkan perekaman",
       "maxContentLength": "Panjang konten maksimum",
       "maxContentLengthTooltip": "Potong konten teks yang melebihi panjang ini. Kosongkan untuk tidak memotong.",
-      "retentionDays": "Hari retensi",
-      "retentionDaysTooltip": "Hapus otomatis file JSONL yang lebih lama dari jumlah hari ini.",
       "status": "Status",
       "statusRecording": "Merekam",
       "statusStopped": "Berhenti",

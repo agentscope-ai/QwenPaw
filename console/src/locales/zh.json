@@ -183,12 +183,10 @@
     },
     "messageRecording": {
       "title": "消息记录",
-      "desc": "将 LLM 调用的输入和输出记录到本地 JSONL 文件，用于调试。",
+      "desc": "将 LLM 调用的输入和输出记录到本地 JSONL 文件，按日期分文件存储，超过 3 天的记录将自动清理。",
       "enabled": "启用记录",
       "maxContentLength": "最大内容长度",
       "maxContentLengthTooltip": "超过此长度的文本内容将被截断。留空则不截断。",
-      "retentionDays": "保留天数",
-      "retentionDaysTooltip": "自动删除超过此天数的 JSONL 文件。",
       "status": "状态",
       "statusRecording": "记录中",
       "statusStopped": "已停止",

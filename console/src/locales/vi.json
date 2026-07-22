@@ -285,12 +285,10 @@
     },
     "messageRecording": {
       "title": "Ghi Tin Nhắn",
-      "desc": "Ghi lại đầu vào và đầu ra của các lời gọi LLM vào tệp JSONL để gỡ lỗi.",
+      "desc": "Ghi lại đầu vào và đầu ra của các lời gọi LLM vào tệp JSONL theo ngày. Các tệp cũ hơn 3 ngày sẽ tự động được dọn dẹp.",
       "enabled": "Bật ghi",
       "maxContentLength": "Độ dài nội dung tối đa",
       "maxContentLengthTooltip": "Cắt bớt nội dung văn bản vượt quá độ dài này. Để trống nếu không muốn cắt.",
-      "retentionDays": "Số ngày lưu giữ",
-      "retentionDaysTooltip": "Tự động xóa các tệp JSONL cũ hơn số ngày này.",
       "status": "Trạng thái",
       "statusRecording": "Đang ghi",
       "statusStopped": "Đã dừng",

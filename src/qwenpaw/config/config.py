@@ -1060,15 +1060,6 @@ class MessageRecordingConfig(BaseModel):
         ),
     )
 
-    retention_days: int = Field(
-        default=3,
-        ge=1,
-        le=90,
-        description=(
-            "Automatically delete JSONL files older than " "this many days."
-        ),
-    )
-
     storage_dir: str = Field(
         default=str(WORKING_DIR / "message_logs"),
         description=("Storage directory for JSONL files (read-only)."),

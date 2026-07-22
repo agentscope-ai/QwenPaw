@@ -178,7 +178,6 @@ export interface AgentsRunningConfig {
   message_recording?: {
     enabled: boolean;
     max_content_length: number | null;
-    retention_days: number;
     storage_dir: string;
   };
 }

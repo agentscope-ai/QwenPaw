@@ -941,21 +941,6 @@ async def put_agents_running_config(
     agent_config.running = running_config
     save_agent_config(workspace.agent_id, agent_config)
 
-    # Sync retention_days to the global recording buffer
-    # so the new value takes effect without restart.
-    try:
-        from ...message_recording import (
-            get_message_recording_manager,
-        )
-
-        _rec = running_config.message_recording
-        if _rec is not None:
-            get_message_recording_manager().update_retention_days(
-                _rec.retention_days,
-            )
-    except Exception:
-        pass
-
     schedule_agent_reload(request, workspace.agent_id)
 
     running_config.approval_level = agent_config.approval_level

@@ -49,9 +49,6 @@ export default function DebugPage() {
     draftMaxLen,
     setDraftMaxLen,
     commitMaxContentLength,
-    draftRetention,
-    setDraftRetention,
-    commitRetentionDays,
   } = useMessageRecording();
 
   return (
@@ -199,7 +196,7 @@ export default function DebugPage() {
             <Text type="secondary">
               {t(
                 "debug.messageRecording.desc",
-                "Record LLM call inputs and outputs to JSONL files for debugging.",
+                "Record LLM call inputs and outputs to daily JSONL files. Files older than 3 days are automatically cleaned up.",
               )}
             </Text>
             <div className={styles.recordingFields}>
@@ -227,32 +224,6 @@ export default function DebugPage() {
                   onChange={(v) => setDraftMaxLen(v)}
                   onBlur={() => commitMaxContentLength()}
                   onPressEnter={() => commitMaxContentLength()}
-                  style={{ width: 200 }}
-                  disabled={!enabled || recordingLoading}
-                />
-              </div>
-              <div className={styles.recordingField}>
-                <Text>
-                  {t("debug.messageRecording.retentionDays", "Retention days")}
-                  <Tooltip
-                    title={t(
-                      "debug.messageRecording.retentionDaysTooltip",
-                      "Automatically delete JSONL files older than this many days.",
-                    )}
-                  >
-                    <HelpCircle
-                      size={14}
-                      style={{ marginLeft: 4, color: "rgba(0,0,0,0.45)" }}
-                    />
-                  </Tooltip>
-                </Text>
-                <InputNumber
-                  min={1}
-                  max={90}
-                  value={draftRetention}
-                  onChange={(v) => setDraftRetention(v ?? 3)}
-                  onBlur={() => commitRetentionDays()}
-                  onPressEnter={() => commitRetentionDays()}
                   style={{ width: 200 }}
                   disabled={!enabled || recordingLoading}
                 />
