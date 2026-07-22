@@ -43,6 +43,31 @@ def _clone_with_overrides(obj: Any, **overrides: Any) -> Any:
     return SimpleNamespace(**data)
 
 
+_FENCE_RE = re.compile(
+    r"^```(?:json)?\s*(.*?)\s*```\s*$",
+    re.DOTALL,
+)
+
+
+def _strip_json_pollution(raw: str) -> str:
+    """Remove markdown fences and XML tags from model JSON output.
+
+    Some models (GLM-5-Turbo, DeepSeek-V3) wrap tool-call arguments in
+    markdown code fences or append stray XML closing tags from their
+    training format. Examples:
+
+        ```json\\n{"file_path": "/tmp/test.py"}\\n```
+        {"file_path": "/tmp/test.py"}</tool_call>
+
+    This strips both patterns and returns the clean JSON string.
+    """
+    stripped = raw.strip()
+    m = _FENCE_RE.match(stripped)
+    if m:
+        return m.group(1)
+    return re.sub(r"\s*```\s*$", "", stripped)
+
+
 def _sanitize_tool_call(tool_call: Any) -> Any | None:
     """Normalize a tool call for parser safety, or drop it if unusable."""
     if not hasattr(tool_call, "index"):
@@ -65,7 +90,7 @@ def _sanitize_tool_call(tool_call: Any) -> Any | None:
 
     raw_arguments = getattr(function, "arguments", "")
     if isinstance(raw_arguments, str):
-        safe_arguments = raw_arguments
+        safe_arguments = _strip_json_pollution(raw_arguments)
     elif raw_arguments is None:
         safe_arguments = ""
     else:
