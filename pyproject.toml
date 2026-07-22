@@ -8,12 +8,14 @@ dependencies = [
     "agentscope==2.0.4.post1",
     "httpx>=0.27.0",
     "packaging>=24.0",
-    "discord-py>=2.3",
-    "dingtalk-stream>=0.24.3",
-    "alibabacloud-dingtalk>=2.2.42",
+    # Aliyun market and skill installation use these outside DingTalk.
     "alibabacloud-tea-openapi>=0.4.4",
     "alibabacloud-credentials>=0.3.0",
     "alibabacloud-tea-util>=0.3.0",
+    # Desktop SSL bootstrap uses certifi outside channel code.
+    "certifi>=2024.2.2",
+    # Proactive memory uses aiohttp independently of channels.
+    "aiohttp>=3.9.0",
     "uvicorn>=0.40.0",
     "apscheduler>=3.11.2,<4",
     "playwright>=1.49.0",
@@ -22,17 +24,9 @@ dependencies = [
     "reme-ai==0.4.1.3",
     "transformers>=4.30.0",
     "python-dotenv>=1.0.0",
-    "python-socks>=2.5.3",
     "onnxruntime<1.24",
-    "lark-oapi>=1.5.3",
-    "python-telegram-bot>=20.0",
-    "slack-bolt>=1.22.0",
-    "twilio>=9.10.2",
     "pywebview>=4.0",
     "aiofiles>=24.1.0",
-    "paho-mqtt>=2.0.0",
-    "wecom-aibot-python-sdk==1.0.2",
-    "matrix-nio>=0.25.0",
     "shortuuid>=1.0.0",
     "google-genai>=1.67.0",
     "tzdata>=2024.1",
@@ -41,10 +35,8 @@ dependencies = [
     "pyyaml>=6.0",
     "wcmatch>=10.0",
     "json-repair>=0.30.0",
-    "segno>=1.6.6",
     "modelscope>=1.35.0",
     "huggingface_hub>=0.20.0",
-    "pillow>=10.0.0",
     "agent-client-protocol>=0.9.0,<0.11.0",
     # Streaming-markdown terminal UI for the bundled `qwenpaw` TUI
     # (v4+ adds the streaming Markdown widget). 8.2.8 fixes parsing of
@@ -111,6 +103,91 @@ copaw = "qwenpaw.cli.main:cli"
 # Legacy group "copaw.doctor" is still loaded when present.
 
 [project.optional-dependencies]
+channel-discord = [
+    "discord-py>=2.3",
+]
+channel-dingtalk = [
+    "dingtalk-stream>=0.24.3",
+    "alibabacloud-dingtalk>=2.2.42",
+    "alibabacloud-tea>=0.4",
+    "pillow>=10.0.0",
+    "segno>=1.6.6",
+]
+channel-feishu = [
+    "lark-oapi>=1.5.3",
+    "python-socks>=2.5.3",
+    "segno>=1.6.6",
+]
+channel-qq = [
+    "websocket-client>=1.7",
+    "segno>=1.6.6",
+]
+channel-telegram = [
+    "python-telegram-bot>=20.0",
+]
+channel-mattermost = [
+    "websockets>=12",
+]
+channel-slack = [
+    "slack-bolt>=1.22.0",
+    "slack-sdk>=3.38",
+]
+channel-mqtt = [
+    "paho-mqtt>=2.0.0",
+]
+channel-matrix = [
+    "matrix-nio>=0.25.0",
+]
+channel-voice = [
+    "twilio>=9.10.2",
+]
+channel-sip = [
+    "pyVoIP>=1.6.0",
+    "dashscope>=1.0.0",
+    "dashscope-realtime>=0.1.0",
+    "audioop-lts; python_version >= '3.13'",
+    "livekit>=1.0.0",
+    "livekit-api>=0.6.0",
+]
+channel-wecom = [
+    "wecom-aibot-python-sdk==1.0.2",
+    "pillow>=10.0.0",
+    "segno>=1.6.6",
+]
+channel-wechat = [
+    "pycryptodome>=3.20",
+    "segno>=1.6.6",
+]
+channel-yuanbao = [
+    "protobuf>=4",
+]
+channels-all = [
+    "discord-py>=2.3",
+    "dingtalk-stream>=0.24.3",
+    "alibabacloud-dingtalk>=2.2.42",
+    "alibabacloud-tea>=0.4",
+    "lark-oapi>=1.5.3",
+    "python-socks>=2.5.3",
+    "python-telegram-bot>=20.0",
+    "websockets>=12",
+    "slack-bolt>=1.22.0",
+    "slack-sdk>=3.38",
+    "paho-mqtt>=2.0.0",
+    "matrix-nio>=0.25.0",
+    "twilio>=9.10.2",
+    "pyVoIP>=1.6.0",
+    "dashscope>=1.0.0",
+    "dashscope-realtime>=0.1.0",
+    "audioop-lts; python_version >= '3.13'",
+    "livekit>=1.0.0",
+    "livekit-api>=0.6.0",
+    "wecom-aibot-python-sdk==1.0.2",
+    "pillow>=10.0.0",
+    "websocket-client>=1.7",
+    "pycryptodome>=3.20",
+    "segno>=1.6.6",
+    "protobuf>=4",
+]
 test = [
     "pytest>=8.3.5",
     "pytest-asyncio>=0.23.0",
@@ -131,6 +208,8 @@ whisper = [
 full = [
     "qwenpaw[local,whisper]",
 ]
+# Preserve the legacy extras: ``sip`` is the PyVoIP backend, while the
+# channel UI installs both backends through ``channel-sip``.
 sip = [
     "pyVoIP>=1.6.0",
     "dashscope>=1.0.0",

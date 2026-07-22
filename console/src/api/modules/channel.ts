@@ -29,6 +29,34 @@ export interface ChannelSchema {
   doc_url?: LocalizedText;
 }
 
+export type ChannelDependencyStatusName =
+  | "ready"
+  | "missing"
+  | "failed"
+  | "installing"
+  | "platform_unsupported"
+  | "load_error";
+
+export interface ChannelDependencyStatus {
+  channel: string;
+  status: ChannelDependencyStatusName;
+  requirements: string[];
+  missing_requirements: string[];
+  platforms?: string[];
+  job_id?: string;
+  error?: string;
+  last_error?: string;
+}
+
+export interface ChannelDependencyJob {
+  id: string;
+  channel: string;
+  requirements: string[];
+  source: string;
+  status: "queued" | "installing" | "verifying" | "succeeded" | "failed";
+  error?: string;
+}
+
 export const channelApi = {
   listChannelTypes: () => request<string[]>("/config/channels/types"),
 
@@ -36,6 +64,30 @@ export const channelApi = {
 
   listChannelSchemas: () =>
     request<Record<string, ChannelSchema>>("/config/channels/schemas"),
+
+  listChannelDependencies: () =>
+    request<Record<string, ChannelDependencyStatus>>(
+      "/config/channels/dependencies",
+    ),
+
+  installChannelDependencies: (
+    channelName: string,
+    body: { source?: string; custom_index_url?: string } = {},
+  ) =>
+    request<ChannelDependencyJob>(
+      `/config/channels/${encodeURIComponent(
+        channelName,
+      )}/dependencies/install`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  recheckChannelDependencies: (channelName: string) =>
+    request<ChannelDependencyStatus>(
+      `/config/channels/${encodeURIComponent(
+        channelName,
+      )}/dependencies/recheck`,
+      { method: "POST" },
+    ),
 
   updateChannels: (body: ChannelConfig) =>
     request<ChannelConfig>("/config/channels", {

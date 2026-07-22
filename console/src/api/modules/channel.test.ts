@@ -42,6 +42,22 @@ describe("channelApi", () => {
     expect(await channelApi.listChannels()).toBe(cfg);
   });
 
+  it("lists and installs channel dependencies", async () => {
+    const statuses = { telegram: { status: "missing" } } as unknown;
+    vi.mocked(request).mockResolvedValueOnce(statuses);
+    await expect(channelApi.listChannelDependencies()).resolves.toBe(statuses);
+
+    const job = { id: "job-1", status: "queued" } as unknown;
+    vi.mocked(request).mockResolvedValueOnce(job);
+    await expect(
+      channelApi.installChannelDependencies("telegram"),
+    ).resolves.toBe(job);
+    const calls = vi.mocked(request).mock.calls;
+    expect(calls[calls.length - 1]?.[1]).toMatchObject({
+      method: "POST",
+    });
+  });
+
   it("updateChannels returns the persisted ChannelConfig", async () => {
     const cfg = { dingtalk: { enabled: false } } as unknown;
     vi.mocked(request).mockResolvedValue(cfg);

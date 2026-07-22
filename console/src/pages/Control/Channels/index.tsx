@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Form } from "@agentscope-ai/design";
-import { Badge, Button, Space } from "antd";
+import { Badge, Button, Modal, Space } from "antd";
 import { SafetyOutlined, AuditOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
@@ -27,6 +27,10 @@ function ChannelsPage() {
     channels,
     orderedKeys,
     channelSchemas,
+    dependencyStatuses,
+    dependencyStatusesLoaded,
+    dependencyStatusError,
+    setChannelDependencyStatus,
     isBuiltin,
     loading,
     fetchChannels,
@@ -68,7 +72,10 @@ function ChannelsPage() {
       const builtin = isBuiltin(key);
       if (filter === "builtin" && !builtin) return;
       if (filter === "custom" && builtin) return;
-      if (config.enabled) {
+      const dependencyReady =
+        !builtin ||
+        (!dependencyStatusError && dependencyStatuses[key]?.status === "ready");
+      if (config.enabled && dependencyReady) {
         enabledCards.push({ key, config });
       } else {
         disabledCards.push({ key, config });
@@ -76,10 +83,69 @@ function ChannelsPage() {
     });
 
     return { enabledCards, disabledCards };
-  }, [channels, orderedKeys, filter, isBuiltin]);
+  }, [
+    channels,
+    dependencyStatuses,
+    dependencyStatusError,
+    orderedKeys,
+    filter,
+    isBuiltin,
+  ]);
 
   const handleCardClick = useCallback(
     (key: ChannelKey) => {
+      const dependency = dependencyStatuses[key];
+      if (isBuiltin(key) && !dependency) return;
+      if (dependency?.status === "missing" || dependency?.status === "failed") {
+        Modal.confirm({
+          title: t("channels.installDependenciesTitle", {
+            channel: getChannelLabel(key, t),
+          }),
+          content: (
+            <div>
+              <p>{t("channels.installDependenciesDescription")}</p>
+              <ul className={styles.dependencyList}>
+                {dependency.missing_requirements.map((requirement) => (
+                  <li key={requirement}>{requirement}</li>
+                ))}
+              </ul>
+            </div>
+          ),
+          okText: t("channels.installConfirm"),
+          cancelText: t("common.cancel"),
+          onOk: async () => {
+            try {
+              const job = await api.installChannelDependencies(key);
+              if (job.status === "failed") {
+                throw new Error(job.error || t("channels.installFailed"));
+              }
+              setChannelDependencyStatus({
+                channel: key,
+                status: "installing",
+                requirements: dependency.requirements,
+                missing_requirements: job.requirements,
+                job_id: job.id,
+              });
+            } catch (error) {
+              console.error("Failed to install channel dependencies", error);
+              message.error(
+                error instanceof Error
+                  ? error.message
+                  : t("channels.installFailed"),
+              );
+              throw error;
+            }
+          },
+        });
+        return;
+      }
+      if (
+        dependency?.status === "installing" ||
+        dependency?.status === "platform_unsupported" ||
+        dependency?.status === "load_error"
+      ) {
+        return;
+      }
       setActiveKey(key);
       setDrawerOpen(true);
       const channelConfig = channels[key] || { enabled: false, bot_prefix: "" };
@@ -101,7 +167,15 @@ function ChannelsPage() {
         show_thinking: channelConfig.show_thinking ?? true,
       });
     },
-    [channels, form],
+    [
+      channels,
+      dependencyStatuses,
+      form,
+      message,
+      isBuiltin,
+      setChannelDependencyStatus,
+      t,
+    ],
   );
 
   const handleDrawerClose = () => {
@@ -250,6 +324,16 @@ function ChannelsPage() {
                       key={key}
                       channelKey={key}
                       iconUrl={channelSchemas[key]?.icon}
+                      dependencyStatus={dependencyStatuses[key]}
+                      dependencyCheckState={
+                        !isBuiltin(key)
+                          ? "ready"
+                          : !dependencyStatusesLoaded
+                          ? "checking"
+                          : dependencyStatusError || !dependencyStatuses[key]
+                          ? "failed"
+                          : "ready"
+                      }
                       onClick={() => handleCardClick(key)}
                     />
                   ))}

@@ -27,7 +27,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple
 
-import segno
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import HTTPException, Request
 
@@ -67,6 +66,8 @@ class QRCodeAuthHandler(ABC):
 def generate_qrcode_image(scan_url: str) -> str:
     """Generate a base64-encoded PNG QR code image from *scan_url*."""
     try:
+        import segno
+
         qr_code = segno.make(scan_url, error="M")
         buf = io.BytesIO()
         qr_code.save(buf, kind="png", scale=6, border=2)

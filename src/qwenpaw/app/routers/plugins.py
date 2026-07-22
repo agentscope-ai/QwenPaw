@@ -216,7 +216,6 @@ async def _post_load_setup(  # pylint: disable=too-many-branches
     # (config file I/O — keep off the event loop).
     await asyncio.to_thread(_sync_plugin_tools_to_agents, loader, plugin_id)
 
-
 def _tool_names_from_meta(meta: dict) -> list[str]:
     """Extract tool names from plugin manifest ``meta`` (legacy + multi).
 
@@ -244,8 +243,6 @@ def _tool_names_from_meta(meta: dict) -> list[str]:
             continue
         _add(tool.get("name"))
     return tool_names
-
-
 def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
     """Add plugin tool entries to all existing agents.
 
@@ -366,7 +363,6 @@ async def _schedule_all_agents_reload(request: Request) -> None:
             schedule_agent_reload(request, agent_id)
     except Exception as exc:
         logger.warning(f"Could not schedule agent reloads: {exc}")
-
 
 def _post_unload_cleanup(
     request: Request,

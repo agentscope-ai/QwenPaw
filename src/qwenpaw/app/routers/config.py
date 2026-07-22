@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import datetime, timezone
+import os
 from typing import Any, List, Optional
 
 from fastapi import (
@@ -15,7 +16,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
-from ..utils import schedule_agent_reload
+from ..utils import schedule_agent_reload, schedule_all_agents_reload
 from ...config import (
     load_config,
     save_config,
@@ -26,6 +27,8 @@ from ...config import (
     ToolGuardRuleConfig,
 )
 from ..channels.registry import BUILTIN_CHANNEL_KEYS
+from ..channels.catalog import BUILTIN_CHANNEL_CATALOG
+from ..channels.dependencies import channel_dependency_service
 from ...config.timezone import normalize_tz
 from ...config.config import (
     AgentsLLMRoutingConfig,
@@ -90,6 +93,11 @@ _ALLOWED_ACP_TOOL_PARSE_MODES = {
 
 class ACPNodeRuntimeUpdate(BaseModel):
     node_path: str = ""
+
+
+class ChannelDependencyInstallRequest(BaseModel):
+    source: str = "auto"
+    custom_index_url: Optional[str] = None
 
 
 @router.get(
@@ -168,6 +176,70 @@ async def list_channel_schemas() -> dict:
             "doc_url": reg.doc_url,
         }
     return result
+
+
+@router.get(
+    "/channels/dependencies",
+    summary="List built-in channel dependency status",
+)
+async def list_channel_dependencies() -> dict:
+    return await asyncio.to_thread(channel_dependency_service.all_statuses)
+
+
+@router.post(
+    "/channels/{channel_name}/dependencies/install",
+    summary="Install missing dependencies for a built-in channel",
+)
+async def install_channel_dependencies(
+    request: Request,
+    channel_name: str,
+    body: ChannelDependencyInstallRequest = Body(
+        default_factory=ChannelDependencyInstallRequest,
+    ),
+) -> dict:
+    if os.environ.get("QWENPAW_RUNTIME_DEP_INSTALL", "1").lower() in {
+        "0",
+        "false",
+        "no",
+    }:
+        raise HTTPException(
+            status_code=403,
+            detail="Runtime dependency installation is disabled",
+        )
+    if channel_name not in BUILTIN_CHANNEL_CATALOG:
+        raise HTTPException(status_code=404, detail="Built-in channel not found")
+    if body.source not in {"auto", "system", "pypi", "aliyun", "custom"}:
+        raise HTTPException(status_code=422, detail="Unsupported package source")
+    if body.source == "custom" and not body.custom_index_url:
+        raise HTTPException(
+            status_code=422,
+            detail="custom_index_url is required for custom source",
+        )
+    try:
+        job = await channel_dependency_service.start_install(
+            channel_name,
+            source=body.source,
+            custom_index_url=body.custom_index_url,
+            on_success=lambda: schedule_all_agents_reload(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return job.public_dict()
+
+
+@router.post(
+    "/channels/{channel_name}/dependencies/recheck",
+    summary="Recheck dependencies for a built-in channel",
+)
+async def recheck_channel_dependencies(channel_name: str) -> dict:
+    if channel_name not in BUILTIN_CHANNEL_CATALOG:
+        raise HTTPException(status_code=404, detail="Built-in channel not found")
+    return await asyncio.to_thread(
+        channel_dependency_service.channel_status,
+        channel_name,
+    )
 
 
 @router.put(

@@ -38,6 +38,18 @@ def collect_tree(source_dir, target_dir):
     ]
 
 
+def collect_qwenpaw_channel_sources():
+    """Bundle channel source without importing optional channel SDKs."""
+    channel_dir = SRC / "app" / "channels"
+    modules = []
+    for path in channel_dir.rglob("*.py"):
+        relative = path.relative_to(SRC).with_suffix("")
+        if relative.name == "__init__":
+            relative = relative.parent
+        modules.append("qwenpaw." + ".".join(relative.parts))
+    return sorted(set(modules))
+
+
 # Match the legacy desktop package: the FastAPI backend serves the web console
 # from qwenpaw/console, so Tauri can navigate to the backend-hosted same-origin
 # console after the sidecar is ready.
@@ -128,8 +140,10 @@ a = Analysis(
         "uvicorn.lifespan.on",
         # All CLI sub-commands (dynamically loaded by Click)
         *collect_submodules("qwenpaw.cli"),
-        # All channel adapters (imported on-demand at runtime)
-        *collect_submodules("qwenpaw.app.channels"),
+        # All channel adapters are imported on demand. Discover them from the
+        # source tree so the dependency-light build does not import optional
+        # SDKs while PyInstaller evaluates this spec.
+        *collect_qwenpaw_channel_sources(),
         # ACP runner support is lazily imported by delegate_external_agent.
         *collect_submodules("qwenpaw.agents.acp"),
         # ASGI app entry points

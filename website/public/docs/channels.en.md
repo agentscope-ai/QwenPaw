@@ -8,6 +8,8 @@ Two ways to configure channels:
 - **Console** (recommended) — In the [Console](./console) under **Control → Channels**, click a channel card, enable it and fill in credentials in the drawer. Changes take effect when you save.
 - **Edit `agent.json` directly** — Agent workspace config at `~/.qwenpaw/workspaces/{agent_id}/agent.json`, set `enabled: true` and fill in that platform's credentials. Saving triggers a reload without restarting the app.
 
+Third-party dependencies for built-in channels are installed on demand. The Console lists channels with missing dependencies under Available; click Install, review the missing packages, and confirm to install them in the background. For CLI or unattended installs, use an extra such as `pip install "qwenpaw[channel-feishu]"`, or install every channel dependency with `qwenpaw[channels-all]`.
+
 Below is how to get credentials and fill config for each channel.
 
 ---
@@ -250,9 +252,9 @@ Find `channels.feishu` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspace
 
 > **Tip:** Other fields (encrypt_key, verification_token, media_dir) are optional; with WebSocket mode you can omit them (defaults apply).
 
-**Dependencies:** `pip install lark-oapi`
+**Dependencies:** Install on demand in the Console, or run `pip install "qwenpaw[channel-feishu]"`.
 
-If your environment uses a SOCKS proxy, also install `python-socks` (for example, `pip install python-socks`), otherwise you may see: `python-socks is required to use a SOCKS proxy`.
+This extra also includes `python-socks` for SOCKS proxy support.
 
 > **Note:** You can also fill in **App ID** and **App Secret** in the Console UI, but you must restart the qwenpaw service before continuing with the long-connection configuration.
 > ![console](https://img.alicdn.com/imgextra/i4/O1CN01OXdwjN1KVS8Nsc1he_!!6000000001169-2-tps-3822-2070.png)

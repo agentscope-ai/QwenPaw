@@ -812,12 +812,25 @@ class PluginLoader:
         *,
         timeout: int,
         plugin_id: str,
+        redact_values: Optional[List[str]] = None,
+        environment: Optional[Dict[str, str]] = None,
     ) -> subprocess.CompletedProcess:
         """Run *cmd*; stream stdout/stderr to debug logs in real time."""
+        secrets = sorted(
+            (value for value in (redact_values or []) if value),
+            key=len,
+            reverse=True,
+        )
+
+        def _redact(value: str) -> str:
+            for secret in secrets:
+                value = value.replace(secret, "<redacted>")
+            return value
+
         logger.debug(
             "Running install command for plugin '%s': %s",
             plugin_id,
-            " ".join(cmd),
+            _redact(" ".join(cmd)),
         )
         output_lines: List[str] = []
         with subprocess.Popen(
@@ -826,6 +839,7 @@ class PluginLoader:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=environment,
         ) as proc:
 
             def _read_output() -> None:
@@ -833,8 +847,9 @@ class PluginLoader:
                 for line in proc.stdout:
                     stripped = line.rstrip("\n\r")
                     if stripped:
-                        output_lines.append(stripped)
-                        logger.debug("[%s] %s", plugin_id, stripped)
+                        safe_line = _redact(stripped)
+                        output_lines.append(safe_line)
+                        logger.debug("[%s] %s", plugin_id, safe_line)
 
             reader = threading.Thread(target=_read_output, daemon=True)
             reader.start()

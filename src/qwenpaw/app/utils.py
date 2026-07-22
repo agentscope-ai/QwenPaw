@@ -135,6 +135,20 @@ def schedule_agent_reload(request: "Request", agent_id: str) -> None:
     asyncio.create_task(reload_in_background())
 
 
+def schedule_all_agents_reload(request: "Request") -> None:
+    """Schedule a zero-downtime reload for every configured agent."""
+    try:
+        from ..config.utils import load_config
+
+        config = load_config()
+        if not config.agents or not config.agents.profiles:
+            return
+        for agent_id in config.agents.profiles:
+            schedule_agent_reload(request, agent_id)
+    except Exception as exc:
+        logger.warning("Could not schedule agent reloads: %s", exc)
+
+
 def check_upload_size(data: bytes) -> None:
     """Raise HTTP 400 if *data* exceeds the configured upload size limit.
 

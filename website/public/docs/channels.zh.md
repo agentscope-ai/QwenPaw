@@ -7,6 +7,8 @@
 - **控制台**（推荐）— 在 [控制台](./console) 的 **Control → Channels** 页面，点击频道卡片，在抽屉里启用并填写鉴权信息，保存即生效。
 - **手动编辑 `agent.json`** — 在智能体工作区的 `agent.json` 中（如 `~/.qwenpaw/workspaces/default/agent.json`），将需要的频道设 `enabled: true` 并填好鉴权信息；保存后自动重载，无需重启。
 
+内置频道的第三方依赖按需安装。控制台会把依赖未满足的频道显示在“未激活”区域，点击“安装”并确认当前缺失的依赖后会在后台安装；安装完成即可继续启用和配置。命令行或无人值守环境也可使用 `pip install "qwenpaw[channel-feishu]"` 这类 extra，或用 `qwenpaw[channels-all]` 一次安装全部频道依赖。
+
 下面按频道说明如何获取凭证并填写配置。
 
 ---
@@ -243,9 +245,9 @@
 
 > **提示：** 其他字段（encrypt_key、verification_token、media_dir）可选，WebSocket 模式可不填，有默认值。
 
-**依赖：** `pip install lark-oapi`
+**依赖：** 控制台可按需安装；命令行可运行 `pip install "qwenpaw[channel-feishu]"`。
 
-如果你使用 SOCKS 代理联网，还需安装 `python-socks`（例如 `pip install python-socks`），否则可能报错：`python-socks is required to use a SOCKS proxy`。
+该 extra 已包含 SOCKS 代理所需的 `python-socks`。
 
 > 注: **App ID** 和 **App Secret** 信息也可以在Console前端填写，但需重启 QwenPaw 服务，才能继续配置长链接的操作。
 > ![console](https://img.alicdn.com/imgextra/i3/O1CN01KCQj1b1z8utMnRr6y_!!6000000006670-2-tps-3822-2070.png)

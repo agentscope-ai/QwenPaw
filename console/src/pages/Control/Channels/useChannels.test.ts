@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { useChannels } from "./useChannels";
 
 // Mock api（default export）
@@ -7,6 +7,9 @@ vi.mock("../../../api", () => ({
   default: {
     listChannels: vi.fn(),
     listChannelTypes: vi.fn(),
+    listChannelDependencies: vi.fn(),
+    recheckChannelDependencies: vi.fn(),
+    listChannelSchemas: vi.fn(),
   },
 }));
 
@@ -22,6 +25,13 @@ describe("useChannels", () => {
     vi.clearAllMocks();
     (api.listChannels as ReturnType<typeof vi.fn>).mockResolvedValue({});
     (api.listChannelTypes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (api.listChannelDependencies as ReturnType<typeof vi.fn>).mockResolvedValue(
+      {},
+    );
+    (
+      api.recheckChannelDependencies as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({});
+    (api.listChannelSchemas as ReturnType<typeof vi.fn>).mockResolvedValue({});
   });
 
   it("初始 loading=true，fetch 成功后 loading=false", async () => {
@@ -159,5 +169,55 @@ describe("useChannels", () => {
 
     expect(result.current.isBuiltin("dingtalk")).toBe(false);
     expect(result.current.isBuiltin("non-existent-key")).toBe(false);
+  });
+
+  it("polls dependency status while an install is running", async () => {
+    vi.useFakeTimers();
+    (api.listChannelDependencies as ReturnType<typeof vi.fn>).mockResolvedValue(
+      {
+        telegram: {
+          channel: "telegram",
+          status: "installing",
+          requirements: ["python-telegram-bot>=20.0"],
+          missing_requirements: ["python-telegram-bot>=20.0"],
+        },
+      },
+    );
+    (
+      api.recheckChannelDependencies as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({
+      channel: "telegram",
+      status: "ready",
+      requirements: ["python-telegram-bot>=20.0"],
+      missing_requirements: [],
+    });
+
+    const { result, unmount } = renderHook(() => useChannels());
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(api.recheckChannelDependencies).toHaveBeenCalledWith("telegram");
+    expect(result.current.dependencyStatuses.telegram.status).toBe("ready");
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it("fails closed when dependency status loading fails", async () => {
+    (api.listChannelDependencies as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("503"),
+    );
+
+    const { result } = renderHook(() => useChannels());
+
+    await waitFor(() => {
+      expect(result.current.dependencyStatusesLoaded).toBe(true);
+    });
+    expect(result.current.dependencyStatusError).toBe(true);
+    expect(result.current.dependencyStatuses).toEqual({});
   });
 });

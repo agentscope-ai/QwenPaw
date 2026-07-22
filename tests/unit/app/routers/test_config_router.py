@@ -24,6 +24,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from qwenpaw.app.crons import heartbeat
+from qwenpaw.app.channels.dependencies import InstallJob
 from qwenpaw.app.routers.config import router as config_router
 from qwenpaw.config.config import (
     ChannelConfig,
@@ -95,6 +96,103 @@ def test_list_channel_types_returns_list(client):
     assert isinstance(body, list)
     # Built-in identifiers must include 'console'.
     assert "console" in body
+
+
+def test_list_channel_dependencies_returns_builtin_statuses(client):
+    with patch(
+        "qwenpaw.app.routers.config.channel_dependency_service.all_statuses",
+        return_value={
+            "console": {
+                "channel": "console",
+                "status": "ready",
+                "requirements": [],
+                "missing_requirements": [],
+            },
+        },
+    ):
+        response = client.get("/api/config/channels/dependencies")
+    assert response.status_code == 200
+    assert response.json()["console"]["status"] == "ready"
+
+
+def test_install_channel_dependencies_starts_background_job(client):
+    job = InstallJob(
+        id="job-1",
+        channel="telegram",
+        requirements=["python-telegram-bot>=20.0"],
+    )
+    with (
+        patch(
+            "qwenpaw.app.routers.config.channel_dependency_service.start_install",
+            new=AsyncMock(return_value=job),
+        ) as start_install,
+        patch(
+            "qwenpaw.app.routers.config.schedule_all_agents_reload",
+        ) as reload_all,
+    ):
+        response = client.post(
+            "/api/config/channels/telegram/dependencies/install",
+            json={"source": "aliyun"},
+        )
+
+        start_install.assert_awaited_once()
+        args, kwargs = start_install.await_args
+        assert args == ("telegram",)
+        assert kwargs["source"] == "aliyun"
+        assert kwargs["custom_index_url"] is None
+        assert callable(kwargs["on_success"])
+        kwargs["on_success"]()
+        reload_all.assert_called_once()
+
+    assert response.status_code == 200
+    assert response.json()["id"] == "job-1"
+
+
+def test_install_channel_dependencies_rejects_unknown_source(client):
+    response = client.post(
+        "/api/config/channels/telegram/dependencies/install",
+        json={"source": "unknown"},
+    )
+    assert response.status_code == 422
+
+
+def test_install_channel_dependencies_requires_custom_index(client):
+    response = client.post(
+        "/api/config/channels/telegram/dependencies/install",
+        json={"source": "custom"},
+    )
+    assert response.status_code == 422
+
+
+def test_install_channel_dependencies_reports_state_lock_failure(client):
+    with patch(
+        "qwenpaw.app.routers.config.channel_dependency_service.start_install",
+        new=AsyncMock(side_effect=RuntimeError("job state is busy")),
+    ):
+        response = client.post(
+            "/api/config/channels/telegram/dependencies/install",
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "job state is busy"
+
+
+def test_recheck_channel_dependencies(client):
+    expected = {
+        "channel": "telegram",
+        "status": "missing",
+        "requirements": ["python-telegram-bot>=20.0"],
+        "missing_requirements": ["python-telegram-bot>=20.0"],
+    }
+    with patch(
+        "qwenpaw.app.routers.config.channel_dependency_service.channel_status",
+        return_value=expected,
+    ):
+        response = client.post(
+            "/api/config/channels/telegram/dependencies/recheck",
+        )
+    assert response.status_code == 200
+    assert response.json() == expected
 
 
 # ---------------------------------------------------------------------------

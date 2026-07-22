@@ -9,32 +9,13 @@ import threading
 from typing import TYPE_CHECKING
 
 from .base import BaseChannel
+from .catalog import BUILTIN_CHANNEL_CATALOG
+from .dependencies import missing_requirements
 
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
-
-_BUILTIN_SPECS: dict[str, tuple[str, str]] = {
-    "imessage": (".imessage", "IMessageChannel"),
-    "discord": (".discord_", "DiscordChannel"),
-    "dingtalk": (".dingtalk", "DingTalkChannel"),
-    "feishu": (".feishu", "FeishuChannel"),
-    "qq": (".qq", "QQChannel"),
-    "telegram": (".telegram", "TelegramChannel"),
-    "mattermost": (".mattermost", "MattermostChannel"),
-    "mqtt": (".mqtt", "MQTTChannel"),
-    "console": (".console", "ConsoleChannel"),
-    "matrix": (".matrix", "MatrixChannel"),
-    "slack": (".slack", "SlackChannel"),
-    "voice": (".voice", "VoiceChannel"),
-    "sip": (".sip", "SIPChannel"),
-    "wecom": (".wecom", "WecomChannel"),
-    "xiaoyi": (".xiaoyi", "XiaoYiChannel"),
-    "yuanbao": (".yuanbao", "YuanbaoChannel"),
-    "wechat": (".wechat", "WeChatChannel"),
-    "onebot": (".onebot", "OneBotChannel"),
-}
 
 # Required channels must load; failures are raised, not skipped.
 _REQUIRED_CHANNEL_KEYS: frozenset[str] = frozenset({"console"})
@@ -49,7 +30,11 @@ def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
     A single optional dependency failure should not break CLI startup.
     """
     out: dict[str, type[BaseChannel]] = {}
-    for key, (module_name, class_name) in _BUILTIN_SPECS.items():
+    for key, spec in BUILTIN_CHANNEL_CATALOG.items():
+        if not spec.platform_supported or missing_requirements(spec):
+            continue
+        module_name = spec.module
+        class_name = spec.class_name
         try:
             mod = importlib.import_module(module_name, package=__package__)
             cls = getattr(mod, class_name)
@@ -95,7 +80,7 @@ def clear_builtin_channel_cache() -> None:
         _BUILTIN_CHANNEL_CACHE = None
 
 
-BUILTIN_CHANNEL_KEYS = frozenset(_BUILTIN_SPECS.keys())
+BUILTIN_CHANNEL_KEYS = frozenset(BUILTIN_CHANNEL_CATALOG.keys())
 
 
 def _get_plugin_channels() -> dict[str, type[BaseChannel]]:
