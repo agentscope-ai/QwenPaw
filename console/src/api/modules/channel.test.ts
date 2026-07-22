@@ -50,11 +50,18 @@ describe("channelApi", () => {
     const job = { id: "job-1", status: "queued" } as unknown;
     vi.mocked(request).mockResolvedValueOnce(job);
     await expect(
-      channelApi.installChannelDependencies("telegram"),
+      channelApi.installChannelDependencies("telegram", {
+        source: "custom",
+        custom_index_url: "https://packages.example.com/simple/",
+      }),
     ).resolves.toBe(job);
     const calls = vi.mocked(request).mock.calls;
     expect(calls[calls.length - 1]?.[1]).toMatchObject({
       method: "POST",
+      body: JSON.stringify({
+        source: "custom",
+        custom_index_url: "https://packages.example.com/simple/",
+      }),
     });
   });
 

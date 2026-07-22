@@ -164,6 +164,40 @@ def test_install_channel_dependencies_requires_custom_index(client):
     assert response.status_code == 422
 
 
+def test_install_channel_dependencies_rejects_invalid_custom_index(client):
+    response = client.post(
+        "/api/config/channels/telegram/dependencies/install",
+        json={"source": "custom", "custom_index_url": "ftp://example.com"},
+    )
+    assert response.status_code == 422
+
+
+def test_install_channel_dependencies_passes_custom_index(client):
+    job = InstallJob(
+        id="job-custom",
+        channel="telegram",
+        requirements=["python-telegram-bot>=20.0"],
+    )
+    with patch(
+        "qwenpaw.app.routers.config.channel_dependency_service.start_install",
+        new=AsyncMock(return_value=job),
+    ) as start_install:
+        response = client.post(
+            "/api/config/channels/telegram/dependencies/install",
+            json={
+                "source": "custom",
+                "custom_index_url": "  https://packages.example.com/simple/  ",
+            },
+        )
+
+    assert response.status_code == 200
+    assert start_install.await_args.kwargs["source"] == "custom"
+    assert (
+        start_install.await_args.kwargs["custom_index_url"]
+        == "https://packages.example.com/simple/"
+    )
+
+
 def test_install_channel_dependencies_reports_state_lock_failure(client):
     with patch(
         "qwenpaw.app.routers.config.channel_dependency_service.start_install",

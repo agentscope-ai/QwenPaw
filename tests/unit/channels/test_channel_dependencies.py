@@ -11,7 +11,6 @@ from qwenpaw.app.channels.dependencies import (
     ChannelDependencyService,
     InstallJob,
     _source_pyproject,
-    channel_dependency_service,
     missing_requirements,
     requirements_for_extra,
 )
@@ -166,15 +165,18 @@ def test_missing_requirements_returns_only_unsatisfied_items():
         assert missing_requirements(spec) == ["dingtalk-stream>=0.24.3"]
 
 
-def test_platform_unsupported_status():
+def test_platform_unsupported_status(tmp_path):
     unsupported = ChannelSpec(
         "imessage",
         ".imessage",
         "IMessageChannel",
         platforms=frozenset({"never-this-platform"}),
     )
-    with patch.dict(BUILTIN_CHANNEL_CATALOG, {"imessage": unsupported}):
-        status = channel_dependency_service.channel_status("imessage")
+    with (
+        patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path),
+        patch.dict(BUILTIN_CHANNEL_CATALOG, {"imessage": unsupported}),
+    ):
+        status = ChannelDependencyService().channel_status("imessage")
     assert status["status"] == "platform_unsupported"
 
 

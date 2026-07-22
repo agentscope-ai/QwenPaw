@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Form } from "@agentscope-ai/design";
-import { Badge, Button, Modal, Space } from "antd";
+import { Badge, Button, Input, Modal, Select, Space } from "antd";
 import { SafetyOutlined, AuditOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import type { ChannelDependencyInstallSource } from "../../../api/modules/channel";
 import {
   ChannelCard,
   ChannelDrawer,
@@ -16,9 +17,62 @@ import {
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
+import { createDependencyInstallRequest } from "./dependencyInstall";
 import styles from "./index.module.less";
 
 type FilterType = "all" | "builtin" | "custom";
+
+function DependencyInstallOptions({
+  onChange,
+}: {
+  onChange: (values: {
+    source: ChannelDependencyInstallSource;
+    customIndexUrl: string;
+  }) => void;
+}) {
+  const { t } = useTranslation();
+  const [source, setSource] = useState<ChannelDependencyInstallSource>("auto");
+  const [customIndexUrl, setCustomIndexUrl] = useState("");
+
+  const update = (
+    nextSource: ChannelDependencyInstallSource = source,
+    nextUrl: string = customIndexUrl,
+  ) => onChange({ source: nextSource, customIndexUrl: nextUrl });
+
+  return (
+    <div className={styles.dependencySourceFields}>
+      <label htmlFor="channel-dependency-source">
+        {t("channels.installSourceLabel")}
+      </label>
+      <Select
+        id="channel-dependency-source"
+        value={source}
+        style={{ width: "100%" }}
+        options={[
+          { value: "auto", label: t("channels.installSourceAuto") },
+          { value: "system", label: t("channels.installSourceSystem") },
+          { value: "pypi", label: t("channels.installSourcePypi") },
+          { value: "aliyun", label: t("channels.installSourceAliyun") },
+          { value: "custom", label: t("channels.installSourceCustom") },
+        ]}
+        onChange={(value: ChannelDependencyInstallSource) => {
+          setSource(value);
+          update(value);
+        }}
+      />
+      {source === "custom" && (
+        <Input
+          placeholder={t("channels.installCustomSourcePlaceholder")}
+          value={customIndexUrl}
+          onChange={(event) => {
+            setCustomIndexUrl(event.target.value);
+            update(source, event.target.value);
+          }}
+        />
+      )}
+    </div>
+  );
+}
 
 function ChannelsPage() {
   const { t } = useTranslation();
@@ -97,6 +151,8 @@ function ChannelsPage() {
       const dependency = dependencyStatuses[key];
       if (isBuiltin(key) && !dependency) return;
       if (dependency?.status === "missing" || dependency?.status === "failed") {
+        let source: ChannelDependencyInstallSource = "auto";
+        let customIndexUrl = "";
         Modal.confirm({
           title: t("channels.installDependenciesTitle", {
             channel: getChannelLabel(key, t),
@@ -109,13 +165,28 @@ function ChannelsPage() {
                   <li key={requirement}>{requirement}</li>
                 ))}
               </ul>
+              <DependencyInstallOptions
+                onChange={(values) => {
+                  source = values.source;
+                  customIndexUrl = values.customIndexUrl;
+                }}
+              />
             </div>
           ),
           okText: t("channels.installConfirm"),
           cancelText: t("common.cancel"),
           onOk: async () => {
             try {
-              const job = await api.installChannelDependencies(key);
+              let request;
+              try {
+                request = createDependencyInstallRequest(
+                  source,
+                  customIndexUrl,
+                );
+              } catch {
+                throw new Error(t("channels.installCustomSourceInvalid"));
+              }
+              const job = await api.installChannelDependencies(key, request);
               if (job.status === "failed") {
                 throw new Error(job.error || t("channels.installFailed"));
               }

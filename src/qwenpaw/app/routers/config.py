@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 import os
 from typing import Any, List, Optional
+from urllib.parse import urlsplit
 
 from fastapi import (
     APIRouter,
@@ -215,11 +216,22 @@ async def install_channel_dependencies(
             status_code=422,
             detail="custom_index_url is required for custom source",
         )
+    if body.source == "custom":
+        parsed = urlsplit(body.custom_index_url.strip())
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise HTTPException(
+                status_code=422,
+                detail="custom_index_url must be a valid HTTP(S) URL",
+            )
     try:
         job = await channel_dependency_service.start_install(
             channel_name,
             source=body.source,
-            custom_index_url=body.custom_index_url,
+            custom_index_url=(
+                body.custom_index_url.strip()
+                if body.custom_index_url is not None
+                else None
+            ),
             on_success=lambda: schedule_all_agents_reload(request),
         )
     except ValueError as exc:

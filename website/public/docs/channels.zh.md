@@ -7,7 +7,7 @@
 - **控制台**（推荐）— 在 [控制台](./console) 的 **Control → Channels** 页面，点击频道卡片，在抽屉里启用并填写鉴权信息，保存即生效。
 - **手动编辑 `agent.json`** — 在智能体工作区的 `agent.json` 中（如 `~/.qwenpaw/workspaces/default/agent.json`），将需要的频道设 `enabled: true` 并填好鉴权信息；保存后自动重载，无需重启。
 
-内置频道的第三方依赖按需安装。控制台会把依赖未满足的频道显示在“未激活”区域，点击“安装”并确认当前缺失的依赖后会在后台安装；安装完成即可继续启用和配置。命令行或无人值守环境也可使用 `pip install "qwenpaw[channel-feishu]"` 这类 extra，或用 `qwenpaw[channels-all]` 一次安装全部频道依赖。
+内置频道的第三方依赖按需安装。控制台会把依赖未满足的频道显示在“未激活”区域，点击“安装”后可以选择自动、系统配置、官方 PyPI、阿里云镜像或自定义安装源，并确认当前缺失的依赖；安装会在后台进行，完成后即可继续启用和配置。命令行或无人值守环境也可使用 `pip install "qwenpaw[channel-feishu]"` 这类 extra，或用 `qwenpaw[channels-all]` 一次安装全部频道依赖。
 
 下面按频道说明如何获取凭证并填写配置。
 

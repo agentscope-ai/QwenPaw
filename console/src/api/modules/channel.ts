@@ -57,6 +57,18 @@ export interface ChannelDependencyJob {
   error?: string;
 }
 
+export type ChannelDependencyInstallSource =
+  | "auto"
+  | "system"
+  | "pypi"
+  | "aliyun"
+  | "custom";
+
+export interface ChannelDependencyInstallRequest {
+  source?: ChannelDependencyInstallSource;
+  custom_index_url?: string;
+}
+
 export const channelApi = {
   listChannelTypes: () => request<string[]>("/config/channels/types"),
 
@@ -72,7 +84,7 @@ export const channelApi = {
 
   installChannelDependencies: (
     channelName: string,
-    body: { source?: string; custom_index_url?: string } = {},
+    body: ChannelDependencyInstallRequest = {},
   ) =>
     request<ChannelDependencyJob>(
       `/config/channels/${encodeURIComponent(
