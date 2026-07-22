@@ -196,7 +196,7 @@ export default function DebugPage() {
             <Text type="secondary">
               {t(
                 "debug.messageRecording.desc",
-                "Record LLM call inputs and outputs to daily JSONL files. Files older than 3 days are automatically cleaned up.",
+                "Record LLM call inputs and outputs to daily JSONL files. Retained for 3 days by default (configurable via QWENPAW_MESSAGE_RECORDING_RETENTION_DAYS).",
               )}
             </Text>
             <div className={styles.recordingFields}>

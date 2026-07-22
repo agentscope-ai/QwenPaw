@@ -1021,7 +1021,7 @@
     },
     "messageRecording": {
       "title": "Perekaman Pesan",
-      "desc": "Rekam input dan output panggilan LLM ke file JSONL harian. File yang lebih dari 3 hari akan dibersihkan secara otomatis.",
+      "desc": "Rekam input dan output panggilan LLM ke file JSONL harian. Disimpan selama 3 hari secara default (dapat dikonfigurasi melalui QWENPAW_MESSAGE_RECORDING_RETENTION_DAYS).",
       "enabled": "Aktifkan perekaman",
       "maxContentLength": "Panjang konten maksimum",
       "maxContentLengthTooltip": "Potong konten teks yang melebihi panjang ini. Kosongkan untuk tidak memotong.",

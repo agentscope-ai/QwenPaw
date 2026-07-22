@@ -101,7 +101,7 @@
     },
     "messageRecording": {
       "title": "メッセージ記録",
-      "desc": "LLM呼び出しの入出力を日付別のJSONLファイルに記録します。3日以上前のファイルは自動的にクリーンアップされます。",
+      "desc": "LLM呼び出しの入出力を日付別のJSONLファイルに記録します。デフォルトで3日間保持されます（QWENPAW_MESSAGE_RECORDING_RETENTION_DAYSで変更可能）。",
       "enabled": "記録を有効にする",
       "maxContentLength": "最大コンテンツ長",
       "maxContentLengthTooltip": "この長さを超えるテキストは切り詰められます。空欄の場合は切り詰めません。",

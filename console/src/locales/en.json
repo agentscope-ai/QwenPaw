@@ -183,7 +183,7 @@
     },
     "messageRecording": {
       "title": "Message Recording",
-      "desc": "Record LLM call inputs and outputs to daily JSONL files. Files older than 3 days are automatically cleaned up.",
+      "desc": "Record LLM call inputs and outputs to daily JSONL files. Retained for 3 days by default (configurable via QWENPAW_MESSAGE_RECORDING_RETENTION_DAYS).",
       "enabled": "Enable recording",
       "maxContentLength": "Max content length",
       "maxContentLengthTooltip": "Truncate text content exceeding this length. Leave empty for no truncation.",

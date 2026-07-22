@@ -285,7 +285,7 @@
     },
     "messageRecording": {
       "title": "Ghi Tin Nhắn",
-      "desc": "Ghi lại đầu vào và đầu ra của các lời gọi LLM vào tệp JSONL theo ngày. Các tệp cũ hơn 3 ngày sẽ tự động được dọn dẹp.",
+      "desc": "Ghi lại đầu vào và đầu ra của các lời gọi LLM vào tệp JSONL hàng ngày. Lưu giữ mặc định 3 ngày (có thể thay đổi qua QWENPAW_MESSAGE_RECORDING_RETENTION_DAYS).",
       "enabled": "Bật ghi",
       "maxContentLength": "Độ dài nội dung tối đa",
       "maxContentLengthTooltip": "Cắt bớt nội dung văn bản vượt quá độ dài này. Để trống nếu không muốn cắt.",
