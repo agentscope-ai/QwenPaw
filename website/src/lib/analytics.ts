@@ -33,7 +33,9 @@ export function loadGoogleAnalytics(id: string) {
   window.gtag("config", id);
 
   const script = document.createElement("script");
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}`;
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(
+    id,
+  )}`;
   script.async = true;
 
   script.onload = () => {
