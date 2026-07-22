@@ -70,7 +70,9 @@ async fn run_install(app: AppHandle) {
         return emit_updater_error(&app, "install", &err);
     }
 
-    backend::stop(&app).await;
+    if let Err(err) = backend::stop_and_wait(&app).await {
+        return emit_error(&app, "install", &err);
+    }
     app.restart();
 }
 
@@ -187,7 +189,9 @@ async fn run_cached_install(app: AppHandle) {
 }
 
 fn install_cached_windows(app: &AppHandle, exe_path: &std::path::Path) {
-    tauri::async_runtime::block_on(backend::stop(app));
+    if let Err(err) = tauri::async_runtime::block_on(backend::stop_and_wait(app)) {
+        return emit_error(app, "install", &err);
+    }
     if let Err(err) = std::process::Command::new(exe_path)
         .args(["/P", "/R", "/UPDATE", "/NO_QWENPAW_PATH"])
         .spawn()
@@ -239,7 +243,9 @@ async fn install_cached_macos(
         return emit_updater_error(app, "install", &err);
     }
 
-    backend::stop(app).await;
+    if let Err(err) = backend::stop_and_wait(app).await {
+        return emit_error(app, "install", &err);
+    }
     app.restart();
 }
 

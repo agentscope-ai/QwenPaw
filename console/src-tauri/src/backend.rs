@@ -11,6 +11,7 @@ use std::{
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
 use tauri_plugin_shell::process::CommandChild;
+use tokio::sync::oneshot;
 
 mod command;
 mod events;
@@ -24,7 +25,6 @@ const DESKTOP_SHUTDOWN_PATH: &str = "/api/desktop/shutdown";
 /// bounds the sidecar's internal drain independently.
 const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
-
 /// Shared sidecar process state managed by Tauri.
 #[derive(Default)]
 pub(crate) struct BackendState {
@@ -36,6 +36,7 @@ pub(crate) struct BackendState {
 struct BackendInner {
     child: Option<CommandChild>,
     port: Option<u16>,
+    terminated: Option<oneshot::Receiver<()>>,
     error: Option<String>,
 }
 
@@ -85,6 +86,7 @@ impl BackendState {
     fn clear_startup_state(&self) {
         self.with_inner(|inner| {
             inner.port = None;
+            inner.terminated = None;
             inner.error = None;
         });
     }
@@ -93,19 +95,32 @@ impl BackendState {
         if self.is_current(generation) {
             self.with_inner(|inner| {
                 inner.child.take();
+                inner.terminated = None;
             });
         }
     }
 
-    fn take_child_and_port(&self) -> (Option<CommandChild>, Option<u16>) {
+    fn take_child_and_port(
+        &self,
+    ) -> (
+        Option<CommandChild>,
+        Option<u16>,
+        Option<oneshot::Receiver<()>>,
+    ) {
         self.next_generation();
-        self.with_inner(|inner| (inner.child.take(), inner.port.take()))
+        self.with_inner(|inner| {
+            (
+                inner.child.take(),
+                inner.port.take(),
+                inner.terminated.take(),
+            )
+        })
     }
 
-    async fn stop(&self) {
-        let (child, port) = self.take_child_and_port();
+    async fn stop(&self) -> Option<oneshot::Receiver<()>> {
+        let (child, port, terminated) = self.take_child_and_port();
         let Some(child) = child else {
-            return;
+            return None;
         };
 
         let pid = child.pid();
@@ -122,10 +137,9 @@ impl BackendState {
                     // command; our Rust-side `command.spawn()` is not in
                     // that map). The sidecar therefore keeps running past
                     // Tauri exit and completes its own lifespan shutdown
-                    // (memory/index flush) on its own timeline, bounded by
-                    // uvicorn's `timeout_graceful_shutdown`.
+                    // (memory/index flush) on its own timeline.
                     log::info!("[backend] graceful shutdown requested pid={pid}");
-                    return;
+                    return terminated;
                 }
                 Err(err) => {
                     log::warn!(
@@ -140,6 +154,15 @@ impl BackendState {
         if let Err(err) = child.kill() {
             log::warn!("[backend] failed to stop process: {err}");
         }
+
+        terminated
+    }
+
+    async fn stop_and_wait(&self) -> Result<(), String> {
+        let Some(terminated) = self.stop().await else {
+            return Ok(());
+        };
+        wait_for_termination(terminated).await
     }
 }
 
@@ -167,6 +190,12 @@ async fn request_graceful_shutdown(port: u16) -> Result<(), String> {
     Ok(())
 }
 
+async fn wait_for_termination(terminated: oneshot::Receiver<()>) -> Result<(), String> {
+    terminated
+        .await
+        .map_err(|_| "backend process ended without a termination event".into())
+}
+
 #[tauri::command]
 pub(crate) fn backend_port(state: tauri::State<'_, BackendState>) -> Option<u16> {
     state.port()
@@ -184,7 +213,7 @@ pub(crate) fn backend_startup_error(state: tauri::State<'_, BackendState>) -> Op
 /// Stops the current sidecar, starts a fresh one, and returns its API port.
 #[tauri::command]
 pub(crate) async fn restart_backend(app: tauri::AppHandle) -> Result<(), String> {
-    stop(&app).await;
+    stop_and_wait(&app).await?;
     start(&app);
 
     let state = app.state::<BackendState>();
@@ -215,7 +244,12 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
 
 /// Terminates the current sidecar process, if one is running.
 pub(crate) async fn stop(app: &tauri::AppHandle) {
-    app.state::<BackendState>().stop().await;
+    let _ = app.state::<BackendState>().stop().await;
+}
+
+/// Gracefully stops the current sidecar and waits for its process to exit.
+pub(crate) async fn stop_and_wait(app: &tauri::AppHandle) -> Result<(), String> {
+    app.state::<BackendState>().stop_and_wait().await
 }
 
 fn desktop_log_level() -> log::LevelFilter {
@@ -262,8 +296,25 @@ fn start(app: &tauri::AppHandle) {
 
     let child_pid = child.pid();
     log::info!("[backend] spawned generation={generation} pid={child_pid}");
+    let (terminated_sender, terminated_receiver) = oneshot::channel();
     state.with_inner(|inner| {
         inner.child = Some(child);
+        inner.terminated = Some(terminated_receiver);
     });
-    events::watch(app.clone(), generation, rx);
+    events::watch(app.clone(), generation, rx, terminated_sender);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wait_for_termination_completes_after_sidecar_exit() {
+        tauri::async_runtime::block_on(async {
+            let (sender, receiver) = oneshot::channel();
+            sender.send(()).unwrap();
+
+            assert!(wait_for_termination(receiver).await.is_ok());
+        });
+    }
 }

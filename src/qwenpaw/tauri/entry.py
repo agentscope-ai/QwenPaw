@@ -329,10 +329,10 @@ def _run_backend_server(log_level: str) -> None:
         port = _socket_port(backend_socket)
         write_port_file(port_file, port)
         write_last_api(host, port)
-        _emit_backend_ready(port)
         server = uvicorn.Server(config)
         # Exposed so /api/desktop/shutdown can trigger a graceful exit.
         fastapi_app.state.uvicorn_server = server
+        _emit_backend_ready(port)
         server.run(sockets=[backend_socket])
     except Exception:
         backend_socket.close()

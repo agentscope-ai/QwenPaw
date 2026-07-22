@@ -741,9 +741,10 @@ async def post_desktop_shutdown():
         raise HTTPException(status_code=404, detail="Not Found")
 
     server = getattr(app.state, "uvicorn_server", None)
-    if server is not None:
-        server.should_exit = True
+    if server is None:
+        raise HTTPException(status_code=503, detail="Desktop backend is not ready")
 
+    server.should_exit = True
     return {"ok": True}
 
 
