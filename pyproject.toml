@@ -89,6 +89,7 @@ include-package-data = true
     "console/**",
     "agents/md_files/**",
     "agents/skills/**",
+    "agents/tools/docs/**",
     "tokenizer/**",
     "security/tool_guard/rules/**",
     "security/skill_scanner/rules/**",

@@ -1808,7 +1808,17 @@
     "noEnabled": "Нет включённых инструментов",
     "goEnableBtn": "Включить",
     "configureAction": "Настроить →",
-    "enableAction": "Включить →"
+    "enableAction": "Включить →",
+    "detailTitle": "Сведения об инструменте · {{name}}",
+    "detailTitleFallback": "Сведения об инструменте",
+    "detailAbout": "Описание",
+    "parameters": "Параметры",
+    "noParameters": "У этого инструмента нет параметров",
+    "paramName": "Имя",
+    "paramType": "Тип",
+    "paramRequired": "Обязательный",
+    "paramDefault": "По умолчанию",
+    "paramDescription": "Описание"
   },
   "modelConfig": {
     "promptTitle": "Требуется LLM-модель — выберите в Chat после настройки",

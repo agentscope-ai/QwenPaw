@@ -552,7 +552,17 @@
     "noEnabled": "Không có công cụ nào được bật",
     "goEnableBtn": "Bật ngay",
     "configureAction": "Cấu hình →",
-    "enableAction": "Bật →"
+    "enableAction": "Bật →",
+    "detailTitle": "Chi tiết công cụ · {{name}}",
+    "detailTitleFallback": "Chi tiết công cụ",
+    "detailAbout": "Giới thiệu",
+    "parameters": "Tham số",
+    "noParameters": "Công cụ này không có tham số",
+    "paramName": "Tên",
+    "paramType": "Kiểu",
+    "paramRequired": "Bắt buộc",
+    "paramDefault": "Mặc định",
+    "paramDescription": "Mô tả"
   },
   "mcp": {
     "title": "MCP Client",

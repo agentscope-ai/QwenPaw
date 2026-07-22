@@ -57,6 +57,18 @@ class ToolInfo(BaseModel):
     name: str = Field(..., description="Tool function name")
     enabled: bool = Field(..., description="Whether the tool is enabled")
     description: str = Field(default="", description="Tool description")
+    summary: str = Field(
+        default="",
+        description="Short localized summary for tool cards",
+    )
+    detail: str = Field(
+        default="",
+        description="Localized markdown detail for the tool docs drawer",
+    )
+    input_schema: dict[str, Any] = Field(
+        default_factory=dict,
+        description="JSON Schema for tool call parameters",
+    )
     async_execution: bool = Field(
         default=False,
         description="Whether to execute the tool asynchronously in background",
@@ -85,7 +97,33 @@ class ToolConfigUpdate(BaseModel):
     )
 
 
-def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
+def _apply_tool_presentation(
+    tool_info: ToolInfo,
+    *,
+    lang: str | None = "en",
+) -> ToolInfo:
+    """Fill summary/detail/input_schema (and align description) for a tool."""
+    from ...agents.tools.tool_docs import resolve_tool_presentation
+
+    presentation = resolve_tool_presentation(
+        tool_info.name,
+        lang=lang,
+        fallback_description=tool_info.description,
+    )
+    tool_info.summary = presentation["summary"]
+    tool_info.detail = presentation["detail"]
+    tool_info.input_schema = presentation["input_schema"]
+    # Keep legacy description in sync for older clients.
+    tool_info.description = tool_info.summary or tool_info.description
+    return tool_info
+
+
+def _build_tool_info(
+    tool_config: Any,
+    tool_name: str,
+    *,
+    lang: str | None = "en",
+) -> ToolInfo:
     """Build a complete ToolInfo from a tool config, including plugin metadata.
 
     Reads requires_config, config_fields and config_values from the plugin
@@ -94,6 +132,7 @@ def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
     Args:
         tool_config: BuiltinToolConfig instance
         tool_name: Tool function name
+        lang: Console language code for curated docs
 
     Returns:
         Fully populated ToolInfo
@@ -146,14 +185,19 @@ def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
                         masked_config[field["name"]] = "***"
             tool_info.config_values = masked_config
 
-    return tool_info
+    return _apply_tool_presentation(tool_info, lang=lang)
 
 
 @router.get("", response_model=List[ToolInfo])
 async def list_tools(
     request: Request,
+    lang: str = "en",
 ) -> List[ToolInfo]:
     """List all built-in tools and enabled status for active agent.
+
+    Args:
+        request: FastAPI request
+        lang: Console language code for curated tool docs (falls back to en)
 
     Returns:
         List of tool information
@@ -259,7 +303,7 @@ async def list_tools(
                             masked_config[field["name"]] = "***"
                 tool_info.config_values = masked_config
 
-        tools_list.append(tool_info)
+        tools_list.append(_apply_tool_presentation(tool_info, lang=lang))
 
     return tools_list
 
@@ -268,12 +312,14 @@ async def list_tools(
 async def toggle_tool(
     tool_name: str = Path(...),
     request: Request = None,
+    lang: str = "en",
 ) -> ToolInfo:
     """Toggle tool enabled status for active agent.
 
     Args:
         tool_name: Tool function name
         request: FastAPI request
+        lang: Console language code for curated tool docs
 
     Returns:
         Updated tool information
@@ -306,7 +352,7 @@ async def toggle_tool(
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, workspace.agent_id)
 
-    return _build_tool_info(tool_config, tool_name)
+    return _build_tool_info(tool_config, tool_name, lang=lang)
 
 
 @router.patch("/{tool_name}/async-execution", response_model=ToolInfo)
@@ -314,6 +360,7 @@ async def update_tool_async_execution(
     tool_name: str = Path(...),
     async_execution: bool = Body(..., embed=True),
     request: Request = None,
+    lang: str = "en",
 ) -> ToolInfo:
     """Update tool async_execution setting for active agent.
 
@@ -321,6 +368,7 @@ async def update_tool_async_execution(
         tool_name: Tool function name
         async_execution: Whether to execute asynchronously
         request: FastAPI request
+        lang: Console language code for curated tool docs
 
     Returns:
         Updated tool information
@@ -353,7 +401,7 @@ async def update_tool_async_execution(
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, workspace.agent_id)
 
-    return _build_tool_info(tool_config, tool_name)
+    return _build_tool_info(tool_config, tool_name, lang=lang)
 
 
 @router.get("/{tool_name}/config")

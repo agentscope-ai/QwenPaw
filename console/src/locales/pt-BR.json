@@ -2036,7 +2036,17 @@
     "noEnabled": "Nenhuma ferramenta ativada",
     "goEnableBtn": "Ativar agora",
     "configureAction": "Configurar →",
-    "enableAction": "Ativar →"
+    "enableAction": "Ativar →",
+    "detailTitle": "Detalhes da ferramenta · {{name}}",
+    "detailTitleFallback": "Detalhes da ferramenta",
+    "detailAbout": "Sobre",
+    "parameters": "Parâmetros",
+    "noParameters": "Esta ferramenta não possui parâmetros",
+    "paramName": "Nome",
+    "paramType": "Tipo",
+    "paramRequired": "Obrigatório",
+    "paramDefault": "Padrão",
+    "paramDescription": "Descrição"
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",

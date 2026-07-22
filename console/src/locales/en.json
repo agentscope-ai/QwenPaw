@@ -2194,7 +2194,17 @@
     "noEnabled": "No tools enabled",
     "goEnableBtn": "Go enable",
     "configureAction": "Configure →",
-    "enableAction": "Enable →"
+    "enableAction": "Enable →",
+    "detailTitle": "Tool details · {{name}}",
+    "detailTitleFallback": "Tool details",
+    "detailAbout": "About",
+    "parameters": "Parameters",
+    "noParameters": "This tool has no parameters",
+    "paramName": "Name",
+    "paramType": "Type",
+    "paramRequired": "Required",
+    "paramDefault": "Default",
+    "paramDescription": "Description"
   },
   "modelConfig": {
     "promptTitle": "LLM Model Required — Select in Chat After Configuration",

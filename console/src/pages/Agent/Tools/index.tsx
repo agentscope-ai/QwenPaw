@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Spin } from "antd";
 import {
   Card,
@@ -22,6 +22,7 @@ import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
 import { PageHeader } from "@/components/PageHeader";
+import { ToolDetailDrawer } from "./components/ToolDetailDrawer";
 import styles from "./index.module.less";
 
 /** Stable background colours for the initial-letter fallback icon. */
@@ -217,10 +218,15 @@ export default function ToolsPage() {
   } = useTools();
   const [configModalVisible, setConfigModalVisible] = useState(false);
   const [currentTool, setCurrentTool] = useState<ToolInfo | null>(null);
+  const [detailTool, setDetailTool] = useState<ToolInfo | null>(null);
 
   const handleConfigure = (tool: ToolInfo) => {
     setCurrentTool(tool);
     setConfigModalVisible(true);
+  };
+
+  const openDetail = (tool: ToolInfo) => {
+    setDetailTool(tool);
   };
 
   const handleSaveConfig = async (values: Record<string, any>) => {
@@ -240,6 +246,11 @@ export default function ToolsPage() {
     (tool.config_values && Object.keys(tool.config_values).length > 0);
 
   const handleAvailableItemClick = (tool: ToolInfo) => {
+    openDetail(tool);
+  };
+
+  const handleAvailableActionClick = (event: MouseEvent, tool: ToolInfo) => {
+    event.stopPropagation();
     if (tool.requires_config && !isToolConfigured(tool)) {
       handleConfigure(tool);
     } else {
@@ -289,7 +300,8 @@ export default function ToolsPage() {
                   {enabledTools.map((tool) => (
                     <Card
                       key={tool.name}
-                      className={`${styles.toolCard} ${styles.enabledCard}`}
+                      className={`${styles.toolCard} ${styles.enabledCard} ${styles.clickableCard}`}
+                      onClick={() => openDetail(tool)}
                     >
                       <div className={styles.cardHeader}>
                         <h3 className={styles.toolName} title={tool.name}>
@@ -307,7 +319,7 @@ export default function ToolsPage() {
                       </div>
 
                       <p className={styles.toolDescription}>
-                        {tool.description}
+                        {tool.summary || tool.description}
                       </p>
 
                       {/* Show config status */}
@@ -326,7 +338,10 @@ export default function ToolsPage() {
                         </div>
                       )}
 
-                      <div className={styles.cardFooter}>
+                      <div
+                        className={styles.cardFooter}
+                        onClick={(event) => event.stopPropagation()}
+                      >
                         {[
                           "execute_shell_command",
                           "delegate_external_agent",
@@ -407,7 +422,12 @@ export default function ToolsPage() {
                       >
                         {tool.name}
                       </span>
-                      <span className={styles.availableItemAction}>
+                      <span
+                        className={styles.availableItemAction}
+                        onClick={(event) =>
+                          handleAvailableActionClick(event, tool)
+                        }
+                      >
                         {tool.requires_config && !isToolConfigured(tool)
                           ? t("tools.configureAction")
                           : t("tools.enableAction")}
@@ -431,6 +451,12 @@ export default function ToolsPage() {
           onSave={handleSaveConfig}
         />
       )}
+
+      <ToolDetailDrawer
+        tool={detailTool}
+        open={Boolean(detailTool)}
+        onClose={() => setDetailTool(null)}
+      />
     </div>
   );
 }

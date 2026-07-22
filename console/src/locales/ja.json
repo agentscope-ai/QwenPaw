@@ -1793,7 +1793,17 @@
     "noEnabled": "有効なツールはありません",
     "goEnableBtn": "有効にする",
     "configureAction": "設定 →",
-    "enableAction": "有効化 →"
+    "enableAction": "有効化 →",
+    "detailTitle": "ツール詳細 · {{name}}",
+    "detailTitleFallback": "ツール詳細",
+    "detailAbout": "説明",
+    "parameters": "パラメータ",
+    "noParameters": "このツールにはパラメータがありません",
+    "paramName": "名前",
+    "paramType": "型",
+    "paramRequired": "必須",
+    "paramDefault": "デフォルト",
+    "paramDescription": "説明"
   },
   "modelConfig": {
     "promptTitle": "LLMモデルが必要です — 設定後にChatページで選択",

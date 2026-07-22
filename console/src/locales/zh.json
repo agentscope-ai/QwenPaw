@@ -2053,7 +2053,17 @@
     "noEnabled": "暂无已启用的工具",
     "goEnableBtn": "去启用",
     "configureAction": "配置 →",
-    "enableAction": "启用 →"
+    "enableAction": "启用 →",
+    "detailTitle": "工具详情 · {{name}}",
+    "detailTitleFallback": "工具详情",
+    "detailAbout": "作用说明",
+    "parameters": "支持的参数",
+    "noParameters": "该工具无参数",
+    "paramName": "参数名",
+    "paramType": "类型",
+    "paramRequired": "必填",
+    "paramDefault": "默认值",
+    "paramDescription": "说明"
   },
   "modelConfig": {
     "promptTitle": "需要配置 LLM 模型，配置模型后在 Chat 页面选择",
