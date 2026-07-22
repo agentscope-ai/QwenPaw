@@ -1071,14 +1071,7 @@ class MessageRecordingConfig(BaseModel):
 
     storage_dir: str = Field(
         default=str(WORKING_DIR / "message_logs"),
-        description=("Storage directory for JSONL files."),
-    )
-
-    flush_interval: int = Field(
-        default=5,
-        ge=1,
-        le=300,
-        description=("Seconds between buffer flushes to disk."),
+        description=("Storage directory for JSONL files (read-only)."),
     )
 
 

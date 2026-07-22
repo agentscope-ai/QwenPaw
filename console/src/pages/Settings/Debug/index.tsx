@@ -12,7 +12,7 @@ import {
   Tooltip,
   Typography,
 } from "antd";
-import { QuestionCircleOutlined } from "@ant-design/icons";
+import { HelpCircle } from "lucide-react";
 import dayjs from "dayjs";
 import { PageHeader } from "@/components/PageHeader";
 import { useDebugLogs, backendLevelColor } from "./useDebugLogs";
@@ -190,6 +190,7 @@ export default function DebugPage() {
             <Switch
               checked={enabled}
               loading={recordingLoading}
+              disabled={recordingLoading}
               onChange={toggleEnabled}
             />
           }
@@ -214,7 +215,8 @@ export default function DebugPage() {
                       "Truncate text content exceeding this length. Leave empty for no truncation.",
                     )}
                   >
-                    <QuestionCircleOutlined
+                    <HelpCircle
+                      size={14}
                       style={{ marginLeft: 4, color: "rgba(0,0,0,0.45)" }}
                     />
                   </Tooltip>
@@ -226,7 +228,7 @@ export default function DebugPage() {
                   onBlur={() => commitMaxContentLength()}
                   onPressEnter={() => commitMaxContentLength()}
                   style={{ width: 200 }}
-                  disabled={!enabled}
+                  disabled={!enabled || recordingLoading}
                 />
               </div>
               <div className={styles.recordingField}>
@@ -238,7 +240,8 @@ export default function DebugPage() {
                       "Automatically delete JSONL files older than this many days.",
                     )}
                   >
-                    <QuestionCircleOutlined
+                    <HelpCircle
+                      size={14}
                       style={{ marginLeft: 4, color: "rgba(0,0,0,0.45)" }}
                     />
                   </Tooltip>
@@ -251,7 +254,7 @@ export default function DebugPage() {
                   onBlur={() => commitRetentionDays()}
                   onPressEnter={() => commitRetentionDays()}
                   style={{ width: 200 }}
-                  disabled={!enabled}
+                  disabled={!enabled || recordingLoading}
                 />
               </div>
             </div>

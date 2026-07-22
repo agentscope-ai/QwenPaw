@@ -7,7 +7,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,12 @@ _CLEANUP_INTERVAL = 86400  # 1 day in seconds
 
 
 class _MessageEvent(NamedTuple):
-    """Immutable record placed on the queue by the producer."""
+    """Immutable record placed on the queue by the producer.
+
+    All fields store raw Python objects. Serialization happens
+    in the worker thread during flush, keeping the event loop
+    free from potentially expensive json.dumps calls.
+    """
 
     timestamp: str
     request_id: str
@@ -24,10 +29,10 @@ class _MessageEvent(NamedTuple):
     agent_id: str
     provider_id: str
     model_name: str
-    messages: str  # pre-serialized JSON string
-    tools: str  # pre-serialized JSON string
-    tool_choice: str  # pre-serialized JSON string
-    response: str  # pre-serialized JSON string
+    messages: Any  # list[dict] — raw structured data
+    tools: Any  # list[dict] — raw structured data
+    tool_choice: Any  # str | dict | None
+    response: Any  # dict — raw structured data
     duration_ms: int
 
 
@@ -56,7 +61,6 @@ class MessageRecordingBuffer:
         if self._consumer_task is not None:
             return
         self._stopped = False
-        self._base_dir.mkdir(parents=True, exist_ok=True)
         self._consumer_task = asyncio.create_task(
             self._consumer_loop(),
             name="msg-recording-consumer",
@@ -130,32 +134,15 @@ class MessageRecordingBuffer:
         records = self._pending
         self._pending = []
 
-        # Group by date
-        by_date: dict[str, list[str]] = {}
-        for event in records:
-            # Extract date from ISO timestamp
-            date_str = event.timestamp[:10]
-            line = _build_jsonl_line(event)
-            by_date.setdefault(date_str, []).append(line)
-
-        for date_str, lines in by_date.items():
-            file_path = self._base_dir / f"{date_str}.jsonl"
-            try:
-                await asyncio.to_thread(
-                    _append_records_sync,
-                    file_path,
-                    lines,
-                )
-            except Exception:
-                logger.warning(
-                    "message_recording: failed to write %s",
-                    file_path,
-                    exc_info=True,
-                )
+        # Serialization + file I/O all in worker thread
+        await asyncio.to_thread(
+            _serialize_and_write,
+            records,
+            self._base_dir,
+        )
 
     async def _flush_loop(self) -> None:
-        """Periodically flush pending records and cleanup old files."""
-        # Run cleanup once at start
+        """Periodically flush pending records and cleanup."""
         await self._run_cleanup()
         try:
             while not self._stopped:
@@ -190,14 +177,39 @@ class MessageRecordingBuffer:
             )
 
 
-def _append_records_sync(
-    file_path: Path,
-    lines: list[str],
+def _serialize_and_write(
+    records: list[_MessageEvent],
+    base_dir: Path,
 ) -> None:
-    """Append JSONL lines to file (sync, called via to_thread)."""
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(file_path, "a", encoding="utf-8") as f:
-        f.writelines(lines)
+    """Serialize events and write to JSONL (runs in worker thread).
+
+    This keeps all json.dumps() work off the event loop.
+    """
+    by_date: dict[str, list[str]] = {}
+    for event in records:
+        try:
+            date_str = event.timestamp[:10]
+            line = _build_jsonl_line(event)
+        except Exception:
+            logger.debug(
+                "message_recording: failed to serialize event",
+                exc_info=True,
+            )
+            continue
+        by_date.setdefault(date_str, []).append(line)
+
+    for date_str, lines in by_date.items():
+        file_path = base_dir / f"{date_str}.jsonl"
+        try:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(file_path, "a", encoding="utf-8") as f:
+                f.writelines(lines)
+        except Exception:
+            logger.warning(
+                "message_recording: failed to write %s",
+                file_path,
+                exc_info=True,
+            )
 
 
 def _cleanup_old_files(
@@ -224,34 +236,24 @@ def _cleanup_old_files(
 
 
 def _build_jsonl_line(event: _MessageEvent) -> str:
-    """Build a single JSONL line from an event.
+    """Build a JSONL line via single json.dumps call.
 
-    Scalar fields are JSON-escaped via json.dumps to prevent
-    injection. Pre-serialized JSON fields (messages, tools,
-    tool_choice, response) are embedded directly.
+    All serialization happens here in the worker thread.
     """
-    # JSON-escape scalar string fields
-    ts = json.dumps(event.timestamp)
-    req_id = json.dumps(event.request_id)
-    sess_id = json.dumps(event.session_id)
-    agent = json.dumps(event.agent_id)
-    provider = json.dumps(event.provider_id)
-    model = json.dumps(event.model_name)
-
-    return (
-        f'{{"timestamp": {ts}'
-        f', "request_id": {req_id}'
-        f', "session_id": {sess_id}'
-        f', "agent_id": {agent}'
-        f', "provider_id": {provider}'
-        f', "model": {model}'
-        f', "messages": {event.messages}'
-        f', "tools": {event.tools}'
-        f', "tool_choice": {event.tool_choice}'
-        f', "response": {event.response}'
-        f', "duration_ms": {event.duration_ms}'
-        f"}}\n"
-    )
+    record = {
+        "timestamp": event.timestamp,
+        "request_id": event.request_id,
+        "session_id": event.session_id,
+        "agent_id": event.agent_id,
+        "provider_id": event.provider_id,
+        "model": event.model_name,
+        "messages": event.messages,
+        "tools": event.tools,
+        "tool_choice": event.tool_choice,
+        "response": event.response,
+        "duration_ms": event.duration_ms,
+    }
+    return json.dumps(record, ensure_ascii=False) + "\n"
 
 
 __all__ = ["MessageRecordingBuffer", "_MessageEvent"]

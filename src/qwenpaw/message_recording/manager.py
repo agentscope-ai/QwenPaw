@@ -19,14 +19,20 @@ _DEFAULT_RETENTION_DAYS = 3
 
 
 class MessageRecordingManager:
-    """Orchestrator for message recording."""
+    """Orchestrator for message recording.
+
+    The manager does NOT gate recording via an ``enabled`` flag.
+    Middleware presence (registered only when enabled in config)
+    determines whether an agent records. This avoids multi-agent
+    isolation issues where one agent's config overwrites global
+    state affecting other agents.
+    """
 
     _instance: "MessageRecordingManager | None" = None
     _lock = threading.Lock()
 
     def __init__(self) -> None:
         self._buffer: Optional[MessageRecordingBuffer] = None
-        self._enabled: bool = False
         self._started: bool = False
 
     @classmethod
@@ -38,25 +44,15 @@ class MessageRecordingManager:
                     cls._instance = cls()
         return cls._instance
 
-    @property
-    def enabled(self) -> bool:
-        """Whether recording is currently enabled."""
-        return self._enabled
-
-    @enabled.setter
-    def enabled(self, value: bool) -> None:
-        self._enabled = value
-
     def configure(
         self,
         config: "MessageRecordingConfig",
     ) -> None:
-        """Update enabled state and retention policy from config.
+        """Sync runtime-tunable settings to the buffer.
 
-        Does NOT recreate buffer. Buffer lifecycle is managed
-        by start()/stop() called from _app.py.
+        Only retention_days is propagated. Middleware presence
+        (not a global flag) controls whether recording happens.
         """
-        self._enabled = config.enabled
         if self._buffer is not None:
             self._buffer.update_retention_days(
                 config.retention_days,
@@ -87,9 +83,11 @@ class MessageRecordingManager:
         self._started = False
 
     def enqueue(self, event: _MessageEvent) -> None:
-        """Enqueue a recording event (no-op if disabled)."""
-        if not self._enabled:
-            return
+        """Enqueue a recording event.
+
+        Middleware presence gates whether this is called.
+        The manager unconditionally forwards to buffer.
+        """
         if self._buffer is None:
             return
         self._buffer.enqueue(event)

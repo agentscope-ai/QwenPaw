@@ -2,7 +2,6 @@
 """Message recording middleware for AgentScope 2.0 on_model_call."""
 
 import inspect
-import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -81,8 +80,6 @@ class MessageRecordingMiddleware(MiddlewareBase):
         """Serialize and enqueue the recording event."""
         try:
             mgr = get_message_recording_manager()
-            if not mgr.enabled:
-                return
 
             duration_ms = int(
                 (time.monotonic() - start_time) * 1000,
@@ -119,22 +116,10 @@ class MessageRecordingMiddleware(MiddlewareBase):
                 agent_id=agent_id,
                 provider_id=self._provider_id,
                 model_name=self._model_name,
-                messages=json.dumps(
-                    serialized_msgs,
-                    ensure_ascii=False,
-                ),
-                tools=json.dumps(
-                    tools,
-                    ensure_ascii=False,
-                ),
-                tool_choice=json.dumps(
-                    tool_choice,
-                    ensure_ascii=False,
-                ),
-                response=json.dumps(
-                    serialized_resp,
-                    ensure_ascii=False,
-                ),
+                messages=serialized_msgs,
+                tools=tools,
+                tool_choice=tool_choice,
+                response=serialized_resp,
                 duration_ms=duration_ms,
             )
             mgr.enqueue(event)

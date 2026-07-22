@@ -1018,11 +1018,10 @@ class AgentBuilder:
                 get_message_recording_manager,
             )
 
+            _rec_cfg = agent_config.running.message_recording
             msg_mgr = get_message_recording_manager()
-            msg_mgr.configure(
-                agent_config.running.message_recording,
-            )
-            if msg_mgr.enabled:
+            msg_mgr.configure(_rec_cfg)
+            if _rec_cfg.enabled:
                 from ..message_recording import (
                     MessageRecordingMiddleware,
                 )
@@ -1043,9 +1042,7 @@ class AgentBuilder:
                     )
                     or ""
                 )
-                _max_len = (
-                    agent_config.running.message_recording.max_content_length
-                )
+                _max_len = _rec_cfg.max_content_length
                 mws.append(
                     MessageRecordingMiddleware(
                         provider_id=_provider_id,
