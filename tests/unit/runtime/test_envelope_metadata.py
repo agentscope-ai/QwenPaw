@@ -242,7 +242,7 @@ async def test_tool_metadata_is_scoped_to_its_own_outputs():
             ),
         )
         assert payload["metadata"] == metadata
-        assert payload["data"]["call_id"] == call_id
+        assert payload["data"] == {"arguments": call_id}
 
 
 @pytest.mark.asyncio
