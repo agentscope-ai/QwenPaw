@@ -12,6 +12,7 @@ import { X } from "lucide-react";
 import { useAgentStore } from "../stores/agentStore";
 import { useOsWindows } from "./osWindowStore";
 import { findAppDef, OS_APPS } from "./osApps";
+import { buttonRoleProps } from "./a11y";
 import { useOsStyles } from "./useOsStyles";
 
 const SPACE_COLORS = [
@@ -81,6 +82,7 @@ export default function MissionControl() {
               key={s.id}
               className={cx(styles.mcSpaceCard, active && styles.mcSpaceActive)}
               onClick={() => selectSpace(s.id)}
+              {...buttonRoleProps(() => selectSpace(s.id), s.name || s.id)}
             >
               <div className="avatar" style={{ background: colorFor(s.id) }}>
                 {initial}
@@ -104,14 +106,16 @@ export default function MissionControl() {
           openWindows.map((win) => {
             const def = findAppDef(win.id) ?? OS_APPS[0];
             const Icon = def.Icon;
+            const focusWindow = () => {
+              focus(win.id);
+              setMissionControl(false);
+            };
             return (
               <div
                 key={win.id}
                 className={styles.mcWindowCard}
-                onClick={() => {
-                  focus(win.id);
-                  setMissionControl(false);
-                }}
+                onClick={focusWindow}
+                {...buttonRoleProps(focusWindow, t(def.labelKey, def.fallback))}
               >
                 <div
                   style={{

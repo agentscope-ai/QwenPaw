@@ -16,6 +16,7 @@ import { useOsPlugins } from "./osPluginStore";
 import { useOsNotify } from "./osNotifyStore";
 import { OS_APPS, STORE_APP, SETTINGS_APP, type OsAppDef } from "./osApps";
 import { usePluginApps } from "./usePluginApps";
+import { buttonRoleProps } from "./a11y";
 import { useOsStyles } from "./useOsStyles";
 
 export default function Dock({ revealed = true }: { revealed?: boolean }) {
@@ -47,6 +48,10 @@ export default function Dock({ revealed = true }: { revealed?: boolean }) {
         onMouseEnter={() => setHovered("__launcher")}
         onMouseLeave={() => setHovered(null)}
         onClick={() => setLauncher(!launcherOpen)}
+        {...buttonRoleProps(
+          () => setLauncher(!launcherOpen),
+          t("os.launchpad", "Launchpad"),
+        )}
       >
         <div className={styles.dockIcon} style={{ background: "#334155" }}>
           <LayoutGrid size={24} />
@@ -100,6 +105,10 @@ export default function Dock({ revealed = true }: { revealed?: boolean }) {
               onMouseEnter={() => setHovered(a.routeId)}
               onMouseLeave={() => setHovered(null)}
               onClick={() => open(a.routeId, { w: a.defaultW, h: a.defaultH })}
+              {...buttonRoleProps(
+                () => open(a.routeId, { w: a.defaultW, h: a.defaultH }),
+                t(a.labelKey, a.fallback),
+              )}
             >
               <div className={styles.dockIcon} style={{ background: a.accent }}>
                 <Icon size={24} />

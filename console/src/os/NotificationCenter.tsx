@@ -9,6 +9,7 @@
  */
 import { useEffect, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { App } from "antd";
 import { ShieldAlert, Inbox, Bell, X, Trash2 } from "lucide-react";
 import { useOsWindows } from "./osWindowStore";
 import { STORE_APP } from "./osApps";
@@ -61,6 +62,7 @@ function useOpenInbox() {
 function ApprovalActions({ item }: { item: OsNotifyItem }) {
   const { styles } = useOsStyles();
   const { t } = useTranslation();
+  const { message } = App.useApp();
   const dismissItem = useOsNotify((s) => s.dismissItem);
   const [busy, setBusy] = useState(false);
 
@@ -74,10 +76,17 @@ function ApprovalActions({ item }: { item: OsNotifyItem }) {
         item.requestId,
         item.rootSessionId || "",
       );
-    } catch {
-      /* ignore — the next poll reconciles pending approvals */
-    } finally {
+      // Only drop the notification once the backend accepted the command —
+      // the approval is still pending otherwise and must stay actionable.
       dismissItem(item.id);
+    } catch (err) {
+      message.error(
+        err instanceof Error
+          ? err.message
+          : t("os.approvalActionFailed", "Action failed, please retry"),
+      );
+    } finally {
+      setBusy(false);
     }
   };
 

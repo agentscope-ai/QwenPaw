@@ -9,6 +9,7 @@
 import { useMemo } from "react";
 import { useAgentStore } from "../stores/agentStore";
 import { useOsWindows } from "./osWindowStore";
+import { buttonRoleProps } from "./a11y";
 import { useOsStyles } from "./useOsStyles";
 
 const SPACE_COLORS = [
@@ -60,6 +61,7 @@ export default function SpacesPanel({ visible }: { visible: boolean }) {
             key={s.id}
             className={cx(styles.spaceChip, active && styles.spaceChipActive)}
             onClick={() => selectSpace(s.id)}
+            {...buttonRoleProps(() => selectSpace(s.id), s.name || s.id)}
           >
             <div className="avatar" style={{ background: colorFor(s.id) }}>
               {initial}

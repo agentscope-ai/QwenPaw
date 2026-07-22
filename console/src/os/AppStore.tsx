@@ -75,6 +75,22 @@ export default function AppStore() {
   const routes = useRoutes();
   const { installed, install, uninstall, installAll } = useOsPlugins();
 
+  // Installed PawApps (app-type plugins, e.g. agent-kanban). Sourced from the
+  // backend so the list reflects what is actually loaded, enabling in-place
+  // uninstall / update alongside the marketplace.
+  const [installedApps, setInstalledApps] = useState<PluginInfo[]>([]);
+  const [appsLoading, setAppsLoading] = useState(true);
+
+  const refreshInstalledApps = () => {
+    setAppsLoading(true);
+    fetchPlugins()
+      .then((list) =>
+        setInstalledApps(list.filter((p) => p.plugin_type === "app")),
+      )
+      .catch(() => setInstalledApps([]))
+      .finally(() => setAppsLoading(false));
+  };
+
   const {
     loading,
     error,
@@ -91,26 +107,12 @@ export default function AppStore() {
     handlePageChange,
     handleRefresh,
     handleInstall,
-  } = useMarketPlugins({ onInstalled: () => {} });
+    // onInstalled: refresh the installed-apps section after a market
+    // install/update so the new PawApp shows up without a full page reload.
+  } = useMarketPlugins({ onInstalled: refreshInstalledApps });
 
   const [searchInput, setSearchInput] = useState("");
   const lang = i18n.language.split("-")[0].toLowerCase();
-
-  // Installed PawApps (app-type plugins, e.g. agent-kanban). Sourced from the
-  // backend so the list reflects what is actually loaded, enabling in-place
-  // uninstall / update alongside the marketplace.
-  const [installedApps, setInstalledApps] = useState<PluginInfo[]>([]);
-  const [appsLoading, setAppsLoading] = useState(true);
-
-  const refreshInstalledApps = () => {
-    setAppsLoading(true);
-    fetchPlugins()
-      .then((list) =>
-        setInstalledApps(list.filter((p) => p.plugin_type === "app")),
-      )
-      .catch(() => setInstalledApps([]))
-      .finally(() => setAppsLoading(false));
-  };
 
   useEffect(() => {
     refreshInstalledApps();

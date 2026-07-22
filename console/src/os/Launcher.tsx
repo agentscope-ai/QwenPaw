@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { Search } from "lucide-react";
 import { useOsWindows } from "./osWindowStore";
 import type { OsAppDef } from "./osApps";
+import { buttonRoleProps } from "./a11y";
 import { useOsStyles, ACCENT } from "./useOsStyles";
 
 interface LauncherProps {
@@ -44,14 +45,16 @@ export default function Launcher({ apps: source }: LauncherProps) {
       <div className={styles.launcherGrid}>
         {apps.map((a) => {
           const Icon = a.Icon;
+          const launch = () => {
+            open(a.routeId, { w: a.defaultW, h: a.defaultH });
+            setLauncher(false);
+          };
           return (
             <div
               key={a.routeId}
               className={styles.launcherItem}
-              onClick={() => {
-                open(a.routeId, { w: a.defaultW, h: a.defaultH });
-                setLauncher(false);
-              }}
+              onClick={launch}
+              {...buttonRoleProps(launch, t(a.labelKey, a.fallback))}
             >
               <div
                 style={{

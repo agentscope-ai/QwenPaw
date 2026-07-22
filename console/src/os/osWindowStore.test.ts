@@ -1,0 +1,115 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import { useOsWindows } from "./osWindowStore";
+
+/** Reset the store to a pristine desktop between tests. */
+function resetStore() {
+  useOsWindows.setState({
+    windows: {},
+    order: [],
+    activeId: null,
+    zCounter: 100,
+    launcherOpen: false,
+    spaceId: "default",
+    saved: {},
+    missionControlOpen: false,
+  });
+}
+
+const s = () => useOsWindows.getState();
+
+describe("osWindowStore", () => {
+  beforeEach(resetStore);
+
+  it("open creates a window with the given size and focuses it", () => {
+    s().open("core.chat", { w: 880, h: 640 });
+    const win = s().windows["core.chat"];
+    expect(win).toMatchObject({ w: 880, h: 640, minimized: false });
+    expect(s().order).toEqual(["core.chat"]);
+    expect(s().activeId).toBe("core.chat");
+  });
+
+  it("open on an already-open app restores and focuses instead of duplicating", () => {
+    s().open("core.chat");
+    s().minimize("core.chat");
+    s().open("core.chat");
+    expect(s().order).toEqual(["core.chat"]);
+    expect(s().windows["core.chat"].minimized).toBe(false);
+    expect(s().activeId).toBe("core.chat");
+  });
+
+  it("close removes the window and refocuses the most recent one", () => {
+    s().open("core.chat");
+    s().open("core.inbox");
+    s().close("core.inbox");
+    expect(s().windows["core.inbox"]).toBeUndefined();
+    expect(s().activeId).toBe("core.chat");
+  });
+
+  it("focus raises the z-order above other windows", () => {
+    s().open("core.chat");
+    s().open("core.inbox");
+    s().focus("core.chat");
+    expect(s().windows["core.chat"].z).toBeGreaterThan(
+      s().windows["core.inbox"].z,
+    );
+    expect(s().activeId).toBe("core.chat");
+  });
+
+  it("toggleMaximize saves geometry and restores it on the second toggle", () => {
+    s().open("core.chat", { w: 700, h: 500 });
+    s().move("core.chat", 150, 120);
+    s().toggleMaximize("core.chat");
+    expect(s().windows["core.chat"].maximized).toBe(true);
+    expect(s().windows["core.chat"].prev).toEqual({
+      x: 150,
+      y: 120,
+      w: 700,
+      h: 500,
+    });
+    s().toggleMaximize("core.chat");
+    const win = s().windows["core.chat"];
+    expect(win.maximized).toBe(false);
+    expect({ x: win.x, y: win.y, w: win.w, h: win.h }).toEqual({
+      x: 150,
+      y: 120,
+      w: 700,
+      h: 500,
+    });
+  });
+
+  it("snap keeps the pre-snap geometry in prev for later restore", () => {
+    s().open("core.chat", { w: 700, h: 500 });
+    s().move("core.chat", 200, 180);
+    s().snap("core.chat", "left");
+    const win = s().windows["core.chat"];
+    expect(win.maximized).toBe(false);
+    expect(win.prev).toEqual({ x: 200, y: 180, w: 700, h: 500 });
+  });
+
+  it("resize applies partial rects (edge resize moves x with w)", () => {
+    s().open("core.chat", { w: 700, h: 500 });
+    s().move("core.chat", 100, 100);
+    s().resize("core.chat", { x: 60, w: 740 });
+    const win = s().windows["core.chat"];
+    expect(win).toMatchObject({ x: 60, y: 100, w: 740, h: 500 });
+  });
+
+  it("switchSpace saves the current layout and restores it when switching back", () => {
+    s().open("core.chat");
+    s().switchSpace("agent-b");
+    expect(s().order).toEqual([]);
+    expect(s().saved["default"].order).toEqual(["core.chat"]);
+
+    s().open("core.inbox");
+    s().switchSpace("default");
+    expect(s().order).toEqual(["core.chat"]);
+    expect(s().saved["agent-b"].order).toEqual(["core.inbox"]);
+  });
+
+  it("switchSpace to the current space only closes mission control", () => {
+    s().setMissionControl(true);
+    s().switchSpace("default");
+    expect(s().missionControlOpen).toBe(false);
+    expect(s().spaceId).toBe("default");
+  });
+});

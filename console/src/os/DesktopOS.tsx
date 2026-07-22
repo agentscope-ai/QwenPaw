@@ -43,10 +43,22 @@ import AppStore from "./AppStore";
 import SettingsApp from "./SettingsApp";
 import MissionControl from "./MissionControl";
 import NotificationCenter from "./NotificationCenter";
+import BootScreen from "./BootScreen";
 import ConsolePollService from "../components/ConsolePollService";
 import WallpaperPicker from "./WallpaperPicker";
 import { useOsWallpaper } from "./osWallpaperStore";
 import { wallpaperBackground } from "./wallpapers";
+
+/** Session flag so the boot splash plays once per browser session. */
+const BOOT_FLAG_KEY = "qwenpaw.os.booted";
+
+function shouldPlayBoot(): boolean {
+  try {
+    return window.sessionStorage.getItem(BOOT_FLAG_KEY) !== "1";
+  } catch {
+    return true;
+  }
+}
 
 export default function DesktopOS() {
   const { styles } = useOsStyles();
@@ -73,6 +85,18 @@ export default function DesktopOS() {
   // Desktop right-click menu and wallpaper picker overlay.
   const [wpOpen, setWpOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+
+  // Power-on splash: overlays the desktop, fades out, then unmounts. Played
+  // once per browser session (survives OS <-> classic layout switches).
+  const [booting, setBooting] = useState(shouldPlayBoot);
+  const handleBootDone = () => {
+    setBooting(false);
+    try {
+      window.sessionStorage.setItem(BOOT_FLAG_KEY, "1");
+    } catch {
+      /* storage unavailable — splash will just replay next mount */
+    }
+  };
 
   // Poll approvals + unread inbox events → macOS-style notifications.
   useOsNotifyPoller();
@@ -413,6 +437,8 @@ export default function DesktopOS() {
       )}
 
       {wpOpen && <WallpaperPicker onClose={() => setWpOpen(false)} />}
+
+      {booting && <BootScreen onDone={handleBootDone} />}
     </div>
   );
 }
