@@ -270,6 +270,18 @@ class Envelope:
 
         # === THINKING BLOCK ===
         elif evt_type == EventType.THINKING_BLOCK_START.value:
+            # A new reasoning block marks the start of a fresh ReAct
+            # iteration.  Finalize any accumulated (not-yet-rotated) text
+            # message first so it becomes its own ``output`` entry ordered
+            # *before* this reasoning block.  Without this, goal/loop
+            # iterations that emit reasoning + text with no intervening tool
+            # call keep merging every answer into the first message (whose
+            # position in ``output`` is fixed at first emit) while each later
+            # reasoning block is appended to the end — so the "Thinking"
+            # bubbles pile up below the answer instead of interleaving.
+            if self._should_finalize_text_message():
+                async for obj in self._finalize_text_message():
+                    yield _EventMetadataExcludedOutput(obj)
             block_id = event.block_id
             r_msg_id = _gen_msg_id()
             r_envelope = Message(
@@ -293,6 +305,12 @@ class Envelope:
             delta = getattr(event, "delta", "") or ""
             state = self._reasoning_blocks.get(block_id)
             if state is None:
+                # Same rotation as THINKING_BLOCK_START: a reasoning block
+                # arriving without a START event still signals a new
+                # iteration, so finalize the pending text message first.
+                if self._should_finalize_text_message():
+                    async for obj in self._finalize_text_message():
+                        yield _EventMetadataExcludedOutput(obj)
                 r_msg_id = _gen_msg_id()
                 r_envelope = Message(
                     id=r_msg_id,

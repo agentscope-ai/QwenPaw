@@ -1,0 +1,462 @@
+# QwenPaw unified release orchestrator (draft-driven, all-or-nothing).
+#
+# Flow (方案二 · 草稿变体):
+#   1. A maintainer creates a DRAFT GitHub Release (tag + notes), does NOT publish.
+#   2. They run this workflow (Actions ▸ Run workflow). It resolves the draft,
+#      pins every job to the draft's target commit, then builds + verifies ALL
+#      products in parallel (wheel / web verify / desktop win+mac / plugins).
+#   3. Only if EVERY prepare job is green does the publish phase run: PyPI,
+#      Docker, desktop (GitHub assets + OSS), plugins. The draft is flipped to
+#      published LAST, then the Release Duty issue is created inline.
+#   4. If anything fails, nothing is published and the draft is left untouched
+#      (zero external trace; just fix and re-run).
+#
+# dry_run=true stubs the three production-external publishes (PyPI / Docker /
+# OSS) so fork CI can exercise the gating + draft flip without touching prod.
+# Draft-asset upload, the draft→published flip and the duty issue still run for
+# real because on a fork they only affect the fork's own resources.
+
+name: Release (unified)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Draft release tag to publish (empty = auto-detect the single draft)"
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Stub production publishes (PyPI/Docker/OSS) — use on forks"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ── Resolve the draft, pin the commit, fail fast on missing secrets ─────────
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+      sha: ${{ steps.pick.outputs.sha }}
+    steps:
+      - name: Resolve target draft release and commit
+        id: pick
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="$INPUT_TAG"
+          if [ -z "$TAG" ]; then
+            drafts="$(gh release list --repo "$REPO" --limit 100 \
+              --json tagName,isDraft --jq '[.[] | select(.isDraft) | .tagName]')"
+            count="$(echo "$drafts" | jq 'length')"
+            if [ "$count" -eq 0 ]; then
+              echo "::error::No draft release found. Create a draft first or pass an explicit tag."
+              exit 1
+            fi
+            if [ "$count" -gt 1 ]; then
+              echo "::error::Multiple draft releases found: $(echo "$drafts" | jq -r 'join(", ")'). Pass an explicit tag to disambiguate."
+              exit 1
+            fi
+            TAG="$(echo "$drafts" | jq -r '.[0]')"
+          fi
+          echo "Target tag: $TAG"
+          isDraft="$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq '.isDraft')"
+          if [ "$isDraft" != "true" ]; then
+            echo "::error::Release $TAG is not a draft; refusing to operate on a published release."
+            exit 1
+          fi
+          target="$(gh release view "$TAG" --repo "$REPO" --json targetCommitish --jq '.targetCommitish')"
+          sha="$(gh api "repos/$REPO/commits/$target" --jq '.sha')"
+          echo "Target commitish '$target' resolved to SHA $sha"
+          {
+            echo "tag=$TAG"
+            echo "sha=$sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the resolved commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pick.outputs.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate tag matches src/qwenpaw/__version__.py
+        run: |
+          python -m pip install --quiet packaging
+          ver="$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)"
+          tag="${{ steps.pick.outputs.tag }}"
+          python - "${tag#v}" "$ver" <<'PY'
+          import sys
+          from packaging.version import InvalidVersion, Version
+
+          tag_ver, ver = sys.argv[1], sys.argv[2]
+          try:
+              if Version(tag_ver) != Version(ver):
+                  print(
+                      f"::error::Draft tag '{tag_ver}' does not match "
+                      f"src/qwenpaw/__version__.py '{ver}'. "
+                      f"Fix the tag or bump the version before releasing."
+                  )
+                  sys.exit(1)
+          except InvalidVersion as exc:
+              print(f"::error::Cannot parse versions for comparison ({exc}).")
+              sys.exit(1)
+          print(f"OK: tag normalizes to __version__ ({ver}).")
+          PY
+
+      - name: Ensure release secrets present (skip on dry_run)
+        env:
+          QWENPAW_DASHSCOPE_API_KEY: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+        run: |
+          if [ "${{ inputs.dry_run }}" != "true" ] && [ -z "${QWENPAW_DASHSCOPE_API_KEY:-}" ]; then
+            echo "::error::QWENPAW_DASHSCOPE_API_KEY is not set; desktop verification cannot validate the LLM chat round."
+            exit 1
+          fi
+          echo "Secret check OK (dry_run=${{ inputs.dry_run }})"
+
+  # ── Prepare phase: build + verify everything, publish nothing ──────────────
+  build-wheel:
+    needs: [resolve]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node (for console build)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Build console frontend
+        run: |
+          cd console && npm ci && npm run build
+
+      - name: Copy console build into package
+        run: |
+          rm -rf src/qwenpaw/console/*
+          mkdir -p src/qwenpaw/console
+          cp -R console/dist/* src/qwenpaw/console/
+
+      - name: Bundle docs into package
+        run: |
+          rm -rf src/qwenpaw/docs
+          mkdir -p src/qwenpaw/docs
+          cp website/public/docs/*.md src/qwenpaw/docs/
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install setuptools wheel build
+
+      - name: Build package
+        run: python -m build
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwenpaw-dist
+          path: dist/
+          retention-days: 7
+
+      - name: Upload version metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwenpaw-version
+          path: src/qwenpaw/__version__.py
+          retention-days: 7
+
+  verify-web:
+    needs: [resolve, build-wheel]
+    uses: ./.github/workflows/release-verify.yml
+    with:
+      verify_pip: true
+      verify_docker: true
+      verify_script_install: true
+      ref: ${{ needs.resolve.outputs.sha }}
+      # On dry_run (fork) the private ACR base images are unreachable, so fall
+      # back to public images for the Docker health-check build.
+      docker_node_image: ${{ inputs.dry_run && 'node:20-slim' || '' }}
+      docker_uv_image: ${{ inputs.dry_run && 'ghcr.io/astral-sh/uv:latest' || '' }}
+    secrets: inherit
+
+  build-desktop:
+    needs: [resolve]
+    uses: ./.github/workflows/desktop-build.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+    secrets: inherit
+
+  build-plugins:
+    needs: [resolve]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Pack plugins and build index
+        run: |
+          python scripts/pack/generate_plugin_metadata.py \
+            --plugins-root plugins \
+            --dist dist/plugins \
+            --metadata-out dist/plugins/index.json \
+            --cdn-prefix /files/plugins
+
+      - name: Upload plugins dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwenpaw-plugins-dist
+          path: dist/plugins
+          retention-days: 7
+
+  # ── Gate: publish jobs below run only if every prepare job above is green ──
+
+  publish-pypi:
+    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: qwenpaw-dist
+          path: dist
+
+      - name: Publish package to PyPI
+        if: ${{ !inputs.dry_run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+      - name: Dry-run notice
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "DRY-RUN: would publish $(ls dist) to PyPI"
+
+  push-docker:
+    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins]
+    runs-on: ubuntu-latest
+    env:
+      ACR_REGISTRY: agentscope-registry.ap-southeast-1.cr.aliyuncs.com
+      IMAGE: agentscope/qwenpaw
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to DockerHub
+        if: ${{ !inputs.dry_run }}
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Log in to Aliyun ACR
+        if: ${{ !inputs.dry_run }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_REGISTRY }}
+          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+
+      - name: Build and push multi-arch (version + pre [+ latest])
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ needs.resolve.outputs.tag }}
+          QWENPAW_DISABLED_CHANNELS: "imessage"
+        run: |
+          if [[ "$VERSION" =~ (beta|alpha|rc|dev) ]]; then
+            IS_PRERELEASE=true
+          else
+            IS_PRERELEASE=false
+          fi
+          TAGS="-t ${ACR_REGISTRY}/${IMAGE}:${VERSION} -t ${ACR_REGISTRY}/${IMAGE}:pre"
+          TAGS="${TAGS} -t docker.io/${IMAGE}:${VERSION} -t docker.io/${IMAGE}:pre"
+          if [ "${IS_PRERELEASE}" != "true" ]; then
+            TAGS="${TAGS} -t ${ACR_REGISTRY}/${IMAGE}:latest -t docker.io/${IMAGE}:latest"
+          fi
+          docker buildx build --platform linux/amd64,linux/arm64 \
+            -f deploy/Dockerfile \
+            --build-arg QWENPAW_DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS}" \
+            ${TAGS} --push .
+
+      - name: Dry-run notice
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "DRY-RUN: would build+push docker image for ${{ needs.resolve.outputs.tag }}"
+
+  publish-desktop:
+    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins]
+    uses: ./.github/workflows/desktop-publish.yml
+    with:
+      tag: ${{ needs.resolve.outputs.tag }}
+      ref: ${{ needs.resolve.outputs.sha }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
+
+  publish-plugins:
+    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins]
+    runs-on: ubuntu-latest
+    env:
+      OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download plugins dist
+        uses: actions/download-artifact@v4
+        with:
+          name: qwenpaw-plugins-dist
+          path: dist/plugins
+
+      - name: Dry-run notice
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "DRY-RUN: would sync $(find dist/plugins -name '*.zip' | wc -l) plugin zips + index to OSS"
+
+      - name: Install ossutil
+        if: ${{ !inputs.dry_run }}
+        run: |
+          wget -q https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil-v1.7.18-linux-amd64.zip
+          unzip -q ossutil-v1.7.18-linux-amd64.zip
+          chmod +x ossutil-v1.7.18-linux-amd64/ossutil64
+          sudo mv ossutil-v1.7.18-linux-amd64/ossutil64 /usr/local/bin/ossutil
+          ossutil --version
+
+      - name: Configure ossutil
+        if: ${{ !inputs.dry_run }}
+        run: |
+          ossutil config -e ${{ secrets.OSS_ENDPOINT }} \
+            -i ${{ secrets.OSS_ACCESS_KEY_ID }} \
+            -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
+            -L CH
+
+      - name: Sync plugin zips to OSS (long-cache, immutable)
+        if: ${{ !inputs.dry_run }}
+        run: |
+          shopt -s nullglob
+          for kind in bundle tool apps; do
+            while IFS= read -r -d '' f; do
+              rel="${f#dist/plugins/}"
+              echo "Uploading $f -> files/plugins/${rel}"
+              ossutil cp "$f" \
+                "oss://${OSS_BUCKET}/files/plugins/${rel}" \
+                --acl public-read \
+                --force \
+                --meta "Cache-Control:public, max-age=31536000, immutable"
+            done < <(find "dist/plugins/${kind}" -type f -name '*.zip' -print0 2>/dev/null || true)
+          done
+
+      - name: Merge historical versions into index
+        if: ${{ !inputs.dry_run }}
+        run: |
+          ossutil cp "oss://${OSS_BUCKET}/metadata/plugins/index.json" \
+            existing-index.json 2>/dev/null || echo '{}' > existing-index.json
+          python3 scripts/pack/merge_plugin_index.py \
+            --new dist/plugins/index.json \
+            --old existing-index.json \
+            --out dist/plugins/index.json
+
+      - name: Upload plugins index (short-cache)
+        if: ${{ !inputs.dry_run }}
+        run: |
+          ossutil cp dist/plugins/index.json \
+            "oss://${OSS_BUCKET}/metadata/plugins/index.json" \
+            --acl public-read \
+            --force \
+            --meta "Cache-Control:public, max-age=60, must-revalidate"
+
+      - name: Patch main metadata index to advertise plugins product
+        if: ${{ !inputs.dry_run }}
+        run: |
+          ossutil cp "oss://${OSS_BUCKET}/metadata/index.json" \
+            main-index.json 2>/dev/null || cat > main-index.json << 'EOF'
+          {
+            "version": "1.0",
+            "updated_at": "",
+            "products": {}
+          }
+          EOF
+          python3 scripts/pack/patch_main_index.py \
+            --index main-index.json \
+            --out   main-index.json
+          ossutil cp main-index.json \
+            "oss://${OSS_BUCKET}/metadata/index.json" \
+            --acl public-read \
+            --force \
+            --meta "Cache-Control:public, max-age=60, must-revalidate"
+
+  # ── Finalize: flip the draft to published LAST (pinned to the built SHA) ────
+  finalize:
+    needs: [resolve, publish-pypi, push-docker, publish-desktop, publish-plugins]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          echo "Flipping draft $TAG -> published, pinned to $SHA"
+          gh release edit "$TAG" --repo "$REPO" --draft=false --target "$SHA"
+
+  # ── Post-publish: promote desktop latest + updater manifest + index ─────────
+  # Runs only after the release is published, so the auto-updater is pointed at
+  # the new version only once the release actually exists.
+  promote-desktop:
+    needs: [resolve, finalize]
+    uses: ./.github/workflows/desktop-promote.yml
+    with:
+      tag: ${{ needs.resolve.outputs.tag }}
+      ref: ${{ needs.resolve.outputs.sha }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
+
+  # ── Post-publish: create the Release Duty verification issue (inline) ───────
+  duty-issue:
+    needs: [resolve, finalize]
+    uses: ./.github/workflows/release-duty.yml
+    with:
+      tag: ${{ needs.resolve.outputs.tag }}
+    secrets: inherit
