@@ -7,8 +7,12 @@
 !README.md
 
 # Python dev and cache
+# Bare patterns only match the context root, so the ** forms are what keep
+# nested caches (e.g. plugins/bundle/*/__pycache__) out of the image.
 __pycache__
+**/__pycache__
 *.py[cod]
+**/*.py[cod]
 *$py.class
 .venv
 venv
@@ -44,6 +48,10 @@ node_modules
 **/dist
 !src/qwenpaw/console/dist
 !src/qwenpaw/console/dist/**
+# Bundled plugins ship their console UI as a committed dist bundle; without
+# this the image gets the plugin minus its settings page.
+!plugins/bundle/*/frontend/dist
+!plugins/bundle/*/frontend/dist/**
 **/.vite
 
 # Example and local config (mount at runtime instead)
