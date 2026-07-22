@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
@@ -131,46 +132,25 @@ def test_builtin_zhipu_providers_registered(isolated_secret_dir) -> None:
         assert len(model_ids) == len(set(model_ids))
 
 
-@pytest.mark.parametrize(
-    "provider_id",
-    ("aliyun-tokenplan", "aliyun-tokenplan-intl"),
-)
-def test_aliyun_tokenplan_includes_qwen3_8_max_preview(
-    isolated_secret_dir,
-    provider_id: str,
-) -> None:
-    manager = ProviderManager()
-    provider = manager.get_provider(provider_id)
-
-    assert provider is not None
-    model = provider.get_model_info("qwen3.8-max-preview")
-    assert model == ModelInfo(
-        id="qwen3.8-max-preview",
-        name="Qwen3.8 Max Preview",
-        supports_multimodal=True,
-        supports_image=True,
-        supports_video=False,
-        probe_source="documentation",
-        max_tokens=65_536,
-    )
-    assert provider.get_context_size(model.id) == 1_000_000
-    assert (
-        provider.get_effective_generate_kwargs(model.id)["max_tokens"]
-        == 65_536
-    )
-
-
-def test_aliyun_tokenplan_promotes_saved_qwen3_8_model(
+def test_aliyun_tokenplan_promotes_saved_qwen3_8_model_without_cross_leak(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
-    builtin = provider_manager_module.PROVIDER_ALIYUN_TOKENPLAN.model_copy(
-        deep=True,
+    china_builtin, intl_builtin = deepcopy(
+        (
+            provider_manager_module.PROVIDER_ALIYUN_TOKENPLAN,
+            provider_manager_module.PROVIDER_ALIYUN_TOKENPLAN_INTL,
+        ),
     )
     monkeypatch.setattr(
         provider_manager_module,
         "PROVIDER_ALIYUN_TOKENPLAN",
-        builtin,
+        china_builtin,
+    )
+    monkeypatch.setattr(
+        provider_manager_module,
+        "PROVIDER_ALIYUN_TOKENPLAN_INTL",
+        intl_builtin,
     )
     manager = ProviderManager()
     provider = manager.get_provider("aliyun-tokenplan")
@@ -195,8 +175,11 @@ def test_aliyun_tokenplan_promotes_saved_qwen3_8_model(
         encoding="utf-8",
     )
 
-    reloaded = ProviderManager().get_provider("aliyun-tokenplan")
+    reloaded_manager = ProviderManager()
+    reloaded = reloaded_manager.get_provider("aliyun-tokenplan")
+    reloaded_intl = reloaded_manager.get_provider("aliyun-tokenplan-intl")
     assert reloaded is not None
+    assert reloaded_intl is not None
     assert [
         model.id
         for model in reloaded.models
@@ -207,6 +190,10 @@ def test_aliyun_tokenplan_promotes_saved_qwen3_8_model(
     )
     assert reloaded.get_model_info("qwen3.8-max-preview").max_tokens == 4096
     assert reloaded.get_context_size("qwen3.8-max-preview") == 1_000_000
+    assert (
+        reloaded_intl.get_model_info("qwen3.8-max-preview").max_tokens
+        == 65_536
+    )
 
 
 async def test_add_custom_provider_and_reload_from_storage(

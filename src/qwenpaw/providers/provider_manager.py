@@ -4,6 +4,7 @@ It provides a unified interface to manage providers, such as listing available
 providers, adding/removing custom providers, and fetching provider details."""
 
 import asyncio
+from copy import deepcopy
 import json
 import logging
 import os
@@ -964,7 +965,7 @@ PROVIDER_ALIYUN_TOKENPLAN = OpenAIProvider(
         "https://token-plan.cn-beijing.maas.aliyuncs.com/" "compatible-mode/v1"
     ),
     api_key_prefix="sk-sp",
-    models=ALIYUN_TOKENPLAN_MODELS,
+    models=deepcopy(ALIYUN_TOKENPLAN_MODELS),
     support_connection_check=False,
     freeze_url=True,
     provider_group="aliyun",
@@ -980,7 +981,7 @@ PROVIDER_ALIYUN_TOKENPLAN_INTL = OpenAIProvider(
         "compatible-mode/v1"
     ),
     api_key_prefix="sk-sp",
-    models=ALIYUN_TOKENPLAN_MODELS,
+    models=deepcopy(ALIYUN_TOKENPLAN_MODELS),
     support_connection_check=False,
     freeze_url=True,
     provider_group="aliyun",
