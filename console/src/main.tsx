@@ -36,12 +36,11 @@ void registerHostModulesDynamic();
 if (typeof window !== "undefined") {
   // Prevent the browser/WebView from navigating away (replacing the whole
   // app) when a file is dropped outside a drop zone like the chat sender.
-  // Required for drag-and-drop upload on desktop (issue #6297): the Tauri
-  // window sets dragDropEnabled=false so OS file drags reach the page as
-  // HTML5 drag events, and any drop not consumed by a drop zone would
-  // otherwise open the file directly. Drop zones stop propagation, so this
-  // only sees unhandled drops. Scoped to file drags to keep element
-  // drag-and-drop (e.g. queue reordering) untouched.
+  // The Tauri window disables native drag-drop interception so OS file
+  // drags reach the page as HTML5 drag events; any drop not consumed by a
+  // drop zone would otherwise open the file directly. Drop zones stop
+  // propagation, so this only sees unhandled drops. Scoped to file drags
+  // to keep element drag-and-drop (e.g. queue reordering) untouched.
   const isFileDrag = (e: DragEvent) =>
     !!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
   window.addEventListener("dragover", (e) => {
