@@ -662,6 +662,23 @@ def _completed_tool_turn(tcid: str, *, padding: int = 5000) -> Msg:
     return assistant_with_tool(tcid, f"RESULT-{tcid}" + "x" * padding)
 
 
+def _completed_tool_history(
+    count: int,
+    *,
+    padding: int = 5000,
+) -> list[Msg]:
+    """Build completed user/assistant turns with one tool result each."""
+    history: list[Msg] = []
+    for index in range(count):
+        history.extend(
+            [
+                user(f"request-{index}"),
+                _completed_tool_turn(f"tool-{index}", padding=padding),
+            ],
+        )
+    return history
+
+
 class _RealisticScrollConfig:
     trigger_ratio = 0.8
     reserve_ratio = 0.1
@@ -872,49 +889,43 @@ async def test_periodic_rebase_reads_cited_durable_sources(
     assert mgr._summary_update_count == 8
 
 
-@pytest.mark.parametrize("after_trim", [730, 770])
+@pytest.mark.parametrize("after_trim", [730, 790])
 async def test_pretrim_avoids_eviction_at_or_below_trigger(
     store: HistoryStore,
     after_trim: int,
 ):
-    """Automatic pressure first reclaims completed-turn tool output.
-
-    Reaching the 75% target is desirable, but exhausting safe candidates in
-    the 75-80% band is also healthy: Scroll must stop without evicting turns.
-    The newest result in the whole live context remains verbatim.
-    """
-    older = _completed_tool_turn("old")
-    newest = _completed_tool_turn("new")
-    ctx = [
-        user("older request"),
-        older,
-        user("newer completed request"),
-        newest,
-        user("current request"),
-    ]
+    """Batch pre-trim folds every eligible result and recounts once."""
+    history = _completed_tool_history(7)
+    current = user("current request")
+    ctx = [*history, current]
     mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=[900, after_trim])
     agent.context_config = _RealisticScrollConfig()
-    agent._split_return = (ctx[:4], ctx[4:])
+    agent._split_return = (history, [current])
 
     await mgr.compress(agent)
 
-    assert older.content[2].output[0].text.startswith("[scroll folded]")
-    assert newest.content[2].output[0].text.startswith("RESULT-new")
+    tool_turns = history[1::2]
+    for turn in tool_turns[:2]:
+        assert turn.content[2].output[0].text.startswith("[scroll folded]")
+    for index, turn in enumerate(tool_turns[2:], start=2):
+        assert (
+            turn.content[2].output[0].text.startswith(f"RESULT-tool-{index}")
+        )
     durable = store._conn.execute(
         "SELECT content FROM conversation_history "
-        "WHERE kind='tool_result' AND tool_call_id='old'",
+        "WHERE kind='tool_result' AND tool_call_id='tool-0'",
     ).fetchone()
-    assert durable["content"].startswith("RESULT-old")
+    assert durable["content"].startswith("RESULT-tool-0")
     assert "[scroll folded]" not in durable["content"]
     assert agent.state.context == ctx
     assert mgr._index.is_empty
     assert mgr.last_compress == {
         "evicted": 0,
-        "pre_folded": 1,
+        "pre_folded": 2,
         "live_folded": 0,
         "emergency_shortened": 0,
-        "folded": 1,
+        "folded": 2,
     }
     assert agent.model.calls == 2
 
@@ -923,33 +934,33 @@ async def test_pretrim_insufficient_then_continues_to_eviction(
     store: HistoryStore,
 ):
     """Pre-trimming is a first stage, not a replacement for eviction."""
-    older = _completed_tool_turn("old")
-    newest = _completed_tool_turn("new")
+    history = _completed_tool_history(7)
     current = user("current request")
-    ctx = [
-        user("older request"),
-        older,
-        user("newer completed request"),
-        newest,
-        current,
-    ]
+    ctx = [*history, current]
     mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=[900, 810, 300])
     agent.context_config = _RealisticScrollConfig()
-    agent._split_return = (ctx[:4], ctx[4:])
+    agent._split_return = (history, [current])
 
     await mgr.compress(agent)
 
-    assert older.content[2].output[0].text.startswith("[scroll folded]")
-    assert newest.content[2].output[0].text.startswith("RESULT-new")
+    tool_turns = history[1::2]
+    assert all(
+        turn.content[2].output[0].text.startswith("[scroll folded]")
+        for turn in tool_turns[:2]
+    )
+    assert all(
+        turn.content[2].output[0].text.startswith("RESULT-")
+        for turn in tool_turns[2:]
+    )
     assert not mgr._index.is_empty
     assert agent.state.context[-1].id == current.id
     assert mgr.last_compress == {
-        "evicted": 4,
-        "pre_folded": 1,
+        "evicted": len(history),
+        "pre_folded": 2,
         "live_folded": 0,
         "emergency_shortened": 0,
-        "folded": 1,
+        "folded": 2,
     }
     assert agent.model.calls == 3
 
@@ -1045,10 +1056,12 @@ async def test_compress_replaces_old_preview_with_tool_call_pointer(
             ),
         ],
     )
-    ctx = [user("current request"), turn]
+    recent = _completed_tool_history(5, padding=0)
+    current = user("current request")
+    ctx = [user("inspect old output"), turn, *recent, current]
     mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=[600, 50])
-    agent._split_return = (ctx, [])
+    agent._split_return = (ctx[:-1], [current])
 
     await mgr.compress(agent)
 
@@ -1063,15 +1076,10 @@ async def test_compress_replaces_old_preview_with_tool_call_pointer(
     assert mgr.last_compress["folded"] == 1
 
 
-async def test_pressure_fold_stubs_older_results_keeps_newest(
+async def test_pressure_fold_preserves_complete_active_turn(
     store: HistoryStore,
 ):
-    """Nothing evictable and the window still overflows the compression
-    trigger: the active turn's completed tool results are stubbed in place
-    to recall pointers. The request, tool calls, reasoning, and the NEWEST
-    result stay verbatim; the durable rows keep the full outputs; the Msg
-    object (and id) is untouched so the runtime keeps extending the same
-    message."""
+    """Normal pressure never folds results from the complete active turn."""
     turn = _multi_tool_turn(padding=500)
     ctx = [user("/heartbeat"), turn]
     mgr = make_manager(store)
@@ -1087,10 +1095,8 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
         block = turn.content[3 * i + 2]
         return block.output[0].text
 
-    # folded → tool-call-addressed stub pointing at structured recall
-    assert 'recall_history(op="recall_tool"' in out_text(0)
-    assert 'recall_history(op="recall_tool"' in out_text(1)
-    assert out_text(2) == "RESULT-2" + "x" * 500  # newest stays verbatim
+    for index in range(3):
+        assert out_text(index) == f"RESULT-{index}" + "x" * 500
     # The durable rows still hold the FULL outputs (persisted before fold).
     for i in range(3):
         row = store._conn.execute(
@@ -1099,16 +1105,15 @@ async def test_pressure_fold_stubs_older_results_keeps_newest(
         ).fetchone()
         assert row["content"] == f"RESULT-{i}" + "x" * 500
 
-    # /compact reads this to report honestly (fold changes no msg count).
-    assert mgr.last_compress["folded"] == 2
-    assert mgr.last_compress["live_folded"] == 2
+    assert mgr.last_compress["folded"] == 0
+    assert mgr.last_compress["live_folded"] == 0
     assert mgr.last_compress["emergency_shortened"] == 0
 
-    # Idempotent: a second round neither double-folds nor rewrites rows.
+    # Idempotent: a second round still preserves the active results.
     await mgr.compress(agent)
-    assert out_text(0).count("[scroll folded]") == 1
+    assert out_text(0).startswith("RESULT-0")
     assert out_text(2) == "RESULT-2" + "x" * 500
-    assert mgr.last_compress["folded"] == 0  # nothing newly folded
+    assert mgr.last_compress["folded"] == 0
 
 
 async def test_parallel_unconsumed_active_results_remain_visible(
@@ -1204,52 +1209,57 @@ async def test_pending_tool_call_is_preserved_when_context_is_unfit(
 async def test_pressure_fold_does_not_replace_small_results_with_larger_stubs(
     store: HistoryStore,
 ):
-    """There is no fixed lower size threshold, but folding must reclaim
-    bytes. Small outputs stay live when their recovery pointers would grow the
-    context, even during sustained pressure."""
-    turn = _multi_tool_turn()
-    ctx = [user("current request"), turn]
+    """Only completed results with more than 200 characters are folded."""
+    at_limit = assistant_with_tool("at-limit", "x" * 200)
+    above_limit = assistant_with_tool("above-limit", "x" * 201)
+    recent = _completed_tool_history(5, padding=0)
+    current = user("current request")
+    ctx = [
+        user("limit request"),
+        at_limit,
+        user("above request"),
+        above_limit,
+        *recent,
+        current,
+    ]
     mgr = make_manager(store)
-    agent = FakeAgent(ctx, tokens=600)
-    agent._split_return = (ctx, [])
+    agent = FakeAgent(ctx, tokens=[900, 700])
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (ctx[:-1], [current])
 
     await mgr.compress(agent)
 
-    for index in range(3):
-        assert turn.content[3 * index + 2].output[0].text == f"RESULT-{index}"
-    assert mgr.last_compress["folded"] == 0
-    assert agent.model.calls == 1
+    assert at_limit.content[2].output[0].text == "x" * 200
+    assert above_limit.content[2].output[0].text.startswith("[scroll folded]")
+    assert mgr.last_compress["folded"] == 1
+    assert agent.model.calls == 2
 
 
-async def test_pressure_fold_stops_after_largest_result_relieves_pressure(
+async def test_pretrim_folds_all_eligible_results_before_single_recount(
     store: HistoryStore,
 ):
-    """Pressure folding is incremental and reclaim-driven, not a fixed-size
-    sweep: fold the largest profitable old result, recount, and stop once the
-    trigger is met."""
-
-    class _RealisticConfig:
-        trigger_ratio = 0.8
-        reserve_ratio = 0.1
-
-    turn = _multi_tool_turn(n=4, padding=500)
-    # Make the second completed result the best reclaim candidate. The fourth
-    # result is newest and must remain verbatim regardless of size.
-    turn.content[5].output[0].text = "LARGEST-" + "x" * 5000
-    turn.content[11].output[0].text = "NEWEST-" + "x" * 8000
-    ctx = [user("current request"), turn]
+    """One candidate reaching the trigger cannot stop a batch early."""
+    history = _completed_tool_history(8, padding=500)
+    tool_turns = history[1::2]
+    tool_turns[0].content[2].output[0].text = "LARGEST-" + "x" * 5000
+    current = user("current request")
+    ctx = [*history, current]
     mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=[900, 750])
-    agent.context_config = _RealisticConfig()
-    agent._split_return = (ctx, [])
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (history, [current])
 
     await mgr.compress(agent)
 
-    assert turn.content[2].output[0].text.startswith("RESULT-0")
-    assert turn.content[5].output[0].text.startswith("[scroll folded]")
-    assert turn.content[8].output[0].text.startswith("RESULT-2")
-    assert turn.content[11].output[0].text.startswith("NEWEST-")
-    assert mgr.last_compress["folded"] == 1
+    assert all(
+        turn.content[2].output[0].text.startswith("[scroll folded]")
+        for turn in tool_turns[:3]
+    )
+    assert all(
+        turn.content[2].output[0].text.startswith("RESULT-")
+        for turn in tool_turns[3:]
+    )
+    assert mgr.last_compress["folded"] == 3
     assert agent.model.calls == 2
 
 
@@ -1294,10 +1304,12 @@ async def test_consumed_recall_page_folds_to_next_cursor(
             ),
         ],
     )
-    ctx = [user("find the old decision"), recall_turn]
+    recent = _completed_tool_history(5, padding=0)
+    current = user("current request")
+    ctx = [user("find the old decision"), recall_turn, *recent, current]
     mgr = make_manager(store)
     agent = FakeAgent(ctx, tokens=[600, 90])
-    agent._split_return = (ctx, [])
+    agent._split_return = (ctx[:-1], [current])
 
     await mgr.compress(agent)
 

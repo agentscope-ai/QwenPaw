@@ -53,7 +53,8 @@ logger = logging.getLogger(__name__)
 _FOLD_MARK = "[scroll folded]"
 _RECALL_FOLD_MARK = "[scroll recall folded]"
 _EMERGENCY_PREVIEW_MARK = "[scroll emergency preview]"
-_PRE_TRIM_TARGET_RATIO = 0.75
+_PRE_TRIM_MIN_CHARS = 200
+_PROTECTED_RECENT_TOOL_RESULTS = 5
 _OUTPUT_RESERVE_RATIO = 0.05
 _MAX_OUTPUT_RESERVE_TOKENS = 4096
 _MIN_EMERGENCY_PREVIEW_BYTES = 1024
@@ -298,17 +299,18 @@ class ScrollContextManager:
 
         1. persist     — every live turn is now durable.
         2. trigger     — under the token threshold? nothing to do.
-        3. pre-fold    — on automatic pressure, fold completed-turn tool
-                         results toward the 75% health target. If the context
-                         falls to the trigger or below, stop without eviction.
+        3. pre-fold    — on automatic pressure, batch-fold every eligible
+                         completed-turn tool result outside the protected
+                         recent tail. If the context falls to the trigger or
+                         below, stop without eviction.
         4. split       — evictable middle | recent tail (+ active turn).
         5. summarize   — update pointer-backed task state from bounded input;
                          preserve the previous value on any failure.
         6. add_eviction— fold the middle (if any) into the index as a new
                          Tier 0 block, rebuild context = [index] + tail.
         7. live-fold   — still under real pressure after finished turns are
-                         evicted: replace consumed old tool results with
-                         recovery pointers. The newest stays verbatim.
+                         evicted: replace remaining eligible completed-turn
+                         results with recovery pointers.
         8. emergency  — above the effective hard limit, shorten the newest
                          unread text result to a visible head/tail preview.
         """
@@ -387,23 +389,21 @@ class ScrollContextManager:
         #    completed turns. This runs only for normal automatic pressure:
         #    manual /compact deliberately lowers trigger_ratio to request an
         #    eviction now, and must not be intercepted by this lighter pass.
-        #    The 75% target provides hysteresis below the default 80% trigger;
-        #    if no more safe candidates exist, anything at or below the trigger
-        #    is still healthy enough to continue without eviction.
+        #    Fold every eligible result in one batch rather than stopping at an
+        #    intermediate target. This pays at most one prefix-cache reset per
+        #    pressure episode and leaves a stable, compact prompt for later
+        #    turns. The complete active turn and five newest tool results stay
+        #    verbatim; outputs at or below 200 characters are not worth
+        #    replacing with recovery pointers.
         base_cfg = getattr(agent, "context_config", cfg)
         base_trigger_ratio = float(
             getattr(base_cfg, "trigger_ratio", cfg.trigger_ratio),
         )
         is_forced_compaction = float(cfg.trigger_ratio) < base_trigger_ratio
-        if (
-            not is_forced_compaction
-            and float(cfg.trigger_ratio) > _PRE_TRIM_TARGET_RATIO
-        ):
-            pre_folded, tokens = await self._fold_tool_results_under_pressure(
+        if not is_forced_compaction:
+            pre_folded, tokens = await self._batch_fold_completed_tool_results(
                 agent,
                 tokens=tokens,
-                target=_PRE_TRIM_TARGET_RATIO * agent.model.context_size,
-                include_active=False,
             )
             mark("pre_fold_tool_results")
             if pre_folded:
@@ -499,20 +499,17 @@ class ScrollContextManager:
         # 7) Pressure-driven microcompaction. Do not clear live tool results
         #    merely because Scroll ran: eviction may already have relieved the
         #    pressure. If it did not, replace recoverable results one at a time
-        #    (older completed turns before the active turn, then largest byte
-        #    saving first) and stop as soon as the pressure target is met. An
-        #    active result is eligible only after a later model-authored block
-        #    proves it was consumed. The newest result stays verbatim under
-        #    normal pressure. For manual /compact the
-        #    configured reserve, rather than its synthetic near-zero trigger,
-        #    is the meaningful target.
+        #    (completed turns only, with the recent five-result tail protected)
+        #    and stop as soon as the pressure target is met. The complete
+        #    active turn stays verbatim under normal pressure. For manual
+        #    /compact the configured reserve, rather than its synthetic
+        #    near-zero trigger, is the meaningful target.
         pressure_threshold = max(trigger, reserve)
         if tokens > pressure_threshold:
             folded, tokens = await self._fold_tool_results_under_pressure(
                 agent,
                 tokens=tokens,
                 target=pressure_threshold,
-                include_active=True,
             )
             mark("fold_tool_results")
             if folded:
@@ -1006,62 +1003,65 @@ class ScrollContextManager:
             )
         return results
 
-    def _consumed_active_result_ids(self, agent: Any) -> set[int]:
-        """Identify active results already observed by a later model call.
-
-        AgentScope appends each model step to the active assistant message. A
-        result is therefore known to have been consumed only when a later
-        model-authored block (text, reasoning, or another tool call) follows
-        it. Merely having another tool result after it is insufficient: those
-        results may come from parallel calls and all still need their first
-        model read. The structural rule survives process resume without an
-        ephemeral "seen" flag.
-        """
-        consumed: set[int] = set()
-        later_model_output = False
-        for msg in reversed(self._active_turn_tail(agent)):
-            content = getattr(msg, "content", None)
-            if not isinstance(content, list):
+    def _tool_result_text_chars(self, block: Any) -> int:
+        """Return the number of visible text characters in a tool result."""
+        output = (
+            block.get("output")
+            if isinstance(block, dict)
+            else getattr(block, "output", None)
+        )
+        if isinstance(output, str):
+            return len(output)
+        if not isinstance(output, list):
+            return 0
+        total = 0
+        for item in output:
+            if self._block_type(item) != "text":
                 continue
-            is_assistant = getattr(msg, "role", None) == "assistant"
-            for block in reversed(content):
-                if self._block_type(block) == "tool_result":
-                    if later_model_output:
-                        consumed.add(id(block))
-                elif is_assistant:
-                    later_model_output = True
-        return consumed
+            text = (
+                item.get("text", "")
+                if isinstance(item, dict)
+                else getattr(item, "text", "")
+            )
+            total += len(str(text or ""))
+        return total
+
+    @staticmethod
+    def _replace_tool_result_with_pointer(block: Any, text: str) -> None:
+        output = [TextBlock(type="text", text=text)]
+        if isinstance(block, dict):
+            block["output"] = output
+        else:
+            block.output = output
 
     # pylint: disable-next=too-many-branches
     def _tool_result_fold_candidates(
         self,
         agent: Any,
-        *,
-        include_active: bool,
-    ) -> list[tuple[bool, int, int, Any, str]]:
+    ) -> list[tuple[int, int, Any, str]]:
         """Return profitable fold candidates ordered by recovery priority.
 
-        When ``include_active`` is false, only completed-turn results are
-        returned. Otherwise results outside the active turn are still less
-        relevant and sort first. Within either group, prefer the largest byte
-        saving, then the older result. The newest result in the entire live
-        context is never a candidate. A fixed size threshold is deliberately
-        absent: a result is eligible only when its pointer is actually smaller
-        than its output.
+        Only completed-turn results are returned; the complete active turn and
+        five newest results in the entire live context are always protected. A
+        result is eligible only when it has more than 200 visible text
+        characters and its pointer is actually smaller than its output.
         """
         results = self._live_tool_results(agent)
         active_messages = {id(msg) for msg in self._active_turn_tail(agent)}
-        consumed_active = self._consumed_active_result_ids(agent)
         recall_inputs = self._tool_call_inputs(agent)
+        protected_results = {
+            id(block) for _, block in results[-_PROTECTED_RECENT_TOOL_RESULTS:]
+        }
 
-        candidates: list[tuple[bool, int, int, Any, str]] = []
-        for ordinal, (msg, block) in enumerate(results[:-1]):
-            is_active = id(msg) in active_messages
-            if is_active and not include_active:
+        candidates: list[tuple[int, int, Any, str]] = []
+        for ordinal, (msg, block) in enumerate(results):
+            if id(msg) in active_messages:
                 continue
-            if is_active and id(block) not in consumed_active:
+            if id(block) in protected_results:
                 continue
             if self._is_folded_stub(block):
+                continue
+            if self._tool_result_text_chars(block) <= _PRE_TRIM_MIN_CHARS:
                 continue
             existing_output = (
                 block.get("output")
@@ -1092,11 +1092,25 @@ class ScrollContextManager:
             if savings <= 0:
                 continue
             candidates.append(
-                (is_active, -savings, ordinal, block, text),
+                (-savings, ordinal, block, text),
             )
 
-        candidates.sort(key=lambda item: item[:3])
+        candidates.sort(key=lambda item: item[:2])
         return candidates
+
+    async def _batch_fold_completed_tool_results(
+        self,
+        agent: Any,
+        *,
+        tokens: int,
+    ) -> tuple[int, int]:
+        """Fold all safe completed-turn results, then recount exactly once."""
+        candidates = self._tool_result_fold_candidates(agent)
+        for _, _, block, text in candidates:
+            self._replace_tool_result_with_pointer(block, text)
+        if not candidates:
+            return 0, tokens
+        return len(candidates), await self._live_tokens(agent)
 
     async def _fold_tool_results_under_pressure(
         self,
@@ -1104,20 +1118,12 @@ class ScrollContextManager:
         *,
         tokens: int,
         target: float,
-        include_active: bool,
     ) -> tuple[int, int]:
         """Fold profitable live results until ``tokens`` reaches ``target``."""
-        candidates = self._tool_result_fold_candidates(
-            agent,
-            include_active=include_active,
-        )
+        candidates = self._tool_result_fold_candidates(agent)
         folded = 0
-        for _, _, _, block, text in candidates:
-            output = [TextBlock(type="text", text=text)]
-            if isinstance(block, dict):
-                block["output"] = output
-            else:
-                block.output = output
+        for _, _, block, text in candidates:
+            self._replace_tool_result_with_pointer(block, text)
             folded += 1
             tokens = await self._live_tokens(agent)
             if tokens <= target:

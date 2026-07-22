@@ -27,7 +27,7 @@ flowchart LR
     A[New turn enters context] --> B[Write-through to history.db]
     B --> C{Live context over trigger ratio?}
     C -->|No| D[Keep current window]
-    C -->|Yes| E[Fold recoverable tool results from completed turns toward 75%]
+    C -->|Yes| E[Batch-fold eligible completed tool results]
     E --> F{Now at or below trigger?}
     F -->|Yes| D
     F -->|No| G[Protect the active turn + recent tail]
@@ -55,7 +55,7 @@ Key properties:
 - **Cross-session memory**: history rows include `session_id` and `agent_id`, so recall can search this agent's past sessions and, when explicitly widened, other agents in the same workspace.
 - **Fallback-safe**: if scroll cannot be wired or its recall tools cannot run safely, QwenPaw falls back to native context management instead of evicting history that cannot be recalled.
 
-Index tiers roll up only when they reach their 10-block capacity; pressure does not compact the index early. At the automatic trigger (80% by default), Scroll first folds recoverable tool results from completed turns toward a 75% health target. If safe candidates run out between 75% and 80%, it stops without evicting dialogue. If the context remains over the trigger, Scroll proceeds with normal eviction; after rebuilding, live-result folding remains the final pressure valve above `max(trigger, reserve)`. Explicit `/compact` skips the pre-trim stage and performs the requested eviction.
+Index tiers roll up only when they reach their 10-block capacity; pressure does not compact the index early. At the automatic trigger (80% by default), Scroll batch-folds every completed-turn tool result over 200 characters except those in the active turn and the five newest results globally. It then recounts once. If the context is now at or below the trigger, it stops without evicting dialogue; otherwise it proceeds with normal eviction. After rebuilding, completed-result folding remains the final pressure valve above `max(trigger, reserve)`. Explicit `/compact` skips the pre-trim stage and performs the requested eviction.
 
 ## Storage Layout
 
@@ -136,15 +136,15 @@ The split uses AgentScope's token accounting and pairing-safe compression helper
 
 A long tool-running turn (a `/heartbeat` cron run, a multi-search task) can exceed the reserve budget by itself, and the token-based split would then evict the **current request** along with old history — leaving the model staring at an old message plus an index, and answering the wrong thing. Scroll therefore relieves automatic pressure in four escalating stages, each engaging only if the previous one wasn't enough:
 
-1. **Pre-trim** — after durable persistence, recoverable tool results in completed turns are replaced incrementally with exact recall pointers, aiming for 75% of the context window. The newest live tool result and the complete active turn remain verbatim. Reaching at most the 80% trigger stops the pipeline without dialogue eviction.
+1. **Pre-trim** — after durable persistence, Scroll batch-replaces every completed-turn tool result over 200 characters with an exact recall pointer, except for the complete active turn and the five newest tool results globally. It applies the whole batch before recounting once. Reaching at most the configured trigger stops the pipeline without dialogue eviction.
 2. **Evict** — if pre-trimming cannot reach the trigger, finished turns before the active turn fold into the eviction index (the normal archival path). Explicit `/compact` starts here because the user requested eviction.
-3. **Live fold** — still overflowing after eviction (typically: the active turn _is_ the whole context), completed tool results may be replaced **in place** with one-line recall stubs. Within the active turn, a result becomes eligible only after a later model-authored block proves the model has consumed it; parallel results that have not received their first model read stay visible:
+3. **Live fold** — still overflowing after eviction, remaining completed-turn tool results over 200 characters may be replaced **in place** with one-line recall stubs. The complete active turn and the five newest tool results remain visible:
 
    ```text
    [scroll folded] old tool result content cleared; recover with recall_history(op="recall_tool", tool_call_id='call_abc')
    ```
 
-   The request text, tool calls, reasoning, and the newest tool result stay verbatim under normal pressure — the turn itself remains a readable progress record, and every folded output is recoverable by its exact tool-call ID (it was persisted before folding, like everything else). `recall_tool` returns bounded pages; follow `next_cursor` when present. If it reports a saved full-output `file_path`, use `read_file` to read that artifact in bounded chunks. The stub points at the structured tool on purpose: it runs in-process without a sandbox, so the re-read works even on platforms where the Python REPL cannot run.
+   The request text, tool calls, reasoning, active turn, and recent result tail stay verbatim under normal pressure. Every folded output is recoverable by its exact tool-call ID (it was persisted before folding, like everything else). `recall_tool` returns bounded pages; follow `next_cursor` when present. If it reports a saved full-output `file_path`, use `read_file` to read that artifact in bounded chunks. The stub points at the structured tool on purpose: it runs in-process without a sandbox, so the re-read works even on platforms where the Python REPL cannot run.
 
 4. **Hard-limit emergency** — Scroll reserves `min(4096, 5% of context_size)` tokens for the next model output. If the input still exceeds the resulting effective hard limit, the newest unread **text** result is reduced to a visible head/tail preview plus its exact `recall_tool` pointer. Non-text results, pending tool calls, and user input are never silently discarded. If those necessary contents still cannot fit, Scroll raises `CONTEXT_UNFIT` instead of resetting the session or retrying forever.
 
@@ -238,7 +238,7 @@ Tool results are handled by one mechanism:
 | ----------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ToolResultPruningMiddleware` | registered for every context strategy; controlled by `tool_result_pruning_config.enabled` | Prunes current and historical tool results by bytes, saves oversized raw output under `tool_results/`, and records block-scoped recovery metadata plus a `read_file` continuation hint. The background-completion path uses the same pruner when coordinator offload is enabled. |
 
-Scroll no longer has a separate token-based tool-result cap. All live previews use `pruning_recent_msg_max_bytes`. At the automatic compression trigger, Scroll first replaces selected completed-turn results with exact `recall_history` pointers toward the 75% health target; after eviction it can apply the same recovery-pointer fold to live results that remain above the pressure target. `pruning_recent_n` and `pruning_old_msg_max_bytes` apply only to the Native strategy.
+Scroll no longer has a separate token-based tool-result cap. All live previews use `pruning_recent_msg_max_bytes`. At the automatic compression trigger, Scroll batch-replaces every eligible completed-turn result over 200 characters with an exact `recall_history` pointer, while preserving the active turn and five newest results, then recounts once. After eviction it can apply the same recovery-pointer fold to remaining completed results above the pressure target. `pruning_recent_n` and `pruning_old_msg_max_bytes` apply only to the Native strategy.
 
 When unified pruning is enabled, QwenPaw makes AgentScope's built-in token-based tool-result cap non-binding. This prevents a second truncation pass from replacing the byte-bounded preview and discarding its block-scoped recovery metadata. If unified pruning is disabled, AgentScope's default cap remains active as a safety net.
 
