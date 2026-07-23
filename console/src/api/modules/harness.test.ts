@@ -25,7 +25,7 @@ describe("harnessApi", () => {
   });
 
   it("starts Codex OAuth without exposing credentials", async () => {
-    await harnessApi.loginCodex();
+    await harnessApi.login("codex");
 
     expect(request).toHaveBeenCalledWith("/harnesses/codex/login", {
       method: "POST",
@@ -35,10 +35,18 @@ describe("harnessApi", () => {
   });
 
   it("logs Codex out through the harness API", async () => {
-    await harnessApi.logoutCodex();
+    await harnessApi.logout("codex");
 
     expect(request).toHaveBeenCalledWith("/harnesses/codex/logout", {
       method: "POST",
+    });
+  });
+
+  it("loads models through a provider-neutral route", async () => {
+    await harnessApi.listModels("codex");
+
+    expect(request).toHaveBeenCalledWith("/harnesses/codex/models", {
+      timeout: 60_000,
     });
   });
 });

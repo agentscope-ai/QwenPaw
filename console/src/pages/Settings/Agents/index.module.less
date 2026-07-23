@@ -98,6 +98,7 @@
 
 .tableCard {
   margin-bottom: 24px;
+  overflow: hidden;
 
   &:last-child {
     margin-bottom: 0;
@@ -141,11 +142,16 @@
 
 .backendTag {
   display: inline-flex;
+  max-width: 100%;
   align-items: center;
   gap: 4px;
+  box-sizing: border-box;
+  overflow: hidden;
   border-color: #ded7d1;
   color: #685f58;
   background: #faf8f6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .backendTagThirdParty {

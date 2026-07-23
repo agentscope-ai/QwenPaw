@@ -143,7 +143,11 @@ class Workspace:
         if self._harness_runtime is None:
             from ...harnesses import HarnessRuntime
 
-            self._harness_runtime = HarnessRuntime(self.workspace_dir)
+            self._harness_runtime = HarnessRuntime(
+                self.workspace_dir,
+                self.session,
+                self.agent_id,
+            )
         return self._harness_runtime
 
     def bootstrap_plugins(  # pylint: disable=too-many-branches
@@ -283,13 +287,28 @@ class Workspace:
         config = load_agent_config(self.agent_id)
         backend = config.backend
         if backend != "qwenpaw":
-            project_dir = Path(
-                config.backend_project_dir or self.workspace_dir,
-            ).expanduser()
+            settings = dict(getattr(config, "backend_settings", {}))
+            request_context = dict(
+                getattr(request, "request_context", None) or {},
+            )
+            backend_controls = request_context.pop(
+                "backend_controls",
+                {},
+            )
+            if isinstance(backend_controls, dict):
+                settings.update(backend_controls)
+            settings["_request_context"] = {
+                **request_context,
+                "agent_id": self.agent_id,
+                "session_id": getattr(request, "session_id", None),
+                "user_id": getattr(request, "user_id", None),
+                "channel": getattr(request, "channel", None) or "console",
+            }
             async for item in self.harness_runtime.stream(
                 backend=backend,
                 request=request,
-                cwd=project_dir.resolve(),
+                cwd=self.workspace_dir.resolve(),
+                settings=settings,
             ):
                 yield item
             return

@@ -8,11 +8,16 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from .discovery import resolve_codex_binary
 
 logger = logging.getLogger(__name__)
+
+ServerRequestHandler = Callable[
+    [dict[str, Any]],
+    Awaitable[dict[str, Any]],
+]
 
 
 class CodexAppServerError(RuntimeError):
@@ -32,6 +37,7 @@ class CodexAppServerClient:
         self._request_id = 0
         self._write_lock = asyncio.Lock()
         self._start_lock = asyncio.Lock()
+        self._server_request_handler: ServerRequestHandler | None = None
 
     @property
     def installed(self) -> bool:
@@ -126,6 +132,13 @@ class CodexAppServerClient:
         """Remove a notification queue."""
         self._subscribers.discard(queue)
 
+    def set_server_request_handler(
+        self,
+        handler: ServerRequestHandler | None,
+    ) -> None:
+        """Set the callback used for app-server approval requests."""
+        self._server_request_handler = handler
+
     async def stop(self) -> None:
         """Terminate the process and fail outstanding calls."""
         process = self._process
@@ -188,7 +201,7 @@ class CodexAppServerClient:
                 future.set_result(message.get("result"))
             return
         if request_id is not None and "method" in message:
-            await self._deny_server_request(request_id)
+            await self._handle_server_request(message)
             return
         for queue in tuple(self._subscribers):
             try:
@@ -198,6 +211,19 @@ class CodexAppServerClient:
 
     async def _deny_server_request(self, request_id: Any) -> None:
         await self._send({"id": request_id, "result": {"decision": "decline"}})
+
+    async def _handle_server_request(self, message: dict[str, Any]) -> None:
+        request_id = message.get("id")
+        handler = self._server_request_handler
+        if handler is None:
+            await self._deny_server_request(request_id)
+            return
+        try:
+            result = await handler(message)
+        except Exception:
+            logger.exception("Failed to handle Codex server request")
+            result = {"decision": "decline"}
+        await self._send({"id": request_id, "result": result})
 
     def _fail_pending(self, error: Exception) -> None:
         for future in tuple(self._pending.values()):

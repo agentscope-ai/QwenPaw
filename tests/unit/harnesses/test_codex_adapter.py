@@ -8,11 +8,13 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from qwenpaw.harnesses.codex.adapter import CodexAdapter
 from qwenpaw.harnesses.events import HarnessEventKind
+from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
 
 class FakeCodexClient:
@@ -24,11 +26,20 @@ class FakeCodexClient:
         self.requests: list[tuple[str, dict[str, Any]]] = []
         self.queue: asyncio.Queue[dict[str, Any]] | None = None
         self.stopped = False
+        self.server_request_handler = None
+
+    def set_server_request_handler(self, handler) -> None:
+        """Store the app-server request callback."""
+        self.server_request_handler = handler
 
     async def start(self) -> None:
         """Record no state; the fake is always started."""
 
-    async def request(self, method: str, params: dict[str, Any]) -> Any:
+    async def request(  # pylint: disable=too-many-return-statements
+        self,
+        method: str,
+        params: dict[str, Any],
+    ) -> Any:
         self.requests.append((method, params))
         if method == "account/read":
             return {
@@ -41,6 +52,24 @@ class FakeCodexClient:
             }
         if method == "account/login/start":
             return {"type": "chatgpt", "authUrl": "https://example.com"}
+        if method == "model/list":
+            return {
+                "data": [
+                    {
+                        "id": "catalog-id",
+                        "model": "gpt-test-codex",
+                        "displayName": "GPT Test Codex",
+                        "description": "Test model",
+                        "isDefault": True,
+                        "defaultReasoningEffort": "medium",
+                        "supportedReasoningEfforts": [
+                            {"reasoningEffort": "low"},
+                            {"reasoningEffort": "medium"},
+                        ],
+                    },
+                ],
+                "nextCursor": None,
+            }
         if method == "thread/start":
             return {"thread": {"id": "thread-1"}}
         if method == "turn/start":
@@ -66,6 +95,38 @@ class FakeCodexClient:
                 },
             )
             return {"turn": {"id": "turn-1"}}
+        if method == "thread/read":
+            return {
+                "thread": {
+                    "turns": [
+                        {
+                            "items": [
+                                {
+                                    "id": "user-1",
+                                    "type": "userMessage",
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": "Fix it",
+                                        },
+                                    ],
+                                },
+                                {
+                                    "id": "reason-1",
+                                    "type": "reasoning",
+                                    "summary": ["Checking"],
+                                    "content": ["private details"],
+                                },
+                                {
+                                    "id": "answer-1",
+                                    "type": "agentMessage",
+                                    "text": "Done",
+                                },
+                            ],
+                        },
+                    ],
+                },
+            }
         return {}
 
     def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
@@ -109,6 +170,41 @@ async def test_status_and_login_use_app_server(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_models_are_normalized_from_app_server(
+    tmp_path: Path,
+) -> None:
+    adapter = CodexAdapter(
+        tmp_path,
+        client=FakeCodexClient(),  # type: ignore[arg-type]
+    )
+
+    models = await adapter.models()
+
+    assert len(models) == 1
+    assert models[0].id == "gpt-test-codex"
+    assert models[0].reasoning_efforts == ["low", "medium"]
+    assert models[0].default_reasoning_effort == "medium"
+
+
+@pytest.mark.asyncio
+async def test_history_prefers_reasoning_summary(tmp_path: Path) -> None:
+    adapter = CodexAdapter(
+        tmp_path,
+        client=FakeCodexClient(),  # type: ignore[arg-type]
+    )
+    adapter._threads["chat-1"] = "thread-1"
+
+    history = await adapter.history("chat-1")
+
+    assert [item.kind.value for item in history] == [
+        "user",
+        "reasoning",
+        "message",
+    ]
+    assert history[1].text == "Checking"
+
+
+@pytest.mark.asyncio
 async def test_run_turn_persists_and_reuses_thread(tmp_path: Path) -> None:
     client = FakeCodexClient()
     adapter = CodexAdapter(tmp_path, client=client)  # type: ignore[arg-type]
@@ -119,6 +215,10 @@ async def test_run_turn_persists_and_reuses_thread(tmp_path: Path) -> None:
             session_id="chat-1",
             prompt="Fix the test",
             cwd=tmp_path,
+            settings={
+                "model": "gpt-test-codex",
+                "reasoning_effort": "high",
+            },
         )
     ]
 
@@ -129,6 +229,93 @@ async def test_run_turn_persists_and_reuses_thread(tmp_path: Path) -> None:
     assert events[0].text == "done"
     assert (tmp_path / "codex_sessions.json").is_file()
     assert [method for method, _ in client.requests].count("thread/start") == 1
+    thread_params = next(
+        params
+        for method, params in client.requests
+        if method == "thread/start"
+    )
+    turn_params = next(
+        params for method, params in client.requests if method == "turn/start"
+    )
+    assert thread_params["model"] == "gpt-test-codex"
+    assert turn_params["model"] == "gpt-test-codex"
+    assert turn_params["effort"] == "high"
+    assert turn_params["summary"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_run_turn_applies_provider_approval_controls(
+    tmp_path: Path,
+) -> None:
+    client = FakeCodexClient()
+    adapter = CodexAdapter(tmp_path, client=client)  # type: ignore[arg-type]
+
+    async for _ in adapter.run_turn(
+        session_id="chat-1",
+        prompt="Fix the test",
+        cwd=tmp_path,
+        settings={
+            "sandbox": "read-only",
+            "approval_policy": "on-request",
+        },
+    ):
+        pass
+
+    thread_params = next(
+        params
+        for method, params in client.requests
+        if method == "thread/start"
+    )
+    turn_params = next(
+        params for method, params in client.requests if method == "turn/start"
+    )
+    assert thread_params["sandbox"] == "read-only"
+    assert thread_params["approvalPolicy"] == "on-request"
+    assert turn_params["sandboxPolicy"] == {"type": "readOnly"}
+    assert turn_params["approvalPolicy"] == "on-request"
+
+
+@pytest.mark.asyncio
+async def test_codex_approval_uses_qwenpaw_service(
+    tmp_path: Path,
+) -> None:
+    adapter = CodexAdapter(
+        tmp_path,
+        client=FakeCodexClient(),  # type: ignore[arg-type]
+    )
+    adapter._thread_contexts["thread-1"] = {
+        "session_id": "chat-1",
+        "agent_id": "agent-1",
+        "user_id": "user-1",
+        "channel": "console",
+    }
+    pending = MagicMock(request_id="approval-1", timeout_seconds=30)
+    service = MagicMock()
+    service.create_pending_summary = AsyncMock(return_value=pending)
+    service.wait_for_approval = AsyncMock(
+        return_value=ApprovalDecision.APPROVED,
+    )
+
+    with patch(
+        "qwenpaw.harnesses.codex.adapter.get_approval_service",
+        return_value=service,
+    ):
+        result = await adapter._handle_server_request(
+            {
+                "method": "item/commandExecution/requestApproval",
+                "params": {
+                    "threadId": "thread-1",
+                    "itemId": "item-1",
+                    "command": "pytest -q",
+                },
+            },
+        )
+
+    assert result == {"decision": "accept"}
+    create_call = service.create_pending_summary.await_args.kwargs
+    assert create_call["session_id"] == "chat-1"
+    assert create_call["agent_id"] == "agent-1"
+    assert create_call["summary"].payload["command"] == "pytest -q"
 
 
 @pytest.mark.asyncio
@@ -141,6 +328,7 @@ async def test_cancelled_stream_interrupts_active_turn(tmp_path: Path) -> None:
             session_id="chat-1",
             prompt="Keep working",
             cwd=tmp_path,
+            settings={},
         ):
             pass
 

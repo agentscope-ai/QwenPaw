@@ -38,6 +38,15 @@ export const agentsApi = {
       body: JSON.stringify(agent),
     }),
 
+  updateBackendSettings: (
+    agentId: string,
+    settings: { model?: string; reasoning_effort?: string },
+  ) =>
+    request<AgentProfileConfig>(`/agents/${agentId}/backend-settings`, {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    }),
+
   rebuildMemoryIndex: (agentId: string) =>
     request<{ status: "completed" }>(`/agents/${agentId}/memory/reindex`, {
       method: "POST",

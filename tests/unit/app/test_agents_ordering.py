@@ -281,7 +281,6 @@ async def test_create_agent_appends_new_id_to_order(monkeypatch, tmp_path):
             name="Beta",
             workspace_dir=str(tmp_path / "beta"),
             backend="codex",
-            backend_project_dir=str(tmp_path / "project"),
         ),
         http_request=http_request,
     )
@@ -289,7 +288,7 @@ async def test_create_agent_appends_new_id_to_order(monkeypatch, tmp_path):
     assert config.agents.agent_order == ["alpha", "default", "beta"]
     assert scheduled_ids == ["beta"]
     assert saved_agents[0].backend == "codex"
-    assert saved_agents[0].backend_project_dir == str(tmp_path / "project")
+    assert saved_agents[0].workspace_dir == str(tmp_path / "beta")
 
 
 @pytest.mark.asyncio

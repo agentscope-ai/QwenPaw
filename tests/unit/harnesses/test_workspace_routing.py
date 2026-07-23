@@ -31,11 +31,8 @@ async def test_coding_mode_routes_directly_to_harness(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
     config = SimpleNamespace(
         backend="codex",
-        backend_project_dir=str(project_dir),
         coding_mode=SimpleNamespace(enabled=False),
     )
     monkeypatch.setattr(
@@ -53,5 +50,13 @@ async def test_coding_mode_routes_directly_to_harness(
     assert runtime.call == {
         "backend": "codex",
         "request": request,
-        "cwd": project_dir.resolve(),
+        "cwd": (tmp_path / "workspace").resolve(),
+        "settings": {
+            "_request_context": {
+                "agent_id": "agent-1",
+                "session_id": None,
+                "user_id": None,
+                "channel": "console",
+            },
+        },
     }

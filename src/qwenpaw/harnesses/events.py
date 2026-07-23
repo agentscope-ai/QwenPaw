@@ -22,6 +22,16 @@ class HarnessEventKind(str, Enum):
     ERROR = "error"
 
 
+class HarnessHistoryKind(str, Enum):
+    """Kinds stored when a provider can replay an existing thread."""
+
+    USER = "user"
+    MESSAGE = "message"
+    REASONING = "reasoning"
+    TOOL_CALL = "tool_call"
+    TOOL_OUTPUT = "tool_output"
+
+
 class HarnessEvent(BaseModel):
     """One normalized provider event."""
 
@@ -30,6 +40,67 @@ class HarnessEvent(BaseModel):
     item_id: str = ""
     tool_name: str = ""
     data: dict[str, Any] = Field(default_factory=dict)
+
+
+class HarnessHistoryItem(BaseModel):
+    """One provider-neutral item reconstructed from thread history."""
+
+    kind: HarnessHistoryKind
+    text: str = ""
+    item_id: str = ""
+    tool_name: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class HarnessCommand(BaseModel):
+    """One slash command exposed by a third-party agent backend."""
+
+    name: str
+    description: str = ""
+    accepts_arguments: bool = False
+
+
+class HarnessApprovalPreset(BaseModel):
+    """One provider-owned execution approval preset."""
+
+    id: str
+    name: str
+    description: str = ""
+    settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class HarnessCapabilities(BaseModel):
+    """Features exposed by one third-party agent backend."""
+
+    authentication: bool = False
+    model_selection: bool = False
+    reasoning_effort: bool = False
+    reasoning_stream: bool = False
+    tool_stream: bool = False
+    session_resume: bool = False
+    workspace_ui: bool = False
+    native_skills_ui: bool = False
+    native_tools_ui: bool = False
+    native_mcp_ui: bool = False
+    loop_modes: bool = False
+    attachments: bool = False
+    context_usage: bool = False
+    skills_commands: bool = False
+    commands: list[HarnessCommand] = Field(default_factory=list)
+    approval_presets: list[HarnessApprovalPreset] = Field(
+        default_factory=list,
+    )
+
+
+class HarnessModel(BaseModel):
+    """Provider-neutral model picker entry."""
+
+    id: str
+    name: str
+    description: str = ""
+    is_default: bool = False
+    reasoning_efforts: list[str] = Field(default_factory=list)
+    default_reasoning_effort: str | None = None
 
 
 class HarnessProvider(BaseModel):
@@ -43,6 +114,19 @@ class HarnessProvider(BaseModel):
     authenticated: bool = False
     account: dict[str, Any] | None = None
     error: str | None = None
+    capabilities: HarnessCapabilities = Field(
+        default_factory=HarnessCapabilities,
+    )
 
 
-__all__ = ["HarnessEvent", "HarnessEventKind", "HarnessProvider"]
+__all__ = [
+    "HarnessApprovalPreset",
+    "HarnessCapabilities",
+    "HarnessCommand",
+    "HarnessEvent",
+    "HarnessEventKind",
+    "HarnessHistoryItem",
+    "HarnessHistoryKind",
+    "HarnessModel",
+    "HarnessProvider",
+]

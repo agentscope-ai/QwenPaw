@@ -82,7 +82,11 @@ describe("AgentTable", () => {
       />,
     );
 
-    expect(screen.getByText(/QwenPaw/)).toBeInTheDocument();
-    expect(screen.getByText(/Codex/)).toBeInTheDocument();
+    const nativeTag = screen.getByText(/QwenPaw/).closest(".ant-tag");
+    const codexTag = screen.getByText(/Codex/).closest(".ant-tag");
+    expect(nativeTag).toBeInTheDocument();
+    expect(codexTag).toBeInTheDocument();
+    expect(nativeTag?.className).toContain("backendTag");
+    expect(codexTag?.className).toContain("backendTagThirdParty");
   });
 });

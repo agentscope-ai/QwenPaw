@@ -122,6 +122,8 @@ import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import MessageQueuePanel from "./components/MessageQueuePanel";
 import ApprovalLevelToggle from "./components/ApprovalLevelToggle";
+import HarnessApprovalToggle from "./components/HarnessApprovalToggle";
+import HarnessModelSelector from "./components/HarnessModelSelector";
 import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
 import { type ToolExecutionLevel } from "../../utils/approval";
 import {
@@ -1195,9 +1197,14 @@ export default function ChatPage() {
     }>
   >([]);
   const { selectedAgent, agents } = useAgentStore();
-  const selectedAgentBackend =
-    agents.find((agent) => agent.id === selectedAgent)?.backend ?? "qwenpaw";
+  const selectedAgentInfo = agents.find((agent) => agent.id === selectedAgent);
+  const selectedAgentBackend = selectedAgentInfo?.backend ?? "qwenpaw";
+  const backendCapabilities = selectedAgentInfo?.backend_capabilities;
   const usesQwenPawBackend = requiresQwenPawModel(selectedAgentBackend);
+  const backendCommands = backendCapabilities?.commands ?? [];
+  const approvalPresets = backendCapabilities?.approval_presets ?? [];
+  const supportsAttachments =
+    usesQwenPawBackend || Boolean(backendCapabilities?.attachments);
   const { toolRenderConfig } = usePlugins();
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
@@ -1218,6 +1225,7 @@ export default function ChatPage() {
   const prevQueueLenRef = useRef(messageQueue.length);
 
   const sessionApprovalLevelRef = useRef<ToolExecutionLevel | null>(null);
+  const backendControlsRef = useRef<Record<string, unknown>>({});
   const runningConfigApprovalLevel = useAgentRunningConfigApprovalLevel();
 
   // Track pending attachments for queue support
@@ -1446,6 +1454,10 @@ export default function ChatPage() {
   );
 
   useEffect(() => {
+    if (!usesQwenPawBackend) {
+      setChatSkills([]);
+      return;
+    }
     let cancelled = false;
     skillApi
       .listSkills(selectedAgent)
@@ -1464,7 +1476,7 @@ export default function ChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedAgent]);
+  }, [selectedAgent, usesQwenPawBackend]);
 
   const isChatActiveRef = useRef(false);
   // Issue #5142: In Coding mode the Chat component is embedded under /coding/*,
@@ -2306,11 +2318,23 @@ export default function ChatPage() {
         }
       }
 
-      applyApprovalLevelToRequestBody(
-        requestBody,
-        sessionApprovalLevelRef.current,
-        runningConfigApprovalLevel,
-      );
+      if (usesQwenPawBackend) {
+        applyApprovalLevelToRequestBody(
+          requestBody,
+          sessionApprovalLevelRef.current,
+          runningConfigApprovalLevel,
+        );
+      } else if (Object.keys(backendControlsRef.current).length > 0) {
+        const currentContext =
+          requestBody.request_context &&
+          typeof requestBody.request_context === "object"
+            ? (requestBody.request_context as Record<string, unknown>)
+            : {};
+        requestBody.request_context = {
+          ...currentContext,
+          backend_controls: backendControlsRef.current,
+        };
+      }
 
       const backendChatId =
         sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
@@ -2414,7 +2438,7 @@ export default function ChatPage() {
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
-    const commandSuggestions: CommandSuggestion[] = [
+    const hostCommands: CommandSuggestion[] = [
       {
         command: "/new",
         value: "new",
@@ -2425,17 +2449,29 @@ export default function ChatPage() {
         value: "clear",
         description: t("chat.commands.clear.description"),
       },
-      {
-        command: "/compact",
-        value: "compact",
-        description: t("chat.commands.compact.description"),
-      },
-      {
-        command: "/skills",
-        value: "skills",
-        description: t("chat.commands.skills.description"),
-      },
     ];
+    const nativeCommands: CommandSuggestion[] = usesQwenPawBackend
+      ? [
+          {
+            command: "/compact",
+            value: "compact",
+            description: t("chat.commands.compact.description"),
+          },
+          {
+            command: "/skills",
+            value: "skills",
+            description: t("chat.commands.skills.description"),
+          },
+        ]
+      : backendCommands.map((item) => ({
+          command: `/${item.name}`,
+          value: item.name,
+          description: t(
+            `chat.commands.${item.name}.description`,
+            item.description,
+          ),
+        }));
+    const commandSuggestions = [...hostCommands, ...nativeCommands];
     const reservedCommands = new Set(
       commandSuggestions.map((item) => item.command.slice(1).trim()),
     );
@@ -2473,7 +2509,9 @@ export default function ChatPage() {
           message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
           return false;
         }
-        const queueText = prepareLoopModeMessage(val);
+        const queueText = usesQwenPawBackend
+          ? prepareLoopModeMessage(val)
+          : val;
         const enqueueIdentity = sessionApi.getSessionIdentity();
         useMessageQueueStore.getState().enqueue(queueSessionId, {
           text: queueText,
@@ -2506,7 +2544,9 @@ export default function ChatPage() {
         .querySelector('[class*="sender"]')
         ?.querySelector("textarea") as HTMLTextAreaElement | null;
       if (textarea) {
-        const prepared = beginLoopModeSubmission(textarea.value);
+        const prepared = usesQwenPawBackend
+          ? beginLoopModeSubmission(textarea.value)
+          : textarea.value;
         if (prepared !== textarea.value) {
           setTextareaValue(textarea, prepared);
         }
@@ -2721,7 +2761,11 @@ export default function ChatPage() {
             />
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
-            {usesQwenPawBackend && <ModelSelector />}
+            {usesQwenPawBackend ? (
+              <ModelSelector />
+            ) : backendCapabilities?.model_selection ? (
+              <HarnessModelSelector providerId={selectedAgentBackend} />
+            ) : null}
             <ChatActionGroup
               onToggleHistory={
                 effectiveIsFullMode ? toggleHistoryPanel : undefined
@@ -2783,7 +2827,7 @@ export default function ChatPage() {
                 onTranscription={handleWhisperTranscription}
               />
             ) : null}
-            <LoopModeSelector />
+            {usesQwenPawBackend && <LoopModeSelector />}
             {pluginSenderPrefix}
           </>
         ),
@@ -2795,55 +2839,77 @@ export default function ChatPage() {
               gap: 4,
             }}
           >
-            <ContextUsageIndicator
-              onCompact={handleCompactCommand}
-              onNew={handleNewCommand}
-            />
-            <ApprovalLevelToggle
-              sessionId={queueSessionId}
-              runningConfigApprovalLevel={runningConfigApprovalLevel}
-              onChange={(sessionOverride) => {
-                sessionApprovalLevelRef.current = sessionOverride;
-              }}
-            />
+            {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
+              <ContextUsageIndicator
+                onCompact={handleCompactCommand}
+                onNew={handleNewCommand}
+              />
+            )}
+            {usesQwenPawBackend ? (
+              <ApprovalLevelToggle
+                sessionId={queueSessionId}
+                runningConfigApprovalLevel={runningConfigApprovalLevel}
+                onChange={(sessionOverride) => {
+                  sessionApprovalLevelRef.current = sessionOverride;
+                }}
+              />
+            ) : approvalPresets.length > 0 ? (
+              <HarnessApprovalToggle
+                backend={selectedAgentBackend}
+                sessionId={queueSessionId}
+                presets={approvalPresets}
+                onChange={(settings) => {
+                  backendControlsRef.current = settings;
+                }}
+              />
+            ) : null}
           </span>
         ),
-        attachments: {
-          multiple: true,
-          trigger: function (props: any) {
-            const uploadLimit = useUploadLimitStore.getState().uploadMaxSizeMb;
-            const tooltipKey = multimodalCaps.supportsMultimodal
-              ? multimodalCaps.supportsImage && !multimodalCaps.supportsVideo
-                ? "chat.attachments.tooltipImageOnly"
-                : "chat.attachments.tooltip"
-              : "chat.attachments.tooltipNoMultimodal";
-            const tooltipTitle =
-              uploadLimit !== null
-                ? `${t(tooltipKey)}, ${t("chat.attachments.fileSizeLimit", {
-                    limit: uploadLimit,
-                  })}`
-                : t(tooltipKey);
-            return (
-              <Tooltip title={tooltipTitle}>
-                <IconButton
-                  disabled={props?.disabled}
-                  icon={<SparkAttachmentLine />}
-                  bordered={false}
-                />
-              </Tooltip>
-            );
-          },
-          customRequest: handleFileUpload,
-        },
-        longTextUpload: {
-          ...((i18nConfig as any)?.sender?.longTextUpload ?? {}),
-          customRequest: handleFileUpload,
-          prompt: () =>
-            t(
-              "chat.longTextUploadPrompt",
-              "Please read the uploaded prompt file and answer it.",
-            ),
-        },
+        ...(supportsAttachments
+          ? {
+              attachments: {
+                multiple: true,
+                trigger: function (props: any) {
+                  const uploadLimit =
+                    useUploadLimitStore.getState().uploadMaxSizeMb;
+                  const tooltipKey = multimodalCaps.supportsMultimodal
+                    ? multimodalCaps.supportsImage &&
+                      !multimodalCaps.supportsVideo
+                      ? "chat.attachments.tooltipImageOnly"
+                      : "chat.attachments.tooltip"
+                    : "chat.attachments.tooltipNoMultimodal";
+                  const tooltipTitle =
+                    uploadLimit !== null
+                      ? `${t(tooltipKey)}, ${t(
+                          "chat.attachments.fileSizeLimit",
+                          {
+                            limit: uploadLimit,
+                          },
+                        )}`
+                      : t(tooltipKey);
+                  return (
+                    <Tooltip title={tooltipTitle}>
+                      <IconButton
+                        disabled={props?.disabled}
+                        icon={<SparkAttachmentLine />}
+                        bordered={false}
+                      />
+                    </Tooltip>
+                  );
+                },
+                customRequest: handleFileUpload,
+              },
+              longTextUpload: {
+                ...((i18nConfig as any)?.sender?.longTextUpload ?? {}),
+                customRequest: handleFileUpload,
+                prompt: () =>
+                  t(
+                    "chat.longTextUploadPrompt",
+                    "Please read the uploaded prompt file and answer it.",
+                  ),
+              },
+            }
+          : {}),
         placeholder: extPlaceholder ?? t("chat.inputPlaceholder"),
         ...(extDisclaimer !== undefined ? { disclaimer: extDisclaimer } : {}),
         suggestions: [...baseSuggestions, ...pluginSuggestions],

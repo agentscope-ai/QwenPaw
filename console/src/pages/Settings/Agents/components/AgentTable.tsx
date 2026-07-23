@@ -105,7 +105,7 @@ export function AgentTable({
       title: t("agent.name"),
       dataIndex: "name",
       key: "name",
-      width: 300,
+      width: 260,
       render: (_text: string, record: AgentSummary) => (
         <Space>
           <AgentStatusIndicator
@@ -131,12 +131,13 @@ export function AgentTable({
       title: t("agent.id"),
       dataIndex: "id",
       key: "id",
+      width: 180,
     },
     {
       title: t("agent.backend.column"),
       dataIndex: "backend",
       key: "backend",
-      width: 120,
+      width: 180,
       render: (backend: AgentSummary["backend"]) => (
         <Tag
           className={`${styles.backendTag} ${
@@ -160,20 +161,43 @@ export function AgentTable({
       title: t("agent.description"),
       dataIndex: "description",
       key: "description",
+      width: 220,
       ellipsis: true,
     },
     {
       title: t("agent.workspace"),
       dataIndex: "workspace_dir",
       key: "workspace_dir",
+      width: 260,
       ellipsis: true,
     },
     {
       title: t("agent.modelColumn"),
       key: "active_model",
-      width: 260,
+      width: 220,
       ellipsis: true,
       render: (_value: unknown, record: AgentSummary) => {
+        if (record.backend !== "qwenpaw") {
+          const model = record.backend_model;
+          return model ? (
+            <Space size={6}>
+              <SquareTerminal size={15} />
+              <Tooltip
+                title={
+                  record.backend_reasoning_effort
+                    ? `${model} · ${record.backend_reasoning_effort}`
+                    : model
+                }
+              >
+                <span>{model}</span>
+              </Tooltip>
+            </Space>
+          ) : (
+            <span style={{ opacity: 0.45 }}>
+              {t("agent.backend.modelDefault")}
+            </span>
+          );
+        }
         if (!record.active_model) {
           return (
             <span style={{ opacity: 0.45 }}>{t("agent.modelPlaceholder")}</span>
@@ -196,6 +220,8 @@ export function AgentTable({
     {
       title: t("common.actions"),
       key: "actions",
+      width: 240,
+      fixed: "right",
       render: (_value: unknown, record: AgentSummary) => {
         const startupInProgress =
           record.startup_status === "pending" ||
@@ -329,6 +355,7 @@ export function AgentTable({
             columns={columns}
             loading={loading}
             rowKey="id"
+            scroll={{ x: 1620 }}
             components={{
               body: {
                 row: SortableAgentRow,

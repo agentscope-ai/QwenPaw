@@ -8,17 +8,32 @@ def test_agent_backend_defaults_to_qwenpaw() -> None:
     config = AgentProfileConfig(id="agent-1", name="Agent")
 
     assert config.backend == "qwenpaw"
-    assert config.backend_project_dir is None
 
 
-def test_codex_backend_has_an_independent_project_directory() -> None:
+def test_codex_backend_uses_the_agent_workspace() -> None:
     config = AgentProfileConfig(
         id="codex-1",
         name="Codex",
         backend="codex",
-        backend_project_dir="/projects/example",
+        workspace_dir="/workspaces/codex-1",
     )
 
     assert config.backend == "codex"
     assert config.coding_mode.enabled is False
-    assert config.backend_project_dir == "/projects/example"
+    assert config.workspace_dir == "/workspaces/codex-1"
+
+
+def test_future_backend_settings_do_not_require_core_schema_changes() -> None:
+    config = AgentProfileConfig(
+        id="qoder-1",
+        name="Qoder",
+        backend="qoder",
+        backend_settings={
+            "model": "qoder-default",
+            "provider_option": True,
+        },
+    )
+
+    assert config.backend == "qoder"
+    assert config.backend_settings["model"] == "qoder-default"
+    assert config.backend_settings["provider_option"] is True

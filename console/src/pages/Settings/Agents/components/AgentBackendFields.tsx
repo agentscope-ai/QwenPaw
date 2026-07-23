@@ -59,7 +59,7 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
     if (popup) popup.opener = null;
     setConnecting(true);
     try {
-      const login = await harnessApi.loginCodex();
+      const login = await harnessApi.login("codex");
       if (!login.authUrl) throw new Error("Codex did not return a login URL");
       if (popup) popup.location.href = login.authUrl;
       else window.open(login.authUrl, "_blank", "noopener,noreferrer");
@@ -89,7 +89,7 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
 
   const disconnect = useCallback(async () => {
     try {
-      await harnessApi.logoutCodex();
+      await harnessApi.logout("codex");
       await loadStatus();
       message.success(t("harnesses.disconnected"));
     } catch (error) {
@@ -101,7 +101,7 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
     (next: AgentBackend) => {
       form.setFieldsValue({
         backend: next,
-        ...(next === "qwenpaw" ? { backend_project_dir: undefined } : {}),
+        ...(next === "qwenpaw" ? { backend_settings: {} } : {}),
       });
     },
     [form],
@@ -195,20 +195,6 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
           </div>
 
           <div className={styles.codexConfig}>
-            <Form.Item
-              name="backend_project_dir"
-              label={t("agent.backend.projectDir")}
-              className={styles.projectField}
-              rules={[
-                {
-                  required: true,
-                  message: t("agent.backend.projectDirRequired"),
-                },
-              ]}
-            >
-              <Input placeholder="/path/to/project" />
-            </Form.Item>
-
             <div className={styles.accountRow}>
               <div className={styles.accountState}>
                 <span className={styles.accountLabel}>
@@ -249,6 +235,11 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                 )}
               </div>
             </div>
+            {codex?.authenticated && (
+              <p className={styles.chatSettingsHint}>
+                {t("agent.backend.chatSettingsHint")}
+              </p>
+            )}
           </div>
         </div>
       )}

@@ -20,6 +20,7 @@
     "view": "View",
     "content": "Content",
     "loading": "Loading...",
+    "saving": "Saving...",
     "copy": "Copy",
     "copied": "Copied to clipboard",
     "copyFailed": "Failed to copy to clipboard",
@@ -611,11 +612,36 @@
       "thirdPartyDescription": "Uses an authorized external agent runtime instead of a QwenPaw model.",
       "providerTitle": "Choose a third-party agent",
       "providerDescription": "Authentication is shared on this device; projects and conversations stay isolated per agent.",
-      "codexHint": "ChatGPT OAuth · Local project",
-      "projectDir": "Codex project directory",
-      "projectDirRequired": "Enter the project directory Codex should work in",
+      "codexHint": "ChatGPT OAuth · Agent workspace",
       "account": "Codex account",
-      "codexNotFound": "Codex was not found in PATH or the ChatGPT editor extension"
+      "model": "Codex model",
+      "modelDefault": "Use the Codex default",
+      "defaultBadge": "Default",
+      "reasoningEffort": "Reasoning effort",
+      "reasoningDefault": "Use the model default",
+      "codexNotFound": "Codex was not found in PATH or the ChatGPT editor extension",
+      "chatSettingsHint": "Choose the model, reasoning effort, and execution permissions from the Chat toolbar.",
+      "chatModelHint": "Agent-scoped settings · applied on the next turn",
+      "appliesNextTurn": "Applies on the next turn",
+      "approvalMode": "Execution permissions",
+      "approvalPresets": {
+        "ask": {
+          "name": "Ask before changes",
+          "description": "Allow workspace changes and ask before elevated actions."
+        },
+        "read-only": {
+          "name": "Read only",
+          "description": "Inspect files without changing them."
+        },
+        "workspace": {
+          "name": "Workspace access",
+          "description": "Allow workspace changes without confirmation."
+        },
+        "full-access": {
+          "name": "Full access",
+          "description": "Allow unrestricted local execution without confirmation."
+        }
+      }
     },
     "model": "Model",
     "modelHelp": "Assign a specific LLM model to this agent. Leave empty to use the global default.",
@@ -2477,6 +2503,12 @@
       },
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
+      },
+      "review": {
+        "description": "Review uncommitted workspace changes with Codex"
+      },
+      "status": {
+        "description": "Show the current Codex account, model, and workspace"
       },
       "plan": {
         "description": "Create a structured plan to decompose the task into subtasks"

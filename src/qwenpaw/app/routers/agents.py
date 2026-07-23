@@ -8,10 +8,10 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from qwenpaw.exceptions import (
     AppBaseException,
@@ -32,6 +32,7 @@ from ...config.config import (
 from ...config.utils import load_config, save_config
 from ...agents.utils import copy_workspace_md_files, normalize_agent_language
 from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
+from ...harnesses.registry import get_provider
 from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
@@ -51,7 +52,10 @@ class AgentSummary(BaseModel):
     enabled: bool
     pinned: bool
     startup_status: AgentStartupStatus
-    backend: Literal["qwenpaw", "codex"] = "qwenpaw"
+    backend: str = "qwenpaw"
+    backend_capabilities: dict[str, Any] = Field(default_factory=dict)
+    backend_model: str | None = None
+    backend_reasoning_effort: str | None = None
     active_model: ModelSlotConfig | None = None
 
 
@@ -65,6 +69,13 @@ class ReorderAgentsRequest(BaseModel):
     """Request model for persisting agent order."""
 
     agent_ids: list[str]
+
+
+class BackendSettingsRequest(BaseModel):
+    """Provider-owned settings updated from Chat controls."""
+
+    model: str | None = None
+    reasoning_effort: str | None = None
 
 
 class CreateAgentRequest(BaseModel):
@@ -82,8 +93,8 @@ class CreateAgentRequest(BaseModel):
     language: str | None = None
     skill_names: list[str] | None = None
     active_model: ModelSlotConfig | None = None
-    backend: Literal["qwenpaw", "codex"] = "qwenpaw"
-    backend_project_dir: str | None = None
+    backend: str = "qwenpaw"
+    backend_settings: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("id", mode="before")
     @classmethod
@@ -100,17 +111,6 @@ class CreateAgentRequest(BaseModel):
     @classmethod
     def strip_workspace_dir(cls, value: str | None) -> str | None:
         """Strip accidental whitespace"""
-        if value is None:
-            return None
-        if isinstance(value, str):
-            stripped = value.strip()
-            return stripped if stripped else None
-        return value
-
-    @field_validator("backend_project_dir", mode="before")
-    @classmethod
-    def strip_backend_project_dir(cls, value: str | None) -> str | None:
-        """Strip accidental whitespace from the harness project path."""
         if value is None:
             return None
         if isinstance(value, str):
@@ -263,6 +263,13 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     description = profile_desc
 
             active_model = agent_config.active_model
+            backend_capabilities = (
+                {"workspace_ui": True}
+                if agent_config.backend == "qwenpaw"
+                else get_provider(
+                    agent_config.backend,
+                ).capabilities.model_dump()
+            )
 
             agents.append(
                 AgentSummary(
@@ -274,6 +281,13 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     pinned=pinned,
                     startup_status=startup_status,
                     backend=agent_config.backend,
+                    backend_capabilities=backend_capabilities,
+                    backend_model=agent_config.backend_settings.get("model"),
+                    backend_reasoning_effort=(
+                        agent_config.backend_settings.get(
+                            "reasoning_effort",
+                        )
+                    ),
                     active_model=active_model,
                 ),
             )
@@ -386,6 +400,43 @@ async def get_agent(agentId: str = PathParam(...)) -> AgentProfileConfig:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.patch(
+    "/{agentId}/backend-settings",
+    response_model=AgentProfileConfig,
+    summary="Update third-party backend Chat settings",
+)
+async def update_backend_settings(
+    body: BackendSettingsRequest,
+    agentId: str = PathParam(...),
+) -> AgentProfileConfig:
+    """Persist model controls owned by a third-party agent backend."""
+    try:
+        agent_config = load_agent_config(agentId)
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if agent_config.backend == "qwenpaw":
+        raise HTTPException(
+            status_code=409,
+            detail="QwenPaw models use the native model configuration",
+        )
+    provider = get_provider(agent_config.backend)
+    settings = dict(agent_config.backend_settings)
+    values = body.model_dump()
+    if provider.capabilities.model_selection:
+        if values["model"]:
+            settings["model"] = values["model"]
+        else:
+            settings.pop("model", None)
+    if provider.capabilities.reasoning_effort:
+        if values["reasoning_effort"]:
+            settings["reasoning_effort"] = values["reasoning_effort"]
+        else:
+            settings.pop("reasoning_effort", None)
+    agent_config.backend_settings = settings
+    save_agent_config(agentId, agent_config)
+    return agent_config
+
+
 def _generate_unique_id(existing_ids: set[str]) -> str:
     """Generate a unique random short agent ID.
 
@@ -451,8 +502,12 @@ async def create_agent(
         request.language or config.agents.language or "en",
     )
 
-    active_model = request.active_model
-    if not active_model or not active_model.provider_id:
+    active_model = (
+        request.active_model if request.backend == "qwenpaw" else None
+    )
+    if request.backend == "qwenpaw" and (
+        not active_model or not active_model.provider_id
+    ):
         try:
             from ...providers import ProviderManager
 
@@ -468,7 +523,7 @@ async def create_agent(
         description=request.description,
         workspace_dir=str(workspace_dir),
         backend=request.backend,
-        backend_project_dir=request.backend_project_dir,
+        backend_settings=request.backend_settings,
         language=language,
         channels=ChannelConfig(),
         mcp=MCPConfig(),

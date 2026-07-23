@@ -50,6 +50,7 @@ class FakeAdapter(HarnessAdapter):
         session_id: str,
         prompt: str,
         cwd: Path,
+        settings: dict,
     ) -> AsyncIterator[HarnessEvent]:
         assert session_id == "chat-1"
         assert prompt == "Fix it"
@@ -73,6 +74,7 @@ class ToolAdapter(FakeAdapter):
         session_id: str,
         prompt: str,
         cwd: Path,
+        settings: dict,
     ) -> AsyncIterator[HarnessEvent]:
         yield HarnessEvent(
             kind=HarnessEventKind.REASONING_DELTA,
@@ -109,6 +111,36 @@ class ToolAdapter(FakeAdapter):
             text="Done",
         )
         yield HarnessEvent(kind=HarnessEventKind.COMPLETED)
+
+
+class CommandAdapter(FakeAdapter):
+    """Record a provider-owned command without starting a normal turn."""
+
+    def __init__(self) -> None:
+        self.command = ""
+        self.reset_session_id = ""
+
+    async def run_command(
+        self,
+        *,
+        session_id: str,
+        command: str,
+        arguments: str,
+        cwd: Path,
+        settings: dict,
+    ) -> list[HarnessEvent]:
+        del session_id, arguments, cwd, settings
+        self.command = command
+        return [
+            HarnessEvent(
+                kind=HarnessEventKind.TEXT_DELTA,
+                text="Compacted",
+            ),
+            HarnessEvent(kind=HarnessEventKind.COMPLETED),
+        ]
+
+    async def reset_session(self, session_id: str) -> None:
+        self.reset_session_id = session_id
 
 
 @pytest.mark.asyncio
@@ -188,3 +220,64 @@ async def test_runtime_emits_reasoning_and_native_tool_envelopes(
     assert any(
         getattr(item, "type", None) == MessageType.REASONING for item in output
     )
+
+
+@pytest.mark.asyncio
+async def test_runtime_routes_declared_provider_command(
+    tmp_path: Path,
+) -> None:
+    runtime = HarnessRuntime(tmp_path)
+    adapter = CommandAdapter()
+    runtime._adapters["codex"] = adapter
+    request = AgentRequest(
+        session_id="chat-1",
+        input=[
+            Message(
+                role=Role.USER,
+                content=[TextContent(text="/compact")],
+            ),
+        ],
+    )
+
+    output = [
+        item
+        async for item in runtime.stream(
+            backend="codex",
+            request=request,
+            cwd=tmp_path.resolve(),
+        )
+    ]
+
+    assert adapter.command == "compact"
+    assert output[-1].status == "completed"
+    assert output[-1].output[-1].content[0].text == "Compacted"
+
+
+@pytest.mark.asyncio
+async def test_runtime_handles_host_clear_for_every_backend(
+    tmp_path: Path,
+) -> None:
+    runtime = HarnessRuntime(tmp_path)
+    adapter = CommandAdapter()
+    runtime._adapters["codex"] = adapter
+    request = AgentRequest(
+        session_id="chat-1",
+        input=[
+            Message(
+                role=Role.USER,
+                content=[TextContent(text="/clear")],
+            ),
+        ],
+    )
+
+    output = [
+        item
+        async for item in runtime.stream(
+            backend="codex",
+            request=request,
+            cwd=tmp_path.resolve(),
+        )
+    ]
+
+    assert adapter.reset_session_id == "chat-1"
+    assert output[-1].output[-1].metadata["clear_history"] is True

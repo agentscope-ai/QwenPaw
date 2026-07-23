@@ -22,11 +22,17 @@ vi.mock("@/api/modules/harness", () => ({
           authenticated: true,
           account: { email: "person@example.com" },
           error: null,
+          capabilities: {
+            authentication: true,
+            model_selection: true,
+            reasoning_effort: true,
+          },
         },
       ],
     }),
-    loginCodex: vi.fn(),
-    logoutCodex: vi.fn(),
+    listModels: vi.fn().mockResolvedValue({ models: [] }),
+    login: vi.fn(),
+    logout: vi.fn(),
   },
 }));
 

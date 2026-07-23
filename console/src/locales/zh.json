@@ -20,6 +20,7 @@
     "view": "查看",
     "content": "内容",
     "loading": "加载中...",
+    "saving": "保存中...",
     "copy": "复制",
     "copied": "已复制到剪贴板",
     "copyFailed": "复制到剪贴板失败",
@@ -394,11 +395,36 @@
       "thirdPartyDescription": "使用已授权的外部 Agent Runtime，不依赖 QwenPaw 模型。",
       "providerTitle": "选择第三方智能体",
       "providerDescription": "授权在本机共享，项目与会话仍按智能体隔离。",
-      "codexHint": "ChatGPT OAuth · 本地项目",
-      "projectDir": "Codex 项目目录",
-      "projectDirRequired": "请输入 Codex 要操作的项目目录",
+      "codexHint": "ChatGPT OAuth · 智能体工作区",
       "account": "Codex 账户",
-      "codexNotFound": "未在 PATH 或 ChatGPT 编辑器扩展中找到 Codex"
+      "model": "Codex 模型",
+      "modelDefault": "使用 Codex 默认模型",
+      "defaultBadge": "默认",
+      "reasoningEffort": "推理强度",
+      "reasoningDefault": "使用模型默认强度",
+      "codexNotFound": "未在 PATH 或 ChatGPT 编辑器扩展中找到 Codex",
+      "chatSettingsHint": "模型、推理强度与执行权限统一在 Chat 工具栏中选择。",
+      "chatModelHint": "智能体级设置 · 下一轮生效",
+      "appliesNextTurn": "下一轮对话生效",
+      "approvalMode": "执行权限",
+      "approvalPresets": {
+        "ask": {
+          "name": "变更前询问",
+          "description": "允许修改工作区，执行越权操作前需要确认。"
+        },
+        "read-only": {
+          "name": "只读",
+          "description": "仅检查文件，不允许修改。"
+        },
+        "workspace": {
+          "name": "工作区访问",
+          "description": "允许直接修改工作区，无需逐次确认。"
+        },
+        "full-access": {
+          "name": "完全访问",
+          "description": "允许不受限的本地执行，不进行确认。"
+        }
+      }
     },
     "model": "模型",
     "modelHelp": "为此智能体指定特定的 LLM 模型。留空则使用全局默认模型。",
@@ -2336,6 +2362,12 @@
       },
       "skills": {
         "description": "列出当前对话可用的技能，并显示可显式调用的技能命令"
+      },
+      "review": {
+        "description": "使用 Codex 审查工作区中尚未提交的变更"
+      },
+      "status": {
+        "description": "查看当前 Codex 账户、模型和工作区"
       },
       "plan": {
         "description": "创建结构化计划，将任务分解为多个子任务"

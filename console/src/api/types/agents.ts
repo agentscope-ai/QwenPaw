@@ -1,6 +1,7 @@
 // Multi-agent management types
 
 import type { ModelSlotConfig } from "./provider";
+import type { HarnessCapabilities } from "../modules/harness";
 
 export type AgentStartupStatus =
   | "disabled"
@@ -18,10 +19,13 @@ export interface AgentSummary {
   pinned?: boolean;
   startup_status?: AgentStartupStatus;
   backend: AgentBackend;
+  backend_capabilities?: Partial<HarnessCapabilities>;
+  backend_model?: string | null;
+  backend_reasoning_effort?: string | null;
   active_model?: ModelSlotConfig | null;
 }
 
-export type AgentBackend = "qwenpaw" | "codex";
+export type AgentBackend = string;
 
 export interface AgentListResponse {
   agents: AgentSummary[];
@@ -38,7 +42,11 @@ export interface AgentProfileConfig {
   description?: string;
   workspace_dir?: string;
   backend?: AgentBackend;
-  backend_project_dir?: string | null;
+  backend_settings?: {
+    model?: string;
+    reasoning_effort?: string;
+    [key: string]: unknown;
+  };
   approval_level?: string;
   active_model?: ModelSlotConfig | null;
   channels?: unknown;
@@ -60,7 +68,11 @@ export interface CreateAgentRequest {
   skill_names?: string[];
   active_model?: ModelSlotConfig | null;
   backend?: AgentBackend;
-  backend_project_dir?: string;
+  backend_settings?: {
+    model?: string;
+    reasoning_effort?: string;
+    [key: string]: unknown;
+  };
 }
 
 export interface CopyAgentRequest {

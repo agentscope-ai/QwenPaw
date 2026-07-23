@@ -1,7 +1,7 @@
 import { request } from "../request";
 
 export interface HarnessProvider {
-  id: "codex" | "claude" | "qoder";
+  id: string;
   name: string;
   available: boolean;
   coming_soon: boolean;
@@ -13,6 +13,48 @@ export interface HarnessProvider {
     planType?: string;
   } | null;
   error: string | null;
+  capabilities: HarnessCapabilities;
+}
+
+export interface HarnessCommand {
+  name: string;
+  description: string;
+  accepts_arguments: boolean;
+}
+
+export interface HarnessApprovalPreset {
+  id: string;
+  name: string;
+  description: string;
+  settings: Record<string, unknown>;
+}
+
+export interface HarnessCapabilities {
+  authentication: boolean;
+  model_selection: boolean;
+  reasoning_effort: boolean;
+  reasoning_stream: boolean;
+  tool_stream: boolean;
+  session_resume: boolean;
+  workspace_ui: boolean;
+  native_skills_ui: boolean;
+  native_tools_ui: boolean;
+  native_mcp_ui: boolean;
+  loop_modes: boolean;
+  attachments: boolean;
+  context_usage: boolean;
+  skills_commands: boolean;
+  commands: HarnessCommand[];
+  approval_presets: HarnessApprovalPreset[];
+}
+
+export interface HarnessModel {
+  id: string;
+  name: string;
+  description: string;
+  is_default: boolean;
+  reasoning_efforts: string[];
+  default_reasoning_effort: string | null;
 }
 
 export interface HarnessLogin {
@@ -28,14 +70,25 @@ export const harnessApi = {
     request<{ providers: HarnessProvider[] }>("/harnesses", {
       timeout: 60_000,
     }),
-  loginCodex: (deviceCode = false) =>
-    request<HarnessLogin>("/harnesses/codex/login", {
-      method: "POST",
-      body: JSON.stringify({ device_code: deviceCode }),
-      timeout: 60_000,
-    }),
-  logoutCodex: () =>
-    request<{ ok: boolean }>("/harnesses/codex/logout", {
-      method: "POST",
-    }),
+  listModels: (providerId: string) =>
+    request<{ models: HarnessModel[] }>(
+      `/harnesses/${encodeURIComponent(providerId)}/models`,
+      { timeout: 60_000 },
+    ),
+  login: (providerId: string, deviceCode = false) =>
+    request<HarnessLogin>(
+      `/harnesses/${encodeURIComponent(providerId)}/login`,
+      {
+        method: "POST",
+        body: JSON.stringify({ device_code: deviceCode }),
+        timeout: 60_000,
+      },
+    ),
+  logout: (providerId: string) =>
+    request<{ ok: boolean }>(
+      `/harnesses/${encodeURIComponent(providerId)}/logout`,
+      {
+        method: "POST",
+      },
+    ),
 };

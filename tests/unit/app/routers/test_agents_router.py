@@ -105,7 +105,6 @@ def test_list_agents_returns_all_profiles(client, fake_config):
         description="",
         workspace_dir="/tmp/ws/bot",
         backend="codex",
-        backend_project_dir="/tmp/project",
     )
 
     def fake_load(agent_id):
@@ -176,6 +175,41 @@ def test_get_agent_returns_config(client):
 
     assert response.status_code == 200
     assert response.json()["id"] == "bot"
+
+
+def test_update_backend_settings_from_chat(client):
+    cfg = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        workspace_dir="/tmp/ws/bot",
+        backend="codex",
+        backend_settings={"unrelated": True},
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=cfg,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.save_agent_config",
+        ) as save,
+    ):
+        response = client.patch(
+            "/api/agents/bot/backend-settings",
+            json={
+                "model": "gpt-test-codex",
+                "reasoning_effort": "high",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["backend_settings"] == {
+        "unrelated": True,
+        "model": "gpt-test-codex",
+        "reasoning_effort": "high",
+    }
+    save.assert_called_once()
 
 
 def test_get_agent_returns_404_for_missing(client):
