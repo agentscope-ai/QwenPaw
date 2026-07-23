@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Coding harness runtime integrations."""
+"""Third-party agent runtime integrations."""
 
 from .runtime import HarnessRuntime
 

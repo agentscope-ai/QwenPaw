@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for provider-neutral coding harness routing."""
+"""Tests for provider-neutral third-party agent routing."""
 
 # pylint: disable=protected-access
 
@@ -17,7 +17,13 @@ from qwenpaw.harnesses.events import (
     HarnessProvider,
 )
 from qwenpaw.harnesses.runtime import HarnessRuntime
-from qwenpaw.schemas import AgentRequest, Message, Role, TextContent
+from qwenpaw.schemas import (
+    AgentRequest,
+    Message,
+    MessageType,
+    Role,
+    TextContent,
+)
 
 
 class FakeAdapter(HarnessAdapter):
@@ -58,6 +64,53 @@ class FakeAdapter(HarnessAdapter):
         return None
 
 
+class ToolAdapter(FakeAdapter):
+    """Emit interleaved reasoning, tool progress, and assistant text."""
+
+    async def run_turn(  # pylint: disable=invalid-overridden-method
+        self,
+        *,
+        session_id: str,
+        prompt: str,
+        cwd: Path,
+    ) -> AsyncIterator[HarnessEvent]:
+        yield HarnessEvent(
+            kind=HarnessEventKind.REASONING_DELTA,
+            text="Checking",
+            item_id="reason-1",
+        )
+        yield HarnessEvent(
+            kind=HarnessEventKind.TOOL_STARTED,
+            item_id="tool-1",
+            tool_name="shell",
+            data={
+                "arguments": {"command": "pytest -q"},
+                "provider_type": "commandExecution",
+            },
+        )
+        yield HarnessEvent(
+            kind=HarnessEventKind.TOOL_PROGRESS,
+            item_id="tool-1",
+            text="1 passed",
+        )
+        yield HarnessEvent(
+            kind=HarnessEventKind.TOOL_COMPLETED,
+            item_id="tool-1",
+            tool_name="shell",
+            text="1 passed",
+            data={
+                "arguments": {"command": "pytest -q"},
+                "provider_type": "commandExecution",
+                "exit_code": 0,
+            },
+        )
+        yield HarnessEvent(
+            kind=HarnessEventKind.TEXT_DELTA,
+            text="Done",
+        )
+        yield HarnessEvent(kind=HarnessEventKind.COMPLETED)
+
+
 @pytest.mark.asyncio
 async def test_runtime_emits_qwenpaw_envelopes(tmp_path: Path) -> None:
     runtime = HarnessRuntime(tmp_path)
@@ -91,3 +144,47 @@ async def test_runtime_emits_qwenpaw_envelopes(tmp_path: Path) -> None:
     ]
     assert output[3].text == "Fixed"
     assert output[-1].status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_runtime_emits_reasoning_and_native_tool_envelopes(
+    tmp_path: Path,
+) -> None:
+    runtime = HarnessRuntime(tmp_path)
+    runtime._adapters["codex"] = ToolAdapter()
+    request = AgentRequest(
+        session_id="chat-1",
+        input=[
+            Message(
+                role=Role.USER,
+                content=[TextContent(text="Fix it")],
+            ),
+        ],
+    )
+
+    output = [
+        item
+        async for item in runtime.stream(
+            backend="codex",
+            request=request,
+            cwd=tmp_path.resolve(),
+        )
+    ]
+    final_response = output[-1]
+    output_types = [message.type for message in final_response.output]
+
+    assert output_types == [
+        MessageType.REASONING,
+        MessageType.PLUGIN_CALL,
+        MessageType.PLUGIN_CALL_OUTPUT,
+        MessageType.MESSAGE,
+    ]
+    tool_call = final_response.output[1].content[0].data
+    tool_output = final_response.output[2].content[0].data
+    assert tool_call["name"] == "shell"
+    assert tool_call["arguments"] == '{"command": "pytest -q"}'
+    assert tool_output["output"] == "1 passed"
+    assert tool_output["exit_code"] == 0
+    assert any(
+        getattr(item, "type", None) == MessageType.REASONING for item in output
+    )

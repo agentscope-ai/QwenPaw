@@ -14,6 +14,23 @@ from ..base import HarnessAdapter
 from ..events import HarnessEvent, HarnessEventKind, HarnessProvider
 from .app_server import CodexAppServerClient, CodexAppServerError
 
+_TOOL_ITEM_TYPES = {
+    "collabAgentToolCall",
+    "commandExecution",
+    "dynamicToolCall",
+    "fileChange",
+    "imageGeneration",
+    "imageView",
+    "mcpToolCall",
+    "webSearch",
+}
+
+_TOOL_PROGRESS_METHODS = {
+    "item/commandExecution/outputDelta": "delta",
+    "item/fileChange/outputDelta": "delta",
+    "item/mcpToolCall/progress": "message",
+}
+
 
 class CodexAdapter(HarnessAdapter):
     """Run Codex threads through one workspace-scoped app-server."""
@@ -203,7 +220,7 @@ class CodexAdapter(HarnessAdapter):
         return None
 
     @staticmethod
-    # pylint: disable=too-many-return-statements
+    # pylint: disable=too-many-branches,too-many-return-statements
     def _convert_notification(
         message: dict[str, Any],
     ) -> HarnessEvent | None:
@@ -221,25 +238,42 @@ class CodexAdapter(HarnessAdapter):
                 text=str(params.get("delta") or ""),
                 item_id=str(params.get("itemId") or ""),
             )
+        if method == "item/reasoning/summaryTextDelta":
+            return HarnessEvent(
+                kind=HarnessEventKind.REASONING_DELTA,
+                text=str(params.get("delta") or ""),
+                item_id=str(params.get("itemId") or ""),
+                data={"source": "summary"},
+            )
+        if method == "item/plan/delta":
+            return HarnessEvent(
+                kind=HarnessEventKind.REASONING_DELTA,
+                text=str(params.get("delta") or ""),
+                item_id=str(params.get("itemId") or ""),
+                data={"source": "plan"},
+            )
+        progress_field = _TOOL_PROGRESS_METHODS.get(str(method))
+        if progress_field:
+            return HarnessEvent(
+                kind=HarnessEventKind.TOOL_PROGRESS,
+                text=str(params.get(progress_field) or ""),
+                item_id=str(params.get("itemId") or ""),
+            )
         if method == "item/started":
             item = params.get("item") or {}
             item_type = str(item.get("type") or "")
-            if item_type in {"commandExecution", "mcpToolCall"}:
-                return HarnessEvent(
-                    kind=HarnessEventKind.TOOL_STARTED,
-                    item_id=str(item.get("id") or ""),
-                    tool_name=item_type,
-                    data=item,
+            if item_type in _TOOL_ITEM_TYPES:
+                return CodexAdapter._tool_event(
+                    HarnessEventKind.TOOL_STARTED,
+                    item,
                 )
         if method == "item/completed":
             item = params.get("item") or {}
             item_type = str(item.get("type") or "")
-            if item_type in {"commandExecution", "mcpToolCall"}:
-                return HarnessEvent(
-                    kind=HarnessEventKind.TOOL_COMPLETED,
-                    item_id=str(item.get("id") or ""),
-                    tool_name=item_type,
-                    data=item,
+            if item_type in _TOOL_ITEM_TYPES:
+                return CodexAdapter._tool_event(
+                    HarnessEventKind.TOOL_COMPLETED,
+                    item,
                 )
         if method == "error" and not params.get("willRetry", False):
             error = params.get("error") or {}
@@ -256,6 +290,123 @@ class CodexAdapter(HarnessAdapter):
                 return HarnessEvent(kind=HarnessEventKind.CANCELLED)
             return HarnessEvent(kind=HarnessEventKind.COMPLETED)
         return None
+
+    @staticmethod
+    def _tool_event(
+        kind: HarnessEventKind,
+        item: dict[str, Any],
+    ) -> HarnessEvent:
+        item_type = str(item.get("type") or "tool")
+        return HarnessEvent(
+            kind=kind,
+            item_id=str(item.get("id") or ""),
+            tool_name=CodexAdapter._tool_name(item),
+            text=CodexAdapter._tool_output(item),
+            data={
+                "arguments": CodexAdapter._tool_arguments(item),
+                "provider_type": item_type,
+                "status": item.get("status"),
+                "exit_code": item.get("exitCode"),
+                "duration_ms": item.get("durationMs"),
+            },
+        )
+
+    @staticmethod
+    # pylint: disable=too-many-return-statements
+    def _tool_name(item: dict[str, Any]) -> str:
+        item_type = str(item.get("type") or "tool")
+        if item_type == "commandExecution":
+            return "shell"
+        if item_type == "fileChange":
+            return "apply_patch"
+        if item_type in {"mcpToolCall", "dynamicToolCall"}:
+            parts = [
+                str(item.get(key) or "")
+                for key in ("server", "namespace", "tool")
+            ]
+            return ".".join(part for part in parts if part) or item_type
+        if item_type == "collabAgentToolCall":
+            return f"agent.{item.get('tool') or 'collaborate'}"
+        if item_type == "webSearch":
+            return "web_search"
+        if item_type == "imageView":
+            return "view_image"
+        if item_type == "imageGeneration":
+            return "image_generation"
+        return item_type
+
+    @staticmethod
+    # pylint: disable=too-many-return-statements
+    def _tool_arguments(item: dict[str, Any]) -> dict[str, Any]:
+        item_type = str(item.get("type") or "")
+        if item_type == "commandExecution":
+            return {
+                "command": item.get("command"),
+                "cwd": item.get("cwd"),
+            }
+        if item_type == "fileChange":
+            changes = item.get("changes") or []
+            return {
+                "changes": [
+                    {
+                        "path": change.get("path"),
+                        "kind": change.get("kind"),
+                    }
+                    for change in changes
+                    if isinstance(change, dict)
+                ],
+            }
+        if item_type in {"mcpToolCall", "dynamicToolCall"}:
+            arguments = item.get("arguments")
+            return (
+                arguments
+                if isinstance(arguments, dict)
+                else {
+                    "arguments": arguments,
+                }
+            )
+        if item_type == "collabAgentToolCall":
+            return {
+                "prompt": item.get("prompt"),
+                "receiver_thread_ids": item.get("receiverThreadIds"),
+            }
+        if item_type == "webSearch":
+            return {"query": item.get("query")}
+        if item_type == "imageView":
+            return {"path": item.get("path")}
+        if item_type == "imageGeneration":
+            return {"prompt": item.get("revisedPrompt")}
+        return {}
+
+    @staticmethod
+    def _tool_output(item: dict[str, Any]) -> str:
+        item_type = str(item.get("type") or "")
+        if item_type == "commandExecution":
+            return str(item.get("aggregatedOutput") or "")
+        if item_type == "mcpToolCall":
+            value = item.get("result") or item.get("error")
+        elif item_type == "dynamicToolCall":
+            value = item.get("contentItems")
+        elif item_type == "fileChange":
+            value = item.get("changes")
+        elif item_type == "collabAgentToolCall":
+            value = item.get("agentsStates")
+        elif item_type == "imageGeneration":
+            value = {
+                "result": item.get("result"),
+                "saved_path": item.get("savedPath"),
+            }
+        elif item_type == "imageView":
+            value = {"path": item.get("path")}
+        elif item_type == "webSearch":
+            value = item.get("action") or {"query": item.get("query")}
+        else:
+            value = None
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        return json.dumps(value, ensure_ascii=False, default=str)
 
 
 __all__ = ["CodexAdapter"]

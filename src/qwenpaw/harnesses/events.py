@@ -15,6 +15,7 @@ class HarnessEventKind(str, Enum):
     TEXT_DELTA = "text_delta"
     REASONING_DELTA = "reasoning_delta"
     TOOL_STARTED = "tool_started"
+    TOOL_PROGRESS = "tool_progress"
     TOOL_COMPLETED = "tool_completed"
     COMPLETED = "completed"
     CANCELLED = "cancelled"

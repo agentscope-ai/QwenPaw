@@ -62,15 +62,34 @@ receives `backend_project_dir`, falling back to the Agent workspace.
 Adapters emit provider-neutral `HarnessEvent` values. The runtime converts
 assistant text, reasoning, and turn lifecycle into the existing QwenPaw
 `Message` and `AgentResponse` envelopes before Channel code observes them.
-Tool lifecycle events are normalized at the adapter boundary but remain
-internal in this first version.
+Tool lifecycle events are normalized at the adapter boundary and converted to
+QwenPaw's native `plugin_call` and `plugin_call_output` messages. Chat and
+Channel consumers therefore do not need a Codex-specific protocol.
 
 The minimum event set is:
 
 - assistant text delta
-- reasoning delta
-- tool start and completion
+- reasoning text, summary, and plan delta
+- tool start, progress, and completion
 - turn completion, cancellation, and error
+
+The Codex adapter maps current app-server items as follows:
+
+| Codex app-server item | QwenPaw tool name |
+| --- | --- |
+| `commandExecution` | `shell` |
+| `fileChange` | `apply_patch` |
+| `mcpToolCall` | `<server>.<tool>` |
+| `dynamicToolCall` | `<namespace>.<tool>` |
+| `collabAgentToolCall` | `agent.<tool>` |
+| `webSearch` | `web_search` |
+| `imageView` | `view_image` |
+| `imageGeneration` | `image_generation` |
+
+Command and file output deltas plus MCP progress notifications update the
+in-progress tool output. Completed items supply the authoritative result,
+status, duration, and exit code. Unknown future items are ignored so a newer
+Codex CLI does not break the turn.
 
 The first Codex integration uses `approvalPolicy: never` together with the
 `workspace-write` sandbox. It therefore cannot request elevated execution
@@ -116,6 +135,7 @@ Agent backend adapters are implemented. New UI icons use Lucide React.
 - [x] Add common harness models, adapter contract, registry, and runtime.
 - [x] Add the Codex app-server client and auth RPCs.
 - [x] Convert Codex turn events to QwenPaw envelopes.
+- [x] Stream Codex reasoning, plans, tool calls, progress, and results.
 - [x] Persist Codex thread ids without persisting credentials.
 - [x] Route Agent requests without changing Channel implementations.
 - [x] Add harness API routes and Agent backend configuration.

@@ -11,15 +11,13 @@ from typing import Any
 
 from ..schemas import (
     AgentResponse,
-    Message,
     MessageType,
-    Role,
     RunStatus,
-    TextContent,
 )
 from .base import HarnessAdapter
 from .events import HarnessEventKind, HarnessProvider
 from .registry import PROVIDER_CATALOG, create_adapter
+from .streaming import TextStream, ToolStream
 
 
 class HarnessRuntime:
@@ -55,7 +53,7 @@ class HarnessRuntime:
             self._adapters[provider_id] = adapter
         return adapter
 
-    async def stream(  # pylint: disable=too-many-statements
+    async def stream(  # pylint: disable=too-many-branches,too-many-statements
         self,
         *,
         backend: str,
@@ -88,12 +86,8 @@ class HarnessRuntime:
         response.status = RunStatus.InProgress
         yield tagged(response.model_copy(deep=True))
 
-        message = self._new_message(MessageType.MESSAGE)
-        reasoning = self._new_message(MessageType.REASONING)
-        message_started = False
-        reasoning_started = False
-        message_text = ""
-        reasoning_text = ""
+        text_stream = TextStream(response)
+        tool_stream = ToolStream(response)
         error_text = ""
         cancelled = False
 
@@ -104,29 +98,28 @@ class HarnessRuntime:
                 cwd=cwd,
             ):
                 if event.kind == HarnessEventKind.TEXT_DELTA:
-                    if not message_started:
-                        yield tagged(message)
-                        message_started = True
-                    message_text += event.text
-                    chunk = TextContent(
-                        text=event.text,
-                        delta=True,
-                        index=0,
-                        msg_id=message.id,
-                    )
-                    yield tagged(chunk)
+                    for item in text_stream.push(
+                        MessageType.MESSAGE,
+                        event.text,
+                    ):
+                        yield tagged(item)
                 elif event.kind == HarnessEventKind.REASONING_DELTA:
-                    if not reasoning_started:
-                        yield tagged(reasoning)
-                        reasoning_started = True
-                    reasoning_text += event.text
-                    chunk = TextContent(
-                        text=event.text,
-                        delta=True,
-                        index=0,
-                        msg_id=reasoning.id,
-                    )
-                    yield tagged(chunk)
+                    for item in text_stream.push(
+                        MessageType.REASONING,
+                        event.text,
+                    ):
+                        yield tagged(item)
+                elif event.kind == HarnessEventKind.TOOL_STARTED:
+                    for item in text_stream.finish():
+                        yield tagged(item)
+                    for item in tool_stream.start(event):
+                        yield tagged(item)
+                elif event.kind == HarnessEventKind.TOOL_PROGRESS:
+                    for item in tool_stream.progress(event):
+                        yield tagged(item)
+                elif event.kind == HarnessEventKind.TOOL_COMPLETED:
+                    for item in tool_stream.complete(event):
+                        yield tagged(item)
                 elif event.kind == HarnessEventKind.ERROR:
                     error_text = event.text
                 elif event.kind == HarnessEventKind.CANCELLED:
@@ -134,16 +127,8 @@ class HarnessRuntime:
         except Exception as exc:
             error_text = str(exc)
 
-        if reasoning_started:
-            reasoning.content = [TextContent(text=reasoning_text, index=0)]
-            reasoning.status = RunStatus.Completed
-            response.output.append(reasoning)
-            yield tagged(reasoning)
-        if message_started:
-            message.content = [TextContent(text=message_text, index=0)]
-            message.status = RunStatus.Completed
-            response.output.append(message)
-            yield tagged(message)
+        for item in text_stream.finish():
+            yield tagged(item)
 
         if error_text:
             response.status = RunStatus.Failed
@@ -164,18 +149,6 @@ class HarnessRuntime:
         self._adapters.clear()
 
     @staticmethod
-    def _new_message(message_type: MessageType) -> Message:
-        message = Message(
-            id=f"msg_{uuid.uuid4().hex}",
-            type=message_type,
-            role=Role.ASSISTANT,
-            status=RunStatus.InProgress,
-        )
-        message.object = "message"
-        message.name = "assistant"
-        return message
-
-    @staticmethod
     def _prompt_from_request(request: Any) -> str:
         parts: list[str] = []
         for message in getattr(request, "input", None) or []:
@@ -188,7 +161,7 @@ class HarnessRuntime:
                     parts.append(str(text))
         prompt = "\n".join(parts).strip()
         if not prompt:
-            raise ValueError("Coding harness requests require text input")
+            raise ValueError("Third-party agent requests require text input")
         return prompt
 
 
