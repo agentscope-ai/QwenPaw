@@ -398,13 +398,11 @@ class ConsoleChannel(BaseChannel):
             try:
                 chat_mgr = getattr(self._workspace, "chat_manager", None)
                 if chat_mgr is not None:
-                    existing_chat_id = await chat_mgr.get_chat_id_by_session(
+                    await chat_mgr.touch_chat_by_session(
                         session_id=session_id,
                         channel=channel_name,
                         user_id=user_id or None,
                     )
-                    if existing_chat_id:
-                        await chat_mgr.touch_chat(existing_chat_id)
             except Exception:  # pylint: disable=broad-except
                 logger.debug(
                     "failed to touch chat updated_at for session=%s",
