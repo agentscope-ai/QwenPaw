@@ -4870,7 +4870,16 @@ def _workspace_dir_key(workspace_dir: str | Path) -> str:
         return str(path.absolute())
 
 
-@tool_descriptor(async_execution=True)
+@tool_descriptor(
+    async_execution=True,
+    tool_type="network",
+    target_param="url",
+    policy_name="Browser",
+    default_policy="allow",
+    policy_reason="Allow all browser access",
+    ui_description="Browser automation and web interaction",
+    ui_icon="🌐",
+)
 async def browser_use(  # pylint: disable=R0911,R0912
     action: str,
     url: str = "",

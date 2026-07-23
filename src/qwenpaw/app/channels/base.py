@@ -35,7 +35,7 @@ from qwenpaw.schemas import (
     MessageType,
 )
 
-from .renderer import MessageRenderer, RenderStyle
+from .renderer import ChannelDisplayConfig, MessageRenderer, RenderStyle
 from .schema import ChannelType
 from .access_control import get_access_control_store
 from ...config.utils import load_config
@@ -122,9 +122,7 @@ class BaseChannel(ABC):
         self,
         process: ProcessHandler,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         dm_policy: str = "open",
         group_policy: str = "open",
         allow_from: Optional[list] = None,
@@ -137,9 +135,7 @@ class BaseChannel(ABC):
     ):
         self._process = process
         self._on_reply_sent = on_reply_sent
-        self._show_tool_details = show_tool_details
-        self._filter_tool_messages = filter_tool_messages
-        self._filter_thinking = filter_thinking
+        self._display_config = display_config or ChannelDisplayConfig()
         self._no_text_debounce = no_text_debounce
         self.streaming_enabled = streaming_enabled
         # Legacy fields — stored for backward compat but not used for
@@ -161,9 +157,7 @@ class BaseChannel(ABC):
             if not tc.display_to_user
         )
         self._render_style = RenderStyle(
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=self._display_config,
             internal_tools=internal_tools,
         )
         self._renderer = MessageRenderer(self._render_style)
@@ -676,7 +670,10 @@ class BaseChannel(ABC):
         msg_id = getattr(event, "id", None)
         if msg_id:
             msg_id_to_stream_type[msg_id] = stream_type
-        if stream_type == "reasoning" and self._filter_thinking:
+        if (
+            stream_type == "reasoning"
+            and not self._display_config.show_thinking
+        ):
             return True
         streaming_buffers[stream_type] = ""
         await self.on_streaming_start(
@@ -711,7 +708,10 @@ class BaseChannel(ABC):
             or stream_type not in streaming_buffers
         ):
             return False
-        if stream_type == "reasoning" and self._filter_thinking:
+        if (
+            stream_type == "reasoning"
+            and not self._display_config.show_thinking
+        ):
             return True
 
         # Detect content index change → split into a new streaming box
@@ -820,7 +820,10 @@ class BaseChannel(ABC):
         if stream_type not in self._STREAMABLE_TYPES:
             return False
         if stream_type in streaming_buffers:
-            if stream_type == "reasoning" and self._filter_thinking:
+            if (
+                stream_type == "reasoning"
+                and not self._display_config.show_thinking
+            ):
                 streaming_buffers.pop(stream_type, None)
                 return True
 
@@ -1123,10 +1126,8 @@ class BaseChannel(ABC):
         process: ProcessHandler,
         config: Any,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
     ) -> "BaseChannel":
         raise NotImplementedError
 
@@ -1519,7 +1520,7 @@ class BaseChannel(ABC):
         status = getattr(event, "status", None)
         if status != RunStatus.InProgress:
             return False
-        if self._filter_tool_messages:
+        if not self._display_config.show_tool_results:
             return False
         data = getattr(event, "data", None) or {}
         if not isinstance(data, dict) or "output" not in data:
@@ -1977,24 +1978,16 @@ class BaseChannel(ABC):
 
         Subclasses must implement from_config(process, config, on_reply_sent).
 
-        show_tool_details is global config (not in channel config), so we
-        preserve from self. filter_tool_messages and filter_thinking are
-        per-channel config, so we read from new config.
+        Global tool detail visibility is preserved while per-channel display
+        settings are reloaded from the new configuration.
         """
         return self.__class__.from_config(
             process=self._process,
             config=config,
             on_reply_sent=self._on_reply_sent,
-            show_tool_details=getattr(self, "_show_tool_details", True),
-            filter_tool_messages=getattr(
+            display_config=ChannelDisplayConfig.from_config(
                 config,
-                "filter_tool_messages",
-                False,
-            ),
-            filter_thinking=getattr(
-                config,
-                "filter_thinking",
-                False,
+                show_tool_details=self._display_config.show_tool_details,
             ),
         )
 

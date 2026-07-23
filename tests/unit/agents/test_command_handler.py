@@ -42,7 +42,9 @@ async def test_process_clear_returns_clear_history_metadata() -> None:
 @pytest.mark.asyncio
 async def test_clear_resets_stop_gates_and_pending_gate_state() -> None:
     agent = _make_agent()
+    agent._gate_pending_stop = object()
     mode = MagicMock()
+    mode.on_conversation_reset = AsyncMock()
     ctx = SimpleNamespace(
         workspace=SimpleNamespace(
             plugins=SimpleNamespace(modes=[mode]),
@@ -57,13 +59,27 @@ async def test_clear_resets_stop_gates_and_pending_gate_state() -> None:
 
     await handler.handle_command("/clear")
 
-    mode.on_conversation_reset.assert_called_once_with(ctx)
+    mode.on_conversation_reset.assert_awaited_once_with(ctx)
+    assert agent._gate_pending_stop is None
+
+
+@pytest.mark.asyncio
+async def test_clear_resets_pending_gate_state_without_context() -> None:
+    """Conversation reset owns deferred state even without mode context."""
+    agent = _make_agent()
+    agent._gate_pending_stop = object()
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+
+    await handler.handle_command("/clear")
+
+    assert agent._gate_pending_stop is None
 
 
 @pytest.mark.asyncio
 async def test_new_empty_resets_stop_gates() -> None:
     agent = _make_agent()
     mode = MagicMock()
+    mode.on_conversation_reset = AsyncMock()
     ctx = SimpleNamespace(
         workspace=SimpleNamespace(
             plugins=SimpleNamespace(modes=[mode]),
@@ -78,7 +94,7 @@ async def test_new_empty_resets_stop_gates() -> None:
 
     await handler.handle_command("/new")
 
-    mode.on_conversation_reset.assert_called_once_with(ctx)
+    mode.on_conversation_reset.assert_awaited_once_with(ctx)
 
 
 @pytest.mark.asyncio
@@ -88,6 +104,7 @@ async def test_new_no_mem_mgr_resets_stop_gates() -> None:
         _msg("user", "hi"),
     ]
     mode = MagicMock()
+    mode.on_conversation_reset = AsyncMock()
     ctx = SimpleNamespace(
         workspace=SimpleNamespace(
             plugins=SimpleNamespace(modes=[mode]),
@@ -102,7 +119,7 @@ async def test_new_no_mem_mgr_resets_stop_gates() -> None:
 
     msg = await handler.handle_command("/new")
 
-    mode.on_conversation_reset.assert_called_once_with(ctx)
+    mode.on_conversation_reset.assert_awaited_once_with(ctx)
     assert "Memory Manager Disabled" in msg.get_text_content()
 
 

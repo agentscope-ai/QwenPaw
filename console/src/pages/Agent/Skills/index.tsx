@@ -96,6 +96,10 @@ function SkillsPage() {
     });
   }, [setSearchParams]);
 
+  const handleMarketInstalled = useCallback(() => {
+    void refreshSkills();
+  }, [refreshSkills]);
+
   // Split skills into enabled and disabled groups
   const { enabledSkills, disabledSkills } = useMemo(() => {
     const enabled = visibleSkills.filter((skill) => skill.enabled);
@@ -150,7 +154,10 @@ function SkillsPage() {
             </Button>
           }
         />
-        <MarketPanel installTarget="workspace" />
+        <MarketPanel
+          installTarget="workspace"
+          onInstalled={handleMarketInstalled}
+        />
       </div>
     );
   }

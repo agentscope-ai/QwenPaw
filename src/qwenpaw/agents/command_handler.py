@@ -16,6 +16,7 @@ from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
+from ..loop.gates.runner import clear_pending_gate_state
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
@@ -208,12 +209,13 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Write the rolling compaction summary."""
         self._state.summary = value or ""
 
-    def _reset_modes(
+    async def _reset_modes(
         self,
     ) -> None:
         """Reset mode-owned state on /new or /clear."""
         ctx = self._prompt_context
         if ctx is None:
+            clear_pending_gate_state(self._agent)
             return
         if getattr(ctx, "agent", None) is None and self._agent is not None:
             ctx.agent = self._agent
@@ -224,13 +226,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
             [],
         ):
             try:
-                mode.on_conversation_reset(ctx)
+                await mode.on_conversation_reset(ctx)
             except Exception:  # noqa: BLE001
                 logger.warning(
                     "mode '%s' reset raised",
                     getattr(mode, "name", "?"),
                     exc_info=True,
                 )
+        clear_pending_gate_state(getattr(ctx, "agent", None) or self._agent)
 
     def is_command(self, query: str | None) -> bool:
         """Check if the query is a system command (alias for mixin)."""
@@ -565,7 +568,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     async def _process_new(self, messages: list[Msg], _args: str = "") -> Msg:
         """Process /new command."""
-        self._reset_modes()
+        await self._reset_modes()
         if not messages:
             self._set_summary("")
             return await self._make_system_msg(
@@ -606,7 +609,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Process /clear command."""
         await self._persist_and_clear()
         self._set_summary("")
-        self._reset_modes()
+        await self._reset_modes()
         return await self._make_system_msg(
             "**History Cleared!**\n\n"
             "- Compressed summary reset\n"

@@ -13,6 +13,7 @@ Architecture:
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 from .base import (
@@ -46,7 +47,7 @@ class StopHandler:
         """Remove all gates matching *name*."""
         self._gates = [g for g in self._gates if g.name != name]
 
-    def replace(self, gates: list[StopGate]) -> None:
+    def replace(self, gates: Sequence[StopGate]) -> None:
         """Replace all gates while preserving this handler registration."""
         self._gates = sorted(gates, key=lambda gate: gate.priority)
 
@@ -142,6 +143,14 @@ class StopHandler:
                 continue_result.reason
                 if continue_result
                 else "Active gate continues"
+            ),
+            continuation_metadata=(
+                continue_result.continuation_metadata
+                if continue_result
+                else None
+            ),
+            final_message=(
+                continue_result.final_message if continue_result else None
             ),
         )
 

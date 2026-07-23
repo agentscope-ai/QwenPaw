@@ -61,6 +61,12 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
     fetchPreviewError(media.url).then(resolveError);
   }, [media.url, resolveError]);
 
+  // Reset any stale error when the media URL changes (e.g. the tool result
+  // arrives with a resolved absolute path after a relative-path probe 404'd).
+  useEffect(() => {
+    setError(null);
+  }, [media.url]);
+
   // For "file" type there is no native onError — proactively HEAD-check the URL
   useEffect(() => {
     if (media.type !== "file" || !media.url) return;

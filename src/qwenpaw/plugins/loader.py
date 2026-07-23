@@ -12,8 +12,10 @@ import shutil
 import subprocess
 import sys
 import threading
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
@@ -78,6 +80,55 @@ def _install_lock_path(plugin_id: str) -> Path:
     return _plugin_runtime_dir() / "install-locks" / f"{safe_id}.lock"
 
 
+def _norm_realpath(path: Any) -> str:
+    """``realpath`` + ``normcase`` for cross-platform path identity.
+
+    Windows filesystems are typically case-insensitive; without
+    ``normcase``, hot-reload cleanup can miss modules / ``sys.path``
+    entries that differ only by drive/directory letter case.
+    """
+    return os.path.normcase(os.path.realpath(str(path)))
+
+
+def resolved_plugin_manifest_path(source_dir: Path) -> Path:
+    """Return the resolved ``plugin.json`` path under *source_dir*.
+
+    Joins only the fixed basename ``plugin.json``, then normalizes with
+    ``realpath`` and rejects any result that escapes *source_dir*
+    (``os.path.commonpath`` guard — CodeQL path-injection sanitizer).
+
+    Raises:
+        FileNotFoundError: If the directory or manifest file is missing
+        ValueError: If the resolved path escapes *source_dir*
+    """
+    try:
+        root = os.path.realpath(str(source_dir))
+    except OSError as exc:
+        raise FileNotFoundError(
+            f"plugin.json not found in {source_dir}",
+        ) from exc
+    if not os.path.isdir(root):
+        raise FileNotFoundError(
+            f"plugin.json not found in {source_dir}",
+        )
+    full = os.path.realpath(os.path.join(root, "plugin.json"))
+    try:
+        common = os.path.commonpath([root, full])
+    except ValueError as exc:
+        raise ValueError(
+            f"plugin.json path escapes source directory ({source_dir})",
+        ) from exc
+    if common != root:
+        raise ValueError(
+            f"plugin.json path escapes source directory ({source_dir})",
+        )
+    if not os.path.isfile(full):
+        raise FileNotFoundError(
+            f"plugin.json not found in {source_dir}",
+        )
+    return Path(full)
+
+
 def _is_disabled_plugin_dir(path: Path) -> bool:
     """Return whether *path* is a hidden or explicitly disabled plugin dir.
 
@@ -88,6 +139,18 @@ def _is_disabled_plugin_dir(path: Path) -> bool:
     """
     name = path.name
     return name.startswith(".") or name.endswith(".disabled")
+
+
+# Re-entrancy token for PluginLoader.plugin_lifecycle.
+# Key is (loader_id, task_id, plugin_id) so:
+# - nested calls on the *same* task can re-enter;
+# - asyncio.create_task() children that inherit ContextVar cannot bypass;
+# - different PluginLoader instances never share re-entrancy.
+_LifecycleHoldKey = tuple[int, int, str]
+_LIFECYCLE_HELD: ContextVar[Optional[_LifecycleHoldKey]] = ContextVar(
+    "qwenpaw_plugin_lifecycle_held",
+    default=None,
+)
 
 
 def _ensure_plugin_site_on_path() -> None:
@@ -128,6 +191,61 @@ class PluginLoader:
         self.plugin_dirs = [Path(d) for d in plugin_dirs]
         self.registry = PluginRegistry()
         self._loaded_plugins: Dict[str, PluginRecord] = {}
+        # In-process per-plugin serialization for load/unload/reinstall.
+        # Distinct from the inter-process install-deps file lock.
+        self._lifecycle_locks: Dict[str, asyncio.Lock] = {}
+        self._lifecycle_locks_mu = threading.Lock()
+
+    def _lifecycle_lock_for(self, plugin_id: str) -> asyncio.Lock:
+        """Return the asyncio lock that serializes *plugin_id* lifecycle."""
+        with self._lifecycle_locks_mu:
+            lock = self._lifecycle_locks.get(plugin_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._lifecycle_locks[plugin_id] = lock
+            return lock
+
+    def _lifecycle_hold_key(
+        self,
+        plugin_id: str,
+    ) -> Optional[_LifecycleHoldKey]:
+        """Return re-entrancy key for this loader + current task + plugin."""
+        task = asyncio.current_task()
+        if task is None:
+            return None
+        return (id(self), id(task), plugin_id)
+
+    @asynccontextmanager
+    async def plugin_lifecycle(
+        self,
+        plugin_id: str,
+    ) -> AsyncIterator[None]:
+        """Serialize load/unload/reinstall for one *plugin_id*.
+
+        Re-entrant only when the *same* ``PluginLoader`` instance, the
+        *same* ``asyncio`` task, and the *same* ``plugin_id`` already
+        hold the section — so nested ``load_plugin_from_path`` →
+        ``load_plugin`` works, but ``asyncio.create_task`` children that
+        inherit ContextVar cannot bypass the lock.
+        Unrelated plugin IDs may proceed concurrently.
+        """
+        if not plugin_id:
+            yield
+            return
+        hold_key = self._lifecycle_hold_key(plugin_id)
+        if hold_key is not None and _LIFECYCLE_HELD.get() == hold_key:
+            yield
+            return
+        lock = self._lifecycle_lock_for(plugin_id)
+        async with lock:
+            if hold_key is None:
+                yield
+                return
+            token = _LIFECYCLE_HELD.set(hold_key)
+            try:
+                yield
+            finally:
+                _LIFECYCLE_HELD.reset(token)
 
     def discover_plugins(self) -> List[Tuple[PluginManifest, Path]]:
         """Discover all plugins in plugin directories.
@@ -498,20 +616,22 @@ class PluginLoader:
         # 3. sys.modules — by __file__ path (catches bare imports that
         #    bypassed the plugin_<id> namespace, e.g. ``import utils``
         #    after the plugin inserted its dir into sys.path).
-        source_resolved = os.path.realpath(str(source_path)) + os.sep
+        source_resolved = _norm_realpath(source_path)
+        if not source_resolved.endswith(os.sep):
+            source_resolved = source_resolved + os.sep
         stale_by_file = [
             k
             for k, mod in list(sys.modules.items())
             if (mod_file := getattr(mod, "__file__", None)) is not None
-            and os.path.realpath(mod_file).startswith(source_resolved)
+            and _norm_realpath(mod_file).startswith(source_resolved)
         ]
         for k in stale_by_file:
             sys.modules.pop(k, None)
 
         # 4. sys.path — remove the plugin directory if it was added
-        plugin_dir_real = os.path.realpath(str(source_path))
+        plugin_dir_real = _norm_realpath(source_path)
         sys.path[:] = [
-            p for p in sys.path if os.path.realpath(p) != plugin_dir_real
+            p for p in sys.path if _norm_realpath(p) != plugin_dir_real
         ]
 
     async def load_plugin(
@@ -535,6 +655,20 @@ class PluginLoader:
             AttributeError: If plugin module doesn't export required objects
             Exception: If plugin registration fails
         """
+        async with self.plugin_lifecycle(manifest.id):
+            return await self._load_plugin_unlocked(
+                manifest,
+                source_path,
+                config,
+            )
+
+    async def _load_plugin_unlocked(
+        self,
+        manifest: PluginManifest,
+        source_path: Path,
+        config: Optional[Dict] = None,
+    ) -> PluginRecord:
+        """Load a plugin; caller must hold :meth:`plugin_lifecycle`."""
         plugin_id = manifest.id
 
         if plugin_id in self._loaded_plugins:
@@ -894,11 +1028,24 @@ class PluginLoader:
             target,
         )
 
+    def _read_source_manifest(
+        self,
+        source_path: Path,
+    ) -> Tuple[Path, PluginManifest]:
+        """Resolve and load ``plugin.json`` under *source_path* (sync I/O)."""
+        manifest_path = resolved_plugin_manifest_path(source_path)
+        return manifest_path, self._load_manifest(manifest_path)
+
     async def load_plugin_from_path(
         self,
         source_path: Path,
         config: Optional[Dict] = None,
         install_dir: Optional[Path] = None,
+        *,
+        force: bool = False,
+        before_force_unload: Optional[Any] = None,
+        after_force_unload: Optional[Any] = None,
+        after_load: Optional[Any] = None,
     ) -> PluginRecord:
         """Copy plugin files, install deps, and load plugin at runtime.
 
@@ -907,28 +1054,74 @@ class PluginLoader:
         already located there.  Python dependencies listed in
         ``requirements.txt`` are installed before loading.
 
+        When *force* is true and the plugin id is already loaded, the
+        existing instance is unloaded under :meth:`plugin_lifecycle`
+        before install (optional *before_force_unload* /
+        *after_force_unload* callbacks run around that unload).
+
+        *after_load* runs still inside the lifecycle lock so router
+        post-load setup (providers / commands / agent config) cannot
+        race a concurrent uninstall.
+
         Args:
             source_path: Directory that contains ``plugin.json``
             config: Optional plugin configuration dict
             install_dir: Target plugins directory.  Defaults to the
                 first directory in ``self.plugin_dirs``.
+            force: Unload a same-id loaded plugin before installing
+            before_force_unload: ``callback(plugin_id)`` before unload
+            after_force_unload: ``callback(plugin_id)`` after unload
+            after_load: ``callback(record)`` after successful load
 
         Returns:
             Loaded PluginRecord
 
         Raises:
             FileNotFoundError: If ``plugin.json`` not found
-            ValueError: If the plugin is already loaded
+            ValueError: If the plugin is already loaded (and not *force*)
             RuntimeError: If dependency installation fails
         """
-        source_path = Path(source_path).resolve()
-        manifest_path = source_path / "plugin.json"
-        if not manifest_path.exists():
-            raise FileNotFoundError(
-                f"plugin.json not found in {source_path}",
+        source_path = await asyncio.to_thread(Path(source_path).resolve)
+        _manifest_path, manifest = await asyncio.to_thread(
+            self._read_source_manifest,
+            source_path,
+        )
+        del _manifest_path
+        plugin_id = manifest.id
+        async with self.plugin_lifecycle(plugin_id):
+            if force and plugin_id in self._loaded_plugins:
+                if before_force_unload is not None:
+                    maybe_before = before_force_unload(plugin_id)
+                    if inspect.isawaitable(maybe_before):
+                        await maybe_before
+                await self._unload_plugin_unlocked(
+                    plugin_id,
+                    delete_files=False,
+                )
+                if after_force_unload is not None:
+                    maybe_after = after_force_unload(plugin_id)
+                    if inspect.isawaitable(maybe_after):
+                        await maybe_after
+            record = await self._load_plugin_from_path_unlocked(
+                source_path,
+                manifest,
+                config,
+                install_dir,
             )
+            if after_load is not None:
+                maybe_loaded = after_load(record)
+                if inspect.isawaitable(maybe_loaded):
+                    await maybe_loaded
+            return record
 
-        manifest = self._load_manifest(manifest_path)
+    async def _load_plugin_from_path_unlocked(
+        self,
+        source_path: Path,
+        manifest: PluginManifest,
+        config: Optional[Dict] = None,
+        install_dir: Optional[Path] = None,
+    ) -> PluginRecord:
+        """Install+load from path; caller must hold lifecycle for id."""
         plugin_id = manifest.id
 
         if plugin_id in self._loaded_plugins:
@@ -937,33 +1130,46 @@ class PluginLoader:
                 "Uninstall it first before reinstalling.",
             )
 
-        # Determine target directory
+        # Determine target directory (resolve off the event loop).
         if install_dir is None:
             if not self.plugin_dirs:
                 raise RuntimeError("No plugin directories configured")
-            install_dir = self.plugin_dirs[0]
-        install_dir = Path(install_dir).resolve()
-        target_dir = (install_dir / plugin_id).resolve()
+            install_base: Path = self.plugin_dirs[0]
+        else:
+            install_base = Path(install_dir)
+
+        def _resolve_install_paths() -> Tuple[Path, Path]:
+            resolved_install = install_base.resolve()
+            resolved_target = (resolved_install / plugin_id).resolve()
+            return resolved_install, resolved_target
+
+        resolved_install_dir, target_dir = await asyncio.to_thread(
+            _resolve_install_paths,
+        )
 
         # Guard against path-traversal in plugin_id (e.g. "../../etc")
-        if not target_dir.is_relative_to(install_dir):
+        if not target_dir.is_relative_to(resolved_install_dir):
             raise ValueError(
                 f"Plugin id '{plugin_id}' resolves outside the plugin "
-                f"directory ({install_dir}). Refusing to install.",
+                f"directory ({resolved_install_dir}). Refusing to install.",
             )
 
-        # Copy files when source is not already the target
+        # Copy files when source is not already the target (off the loop).
         if source_path != target_dir:
-            if target_dir.exists():
-                shutil.rmtree(target_dir)
-            shutil.copytree(source_path, target_dir)
+
+            def _replace_tree() -> None:
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+                shutil.copytree(source_path, target_dir)
+
+            await asyncio.to_thread(_replace_tree)
             logger.info(
                 f"Copied plugin '{plugin_id}' to {target_dir}",
             )
 
         # Install Python dependencies (off the event loop)
         requirements_file = target_dir / "requirements.txt"
-        if requirements_file.exists():
+        if await asyncio.to_thread(requirements_file.exists):
             await asyncio.to_thread(
                 self._install_requirements_locked,
                 requirements_file,
@@ -972,7 +1178,11 @@ class PluginLoader:
 
         # Re-read manifest from the installed location so that
         # source_path in the record points to the correct directory
-        installed_manifest = self._load_manifest(target_dir / "plugin.json")
+        _installed_path, installed_manifest = await asyncio.to_thread(
+            self._read_source_manifest,
+            target_dir,
+        )
+        del _installed_path
         return await self.load_plugin(installed_manifest, target_dir, config)
 
     async def unload_plugin(
@@ -994,6 +1204,15 @@ class PluginLoader:
         Raises:
             KeyError: If the plugin is not currently loaded
         """
+        async with self.plugin_lifecycle(plugin_id):
+            await self._unload_plugin_unlocked(plugin_id, delete_files)
+
+    async def _unload_plugin_unlocked(
+        self,
+        plugin_id: str,
+        delete_files: bool = False,
+    ) -> None:
+        """Unload a plugin; caller must hold :meth:`plugin_lifecycle`."""
         record = self._loaded_plugins.get(plugin_id)
         if record is None:
             raise KeyError(
@@ -1057,26 +1276,31 @@ class PluginLoader:
         # modules as top-level entries in ``sys.modules`` — the prefix
         # cleanup above misses them.  Sweep any module whose ``__file__``
         # lives inside the plugin directory so a reinstall always gets
-        # fresh code.
-        source_resolved = str(record.source_path.resolve()) + os.sep
+        # fresh code.  Use normcase so Windows drive/dir letter case
+        # differences do not leave stale modules behind.
+        source_resolved = _norm_realpath(record.source_path)
+        if not source_resolved.endswith(os.sep):
+            source_resolved = source_resolved + os.sep
         stale_by_file = [
             k
             for k, mod in list(sys.modules.items())
             if (mod_file := getattr(mod, "__file__", None)) is not None
-            and os.path.realpath(mod_file).startswith(source_resolved)
+            and _norm_realpath(mod_file).startswith(source_resolved)
         ]
         for k in stale_by_file:
             sys.modules.pop(k, None)
 
         # Remove the plugin directory from sys.path (plugins add it at
         # import time for sibling imports; leaving it leaks into later
-        # imports and prevents clean hot-reload).  Compare by realpath
-        # so symlinks or non-resolved spellings of the same directory
-        # are also caught.
-        plugin_dir_real = os.path.realpath(record.source_path)
+        # imports and prevents clean hot-reload).
+        plugin_dir_real = _norm_realpath(record.source_path)
         sys.path[:] = [
-            p for p in sys.path if os.path.realpath(p) != plugin_dir_real
+            p for p in sys.path if _norm_realpath(p) != plugin_dir_real
         ]
+
+        # Remove tools from agents.tools + runtime registries while
+        # ownership records still exist, then drop plugin registry state.
+        self._cleanup_plugin_tools(plugin_id, record)
 
         # Clear all in-memory registry entries for this plugin
         self.registry.unregister_plugin(plugin_id)
@@ -1084,14 +1308,11 @@ class PluginLoader:
         # Remove from the loaded-plugins dict
         del self._loaded_plugins[plugin_id]
 
-        # Remove tools that this plugin registered in agents.tools
-        self._cleanup_plugin_tools(plugin_id, record)
-
-        # Optionally delete files from disk
+        # Optionally delete files from disk (off the event loop).
         if delete_files:
             source_path = record.source_path
-            if source_path.exists():
-                shutil.rmtree(source_path)
+            if await asyncio.to_thread(source_path.exists):
+                await asyncio.to_thread(shutil.rmtree, source_path)
                 logger.info(
                     f"Deleted plugin files at {source_path}",
                 )
@@ -1103,34 +1324,87 @@ class PluginLoader:
         plugin_id: str,
         record: PluginRecord,
     ) -> None:
-        """Remove plugin tools from ``qwenpaw.agents.tools``.
+        """Remove plugin tools from agents.tools and runtime registries.
 
         Uses ``sys.modules`` directly to avoid the parent-package
         attribute cache that would bypass any test/runtime overrides.
+        Also unbridges workspace ``ToolRegistry`` / ``builtin_tool_funcs``
+        so hot-reload cannot keep a stale callable.
 
         Args:
             plugin_id: Plugin identifier (for logging)
             record: PluginRecord whose tools should be removed
         """
         try:
-            tools_module = sys.modules.get("qwenpaw.agents.tools")
-            if tools_module is None:
-                return
+            from .api import (
+                _TOOL_PLUGIN_OWNERS,
+                _TOOL_PLUGIN_OWNERS_LOCK,
+                _unbridge_from_runtime,
+            )
 
+            tools_module = sys.modules.get("qwenpaw.agents.tools")
             meta: Dict = record.manifest.meta or {}
-            tool_names: List[str] = []
+            # Manifest names are candidates only — never deletion authority.
+            # A misconfigured / malicious plugin must not unload another
+            # plugin's tool, a builtin, or a hot-reload replacement.
+            manifest_candidates: List[str] = []
 
             # Legacy single-tool format: meta.tool_name
             old_name = meta.get("tool_name")
             if old_name and isinstance(old_name, str):
-                tool_names.append(old_name)
+                manifest_candidates.append(old_name)
 
             # Multi-tool format: meta.tools[].name
-            for tool in meta.get("tools", []):
-                if isinstance(tool, dict) and tool.get("name"):
-                    tool_names.append(tool["name"])
+            # Tolerate malformed meta.tools (null / non-list) — same as
+            # routers.plugins._tool_names_from_meta.
+            raw_tools = meta.get("tools")
+            for tool in raw_tools if isinstance(raw_tools, list) else ():
+                name = tool.get("name") if isinstance(tool, dict) else None
+                if isinstance(name, str) and name.strip():
+                    manifest_candidates.append(name.strip())
+
+            with _TOOL_PLUGIN_OWNERS_LOCK:
+                tool_names = [
+                    name
+                    for name, owner in _TOOL_PLUGIN_OWNERS.items()
+                    if owner == plugin_id
+                ]
+
+            for claimed in manifest_candidates:
+                if claimed not in tool_names:
+                    logger.warning(
+                        "Skipping unload cleanup for tool '%s': "
+                        "manifest of plugin '%s' claims it but "
+                        "ownership is held by %r",
+                        claimed,
+                        plugin_id,
+                        _TOOL_PLUGIN_OWNERS.get(claimed),
+                    )
 
             for tool_name in tool_names:
+                tool_func = (
+                    getattr(tools_module, tool_name, None)
+                    if tools_module is not None
+                    else None
+                )
+                try:
+                    _unbridge_from_runtime(
+                        tool_name,
+                        tool_func,
+                        self.registry,
+                    )
+                except Exception as unbridge_exc:  # noqa: BLE001
+                    logger.debug(
+                        "Runtime unbridge failed for '%s' "
+                        "(plugin '%s'): %s",
+                        tool_name,
+                        plugin_id,
+                        unbridge_exc,
+                        exc_info=True,
+                    )
+
+                if tools_module is None:
+                    continue
                 if hasattr(tools_module, tool_name):
                     delattr(tools_module, tool_name)
                 if tool_name in tools_module.__all__:

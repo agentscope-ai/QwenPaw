@@ -22,6 +22,7 @@ from qwenpaw.schemas import (
 
 from ....config.config import MattermostConfig as MattermostChannelConfig
 from ....constant import WORKING_DIR
+from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -117,10 +118,8 @@ class MattermostChannel(BaseChannel):
         show_typing: Optional[bool] = None,
         thread_follow_without_mention: bool = False,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         dm_policy: str = "open",
         group_policy: str = "open",
         allow_from: Optional[list] = None,
@@ -131,10 +130,8 @@ class MattermostChannel(BaseChannel):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config,
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             dm_policy=dm_policy,
             group_policy=group_policy,
             allow_from=allow_from,
@@ -227,10 +224,8 @@ class MattermostChannel(BaseChannel):
         process: ProcessHandler,
         config: Union[MattermostChannelConfig, dict],
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "MattermostChannel":
         if isinstance(config, dict):
@@ -254,10 +249,9 @@ class MattermostChannel(BaseChannel):
                 c.get("thread_follow_without_mention", False),
             ),
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             dm_policy=c.get("dm_policy") or "open",
             group_policy=c.get("group_policy") or "open",
             allow_from=c.get("allow_from") or [],

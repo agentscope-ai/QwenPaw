@@ -28,6 +28,7 @@ from agentscope.tool import Toolkit
 
 from .skill_system import get_workspace_skills_dir
 from ..modes.coding import CodingModeMixin
+from ..utils.io_utils import run_sync_io
 from ..constant import (
     LOOP_CONTINUATION_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
@@ -102,11 +103,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         self._governor = governor
         self._gate_pending_stop = None
-        self._gate_pending_continue = None
 
         self.memory_manager = memory_manager
 
-        # Register memory tools into toolkit
+        # Register memory tools, then apply a final whitelist pass so
+        # subagent_allowed_tools=[] truly denies every tool (including
+        # memory / future post-toolkit injections).
         if self.memory_manager is not None:
             memory_tools = self.memory_manager.list_memory_tools()
             basic_group = toolkit.tool_groups[0]
@@ -124,6 +126,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 "Registered memory tools: %s",
                 [fn.__name__ for fn in memory_tools],
             )
+        self._apply_subagent_tool_whitelist(toolkit)
 
         init_kwargs: dict[str, Any] = {
             "name": name,
@@ -148,6 +151,20 @@ class QwenPawAgent(CodingModeMixin, Agent):
         self.memory = None  # type: ignore[assignment]
 
         self._register_tool_call_hooks()
+
+    def _apply_subagent_tool_whitelist(self, toolkit: Any) -> None:
+        """Filter every toolkit group by ``subagent_allowed_tools``."""
+        from ..runtime.builder import AgentBuilder
+
+        groups = getattr(toolkit, "tool_groups", None) or []
+        for group in groups:
+            tools = getattr(group, "tools", None)
+            if not isinstance(tools, list):
+                continue
+            group.tools = AgentBuilder.apply_subagent_tool_whitelist(
+                tools,
+                self._request_context,
+            )
 
     async def compress_context(
         self,
@@ -310,7 +327,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
             if hasattr(cm, "purge_old"):
                 try:
                     lcc = self._agent_config.running.light_context_config
-                    cm.purge_old(lcc.scroll_config.history_retention_days)
+                    await run_sync_io(
+                        cm.purge_old,
+                        lcc.scroll_config.history_retention_days,
+                    )
                 except Exception:
                     logger.debug(
                         "history retention purge failed",
@@ -318,7 +338,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
             if hasattr(cm, "close"):
                 try:
-                    cm.close()
+                    await run_sync_io(cm.close)
                 except Exception:
                     logger.debug(
                         "context manager close failed",
@@ -334,7 +354,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 lcc = self._agent_config.running.light_context_config
                 retention_days = _effective_artifact_retention_days(lcc)
                 if retention_days > 0:
-                    offloader.cleanup_expired(
+                    await run_sync_io(
+                        offloader.cleanup_expired,
                         retention_days=retention_days,
                     )
             except Exception:
@@ -539,6 +560,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 stop_result.continuation_message
                 or "Continue working on the task."
             )
+            continuation_metadata = stop_result.continuation_metadata or {
+                QWENPAW_MESSAGE_TAG_KEY: (LOOP_CONTINUATION_MESSAGE_TAG),
+            }
             self.state.context.append(
                 Msg(
                     name="user",
@@ -549,14 +573,12 @@ class QwenPawAgent(CodingModeMixin, Agent):
                             text=continuation,
                         ),
                     ],
-                    metadata={
-                        QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
-                    },
+                    metadata=continuation_metadata,
                 ),
             )
             return  # outer loop continues
 
-        yield final_msg
+        yield stop_result.final_message or final_msg
 
     @staticmethod
     def _is_content_safety_error(exc: Exception) -> bool:

@@ -107,10 +107,50 @@ export interface RubricGateConfig {
   in_loop_modes: boolean;
 }
 
+export type CustomGateType =
+  | "iteration"
+  | "doom_loop"
+  | "token_budget"
+  | "timeout"
+  | "tool_call_budget"
+  | "qualitative_rubric"
+  | "completion_rubric";
+
+export interface GateInstanceConfig {
+  id: string;
+  type: CustomGateType;
+  enabled: boolean;
+  params: Record<string, unknown>;
+}
+
+export interface CustomLoopModeConfig {
+  id: string;
+  name: string;
+  description: string;
+  slash_command: string;
+  enabled: boolean;
+  gates: GateInstanceConfig[];
+}
+
+export interface GoalLoopModeConfig {
+  max_iterations: number;
+  max_tokens: number;
+}
+
+export interface MissionLoopModeConfig {
+  max_iterations: number;
+  max_retries_per_story: number;
+  default_verification_instructions: string;
+  default_verify_command: string;
+}
+
 export interface LoopConfig {
   iteration?: IterationGateConfig;
   doom_loop: DoomLoopConfig;
   rubric?: RubricGateConfig;
+  goal?: GoalLoopModeConfig;
+  mission?: MissionLoopModeConfig;
+  custom_modes?: CustomLoopModeConfig[];
 }
 
 export interface AgentsRunningConfig {

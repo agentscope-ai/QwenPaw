@@ -13,7 +13,7 @@ from ...loop.gates import (
 )
 from ...loop.gates.doom_loop import DoomLoopGate
 from ...loop.gates.iteration import IterationGate
-from ...loop.gates.rubric import StandaloneRubricGate
+from ...loop.gates.rubric import QualitativeRubricGate
 from ...loop.gates.runner import clear_pending_gate_state
 from ...runtime.hooks import HookContext
 
@@ -69,7 +69,7 @@ class DefaultMode(AgentMode):
             self._config_key = config_key
         self._handler.reset_turn()
 
-    def on_conversation_reset(self, ctx: HookContext) -> None:
+    async def on_conversation_reset(self, ctx: HookContext) -> None:
         """Clear current-session gates and deferred agent decisions."""
         self._handler.reset_session()
         clear_pending_gate_state(ctx.agent)
@@ -116,9 +116,9 @@ class DefaultMode(AgentMode):
             )
         if loop_config.rubric.enabled:
             gates.append(
-                StandaloneRubricGate(
-                    prompt=loop_config.rubric.prompt,
-                    max_interventions=(loop_config.rubric.max_interventions),
+                QualitativeRubricGate(
+                    rubric=loop_config.rubric.prompt,
+                    max_evaluations=(loop_config.rubric.max_interventions),
                 ),
             )
 

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Optional
 
 from agentscope.message import Msg, TextBlock
 
-from ..base import AgentMode
+from ..base import AgentMode, find_active_explicit_mode
 from ...runtime.hooks import HookBase, HookContext
 from ...runtime.slash_command_registry import CommandSpec
 
@@ -37,6 +37,10 @@ class MissionMode(AgentMode):
 
     def __init__(self) -> None:
         self._gate: MissionGate | None = None
+        self._default_max_iterations = 20
+        self._max_retries_per_story = 3
+        self._default_verification_instructions = ""
+        self._default_verify_command = ""
 
     # ── commands ──
 
@@ -81,6 +85,13 @@ class MissionMode(AgentMode):
     def setup(self, workspace: object) -> None:
         """Register MissionGate in a separate handler."""
         super().setup(workspace)
+        mission_config = workspace.config.running.loop.mission
+        self._default_max_iterations = mission_config.max_iterations
+        self._max_retries_per_story = mission_config.max_retries_per_story
+        self._default_verification_instructions = (
+            mission_config.default_verification_instructions
+        )
+        self._default_verify_command = mission_config.default_verify_command
 
         from .gates import MissionGate as _MG
         from ...loop.gates import (
@@ -113,19 +124,29 @@ class MissionMode(AgentMode):
         if self._gate is not None:
             await asyncio.to_thread(self._gate.restore, ctx)
 
-    def on_conversation_reset(
+    async def on_conversation_reset(
         self,
-        ctx: HookContext,  # noqa: ARG002
+        ctx: HookContext,
     ) -> None:
         """Clear active mission gate state."""
         if self._gate is not None:
             self._gate.reset_session()
+        ctx.mode_state.pop(self.name, None)
+
+    async def sync_persistent_state(self, ctx: HookContext) -> None:
+        """Refresh the persisted view from the current MissionGate."""
+        snapshot = None
+        if self._gate is not None:
+            snapshot = await self._gate.persistence_snapshot()
+        if snapshot is None:
+            ctx.mode_state.pop(self.name, None)
+        else:
+            ctx.mode_state[self.name] = snapshot
 
     def is_active(self, ctx: HookContext) -> bool:
+        saved = ctx.mode_state.get(self.name, {})
         return self._is_gate_active() or bool(
-            (ctx.session_state or {}).get(
-                "mission_active",
-            ),
+            isinstance(saved, dict) and saved.get("active"),
         )
 
     # ── command handler ──
@@ -149,7 +170,11 @@ class MissionMode(AgentMode):
             start_mission,
         )
 
-        parsed = parse_mission_args(args or "")
+        parsed = parse_mission_args(
+            args or "",
+            default_max_iterations=self._default_max_iterations,
+            default_verify_command=self._default_verify_command,
+        )
         task_text = parsed["task_text"]
 
         # --- info sub-commands ---
@@ -160,7 +185,8 @@ class MissionMode(AgentMode):
                 "session_id",
                 "",
             )
-            text = format_status(
+            text = await asyncio.to_thread(
+                format_status,
                 workspace_dir,
                 session_id,
             )
@@ -168,12 +194,20 @@ class MissionMode(AgentMode):
 
         if task_text.strip().lower() == "list":
             workspace_dir = getattr(ctx, "workspace_dir")
-            text = format_list(workspace_dir)
+            text = await asyncio.to_thread(format_list, workspace_dir)
             return _info_msg(text)
 
         # --- help / empty ---
         if not task_text or len(task_text.strip()) < 5:
-            return _info_msg(format_help())
+            return _info_msg(
+                format_help(self._default_max_iterations),
+            )
+
+        conflict = find_active_explicit_mode(ctx)
+        if conflict is not None:
+            return _info_msg(
+                f"End the active {conflict} mode before starting /mission.",
+            )
 
         # --- start new mission ---
         workspace_dir = getattr(ctx, "workspace_dir")
@@ -186,11 +220,20 @@ class MissionMode(AgentMode):
             agent_id=agent_id,
             session_id=session_id,
             verify_commands=parsed["verify_commands"],
+            verification_instructions=(
+                self._default_verification_instructions
+            ),
             max_iterations=parsed["max_iterations"],
+            max_retries_per_story=self._max_retries_per_story,
         )
 
         if self._gate is not None:
             self._gate.activate_for_mission(loop_dir)
+        ctx.mode_state[self.name] = {
+            "active": True,
+            "loop_dir": str(loop_dir),
+            "phase": "prd_generation",
+        }
 
         _rewrite_user_msg(ctx, prompt)
         logger.info(

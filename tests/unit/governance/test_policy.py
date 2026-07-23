@@ -14,6 +14,7 @@ from qwenpaw.governance.policy import (
     DEFAULT_BUILTIN_RULES,
     DEFAULT_USER_RULES,
     GovernanceAction,
+    GovernanceDecision,
     GovernanceRule,
     ToolCallSpec,
     _create_default_policy,
@@ -47,6 +48,64 @@ def _make_governor(tmp_path) -> ResourceGovernor:
         str(tmp_path),
         governance_dir=str(tmp_path / "governance"),
     )
+
+
+def test_audit_close_waits_for_active_connection_user(tmp_path):
+    """Closing the singleton must share its connection lock."""
+    import threading
+
+    existing = AuditLog._instance
+    if existing is not None:
+        existing.close()
+    audit_log = AuditLog.get_instance(tmp_path)
+    close_finished = threading.Event()
+
+    def close_log():
+        audit_log.close()
+        close_finished.set()
+
+    audit_log._lock.acquire()
+    close_thread = threading.Thread(target=close_log)
+    close_thread.start()
+    try:
+        assert not close_finished.wait(timeout=0.05)
+    finally:
+        audit_log._lock.release()
+    close_thread.join(timeout=1)
+
+    assert close_finished.is_set()
+    audit_log.record(
+        str(tmp_path),
+        _tc("Bash", "git status"),
+        GovernanceDecision(
+            action=GovernanceAction.ALLOW,
+            reason="test",
+        ),
+    )
+
+
+def test_governor_stop_keeps_process_audit_log_open(tmp_path):
+    """Stopping one request governor must not close the shared audit log."""
+    existing = AuditLog._instance
+    if existing is not None:
+        existing.close()
+    first = _make_governor(tmp_path)
+    second = _make_governor(tmp_path)
+    audit_log = first.audit_log
+
+    first.stop()
+
+    assert second.audit_log is audit_log
+    audit_log.record(
+        str(tmp_path),
+        _tc("Bash", "git status"),
+        GovernanceDecision(
+            action=GovernanceAction.ALLOW,
+            reason="test",
+        ),
+    )
+    assert audit_log.count == 1
+    audit_log.close()
 
 
 # ---------------------------------------------------------------------------
@@ -549,6 +608,28 @@ class TestAssertPolicySSHCommands:
             GovernanceAction.SANDBOX_FALLBACK,
             GovernanceAction.ALLOW,
         )
+
+    def test_audit_level_none_skips_persistence(self, governor):
+        """The explicit none level must not write to the audit database."""
+        governor.policy.audit_level = "none"
+        tc = _tc("Write", "/tmp/audit-level-none.txt")
+        decision = governor.assert_policy(tc)
+        before = governor.audit_log.count
+
+        governor.audit(tc, decision)
+
+        assert governor.audit_log.count == before
+
+    def test_audit_level_all_persists_decision(self, governor):
+        """The default all level continues to persist audit events."""
+        governor.policy.audit_level = "all"
+        tc = _tc("Write", "/tmp/audit-level-all.txt")
+        decision = governor.assert_policy(tc)
+        before = governor.audit_log.count
+
+        governor.audit(tc, decision)
+
+        assert governor.audit_log.count == before + 1
 
 
 # ---------------------------------------------------------------------------
@@ -1159,6 +1240,87 @@ class TestAddApprovedRuleGeneralization:
         not a silent skip. This guards the tool_adapter call site."""
         with pytest.raises(TypeError):
             await governor.add_approved_rule(_tc("Bash", "git status"))
+
+    async def test_concurrent_policy_writes_are_serialized(
+        self,
+        governor,
+        monkeypatch,
+    ):
+        """Concurrent approvals cannot overlap policy persistence."""
+        import asyncio
+        import threading
+        import time
+
+        from qwenpaw.governance import resource_governor as governor_module
+
+        active = 0
+        max_active = 0
+        guard = threading.Lock()
+
+        def delayed_save(*_args, **_kwargs):
+            nonlocal active, max_active
+            with guard:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.01)
+            with guard:
+                active -= 1
+
+        monkeypatch.setattr(
+            governor_module,
+            "save_governance_policy",
+            delayed_save,
+        )
+
+        results = await asyncio.gather(
+            governor.add_approved_rule(
+                _tc("Bash", "git status"),
+                generalized_target="git status",
+            ),
+            governor.add_approved_rule(
+                _tc("Bash", "git diff"),
+                generalized_target="git diff",
+            ),
+        )
+
+        assert results == [True, True]
+        assert max_active == 1
+
+    async def test_concurrent_governor_instances_keep_both_rules(
+        self,
+        tmp_path,
+    ):
+        """Policy transactions are shared across governor instances."""
+        import asyncio
+
+        first = _make_governor(tmp_path)
+        second = _make_governor(tmp_path)
+        first.start()
+        second.start()
+
+        results = await asyncio.gather(
+            first.add_approved_rule(
+                _tc("Bash", "git status"),
+                generalized_target="git status",
+            ),
+            second.add_approved_rule(
+                _tc("Bash", "git diff"),
+                generalized_target="git diff",
+            ),
+        )
+        first.stop()
+        second.stop()
+
+        persisted = load_governance_policy(
+            str(first._policy_dir),
+            str(first.workspace_dir),
+            str(first.coding_project_dir),
+        )
+        matches = {rule.match for rule in persisted.user_rules}
+
+        assert results == [True, True]
+        assert "Bash(git status)" in matches
+        assert "Bash(git diff)" in matches
 
 
 class TestGeneralizeTargetForApproval:

@@ -216,146 +216,38 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 exc_info=True,
             )
 
-        # --- Built-in tools ---
-        try:
-            from ..agents.tools import discover_builtin_tool_funcs
+        # --- Use shared bootstrap factory ---
+        from .workspace.bootstrap_factory import WorkspaceBootstrapFactory
 
+        factory_kwargs = WorkspaceBootstrapFactory.build_bootstrap_kwargs(
+            app_services,
+            extra_command_specs=_api_action_command_specs
+            if _api_action_command_specs
+            else None,
+        )
+        # Merge factory output into workspace_registry._bootstrap_kwargs
+        for key, value in factory_kwargs.items():
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_tool_funcs"
-            ] = discover_builtin_tool_funcs()
-            logger.debug("Built-in tool funcs collected")
+            workspace_registry._bootstrap_kwargs[key] = value
+
+        # Warm descriptor-driven caches off the event loop so the first
+        # /tools or agent-config path does not pay full import cost inline.
+        def _warm_descriptor_caches() -> None:
+            from ..config.config import _default_builtin_tools
+            from ..governance.policy import get_default_user_rules
+            from ..governance.tool_registry import DEFAULT_REGISTRY
+
+            DEFAULT_REGISTRY.get_all_tool_names()
+            _default_builtin_tools()
+            get_default_user_rules()
+
+        try:
+            await asyncio.to_thread(_warm_descriptor_caches)
         except Exception:
             logger.debug(
-                "Built-in tool func collection skipped",
+                "Descriptor cache warm-up skipped",
                 exc_info=True,
             )
-
-        # --- Built-in slash commands (daemon, control, conversation) ---
-        try:
-            from ..runtime.builtin_commands import (
-                collect_builtin_command_specs,
-                get_skill_fallback_handler,
-            )
-
-            _api_action_command_specs.extend(collect_builtin_command_specs())
-            # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_fallback_handler"
-            ] = get_skill_fallback_handler()
-            logger.debug("Built-in slash commands collected")
-        except Exception:
-            logger.debug(
-                "Built-in slash command collection skipped",
-                exc_info=True,
-            )
-
-        # --- Built-in lifecycle hooks ---
-        try:
-            from ..hooks.bootstrap.bootstrap_hook import BootstrapHook
-            from ..hooks.cron.cron_hook import (
-                CronContextHook,
-                CronMemoryIsolateHook,
-                CronMemoryRestoreHook,
-            )
-            from ..hooks.error.error_hook import (
-                CancelCleanupHook,
-                ErrorNormalizeHook,
-            )
-            from ..hooks.request_setup.contextvars_hook import (
-                ContextVarsSetupHook,
-            )
-            from ..hooks.request_setup.media_hook import MediaProcessHook
-            from ..hooks.session.session_hook import (
-                SessionLoadHook,
-                SessionSaveHook,
-            )
-            from ..hooks.skill_env.skill_env_hook import (
-                SkillEnvCleanupHook,
-                SkillEnvHook,
-            )
-
-            # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_hook_clses"] = [
-                CronContextHook,
-                CronMemoryIsolateHook,
-                CronMemoryRestoreHook,
-                SessionLoadHook,
-                SessionSaveHook,
-                BootstrapHook,
-                SkillEnvHook,
-                SkillEnvCleanupHook,
-                ContextVarsSetupHook,
-                MediaProcessHook,
-                ErrorNormalizeHook,
-                CancelCleanupHook,
-            ]
-
-            try:
-                from ..hooks.observability.langfuse_hook import (
-                    LangfuseTraceCleanupHook,
-                    LangfuseTraceHook,
-                )
-
-                # pylint: disable=protected-access
-                workspace_registry._bootstrap_kwargs.setdefault(
-                    "builtin_hook_clses",
-                    [],
-                ).extend([LangfuseTraceHook, LangfuseTraceCleanupHook])
-            except Exception:
-                logger.debug(
-                    "Langfuse hooks not available",
-                    exc_info=True,
-                )
-
-            logger.debug("Built-in lifecycle hooks collected")
-        except Exception:
-            logger.debug(
-                "Built-in lifecycle hook collection skipped",
-                exc_info=True,
-            )
-
-        # --- Built-in prompt contributors ---
-        try:
-            from ..runtime.prompt_contributors import _ALL_CONTRIBUTORS
-
-            # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_contributor_clses"
-            ] = _ALL_CONTRIBUTORS
-            logger.debug("Built-in prompt contributors collected")
-        except Exception:
-            logger.debug(
-                "Built-in prompt contributor collection skipped",
-                exc_info=True,
-            )
-
-        # --- Built-in modes (CodingMode, MissionMode) ---
-        try:
-            from ..modes.coding import CodingMode
-            from ..modes.default import DefaultMode
-            from ..modes.goal import GoalMode
-            from ..modes.mission import MissionMode
-
-            # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_mode_clses"] = [
-                DefaultMode,
-                CodingMode,
-                MissionMode,
-                GoalMode,
-            ]
-            logger.debug("Built-in modes collected")
-        except Exception:
-            logger.debug(
-                "Built-in mode collection skipped",
-                exc_info=True,
-            )
-
-        if _api_action_command_specs:
-            # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_command_specs"
-            ] = _api_action_command_specs
 
     except Exception:
         logger.debug(
@@ -449,11 +341,17 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 startup_display.mark_core_ready(core_elapsed)
                 app.state.startup_ready.set()
 
-            await workspace_registry.start_all_configured_agents(
-                on_core_ready=_mark_core_agents_ready,
-                startup_display=startup_display,
+            startup_results = (
+                await workspace_registry.start_all_configured_agents(
+                    on_core_ready=_mark_core_agents_ready,
+                    startup_display=startup_display,
+                )
             )
-            if app.state.startup_ready.is_set():
+            if startup_results.get("default") is False:
+                startup_display.mark_failed(
+                    "Default agent failed to start",
+                )
+            elif app.state.startup_ready.is_set():
                 startup_display.mark_finalizing()
 
             provider_manager.start_local_model_resume(local_model_manager)

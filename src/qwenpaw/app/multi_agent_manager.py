@@ -738,6 +738,17 @@ class MultiAgentManager:
                     exc_info=True,
                 )
 
+        if core_result_map.get("default") is False:
+            custom_result_map = {
+                agent_id: agent_id in self.agents
+                for agent_id in custom_agent_ids
+            }
+            logger.error(
+                "Default agent failed to start; skipping %d custom agent(s)",
+                len(custom_agent_ids),
+            )
+            return {**core_result_map, **custom_result_map}
+
         if startup_display is not None and custom_agent_ids:
             startup_display.start_custom_agents(len(custom_agent_ids))
 

@@ -76,7 +76,6 @@ from ...constant import WORKING_DIR
 from ...config.config import ModelSlotConfig
 from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
-from ...agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
 from .meta import (
     ACP_APPROVAL_EXPIRES_AT_META_KEY,
     ACP_CODING_PROJECT_META_KEY,
@@ -87,25 +86,6 @@ logger = logging.getLogger(__name__)
 
 ACP_ERROR_META_KEY = "qwenpaw.error"
 ACP_AGENT_META_KEY = "qwenpaw.agent"
-
-_ADVERTISED_COMMAND_ORDER = (
-    "clear",
-    "compact",
-    "skills",
-    "model",
-)
-
-# Commands that are intentionally hidden from autocomplete because the TUI
-# handles them locally or ACP exposes a clearer native affordance.
-_ACP_REDUNDANT_COMMANDS = frozenset(
-    {
-        "approval",
-        "approve",
-        "deny",
-        "new",
-        "stop",
-    },
-)
 
 _GENERIC_PROMPT_ERROR = (
     "QwenPaw failed to process the request. Check server logs for details."
@@ -272,6 +252,7 @@ class QwenPawACPAgent(Agent):
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._workspace: Any | None = None
         self._workspace_ready = False
+        self._workspace_lock = asyncio.Lock()
         self._app_services: Any | None = None
         self._app_services_started = False
 
@@ -340,40 +321,21 @@ class QwenPawACPAgent(Agent):
 
     @staticmethod
     def _build_bootstrap_kwargs(app_services: Any) -> dict[str, Any]:
-        """Build the same runtime plugin set used by the web app lifespan."""
-        kwargs: dict[str, Any] = {}
-        command_specs: list[Any] = []
+        """Build bootstrap kwargs using the shared factory.
 
-        try:
-            from ...agents.tools import discover_builtin_tool_funcs
+        ACP-specific HITL tool commands are passed via extra_command_specs.
+        """
+        from ...app.workspace.bootstrap_factory import (
+            WorkspaceBootstrapFactory,
+        )
 
-            kwargs["builtin_tool_funcs"] = discover_builtin_tool_funcs()
-        except Exception:
-            logger.debug(
-                "ACP bootstrap: built-in tools skipped",
-                exc_info=True,
-            )
-
-        try:
-            from ...runtime.builtin_commands import (
-                collect_builtin_command_specs,
-                get_skill_fallback_handler,
-            )
-
-            command_specs.extend(collect_builtin_command_specs())
-            kwargs["builtin_fallback_handler"] = get_skill_fallback_handler()
-        except Exception:
-            logger.debug(
-                "ACP bootstrap: built-in slash commands skipped",
-                exc_info=True,
-            )
-
+        extra_command_specs: list[Any] = []
         try:
             from ...app.app_services._builtin_tool_commands import (
                 build_tool_command_specs,
             )
 
-            command_specs.extend(
+            extra_command_specs.extend(
                 build_tool_command_specs(app_services.tool_coordinator),
             )
         except Exception:
@@ -382,106 +344,53 @@ class QwenPawACPAgent(Agent):
                 exc_info=True,
             )
 
-        if command_specs:
-            kwargs["builtin_command_specs"] = command_specs
-
-        try:
-            from ...hooks.bootstrap.bootstrap_hook import BootstrapHook
-            from ...hooks.cron.cron_hook import CronContextHook
-            from ...hooks.error.error_hook import (
-                CancelCleanupHook,
-                ErrorNormalizeHook,
-            )
-            from ...hooks.request_setup.contextvars_hook import (
-                ContextVarsSetupHook,
-            )
-            from ...hooks.request_setup.media_hook import MediaProcessHook
-            from ...hooks.session.session_hook import (
-                SessionLoadHook,
-                SessionSaveHook,
-            )
-            from ...hooks.skill_env.skill_env_hook import (
-                SkillEnvCleanupHook,
-                SkillEnvHook,
-            )
-
-            kwargs["builtin_hook_clses"] = [
-                CronContextHook,
-                SessionLoadHook,
-                SessionSaveHook,
-                BootstrapHook,
-                SkillEnvHook,
-                SkillEnvCleanupHook,
-                ContextVarsSetupHook,
-                MediaProcessHook,
-                ErrorNormalizeHook,
-                CancelCleanupHook,
-            ]
-        except Exception:
-            logger.debug(
-                "ACP bootstrap: lifecycle hooks skipped",
-                exc_info=True,
-            )
-
-        try:
-            from ...runtime.prompt_contributors import _ALL_CONTRIBUTORS
-
-            kwargs["builtin_contributor_clses"] = _ALL_CONTRIBUTORS
-        except Exception:
-            logger.debug(
-                "ACP bootstrap: prompt contributors skipped",
-                exc_info=True,
-            )
-
-        try:
-            from ...modes.coding import CodingMode
-            from ...modes.default import DefaultMode
-            from ...modes.goal import GoalMode
-            from ...modes.mission import MissionMode
-
-            kwargs["builtin_mode_clses"] = [
-                DefaultMode,
-                CodingMode,
-                MissionMode,
-                GoalMode,
-            ]
-        except Exception:
-            logger.debug(
-                "ACP bootstrap: modes skipped",
-                exc_info=True,
-            )
-
-        return kwargs
+        return WorkspaceBootstrapFactory.build_bootstrap_kwargs(
+            app_services,
+            extra_command_specs=extra_command_specs
+            if extra_command_specs
+            else None,
+        )
 
     async def _ensure_workspace(self) -> Any:
-        """Boot a full ``Workspace`` (once) and return it."""
+        """Boot a full ``Workspace`` (once) and return it.
+
+        Protected by ``_workspace_lock`` so concurrent callers (e.g.
+        multiple ``_advertise_commands`` tasks) don't race to create
+        duplicate workspaces.
+        """
         if self._workspace is not None and self._workspace_ready:
             return self._workspace
 
-        from ...app.workspace.workspace import Workspace
+        async with self._workspace_lock:
+            # Double-check after acquiring the lock.
+            if self._workspace is not None and self._workspace_ready:
+                return self._workspace
 
-        agent_id = self._resolve_agent_id()
-        workspace_dir = self._resolve_workspace_dir(agent_id)
+            from ...app.workspace.workspace import Workspace
 
-        workspace = Workspace(
-            agent_id=agent_id,
-            workspace_dir=str(workspace_dir),
-        )
-        app_services = await self._ensure_app_services()
-        workspace.bootstrap_plugins(
-            **self._build_bootstrap_kwargs(app_services),
-        )
-        workspace.set_app_services(app_services)
-        await workspace.start()
+            agent_id = self._resolve_agent_id()
+            workspace_dir = self._resolve_workspace_dir(agent_id)
 
-        self._workspace = workspace
-        self._workspace_ready = True
-        logger.info(
-            "QwenPaw ACP Agent workspace started: agent_id=%s workspace=%s",
-            agent_id,
-            workspace_dir,
-        )
-        return workspace
+            workspace = Workspace(
+                agent_id=agent_id,
+                workspace_dir=str(workspace_dir),
+            )
+            app_services = await self._ensure_app_services()
+            workspace.bootstrap_plugins(
+                **self._build_bootstrap_kwargs(app_services),
+            )
+            workspace.set_app_services(app_services)
+            await workspace.start()
+
+            self._workspace = workspace
+            self._workspace_ready = True
+            logger.info(
+                "QwenPaw ACP Agent workspace started:"
+                " agent_id=%s workspace=%s",
+                agent_id,
+                workspace_dir,
+            )
+            return workspace
 
     async def _shutdown_workspace(self) -> None:
         """Gracefully stop the workspace."""
@@ -1173,54 +1082,45 @@ class QwenPawACPAgent(Agent):
     def _build_available_commands(
         self,
     ) -> list[AvailableCommand]:
-        """Build slash-command list from static + workspace registry."""
-        descriptions: dict[str, str] = {
-            **SYSTEM_COMMAND_DESCRIPTIONS,
-            "model": "Show or switch AI model",
-            "skills": (
-                "List chat-available skills"
-                " and expose explicit skill commands"
-            ),
-        }
-        seen: set[str] = set()
-        result: list[AvailableCommand] = []
-        for name in _ADVERTISED_COMMAND_ORDER:
-            if name in _ACP_REDUNDANT_COMMANDS:
-                continue
-            seen.add(name)
-            result.append(
-                AvailableCommand(
-                    name=name,
-                    description=descriptions.get(name, ""),
-                ),
-            )
+        """Build slash-command list from workspace registry.
+
+        Uses ``advertisable_commands()`` to dynamically query registered
+        commands with non-empty ``help_text``, excluding daemon commands
+        and ACP-native affordances.
+        """
+        # Commands that are intentionally hidden from autocomplete because
+        # the TUI handles them locally or ACP exposes a clearer native
+        # affordance.
+        _ACP_NATIVE_AFFORDANCES = frozenset(
+            {
+                "approval",
+                "approve",
+                "deny",
+                "new",
+                "stop",
+            },
+        )
+
         ws = self._workspace
-        if ws is not None:
-            registry = getattr(
-                getattr(ws, "plugins", None),
-                "slash_command_registry",
-                None,
+        if ws is None:
+            return []
+
+        registry = getattr(
+            getattr(ws, "plugins", None),
+            "slash_command_registry",
+            None,
+        )
+        if registry is None:
+            return []
+
+        commands = [
+            AvailableCommand(name=name, description=desc)
+            for name, desc in registry.advertisable_commands(
+                exclude_categories=frozenset({"daemon"}),
+                exclude_names=_ACP_NATIVE_AFFORDANCES,
             )
-            if registry is not None:
-                for cmd_name in registry.names():
-                    if cmd_name in seen:
-                        continue
-                    if cmd_name in _ACP_REDUNDANT_COMMANDS:
-                        continue
-                    seen.add(cmd_name)
-                    match = registry.resolve(
-                        f"/{cmd_name}",
-                    )
-                    desc = ""
-                    if match:
-                        desc = match[0].help_text or ""
-                    result.append(
-                        AvailableCommand(
-                            name=cmd_name,
-                            description=desc,
-                        ),
-                    )
-        return result
+        ]
+        return commands
 
     async def _report_prompt_error(
         self,
@@ -1254,8 +1154,15 @@ class QwenPawACPAgent(Agent):
         return _GENERIC_PROMPT_ERROR
 
     async def _advertise_commands(self, session_id: str) -> None:
-        """Send the ``available_commands_update`` for a session."""
+        """Send the ``available_commands_update`` for a session.
+
+        Awaits ``_ensure_workspace()`` so the registry is fully
+        populated before querying.  Since this method runs inside an
+        ``asyncio.create_task`` (not awaited by the session handler),
+        the wait does not block ``new_session`` / ``load_session``.
+        """
         try:
+            await self._ensure_workspace()
             await self._conn.session_update(
                 session_id=session_id,
                 update=AvailableCommandsUpdate(

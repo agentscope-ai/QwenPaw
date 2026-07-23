@@ -15,6 +15,8 @@ from __future__ import annotations
 import copy
 import logging
 import re
+import threading
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from fnmatch import fnmatch
@@ -25,6 +27,7 @@ import yaml
 
 from .tool_registry import ToolRegistry, DEFAULT_REGISTRY
 from ..sandbox import SandboxConfig
+from ..utils.io_utils import write_yaml_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -380,47 +383,12 @@ FILE_WRITE_TOOLS: frozenset[str] = frozenset({"Write", "Edit", "Append"})
 # Default user_rules (for cold start)
 # ---------------------------------------------------------------------------
 
-DEFAULT_USER_RULES: List[GovernanceRule] = [
-    # NOTE: Internal tools (GetCurrentTime, GetTokenUsage, ListAgents,
-    # ChatWithAgent, SubmitToAgent, CheckAgentTask, DelegateExternalAgent)
-    # need no rule here — they are registered as "internal" type and
-    # short-circuited to ALLOW in Phase 0 of evaluate().
-    # ── Read-only file tools (global allow) ──
-    # Reads are safe to allow on any path: the builtin sensitive-path ASK
-    # rules (*.env / .ssh / .aws / …) are evaluated BEFORE user_rules
-    # (Phase 2 builtin-first), so reading secrets still prompts. Note '**'
-    # is required here, not '*': file tools match via wcmatch where '*'
-    # does not cross '/', so '*' would only match a single path segment.
-    GovernanceRule(
-        match="Read(**)",
-        action=GovernanceAction.ALLOW,
-        reason="Read-only file access (global)",
-    ),
-    GovernanceRule(
-        match="Grep(**)",
-        action=GovernanceAction.ALLOW,
-        reason="Content search (global)",
-    ),
-    GovernanceRule(
-        match="Glob(**)",
-        action=GovernanceAction.ALLOW,
-        reason="File listing (global)",
-    ),
-    GovernanceRule(
-        match="ViewImage(**)",
-        action=GovernanceAction.ALLOW,
-        reason="Image view (global)",
-    ),
-    GovernanceRule(
-        match="ViewVideo(**)",
-        action=GovernanceAction.ALLOW,
-        reason="Video view (global)",
-    ),
-    GovernanceRule(
-        match="SendFileToUser(**)",
-        action=GovernanceAction.ALLOW,
-        reason="File send to user (global)",
-    ),
+# Path-level / environment rules kept here manually (cannot be expressed
+# by ``@tool_descriptor``). Tool-level ``ToolName(**)`` ALLOW/ASK/DENY
+# rules are generated from descriptor ``default_policy`` fields via
+# :func:`get_default_user_rules`.
+_PATH_LEVEL_USER_RULES: List[GovernanceRule] = [
+    # NOTE: Internal tools need no rule — Phase 0 short-circuits them.
     # ── File tools (operations within WORKSPACE_DIR, always allowed) ──
     GovernanceRule(
         match="Read(WORKSPACE_DIR/**)",
@@ -472,25 +440,7 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         action=GovernanceAction.ALLOW,
         reason="File send within workspace",
     ),
-    # ── Browser (treat as always allowed for now) ──
-    GovernanceRule(
-        match="Browser(**)",
-        action=GovernanceAction.ALLOW,
-        reason="Allow all browser access",
-    ),
-    # ── Web search & fetch (read-only network tools) ──
-    GovernanceRule(
-        match="WebSearch(**)",
-        action=GovernanceAction.ALLOW,
-        reason="Allow web search",
-    ),
-    GovernanceRule(
-        match="WebFetch(**)",
-        action=GovernanceAction.ALLOW,
-        reason="Allow web fetch",
-    ),
     # ── /tmp ──
-    # Allow all tool access under /tmp without prompting.
     GovernanceRule(
         match="*(/tmp/**)",
         action=GovernanceAction.ALLOW,
@@ -503,7 +453,6 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         reason="Coding project dir",
     ),
     # ALLOW all other gh operations
-    # (agent needs write access for PR/issue management)
     GovernanceRule(
         match="Bash(gh)",
         action=GovernanceAction.ALLOW,
@@ -515,6 +464,155 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         reason="GitHub CLI operations",
     ),
 ]
+
+
+_AUTO_DEFAULT_USER_RULES_CACHE: List[GovernanceRule] | None = None
+_AUTO_DEFAULT_USER_RULES_LOCK = threading.Lock()
+
+
+def _auto_default_user_rules() -> List[GovernanceRule]:
+    """Build tool-level rules from ``@tool_descriptor(default_policy=...)``.
+
+    Import of ``agents.tools`` is deferred so this stays safe when
+    ``policy`` is imported before tool modules.
+
+    Rule order follows ``get_builtin_tool_funcs()`` collection order
+    (``agents/tools/__init__.py`` import order). Current auto rules are
+    non-overlapping ``ToolName(**)`` ALLOW entries, so order does not
+    change Phase 2 first-match outcomes; keep that invariant when adding
+    ASK/DENY defaults.
+
+    Successful builds are cached so request paths do not rescan descriptors.
+    """
+    global _AUTO_DEFAULT_USER_RULES_CACHE
+    with _AUTO_DEFAULT_USER_RULES_LOCK:
+        if _AUTO_DEFAULT_USER_RULES_CACHE is not None:
+            return list(_AUTO_DEFAULT_USER_RULES_CACHE)
+
+        try:
+            from ..agents import tools as _agents_tools  # noqa: F401
+            from ..runtime.tool_registry import get_builtin_tool_funcs
+            from .tool_registry import snake_to_pascal
+
+            _ = _agents_tools
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to build auto default user rules from descriptors: %s",
+                exc,
+            )
+            return []
+
+        action_map = {
+            "allow": GovernanceAction.ALLOW,
+            "ask": GovernanceAction.ASK,
+            "deny": GovernanceAction.DENY,
+        }
+        rules: List[GovernanceRule] = []
+        for fn in get_builtin_tool_funcs():
+            desc = getattr(fn, "_tool_descriptor", None)
+            if desc is None:
+                continue
+            gov = getattr(desc, "governance", None)
+            if gov is None or not gov.default_policy:
+                continue
+            policy_key = gov.default_policy.strip().lower()
+            action = action_map.get(policy_key)
+            if action is None:
+                raise ValueError(
+                    f"Invalid default_policy {gov.default_policy!r} on "
+                    f"tool {desc.name!r}; expected allow|ask|deny",
+                )
+            pname = gov.policy_name or snake_to_pascal(desc.name)
+            rules.append(
+                GovernanceRule(
+                    match=f"{pname}(**)",
+                    action=action,
+                    reason=gov.policy_reason or f"Auto-registered: {pname}",
+                ),
+            )
+        _AUTO_DEFAULT_USER_RULES_CACHE = rules
+        return list(rules)
+
+
+def get_default_user_rules() -> List[GovernanceRule]:
+    """Path-level defaults + auto-generated tool-level descriptor rules.
+
+    Concatenation order (matters for Phase 2 first-match on ``user_rules``):
+
+    1. ``_PATH_LEVEL_USER_RULES`` — workspace / tmp / coding-project / gh
+    2. ``_auto_default_user_rules()`` — ``ToolName(**)`` from descriptors
+
+    Today tool-level ALLOW rules are supersets of the path-level ALLOW rules
+    for the same tools, so reordering relative to the historical interleaved
+    list is semantically equivalent. Do **not** add tool-level DENY/ASK
+    defaults that would need to lose to a more specific path ALLOW without
+    revisiting this order.
+
+    If tests (or callers) replace module-level ``DEFAULT_USER_RULES`` with a
+    plain ``list``, that override is returned as-is so migration tests can
+    inject synthetic default rules.
+    """
+    # Late lookup avoids binding the proxy before it exists; a patched plain
+    # list (``type is list``) wins over the auto-built defaults.
+    override = globals().get("DEFAULT_USER_RULES")
+    if type(override) is list:
+        return list(override)
+    return list(_PATH_LEVEL_USER_RULES) + _auto_default_user_rules()
+
+
+# Backward-compatible name used by tests and callers. Resolved lazily so
+# descriptor imports are available when the list is first read.
+class _DefaultUserRulesProxy(Sequence):
+    """Lazy :class:`~collections.abc.Sequence` over default user rules.
+
+    Does **not** subclass ``list``. Prefer
+    :func:`get_default_user_rules` / ``list(DEFAULT_USER_RULES)`` for
+    mutation or persistence. ``+`` materializes to a real ``list``.
+    """
+
+    def _rules(self) -> List[GovernanceRule]:
+        return get_default_user_rules()
+
+    def __iter__(self):
+        return iter(self._rules())
+
+    def __len__(self) -> int:
+        return len(self._rules())
+
+    def __getitem__(self, index):
+        return self._rules()[index]
+
+    def __repr__(self) -> str:
+        return repr(self._rules())
+
+    def __eq__(self, other: object) -> bool:
+        if other is self:
+            return True
+        # str/bytes are Sequences but must not compare element-wise.
+        if isinstance(other, (str, bytes)):
+            return False
+        if isinstance(other, (list, tuple, Sequence)):
+            return list(self._rules()) == list(other)
+        return NotImplemented
+
+    def __add__(self, other: object) -> List[GovernanceRule]:
+        if isinstance(other, (str, bytes)):
+            return NotImplemented
+        if isinstance(other, (list, tuple, Sequence)):
+            return list(self._rules()) + list(other)
+        return NotImplemented
+
+    def __radd__(self, other: object) -> List[GovernanceRule]:
+        if isinstance(other, (str, bytes)):
+            return NotImplemented
+        if isinstance(other, (list, tuple, Sequence)):
+            return list(other) + list(self._rules())
+        return NotImplemented
+
+
+DEFAULT_USER_RULES: List[
+    GovernanceRule
+] = _DefaultUserRulesProxy()  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -1113,7 +1211,7 @@ def load_governance_policy(
 
     # ── Cold start / migration: fill in missing default rules ──
     if not user_rules:
-        user_rules = copy.deepcopy(DEFAULT_USER_RULES)
+        user_rules = copy.deepcopy(get_default_user_rules())
     else:
         user_rules = _merge_missing_default_user_rules(
             user_rules,
@@ -1124,7 +1222,7 @@ def load_governance_policy(
     # Record all DEFAULT_USER_RULES as applied so the next save
     # makes any user deletion of a default rule stick.
     applied_migrations = sorted(
-        set(applied_migrations) | {r.match for r in DEFAULT_USER_RULES},
+        set(applied_migrations) | {r.match for r in get_default_user_rules()},
     )
     if not env_blacklist:
         env_blacklist = list(DEFAULT_ENV_BLACKLIST)
@@ -1220,14 +1318,13 @@ def save_governance_policy(
             _detection_rule_to_dict(r) for r in policy.detection_rules
         ]
 
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(
-            data,
-            f,
-            default_flow_style=False,
-            allow_unicode=True,
-            sort_keys=False,
-        )
+    write_yaml_atomic(
+        path,
+        data,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1269,7 +1366,7 @@ def _create_default_policy(
 ) -> GovernancePolicy:
     """Create a policy with full default rules (cold start, v2.0)."""
     builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
-    user_rules = copy.deepcopy(DEFAULT_USER_RULES)
+    user_rules = copy.deepcopy(get_default_user_rules())
     if workspace_dir:
         cpd = coding_project_dir or workspace_dir
         _resolve_placeholders(builtin_rules, workspace_dir, cpd)
@@ -1282,7 +1379,7 @@ def _create_default_policy(
         execution_level="smart",
         sensitive_paths=list(_DEFAULT_SENSITIVE_PATHS),
         shell_evasion_checks=dict(_DEFAULT_SHELL_EVASION_CHECKS),
-        applied_migrations=sorted(r.match for r in DEFAULT_USER_RULES),
+        applied_migrations=sorted(r.match for r in get_default_user_rules()),
     )
 
 
@@ -1308,7 +1405,7 @@ def _merge_missing_default_user_rules(
     """
     applied = set(applied_migrations or [])
     merged = list(user_rules)
-    for default_rule in DEFAULT_USER_RULES:
+    for default_rule in get_default_user_rules():
         if default_rule.match in applied:
             continue
         if _has_equivalent_rule(

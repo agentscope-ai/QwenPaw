@@ -944,6 +944,17 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._unregister_plugin_http_routes(plugin_id)
         self._unregister_plugin_channels(plugin_id)
 
+        try:
+            from .api import release_tool_ownership_for_plugin
+
+            release_tool_ownership_for_plugin(plugin_id)
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "Tool ownership release skipped for plugin %s",
+                plugin_id,
+                exc_info=True,
+            )
+
         self._plugin_manifests.pop(plugin_id, None)
 
         providers_to_remove = [

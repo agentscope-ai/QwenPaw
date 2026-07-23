@@ -131,16 +131,16 @@ export function AppMarket({ onInstalled }: AppMarketProps) {
 
   // Sort plugins: featured first, then others
   const sortedPlugins = [...plugins].sort((a, b) => {
-    const aFeatured = a.is_featured === 1;
-    const bFeatured = b.is_featured === 1;
+    const aFeatured = a.is_featured === true;
+    const bFeatured = b.is_featured === true;
     if (aFeatured && !bFeatured) return -1;
     if (!aFeatured && bFeatured) return 1;
     return 0;
   });
 
   // Split into featured and other apps
-  const featuredApps = sortedPlugins.filter((p) => p.is_featured === 1);
-  const otherApps = sortedPlugins.filter((p) => p.is_featured !== 1);
+  const featuredApps = sortedPlugins.filter((p) => p.is_featured === true);
+  const otherApps = sortedPlugins.filter((p) => p.is_featured !== true);
 
   return (
     <div>

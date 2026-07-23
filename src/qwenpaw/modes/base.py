@@ -71,7 +71,7 @@ class AgentMode:
     ) -> None:
         """Prepare mode-owned state for a new user turn."""
 
-    def on_conversation_reset(
+    async def on_conversation_reset(
         self,
         ctx: HookContext,  # noqa: ARG002
     ) -> None:
@@ -94,6 +94,21 @@ class AgentMode:
         return False
 
 
+def find_active_explicit_mode(ctx: HookContext) -> str | None:
+    """Return the active non-default mode for one request context."""
+    plugins = getattr(getattr(ctx, "workspace", None), "plugins", None)
+    for mode in getattr(plugins, "modes", []):
+        name = getattr(mode, "name", "")
+        if not name or name in {"default", "custom-loop-control"}:
+            continue
+        try:
+            if mode.is_active(ctx):
+                return str(name)
+        except Exception:
+            continue
+    return None
+
+
 class ModeGatedHook(HookBase):
     """``HookBase`` variant that auto-skips when its owner mode is inactive.
 
@@ -114,4 +129,4 @@ class ModeGatedHook(HookBase):
         raise NotImplementedError
 
 
-__all__ = ["AgentMode", "ModeGatedHook"]
+__all__ = ["AgentMode", "ModeGatedHook", "find_active_explicit_mode"]

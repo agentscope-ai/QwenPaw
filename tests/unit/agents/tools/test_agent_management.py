@@ -391,3 +391,54 @@ async def test_chat_with_agent_returns_clear_error_when_agent_missing(
     )
 
     assert response.content[0].text == "Agent [missing_bot] not exists"
+
+
+async def test_spawn_subagent_inherits_root_channel_context(monkeypatch):
+    captured = {}
+
+    def fake_collect(_base_url, request_payload, to_agent, _timeout):
+        captured["payload"] = request_payload
+        captured["agent_id"] = to_agent
+        return {
+            "output": [
+                {"content": [{"type": "text", "text": "done"}]},
+            ],
+        }
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    from qwenpaw.app import agent_context
+
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response",
+        fake_collect,
+    )
+    monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(agent_context, "get_current_agent_id", lambda: "bot-a")
+    monkeypatch.setattr(
+        agent_context,
+        "get_current_approval_route",
+        lambda: {
+            "root_session_id": "root-session",
+            "root_agent_id": "bot-a",
+            "user_id": "u1",
+            "channel": "qq",
+            "channel_meta": {"group_openid": "g1", "opaque": object()},
+        },
+    )
+
+    response = await agent_management.spawn_subagent("do work")
+
+    context = captured["payload"]["request_context"]
+    assert captured["agent_id"] == "bot-a"
+    assert "user_id" not in captured["payload"]
+    assert "channel" not in captured["payload"]
+    assert context["root_session_id"] == "root-session"
+    assert context["root_agent_id"] == "bot-a"
+    assert context["channel"] == "qq"
+    assert context["user_id"] == "u1"
+    assert context["channel_meta"] == {"group_openid": "g1"}
+    assert context["_spawn_subagent"] is True
+    assert "done" in response.content[0].text

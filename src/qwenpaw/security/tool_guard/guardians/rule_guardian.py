@@ -35,6 +35,10 @@ from typing import Any
 import yaml
 
 from ..models import GuardFinding, GuardSeverity, GuardThreatCategory
+from ..safety_checks import (
+    classify_destructive_command,
+    is_path_outside_boundary,
+)
 from . import BaseToolGuardian
 
 logger = logging.getLogger(__name__)
@@ -129,34 +133,35 @@ def _normalize_path(raw_path: str) -> Path:
         return Path(raw_path).absolute()
 
 
-def _is_outside_workspace(abs_path: Path) -> bool:
+def _is_outside_workspace(
+    abs_path: Path,
+    *,
+    path_is_resolved: bool = False,
+) -> bool:
     """Check if the given absolute path is outside the workspace.
 
-    Handles:
-    - Windows: Different drive letters are always outside workspace
-    - Unix/macOS: Standard relative_to check
+    Delegates to :func:`is_path_outside_boundary` so ACP hard-block and
+    ToolGuard share the same path-boundary primitive.
+
+    Pass ``path_is_resolved=True`` when *abs_path* already came from
+    :func:`_normalize_path` (which ``resolve()``-s) to avoid a second
+    filesystem walk on the synchronous ToolGuard hot path.
     """
     try:
         workspace = _get_workspace_root().resolve()
-
-        # Windows: Different drives are always outside workspace
-        if (
-            os.name == "nt"
-            and hasattr(abs_path, "drive")
-            and hasattr(workspace, "drive")
-        ):
-            if (
-                abs_path.drive
-                and workspace.drive
-                and abs_path.drive != workspace.drive
-            ):
+        if path_is_resolved:
+            resolved_path = abs_path
+        else:
+            try:
+                resolved_path = abs_path.resolve()
+            except OSError:
                 return True
-
-        abs_path.relative_to(workspace)
-        return False
-    except ValueError:
-        # Path is not relative to workspace
-        return True
+        return is_path_outside_boundary(
+            resolved_path,
+            workspace,
+            cwd_is_resolved=True,
+            path_is_resolved=True,
+        )
     except (OSError, RuntimeError) as e:
         logger.debug(
             "Error checking workspace boundary for '%s': %s",
@@ -329,7 +334,7 @@ def _check_rm_targets_outside_workspace(
     for target in targets:
         try:
             abs_path = _normalize_path(target)
-            if _is_outside_workspace(abs_path):
+            if _is_outside_workspace(abs_path, path_is_resolved=True):
                 outside_paths.append(f"{target} → {abs_path}")
         except (OSError, ValueError, RuntimeError) as e:
             logger.debug("Failed to check target '%s': %s", target, e)
@@ -573,6 +578,106 @@ def _load_config_rules() -> tuple[list[GuardRule], set[str]]:
     return custom, disabled
 
 
+def _shared_safety_findings(
+    tool_name: str,
+    params: dict[str, Any],
+    *,
+    guardian_name: str,
+) -> list[GuardFinding]:
+    """Build findings from shared ``safety_checks`` classification.
+
+    ``catastrophic`` → ``SAFETY_CHECKS_DESTRUCTIVE_COMMAND`` (default
+    auto-deny).  ``system_power`` → ``SAFETY_CHECKS_SYSTEM_POWER``
+    (approval only; avoids ``npm run reboot`` hard DENY).
+    """
+    if tool_name != "execute_shell_command":
+        return []
+
+    findings: list[GuardFinding] = []
+    for param_name, param_value in params.items():
+        if param_name != "command" and "command" not in param_name:
+            continue
+        value_str = str(param_value) if param_value is not None else ""
+        if not value_str:
+            continue
+        # Resolve relative wipe targets against the ToolGuard workspace,
+        # not the process cwd (which may differ from the shell cwd).
+        kind = classify_destructive_command(
+            value_str,
+            cwd=_get_workspace_root(),
+        )
+        if kind is None:
+            continue
+        if kind == "catastrophic":
+            rule_id = "SAFETY_CHECKS_DESTRUCTIVE_COMMAND"
+            title = (
+                "[CRITICAL] Catastrophic command matched shared safety check"
+            )
+            remediation = (
+                "Do not run catastrophic shell commands "
+                "(e.g. recursive delete of system roots, mkfs, dd)."
+            )
+        else:
+            rule_id = "SAFETY_CHECKS_SYSTEM_POWER"
+            title = (
+                "[CRITICAL] System power command matched shared safety check"
+            )
+            remediation = (
+                "Confirm before running shutdown/reboot/halt/poweroff."
+            )
+        findings.append(
+            GuardFinding(
+                id=f"GUARD-{uuid.uuid4().hex}",
+                rule_id=rule_id,
+                category=GuardThreatCategory.RESOURCE_ABUSE,
+                severity=GuardSeverity.CRITICAL,
+                title=title,
+                description=(
+                    "Shared safety_checks.classify_destructive_command "
+                    f"matched parameter '{param_name}' of tool "
+                    f"'{tool_name}' ({kind})."
+                ),
+                tool_name=tool_name,
+                param_name=param_name,
+                matched_value=value_str[:200],
+                remediation=remediation,
+                guardian=guardian_name,
+            ),
+        )
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# SharedSafetyToolGuardian – always-on catastrophic / power checks
+# ---------------------------------------------------------------------------
+
+
+class SharedSafetyToolGuardian(BaseToolGuardian):
+    """Always-on guardian for shared ``safety_checks`` primitives.
+
+    Uses ``always_run=True`` so the check still fires when
+    ``execute_shell_command`` is removed from ``guarded_tools`` (aligned
+    with ACP hard-block posture on the main runtime path).
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            name="shared_safety_tool_guardian",
+            always_run=True,
+        )
+
+    def guard(
+        self,
+        tool_name: str,
+        params: dict[str, Any],
+    ) -> list[GuardFinding]:
+        return _shared_safety_findings(
+            tool_name,
+            params,
+            guardian_name=self.name,
+        )
+
+
 # ---------------------------------------------------------------------------
 # RuleBasedToolGuardian
 # ---------------------------------------------------------------------------
@@ -634,6 +739,7 @@ class RuleBasedToolGuardian(BaseToolGuardian):
     ) -> list[GuardFinding]:
         """Scan all string-like parameter values against loaded rules."""
         findings: list[GuardFinding] = []
+
         applicable_rules = [
             r for r in self._rules if r.applies_to_tool(tool_name)
         ]

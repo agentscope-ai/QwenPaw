@@ -6,7 +6,9 @@ Provides RESTful API for managing multiple agent instances.
 
 import json
 import logging
+import shutil
 from pathlib import Path
+from typing import Literal
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel, field_validator
@@ -101,6 +103,25 @@ class CreateAgentRequest(BaseModel):
             stripped = value.strip()
             return stripped if stripped else None
         return value
+
+
+class CopyAgentRequest(BaseModel):
+    """Request model for copying an existing agent's configuration files."""
+
+    name: str | None = None
+    copy_agent_json: Literal[True] = True
+    copy_md_files: bool = True
+    copy_skills: bool = False
+    copy_jobs: bool = False
+
+
+_COPYABLE_MD_FILES = (
+    "AGENTS.md",
+    "SOUL.md",
+    "PROFILE.md",
+    "HEARTBEAT.md",
+    "BOOTSTRAP.md",
+)
 
 
 def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
@@ -467,6 +488,149 @@ async def create_agent(
     return agent_ref
 
 
+def _build_copied_agent_config(
+    *,
+    source_config: AgentProfileConfig,
+    new_id: str,
+    new_name: str,
+    workspace_dir: Path,
+) -> AgentProfileConfig:
+    """Derive a new agent config from the parsed source profile."""
+    from ...config.config import ChannelConfig
+
+    agent_config = source_config.model_copy(deep=True)
+    agent_config.id = new_id
+    agent_config.name = new_name
+    agent_config.workspace_dir = str(workspace_dir)
+    agent_config.channels = ChannelConfig()
+    return agent_config
+
+
+def _copy_selected_workspace_files(
+    *,
+    request: CopyAgentRequest,
+    source_workspace: Path,
+    workspace_dir: Path,
+) -> None:
+    """Copy selected whitelist files from source workspace to the new one."""
+    if not source_workspace.is_dir():
+        return
+
+    if request.copy_md_files:
+        for md_name in _COPYABLE_MD_FILES:
+            src = source_workspace / md_name
+            if src.is_file():
+                shutil.copy2(src, workspace_dir / md_name)
+
+    if request.copy_skills:
+        src_skills = get_workspace_skills_dir(source_workspace)
+        dst_skills = get_workspace_skills_dir(workspace_dir)
+        if src_skills.is_dir():
+            # Destination skills/ is created empty by
+            # _initialize_agent_workspace, so dirs_exist_ok is required.
+            shutil.copytree(src_skills, dst_skills, dirs_exist_ok=True)
+        src_manifest = source_workspace / "skill.json"
+        if src_manifest.is_file():
+            shutil.copy2(src_manifest, workspace_dir / "skill.json")
+
+    if request.copy_jobs:
+        src_jobs = source_workspace / "jobs.json"
+        if src_jobs.is_file():
+            shutil.copy2(src_jobs, workspace_dir / "jobs.json")
+
+
+@router.post(
+    "/{agentId}/copy",
+    response_model=AgentProfileRef,
+    status_code=201,
+    summary="Copy agent configuration",
+    description=(
+        "Copy selected configuration files from an existing agent into a new "
+        "agent. Does not copy sessions, chats, media, or other runtime assets."
+    ),
+)
+async def copy_agent(
+    agentId: str = PathParam(...),
+    request: CopyAgentRequest = Body(...),
+    http_request: Request = None,
+) -> AgentProfileRef:
+    """Copy selected agent config files into a newly created agent."""
+    config = load_config()
+
+    if agentId not in config.agents.profiles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent '{agentId}' not found",
+        )
+
+    try:
+        source_config = load_agent_config(agentId)
+    except (ValueError, AppBaseException) as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    source_workspace = Path(
+        config.agents.profiles[agentId].workspace_dir,
+    ).expanduser()
+
+    existing_ids = set(config.agents.profiles.keys())
+    new_id = _generate_unique_id(existing_ids)
+    new_name = (request.name or "").strip() or f"{source_config.name} Copy"
+    workspace_dir = Path(f"{WORKING_DIR}/workspaces/{new_id}").expanduser()
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+
+    language = normalize_agent_language(
+        source_config.language or config.agents.language or "en",
+    )
+
+    agent_config = _build_copied_agent_config(
+        source_config=source_config,
+        new_id=new_id,
+        new_name=new_name,
+        workspace_dir=workspace_dir,
+    )
+
+    _initialize_agent_workspace(
+        workspace_dir,
+        skill_names=[],
+        language=language,
+        apply_md_templates=request.copy_md_files,
+    )
+    _copy_selected_workspace_files(
+        request=request,
+        source_workspace=source_workspace,
+        workspace_dir=workspace_dir,
+    )
+
+    agent_ref = AgentProfileRef(
+        id=new_id,
+        workspace_dir=str(workspace_dir),
+        enabled=True,
+    )
+
+    config.agents.profiles[new_id] = agent_ref
+    config.agents.agent_order = _normalized_agent_order(config)
+    save_config(config)
+    save_agent_config(new_id, agent_config)
+
+    logger.info(
+        "Copied agent %s -> %s "
+        "(name=%s, agent_json=%s, md=%s, skills=%s, jobs=%s)",
+        agentId,
+        new_id,
+        new_name,
+        request.copy_agent_json,
+        request.copy_md_files,
+        request.copy_skills,
+        request.copy_jobs,
+    )
+
+    if http_request is not None:
+        manager = _get_multi_agent_manager(http_request)
+        manager.schedule_agent_startup(new_id)
+
+    return agent_ref
+
+
 @router.put(
     "/{agentId}",
     response_model=AgentProfileConfig,
@@ -730,6 +894,8 @@ def _initialize_agent_workspace(
     skill_names: list[str] | None = None,
     md_template_id: str | None = None,
     language: str | None = None,
+    *,
+    apply_md_templates: bool = True,
 ) -> None:
     """Initialize agent workspace with only explicitly requested skills."""
     from ...config import load_config as load_global_config
@@ -742,12 +908,13 @@ def _initialize_agent_workspace(
     if not language:
         language = config.agents.language or "zh"
 
-    _apply_workspace_md_templates(
-        workspace_dir,
-        language,
-        md_template_id=md_template_id,
-    )
-    _ensure_heartbeat_file(workspace_dir, language)
+    if apply_md_templates:
+        _apply_workspace_md_templates(
+            workspace_dir,
+            language,
+            md_template_id=md_template_id,
+        )
+        _ensure_heartbeat_file(workspace_dir, language)
     _install_initial_skills(workspace_dir, skill_names)
 
     jobs_file = workspace_dir / "jobs.json"

@@ -178,15 +178,26 @@ function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
  */
 export function MarketPanel({
   installTarget,
+  onInstalled,
 }: {
   installTarget: InstallTarget;
+  onInstalled?: () => void;
 }) {
   const { t } = useTranslation();
   const selectedAgent = useAgentStore((s) => s.selectedAgent);
   const market = useMarketSearch();
   const [detailItem, setDetailItem] = useState<MarketResult | null>(null);
+  const onInstalledRef = useRef(onInstalled);
+  onInstalledRef.current = onInstalled;
 
-  const install = useMarketInstall({ selectedAgent });
+  const handleInstalled = useCallback(() => {
+    onInstalledRef.current?.();
+  }, []);
+
+  const install = useMarketInstall({
+    selectedAgent,
+    onSuccess: handleInstalled,
+  });
 
   const onInstall = useCallback(
     (item: MarketResult) => {

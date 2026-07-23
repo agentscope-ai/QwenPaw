@@ -26,6 +26,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
+import { externalLinkMarkdownComponents } from "@/components/Markdown/externalLinkComponents";
 import { ApprovalCard as GlobalApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { commandsApi } from "../../api/modules/commands";
@@ -69,7 +70,12 @@ const resolveInitialTab = (): TabKey => {
 
 const renderMarkdownText = (text: string, className: string) => (
   <div className={className}>
-    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={externalLinkMarkdownComponents}
+    >
+      {text}
+    </ReactMarkdown>
   </div>
 );
 
@@ -151,13 +157,7 @@ export default function InboxPage() {
         label: t(SOURCE_TYPE_LABEL_KEYS[type] || type),
       }));
   }, [pushMessages, t]);
-  const urgentApprovalCount = useMemo(
-    () =>
-      pendingApprovals.filter((item) =>
-        ["high", "critical"].includes(item.severity?.toLowerCase?.() || ""),
-      ).length,
-    [pendingApprovals],
-  );
+  const approvalCount = pendingApprovals.length;
   const pagedPushMessages = useMemo(() => {
     const start = (messagesPage - 1) * PUSH_MESSAGES_PAGE_SIZE;
     return filteredPushMessages.slice(start, start + PUSH_MESSAGES_PAGE_SIZE);
@@ -435,9 +435,7 @@ export default function InboxPage() {
         <span className={styles.tabLabel}>
           <PackageOpen size={16} />
           {t("inbox.tabApprovals")}
-          {urgentApprovalCount > 0 && (
-            <Badge count={urgentApprovalCount} color="#ff7f16" />
-          )}
+          {approvalCount > 0 && <Badge count={approvalCount} color="#ff7f16" />}
         </span>
       ),
       children: (

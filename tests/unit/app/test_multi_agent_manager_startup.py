@@ -357,6 +357,34 @@ async def test_startup_display_skips_empty_custom_phase(monkeypatch) -> None:
     startup_display.advance.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_default_failure_skips_custom_agent_phase(monkeypatch) -> None:
+    """Custom agents must not start when the Default core agent fails."""
+    manager = MultiAgentManager()
+    config = _config("default", "custom")
+    monkeypatch.setattr(
+        "qwenpaw.app.multi_agent_manager.load_config",
+        lambda: config,
+    )
+
+    async def get_agent(agent_id: str):
+        if agent_id == "default":
+            raise RuntimeError("invalid default config")
+        return SimpleNamespace()
+
+    manager.get_agent = AsyncMock(side_effect=get_agent)
+    startup_display = MagicMock()
+
+    result = await manager.start_all_configured_agents(
+        startup_display=startup_display,
+    )
+
+    assert result == {"default": False, "custom": False}
+    manager.get_agent.assert_awaited_once_with("default")
+    startup_display.start_custom_agents.assert_not_called()
+    startup_display.advance.assert_not_called()
+
+
 class _WorkspaceStub:
     def __init__(self, start_event: asyncio.Event, release: asyncio.Event):
         self._start_event = start_event

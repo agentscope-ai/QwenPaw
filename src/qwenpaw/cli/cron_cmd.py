@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -637,120 +638,89 @@ def _resolve_update_spec(
     timeout_seconds: Optional[int],
     tool_safety: Optional[bool] = None,
 ) -> Dict[str, Any]:
+    # pylint: disable=too-many-branches,too-many-statements
     """Merge CLI overrides with an existing cron-job spec.
 
-    Only fields provided as non-None by the CLI are applied; everything
-    else is retained from *spec*.  Returns a payload dict suitable for
+    Deep-copies the existing spec and only patches fields explicitly
+    provided by the CLI.  Unspecified fields — including advanced
+    runtime settings (``max_concurrency``, ``misfire_grace_seconds``)
+    and request extensions (``model``, ``request_context``, …) — are
+    preserved as-is.  Returns a payload dict suitable for
     PUT /cron/jobs/{id}.
     """
-    ext_schedule = spec.get("schedule", {})
-    cli_schedule_type = schedule_type or ext_schedule.get("type", "cron")
-    if cli_schedule_type in ("scheduled", "once"):
-        cli_schedule_type_norm = "scheduled"
-    else:
-        cli_schedule_type_norm = cli_schedule_type
+    payload = copy.deepcopy(spec)
 
-    tz = timezone or ext_schedule.get("timezone", "UTC")
+    if name is not None:
+        payload["name"] = name
+    if enabled is not None:
+        payload["enabled"] = enabled
+    if task_type is not None:
+        payload["task_type"] = task_type
 
-    cli_cron = cron or ext_schedule.get("cron", "")
-    cli_run_at = run_at or ext_schedule.get("run_at")
-    cli_repeat_days = (
-        repeat_every_days
-        if repeat_every_days is not None
-        else ext_schedule.get("repeat_every_days")
-    )
-    cli_repeat_end = (
-        repeat_end_type
-        if repeat_end_type is not None
-        else ext_schedule.get("repeat_end_type")
-    )
-    cli_repeat_until = (  # fmt: skip
-        repeat_until
-        if repeat_until is not None
-        else ext_schedule.get("repeat_until")
-    )
-    cli_repeat_count = (  # fmt: skip
-        repeat_count
-        if repeat_count is not None
-        else ext_schedule.get("repeat_count")
-    )
+    # --- schedule ---
+    sch = payload.setdefault("schedule", {})
+    if schedule_type is not None:
+        # CLI exposes "scheduled"; the API model stores it as "once".
+        sch["type"] = (
+            "once" if schedule_type in ("scheduled", "once") else schedule_type
+        )
+    if cron is not None:
+        sch["cron"] = cron
+    if run_at is not None:
+        sch["run_at"] = run_at
+    if timezone is not None:
+        sch["timezone"] = timezone
+    if repeat_every_days is not None:
+        sch["repeat_every_days"] = repeat_every_days
+    if repeat_end_type is not None:
+        sch["repeat_end_type"] = repeat_end_type
+    if repeat_until is not None:
+        sch["repeat_until"] = repeat_until
+    if repeat_count is not None:
+        sch["repeat_count"] = repeat_count
 
-    # --- resolve other fields with CLI-override semantics ---
-    t_type = task_type or spec.get("task_type", "text")
-    t_name = name if name is not None else spec.get("name", "")
-    t_enabled = enabled if enabled is not None else spec.get("enabled", True)
-    t_mode = mode or spec.get("dispatch", {}).get("mode", "final")
-    t_silent = (
-        silent
-        if silent is not None
-        else spec.get("dispatch", {}).get("silent", False)
-    )
-    t_save = (
-        save_result_to_inbox
-        if save_result_to_inbox is not None
-        else spec.get("save_result_to_inbox")
-    )
-    t_share = (
-        share_session
-        if share_session is not None
-        else spec.get("runtime", {}).get("share_session", True)
-    )
-    t_timeout = (
-        timeout_seconds
-        if timeout_seconds is not None
-        else spec.get("runtime", {}).get("timeout_seconds", 120)
-    )
-    t_tool_safety = (
-        tool_safety
-        if tool_safety is not None
-        else spec.get("runtime", {}).get("tool_safety", False)
-    )
+    # --- dispatch ---
+    dsp = payload.setdefault("dispatch", {})
+    if channel is not None:
+        dsp["channel"] = channel
+    if mode is not None:
+        dsp["mode"] = mode
+    if silent is not None:
+        dsp["silent"] = silent
+    target = dsp.setdefault("target", {})
+    if target_user is not None:
+        target["user_id"] = target_user
+    if target_session is not None:
+        target["session_id"] = target_session
 
-    ext_dispatch = spec.get("dispatch", {})
-    ext_target = ext_dispatch.get("target", {})
-    t_channel = channel or ext_dispatch.get("channel", DEFAULT_CHANNEL)
-    t_user = target_user or ext_target.get("user_id", "")
-    t_session = target_session or ext_target.get("session_id", "")
-    t_text = text
-    if t_text is None and spec.get("task_type") == "agent":
-        try:
-            t_text = spec["request"]["input"][0]["content"][0]["text"]
-        except (KeyError, IndexError, TypeError):
-            t_text = None
-    if t_text is None:
-        t_text = spec.get("text")
+    # --- runtime ---
+    run = payload.setdefault("runtime", {})
+    if share_session is not None:
+        run["share_session"] = share_session
+    if timeout_seconds is not None:
+        run["timeout_seconds"] = timeout_seconds
+    if tool_safety is not None:
+        run["tool_safety"] = tool_safety
 
-    payload = _build_spec_from_cli(
-        task_type=t_type,
-        schedule_type=cli_schedule_type_norm,
-        name=t_name,
-        cron=cli_cron,
-        run_at=cli_run_at,
-        repeat_every_days=cli_repeat_days,
-        repeat_end_type=cli_repeat_end,
-        repeat_until=cli_repeat_until,
-        repeat_count=cli_repeat_count,
-        channel=t_channel,
-        target_user=t_user,
-        target_session=t_session,
-        text=t_text,
-        timezone=tz,
-        enabled=t_enabled,
-        mode=t_mode,
-        silent=t_silent,
-        save_result_to_inbox=t_save,
-        share_session=t_share,
-        timeout_seconds=t_timeout,
-        tool_safety=t_tool_safety,
-    )
+    # --- text / request ---
+    if text is not None:
+        if payload.get("task_type") == "agent":
+            req = payload.setdefault("request", {})
+            try:
+                req["input"][0]["content"][0]["text"] = text.strip()
+            except (KeyError, IndexError, TypeError):
+                req["input"] = [
+                    {
+                        "role": "user",
+                        "type": "message",
+                        "content": [{"type": "text", "text": text.strip()}],
+                    },
+                ]
+        else:
+            payload["text"] = text.strip()
 
-    # Preserve existing meta
-    existing_meta = spec.get("meta")
-    if existing_meta:
-        payload["meta"] = existing_meta
-    existing_dispatch_meta = spec.get("dispatch", {}).get("meta")
-    if existing_dispatch_meta:
-        payload["dispatch"]["meta"] = existing_dispatch_meta
+    if save_result_to_inbox is not None:
+        payload["save_result_to_inbox"] = save_result_to_inbox
 
     return payload
 
