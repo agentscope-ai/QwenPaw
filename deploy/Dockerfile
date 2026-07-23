@@ -23,7 +23,12 @@ RUN if [ "${APPLY_PROD_CUSTOMIZATIONS}" = "1" ]; then \
       git apply --verbose /tmp/customizations.patch; \
     fi
 
-RUN cd /app/console && npm ci --include=dev && npm run build
+# Vite's production build outgrows V8's default heap on smaller machines
+# (and under QEMU when cross-building), aborting with SIGABRT. Raise it via
+# --build-arg on hosts with less RAM to spare.
+ARG NODE_BUILD_HEAP_MB=4096
+RUN cd /app/console && npm ci --include=dev \
+ && NODE_OPTIONS="--max-old-space-size=${NODE_BUILD_HEAP_MB}" npm run build
 
 # Alias for uv binary so COPY --from can reference a build-arg image.
 FROM ${UV_IMAGE} AS uv-src
