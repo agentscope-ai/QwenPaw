@@ -1784,18 +1784,18 @@ class TestDefaultDetectionRules:
         from qwenpaw.governance.policy import _get_default_detection_rules
 
         policy = load_governance_policy(
-            str(tmp_path), workspace_dir=str(tmp_path)
+            str(tmp_path),
+            workspace_dir=str(tmp_path),
         )
         ids = {r.id for r in policy.detection_rules}
         # Should contain bundled rules even though YAML had none
         for default_rule in _get_default_detection_rules():
             assert default_rule.id in ids
 
-    def test_policy_yaml_rule_overrides_default(self, tmp_path):
+    def test_policy_yaml_rule_overrides_default(self):
         """A policy.yaml rule with same ID as a bundled rule should win."""
         from qwenpaw.governance.policy import (
             DetectionRuleConfig,
-            _get_default_detection_rules,
             _merge_default_detection_rules,
         )
 
@@ -1842,21 +1842,20 @@ class TestDefaultDetectionRules:
         import yaml as _yaml
 
         raw = _yaml.safe_load(
-            (tmp_path / "policy.yaml").read_text(encoding="utf-8")
+            (tmp_path / "policy.yaml").read_text(encoding="utf-8"),
         )
-        persisted_ids = {
-            r["id"] for r in (raw.get("detection_rules") or [])
-        }
+        persisted_ids = {r["id"] for r in (raw.get("detection_rules") or [])}
         assert "MY_CUSTOM_RULE" in persisted_ids
         # Bundled rules should NOT be in YAML
         for bid in _get_default_detection_rule_ids():
-            assert bid not in persisted_ids, (
-                f"bundled rule {bid} should not be persisted"
-            )
+            assert (
+                bid not in persisted_ids
+            ), f"bundled rule {bid} should not be persisted"
 
         # Reload — both user rule and defaults should be present
         reloaded = load_governance_policy(
-            str(tmp_path), workspace_dir=str(tmp_path)
+            str(tmp_path),
+            workspace_dir=str(tmp_path),
         )
         ids = {r.id for r in reloaded.detection_rules}
         assert "MY_CUSTOM_RULE" in ids
@@ -1866,7 +1865,6 @@ class TestDefaultDetectionRules:
         """If a bundled rule is renamed/removed, it should disappear
         after load instead of lingering as a fake user rule."""
         from qwenpaw.governance.policy import (
-            DetectionRuleConfig,
             _get_default_detection_rule_ids,
         )
 
@@ -1876,7 +1874,8 @@ class TestDefaultDetectionRules:
         save_governance_policy(policy, str(tmp_path), str(tmp_path))
 
         reloaded = load_governance_policy(
-            str(tmp_path), workspace_dir=str(tmp_path)
+            str(tmp_path),
+            workspace_dir=str(tmp_path),
         )
         ids = {r.id for r in reloaded.detection_rules}
         # Only current defaults — nothing extra

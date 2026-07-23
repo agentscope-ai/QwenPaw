@@ -1563,7 +1563,8 @@ _DEFAULT_DETECTION_RULES_LOCK = threading.Lock()
 
 
 def _guard_rule_to_detection_config(guard_rule: Any) -> DetectionRuleConfig:
-    """Convert a ToolGuard ``GuardRule`` into a governance ``DetectionRuleConfig``."""
+    """Convert a ToolGuard ``GuardRule`` into
+    a governance ``DetectionRuleConfig``."""
     return DetectionRuleConfig(
         id=guard_rule.id,
         tools=list(guard_rule.tools),
