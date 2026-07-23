@@ -106,6 +106,7 @@ jobs:
           }
 
       - name: Upload Windows artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: QwenPaw-Desktop-Windows-${{ steps.version.outputs.version }}
@@ -153,6 +154,7 @@ jobs:
           conda run -n qwenpaw-build bash -c 'CREATE_ZIP=1 ./scripts/pack/build_macos.sh'
 
       - name: Upload macOS artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: QwenPaw-Desktop-macOS-${{ steps.version.outputs.version }}
@@ -280,6 +282,7 @@ jobs:
           retention-days: 7
 
       - name: Upload Tauri Windows artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: QwenPaw-Desktop-Tauri-Windows-${{ steps.version.outputs.version }}
@@ -401,6 +404,7 @@ jobs:
           retention-days: 7
 
       - name: Upload Tauri macOS artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: QwenPaw-Desktop-Tauri-macOS-${{ steps.version.outputs.version }}
