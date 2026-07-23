@@ -49,9 +49,9 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-if sys.platform == "win32":
+if sys.platform == "win32" or TYPE_CHECKING:
     import msvcrt
 
 from .config import (  # noqa: E402  pylint: disable=wrong-import-position
