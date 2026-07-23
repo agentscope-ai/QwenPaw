@@ -199,19 +199,113 @@
 }
 
 .binaryField {
-  margin-bottom: 8px;
+  margin-bottom: 7px;
 
   :global(.ant-form-item-label) {
     padding-bottom: 4px;
   }
 
-  :global(.ant-form-item-explain) {
-    font-size: 11px;
-    line-height: 1.45;
+  :global(.ant-input-affix-wrapper) {
+    min-height: 38px;
+    padding-right: 4px;
   }
 }
 
-.binaryPath,
+.binaryLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.helpIcon {
+  display: inline-flex;
+  color: #9a8d83;
+  cursor: help;
+  transition: color 150ms ease;
+
+  &:hover {
+    color: #d45f00;
+  }
+}
+
+.detectLabel {
+  margin-left: 2px;
+}
+
+.binaryStatus {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin: 0 2px 10px;
+  padding: 6px 8px;
+  border: 1px solid;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.detected {
+  border-color: #d6e8d8;
+  background: #f5faf5;
+}
+
+.notDetected {
+  border-color: #eadfd6;
+  background: #faf7f4;
+}
+
+.binaryStatusLabel {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.detected .binaryStatusLabel {
+  color: #357544;
+}
+
+.notDetected .binaryStatusLabel {
+  color: #8b7464;
+}
+
+.binaryPath {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #70655d;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copyPathButton {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: #887a70;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background 150ms ease;
+
+  &:hover {
+    color: #c95700;
+    background: rgba(255, 127, 22, 0.1);
+  }
+}
+
 .authHint {
   margin: 0 2px 10px;
   color: #7b6d62;
@@ -372,9 +466,44 @@
     color: #a99d94;
   }
 
-  .binaryPath,
   .authHint {
     color: #a99d94;
+  }
+
+  .helpIcon {
+    color: #8f837a;
+
+    &:hover {
+      color: #ff9a47;
+    }
+  }
+
+  .detected {
+    border-color: rgba(91, 158, 105, 0.32);
+    background: rgba(70, 129, 82, 0.1);
+  }
+
+  .notDetected {
+    border-color: #423a34;
+    background: rgba(255, 255, 255, 0.025);
+  }
+
+  .detected .binaryStatusLabel {
+    color: #86c792;
+  }
+
+  .notDetected .binaryStatusLabel,
+  .binaryPath {
+    color: #a99d94;
+  }
+
+  .copyPathButton {
+    color: #91857c;
+
+    &:hover {
+      color: #ff9a47;
+      background: rgba(255, 127, 22, 0.12);
+    }
   }
 }
 
@@ -395,5 +524,26 @@
 
   .accountAction :global(.ant-btn) {
     width: 100%;
+  }
+
+  .binaryStatus {
+    flex-wrap: wrap;
+  }
+
+  .binaryPath {
+    min-width: 160px;
+    order: 3;
+    flex-basis: calc(100% - 32px);
+    margin-left: 19px;
+  }
+
+  .copyPathButton {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 420px) {
+  .detectLabel {
+    display: none;
   }
 }

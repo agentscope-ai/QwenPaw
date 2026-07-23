@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, Form, Input } from "antd";
+import { Button, Form, Input, Tooltip } from "antd";
 import {
   Blocks,
   Check,
   CircleAlert,
+  CircleHelp,
   Clock3,
+  Copy,
   ExternalLink,
   LogOut,
   PawPrint,
@@ -16,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { harnessApi, type HarnessProvider } from "@/api/modules/harness";
 import type { AgentBackend } from "@/api/types/agents";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { copyText } from "@/utils/clipboard";
 import styles from "./AgentBackendFields.module.less";
 
 const POLL_INTERVAL_MS = 2_000;
@@ -218,8 +221,20 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
           <div className={styles.codexConfig}>
             <Form.Item
               name={["backend_settings", "binary"]}
-              label={t("agent.backend.binary")}
-              help={t("agent.backend.binaryHelp")}
+              label={
+                <span className={styles.binaryLabel}>
+                  {t("agent.backend.binary")}
+                  <Tooltip title={t("agent.backend.binaryHelp")}>
+                    <span
+                      className={styles.helpIcon}
+                      aria-label={t("common.help")}
+                      role="img"
+                    >
+                      <CircleHelp size={14} />
+                    </span>
+                  </Tooltip>
+                </span>
+              }
               className={styles.binaryField}
             >
               <Input
@@ -240,17 +255,47 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                     loading={checking}
                     onClick={() => void checkStatus()}
                   >
-                    {t("agent.backend.detect")}
+                    <span className={styles.detectLabel}>
+                      {t("agent.backend.detect")}
+                    </span>
                   </Button>
                 }
               />
             </Form.Item>
             {codex?.runtime_path && (
-              <p className={styles.binaryPath}>
-                {t("agent.backend.detectedBinary", {
-                  path: codex.runtime_path,
-                })}
-              </p>
+              <div className={`${styles.binaryStatus} ${styles.detected}`}>
+                <span className={styles.binaryStatusLabel}>
+                  <Check size={14} />
+                  {t("agent.backend.detectedBinary")}
+                </span>
+                <Tooltip title={codex.runtime_path}>
+                  <code className={styles.binaryPath}>
+                    {codex.runtime_path}
+                  </code>
+                </Tooltip>
+                <Tooltip title={t("common.copy")}>
+                  <button
+                    type="button"
+                    className={styles.copyPathButton}
+                    aria-label={t("common.copy")}
+                    onClick={() => {
+                      void copyText(codex.runtime_path as string)
+                        .then(() => message.success(t("common.copied")))
+                        .catch(() => message.error(t("common.copyFailed")));
+                    }}
+                  >
+                    <Copy size={13} />
+                  </button>
+                </Tooltip>
+              </div>
+            )}
+            {!checking && codex && !codex.runtime_path && (
+              <div className={`${styles.binaryStatus} ${styles.notDetected}`}>
+                <span className={styles.binaryStatusLabel}>
+                  <CircleAlert size={14} />
+                  {t("agent.backend.codexNotFound")}
+                </span>
+              </div>
             )}
             <div className={styles.accountRow}>
               <div className={styles.accountState}>
