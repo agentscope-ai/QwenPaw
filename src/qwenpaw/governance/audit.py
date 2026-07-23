@@ -200,11 +200,10 @@ class AuditLog:
         propagate into ``assert_policy`` and disrupt the policy
         decision returned to the caller.
 
-        TODO: honor ``GovernancePolicy.audit_level`` here.  The field
-        is currently declared (``"all"`` / ``"none"`` / ...) and
-        persisted in policy.yaml but ignored — every decision is
-        always written.  Once the level enum is finalised, gate the
-        INSERT on it (e.g. skip ALLOW events when level == "deny_only").
+        ``audit_level == "none"`` is handled by
+        ``ResourceGovernor.audit()`` before this method is called.
+        If finer-grained filtering is needed later (for example,
+        ``"write_only"``), apply it at the INSERT boundary.
         """
         try:
             with self._lock:
