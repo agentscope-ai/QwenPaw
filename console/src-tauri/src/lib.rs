@@ -2,9 +2,10 @@
 
 mod backend;
 mod backend_download;
+mod computer_use_runtime;
 mod external_link;
-mod updates;
 mod tray;
+mod updates;
 
 use tauri::{Manager, RunEvent, WebviewWindow, WindowEvent};
 
@@ -46,6 +47,7 @@ pub fn run() {
             tray::ack_close,
         ])
         .manage(backend::BackendState::default())
+        .manage(computer_use_runtime::ComputerUseRuntimeState::default())
         .manage(tray::TrayState::default())
         .setup(|app| {
             backend::setup(app)?;
@@ -84,6 +86,7 @@ pub fn run() {
                     if let Err(err) = tauri::async_runtime::block_on(backend::stop_and_wait(app_handle)) {
                         log::warn!("[backend] graceful shutdown did not complete: {err}");
                     }
+                    computer_use_runtime::stop(app_handle);
                 }
                 // macOS emits this when the user clicks the Dock icon. Without
                 // it, a window hidden via "minimize to tray" can only be

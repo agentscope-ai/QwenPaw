@@ -1,0 +1,416 @@
+//! Coordinate/keyboard input synthesis, point verification, and foreground
+//! activation.
+
+use serde_json::{json, Map, Value};
+use std::thread;
+use std::time::Duration;
+use windows::Win32::Foundation::{HWND, POINT};
+use windows::Win32::System::SystemInformation::GetTickCount;
+use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    mouse_event, GetLastInputInfo, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD,
+    KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, LASTINPUTINFO,
+    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
+    MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+    MOUSEEVENTF_WHEEL, VIRTUAL_KEY,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    BringWindowToTop, GetAncestor, GetForegroundWindow, GetWindowThreadProcessId,
+    IsWindow, SetCursorPos, SetForegroundWindow, ShowWindow, WindowFromPoint,
+    GA_ROOT, SW_RESTORE,
+};
+
+use super::super::get_visible_window_rect;
+use super::{ServerState, WindowInfo, USER_INTERVENTION_GRACE_MS};
+
+pub(super) fn click(
+    state: &ServerState,
+    window: &WindowInfo,
+    params: &Map<String, Value>,
+) -> Result<Value, (&'static str, String)> {
+    let point = verify_point(state, window, params)?;
+    let button = params
+        .get("button")
+        .and_then(Value::as_str)
+        .unwrap_or("left");
+    let count = params
+        .get("count")
+        .and_then(Value::as_u64)
+        .unwrap_or(1)
+        .clamp(1, 3);
+    let (down, up) = match button {
+        "left" => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
+        "right" => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+        "middle" => (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
+        _ => return Err(("invalid_request", "Unsupported mouse button.".to_string())),
+    };
+    unsafe {
+        SetCursorPos(point.x, point.y).map_err(|error| ("input_failed", error.to_string()))?;
+        for _ in 0..count {
+            mouse_event(down, 0, 0, 0, 0);
+            mouse_event(up, 0, 0, 0, 0);
+        }
+    }
+    Ok(json!({"applied": true}))
+}
+
+pub(super) fn scroll(
+    state: &ServerState,
+    window: &WindowInfo,
+    params: &Map<String, Value>,
+) -> Result<Value, (&'static str, String)> {
+    let point = verify_point(state, window, params)?;
+    let delta = params
+        .get("delta_y")
+        .and_then(Value::as_i64)
+        .unwrap_or(0)
+        .clamp(-1200, 1200);
+    unsafe {
+        SetCursorPos(point.x, point.y).map_err(|error| ("input_failed", error.to_string()))?;
+        mouse_event(MOUSEEVENTF_WHEEL, 0, 0, delta as i32, 0);
+    }
+    Ok(json!({"applied": true}))
+}
+
+pub(super) fn drag(
+    state: &ServerState,
+    window: &WindowInfo,
+    params: &Map<String, Value>,
+) -> Result<Value, (&'static str, String)> {
+    let start = verify_point_with_prefix(state, window, params, "start_")?;
+    let end = verify_point_with_prefix(state, window, params, "end_")?;
+    unsafe {
+        SetCursorPos(start.x, start.y).map_err(|error| ("input_failed", error.to_string()))?;
+        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
+        SetCursorPos(end.x, end.y).map_err(|error| ("input_failed", error.to_string()))?;
+        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+    }
+    Ok(json!({"applied": true}))
+}
+
+pub(super) fn type_text(
+    window: &WindowInfo,
+    params: &Map<String, Value>,
+) -> Result<Value, (&'static str, String)> {
+    let text = params
+        .get("text")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or(("invalid_request", "text is required.".to_string()))?;
+    reject_recent_user_intervention()?;
+    set_focus(window)?;
+    let mut inputs = Vec::with_capacity(text.encode_utf16().count() * 2);
+    for unit in text.encode_utf16() {
+        inputs.push(unicode_input(unit, KEYEVENTF_UNICODE));
+        inputs.push(unicode_input(unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
+    }
+    send_inputs(&inputs)?;
+    Ok(json!({"applied": true, "text_length": text.chars().count()}))
+}
+
+pub(super) fn press_key(
+    window: &WindowInfo,
+    params: &Map<String, Value>,
+) -> Result<Value, (&'static str, String)> {
+    let key = params
+        .get("key")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(("invalid_request", "key is required.".to_string()))?;
+    let keys = parse_key_sequence(key)?;
+    reject_recent_user_intervention()?;
+    set_focus(window)?;
+    let mut inputs = Vec::with_capacity(keys.len() * 2);
+    for value in &keys {
+        inputs.push(virtual_key_input(*value, Default::default()));
+    }
+    for value in keys.iter().rev() {
+        inputs.push(virtual_key_input(*value, KEYEVENTF_KEYUP));
+    }
+    send_inputs(&inputs)?;
+    Ok(json!({"applied": true, "key": key}))
+}
+
+fn parse_key_sequence(value: &str) -> Result<Vec<VIRTUAL_KEY>, (&'static str, String)> {
+    let values = value
+        .split('+')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(virtual_key)
+        .collect::<Result<Vec<_>, _>>()?;
+    if values.is_empty() || values.len() > 4 {
+        return Err((
+            "invalid_request",
+            "key must contain one to four key names.".to_string(),
+        ));
+    }
+    Ok(values)
+}
+
+fn virtual_key(value: &str) -> Result<VIRTUAL_KEY, (&'static str, String)> {
+    let name = value.to_ascii_uppercase();
+    let code = match name.as_str() {
+        "CTRL" | "CONTROL" => 0x11,
+        "ALT" => 0x12,
+        "SHIFT" => 0x10,
+        "ENTER" | "RETURN" => 0x0d,
+        "TAB" => 0x09,
+        "ESC" | "ESCAPE" => 0x1b,
+        "SPACE" => 0x20,
+        "BACKSPACE" => 0x08,
+        "DELETE" | "DEL" => 0x2e,
+        "UP" => 0x26,
+        "DOWN" => 0x28,
+        "LEFT" => 0x25,
+        "RIGHT" => 0x27,
+        "HOME" => 0x24,
+        "END" => 0x23,
+        "PAGEUP" => 0x21,
+        "PAGEDOWN" => 0x22,
+        _ if name.len() == 1 && name.as_bytes()[0].is_ascii_alphanumeric() => {
+            name.as_bytes()[0] as u16
+        }
+        _ => return Err(("invalid_request", format!("Unsupported key: {value}."))),
+    };
+    Ok(VIRTUAL_KEY(code))
+}
+
+fn unicode_input(
+    unit: u16,
+    flags: windows::Win32::UI::Input::KeyboardAndMouse::KEYBD_EVENT_FLAGS,
+) -> INPUT {
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(0),
+                wScan: unit,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    }
+}
+
+fn virtual_key_input(
+    key: VIRTUAL_KEY,
+    flags: windows::Win32::UI::Input::KeyboardAndMouse::KEYBD_EVENT_FLAGS,
+) -> INPUT {
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: key,
+                wScan: 0,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    }
+}
+
+fn send_inputs(inputs: &[INPUT]) -> Result<(), (&'static str, String)> {
+    let applied = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
+    if applied != inputs.len() as u32 {
+        return Err((
+            "input_failed",
+            "Windows rejected keyboard input.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_point(
+    state: &ServerState,
+    window: &WindowInfo,
+    params: &Map<String, Value>,
+) -> Result<POINT, (&'static str, String)> {
+    verify_point_with_prefix(state, window, params, "")
+}
+
+fn verify_point_with_prefix(
+    state: &ServerState,
+    window: &WindowInfo,
+    params: &Map<String, Value>,
+    prefix: &str,
+) -> Result<POINT, (&'static str, String)> {
+    let snapshot_id = params
+        .get("snapshot_id")
+        .and_then(Value::as_str)
+        .ok_or(("stale_state", "snapshot_id is required.".to_string()))?;
+    let screenshot_id = params.get("screenshot_id").and_then(Value::as_str).ok_or((
+        "screenshot_not_found",
+        "screenshot_id is required.".to_string(),
+    ))?;
+    let snapshot = state.snapshots.get(snapshot_id).ok_or((
+        "stale_state",
+        "Snapshot is no longer available.".to_string(),
+    ))?;
+    if snapshot.screenshot_id != screenshot_id || snapshot.window.hwnd != window.hwnd {
+        return Err((
+            "stale_state",
+            "Snapshot does not belong to this window.".to_string(),
+        ));
+    }
+    let current =
+        get_visible_window_rect(HWND(window.hwnd as _)).map_err(|error| ("stale_window", error))?;
+    let current_bounds = [current.left, current.top, current.right, current.bottom];
+    if current_bounds != snapshot.bounds {
+        return Err((
+            "stale_state",
+            "Window geometry changed; observe it again.".to_string(),
+        ));
+    }
+    reject_recent_user_intervention()?;
+    set_focus(window)?;
+    let x = integer_param(params, &format!("{prefix}x"))?;
+    let y = integer_param(params, &format!("{prefix}y"))?;
+    let display_width = snapshot.display_width.max(1) as i32;
+    let display_height = snapshot.display_height.max(1) as i32;
+    if x < 0 || y < 0 || x >= display_width || y >= display_height {
+        return Err((
+            "point_outside_viewport",
+            "Point is outside the captured viewport.".to_string(),
+        ));
+    }
+    // Model coordinates are expressed in the delivered screenshot space,
+    // which may be downscaled; map them back to physical window pixels
+    // before injecting input. When no downscaling occurred these ratios are
+    // 1:1 and the mapping is an identity.
+    let phys_w = snapshot.bounds[2] - snapshot.bounds[0];
+    let phys_h = snapshot.bounds[3] - snapshot.bounds[1];
+    let x_phys = (i64::from(x) * i64::from(phys_w) / i64::from(display_width)) as i32;
+    let y_phys = (i64::from(y) * i64::from(phys_h) / i64::from(display_height)) as i32;
+    let point = POINT {
+        x: snapshot.bounds[0] + x_phys,
+        y: snapshot.bounds[1] + y_phys,
+    };
+    let hit = unsafe { WindowFromPoint(point) };
+    let root = unsafe { GetAncestor(hit, GA_ROOT) };
+    if root.0 != window.hwnd as *mut _ {
+        return Err((
+            "target_not_at_point",
+            "Target window is no longer at this point.".to_string(),
+        ));
+    }
+    Ok(point)
+}
+
+pub(super) fn set_focus(window: &WindowInfo) -> Result<(), (&'static str, String)> {
+    let hwnd = HWND(window.hwnd as _);
+    if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
+        return Err((
+            "window_not_found",
+            "Target window no longer exists.".to_string(),
+        ));
+    }
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_RESTORE);
+    }
+    // Foreground transitions are asynchronous and the foreground lock can
+    // reject a single attempt, so retry the standard strategies briefly
+    // before giving up. Modal dialogs and owned popups are handled by the
+    // root check inside `try_set_foreground`.
+    for attempt in 0..3 {
+        if try_set_foreground(hwnd)
+            || attach_input_and_set_foreground(hwnd)
+            || alt_tap_and_set_foreground(hwnd)
+        {
+            return Ok(());
+        }
+        if attempt < 2 {
+            thread::sleep(Duration::from_millis(80));
+        }
+    }
+    Err((
+        "activation_failed",
+        "Could not activate the target window.".to_string(),
+    ))
+}
+
+fn try_set_foreground(hwnd: HWND) -> bool {
+    unsafe {
+        let _ = SetForegroundWindow(hwnd);
+        foreground_matches(hwnd)
+    }
+}
+
+/// Accept activation when the target window is in the foreground, or when a
+/// child popup it owns (such as an open drop-down) currently holds it. Owned
+/// modal dialogs are separate top-level windows, so callers activate them by
+/// their own handle.
+fn foreground_matches(hwnd: HWND) -> bool {
+    unsafe {
+        let foreground = GetForegroundWindow();
+        if foreground == hwnd {
+            return true;
+        }
+        !foreground.0.is_null() && GetAncestor(foreground, GA_ROOT) == hwnd
+    }
+}
+
+/// The foreground lock rejects background processes, so temporarily join
+/// the foreground thread's input queue (the standard automation approach)
+/// and always detach again afterwards.
+fn attach_input_and_set_foreground(hwnd: HWND) -> bool {
+    unsafe {
+        let foreground = GetForegroundWindow();
+        if foreground.0.is_null() || foreground == hwnd {
+            return try_set_foreground(hwnd);
+        }
+        let foreground_thread = GetWindowThreadProcessId(foreground, None);
+        let current_thread = GetCurrentThreadId();
+        if foreground_thread == 0 || foreground_thread == current_thread {
+            return false;
+        }
+        if !AttachThreadInput(current_thread, foreground_thread, true).as_bool() {
+            return false;
+        }
+        let _ = BringWindowToTop(hwnd);
+        let activated = try_set_foreground(hwnd);
+        let _ = AttachThreadInput(current_thread, foreground_thread, false);
+        activated
+    }
+}
+
+/// Last resort: a synthesized ALT tap marks this process as the most
+/// recent input sender, which the foreground-lock rules accept.
+fn alt_tap_and_set_foreground(hwnd: HWND) -> bool {
+    const VK_MENU: VIRTUAL_KEY = VIRTUAL_KEY(0x12);
+    let inputs = [
+        virtual_key_input(VK_MENU, Default::default()),
+        virtual_key_input(VK_MENU, KEYEVENTF_KEYUP),
+    ];
+    if send_inputs(&inputs).is_err() {
+        return false;
+    }
+    try_set_foreground(hwnd)
+}
+
+pub(super) fn reject_recent_user_intervention() -> Result<(), (&'static str, String)> {
+    let mut input = LASTINPUTINFO {
+        cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+        ..Default::default()
+    };
+    if unsafe { GetLastInputInfo(&mut input) }.as_bool()
+        && unsafe { GetTickCount() }.wrapping_sub(input.dwTime) < USER_INTERVENTION_GRACE_MS
+    {
+        return Err((
+            "user_intervened",
+            "Recent user input was detected; observe the screen again before continuing."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn integer_param(params: &Map<String, Value>, name: &str) -> Result<i32, (&'static str, String)> {
+    params
+        .get(name)
+        .and_then(Value::as_i64)
+        .and_then(|value| i32::try_from(value).ok())
+        .ok_or(("invalid_request", format!("{name} is required.")))
+}

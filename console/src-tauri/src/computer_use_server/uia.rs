@@ -1,0 +1,223 @@
+//! UI Automation: element enumeration, invoke, and value-set.
+
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use windows::core::BSTR;
+use windows::Win32::Foundation::HWND;
+use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
+use windows::Win32::UI::Accessibility::{
+    CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationInvokePattern,
+    IUIAutomationValuePattern, TreeScope_Subtree, UIA_InvokePatternId,
+    UIA_ValuePatternId,
+};
+use windows::Win32::UI::WindowsAndMessaging::IsWindow;
+
+use super::{next_id, reject_recent_user_intervention, ServerState, WindowInfo};
+
+/// Map a UI Automation control-type identifier to a human-readable role
+/// name so callers can recognise actionable controls (for example an
+/// editable field or a button) without memorising the numeric ids.
+fn control_type_name(control_type: i32) -> &'static str {
+    match control_type {
+        50000 => "Button",
+        50001 => "Calendar",
+        50002 => "CheckBox",
+        50003 => "ComboBox",
+        50004 => "Edit",
+        50005 => "Hyperlink",
+        50006 => "Image",
+        50007 => "ListItem",
+        50008 => "List",
+        50009 => "Menu",
+        50010 => "MenuBar",
+        50011 => "MenuItem",
+        50012 => "ProgressBar",
+        50013 => "RadioButton",
+        50014 => "ScrollBar",
+        50015 => "Slider",
+        50016 => "Spinner",
+        50017 => "StatusBar",
+        50018 => "Tab",
+        50019 => "TabItem",
+        50020 => "Text",
+        50021 => "ToolBar",
+        50022 => "ToolTip",
+        50023 => "Tree",
+        50024 => "TreeItem",
+        50025 => "Custom",
+        50026 => "Group",
+        50027 => "Thumb",
+        50028 => "DataGrid",
+        50029 => "DataItem",
+        50030 => "Document",
+        50031 => "SplitButton",
+        50032 => "Window",
+        50033 => "Pane",
+        50034 => "Header",
+        50035 => "HeaderItem",
+        50036 => "Table",
+        50037 => "TitleBar",
+        50038 => "Separator",
+        50039 => "SemanticZoom",
+        50040 => "AppBar",
+        _ => "Unknown",
+    }
+}
+
+pub(super) fn collect_accessibility(
+    window: &WindowInfo,
+) -> Result<(String, Value, HashMap<String, IUIAutomationElement>), String> {
+    let automation: IUIAutomation = unsafe {
+        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
+            .map_err(|error| format!("UI Automation is unavailable: {error}"))?
+    };
+    let root = unsafe { automation.ElementFromHandle(HWND(window.hwnd as _)) }
+        .map_err(|error| format!("UI Automation could not inspect the window: {error}"))?;
+    let condition = unsafe { automation.CreateTrueCondition() }
+        .map_err(|error| format!("UI Automation condition failed: {error}"))?;
+    let items = unsafe { root.FindAll(TreeScope_Subtree, &condition) }
+        .map_err(|error| format!("UI Automation enumeration failed: {error}"))?;
+    let count = unsafe { items.Length() }
+        .map_err(|error| format!("UI Automation item count failed: {error}"))?
+        .clamp(0, 300);
+    let revision = next_id("accessibility");
+    let mut elements = HashMap::new();
+    let mut descriptions = Vec::new();
+    for index in 0..count {
+        let element = match unsafe { items.GetElement(index) } {
+            Ok(element) => element,
+            Err(_) => continue,
+        };
+        let name = unsafe { element.CurrentName() }
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        let automation_id = unsafe { element.CurrentAutomationId() }
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        if name.is_empty() && automation_id.is_empty() {
+            continue;
+        }
+        let bounds = unsafe { element.CurrentBoundingRectangle() }.unwrap_or_default();
+        let element_id = format!("uia-{index}");
+        let control_type =
+            unsafe { element.CurrentControlType() }.map(|value| value.0).unwrap_or_default();
+        descriptions.push(json!({
+            "id": element_id,
+            "name": name,
+            "automation_id": automation_id,
+            "control_type": control_type,
+            "control_type_name": control_type_name(control_type),
+            "enabled": unsafe { element.CurrentIsEnabled() }.map(|value| value.as_bool()).unwrap_or(false),
+            "offscreen": unsafe { element.CurrentIsOffscreen() }.map(|value| value.as_bool()).unwrap_or(true),
+            "bounds": [bounds.left, bounds.top, bounds.right, bounds.bottom],
+        }));
+        elements.insert(element_id, element);
+    }
+    Ok((
+        revision.clone(),
+        json!({
+            "available": true,
+            "revision": revision,
+            "elements": descriptions,
+        }),
+        elements,
+    ))
+}
+
+pub(super) fn invoke_element(
+    state: &ServerState,
+    window: &WindowInfo,
+    params: &serde_json::Map<String, Value>,
+) -> Result<Value, (&'static str, String)> {
+    let element = accessibility_element(state, window, params)?;
+    reject_recent_user_intervention()?;
+    let pattern: IUIAutomationInvokePattern =
+        unsafe { element.GetCurrentPatternAs(UIA_InvokePatternId) }.map_err(|_| {
+            (
+                "uia_pattern_unavailable",
+                "The element does not support Invoke.".to_string(),
+            )
+        })?;
+    unsafe { pattern.Invoke() }.map_err(|error| {
+        (
+            "uia_action_failed",
+            format!("UI Automation invoke failed: {error}"),
+        )
+    })?;
+    Ok(json!({"applied": true}))
+}
+
+pub(super) fn set_value(
+    state: &ServerState,
+    window: &WindowInfo,
+    params: &serde_json::Map<String, Value>,
+) -> Result<Value, (&'static str, String)> {
+    let value = params
+        .get("value")
+        .and_then(Value::as_str)
+        .ok_or(("invalid_request", "value is required.".to_string()))?;
+    let element = accessibility_element(state, window, params)?;
+    reject_recent_user_intervention()?;
+    let pattern: IUIAutomationValuePattern =
+        unsafe { element.GetCurrentPatternAs(UIA_ValuePatternId) }.map_err(|_| {
+            (
+                "uia_pattern_unavailable",
+                "The element does not support Value.".to_string(),
+            )
+        })?;
+    unsafe { pattern.SetValue(&BSTR::from(value)) }.map_err(|error| {
+        (
+            "uia_action_failed",
+            format!("UI Automation value update failed: {error}"),
+        )
+    })?;
+    Ok(json!({"applied": true}))
+}
+
+fn accessibility_element<'a>(
+    state: &'a ServerState,
+    window: &WindowInfo,
+    params: &serde_json::Map<String, Value>,
+) -> Result<&'a IUIAutomationElement, (&'static str, String)> {
+    let revision = params
+        .get("accessibility_revision")
+        .and_then(Value::as_str)
+        .ok_or((
+            "stale_accessibility",
+            "accessibility_revision is required.".to_string(),
+        ))?;
+    let element_id = params
+        .get("element_id")
+        .and_then(Value::as_str)
+        .ok_or(("invalid_request", "element_id is required.".to_string()))?;
+    let snapshot = state.accessibility.get(revision).ok_or((
+        "stale_accessibility",
+        "Accessibility state is no longer available; observe the window again.".to_string(),
+    ))?;
+    if snapshot.window_hwnd != window.hwnd {
+        return Err((
+            "stale_accessibility",
+            "Element does not belong to this window.".to_string(),
+        ));
+    }
+    if !unsafe { IsWindow(Some(HWND(window.hwnd as _))).as_bool() } {
+        return Err((
+            "window_not_found",
+            "Target window no longer exists.".to_string(),
+        ));
+    }
+    let element = snapshot.elements.get(element_id).ok_or((
+        "element_not_found",
+        "Element is not available in this accessibility revision.".to_string(),
+    ))?;
+    if !unsafe { element.CurrentIsEnabled() }
+        .map(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        return Err((
+            "element_unavailable",
+            "Element is no longer enabled.".to_string(),
+        ));
+    }
+    Ok(element)
+}
