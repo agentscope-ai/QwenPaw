@@ -224,6 +224,15 @@ def _format_matches(
 @tool_descriptor(
     requires_modes=("coding",),
     requires_sandbox=("file_read",),
+    tool_type="file",
+    target_param="path",
+    pattern_param="pattern",
+    policy_name="AstSearch",
+    default_policy="allow",
+    policy_reason="AST search (global)",
+    ui_description="Search code by AST pattern (coding mode)",
+    ui_icon="🌳",
+    display_to_user=False,
 )
 async def ast_search(  # pylint: disable=too-many-return-statements
     pattern: str,

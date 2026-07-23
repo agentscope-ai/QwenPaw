@@ -5,6 +5,7 @@ import logging
 import logging.handlers
 import os
 import platform
+import re
 import sys
 from pathlib import Path
 
@@ -13,6 +14,8 @@ from ..constant import PROJECT_NAME, WORKING_DIR
 # Rotating file handler limits (idempotent add avoids duplicate handlers)
 _LOG_MAX_BYTES = 5 * 1024 * 1024  # 5 MiB
 _LOG_BACKUP_COUNT = 3
+_LOG_MAX_SIZE_ENV = "QWENPAW_LOG_MAX_SIZE"
+_LOG_BACKUP_COUNT_ENV = "QWENPAW_LOG_MAX_BACKUPS"
 
 
 _LEVEL_MAP = {
@@ -29,6 +32,82 @@ LOG_NAMESPACE = PROJECT_NAME.lower()
 # Canonical log file name and path — import these instead of reconstructing.
 LOG_FILE_BASENAME = f"{LOG_NAMESPACE}.log"
 LOG_FILE_PATH = WORKING_DIR / LOG_FILE_BASENAME
+
+_LOG_SIZE_PATTERN = re.compile(r"^\s*(\d+)\s*([kmgt]?i?b?)?\s*$", re.I)
+_LOG_SIZE_FACTORS = {
+    "": 1,
+    "b": 1,
+    "k": 1024,
+    "kb": 1024,
+    "kib": 1024,
+    "m": 1024**2,
+    "mb": 1024**2,
+    "mib": 1024**2,
+    "g": 1024**3,
+    "gb": 1024**3,
+    "gib": 1024**3,
+    "t": 1024**4,
+    "tb": 1024**4,
+    "tib": 1024**4,
+}
+
+
+def _parse_log_size(value: str) -> int:
+    """Parse a positive byte count with an optional binary size suffix."""
+    match = _LOG_SIZE_PATTERN.fullmatch(value)
+    if match is None:
+        raise ValueError("expected bytes or a K/KB/KiB-style size")
+    amount = int(match.group(1))
+    if amount <= 0:
+        raise ValueError("size must be greater than zero")
+    suffix = (match.group(2) or "").lower()
+    factor = _LOG_SIZE_FACTORS.get(suffix)
+    if factor is None:
+        raise ValueError(f"unsupported size suffix: {suffix}")
+    return amount * factor
+
+
+def _resolve_log_rotation_settings() -> tuple[int, int]:
+    """Resolve rotation settings from the environment with safe defaults."""
+    logger = logging.getLogger(LOG_NAMESPACE)
+    max_bytes = _LOG_MAX_BYTES
+    backup_count = _LOG_BACKUP_COUNT
+
+    raw_size = os.getenv(_LOG_MAX_SIZE_ENV)
+    if raw_size is not None:
+        try:
+            max_bytes = _parse_log_size(raw_size)
+        except ValueError as exc:
+            logger.warning(
+                "Ignoring invalid %s=%r (%s); using %s bytes",
+                _LOG_MAX_SIZE_ENV,
+                raw_size,
+                exc,
+                _LOG_MAX_BYTES,
+            )
+
+    raw_backups = os.getenv(_LOG_BACKUP_COUNT_ENV)
+    if raw_backups is not None:
+        try:
+            backup_count = int(raw_backups.strip())
+            if backup_count < 0:
+                raise ValueError("backup count must be non-negative")
+        except ValueError as exc:
+            backup_count = _LOG_BACKUP_COUNT
+            logger.warning(
+                "Ignoring invalid %s=%r (%s); using %s",
+                _LOG_BACKUP_COUNT_ENV,
+                raw_backups,
+                exc,
+                _LOG_BACKUP_COUNT,
+            )
+
+    return max_bytes, backup_count
+
+
+def sanitize_log_value(value: object) -> str:
+    """Escape line breaks in untrusted values before structured logging."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
 
 
 def _enable_windows_ansi() -> None:
@@ -217,8 +296,9 @@ def add_project_file_handler(log_path: Path) -> None:
     """Add a rotating file handler to the project logger for daemon logs.
 
     Uses _SafeRotatingFileHandler on all platforms with automatic log
-    rotation (max 5 MiB per file, 3 backups).  On Windows, rotation
-    errors caused by file locking are tolerated gracefully.
+    rotation. Defaults to 5 MiB per file and 3 backups; deployments can
+    override these with QWENPAW_LOG_MAX_SIZE and QWENPAW_LOG_MAX_BACKUPS.
+    On Windows, rotation errors caused by file locking are tolerated.
 
     Idempotent: if the logger already has a file handler for the same path,
     no new handler is added (avoids duplicate lines and leaked descriptors
@@ -240,11 +320,12 @@ def add_project_file_handler(log_path: Path) -> None:
             )
             return
 
+    max_bytes, backup_count = _resolve_log_rotation_settings()
     file_handler = _SafeRotatingFileHandler(
         log_path,
         encoding="utf-8",
-        maxBytes=_LOG_MAX_BYTES,
-        backupCount=_LOG_BACKUP_COUNT,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
     )
 
     file_handler.setLevel(logger.level or logging.INFO)

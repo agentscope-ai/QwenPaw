@@ -24,11 +24,20 @@ export interface ToolResultPruningConfig {
 
 export type ContextStrategy = "native" | "scroll";
 
+export interface ScrollConfig {
+  db_filename: string;
+  repl_timeout_s: number;
+  history_retention_days: number;
+  allow_unsandboxed: boolean;
+  offload_dialog: boolean;
+}
+
 export interface LightContextConfig {
   strategy: ContextStrategy;
   dialog_path: string;
   token_count_estimate_divisor: number;
   context_compact_config: ContextCompactConfig;
+  scroll_config: ScrollConfig;
   tool_result_pruning_config: ToolResultPruningConfig;
 }
 
@@ -58,7 +67,6 @@ export interface ReMeLightMemoryConfig {
   dream_cron: string;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
-  rebuild_memory_index_on_start: boolean;
 }
 
 export interface AutoTitleConfig {
@@ -99,10 +107,50 @@ export interface RubricGateConfig {
   in_loop_modes: boolean;
 }
 
+export type CustomGateType =
+  | "iteration"
+  | "doom_loop"
+  | "token_budget"
+  | "timeout"
+  | "tool_call_budget"
+  | "qualitative_rubric"
+  | "completion_rubric";
+
+export interface GateInstanceConfig {
+  id: string;
+  type: CustomGateType;
+  enabled: boolean;
+  params: Record<string, unknown>;
+}
+
+export interface CustomLoopModeConfig {
+  id: string;
+  name: string;
+  description: string;
+  slash_command: string;
+  enabled: boolean;
+  gates: GateInstanceConfig[];
+}
+
+export interface GoalLoopModeConfig {
+  max_iterations: number;
+  max_tokens: number;
+}
+
+export interface MissionLoopModeConfig {
+  max_iterations: number;
+  max_retries_per_story: number;
+  default_verification_instructions: string;
+  default_verify_command: string;
+}
+
 export interface LoopConfig {
   iteration?: IterationGateConfig;
   doom_loop: DoomLoopConfig;
   rubric?: RubricGateConfig;
+  goal?: GoalLoopModeConfig;
+  mission?: MissionLoopModeConfig;
+  custom_modes?: CustomLoopModeConfig[];
 }
 
 export interface AgentsRunningConfig {

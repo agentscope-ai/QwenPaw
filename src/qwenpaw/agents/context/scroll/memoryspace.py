@@ -44,7 +44,11 @@ _RECALL_EXCL_PLACEHOLDERS = ", ".join("?" for _ in _RECALL_TOOL_NAMES)
 # stub and the real request becomes searchable mid-turn again (echo loop).
 # Values must match SYNTHETIC_USER_MESSAGE_TAGS in qwenpaw.constant (this
 # module stays stdlib-only for the sandboxed REPL, so no import).
-_SYNTHETIC_USER_TAGS = ("loop_continuation", "auto_continue")
+_SYNTHETIC_USER_TAGS = (
+    "loop_continuation",
+    "auto_continue",
+    "rubric_evaluation",
+)
 
 _DATE_RE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
 _SAVED_TOOL_FILE_RE = re.compile(
@@ -871,7 +875,13 @@ class MemorySpace:
         seen: set[Path] = set()
         for raw_path, info in self._raw_saved_tool_refs(content, metadata):
             path = self._resolve_saved_tool_path(raw_path, root)
-            if path is None or path in seen or not path.is_file():
+            if path is None or path in seen:
+                continue
+            try:
+                if not path.is_file():
+                    continue
+            except OSError:
+                # is_file() may raise ENAMETOOLONG / EACCES on oversized paths
                 continue
             seen.add(path)
             refs.append((path, info))

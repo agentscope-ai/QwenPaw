@@ -123,7 +123,15 @@ async def _capture_macos_screencapture(
         return _tool_error(f"desktop_screenshot failed: {e!s}")
 
 
-@tool_descriptor(requires_sandbox=("file_write",), async_execution=True)
+@tool_descriptor(
+    requires_sandbox=("file_write",),
+    async_execution=True,
+    tool_type="file",
+    target_param="path",
+    policy_name="DesktopScreenshot",
+    ui_description="Capture desktop screenshots",
+    ui_icon="📸",
+)
 async def desktop_screenshot(
     path: str = "",
     capture_window: bool = False,

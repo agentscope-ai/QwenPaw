@@ -26,19 +26,27 @@ import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import { useCodingMode } from "../../stores/codingModeStore";
-import { useLoopStore, fetchAvailableLoopSkills } from "../../stores/loopStore";
-import { LoopCommandChip } from "../../components/LoopInput";
+import {
+  beginLoopModeSubmission,
+  fetchActiveLoopMode,
+  fetchAvailableLoopModes,
+  markLoopModeRunning,
+  prepareLoopModeMessage,
+  useLoopStore,
+} from "../../stores/loopStore";
+import { LoopModeSelector } from "../../components/LoopInput";
 import { useChatAnywhereInput } from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ChatSessionDrawer from "./components/ChatSessionDrawer";
 import { useSidebarModeStore } from "../../stores/sidebarModeStore";
-import TurnUsageAction from "./components/TurnUsageAction";
+import ContextUsageIndicator from "./components/ContextUsageIndicator";
 import {
   patchContextMaxInputLength,
   wrapChatResponseUsageStream,
 } from "./turnUsage";
+import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
@@ -1106,7 +1114,7 @@ export default function ChatPage() {
   const { codingMode, initialized } = useCodingMode();
   const codingModeRef = useRef(codingMode);
   codingModeRef.current = codingMode;
-  const loopSelectedSkill = useLoopStore((s) => s.selectedSkill);
+  const loopAvailableModes = useLoopStore((state) => state.availableModes);
 
   // Wide mode toggle: expand chat content to full available width
   const [isWideMode, setIsWideMode] = useState(() => {
@@ -1253,9 +1261,32 @@ export default function ChatPage() {
     };
   }, [queueSessionId]);
 
+  const syncLoopModeStatus = useCallback(() => {
+    const backendSessionId =
+      window.currentSessionId ||
+      (queueSessionId !== "new"
+        ? sessionApi.getBackendSessionId(queueSessionId)
+        : "");
+    return fetchActiveLoopMode({
+      chatId,
+      sessionId: backendSessionId,
+    });
+  }, [chatId, queueSessionId]);
+
   useEffect(() => {
-    void fetchAvailableLoopSkills();
-  }, []);
+    const controller = new AbortController();
+    useLoopStore.getState().resetSessionMode();
+    void fetchAvailableLoopModes(controller.signal);
+    if (chatId) {
+      void fetchActiveLoopMode({
+        chatId,
+        sessionId:
+          window.currentSessionId || sessionApi.getBackendSessionId(chatId),
+        signal: controller.signal,
+      });
+    }
+    return () => controller.abort();
+  }, [chatId, selectedAgent]);
 
   // Whether this tab is confirmed to be a non-owner (queue-only) tab.
   // Stays false until ownership check completes, preventing a flash of
@@ -1297,7 +1328,7 @@ export default function ChatPage() {
           ).currentSessionId = next.backendSessionId;
         }
         chatRef.current?.input.submit({
-          query: next.text,
+          query: beginLoopModeSubmission(next.text),
           fileList: buildFileList(next),
         });
       });
@@ -1658,76 +1689,6 @@ export default function ChatPage() {
   useChatInputDraft(isChatActive, selectedAgent);
   useChatPasteFromEditor();
 
-  // ── Loop chip intercept: detect __loop__ prefix from suggestion selection ──
-  useEffect(() => {
-    let rafId = 0;
-    let lastChecked = "";
-
-    const checkForLoopPrefix = () => {
-      const textarea = document
-        .querySelector('[class*="sender"]')
-        ?.querySelector("textarea") as HTMLTextAreaElement | null;
-      if (!textarea) return;
-      const val = textarea.value;
-      if (val === lastChecked) return;
-      lastChecked = val;
-      const loopMatch = val.match(/^\/?__loop__(\S+)/);
-      if (loopMatch) {
-        const skillName = loopMatch[1].trim();
-        const skills = useLoopStore.getState().availableSkills;
-        const skill = skills.find((s) => s.name === skillName) ?? {
-          name: skillName,
-          description: skillName,
-        };
-        useLoopStore.getState().setSelectedSkill(skill);
-        setTextareaValue(textarea, "");
-        lastChecked = "";
-      }
-    };
-
-    const onInput = () => checkForLoopPrefix();
-
-    const poll = () => {
-      checkForLoopPrefix();
-      rafId = requestAnimationFrame(poll);
-    };
-    rafId = requestAnimationFrame(poll);
-
-    document.addEventListener("input", onInput, true);
-    return () => {
-      cancelAnimationFrame(rafId);
-      document.removeEventListener("input", onInput, true);
-    };
-  }, []);
-
-  // ── Loop chip backspace: highlight on first backspace, delete on second ──
-  useEffect(() => {
-    const handleChipBackspace = (e: KeyboardEvent) => {
-      if (!isChatActive()) return;
-      if (e.key !== "Backspace") {
-        if (useLoopStore.getState().chipHighlighted) {
-          useLoopStore.getState().setChipHighlighted(false);
-        }
-        return;
-      }
-      const target = e.target as HTMLElement;
-      if (target?.tagName !== "TEXTAREA") return;
-      const textarea = target as HTMLTextAreaElement;
-      if (textarea.selectionStart !== 0 || textarea.value.length > 0) return;
-      if (!useLoopStore.getState().selectedSkill) return;
-
-      e.preventDefault();
-      if (useLoopStore.getState().chipHighlighted) {
-        useLoopStore.getState().setSelectedSkill(null);
-      } else {
-        useLoopStore.getState().setChipHighlighted(true);
-      }
-    };
-    document.addEventListener("keydown", handleChipBackspace, true);
-    return () =>
-      document.removeEventListener("keydown", handleChipBackspace, true);
-  }, [isChatActive]);
-
   // ── Message Queue ───────────────────────────────────────────────────────
 
   // Stop background sender for THIS session when ChatPage mounts (foreground
@@ -1786,12 +1747,11 @@ export default function ChatPage() {
       // The currently-sending item finished. Clear the marker so the next
       // Enter handler decision and lock acquisition see a clean state.
       useMessageQueueStore.getState().setCurrentSendingId(null);
-    }
-
-    if (responseJustCompleted || itemsJustQueued) {
+      void syncLoopModeStatus().finally(scheduleNextSend);
+    } else if (itemsJustQueued) {
       scheduleNextSend();
     }
-  }, [chatLoading, messageQueue, scheduleNextSend]);
+  }, [chatLoading, messageQueue, scheduleNextSend, syncLoopModeStatus]);
 
   // When this tab acquires ownership (e.g., previous owner closed), kick the
   // queue: any pending items left behind should now be sent by us.
@@ -1840,8 +1800,9 @@ export default function ChatPage() {
         message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
         return;
       }
+      const queueText = prepareLoopModeMessage(val);
       useMessageQueueStore.getState().enqueue(queueSessionId, {
-        text: val,
+        text: queueText,
         attachments:
           pendingFileListRef.current.length > 0
             ? pendingFileListRef.current.map((f) => ({
@@ -1904,7 +1865,7 @@ export default function ChatPage() {
         void withSendLock(queueSessionId, () => {
           useMessageQueueStore.getState().setCurrentSendingId(item.id);
           chatRef.current?.input.submit({
-            query: item.text,
+            query: beginLoopModeSubmission(item.text),
             fileList: buildFileList(item),
           });
         });
@@ -1930,7 +1891,7 @@ export default function ChatPage() {
           useMessageQueueStore.getState().setCurrentSendingId(head.id);
           useMessageQueueStore.getState().remove(queueSessionId, head.id);
           chatRef.current?.input.submit({
-            query: head.text,
+            query: beginLoopModeSubmission(head.text),
             fileList: buildFileList(head),
           });
         });
@@ -1955,7 +1916,7 @@ export default function ChatPage() {
           useMessageQueueStore.getState().setCurrentSendingId(id);
           useMessageQueueStore.getState().remove(queueSessionId, id);
           chatRef.current?.input.submit({
-            query: target.text,
+            query: beginLoopModeSubmission(target.text),
             fileList: buildFileList(target),
           });
         });
@@ -1976,7 +1937,7 @@ export default function ChatPage() {
           useMessageQueueStore.getState().setCurrentSendingId(next.id);
           useMessageQueueStore.getState().remove(queueSessionId, next.id);
           chatRef.current?.input.submit({
-            query: next.text,
+            query: beginLoopModeSubmission(next.text),
             fileList: buildFileList(next),
           });
         });
@@ -2022,7 +1983,26 @@ export default function ChatPage() {
       if (!pendingClearHistoryRef.current) return;
       pendingClearHistoryRef.current = false;
       chatRef.current?.messages.removeAllMessages();
+      useTurnUsageStore.getState().setSnapshot(null);
     });
+  }, []);
+
+  const handleCompactCommand = useCallback(() => {
+    chatRef.current?.input.submit({ query: "/compact" });
+  }, []);
+
+  const handleNewCommand = useCallback(() => {
+    const current = useTurnUsageStore.getState().snapshot;
+    const maxInputLength = current?.context_usage?.max_input_length ?? 131072;
+    useTurnUsageStore.getState().setSnapshot({
+      usage: null,
+      context_usage: {
+        estimated_tokens: 0,
+        max_input_length: maxInputLength,
+        context_usage_ratio: 0,
+      },
+    });
+    chatRef.current?.input.submit({ query: "/new" });
   }, []);
 
   // Tell sessionApi which session to put first in getSessionList, so the library's
@@ -2413,48 +2393,28 @@ export default function ChatPage() {
         description: t("chat.commands.compact.description"),
       },
       {
-        command: "/mission",
-        value: "__loop__mission",
-        description: t("chat.commands.mission.description"),
-      },
-      {
         command: "/skills",
         value: "skills",
         description: t("chat.commands.skills.description"),
-      },
-      {
-        command: "/goal",
-        value: "__loop__goal",
-        description: t("chat.commands.goal.description"),
       },
     ];
     const reservedCommands = new Set(
       commandSuggestions.map((item) => item.command.slice(1).trim()),
     );
-    const loopSkillNames = new Set(
-      useLoopStore.getState().availableSkills.map((s) => s.name),
+    const loopCommandNames = new Set(
+      loopAvailableModes.map((mode) => mode.slash_command).filter(Boolean),
     );
     const skillSuggestions: CommandSuggestion[] = consoleSkills
-      .filter((skill) => !reservedCommands.has(skill.name))
+      .filter(
+        (skill) =>
+          !reservedCommands.has(skill.name) &&
+          !loopCommandNames.has(skill.name),
+      )
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((skill) => ({
         command: `/${skill.name}`,
-        value: loopSkillNames.has(skill.name)
-          ? `__loop__${skill.name}`
-          : skill.name,
+        value: skill.name,
         description: "",
-      }));
-    const loopOnlySuggestions: CommandSuggestion[] = useLoopStore
-      .getState()
-      .availableSkills.filter(
-        (s) =>
-          !reservedCommands.has(s.name) &&
-          !consoleSkills.some((cs) => cs.name === s.name),
-      )
-      .map((s) => ({
-        command: `/${s.name}`,
-        value: `__loop__${s.name}`,
-        description: s.description,
       }));
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;
@@ -2475,8 +2435,7 @@ export default function ChatPage() {
           message.warning(t("chat.queue.queueFull", { max: MAX_QUEUE_SIZE }));
           return false;
         }
-        const loopSkill = useLoopStore.getState().selectedSkill;
-        const queueText = loopSkill ? `/${loopSkill.name} ${val}` : val;
+        const queueText = prepareLoopModeMessage(val);
         useMessageQueueStore.getState().enqueue(queueSessionId, {
           text: queueText,
           attachments:
@@ -2491,9 +2450,6 @@ export default function ChatPage() {
           userId: window.currentUserId || DEFAULT_USER_ID,
           channel: window.currentChannel || DEFAULT_CHANNEL,
         });
-        if (loopSkill) {
-          useLoopStore.getState().setSelectedSkill(null);
-        }
         pendingFileListRef.current = [];
         if (textarea) setTextareaValue(textarea, "");
         // Clear sender attachment preview (deferred to next tick)
@@ -2507,20 +2463,14 @@ export default function ChatPage() {
       // Clear pending attachments when sending directly (not through queue)
       pendingFileListRef.current = [];
 
-      // Inject loop command prefix when a chip is active
-      const loopState = useLoopStore.getState();
-      if (loopState.selectedSkill) {
-        const textarea = document
-          .querySelector('[class*="sender"]')
-          ?.querySelector("textarea") as HTMLTextAreaElement | null;
-        if (textarea) {
-          const prefix = `/${loopState.selectedSkill.name} `;
-          const current = textarea.value;
-          if (!current.startsWith(prefix)) {
-            setTextareaValue(textarea, `${prefix}${current}`);
-          }
+      const textarea = document
+        .querySelector('[class*="sender"]')
+        ?.querySelector("textarea") as HTMLTextAreaElement | null;
+      if (textarea) {
+        const prepared = beginLoopModeSubmission(textarea.value);
+        if (prepared !== textarea.value) {
+          setTextareaValue(textarea, prepared);
         }
-        loopState.setSelectedSkill(null);
       }
 
       return true;
@@ -2684,14 +2634,12 @@ export default function ChatPage() {
       );
     }
 
-    const baseSuggestions = [
-      ...commandSuggestions,
-      ...loopOnlySuggestions,
-      ...skillSuggestions,
-    ].map((item) => ({
-      label: renderSuggestionLabel(item.command, item.description),
-      value: item.value,
-    }));
+    const baseSuggestions = [...commandSuggestions, ...skillSuggestions].map(
+      (item) => ({
+        label: renderSuggestionLabel(item.command, item.description),
+        value: item.value,
+      }),
+    );
     const userMessageAnchorsConfig = {
       ...defaultConfig.theme.bubbleList.userMessageAnchors,
       variant: "navigator" as const,
@@ -2797,31 +2745,30 @@ export default function ChatPage() {
                 onTranscription={handleWhisperTranscription}
               />
             ) : null}
-            <LoopCommandChip />
-            {loopSelectedSkill ? (
-              <Tooltip title={t("loop.gotoSettings", "Agent Loop Settings")}>
-                <SettingOutlined
-                  style={{
-                    fontSize: 14,
-                    cursor: "pointer",
-                    color: "var(--text-secondary, rgba(0,0,0,0.45))",
-                    padding: "4px 6px",
-                  }}
-                  onClick={() => navigate("/agent-config?tab=agentLoop")}
-                />
-              </Tooltip>
-            ) : null}
+            <LoopModeSelector />
             {pluginSenderPrefix}
           </>
         ),
         actionAffix: (
-          <ApprovalLevelToggle
-            sessionId={queueSessionId}
-            runningConfigApprovalLevel={runningConfigApprovalLevel}
-            onChange={(sessionOverride) => {
-              sessionApprovalLevelRef.current = sessionOverride;
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
             }}
-          />
+          >
+            <ContextUsageIndicator
+              onCompact={handleCompactCommand}
+              onNew={handleNewCommand}
+            />
+            <ApprovalLevelToggle
+              sessionId={queueSessionId}
+              runningConfigApprovalLevel={runningConfigApprovalLevel}
+              onChange={(sessionOverride) => {
+                sessionApprovalLevelRef.current = sessionOverride;
+              }}
+            />
+          </span>
         ),
         attachments: {
           multiple: true,
@@ -2873,6 +2820,7 @@ export default function ChatPage() {
         fetch: customFetch,
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
+          markLoopModeRunning();
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
           if (payloadCompletesResponse(payload)) {
@@ -2967,13 +2915,6 @@ export default function ChatPage() {
       actions: {
         list: [
           {
-            render: ({
-              data,
-            }: {
-              data: { data?: Record<string, unknown> };
-            }) => <TurnUsageAction data={data} />,
-          },
-          {
             icon: (
               <span title={t("common.copy")}>
                 <SparkCopyLine />
@@ -3045,6 +2986,7 @@ export default function ChatPage() {
     extLists,
     scheduleHistoryClear,
     consoleSkills,
+    loopAvailableModes,
     selectedAgent,
     runningConfigApprovalLevel,
     queueSessionId,
@@ -3065,6 +3007,9 @@ export default function ChatPage() {
     handleQueueSkip,
     runState,
     isOwner,
+    syncLoopModeStatus,
+    handleCompactCommand,
+    handleNewCommand,
   ]);
 
   return (

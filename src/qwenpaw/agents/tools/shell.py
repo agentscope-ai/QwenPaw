@@ -493,7 +493,15 @@ def _is_dangerous_self_kill(cmd: str) -> bool:
 
 
 # pylint: disable=too-many-branches, too-many-statements
-@tool_descriptor(requires_sandbox=("shell_exec",), async_execution=True)
+@tool_descriptor(
+    requires_sandbox=("shell_exec",),
+    async_execution=True,
+    tool_type="shell",
+    target_param="command",
+    policy_name="Bash",
+    ui_description="Execute shell commands",
+    ui_icon="💻",
+)
 async def execute_shell_command(
     command: str,
     timeout: float = 60.0,

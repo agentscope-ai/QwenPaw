@@ -593,7 +593,17 @@ def _walk_and_glob(
 # ---------------------------------------------------------------------------
 
 
-@tool_descriptor(requires_sandbox=("file_read",), async_execution=True)
+@tool_descriptor(
+    requires_sandbox=("file_read",),
+    async_execution=True,
+    tool_type="file",
+    target_param="path",
+    policy_name="Grep",
+    default_policy="allow",
+    policy_reason="Content search (global)",
+    ui_description="Search file contents by pattern",
+    ui_icon="🔍",
+)
 async def grep_search(
     pattern: str,
     path: Optional[str] = None,
@@ -705,7 +715,18 @@ async def grep_search(
     return _make_response(result)
 
 
-@tool_descriptor(requires_sandbox=("file_read",), async_execution=True)
+@tool_descriptor(
+    requires_sandbox=("file_read",),
+    async_execution=True,
+    tool_type="file",
+    target_param="path",
+    pattern_param="pattern",
+    policy_name="Glob",
+    default_policy="allow",
+    policy_reason="File listing (global)",
+    ui_description="Find files matching a glob pattern",
+    ui_icon="📁",
+)
 async def glob_search(
     pattern: str,
     path: Optional[str] = None,

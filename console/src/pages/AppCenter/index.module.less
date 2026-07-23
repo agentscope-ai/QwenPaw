@@ -1,0 +1,621 @@
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pageBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 32px 36px;
+}
+
+.embedPage {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-container, #fff);
+  animation: slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  // Safe area CSS variables for PawApp developers
+  // Minimal safe area - floating capsule button overlays content like WeChat mini-programs
+  --pawapp-safe-area-top: 0px;
+  --pawapp-safe-area-right: 0px;
+  --pawapp-safe-area-bottom: 0px;
+  --pawapp-safe-area-left: 0px;
+
+  @media (max-width: 768px) {
+    --pawapp-safe-area-top: 0px;
+    --pawapp-safe-area-right: 0px;
+    --pawapp-safe-area-bottom: 0px;
+    --pawapp-safe-area-left: 0px;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  }
+  50% {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.18);
+  }
+}
+
+// WeChat mini-program style capsule button
+.floatingCapsule {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px) saturate(180%);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.15),
+    0 2px 4px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: pulse 2s ease-in-out 3;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.65);
+    border-color: rgba(255, 255, 255, 0.4);
+    box-shadow:
+      0 6px 20px rgba(0, 0, 0, 0.25),
+      0 3px 8px rgba(0, 0, 0, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+
+  // Mobile responsive
+  @media (max-width: 768px) {
+    top: 16px;
+    right: 16px;
+    height: 32px;
+    border-radius: 16px;
+  }
+}
+
+.capsuleBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  &:active {
+    background: rgba(255, 255, 255, 0.15);
+    transform: scale(0.95);
+  }
+
+  &:first-child {
+    border-radius: 18px 0 0 18px;
+  }
+
+  &:last-child {
+    border-radius: 0 18px 18px 0;
+  }
+
+  // Mobile responsive
+  @media (max-width: 768px) {
+    min-width: 32px;
+    height: 32px;
+    padding: 0 8px;
+
+    &:first-child {
+      border-radius: 16px 0 0 16px;
+    }
+
+    &:last-child {
+      border-radius: 0 16px 16px 0;
+    }
+  }
+}
+
+.capsuleDivider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+
+  @media (max-width: 768px) {
+    height: 16px;
+  }
+}
+
+.capsuleDots {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+
+  span {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: #fff;
+    display: block;
+  }
+
+  @media (max-width: 768px) {
+    gap: 2.5px;
+
+    span {
+      width: 2.5px;
+      height: 2.5px;
+    }
+  }
+}
+
+.capsuleCloseIcon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+
+  @media (max-width: 768px) {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+.embedFrame {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background: var(--color-bg-layout, #fafafa);
+  position: relative;
+
+  // ═══ 框架自动处理安全区域 ═══
+  // 应用无需任何配置，自动避开胶囊按钮
+  padding: calc(16px + var(--pawapp-safe-area-top, 0px))
+    calc(16px + var(--pawapp-safe-area-right, 0px))
+    calc(16px + var(--pawapp-safe-area-bottom, 0px))
+    calc(16px + var(--pawapp-safe-area-left, 0px));
+  box-sizing: border-box;
+
+  // Smooth scrolling
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  align-items: center;
+}
+
+.searchInput {
+  max-width: 320px;
+}
+
+.categorySelect {
+  min-width: 140px;
+}
+
+.refreshBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-border, #d9d9d9);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    border-color: var(--color-primary, #1677ff);
+    color: var(--color-primary, #1677ff);
+  }
+}
+
+.container {
+  flex: 1;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.gridLarge {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 24px;
+}
+
+.appCard {
+  position: relative;
+  cursor: pointer;
+  border-radius: 12px;
+  border: 1px solid var(--color-border-secondary, #f0f0f0);
+  background: var(--color-bg-container, #fff);
+  height: 100%;
+  min-height: 180px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  transition: all 0.3s ease;
+
+  &:hover {
+    transform: translateY(-4px);
+    border-color: var(--color-border, #d9d9d9);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  &:hover .cardUninstall {
+    opacity: 1;
+  }
+
+  &:hover .appCardIcon {
+    transform: scale(1.05);
+  }
+
+  :global(.ant-card-body) {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+
+.appCardLarge {
+  position: relative;
+  cursor: pointer;
+  border-radius: 20px;
+  border: 1px solid var(--color-border-secondary, #f0f0f0);
+  background: linear-gradient(
+    145deg,
+    var(--color-bg-container, #fff) 0%,
+    var(--color-bg-layout, #fafafa) 100%
+  );
+  height: 100%;
+  min-height: 260px;
+  overflow: hidden;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.03),
+    0 1px 2px rgba(0, 0, 0, 0.02);
+  transition:
+    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.25s ease;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 60%;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.8) 0%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    pointer-events: none;
+  }
+
+  &:hover {
+    transform: translateY(-8px) scale(1.01);
+    border-color: var(--color-primary-border, rgba(22, 119, 255, 0.4));
+    box-shadow:
+      0 6px 16px rgba(0, 0, 0, 0.06),
+      0 20px 48px -8px rgba(0, 0, 0, 0.18),
+      0 0 0 1px rgba(22, 119, 255, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  }
+
+  &:hover::before {
+    opacity: 1;
+  }
+
+  &:hover .cardUninstall {
+    opacity: 1;
+  }
+
+  &:hover .appCardIcon {
+    transform: scale(1.1);
+  }
+
+  :global(.ant-card-body) {
+    padding: 32px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+}
+
+.cardUninstall {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid var(--color-border-secondary, #f0f0f0);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--color-text-secondary, #8c8c8c);
+  cursor: pointer;
+  opacity: 0;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(8px);
+  transition: all 0.25s ease;
+
+  &:hover {
+    border-color: #ff4d4f;
+    color: #ff4d4f;
+    background: var(--color-error-bg, #fff2f0);
+    transform: scale(1.05);
+    box-shadow: 0 4px 14px rgba(255, 77, 79, 0.25);
+  }
+}
+
+.appCardIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  color: var(--color-primary, #1677ff);
+  background: linear-gradient(
+    135deg,
+    rgba(22, 119, 255, 0.12),
+    rgba(22, 119, 255, 0.04)
+  );
+  box-shadow: inset 0 0 0 1px rgba(22, 119, 255, 0.1);
+  transition: transform 0.3s ease;
+}
+
+.appCardIconLarge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 22px;
+  color: var(--color-primary, #1677ff);
+  background: linear-gradient(
+    135deg,
+    rgba(22, 119, 255, 0.16),
+    rgba(22, 119, 255, 0.06),
+    rgba(22, 119, 255, 0.02)
+  );
+  box-shadow:
+    inset 0 0 0 1px rgba(22, 119, 255, 0.15),
+    0 4px 12px rgba(22, 119, 255, 0.08);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.appEmoji {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.appEmojiLarge {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.appCardBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.appCardHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.appCardTitle {
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.appCardTitleLarge {
+  font-size: 19px;
+  line-height: 1.3;
+  letter-spacing: 0.3px;
+  font-weight: 600;
+}
+
+.appCardVersion {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-tertiary, #bfbfbf);
+  font-variant-numeric: tabular-nums;
+}
+
+.appCardVersionLarge {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-tertiary, #bfbfbf);
+  font-variant-numeric: tabular-nums;
+}
+
+.appCardDesc {
+  margin: 0 !important;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-secondary, rgba(0, 0, 0, 0.65));
+}
+
+.appCardDescLarge {
+  margin: 0 !important;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--color-text-secondary, rgba(0, 0, 0, 0.65));
+}
+
+.appCardTag {
+  align-self: flex-start;
+  margin: 4px 0 0 !important;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #595959);
+  background: var(--color-fill-quaternary, #f5f5f5);
+}
+
+.appCardTagLarge {
+  align-self: flex-start;
+  margin: 4px 0 0 !important;
+  padding: 3px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 22px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #595959);
+  background: var(--color-fill-quaternary, #f5f5f5);
+}
+
+.marketToolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  align-items: center;
+}
+
+.marketSection {
+  margin-top: 48px;
+  padding-top: 32px;
+  border-top: 2px solid var(--color-border-secondary, #f0f0f0);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+  color: var(--color-text, rgba(0, 0, 0, 0.88));
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--color-text, rgba(0, 0, 0, 0.88));
+}
+
+.marketCardBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.marketMeta {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #8c8c8c);
+}
+
+.marketActions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+
+  :global(.ant-btn) {
+    height: 36px;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 10px;
+  }
+}
+
+.marketLogo {
+  width: 68px;
+  height: 68px;
+  border-radius: 16px;
+  object-fit: contain;
+}
+
+.featuredBadge {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 50%, #ffd700 100%);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  box-shadow:
+    0 4px 12px rgba(255, 215, 0, 0.35),
+    0 0 0 3px rgba(255, 215, 0, 0.15),
+    inset 0 1px 2px rgba(255, 255, 255, 0.5);
+  animation: featured-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes featured-pulse {
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+    box-shadow:
+      0 4px 12px rgba(255, 215, 0, 0.35),
+      0 0 0 3px rgba(255, 215, 0, 0.15),
+      inset 0 1px 2px rgba(255, 255, 255, 0.5);
+  }
+  50% {
+    transform: scale(1.1) rotate(5deg);
+    box-shadow:
+      0 6px 16px rgba(255, 215, 0, 0.5),
+      0 0 0 4px rgba(255, 215, 0, 0.25),
+      inset 0 1px 2px rgba(255, 255, 255, 0.6);
+  }
+}

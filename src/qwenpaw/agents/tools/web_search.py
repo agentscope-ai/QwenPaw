@@ -188,7 +188,16 @@ def _html_to_text(html_content: str) -> str:
     return body
 
 
-@tool_descriptor(async_execution=True)
+@tool_descriptor(
+    async_execution=True,
+    tool_type="network",
+    target_param="search_term",
+    policy_name="WebSearch",
+    default_policy="allow",
+    policy_reason="Allow web search",
+    ui_description="Search the web for real-time information",
+    ui_icon="🔎",
+)
 async def web_search(search_term: str) -> ToolChunk:
     """Search the web for real-time information about any topic. Returns summarized information from search results and relevant URLs.
 
@@ -254,7 +263,16 @@ async def web_search(search_term: str) -> ToolChunk:
     )
 
 
-@tool_descriptor(async_execution=True)
+@tool_descriptor(
+    async_execution=True,
+    tool_type="network",
+    target_param="url",
+    policy_name="WebFetch",
+    default_policy="allow",
+    policy_reason="Allow web fetch",
+    ui_description="Fetch and read content from a URL",
+    ui_icon="📥",
+)
 async def web_fetch(url: str) -> ToolChunk:
     """Fetch content from a specified URL and return its contents in a readable format. Use this tool when you need to retrieve and analyze webpage content.
 

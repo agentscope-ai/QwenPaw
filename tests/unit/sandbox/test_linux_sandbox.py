@@ -38,6 +38,13 @@ pytestmark = pytest.mark.skipif(
 class TestProbeSandboxSupport:
     """Test probe_sandbox_support() for each platform."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_probe_cache(self):
+        """Clear lru_cache so each test starts fresh."""
+        probe_sandbox_support.cache_clear()
+        yield
+        probe_sandbox_support.cache_clear()
+
     @patch("sys.platform", "darwin")
     @patch("shutil.which", return_value="/usr/bin/sandbox-exec")
     def test_darwin_delegates_to_seatbelt(self, mock_which):

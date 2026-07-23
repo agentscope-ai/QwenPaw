@@ -13,6 +13,31 @@ from .base import StopAction, StopHandlerResult
 logger = logging.getLogger(__name__)
 
 
+def _registration_is_active(reg: Any) -> bool:
+    """Return whether a non-default scoped registration is active."""
+    predicate = getattr(reg, "is_active", None)
+    if callable(predicate):
+        try:
+            return bool(predicate())
+        except Exception:
+            logger.warning(
+                "Stop handler '%s' active check raised",
+                getattr(reg, "name", "?"),
+                exc_info=True,
+            )
+            return False
+
+    from .loop_gate import LoopGate
+
+    handler = reg.handler
+    gates = getattr(handler, "gates", [])
+    return any(
+        isinstance(gate, LoopGate)
+        and gate._state() is not None  # pylint: disable=protected-access
+        for gate in gates
+    )
+
+
 def _filter_by_scope(
     handlers: list,
 ) -> list:
@@ -23,22 +48,12 @@ def _filter_by_scope(
     run; "default"-scoped handlers are skipped.
     Handlers without a scope (``scope=""``) always run.
     """
-    from .loop_gate import LoopGate
-
     active_scope: str = ""
     for reg in handlers:
         scope = getattr(reg, "scope", "")
-        if scope and scope != "default":
-            handler = reg.handler
-            gates = getattr(handler, "gates", [])
-            for g in gates:
-                # pylint: disable=protected-access
-                has_state = isinstance(g, LoopGate) and g._state() is not None
-                if has_state:
-                    active_scope = scope
-                    break
-            if active_scope:
-                break
+        if scope and scope != "default" and _registration_is_active(reg):
+            active_scope = scope
+            break
 
     result: list = []
     for reg in handlers:
@@ -141,8 +156,8 @@ def apply_stop_result(  # pylint: disable=protected-access
     """Process stop_result and set pending state on agent.
 
     Called after _run_stop_handlers in a tool-call iteration.
-    Defers both TERMINATE and INTERRUPT_AND_CONTINUE
-    actions to next iteration.
+    Defers TERMINATE until the tool results are processed. A continuation
+    prompt is unnecessary because tool calls already continue the loop.
     """
     if is_tool_call:
         if stop_result.action == StopAction.TERMINATE and stop_result.reason:
@@ -151,15 +166,6 @@ def apply_stop_result(  # pylint: disable=protected-access
                 stop_result.reason,
             )
             agent._gate_pending_stop = stop_result
-        elif (
-            stop_result.action == StopAction.INTERRUPT_AND_CONTINUE
-            and stop_result.continuation_message
-        ):
-            logger.info(
-                "Gate wants continue (deferred): %s",
-                stop_result.reason,
-            )
-            agent._gate_pending_continue = stop_result.continuation_message
 
 
 def check_pending_gates(  # pylint: disable=protected-access
@@ -168,8 +174,7 @@ def check_pending_gates(  # pylint: disable=protected-access
     """Check and consume pending gate state.
 
     Returns:
-        StopHandlerResult if pending TERMINATE applies,
-        None otherwise (also injects pending continue into ctx).
+        StopHandlerResult if pending TERMINATE applies, otherwise None.
     """
     pending = getattr(agent, "_gate_pending_stop", None)
     if pending is not None:
@@ -180,37 +185,21 @@ def check_pending_gates(  # pylint: disable=protected-access
         )
         return pending
 
-    cont_msg = getattr(
-        agent,
-        "_gate_pending_continue",
-        None,
-    )
-    if cont_msg:
-        agent._gate_pending_continue = None
-        from agentscope.message import Msg, TextBlock
-
-        from ...constant import (
-            LOOP_CONTINUATION_MESSAGE_TAG,
-            QWENPAW_MESSAGE_TAG_KEY,
-        )
-
-        agent.state.context.append(
-            Msg(
-                name="user",
-                role="user",
-                content=[
-                    TextBlock(type="text", text=cont_msg),
-                ],
-                metadata={
-                    QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
-                },
-            ),
-        )
     return None
+
+
+def clear_pending_gate_state(
+    agent: Any,
+) -> None:
+    """Clear deferred gate decisions stored on an agent."""
+    if agent is None:
+        return
+    agent._gate_pending_stop = None  # pylint: disable=protected-access
 
 
 __all__ = [
     "run_stop_handlers",
     "apply_stop_result",
     "check_pending_gates",
+    "clear_pending_gate_state",
 ]

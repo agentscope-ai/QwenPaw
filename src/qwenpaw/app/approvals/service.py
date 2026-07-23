@@ -64,6 +64,16 @@ class PendingApproval:
     scope: ApprovalScope | None = None
 
 
+def _is_spawn_child_approval(pending: PendingApproval) -> bool:
+    """Return whether this approval belongs to a same-agent spawned child."""
+    return bool(
+        pending.extra.get("_spawn_subagent")
+        and pending.agent_id == pending.owner_agent_id
+        and pending.session_id != pending.root_session_id
+        and pending.root_session_id,
+    )
+
+
 # ------------------------------------------------------------------
 # Service
 # ------------------------------------------------------------------
@@ -79,12 +89,15 @@ class ApprovalService:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._pending: dict[str, PendingApproval] = {}
+        self._channel_managers: dict[str, Any] = {}
 
     def set_channel_manager(
         self,
         channel_manager: Any,
-    ) -> None:  # noqa: ARG002
-        """Legacy no-op kept for backward compat."""
+        agent_id: str = "default",
+    ) -> None:
+        """Register an agent's channel manager for spawned-child routing."""
+        self._channel_managers[agent_id] = channel_manager
 
     async def _notify_channel(
         self,
@@ -94,13 +107,26 @@ class ApprovalService:
         """Fire-and-forget: push approval notification to channel."""
         if not pending.channel or pending.channel == "console":
             return
-        channel_instance = (pending.extra or {}).get("_channel_instance")
-        if channel_instance is None:
-            return
-        channel_meta = (pending.extra or {}).get("channel_meta")
+        is_spawn_child = _is_spawn_child_approval(pending)
         try:
+            channel_instance = (pending.extra or {}).get("_channel_instance")
+            if is_spawn_child:
+                channel_manager = self._channel_managers.get(pending.agent_id)
+                if channel_manager is None:
+                    return
+                channel_instance = await channel_manager.get_channel(
+                    pending.channel,
+                )
+            if channel_instance is None:
+                return
+            channel_meta = (pending.extra or {}).get("channel_meta")
+            delivery_session_id = (
+                pending.root_session_id
+                if is_spawn_child
+                else pending.session_id
+            )
             await channel_instance.send_approval_notification(
-                session_id=pending.session_id,
+                session_id=delivery_session_id,
                 user_id=pending.user_id,
                 request_id=pending.request_id,
                 tool_name=pending.tool_name,
@@ -178,7 +204,10 @@ class ApprovalService:
         if (
             channel
             and channel != "console"
-            and (extra or {}).get("_channel_instance")
+            and (
+                (extra or {}).get("_channel_instance")
+                or _is_spawn_child_approval(pending)
+            )
         ):
             channel_body = format_channel_approval_body(result)
             asyncio.create_task(
@@ -243,7 +272,10 @@ class ApprovalService:
         if (
             channel
             and channel != "console"
-            and (extra or {}).get("_channel_instance")
+            and (
+                (extra or {}).get("_channel_instance")
+                or _is_spawn_child_approval(pending)
+            )
         ):
             asyncio.create_task(
                 self._notify_channel(pending, pending.result_summary),

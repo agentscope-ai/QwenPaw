@@ -36,6 +36,7 @@ from ....config.config import TelegramConfig as TelegramChannelConfig
 from ....constant import WORKING_DIR
 from .format_html import markdown_to_telegram_html
 from ..utils import file_url_to_local_path
+from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -313,13 +314,11 @@ class TelegramChannel(BaseChannel):
         http_proxy_auth: str,
         bot_prefix: str,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
         media_dir: str = "",
         workspace_dir: Path | None = None,
         show_typing: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         dm_policy: str = "open",
         group_policy: str = "open",
         allow_from: Optional[list] = None,
@@ -333,10 +332,8 @@ class TelegramChannel(BaseChannel):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config,
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             dm_policy=dm_policy,
             group_policy=group_policy,
             allow_from=allow_from,
@@ -617,10 +614,8 @@ class TelegramChannel(BaseChannel):
         process: ProcessHandler,
         config: Union[TelegramChannelConfig, dict],
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "TelegramChannel":
         if isinstance(config, dict):
@@ -644,10 +639,9 @@ class TelegramChannel(BaseChannel):
             http_proxy_auth=_get_str("http_proxy_auth"),
             bot_prefix=_get_str("bot_prefix"),
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             workspace_dir=workspace_dir,
             show_typing=show_typing,
             dm_policy=c.get("dm_policy") or "open",

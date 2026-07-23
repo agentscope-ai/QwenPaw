@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
 """Task tracker for background runs: streaming, reconnect, multi-subscriber.
 
-For internal streaming runs, ``run_key`` is typically ``ChatSpec.id``
-(chat_id). For externally-managed tasks (registered via
-:meth:`TaskTracker.register_external_task`), ``run_key`` is an opaque
-identifier chosen by the caller (e.g. a UUID prefixed with ``"ext-"``).
-Per run: task, queues, event buffer. Reconnects get buffer replay + new
-events. Cleanup when task completes.
+``run_key`` is typically ``ChatSpec.id`` (chat_id). Per run: task, queues,
+event buffer. Reconnects get buffer replay + new events. Cleanup when task
+completes.
 """
 from __future__ import annotations
 
@@ -128,64 +125,6 @@ class TaskTracker:
         except asyncio.TimeoutError:
             return False
 
-    async def register_external_task(self, run_key: str) -> None:
-        """Register an externally-managed task so it is visible to
-        :meth:`has_active_tasks` and :meth:`wait_all_done`.
-
-        This is used for tasks managed outside of QwenPaw's own streaming
-        pipeline (e.g. background tasks dispatched through a third-party
-        scheduler).  The caller **must** call
-        :meth:`unregister_external_task` when the task completes.
-
-        Args:
-            run_key: Unique identifier for the external task.
-        """
-        start_time = datetime.now(timezone.utc)
-        async with self._lock:
-            if run_key in self._runs and not self._runs[run_key].task.done():
-                logger.debug(
-                    "External task already registered: %s",
-                    run_key,
-                )
-                return
-            # Use an unresolved Future as the "task" — it stays not-done
-            # until unregister_external_task resolves it.
-            future: asyncio.Future = asyncio.get_running_loop().create_future()
-            self._runs[run_key] = _RunState(
-                task=future,
-                queues=[],
-                buffer=[],
-                start_time=start_time,
-            )
-            self._global_last_run_at = start_time
-            logger.debug("Registered external task: %s", run_key)
-
-    async def unregister_external_task(self, run_key: str) -> None:
-        """Mark an externally-managed task as done and remove it.
-
-        Sends the sentinel value to any subscriber queues so their
-        :meth:`stream_from_queue` consumers terminate cleanly instead of
-        hanging. Idempotent — safe to call even if *run_key* was never
-        registered or was already unregistered.
-
-        Args:
-            run_key: Unique identifier previously passed to
-                :meth:`register_external_task`.
-        """
-        finish_time = datetime.now(timezone.utc)
-        async with self._lock:
-            state = self._runs.pop(run_key, None)
-            if state is None:
-                return
-            # Notify any subscriber queues so consumers exit cleanly.
-            for q in state.queues:
-                q.put_nowait(_SENTINEL)
-            if not state.task.done():
-                state.task.set_result(None)
-            state.finish_time = finish_time
-            self._global_last_finish_at = finish_time
-            logger.debug("Unregistered external task: %s", run_key)
-
     async def attach(self, run_key: str) -> asyncio.Queue | None:
         """Attach to an existing run.
 
@@ -241,9 +180,14 @@ class TaskTracker:
                 "[STOP] Calling task.cancel() for run_key=%s",
                 run_key,
             )
-            state.task.cancel()
+            task = state.task
+            task.cancel()
             logger.debug("[STOP] task.cancel() called for run_key=%s", run_key)
-            return True
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        return True
 
     async def attach_or_start(
         self,

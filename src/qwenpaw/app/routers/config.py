@@ -4,7 +4,15 @@ import asyncio
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+)
 from pydantic import BaseModel, Field
 
 from ..utils import schedule_agent_reload
@@ -811,31 +819,138 @@ class SandboxSettingBody(BaseModel):
     )
 
 
+class SandboxStatusResponse(BaseModel):
+    """Sandbox config + runtime effective status."""
+
+    enabled: bool = Field(
+        description="The configured value of security.sandbox_enabled.",
+    )
+    effective: bool = Field(
+        description=(
+            "Whether the sandbox is actually active this session. "
+            "May be False even when enabled=True (e.g. non-admin on Windows)."
+        ),
+    )
+    reason: Optional[str] = Field(
+        default=None,
+        description=(
+            "When effective != enabled, explains why. "
+            "None when effective == enabled."
+        ),
+    )
+
+
+async def _sandbox_effective_status(
+    enabled: bool,
+) -> tuple[bool, Optional[str]]:
+    """Return (effective, reason) for the sandbox setting.
+
+    Checks both platform-level permissions (admin on Windows) and
+    actual sandbox capability availability.
+
+    The capability probe runs in a thread-pool worker via
+    ``asyncio.to_thread`` so that the (potentially blocking) first
+    call never stalls the async event loop.  Subsequent calls hit
+    the ``lru_cache`` and return instantly.
+    """
+    if not enabled:
+        return False, None
+
+    # Check platform-level permissions
+    from ...utils.platform import is_windows_admin
+
+    if not is_windows_admin():
+        return False, "not_admin"
+
+    # Check if sandbox backend is actually available on this platform.
+    # probe_sandbox_support() is lru_cache'd; the first call may block
+    # (subprocess.run on Linux), so we offload it to a thread.
+    from ...sandbox import probe_sandbox_support
+
+    capability = await asyncio.to_thread(probe_sandbox_support)
+    if not capability.supported:
+        return False, "unsupported"
+
+    return True, None
+
+
 @router.get(
     "/security/sandbox",
-    response_model=SandboxSettingBody,
+    response_model=SandboxStatusResponse,
     summary="Get global sandbox switch",
 )
-async def get_sandbox_setting() -> SandboxSettingBody:
+async def get_sandbox_setting(
+    enabled: Optional[bool] = Query(
+        default=None,
+        description=(
+            "If provided, compute effective/reason for this proposed value "
+            "without persisting it. Useful for the frontend to preview the "
+            "runtime status before saving."
+        ),
+    ),
+) -> SandboxStatusResponse:
     config = load_config()
-    return SandboxSettingBody(enabled=config.security.sandbox_enabled)
+    current_enabled = config.security.sandbox_enabled
+    # Use the proposed value if provided, otherwise the current config value.
+    target_enabled = enabled if enabled is not None else current_enabled
+    effective, reason = await _sandbox_effective_status(target_enabled)
+    return SandboxStatusResponse(
+        enabled=target_enabled,
+        effective=effective,
+        reason=reason,
+    )
 
 
 @router.put(
     "/security/sandbox",
-    response_model=SandboxSettingBody,
+    response_model=SandboxStatusResponse,
     summary="Update global sandbox switch",
 )
 async def put_sandbox_setting(
     body: SandboxSettingBody = Body(...),
-) -> SandboxSettingBody:
+) -> SandboxStatusResponse:
     config = load_config()
+    current_enabled = config.security.sandbox_enabled
+
+    # Idempotent: if the value hasn't changed, return current status
+    # without triggering the admin guard. This prevents partial-save
+    # issues when the frontend saves other security settings alongside
+    # an unchanged sandbox value.
+    if body.enabled == current_enabled:
+        effective, reason = await _sandbox_effective_status(body.enabled)
+        return SandboxStatusResponse(
+            enabled=body.enabled,
+            effective=effective,
+            reason=reason,
+        )
+
+    # Guard: enabling sandbox on Windows requires admin privileges.
+    # Refuse early with a clear, actionable message rather than letting
+    # the user flip the switch and hit cryptic ACL failures later.
+    from ...utils.platform import is_windows_admin
+
+    if body.enabled and not is_windows_admin():
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Sandbox requires administrator privileges on Windows.\n\n"
+                "To enable the sandbox, restart QwenPaw with administrator "
+                "privileges:\n"
+                "  - Desktop: right-click the shortcut "
+                "\u2192 Run as administrator\n"
+                "  - CLI: open an elevated terminal, then run `qwenpaw app`\n"
+                "Then come back to Settings and re-enable the sandbox."
+            ),
+        )
+
     config.security.sandbox_enabled = body.enabled
     save_config(config)
-    # No governor reload needed: ResourceGovernor reads this switch via the
-    # mtime-cached load_config() on each policy evaluation, and save_config
-    # invalidates that cache, so the change takes effect on the next call.
-    return body
+    effective, reason = await _sandbox_effective_status(body.enabled)
+    return SandboxStatusResponse(
+        enabled=body.enabled,
+        effective=effective,
+        reason=reason,
+    )
 
 
 # ── Security / File Guard ────────────────────────────────────────────

@@ -253,9 +253,12 @@ export function installHostExternals(): void {
   //   1. route.add with id = `legacy:<pluginId>:<path>`
   //   2. menu.add under the synthesized `plugins-group` (settings location).
   // Visual output matches the pre-refactor Sidebar plugins-group rendering.
+  //
+  // EXCEPTION: PawApp routes (path starting with `/apps/`) register the
+  // route only — NO sidebar menu entry. PawApps are reachable exclusively
+  // through the App Center, which renders them inline via routeRegistry.
   if (!window.QwenPaw.registerRoutes) {
     window.QwenPaw.registerRoutes = (pluginId, routes) => {
-      ensurePluginsGroup();
       for (const r of routes) {
         const id = `legacy:${pluginId}:${r.path.replace(/^\//, "")}`;
         routeRegistry.add(pluginId, {
@@ -263,6 +266,12 @@ export function installHostExternals(): void {
           path: r.path,
           component: r.component,
         });
+
+        // PawApp pages are surfaced only in the App Center — never as a
+        // standalone sidebar menu item.
+        if (/^\/apps\//.test(r.path)) continue;
+
+        ensurePluginsGroup();
         menuRegistry.add(pluginId, {
           id,
           location: "primary.settings",

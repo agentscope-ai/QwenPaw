@@ -16,6 +16,7 @@ from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
+from ..loop.gates.runner import clear_pending_gate_state
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
@@ -208,44 +209,31 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Write the rolling compaction summary."""
         self._state.summary = value or ""
 
-    def _reset_stop_gates(  # pylint: disable=protected-access
+    async def _reset_modes(
         self,
     ) -> None:
-        """Reset all gate / mode state on /new or /clear."""
-        ws = getattr(
-            self._prompt_context,
-            "workspace",
-            None,
-        )
-        if ws is None:
+        """Reset mode-owned state on /new or /clear."""
+        ctx = self._prompt_context
+        if ctx is None:
+            clear_pending_gate_state(self._agent)
             return
-
-        handler = getattr(ws, "_stop_handler", None)
-        if handler is not None:
-            handler.reset()
+        if getattr(ctx, "agent", None) is None and self._agent is not None:
+            ctx.agent = self._agent
 
         for mode in getattr(
-            getattr(ws, "plugins", None),
+            getattr(getattr(ctx, "workspace", None), "plugins", None),
             "modes",
             [],
         ):
             try:
-                mode.on_conversation_reset(ws)
+                await mode.on_conversation_reset(ctx)
             except Exception:  # noqa: BLE001
                 logger.warning(
                     "mode '%s' reset raised",
                     getattr(mode, "name", "?"),
                     exc_info=True,
                 )
-
-        agent = self._agent or getattr(
-            self._prompt_context,
-            "agent",
-            None,
-        )
-        if agent is not None:
-            agent._gate_pending_stop = None
-            agent._gate_pending_continue = None
+        clear_pending_gate_state(getattr(ctx, "agent", None) or self._agent)
 
     def is_command(self, query: str | None) -> bool:
         """Check if the query is a system command (alias for mixin)."""
@@ -273,8 +261,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         )
 
     def _has_memory_manager(self) -> bool:
-        """Check if memory manager is available."""
-        return self.memory_manager is not None
+        """Return whether a functional memory manager is enabled."""
+        manager = self.memory_manager
+        return manager is not None and getattr(manager, "enabled", True)
 
     def _current_session_id(self) -> str:
         """Resolve the active session id on a best-effort basis.
@@ -579,7 +568,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     async def _process_new(self, messages: list[Msg], _args: str = "") -> Msg:
         """Process /new command."""
-        self._reset_stop_gates()
+        await self._reset_modes()
         if not messages:
             self._set_summary("")
             return await self._make_system_msg(
@@ -620,7 +609,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Process /clear command."""
         await self._persist_and_clear()
         self._set_summary("")
-        self._reset_stop_gates()
+        await self._reset_modes()
         return await self._make_system_msg(
             "**History Cleared!**\n\n"
             "- Compressed summary reset\n"
@@ -815,7 +804,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
             return await self._make_system_msg(
                 "**Memory Manager Disabled**\n\n"
                 "- Cannot inspect ReMe memory usage\n"
-                "- Enable the ReMe memory manager to use this feature",
+                "- Set `memory_manager_backend` to `remelight` and restart "
+                "QwenPaw to enable this feature",
             )
 
         try:

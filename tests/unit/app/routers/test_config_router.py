@@ -352,3 +352,153 @@ def test_put_tool_guard_saves_and_reloads_engine(client):
     # The handler must flip the engine flag AND ask it to reload rules.
     assert engine_mock.enabled is True
     engine_mock.reload_rules.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# /config/security/sandbox — GET
+# ---------------------------------------------------------------------------
+
+
+def test_get_sandbox_returns_enabled_effective_reason(client):
+    """GET /security/sandbox returns enabled, effective, reason fields."""
+    fake_cfg = MagicMock()
+    fake_cfg.security.sandbox_enabled = True
+
+    with (
+        patch(
+            "qwenpaw.app.routers.config.load_config",
+            return_value=fake_cfg,
+        ),
+        patch(
+            "qwenpaw.app.routers.config._sandbox_effective_status",
+            return_value=(True, None),
+        ),
+    ):
+        response = client.get("/api/config/security/sandbox")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["effective"] is True
+    assert body["reason"] is None
+
+
+def test_get_sandbox_preview_with_enabled_param(client):
+    """GET /security/sandbox?enabled=false previews without persisting."""
+    fake_cfg = MagicMock()
+    fake_cfg.security.sandbox_enabled = True
+
+    with (
+        patch(
+            "qwenpaw.app.routers.config.load_config",
+            return_value=fake_cfg,
+        ),
+        patch(
+            "qwenpaw.app.routers.config._sandbox_effective_status",
+            return_value=(False, None),
+        ) as mock_status,
+    ):
+        response = client.get("/api/config/security/sandbox?enabled=false")
+
+    assert response.status_code == 200
+    body = response.json()
+    # The preview should use the proposed value, not the current config.
+    assert body["enabled"] is False
+    mock_status.assert_called_once_with(False)
+
+
+# ---------------------------------------------------------------------------
+# /config/security/sandbox — PUT (idempotent + admin guard)
+# ---------------------------------------------------------------------------
+
+
+def test_put_sandbox_idempotent_same_value_no_403(client):
+    """PUT with unchanged value must NOT trigger admin guard (M1 fix)."""
+    fake_cfg = MagicMock()
+    fake_cfg.security.sandbox_enabled = True
+
+    with (
+        patch(
+            "qwenpaw.app.routers.config.load_config",
+            return_value=fake_cfg,
+        ),
+        patch(
+            "qwenpaw.app.routers.config._sandbox_effective_status",
+            return_value=(False, "not_admin"),
+        ),
+        # is_windows_admin is lazily imported from utils.platform
+        patch(
+            "qwenpaw.utils.platform.is_windows_admin",
+        ) as mock_admin,
+        patch("qwenpaw.app.routers.config.save_config") as mock_save,
+    ):
+        response = client.put(
+            "/api/config/security/sandbox",
+            json={"enabled": True},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["effective"] is False
+    assert body["reason"] == "not_admin"
+    # Must NOT have checked admin status (idempotent path)
+    mock_admin.assert_not_called()
+    # Must NOT have saved (value unchanged)
+    mock_save.assert_not_called()
+
+
+def test_put_sandbox_non_admin_enabling_returns_403(client):
+    """PUT enabling sandbox as non-admin must return 403."""
+    fake_cfg = MagicMock()
+    fake_cfg.security.sandbox_enabled = False
+
+    with (
+        patch(
+            "qwenpaw.app.routers.config.load_config",
+            return_value=fake_cfg,
+        ),
+        patch(
+            "qwenpaw.utils.platform.is_windows_admin",
+            return_value=False,
+        ),
+    ):
+        response = client.put(
+            "/api/config/security/sandbox",
+            json={"enabled": True},
+        )
+
+    assert response.status_code == 403
+    assert "administrator" in response.json()["detail"].lower()
+
+
+def test_put_sandbox_admin_enabling_saves(client):
+    """PUT enabling sandbox as admin must save and return effective=true."""
+    fake_cfg = MagicMock()
+    fake_cfg.security.sandbox_enabled = False
+
+    with (
+        patch(
+            "qwenpaw.app.routers.config.load_config",
+            return_value=fake_cfg,
+        ),
+        patch(
+            "qwenpaw.utils.platform.is_windows_admin",
+            return_value=True,
+        ),
+        patch(
+            "qwenpaw.app.routers.config._sandbox_effective_status",
+            return_value=(True, None),
+        ),
+        patch("qwenpaw.app.routers.config.save_config") as mock_save,
+    ):
+        response = client.put(
+            "/api/config/security/sandbox",
+            json={"enabled": True},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["effective"] is True
+    mock_save.assert_called_once()
