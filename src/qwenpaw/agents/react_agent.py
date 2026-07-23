@@ -298,7 +298,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         gov = getattr(self, "_governor", None)
         if gov is not None:
             try:
-                await run_sync_io(gov.stop)
+                gov.stop()
             except Exception:
                 logger.debug("governor stop failed", exc_info=True)
 

@@ -29,12 +29,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import secrets
 import stat
-import tempfile
+import threading
 import weakref
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TextIO, TypeVar
 
 import yaml
 
@@ -45,6 +46,13 @@ _PATH_LOCKS: weakref.WeakValueDictionary[
     str,
     asyncio.Lock,
 ] = weakref.WeakValueDictionary()
+_SYNC_PATH_LOCKS: dict[str, threading.RLock] = {}
+_SYNC_PATH_LOCKS_GUARD = threading.Lock()
+
+
+def _path_lock_key(path: Path | str) -> str:
+    """Return one canonical process-local lock key."""
+    return os.path.normcase(str(Path(path).resolve(strict=False)))
 
 
 def get_path_lock(path: Path | str) -> asyncio.Lock:
@@ -57,12 +65,31 @@ def get_path_lock(path: Path | str) -> asyncio.Lock:
     QwenPaw currently runs one application worker, so all supported writers
     share this lock registry. No OS-level file lock is needed in that model.
     """
-    key = os.path.normcase(str(Path(path).resolve(strict=False)))
+    key = _path_lock_key(path)
     lock = _PATH_LOCKS.get(key)
     if lock is None:
         lock = asyncio.Lock()
         _PATH_LOCKS[key] = lock
     return lock
+
+
+def get_sync_path_lock(path: Path | str) -> threading.RLock:
+    """Return a process-local thread lock for one filesystem path.
+
+    Use this only for synchronous transactions that run in worker threads
+    and therefore cannot acquire :func:`get_path_lock`. The lock must cover
+    the complete reload, mutation, and atomic replacement sequence.
+
+    Like :func:`get_path_lock`, this is sufficient for QwenPaw's current
+    single-worker process. It is not an OS-level or multi-process lock.
+    """
+    key = _path_lock_key(path)
+    with _SYNC_PATH_LOCKS_GUARD:
+        lock = _SYNC_PATH_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _SYNC_PATH_LOCKS[key] = lock
+        return lock
 
 
 async def run_sync_io(
@@ -211,7 +238,14 @@ def write_text_atomic(
 
     The temporary file is created beside the destination so ``os.replace``
     stays on one filesystem on Windows, Linux, and macOS. Existing file
-    modes and symlinks are preserved. Async application code should use
+    modes and symlinks are preserved. New files receive the normal
+    ``0o666`` permissions filtered by the process umask. Atomic replacement
+    changes the destination directory entry, so hard links keep referring
+    to the previous inode.
+
+    This guarantees complete-file visibility during normal operation. It
+    does not promise power-loss durability because the parent directory is
+    not flushed. Async application code should use
     :func:`write_text_atomic_async`.
     """
     target = _resolve_write_target(Path(path))
@@ -221,19 +255,11 @@ def write_text_atomic(
     )
     temp_path: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=target.parent,
-            prefix=f".{target.name}.",
-            suffix=".tmp",
-            delete=False,
-            encoding=encoding,
-            newline="\n",
-        ) as handle:
+        handle, temp_path = _open_atomic_temp(target, encoding)
+        with handle:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
-            temp_path = Path(handle.name)
         os.replace(temp_path, target)
         temp_path = None
         if original_mode is not None:
@@ -244,6 +270,42 @@ def write_text_atomic(
                 temp_path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def _open_atomic_temp(
+    target: Path,
+    encoding: str,
+) -> tuple[TextIO, Path]:
+    """Create one exclusive sibling temp file using the process umask."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+
+    for _attempt in range(100):
+        temp_path = target.with_name(
+            f".{target.name}.{secrets.token_hex(8)}.tmp",
+        )
+        try:
+            fd = os.open(temp_path, flags, 0o666)
+        except FileExistsError:
+            continue
+        try:
+            return (
+                os.fdopen(
+                    fd,
+                    "w",
+                    encoding=encoding,
+                    newline="\n",
+                ),
+                temp_path,
+            )
+        except BaseException:
+            os.close(fd)
+            temp_path.unlink(missing_ok=True)
+            raise
+    raise FileExistsError(
+        f"Unable to allocate an atomic temp file for {target}",
+    )
 
 
 def write_json_atomic(
@@ -370,6 +432,7 @@ async def write_yaml_atomic_async(
 __all__ = [
     "append_text_async",
     "get_path_lock",
+    "get_sync_path_lock",
     "make_dirs_async",
     "path_exists_async",
     "read_bytes_async",

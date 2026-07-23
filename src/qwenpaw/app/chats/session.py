@@ -4,7 +4,6 @@ compatibility.
 
 Windows filenames cannot contain: \\ / : * ? " < > |
 """
-import asyncio
 import os
 import re
 import logging
@@ -16,6 +15,7 @@ from typing import Union, Sequence
 from qwenpaw.exceptions import ConfigurationException
 from ...exceptions import AgentStateError
 from ...utils.io_utils import (
+    get_path_lock,
     run_sync_io,
     write_json_atomic_async,
 )
@@ -178,15 +178,6 @@ class SafeJSONSession:
                 The directory to save the session state.
         """
         self.save_dir = save_dir
-        self._write_locks: dict[str, asyncio.Lock] = {}
-
-    def _get_write_lock(self, path: str) -> asyncio.Lock:
-        """Per-path lock to serialize read-modify-write cycles."""
-        lock = self._write_locks.get(path)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._write_locks[path] = lock
-        return lock
 
     def _get_save_path(
         self,
@@ -274,7 +265,7 @@ class SafeJSONSession:
             user_id,
             channel,
         )
-        async with self._get_write_lock(session_save_path):
+        async with get_path_lock(session_save_path):
             await write_json_atomic_async(
                 session_save_path,
                 state_dicts,
@@ -355,7 +346,7 @@ class SafeJSONSession:
                 message="key path is empty",
             )
 
-        async with self._get_write_lock(session_save_path):
+        async with get_path_lock(session_save_path):
             try:
                 states = await run_sync_io(
                     _read_session_json,

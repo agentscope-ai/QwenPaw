@@ -70,6 +70,22 @@ def test_write_text_atomic_preserves_existing_mode(tmp_path: Path) -> None:
     assert stat.S_IMODE(path.stat().st_mode) == 0o640
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX umask semantics do not apply on Windows",
+)
+def test_write_text_atomic_new_file_respects_umask(tmp_path: Path) -> None:
+    """A new atomic target has the same default mode as a regular file."""
+    path = tmp_path / "state.txt"
+    previous_umask = os.umask(0o027)
+    try:
+        write_text_atomic(path, "new")
+    finally:
+        os.umask(previous_umask)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
 def test_write_yaml_atomic_serializes_and_appends_content(
     tmp_path: Path,
 ) -> None:

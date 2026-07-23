@@ -7,7 +7,6 @@ addition, sandbox config compilation.
 """
 
 from __future__ import annotations
-import asyncio
 import hashlib
 import logging
 from pathlib import Path
@@ -28,7 +27,7 @@ from .policy import (
 )
 from .audit import AuditLog
 from ..constant import WORKING_DIR
-from ..utils.io_utils import run_sync_io
+from ..utils.io_utils import get_sync_path_lock, run_sync_io
 
 from ..sandbox import (
     SandboxCapability,
@@ -89,8 +88,8 @@ class ResourceGovernor:
         self._policy_dir = (
             self._governance_dir / f"{self.workspace_dir.name}_{ws_hash}"
         )
+        self._policy_path = self._policy_dir / "policy.yaml"
         self._policy: Optional[GovernancePolicy] = None
-        self._policy_lock = asyncio.Lock()
         self._sandbox_available: bool = False
         self._sandbox_capability: Optional[SandboxCapability] = None
 
@@ -181,25 +180,27 @@ class ResourceGovernor:
 
     def start(self) -> None:
         """Load policy and probe sandbox capabilities."""
-        self._policy_dir.mkdir(parents=True, exist_ok=True)
-        self._policy = load_governance_policy(
-            str(self._policy_dir),
-            str(self.workspace_dir),
-            str(self.coding_project_dir),
-        )
-
-        # Persist the loaded policy back to disk.
-        try:
-            save_governance_policy(
-                self._policy,
+        with get_sync_path_lock(self._policy_path):
+            self._policy_dir.mkdir(parents=True, exist_ok=True)
+            self._policy = load_governance_policy(
                 str(self._policy_dir),
                 str(self.workspace_dir),
                 str(self.coding_project_dir),
             )
-        except Exception:
-            logger.exception(
-                "ResourceGovernor.start: failed to persist policy.yaml",
-            )
+
+            # Persist migrations/defaults while holding the same lock used by
+            # approval transactions in other governor instances.
+            try:
+                save_governance_policy(
+                    self._policy,
+                    str(self._policy_dir),
+                    str(self.workspace_dir),
+                    str(self.coding_project_dir),
+                )
+            except Exception:
+                logger.exception(
+                    "ResourceGovernor.start: failed to persist policy.yaml",
+                )
 
         self._sandbox_capability = probe_sandbox_support()
         self._sandbox_available = self._sandbox_capability.supported
@@ -211,29 +212,13 @@ class ResourceGovernor:
             )
 
     def stop(self) -> None:
-        """Persist policy (if modified) and close the audit log."""
-        if self._policy and self._policy.rules:
-            try:
-                save_governance_policy(
-                    self._policy,
-                    str(self._policy_dir),
-                    str(self.workspace_dir),
-                    str(self.coding_project_dir),
-                )
-            except Exception:
-                logger.exception(
-                    "ResourceGovernor.stop: failed to persist policy.yaml",
-                )
-        # Close the global AuditLog: triggers the deferred VACUUM and
-        # releases the SQLite handle. Without this, audit.db is only
-        # closed on interpreter exit (best-effort) which is fragile
-        # under supervised restarts and may leak WAL frames.
-        try:
-            self.audit_log.close()
-        except Exception:
-            logger.exception(
-                "ResourceGovernor.stop: failed to close AuditLog",
-            )
+        """Finish this governor without closing process-wide resources.
+
+        Policy mutation methods persist their transactions immediately.
+        Saving this instance's snapshot here could overwrite rules committed
+        by another request. The shared AuditLog is closed at process exit,
+        not when an individual request-scoped governor stops.
+        """
 
     # ------------------------------------------------------------------
     # Core interface 1: Policy evaluation
@@ -463,14 +448,20 @@ class ResourceGovernor:
         Note: rules are only appended to user_rules; builtin_rules are
         immutable.
         """
-        self.policy.add_rule(rule)
-        if self._policy is not None:
-            save_governance_policy(
-                self._policy,
+        with get_sync_path_lock(self._policy_path):
+            policy = load_governance_policy(
                 str(self._policy_dir),
                 str(self.workspace_dir),
                 str(self.coding_project_dir),
             )
+            policy.add_rule(rule)
+            save_governance_policy(
+                policy,
+                str(self._policy_dir),
+                str(self.workspace_dir),
+                str(self.coding_project_dir),
+            )
+            self._policy = policy
 
     async def add_approved_rule(
         self,
@@ -510,16 +501,7 @@ class ResourceGovernor:
                 duration="session",
                 session_id=tc_spec.session_id,
             )
-            async with self._policy_lock:
-                self.policy.add_rule(rule)
-                if self._policy is not None:
-                    await run_sync_io(
-                        save_governance_policy,
-                        self._policy,
-                        str(self._policy_dir),
-                        str(self.workspace_dir),
-                        str(self.coding_project_dir),
-                    )
+            await run_sync_io(self.add_rule, rule)
             logger.info(
                 "ResourceGovernor: added approved rule: %s",
                 rule.match,
