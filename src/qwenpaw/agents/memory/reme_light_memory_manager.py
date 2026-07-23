@@ -9,11 +9,12 @@ ReMe's application/job framework.
 import asyncio
 import base64
 import hashlib
-import httpx
 import logging
 import os
 import re
 from typing import Any, TYPE_CHECKING
+
+import httpx
 
 from agentscope.message import Msg, TextBlock
 from agentscope.message import ToolResultState
