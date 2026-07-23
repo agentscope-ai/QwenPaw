@@ -869,6 +869,49 @@ def test_summary_input_keeps_tool_outcome_budget(store: HistoryStore):
     assert len(rendered) <= 3000
 
 
+def test_summary_reads_prefolded_tool_result_from_exact_durable_seq(
+    store: HistoryStore,
+):
+    """Pre-fold stubs must not replace original summary evidence."""
+    folded = assistant_with_tool(
+        "folded-call",
+        "ORIGINAL-OUTCOME-7731 " + "x" * 1000,
+    )
+    unrelated = LogEntry(
+        kind="tool_result",
+        role="assistant",
+        name="grep",
+        content="FOREIGN-SESSION-CONTENT",
+        tool_call_id="foreign-call",
+    )
+    mgr = make_manager(store)
+    agent = FakeAgent([folded])
+    mgr._persist_new(agent)
+    # Interleave an unrelated durable row to prove evidence is fetched by
+    # exact seq rather than a broad global range.
+    store.append(
+        session_id="other-session",
+        agent_id="other-agent",
+        entry=unrelated,
+        dedup_key="foreign-call",
+    )
+    folded.content[2].output = [
+        TextBlock(
+            type="text",
+            text=(
+                "[scroll folded] old tool result content cleared; recover "
+                "with recall_history"
+            ),
+        ),
+    ]
+
+    rendered = mgr._summary_archived_context([folded], max_chars=2000)
+
+    assert "ORIGINAL-OUTCOME-7731" in rendered
+    assert "[scroll folded]" not in rendered
+    assert "FOREIGN-SESSION-CONTENT" not in rendered
+
+
 def test_summary_input_includes_timezone_safe_message_times(
     store: HistoryStore,
 ):

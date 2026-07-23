@@ -675,6 +675,48 @@ class ScrollContextManager:
             "Z",
         )
 
+    def _durable_folded_result_contents(
+        self,
+        messages: list[Msg],
+    ) -> dict[tuple[str, int], str | None]:
+        """Recover pre-folded tool output by its exact persisted seq."""
+        result_seqs: dict[tuple[str, int], int] = {}
+        for msg in messages:
+            mid = getattr(msg, "id", None) or str(id(msg))
+            anonymous_position = 0
+            result_position = 0
+            for entry in msg_to_entries(msg):
+                if entry.kind != "tool_result":
+                    continue
+                durable_key = entry.tool_call_id
+                if not durable_key:
+                    durable_key = f"{mid}#anon{anonymous_position}"
+                    anonymous_position += 1
+                if str(entry.content or "").startswith(
+                    (_FOLD_MARK, _RECALL_FOLD_MARK),
+                ):
+                    seq = self._seq_by_tcid.get(str(durable_key))
+                    if seq is not None:
+                        result_seqs[(mid, result_position)] = seq
+                result_position += 1
+
+        contents = self._history.contents_by_seqs(set(result_seqs.values()))
+        return {
+            key: contents.get(seq)
+            for key, seq in result_seqs.items()
+            if seq in contents
+        }
+
+    @staticmethod
+    def _summary_result_content(
+        durable_contents: dict[tuple[str, int], str | None],
+        key: tuple[str, int],
+        fallback: str | None,
+    ) -> str | None:
+        """Prefer durable original output, falling back to the live value."""
+        original = durable_contents.get(key)
+        return original if original is not None else fallback
+
     def _summary_archived_context(
         self,
         middle: list[Msg],
@@ -689,7 +731,14 @@ class ScrollContextManager:
         priority instead: user text and headlines first, assistant state and
         tool calls second, bounded tool-result previews last.  Exact tool
         output remains recoverable through the printed durable pointers.
+
+        Pre-folding mutates the live ``Msg`` before this method runs. For a
+        folded tool result, recover its original content by exact durable seq
+        so the summary model sees a bounded preview of the real outcome rather
+        than only the recovery stub.
         """
+        durable_contents = self._durable_folded_result_contents(middle)
+
         essential: list[tuple[int, str]] = []
         supporting: list[tuple[int, str]] = []
         tool_results: list[tuple[int, str]] = []
@@ -705,9 +754,15 @@ class ScrollContextManager:
             )
             if timestamp:
                 prefix += f" created_at={timestamp}"
+            result_position = 0
             for entry in msg_to_entries(msg):
                 if entry.kind == "tool_result":
-                    preview = self._bounded_summary_text(entry.content, 600)
+                    result_content = self._summary_result_content(
+                        durable_contents,
+                        (mid, result_position),
+                        entry.content,
+                    )
+                    preview = self._bounded_summary_text(result_content, 600)
                     chunk = (
                         f"{prefix}\n  tool_result "
                         f"name={entry.name!r} id={entry.tool_call_id!r} "
@@ -718,6 +773,7 @@ class ScrollContextManager:
                         chunk += f"\n  recovery={' '.join(pointers)}"
                     tool_results.append((order, chunk))
                     order += 1
+                    result_position += 1
                     continue
                 text_limit = 8000 if role == "user" else 2000
                 text = self._bounded_summary_text(entry.content, text_limit)
