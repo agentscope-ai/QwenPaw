@@ -4,8 +4,8 @@ import { createDependencyInstallRequest } from "./dependencyInstall";
 
 describe("createDependencyInstallRequest", () => {
   it("builds built-in and custom source requests", () => {
-    expect(createDependencyInstallRequest("auto", "ignored")).toEqual({
-      source: "auto",
+    expect(createDependencyInstallRequest("aliyun", "ignored")).toEqual({
+      source: "aliyun",
     });
     expect(
       createDependencyInstallRequest(

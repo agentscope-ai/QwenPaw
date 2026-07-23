@@ -12,20 +12,67 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
 from packaging.requirements import Requirement
+import psutil
 
 from .architecture import PluginManifest, PluginRecord
 from .api import PluginApi
 from .registry import PluginRegistry
 
 logger = logging.getLogger(__name__)
+
+
+def _stop_process_tree(proc: subprocess.Popen[str]) -> None:
+    try:
+        parent = psutil.Process(proc.pid)
+        processes = parent.children(recursive=True)
+        processes.append(parent)
+        for process in processes:
+            try:
+                process.terminate()
+            except psutil.Error:
+                pass
+        _, alive = psutil.wait_procs(processes, timeout=3)
+        for process in alive:
+            try:
+                process.kill()
+            except psutil.Error:
+                pass
+    except (psutil.Error, OSError):
+        proc.kill()
+    proc.wait()
+
+
+def _wait_for_process(
+    proc: subprocess.Popen[str],
+    cmd: list[str],
+    timeout: int,
+    cancel_checker: Optional[Callable[[], bool]],
+) -> int:
+    deadline = time.monotonic() + timeout
+    while True:
+        if cancel_checker is not None and cancel_checker():
+            _stop_process_tree(proc)
+            raise subprocess.SubprocessError(
+                "Dependency installation was stopped",
+            )
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _stop_process_tree(proc)
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        try:
+            return proc.wait(timeout=min(0.25, remaining))
+        except subprocess.TimeoutExpired:
+            continue
+
 
 # Distribution name -> import name, for the common cases where they differ.
 _IMPORT_NAME_OVERRIDES = {
@@ -818,6 +865,7 @@ class PluginLoader:
         plugin_id: str,
         redact_values: Optional[List[str]] = None,
         environment: Optional[Dict[str, str]] = None,
+        cancel_checker: Optional[Callable[[], bool]] = None,
     ) -> subprocess.CompletedProcess:
         """Run *cmd*; stream stdout/stderr to debug logs in real time."""
         process_env = os.environ.copy()
@@ -843,6 +891,7 @@ class PluginLoader:
             _redact(" ".join(cmd)),
         )
         output_lines: List[str] = []
+
         with subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -866,13 +915,14 @@ class PluginLoader:
             reader = threading.Thread(target=_read_output, daemon=True)
             reader.start()
             try:
-                returncode = proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+                returncode = _wait_for_process(
+                    proc,
+                    cmd,
+                    timeout,
+                    cancel_checker,
+                )
+            finally:
                 reader.join(timeout=2)
-                raise
-            reader.join(timeout=2)
 
         combined = "\n".join(output_lines)
         return subprocess.CompletedProcess(

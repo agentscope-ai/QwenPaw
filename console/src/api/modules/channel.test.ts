@@ -63,6 +63,16 @@ describe("channelApi", () => {
         custom_index_url: "https://packages.example.com/simple/",
       }),
     });
+
+    vi.mocked(request).mockResolvedValueOnce(job);
+    await expect(
+      channelApi.cancelChannelDependencyInstall("telegram"),
+    ).resolves.toBe(job);
+    const lastCall =
+      vi.mocked(request).mock.calls[vi.mocked(request).mock.calls.length - 1];
+    expect(lastCall?.[1]).toMatchObject({
+      method: "POST",
+    });
   });
 
   it("updateChannels returns the persisted ChannelConfig", async () => {

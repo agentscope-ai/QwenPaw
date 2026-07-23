@@ -149,6 +149,54 @@ def test_install_channel_dependencies_starts_background_job(client):
     assert response.json()["id"] == "job-1"
 
 
+def test_install_channel_dependencies_defaults_to_aliyun(client):
+    job = InstallJob(
+        id="job-default",
+        channel="telegram",
+        requirements=["python-telegram-bot>=20.0"],
+    )
+    with patch(
+        "qwenpaw.app.routers.config."
+        "channel_dependency_service.start_install",
+        new=AsyncMock(return_value=job),
+    ) as start_install:
+        response = client.post(
+            "/api/config/channels/telegram/dependencies/install",
+        )
+
+    assert response.status_code == 200
+    assert start_install.await_args.kwargs["source"] == "aliyun"
+
+
+def test_install_channel_dependencies_rejects_removed_auto_source(client):
+    response = client.post(
+        "/api/config/channels/telegram/dependencies/install",
+        json={"source": "auto"},
+    )
+    assert response.status_code == 422
+
+
+def test_cancel_channel_dependency_install(client):
+    job = InstallJob(
+        id="job-active",
+        channel="telegram",
+        requirements=["python-telegram-bot>=20.0"],
+        status="installing",
+    )
+    with patch(
+        "qwenpaw.app.routers.config."
+        "channel_dependency_service.cancel_install",
+        return_value=job,
+    ) as cancel_install:
+        response = client.post(
+            "/api/config/channels/telegram/dependencies/install/cancel",
+        )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == "job-active"
+    cancel_install.assert_called_once_with("telegram")
+
+
 def test_install_channel_dependencies_rejects_unknown_source(client):
     response = client.post(
         "/api/config/channels/telegram/dependencies/install",

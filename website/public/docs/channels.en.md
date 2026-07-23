@@ -8,7 +8,7 @@ Two ways to configure channels:
 - **Console** (recommended) — In the [Console](./console) under **Control → Channels**, click a channel card, enable it and fill in credentials in the drawer. Changes take effect when you save.
 - **Edit `agent.json` directly** — Agent workspace config at `~/.qwenpaw/workspaces/{agent_id}/agent.json`, set `enabled: true` and fill in that platform's credentials. Saving triggers a reload without restarting the app.
 
-Third-party dependencies for built-in channels are installed on demand. The Console lists channels with missing dependencies under Available; click Install to choose automatic, system-configured, official PyPI, Aliyun, or custom package sources and review the missing packages. Installation runs in the background. For CLI or unattended installs, use an extra such as `pip install "qwenpaw[channel-feishu]"`, or install every channel dependency with `qwenpaw[channels-all]`.
+Third-party dependencies for built-in channels are installed on demand. The Console lists channels with missing dependencies under Available; click Install to review the missing packages and choose Aliyun (the default), system-configured, official PyPI, or a custom package source. Installation runs in the background. If the selected source fails because of a network or package-source problem, QwenPaw retries once with a fallback source: Aliyun falls back to official PyPI, while the other choices fall back to Aliyun. For CLI or unattended installs, use an extra such as `pip install "qwenpaw[channel-feishu]"`, or install every channel dependency with `qwenpaw[channels-all]`.
 
 Below is how to get credentials and fill config for each channel.
 

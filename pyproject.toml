@@ -37,6 +37,7 @@ dependencies = [
     "json-repair>=0.30.0",
     "modelscope>=1.35.0",
     "huggingface_hub>=0.20.0",
+    "pillow>=10.0.0",
     "agent-client-protocol>=0.9.0,<0.11.0",
     # Streaming-markdown terminal UI for the bundled `qwenpaw` TUI
     # (v4+ adds the streaming Markdown widget). 8.2.8 fixes parsing of
@@ -110,7 +111,6 @@ channel-dingtalk = [
     "dingtalk-stream>=0.24.3",
     "alibabacloud-dingtalk>=2.2.42",
     "alibabacloud-tea>=0.4",
-    "pillow>=10.0.0",
     "segno>=1.6.6",
 ]
 channel-feishu = [
@@ -137,6 +137,7 @@ channel-mqtt = [
 ]
 channel-matrix = [
     "matrix-nio>=0.25.0",
+    "python-socks>=2.5.3",
 ]
 channel-voice = [
     "twilio>=9.10.2",
@@ -151,7 +152,6 @@ channel-sip = [
 ]
 channel-wecom = [
     "wecom-aibot-python-sdk==1.0.2",
-    "pillow>=10.0.0",
     "segno>=1.6.6",
 ]
 channel-wechat = [
@@ -182,7 +182,6 @@ channels-all = [
     "livekit>=1.0.0",
     "livekit-api>=0.6.0",
     "wecom-aibot-python-sdk==1.0.2",
-    "pillow>=10.0.0",
     "websocket-client>=1.7",
     "pycryptodome>=3.20",
     "segno>=1.6.6",

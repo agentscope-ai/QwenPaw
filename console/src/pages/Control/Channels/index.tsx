@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Form } from "@agentscope-ai/design";
-import { Badge, Button, Input, Modal, Select, Space } from "antd";
+import { Badge, Button, Input, Modal, Select, Space, Tooltip } from "antd";
 import { SafetyOutlined, AuditOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
@@ -31,8 +31,15 @@ function DependencyInstallOptions({
   }) => void;
 }) {
   const { t } = useTranslation();
-  const [source, setSource] = useState<ChannelDependencyInstallSource>("auto");
+  const [source, setSource] =
+    useState<ChannelDependencyInstallSource>("aliyun");
   const [customIndexUrl, setCustomIndexUrl] = useState("");
+  const sourceDescriptions: Record<ChannelDependencyInstallSource, string> = {
+    system: t("channels.installSourceSystemDescription"),
+    pypi: t("channels.installSourcePypiDescription"),
+    aliyun: t("channels.installSourceAliyunDescription"),
+    custom: t("channels.installSourceCustomDescription"),
+  };
 
   const update = (
     nextSource: ChannelDependencyInstallSource = source,
@@ -46,15 +53,25 @@ function DependencyInstallOptions({
       </label>
       <Select
         id="channel-dependency-source"
+        className={styles.dependencySourceSelect}
         value={source}
-        style={{ width: "100%" }}
         options={[
-          { value: "auto", label: t("channels.installSourceAuto") },
+          { value: "aliyun", label: t("channels.installSourceAliyun") },
           { value: "system", label: t("channels.installSourceSystem") },
           { value: "pypi", label: t("channels.installSourcePypi") },
-          { value: "aliyun", label: t("channels.installSourceAliyun") },
           { value: "custom", label: t("channels.installSourceCustom") },
         ]}
+        optionRender={(option) => (
+          <Tooltip
+            title={
+              sourceDescriptions[option.value as ChannelDependencyInstallSource]
+            }
+            {...{ alignPoint: true }}
+            mouseEnterDelay={0.3}
+          >
+            <div className={styles.dependencySourceOption}>{option.label}</div>
+          </Tooltip>
+        )}
         onChange={(value: ChannelDependencyInstallSource) => {
           setSource(value);
           update(value);
@@ -151,7 +168,7 @@ function ChannelsPage() {
       const dependency = dependencyStatuses[key];
       if (isBuiltin(key) && !dependency) return;
       if (dependency?.status === "missing" || dependency?.status === "failed") {
-        let source: ChannelDependencyInstallSource = "auto";
+        let source: ChannelDependencyInstallSource = "aliyun";
         let customIndexUrl = "";
         Modal.confirm({
           title: t("channels.installDependenciesTitle", {
@@ -210,8 +227,28 @@ function ChannelsPage() {
         });
         return;
       }
+      if (dependency?.status === "installing") {
+        Modal.confirm({
+          title: t("channels.stopInstallTitle", {
+            channel: getChannelLabel(key, t),
+          }),
+          content: t("channels.stopInstallDescription"),
+          okText: t("channels.stopInstallConfirm"),
+          okButtonProps: { danger: true },
+          cancelText: t("common.cancel"),
+          onOk: async () => {
+            try {
+              await api.cancelChannelDependencyInstall(key);
+            } catch (error) {
+              console.error("Failed to stop channel dependency install", error);
+              message.error(t("channels.stopInstallFailed"));
+              throw error;
+            }
+          },
+        });
+        return;
+      }
       if (
-        dependency?.status === "installing" ||
         dependency?.status === "platform_unsupported" ||
         dependency?.status === "load_error"
       ) {

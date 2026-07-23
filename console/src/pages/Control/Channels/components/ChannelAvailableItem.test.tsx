@@ -71,22 +71,36 @@ describe("ChannelAvailableItem", () => {
     expect(screen.getByText("channels.retryInstallAction")).toBeInTheDocument();
   });
 
-  it.each([
-    ["installing", "channels.installingAction"],
-    ["load_error", "channels.loadFailedAction"],
-  ] as const)("disables the %s state", (name, label) => {
+  it("keeps the installing state clickable so it can be stopped", () => {
     const onClick = vi.fn();
     render(
       <ChannelAvailableItem
         channelKey="telegram"
-        dependencyStatus={status(name)}
+        dependencyStatus={status("installing")}
         onClick={onClick}
       />,
     );
 
     const item = screen.getByRole("button");
     fireEvent.click(item);
-    expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.getByText("channels.installingAction")).toBeInTheDocument();
+    expect(item).toHaveAttribute("aria-disabled", "false");
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
+  it("disables the load error state", () => {
+    const onClick = vi.fn();
+    render(
+      <ChannelAvailableItem
+        channelKey="telegram"
+        dependencyStatus={status("load_error")}
+        onClick={onClick}
+      />,
+    );
+
+    const item = screen.getByRole("button");
+    fireEvent.click(item);
+    expect(screen.getByText("channels.loadFailedAction")).toBeInTheDocument();
     expect(item).toHaveAttribute("aria-disabled", "true");
     expect(onClick).not.toHaveBeenCalled();
   });

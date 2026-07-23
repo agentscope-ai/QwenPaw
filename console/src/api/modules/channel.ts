@@ -58,7 +58,6 @@ export interface ChannelDependencyJob {
 }
 
 export type ChannelDependencyInstallSource =
-  | "auto"
   | "system"
   | "pypi"
   | "aliyun"
@@ -91,6 +90,14 @@ export const channelApi = {
         channelName,
       )}/dependencies/install`,
       { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  cancelChannelDependencyInstall: (channelName: string) =>
+    request<ChannelDependencyJob>(
+      `/config/channels/${encodeURIComponent(
+        channelName,
+      )}/dependencies/install/cancel`,
+      { method: "POST" },
     ),
 
   recheckChannelDependencies: (channelName: string) =>

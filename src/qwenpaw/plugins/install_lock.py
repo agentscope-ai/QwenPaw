@@ -25,7 +25,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,7 @@ def plugin_install_lock(
     lock_path: Path,
     *,
     timeout: float = 300.0,
+    cancel_checker: Callable[[], bool] | None = None,
 ) -> Iterator[bool]:
     """Hold an inter-process lock for the duration of the ``with`` block.
 
@@ -93,6 +94,7 @@ def plugin_install_lock(
             still runs when the wait times out (the install proceeds
             unlocked rather than being skipped), so a stuck peer can never
             permanently block a plugin from installing its dependencies.
+        cancel_checker: Optional callback that stops waiting for the lock.
 
     Yields:
         ``True`` if the lock was acquired, ``False`` if the wait timed out
@@ -122,9 +124,13 @@ def plugin_install_lock(
         return
 
     acquired = False
+    cancelled = False
     deadline = time.monotonic() + max(timeout, 0.0)
     try:
         while True:
+            if cancel_checker is not None and cancel_checker():
+                cancelled = True
+                break
             try:
                 acquired = _acquire_os_lock(fd)
             except OSError:
@@ -139,7 +145,7 @@ def plugin_install_lock(
                 break
             time.sleep(_RETRY_INTERVAL_SECONDS)
 
-        if not acquired:
+        if not acquired and not cancelled:
             logger.warning(
                 "Timed out after %.0fs waiting for plugin install lock %s; "
                 "proceeding without it",

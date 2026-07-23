@@ -97,7 +97,7 @@ class ACPNodeRuntimeUpdate(BaseModel):
 
 
 class ChannelDependencyInstallRequest(BaseModel):
-    source: str = "auto"
+    source: str = "aliyun"
     custom_index_url: Optional[str] = None
 
 
@@ -212,7 +212,7 @@ async def install_channel_dependencies(
             status_code=404,
             detail="Built-in channel not found",
         )
-    if body.source not in {"auto", "system", "pypi", "aliyun", "custom"}:
+    if body.source not in {"system", "pypi", "aliyun", "custom"}:
         raise HTTPException(
             status_code=422,
             detail="Unsupported package source",
@@ -223,7 +223,13 @@ async def install_channel_dependencies(
             detail="custom_index_url is required for custom source",
         )
     if body.source == "custom":
-        parsed = urlsplit(body.custom_index_url.strip())
+        custom_index_url = body.custom_index_url
+        if custom_index_url is None:
+            raise HTTPException(
+                status_code=422,
+                detail="custom_index_url is required for custom source",
+            )
+        parsed = urlsplit(custom_index_url.strip())
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise HTTPException(
                 status_code=422,
@@ -244,6 +250,26 @@ async def install_channel_dependencies(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return job.public_dict()
+
+
+@router.post(
+    "/channels/{channel_name}/dependencies/install/cancel",
+    summary="Stop a built-in channel dependency installation",
+)
+async def cancel_channel_dependency_install(channel_name: str) -> dict:
+    if channel_name not in BUILTIN_CHANNEL_CATALOG:
+        raise HTTPException(
+            status_code=404,
+            detail="Built-in channel not found",
+        )
+    try:
+        job = await asyncio.to_thread(
+            channel_dependency_service.cancel_install,
+            channel_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return job.public_dict()
 
 

@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import logging
+import subprocess
 import sys
+
+import pytest
 
 from qwenpaw.plugins.loader import PluginLoader
 
@@ -47,3 +50,20 @@ def test_install_subprocess_uses_utf8_with_replacement():
     assert "utf-8" in result.stdout.splitlines()
     assert "custom" in result.stdout.splitlines()
     assert environment == {"QWENPAW_ENCODING_TEST": "custom"}
+
+
+def test_install_subprocess_can_be_stopped():
+    checks = 0
+
+    def cancel_checker():
+        nonlocal checks
+        checks += 1
+        return checks >= 2
+
+    with pytest.raises(subprocess.SubprocessError, match="stopped"):
+        PluginLoader.run_subprocess_with_streaming_log(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            timeout=10,
+            plugin_id="cancellation-test",
+            cancel_checker=cancel_checker,
+        )

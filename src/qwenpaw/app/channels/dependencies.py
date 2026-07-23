@@ -6,8 +6,9 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
+import hashlib
 import importlib
-from importlib.metadata import PackageNotFoundError, requires
+from importlib.metadata import PackageNotFoundError, requires, version
 import json
 import logging
 import os
@@ -42,12 +43,18 @@ _SOURCE_URLS = {
     "pypi": "https://pypi.org/simple/",
     "aliyun": "https://mirrors.aliyun.com/pypi/simple/",
 }
-_NETWORK_ERROR_MARKERS = (
+_SOURCE_FAILURE_MARKERS = (
+    "connection broken",
     "connection error",
     "connection reset",
     "connection refused",
     "connect timeout",
+    "could not fetch url",
+    "failed to establish a new connection",
+    "nodename nor servname provided",
     "read timed out",
+    "remote end closed connection",
+    "retrying",
     "temporary failure in name resolution",
     "name or service not known",
     "network is unreachable",
@@ -56,6 +63,16 @@ _NETWORK_ERROR_MARKERS = (
     "certificate verify failed",
     "too many 5",
     "http error 429",
+    "http error 403",
+    "http error 404",
+    "http error 500",
+    "http error 502",
+    "http error 503",
+    "http error 504",
+    "bad gateway",
+    "service unavailable",
+    "no matching distribution found",
+    "could not find a version that satisfies the requirement",
 )
 
 
@@ -88,15 +105,32 @@ def _safe_source_label(value: str) -> str:
     return "custom:configured"
 
 
-def _channel_site_dir() -> Path:
-    bucket = (
+def _runtime_bucket() -> str:
+    return (
         f"py{sys.version_info.major}.{sys.version_info.minor}"
         f"-{platform.system().lower()}-{platform.machine().lower()}"
     )
-    return Path(WORKING_DIR) / "channel_runtime" / bucket / "site"
+
+
+def _channel_site_dir() -> Path:
+    return Path(WORKING_DIR) / "channel_runtime" / _runtime_bucket() / "site"
+
+
+def _channel_state_dir() -> Path:
+    if _is_frozen():
+        environment = f"desktop-{_runtime_bucket()}"
+    else:
+        executable = str(Path(sys.executable).resolve())
+        digest = hashlib.sha256(executable.encode("utf-8")).hexdigest()[:12]
+        environment = f"python-{_runtime_bucket()}-{digest}"
+    return Path(WORKING_DIR) / "channel_runtime" / "environments" / environment
 
 
 def _ensure_channel_site_on_path() -> None:
+    if not _is_frozen():
+        value = str(_channel_site_dir())
+        sys.path[:] = [entry for entry in sys.path if entry != value]
+        return
     path = _channel_site_dir()
     if not path.exists():
         return
@@ -162,6 +196,16 @@ def _requirement_applies(raw: str) -> bool:
     return req.marker is None or req.marker.evaluate()
 
 
+def _is_requirement_satisfied(req: Requirement) -> bool:
+    if _is_frozen():
+        return PluginLoader.is_requirement_satisfied(req)
+    try:
+        installed = version(req.name)
+    except PackageNotFoundError:
+        return False
+    return not req.specifier or req.specifier.contains(installed)
+
+
 def missing_requirements(spec: ChannelSpec) -> list[str]:
     """Return only requirements missing or outside the supported version."""
     _ensure_channel_site_on_path()
@@ -170,7 +214,7 @@ def missing_requirements(spec: ChannelSpec) -> list[str]:
         req = Requirement(raw)
         if _requirement_applies(
             raw,
-        ) and not PluginLoader.is_requirement_satisfied(req):
+        ) and not _is_requirement_satisfied(req):
             missing.append(raw)
     return missing
 
@@ -180,7 +224,7 @@ class InstallJob:
     id: str
     channel: str
     requirements: list[str]
-    source: str = "auto"
+    source: str = "aliyun"
     custom_index_url: str | None = None
     status: str = "queued"
     created_at: str = field(default_factory=_utc_now)
@@ -214,7 +258,7 @@ class ChannelDependencyService:
         self._active_by_channel: dict[str, str] = {}
         self._lock = threading.Lock()
         self._persist_lock = threading.Lock()
-        self._state_dir = Path(WORKING_DIR) / "channel_runtime"
+        self._state_dir = _channel_state_dir()
         self._load_jobs()
 
     def _load_jobs(self) -> None:
@@ -279,7 +323,7 @@ class ChannelDependencyService:
             except Exception as exc:
                 status = "load_error"
                 error = f"{type(exc).__name__}: {exc}"
-        result = {
+        result: dict[str, Any] = {
             "channel": key,
             "status": status,
             "requirements": requirements_for_extra(spec.extra),
@@ -327,7 +371,7 @@ class ChannelDependencyService:
         self,
         channel: str,
         *,
-        source: str = "auto",
+        source: str = "aliyun",
         custom_index_url: str | None = None,
         on_success: Callable[[], None] | None = None,
     ) -> InstallJob:
@@ -369,6 +413,7 @@ class ChannelDependencyService:
                 owner_started_at=psutil.Process().create_time(),
             )
             jobs[job.id] = job
+            self._cancel_path(job.id).unlink(missing_ok=True)
             self._write_jobs_file(jobs)
             self._replace_cached_jobs(jobs, local_job=job)
         asyncio.create_task(self._run_job(job, on_success=on_success))
@@ -383,6 +428,7 @@ class ChannelDependencyService:
         self._update_job(job, status="installing")
         try:
             await asyncio.to_thread(self._install_locked, job)
+            self._raise_if_cancelled(job)
             self._update_job(job, status="verifying")
             importlib.invalidate_caches()
             _ensure_channel_site_on_path()
@@ -393,6 +439,7 @@ class ChannelDependencyService:
                 missing_requirements,
                 BUILTIN_CHANNEL_CATALOG[job.channel],
             )
+            self._raise_if_cancelled(job)
             if remaining:
                 raise RuntimeError(
                     "Installation completed but dependencies are still "
@@ -409,6 +456,7 @@ class ChannelDependencyService:
                 raise RuntimeError(
                     f"Channel failed to load: {type(exc).__name__}: {exc}",
                 ) from exc
+            self._raise_if_cancelled(job)
             self._update_job(job, status="succeeded")
             if on_success is not None:
                 try:
@@ -424,11 +472,18 @@ class ChannelDependencyService:
                 job.channel,
             )
             self._update_job(job, status="failed", error=str(exc)[-4000:])
+        finally:
+            self._cancel_path(job.id).unlink(missing_ok=True)
 
     def _install_locked(self, job: InstallJob) -> None:
         self._state_dir.mkdir(parents=True, exist_ok=True)
         lock_path = self._state_dir / "install.lock"
-        with plugin_install_lock(lock_path, timeout=660) as acquired:
+        with plugin_install_lock(
+            lock_path,
+            timeout=660,
+            cancel_checker=lambda: self._is_cancel_requested(job),
+        ) as acquired:
+            self._raise_if_cancelled(job)
             if not acquired:
                 raise RuntimeError(
                     "Timed out waiting for another channel dependency install",
@@ -444,24 +499,23 @@ class ChannelDependencyService:
         self,
         job: InstallJob,
     ) -> list[tuple[str | None, str]]:
+        primary: tuple[str | None, str]
         if job.source == "system":
-            return [(None, "system-config")]
-        if job.source == "custom":
+            primary = (None, "system-config")
+        elif job.source == "custom":
             if not job.custom_index_url:
                 raise ValueError(
                     "custom_index_url is required for custom source",
                 )
             hostname = urlsplit(job.custom_index_url).hostname or "configured"
-            return [(job.custom_index_url, f"custom:{hostname}")]
-        if job.source in _SOURCE_URLS:
-            return [(_SOURCE_URLS[job.source], job.source)]
-        # Let pip/uv resolve their complete native configuration first. This
-        # This includes environment variables, pip.conf and conda environment
-        # configuration.
-        return [
-            (None, "system-config"),
-            (_SOURCE_URLS["aliyun"], "aliyun"),
-        ]
+            primary = (job.custom_index_url, f"custom:{hostname}")
+        elif job.source in _SOURCE_URLS:
+            primary = (_SOURCE_URLS[job.source], job.source)
+        else:
+            raise ValueError(f"Unsupported package source: {job.source}")
+
+        fallback_name = "pypi" if job.source == "aliyun" else "aliyun"
+        return [primary, (_SOURCE_URLS[fallback_name], fallback_name)]
 
     def _install_with_sources(
         self,
@@ -470,8 +524,18 @@ class ChannelDependencyService:
     ) -> None:
         last_output = ""
         for index_url, label in self._source_candidates(job):
+            self._raise_if_cancelled(job)
             self._append_attempted_source(job, label)
-            result = self._run_install(requirements, index_url, job.channel)
+            try:
+                result = self._run_install(
+                    requirements,
+                    index_url,
+                    job.channel,
+                    cancel_checker=lambda: self._is_cancel_requested(job),
+                )
+            except subprocess.TimeoutExpired:
+                last_output = f"Package source {label} timed out"
+                continue
             if result.returncode == 0:
                 return
             last_output = (
@@ -479,20 +543,21 @@ class ChannelDependencyService:
                 or result.stderr
                 or "dependency installation failed"
             )
-            if not self._is_network_failure(last_output):
+            if not self._is_source_failure(last_output):
                 break
         raise RuntimeError(last_output[-4000:])
 
     @staticmethod
-    def _is_network_failure(output: str) -> bool:
+    def _is_source_failure(output: str) -> bool:
         lowered = output.lower()
-        return any(marker in lowered for marker in _NETWORK_ERROR_MARKERS)
+        return any(marker in lowered for marker in _SOURCE_FAILURE_MARKERS)
 
     def _run_install(
         self,
         requirements: list[str],
         index_url: str | None,
         channel: str,
+        cancel_checker: Callable[[], bool] | None = None,
     ) -> subprocess.CompletedProcess:
         redact_values: list[str] | None = None
         install_env: dict[str, str] | None = None
@@ -557,11 +622,6 @@ class ChannelDependencyService:
                     "install",
                     "--disable-pip-version-check",
                     "--no-input",
-                    "--upgrade-strategy",
-                    "only-if-needed",
-                    "--upgrade",
-                    "--target",
-                    str(_channel_site_dir()),
                     "-r",
                     req_path,
                 ]
@@ -571,6 +631,7 @@ class ChannelDependencyService:
                 plugin_id=f"channel-{channel}",
                 redact_values=redact_values,
                 environment=install_env,
+                cancel_checker=cancel_checker,
             )
             if (
                 not _is_frozen()
@@ -585,10 +646,6 @@ class ChannelDependencyService:
                         "install",
                         "--python",
                         sys.executable,
-                        "--upgrade-strategy",
-                        "only-if-needed",
-                        "--target",
-                        str(_channel_site_dir()),
                         "-r",
                         req_path,
                     ]
@@ -598,10 +655,41 @@ class ChannelDependencyService:
                         plugin_id=f"channel-{channel}",
                         redact_values=redact_values,
                         environment=install_env,
+                        cancel_checker=cancel_checker,
                     )
             return result
         finally:
             Path(req_path).unlink(missing_ok=True)
+
+    def cancel_install(self, channel: str) -> InstallJob:
+        self._refresh_jobs_from_disk()
+        with self._lock:
+            job_id = self._active_by_channel.get(channel)
+            current = self._jobs.get(job_id) if job_id else None
+            if current is None or current.status not in {
+                "queued",
+                "installing",
+                "verifying",
+            }:
+                raise ValueError(
+                    "Channel dependency installation is not active",
+                )
+            job = replace(current)
+        self._state_dir.mkdir(parents=True, exist_ok=True)
+        cancel_path = self._cancel_path(job.id)
+        cancel_path.parent.mkdir(parents=True, exist_ok=True)
+        cancel_path.touch()
+        return job
+
+    def _cancel_path(self, job_id: str) -> Path:
+        return self._state_dir / "cancel" / job_id
+
+    def _is_cancel_requested(self, job: InstallJob) -> bool:
+        return self._cancel_path(job.id).is_file()
+
+    def _raise_if_cancelled(self, job: InstallJob) -> None:
+        if self._is_cancel_requested(job):
+            raise RuntimeError("Dependency installation was stopped by user")
 
     def _jobs_file_lock(self):
         self._state_dir.mkdir(parents=True, exist_ok=True)
@@ -624,6 +712,9 @@ class ChannelDependencyService:
                 changed = True
                 continue
             job = InstallJob(**raw)
+            if job.source == "auto":
+                job.source = "aliyun"
+                changed = True
             safe_sources = [
                 _safe_source_label(value) for value in job.attempted_sources
             ]

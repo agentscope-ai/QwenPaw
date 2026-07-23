@@ -25,7 +25,6 @@ export const ChannelAvailableItem = React.memo(function ChannelAvailableItem({
   const status = dependencyStatus?.status ?? "ready";
   const disabled =
     dependencyCheckState !== "ready" ||
-    status === "installing" ||
     status === "platform_unsupported" ||
     status === "load_error";
   const actionLabel =
