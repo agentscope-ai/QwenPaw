@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Popover, Select, Spin } from "antd";
 import { Brain, Check, ChevronDown, Cpu } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -13,6 +13,11 @@ interface HarnessModelSelectorProps {
   providerId: string;
 }
 
+interface HarnessModelCatalog {
+  providerId: string;
+  models: HarnessModel[];
+}
+
 export default function HarnessModelSelector({
   providerId,
 }: HarnessModelSelectorProps) {
@@ -20,10 +25,15 @@ export default function HarnessModelSelector({
   const { message } = useAppMessage();
   const { selectedAgent, agents, updateAgent } = useAgentStore();
   const agent = agents.find((item) => item.id === selectedAgent);
-  const [models, setModels] = useState<HarnessModel[]>([]);
+  const [catalog, setCatalog] = useState<HarnessModelCatalog | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
+  const autoSelectingRef = useRef<string | null>(null);
+  const models = useMemo(
+    () => (catalog?.providerId === providerId ? catalog.models : []),
+    [catalog, providerId],
+  );
   const modelId = agent?.backend_model ?? undefined;
   const model = useMemo(
     () => models.find((item) => item.id === modelId),
@@ -37,11 +47,13 @@ export default function HarnessModelSelector({
     harnessApi
       .listModels(providerId)
       .then((result) => {
-        if (!cancelled) setModels(result.models);
+        if (!cancelled) {
+          setCatalog({ providerId, models: result.models });
+        }
       })
       .catch((error) => {
         if (!cancelled) {
-          setModels([]);
+          setCatalog({ providerId, models: [] });
           message.error(error instanceof Error ? error.message : String(error));
         }
       })
@@ -73,6 +85,15 @@ export default function HarnessModelSelector({
     },
     [message, selectedAgent, updateAgent],
   );
+
+  useEffect(() => {
+    if (!agent || modelId || loading || models.length === 0) return;
+    const selectionKey = `${selectedAgent}:${providerId}`;
+    if (autoSelectingRef.current === selectionKey) return;
+    const defaultModel = models.find((item) => item.is_default) ?? models[0];
+    autoSelectingRef.current = selectionKey;
+    void save(defaultModel, defaultModel.default_reasoning_effort ?? undefined);
+  }, [agent, loading, modelId, models, providerId, save, selectedAgent]);
 
   const selectedLabel =
     model?.name ??
