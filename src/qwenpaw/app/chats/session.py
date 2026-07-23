@@ -10,13 +10,13 @@ import re
 import logging
 import shutil
 
+from pathlib import Path
 from typing import Union, Sequence
 
 from qwenpaw.exceptions import ConfigurationException
 from ...exceptions import AgentStateError
 from ...utils.io_utils import (
-    path_exists_async,
-    read_text_async,
+    run_sync_io,
     write_json_atomic_async,
 )
 from ...utils.json_utils import safe_json_loads as _safe_json_loads
@@ -48,6 +48,15 @@ _CANONICAL_WECHAT_SAFE_PREFIX = "wechat--"
 # user data for manual recovery; the archive directory is excluded from
 # regular session scans because callers list ``*.json`` non-recursively.
 _WEIXIN_LEGACY_ARCHIVE_DIR = ".weixin-legacy"
+
+
+def _read_session_json(path: str) -> dict:
+    """Read and parse one session snapshot in a worker thread."""
+    content = Path(path).read_text(
+        encoding="utf-8",
+        errors="surrogatepass",
+    )
+    return _safe_json_loads(content, path)
 
 
 def migrate_legacy_weixin_session_files(save_dir: str) -> None:
@@ -259,10 +268,11 @@ class SafeJSONSession:
             name: state_module.state_dict()
             for name, state_module in state_modules_mapping.items()
         }
-        session_save_path = self._get_save_path(
+        session_save_path = await run_sync_io(
+            self._get_save_path,
             session_id,
-            user_id=user_id,
-            channel=channel,
+            user_id,
+            channel,
         )
         async with self._get_write_lock(session_save_path):
             await write_json_atomic_async(
@@ -285,19 +295,20 @@ class SafeJSONSession:
         **state_modules_mapping,
     ) -> None:
         """Load state modules from a JSON file using async I/O."""
-        session_save_path = self._get_save_path(
+        session_save_path = await run_sync_io(
+            self._get_save_path,
             session_id,
-            user_id=user_id,
-            channel=channel,
+            user_id,
+            channel,
         )
-        if await path_exists_async(session_save_path):
-            content = await read_text_async(
+        try:
+            states = await run_sync_io(
+                _read_session_json,
                 session_save_path,
-                encoding="utf-8",
-                errors="surrogatepass",
             )
-            states = _safe_json_loads(content, session_save_path)
-
+        except FileNotFoundError:
+            states = None
+        if states is not None:
             for name, state_module in state_modules_mapping.items():
                 if name in states:
                     state_module.load_state_dict(states[name])
@@ -330,10 +341,11 @@ class SafeJSONSession:
         channel: str = "",
         create_if_not_exist: bool = True,
     ) -> None:
-        session_save_path = self._get_save_path(
+        session_save_path = await run_sync_io(
+            self._get_save_path,
             session_id,
-            user_id=user_id,
-            channel=channel,
+            user_id,
+            channel,
         )
 
         path = key.split(".") if isinstance(key, str) else list(key)
@@ -344,17 +356,12 @@ class SafeJSONSession:
             )
 
         async with self._get_write_lock(session_save_path):
-            if await path_exists_async(session_save_path):
-                content = await read_text_async(
-                    session_save_path,
-                    encoding="utf-8",
-                    errors="surrogatepass",
-                )
-                states = _safe_json_loads(
-                    content,
+            try:
+                states = await run_sync_io(
+                    _read_session_json,
                     session_save_path,
                 )
-            else:
+            except FileNotFoundError as exc:
                 if not create_if_not_exist:
                     raise AgentStateError(
                         session_id=session_id,
@@ -362,7 +369,7 @@ class SafeJSONSession:
                             f"Session file {session_save_path}"
                             f" does not exist"
                         ),
-                    )
+                    ) from exc
                 states = {}
 
             cur = states
@@ -411,19 +418,20 @@ class SafeJSONSession:
                 empty dict if the file does not exist and
                 `allow_not_exist=True`.
         """
-        session_save_path = self._get_save_path(
+        session_save_path = await run_sync_io(
+            self._get_save_path,
             session_id,
-            user_id=user_id,
-            channel=channel,
+            user_id,
+            channel,
         )
-        if await path_exists_async(session_save_path):
-            content = await read_text_async(
+        try:
+            states = await run_sync_io(
+                _read_session_json,
                 session_save_path,
-                encoding="utf-8",
-                errors="surrogatepass",
             )
-            states = _safe_json_loads(content, session_save_path)
-
+        except FileNotFoundError:
+            states = None
+        if states is not None:
             logger.info(
                 "Get session state dict from %s successfully.",
                 session_save_path,

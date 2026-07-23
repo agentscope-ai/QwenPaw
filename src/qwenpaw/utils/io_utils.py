@@ -17,8 +17,11 @@ Choose an API by the required filesystem semantics:
 
 Async application code should not call ``asyncio.to_thread`` directly for
 file I/O. The public async functions in this module own thread offloading.
-Path locks are process-local; cross-process transactions still require an
-OS-level file lock.
+
+QwenPaw's supported server topology uses one application worker and one
+event loop. Consequently, :func:`get_path_lock` is sufficient for shared
+file transactions and an OS-level lock such as ``flock`` is intentionally
+not used. Revisit that decision only if multi-process writers are supported.
 """
 
 from __future__ import annotations
@@ -50,6 +53,9 @@ def get_path_lock(path: Path | str) -> asyncio.Lock:
     Use this around the complete transaction, not around individual reads
     and writes. For example, an editor must hold one lock while it reads,
     modifies, and atomically replaces the file.
+
+    QwenPaw currently runs one application worker, so all supported writers
+    share this lock registry. No OS-level file lock is needed in that model.
     """
     key = os.path.normcase(str(Path(path).resolve(strict=False)))
     lock = _PATH_LOCKS.get(key)
@@ -72,7 +78,20 @@ async def run_sync_io(
     as a subprocess download followed by file validation. It provides no
     locking or atomicity by itself.
     """
-    return await asyncio.to_thread(operation, *args, **kwargs)
+    task = asyncio.create_task(
+        asyncio.to_thread(operation, *args, **kwargs),
+    )
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        # A worker thread cannot be cancelled. Wait for it before allowing
+        # the caller to release a path or domain lock; otherwise another
+        # coroutine could overlap the still-running filesystem operation.
+        try:
+            await task
+        except BaseException:
+            pass
+        raise
 
 
 def _read_text(

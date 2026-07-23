@@ -13,10 +13,10 @@ from urllib.parse import quote
 from .base import BaseJobRepository
 from ..models import CronExecutionRecord, JobsFile
 from ....utils.io_utils import (
-    read_json_async,
+    read_json,
     run_sync_io,
     unlink_async,
-    write_json_atomic_async,
+    write_json_atomic,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,20 +45,27 @@ class JsonJobRepository(BaseJobRepository):
     def history_dir(self) -> Path:
         return self._history_dir
 
-    async def load(self) -> JobsFile:
+    def _load_sync(self) -> JobsFile:
+        """Load and validate jobs as one worker-thread operation."""
         if not self._path.exists():
             return JobsFile(version=1, jobs=[])
+        return JobsFile.model_validate(read_json(self._path))
 
-        data = await read_json_async(self._path)
-        return JobsFile.model_validate(data)
+    async def load(self) -> JobsFile:
+        """Load and validate jobs without blocking the event loop."""
+        return await run_sync_io(self._load_sync)
 
-    async def save(self, jobs_file: JobsFile) -> None:
-        payload = jobs_file.model_dump(mode="json")
-        await write_json_atomic_async(
+    def _save_sync(self, jobs_file: JobsFile) -> None:
+        """Serialize and atomically save jobs in one worker thread."""
+        write_json_atomic(
             self._path,
-            payload,
+            jobs_file.model_dump(mode="json"),
             sort_keys=True,
         )
+
+    async def save(self, jobs_file: JobsFile) -> None:
+        """Atomically save jobs without blocking the event loop."""
+        await run_sync_io(self._save_sync, jobs_file)
 
     def _history_file_path(self, job_id: str) -> Path:
         encoded = quote(job_id, safe="")
@@ -98,11 +105,10 @@ class JsonJobRepository(BaseJobRepository):
             )
             records.insert(0, record)
             del records[limit:]
-            payload = [r.model_dump(mode="json") for r in records]
-            await write_json_atomic_async(
-                self._history_file_path(job_id),
-                payload,
-                sort_keys=True,
+            await run_sync_io(
+                self._write_job_history,
+                job_id,
+                records,
             )
             return records
 
@@ -128,6 +134,18 @@ class JsonJobRepository(BaseJobRepository):
         for file_path in self._history_dir.glob("*.json"):
             if file_path.name not in valid_filenames:
                 file_path.unlink(missing_ok=True)
+
+    def _write_job_history(
+        self,
+        job_id: str,
+        records: list[CronExecutionRecord],
+    ) -> None:
+        """Serialize and atomically save job history in one worker thread."""
+        write_json_atomic(
+            self._history_file_path(job_id),
+            [record.model_dump(mode="json") for record in records],
+            sort_keys=True,
+        )
 
 
 def migrate_legacy_weixin_jobs_file(jobs_path: Path | str) -> None:

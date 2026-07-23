@@ -26,7 +26,10 @@ from qwenpaw.agents.tools.file_io import (
     read_file,
     write_file,
 )
-from qwenpaw.agents.tools.utils import TRUNCATION_METADATA_KEY
+from qwenpaw.agents.tools.utils import (
+    TRUNCATION_METADATA_KEY,
+    read_file_safe,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +113,14 @@ class TestReadFile:
         f.write_text("hello world", encoding="utf-8")
         result = await read_file(str(f))
         assert "hello world" in result.content[0].text
+
+    @pytest.mark.asyncio
+    async def test_safe_read_uses_one_binary_snapshot(self, tmp_path):
+        """Safe reads strip a BOM and tolerate invalid trailing bytes."""
+        path = tmp_path / "snapshot.txt"
+        path.write_bytes(b"\xef\xbb\xbfhello\xff")
+
+        assert await read_file_safe(str(path)) == "hello"
 
     @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, tmp_path):

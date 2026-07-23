@@ -176,3 +176,42 @@ async def test_async_plain_file_helpers_round_trip(tmp_path: Path) -> None:
 
     assert await read_text_async(text_path) == "first\nsecond\n"
     assert await read_bytes_async(bytes_path) == b"\x00\x01"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_append_holds_lock_until_worker_finishes(
+    tmp_path: Path,
+) -> None:
+    """Cancellation must not release a path lock before its thread exits."""
+    path = tmp_path / "events.txt"
+    first_started = threading.Event()
+    release_first = threading.Event()
+    second_started = threading.Event()
+
+    def delayed_append(
+        _path: Path | str,
+        content: str,
+        _encoding: str,
+    ) -> None:
+        if content == "first":
+            first_started.set()
+            release_first.wait(timeout=2)
+        else:
+            second_started.set()
+
+    with patch("qwenpaw.utils.io_utils._append_text", delayed_append):
+        first = asyncio.create_task(append_text_async(path, "first"))
+        while not first_started.is_set():
+            await asyncio.sleep(0)
+
+        first.cancel()
+        second = asyncio.create_task(append_text_async(path, "second"))
+        await asyncio.sleep(0.05)
+
+        assert not second_started.is_set()
+        release_first.set()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        await second
+
+    assert second_started.is_set()

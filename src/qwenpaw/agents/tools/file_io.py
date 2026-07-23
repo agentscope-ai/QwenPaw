@@ -153,30 +153,6 @@ async def read_file(  # pylint: disable=too-many-return-statements
 
     file_path = _resolve_file_path(file_path)
 
-    if not os.path.exists(file_path):
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The file {file_path} does not exist.",
-                ),
-            ],
-        )
-
-    if not os.path.isfile(file_path):
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The path {file_path} is not a file.",
-                ),
-            ],
-        )
-
     try:
         content = await read_file_safe(file_path)
         all_lines = content.split("\n")
@@ -247,6 +223,28 @@ async def read_file(  # pylint: disable=too-many-return-statements
             metadata=metadata,
         )
 
+    except FileNotFoundError:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: The file {file_path} does not exist.",
+                ),
+            ],
+        )
+    except IsADirectoryError:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: The path {file_path} is not a file.",
+                ),
+            ],
+        )
     except Exception as e:
         return ToolChunk(
             is_last=True,
@@ -368,34 +366,38 @@ async def edit_file(
 
     resolved_path = _resolve_file_path(file_path)
 
-    if not os.path.exists(resolved_path):
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The file {resolved_path} does not exist.",
-                ),
-            ],
-        )
-
-    if not os.path.isfile(resolved_path):
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The path {resolved_path} is not a file.",
-                ),
-            ],
-        )
-
     encoding = _get_encoding_for_file(resolved_path)
     async with get_path_lock(resolved_path):
         try:
             content = await read_file_safe(resolved_path)
+        except FileNotFoundError:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Error: The file {resolved_path} "
+                            f"does not exist."
+                        ),
+                    ),
+                ],
+            )
+        except IsADirectoryError:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Error: The path {resolved_path} "
+                            f"is not a file."
+                        ),
+                    ),
+                ],
+            )
         except Exception as e:
             return ToolChunk(
                 is_last=True,
