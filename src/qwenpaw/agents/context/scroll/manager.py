@@ -144,6 +144,16 @@ class ScrollContextManager:
         self._overflow_warned = False
 
     @staticmethod
+    def should_compress(tokens: float, trigger: float) -> bool:
+        """Return Scroll's pressure-boundary decision.
+
+        Usage exactly at the trigger remains live. Memory middleware calls the
+        same predicate so long-term-memory work cannot be predicted when
+        Scroll itself will perform no compaction.
+        """
+        return tokens > trigger
+
+    @staticmethod
     def _block_metadata(block: Any) -> dict[str, Any]:
         metadata = (
             block.get("metadata", {})
@@ -416,7 +426,7 @@ class ScrollContextManager:
         trigger = cfg.trigger_ratio * agent.model.context_size
         tokens = await agent.model.count_tokens(**kwargs)
         mark("count_tokens")
-        if tokens <= trigger:
+        if not self.should_compress(tokens, trigger):
             self._overflow_warned = False
             log_timings("at_or_below_trigger")
             return
