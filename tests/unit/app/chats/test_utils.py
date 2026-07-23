@@ -12,6 +12,10 @@ from qwenpaw.app.chats.utils import (
     strip_injected_skill_block,
 )
 from qwenpaw.app.chats.title_generator import _clean_title
+from qwenpaw.constant import (
+    QWENPAW_MESSAGE_TAG_KEY,
+    SCROLL_MEMORY_MESSAGE_TAG,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +140,74 @@ def test_msg_to_message_hides_headline_in_history_path():
     rendered = "".join(c.text for c in message.content)
     assert "⟦" not in rendered and "shipped" not in rendered
     assert "all set" in rendered
+
+
+def test_msg_to_message_omits_tagged_scroll_memory_placeholder():
+    placeholder = Msg(
+        name="memory",
+        role="user",
+        content=[
+            {
+                "type": "text",
+                "text": "<system-info>private model context</system-info>",
+            },
+        ],
+        metadata={
+            QWENPAW_MESSAGE_TAG_KEY: SCROLL_MEMORY_MESSAGE_TAG,
+        },
+    )
+
+    assert not agentscope_msg_to_message(placeholder)
+
+
+def test_msg_to_message_omits_legacy_scroll_memory_placeholder():
+    placeholder = Msg(
+        name="memory",
+        role="user",
+        content=[
+            {
+                "type": "text",
+                "text": (
+                    "<system-info>\n"
+                    "[context compressed] archived map\n"
+                    "</system-info>"
+                ),
+            },
+        ],
+    )
+
+    assert not agentscope_msg_to_message(placeholder)
+
+
+def test_msg_to_message_preserves_user_discussion_of_compressed_context():
+    user_msg = Msg(
+        name="user",
+        role="user",
+        content=[
+            {
+                "type": "text",
+                "text": (
+                    "Why does <system-info> contain " "[context compressed]?"
+                ),
+            },
+        ],
+    )
+
+    [message] = agentscope_msg_to_message(user_msg)
+    rendered = "".join(c.text for c in message.content)
+    assert "[context compressed]" in rendered
+
+
+def test_msg_to_message_preserves_ordinary_memory_named_message():
+    user_msg = Msg(
+        name="memory",
+        role="user",
+        content=[{"type": "text", "text": "remember this preference"}],
+    )
+
+    [message] = agentscope_msg_to_message(user_msg)
+    rendered = "".join(c.text for c in message.content)
+    assert rendered == "remember this preference"
 
 
 # ---------------------------------------------------------------------------

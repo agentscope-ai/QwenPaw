@@ -32,7 +32,12 @@ from qwenpaw.agents.context.scroll.recall_tool import (
 from qwenpaw.agents.context.types import ContextWindowUnfitError, LogEntry
 from qwenpaw.agents.memory.base_memory_manager import BaseMemoryManager
 from qwenpaw.agents.tools.utils import truncate_text_output
-from qwenpaw.constant import AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY
+from qwenpaw.constant import (
+    AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY,
+    LOOP_CONTINUATION_MESSAGE_TAG,
+    QWENPAW_MESSAGE_TAG_KEY,
+    SCROLL_MEMORY_MESSAGE_TAG,
+)
 
 # -- fixtures ---------------------------------------------------------------
 
@@ -600,11 +605,6 @@ async def test_compress_does_not_evict_user_only_exchange_boundary(
 
 def continuation_stub(text: str = "Continue working on the task.") -> Msg:
     """The user-role stub loop gates / stop handlers inject mid-turn."""
-    from qwenpaw.constant import (
-        LOOP_CONTINUATION_MESSAGE_TAG,
-        QWENPAW_MESSAGE_TAG_KEY,
-    )
-
     return Msg(
         name="user",
         role="user",
@@ -793,6 +793,10 @@ async def test_eviction_generates_plain_text_pointer_backed_summary(
     assert placeholder.count("<system-info>") == 1
     assert placeholder.count("</system-info>") == 1
     assert "</system-info>\n\n<system-info>" not in placeholder
+    assert (
+        agent.state.context[0].metadata[QWENPAW_MESSAGE_TAG_KEY]
+        == SCROLL_MEMORY_MESSAGE_TAG
+    )
 
     restored = make_manager(store, session_id="s1")
     try:
@@ -1859,10 +1863,6 @@ def test_serialize_persists_runtime_tag():
     """The qwenpaw_tag survives into the durable row's metadata, so the
     recall layer's SQL floor can tell continuation stubs from requests."""
     from qwenpaw.agents.context.scroll.serialize import msg_to_entries
-    from qwenpaw.constant import (
-        LOOP_CONTINUATION_MESSAGE_TAG,
-        QWENPAW_MESSAGE_TAG_KEY,
-    )
 
     (entry,) = msg_to_entries(continuation_stub())
     assert entry.metadata == {

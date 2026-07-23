@@ -29,6 +29,7 @@ from agentscope.message import Msg, SystemMsg, TextBlock, UserMsg
 
 from ....constant import (
     QWENPAW_MESSAGE_TAG_KEY,
+    SCROLL_MEMORY_MESSAGE_TAG,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
 from . import _as_internals as as_internals
@@ -1506,7 +1507,13 @@ class ScrollContextManager:
                 + render_live_turn_banner()
             )
             memory = f"<system-info>\n{body}\n</system-info>"
-        placeholder = UserMsg(name="memory", content=memory)
+        placeholder = UserMsg(
+            name="memory",
+            content=memory,
+            metadata={
+                QWENPAW_MESSAGE_TAG_KEY: SCROLL_MEMORY_MESSAGE_TAG,
+            },
+        )
         self._synthetic_ids.add(placeholder.id)
         agent.state.context = [placeholder] + tail
 
