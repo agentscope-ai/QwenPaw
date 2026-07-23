@@ -21,7 +21,6 @@ import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
 import { SortableAgentRow, DragHandle } from "./SortableAgentRow";
 import { providerIcon } from "../../Models/components/providerIcon";
 import { AgentStatusIndicator } from "@/components/AgentStatusIndicator";
-import styles from "../index.module.less";
 
 interface AgentTableProps {
   agents: AgentSummary[];
@@ -77,6 +76,7 @@ export function AgentTable({
       key: "sort",
       width: 56,
       align: "center",
+      fixed: "left",
       render: (_value: unknown, record: AgentSummary) => (
         <Tooltip title={t("agent.dragHandleTooltip")}>
           <span>
@@ -92,6 +92,7 @@ export function AgentTable({
       dataIndex: "name",
       key: "name",
       width: 300,
+      fixed: "left",
       render: (_text: string, record: AgentSummary) => (
         <Space>
           <AgentStatusIndicator
@@ -158,6 +159,8 @@ export function AgentTable({
     {
       title: t("common.actions"),
       key: "actions",
+      width: 200,
+      fixed: "right",
       render: (_value: unknown, record: AgentSummary) => {
         const startupInProgress =
           record.startup_status === "pending" ||
@@ -264,30 +267,29 @@ export function AgentTable({
   ];
 
   return (
-    <div className={styles.tableCard}>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={handleDragEnd}
+    >
+      <SortableContext
+        items={agents.map((agent) => agent.id)}
+        strategy={verticalListSortingStrategy}
       >
-        <SortableContext
-          items={agents.map((agent) => agent.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          <Table
-            dataSource={agents}
-            columns={columns}
-            loading={loading}
-            rowKey="id"
-            components={{
-              body: {
-                row: SortableAgentRow,
-              },
-            }}
-            pagination={false}
-          />
-        </SortableContext>
-      </DndContext>
-    </div>
+        <Table
+          dataSource={agents}
+          columns={columns}
+          loading={loading}
+          rowKey="id"
+          components={{
+            body: {
+              row: SortableAgentRow,
+            },
+          }}
+          pagination={false}
+          scroll={{ x: 1200, y: "calc(100vh - 280px)" }}
+        />
+      </SortableContext>
+    </DndContext>
   );
 }
