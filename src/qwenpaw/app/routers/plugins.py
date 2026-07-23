@@ -956,10 +956,22 @@ async def serve_plugin_ui_file(
     elif full_path.suffix == ".css":
         content_type = "text/css"
 
-    if content_type:
-        return FileResponse(str(full_path), media_type=content_type)
+    # WebView2 (and other browsers) will otherwise apply heuristic
+    # freshness to FileResponse (which only sets ETag / Last-Modified)
+    # and can serve a stale plugin bundle for days after the plugin has
+    # been updated on disk.  Force a revalidation on every request so
+    # hot-updating a plugin (dist/index.js, etc.) is immediately picked
+    # up.  ETag still lets the browser get a cheap 304 when unchanged.
+    no_cache_headers = {"Cache-Control": "no-cache"}
 
-    return FileResponse(str(full_path))
+    if content_type:
+        return FileResponse(
+            str(full_path),
+            media_type=content_type,
+            headers=no_cache_headers,
+        )
+
+    return FileResponse(str(full_path), headers=no_cache_headers)
 
 
 # ── Plugin market proxy ───────────────────────────────────────────────────
