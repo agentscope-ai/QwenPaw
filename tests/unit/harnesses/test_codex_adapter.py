@@ -13,7 +13,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from qwenpaw.harnesses.codex.adapter import CodexAdapter
-from qwenpaw.harnesses.events import HarnessEventKind
+from qwenpaw.harnesses.events import (
+    HarnessAttachment,
+    HarnessAttachmentKind,
+    HarnessEventKind,
+)
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
 from qwenpaw.utils.io_utils import write_json_atomic
 
@@ -284,6 +288,48 @@ async def test_run_turn_persists_and_reuses_thread(tmp_path: Path) -> None:
     assert turn_params["model"] == "gpt-test-codex"
     assert turn_params["effort"] == "high"
     assert turn_params["summary"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_run_turn_sends_images_and_files_to_app_server(
+    tmp_path: Path,
+) -> None:
+    client = FakeCodexClient()
+    adapter = CodexAdapter(tmp_path, client=client)  # type: ignore[arg-type]
+    image_path = tmp_path / "screen.png"
+    file_path = tmp_path / "notes.txt"
+
+    async for _ in adapter.run_turn(
+        session_id="chat-1",
+        prompt="Inspect both attachments",
+        cwd=tmp_path,
+        settings={},
+        attachments=[
+            HarnessAttachment(
+                kind=HarnessAttachmentKind.IMAGE,
+                path=image_path,
+                name="screen.png",
+            ),
+            HarnessAttachment(
+                kind=HarnessAttachmentKind.FILE,
+                path=file_path,
+                name="notes.txt",
+            ),
+        ],
+    ):
+        pass
+
+    turn_params = next(
+        params for method, params in client.requests if method == "turn/start"
+    )
+    assert turn_params["input"] == [
+        {"type": "text", "text": "Inspect both attachments"},
+        {"type": "localImage", "path": str(image_path)},
+        {
+            "type": "text",
+            "text": f"Attached file notes.txt: {file_path}",
+        },
+    ]
 
 
 @pytest.mark.asyncio

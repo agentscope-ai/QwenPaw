@@ -17,6 +17,8 @@ from ...security.tool_guard.approval import ApprovalDecision
 from ...utils.io_utils import read_json, write_json_atomic_async
 from ..base import HarnessAdapter
 from ..events import (
+    HarnessAttachment,
+    HarnessAttachmentKind,
     HarnessEvent,
     HarnessEventKind,
     HarnessHistoryItem,
@@ -196,6 +198,7 @@ class CodexAdapter(HarnessAdapter):
         prompt: str,
         cwd: Path,
         settings: dict[str, Any],
+        attachments: list[HarnessAttachment] | None = None,
     ) -> AsyncIterator[HarnessEvent]:
         """Start or resume a Codex thread and stream one turn."""
         await self._client.start()
@@ -214,7 +217,7 @@ class CodexAdapter(HarnessAdapter):
             params = {
                 "threadId": thread_id,
                 "cwd": str(cwd),
-                "input": [{"type": "text", "text": prompt}],
+                "input": self._turn_input(prompt, attachments or []),
             }
             if settings.get("model"):
                 params["model"] = settings["model"]
@@ -247,6 +250,29 @@ class CodexAdapter(HarnessAdapter):
             raise
         finally:
             self._client.unsubscribe(queue)
+
+    @staticmethod
+    def _turn_input(
+        prompt: str,
+        attachments: list[HarnessAttachment],
+    ) -> list[dict[str, Any]]:
+        """Build Codex app-server user input from one QwenPaw turn."""
+        result: list[dict[str, Any]] = []
+        if prompt:
+            result.append({"type": "text", "text": prompt})
+        for attachment in attachments:
+            path = str(attachment.path)
+            if attachment.kind == HarnessAttachmentKind.IMAGE:
+                result.append({"type": "localImage", "path": path})
+                continue
+            name = attachment.name or attachment.path.name
+            result.append(
+                {
+                    "type": "text",
+                    "text": f"Attached file {name}: {path}",
+                },
+            )
+        return result
 
     async def run_command(
         self,

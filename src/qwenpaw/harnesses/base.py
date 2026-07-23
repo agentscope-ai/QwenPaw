@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .events import (
+    HarnessAttachment,
     HarnessEvent,
     HarnessEventKind,
     HarnessHistoryItem,
@@ -71,6 +72,7 @@ class HarnessAdapter(ABC):
         prompt: str,
         cwd: Path,
         settings: dict[str, Any],
+        attachments: list[HarnessAttachment] | None = None,
     ) -> AsyncIterator[HarnessEvent]:
         """Run one turn and stream normalized events."""
 

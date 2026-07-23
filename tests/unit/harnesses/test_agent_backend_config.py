@@ -2,6 +2,7 @@
 """Tests for agent-level runtime backend configuration."""
 
 from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.harnesses.registry import get_provider
 
 
 def test_agent_backend_defaults_to_qwenpaw() -> None:
@@ -37,3 +38,9 @@ def test_future_backend_settings_do_not_require_core_schema_changes() -> None:
     assert config.backend == "qoder"
     assert config.backend_settings["model"] == "qoder-default"
     assert config.backend_settings["provider_option"] is True
+
+
+def test_codex_declares_console_attachment_support() -> None:
+    capabilities = get_provider("codex").capabilities
+
+    assert capabilities.attachments is True

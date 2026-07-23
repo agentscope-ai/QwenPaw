@@ -13,11 +13,18 @@ from typing import Any
 
 from ..schemas import (
     AgentResponse,
+    ContentType,
     MessageType,
     RunStatus,
 )
 from .base import HarnessAdapter
-from .events import HarnessEvent, HarnessEventKind, HarnessProvider
+from .events import (
+    HarnessAttachment,
+    HarnessAttachmentKind,
+    HarnessEvent,
+    HarnessEventKind,
+    HarnessProvider,
+)
 from .registry import (
     PROVIDER_CATALOG,
     adapter_config_key,
@@ -107,8 +114,10 @@ class HarnessRuntime:
         """Run a harness turn and emit the established QwenPaw protocol."""
         adapter = await self.adapter(backend, settings)
         session_id = str(getattr(request, "session_id", "") or "default")
-        prompt = self._prompt_from_request(request)
-        command, arguments = self._parse_command(prompt)
+        prompt, attachments = self._content_from_request(request)
+        command, arguments = (
+            self._parse_command(prompt) if not attachments else ("", "")
+        )
         response = AgentResponse(
             id=f"response_{uuid.uuid4().hex}",
             output=[],
@@ -171,6 +180,7 @@ class HarnessRuntime:
                     prompt=prompt,
                     cwd=cwd,
                     settings=settings or {},
+                    attachments=attachments,
                 )
             async for event in event_stream:
                 if event.kind == HarnessEventKind.TEXT_DELTA:
@@ -295,8 +305,11 @@ class HarnessRuntime:
         )
 
     @staticmethod
-    def _prompt_from_request(request: Any) -> str:
+    def _content_from_request(
+        request: Any,
+    ) -> tuple[str, list[HarnessAttachment]]:
         parts: list[str] = []
+        attachments: list[HarnessAttachment] = []
         for message in getattr(request, "input", None) or []:
             for content in getattr(message, "content", None) or []:
                 if isinstance(content, str):
@@ -305,10 +318,45 @@ class HarnessRuntime:
                 text = getattr(content, "text", None)
                 if text:
                     parts.append(str(text))
+                    continue
+                content_type = getattr(content, "type", None)
+                if content_type == ContentType.IMAGE:
+                    raw_path = getattr(content, "image_url", None)
+                    if raw_path:
+                        attachments.append(
+                            HarnessAttachment(
+                                kind=HarnessAttachmentKind.IMAGE,
+                                path=Path(str(raw_path)).expanduser(),
+                                name=Path(str(raw_path)).name,
+                            ),
+                        )
+                    continue
+                attachment_fields = {
+                    ContentType.FILE: "file_url",
+                    ContentType.AUDIO: "data",
+                    ContentType.VIDEO: "video_url",
+                }
+                path_field = attachment_fields.get(content_type)
+                raw_path = (
+                    getattr(content, path_field, None) if path_field else None
+                )
+                if raw_path:
+                    attachments.append(
+                        HarnessAttachment(
+                            kind=HarnessAttachmentKind.FILE,
+                            path=Path(str(raw_path)).expanduser(),
+                            name=str(
+                                getattr(content, "filename", None)
+                                or Path(str(raw_path)).name,
+                            ),
+                        ),
+                    )
         prompt = "\n".join(parts).strip()
-        if not prompt:
-            raise ValueError("Third-party agent requests require text input")
-        return prompt
+        if not prompt and not attachments:
+            raise ValueError(
+                "Third-party agent requests require text or attachments",
+            )
+        return prompt, attachments
 
     @staticmethod
     def _parse_command(prompt: str) -> tuple[str, str]:

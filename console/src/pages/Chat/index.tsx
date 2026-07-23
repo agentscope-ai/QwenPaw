@@ -134,7 +134,10 @@ import {
   withSendLock,
   holdOwnershipLock,
 } from "../../stores/messageQueueStore";
-import { requiresQwenPawModel } from "../../utils/agentBackend";
+import {
+  requiresQwenPawModel,
+  supportsAgentAttachments,
+} from "../../utils/agentBackend";
 
 // ---------------------------------------------------------------------------
 // Background queue sender — keeps sending after ChatPage unmounts.
@@ -1203,8 +1206,10 @@ export default function ChatPage() {
   const usesQwenPawBackend = requiresQwenPawModel(selectedAgentBackend);
   const backendCommands = backendCapabilities?.commands ?? [];
   const approvalPresets = backendCapabilities?.approval_presets ?? [];
-  const supportsAttachments =
-    usesQwenPawBackend || Boolean(backendCapabilities?.attachments);
+  const supportsAttachments = supportsAgentAttachments(
+    selectedAgentBackend,
+    backendCapabilities,
+  );
   const { toolRenderConfig } = usePlugins();
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
@@ -3093,6 +3098,7 @@ export default function ChatPage() {
     loopAvailableModes,
     selectedAgent,
     usesQwenPawBackend,
+    supportsAttachments,
     runningConfigApprovalLevel,
     queueSessionId,
     onFileCardClick,

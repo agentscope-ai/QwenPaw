@@ -13,6 +13,8 @@ import pytest
 
 from qwenpaw.harnesses.base import HarnessAdapter
 from qwenpaw.harnesses.events import (
+    HarnessAttachment,
+    HarnessAttachmentKind,
     HarnessEvent,
     HarnessEventKind,
     HarnessProvider,
@@ -20,6 +22,8 @@ from qwenpaw.harnesses.events import (
 from qwenpaw.harnesses.runtime import HarnessRuntime
 from qwenpaw.schemas import (
     AgentRequest,
+    FileContent,
+    ImageContent,
     Message,
     MessageType,
     Role,
@@ -32,6 +36,8 @@ class FakeAdapter(HarnessAdapter):
 
     def __init__(self) -> None:
         self.stopped = False
+        self.prompt = ""
+        self.attachments: list[HarnessAttachment] = []
 
     async def status(self) -> HarnessProvider:
         return HarnessProvider(
@@ -55,10 +61,12 @@ class FakeAdapter(HarnessAdapter):
         prompt: str,
         cwd: Path,
         settings: dict,
+        attachments: list[HarnessAttachment] | None = None,
     ) -> AsyncIterator[HarnessEvent]:
         assert session_id == "chat-1"
-        assert prompt == "Fix it"
         assert cwd.is_absolute()
+        self.prompt = prompt
+        self.attachments = attachments or []
         yield HarnessEvent(
             kind=HarnessEventKind.TEXT_DELTA,
             text="Fixed",
@@ -79,7 +87,9 @@ class ToolAdapter(FakeAdapter):
         prompt: str,
         cwd: Path,
         settings: dict,
+        attachments: list[HarnessAttachment] | None = None,
     ) -> AsyncIterator[HarnessEvent]:
+        del attachments
         yield HarnessEvent(
             kind=HarnessEventKind.REASONING_DELTA,
             text="Checking",
@@ -170,7 +180,8 @@ async def test_runtime_recreates_adapter_when_binary_changes(
 @pytest.mark.asyncio
 async def test_runtime_emits_qwenpaw_envelopes(tmp_path: Path) -> None:
     runtime = HarnessRuntime(tmp_path)
-    runtime._adapters["codex"] = FakeAdapter()
+    adapter = FakeAdapter()
+    runtime._adapters["codex"] = adapter
     request = AgentRequest(
         session_id="chat-1",
         input=[
@@ -200,6 +211,86 @@ async def test_runtime_emits_qwenpaw_envelopes(tmp_path: Path) -> None:
     ]
     assert output[3].text == "Fixed"
     assert output[-1].status == "completed"
+    assert adapter.prompt == "Fix it"
+    assert adapter.attachments == []
+
+
+@pytest.mark.asyncio
+async def test_runtime_forwards_dropped_image_and_file(
+    tmp_path: Path,
+) -> None:
+    image_path = tmp_path / "screenshot.png"
+    file_path = tmp_path / "requirements.txt"
+    adapter = FakeAdapter()
+    runtime = HarnessRuntime(tmp_path)
+    runtime._adapters["codex"] = adapter
+    request = AgentRequest(
+        session_id="chat-1",
+        input=[
+            Message(
+                role=Role.USER,
+                content=[
+                    TextContent(text="Inspect these"),
+                    ImageContent(image_url=str(image_path)),
+                    FileContent(
+                        filename="requirements.txt",
+                        file_url=str(file_path),
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    output = [
+        item
+        async for item in runtime.stream(
+            backend="codex",
+            request=request,
+            cwd=tmp_path.resolve(),
+        )
+    ]
+
+    assert output[-1].status == "completed"
+    assert adapter.prompt == "Inspect these"
+    assert [item.kind for item in adapter.attachments] == [
+        HarnessAttachmentKind.IMAGE,
+        HarnessAttachmentKind.FILE,
+    ]
+    assert [item.path for item in adapter.attachments] == [
+        image_path,
+        file_path,
+    ]
+    assert adapter.attachments[1].name == "requirements.txt"
+
+
+@pytest.mark.asyncio
+async def test_runtime_allows_attachment_only_turn(tmp_path: Path) -> None:
+    image_path = tmp_path / "screenshot.png"
+    adapter = FakeAdapter()
+    runtime = HarnessRuntime(tmp_path)
+    runtime._adapters["codex"] = adapter
+    request = AgentRequest(
+        session_id="chat-1",
+        input=[
+            Message(
+                role=Role.USER,
+                content=[ImageContent(image_url=str(image_path))],
+            ),
+        ],
+    )
+
+    output = [
+        item
+        async for item in runtime.stream(
+            backend="codex",
+            request=request,
+            cwd=tmp_path.resolve(),
+        )
+    ]
+
+    assert output[-1].status == "completed"
+    assert adapter.prompt == ""
+    assert adapter.attachments[0].path == image_path
 
 
 @pytest.mark.asyncio

@@ -4,9 +4,25 @@
 from __future__ import annotations
 
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+class HarnessAttachmentKind(str, Enum):
+    """Attachment kinds accepted by third-party agent adapters."""
+
+    IMAGE = "image"
+    FILE = "file"
+
+
+class HarnessAttachment(BaseModel):
+    """One local attachment forwarded to a third-party agent."""
+
+    kind: HarnessAttachmentKind
+    path: Path
+    name: str = ""
 
 
 class HarnessEventKind(str, Enum):
@@ -123,6 +139,8 @@ class HarnessProvider(BaseModel):
 
 __all__ = [
     "HarnessApprovalPreset",
+    "HarnessAttachment",
+    "HarnessAttachmentKind",
     "HarnessCapabilities",
     "HarnessCommand",
     "HarnessEvent",

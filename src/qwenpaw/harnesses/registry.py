@@ -38,6 +38,7 @@ PROVIDER_CATALOG = (
             reasoning_stream=True,
             tool_stream=True,
             session_resume=True,
+            attachments=True,
             commands=[
                 HarnessCommand(
                     name="compact",
