@@ -8,7 +8,7 @@ import uuid
 from typing import Any
 
 from ..constant import WORKING_DIR
-from ..utils.atomic_io import read_json, write_json_atomic
+from ..utils.io_utils import read_json, run_sync_io, write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +73,10 @@ async def append_event(
         "created_at": time.time(),
     }
     async with _LOCK:
-        events = await asyncio.to_thread(_load_events)
+        events = await run_sync_io(_load_events)
         events.insert(0, event)
         del events[_MAX_EVENTS:]
-        await asyncio.to_thread(_save_events, events)
+        await run_sync_io(_save_events, events)
     return event
 
 
@@ -90,7 +90,7 @@ async def list_events(
     unread_only: bool = False,
 ) -> list[dict[str, Any]]:
     async with _LOCK:
-        events = await asyncio.to_thread(_load_events)
+        events = await run_sync_io(_load_events)
     if source_type:
         events = [
             event
@@ -114,24 +114,24 @@ async def mark_read(event_ids: list[str]) -> int:
     event_id_set = set(event_ids)
     updated = 0
     async with _LOCK:
-        events = await asyncio.to_thread(_load_events)
+        events = await run_sync_io(_load_events)
         for event in events:
             if event.get("id") in event_id_set and not bool(event.get("read")):
                 event["read"] = True
                 updated += 1
-        await asyncio.to_thread(_save_events, events)
+        await run_sync_io(_save_events, events)
     return updated
 
 
 async def mark_all_read() -> int:
     updated = 0
     async with _LOCK:
-        events = await asyncio.to_thread(_load_events)
+        events = await run_sync_io(_load_events)
         for event in events:
             if not bool(event.get("read")):
                 event["read"] = True
                 updated += 1
-        await asyncio.to_thread(_save_events, events)
+        await run_sync_io(_save_events, events)
     return updated
 
 
@@ -142,7 +142,7 @@ async def delete_event(event_id: str) -> tuple[bool, str | None, bool]:
     deleted_run_id: str | None = None
     run_id_still_referenced = False
     async with _LOCK:
-        events = await asyncio.to_thread(_load_events)
+        events = await run_sync_io(_load_events)
         kept_events = []
         for event in events:
             if not deleted and event.get("id") == event_id:
@@ -165,5 +165,5 @@ async def delete_event(event_id: str) -> tuple[bool, str | None, bool]:
                     run_id_still_referenced = True
                     break
         if deleted:
-            await asyncio.to_thread(_save_events, kept_events)
+            await run_sync_io(_save_events, kept_events)
     return deleted, deleted_run_id, run_id_still_referenced

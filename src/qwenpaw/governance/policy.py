@@ -26,7 +26,7 @@ import yaml
 
 from .tool_registry import ToolRegistry, DEFAULT_REGISTRY
 from ..sandbox import SandboxConfig
-from ..utils.atomic_io import write_yaml_atomic
+from ..utils.io_utils import write_yaml_atomic
 
 logger = logging.getLogger(__name__)
 

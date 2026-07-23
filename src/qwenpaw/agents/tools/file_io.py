@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # pylint: disable=line-too-long
-import asyncio
 import os
 from pathlib import Path
 from typing import Optional
@@ -22,13 +21,11 @@ from ...config.context import (
 )
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
-from ...utils.atomic_io import get_path_lock, write_text_atomic_async
-
-
-def _append_text(file_path: str, content: str, encoding: str) -> None:
-    """Append text as one synchronous worker-thread operation."""
-    with open(file_path, "a", encoding=encoding) as file:
-        file.write(content)
+from ...utils.io_utils import (
+    append_text_async,
+    get_path_lock,
+    write_text_atomic_async,
+)
 
 
 def _path_to_file_url(path: str) -> str:
@@ -494,13 +491,11 @@ async def append_file(
     encoding = _get_encoding_for_file(file_path)
 
     try:
-        async with get_path_lock(file_path):
-            await asyncio.to_thread(
-                _append_text,
-                file_path,
-                content,
-                encoding,
-            )
+        await append_text_async(
+            file_path,
+            content,
+            encoding=encoding,
+        )
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,

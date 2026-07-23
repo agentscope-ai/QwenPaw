@@ -7,7 +7,6 @@ This module provides utilities for:
 - Managing download directories
 - Reading text files with encoding fallback for cross-platform compatibility
 """
-import asyncio
 import os
 import mimetypes
 import base64
@@ -25,7 +24,12 @@ from qwenpaw.exceptions import (
 
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
-from ...utils.atomic_io import get_path_lock
+from ...utils.io_utils import (
+    get_path_lock,
+    make_dirs_async,
+    run_sync_io,
+    write_bytes_async,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -230,12 +234,6 @@ def _decode_base64(base64_data: str) -> tuple[bytes, str]:
     return content, hashlib.md5(content).hexdigest()
 
 
-def _write_bytes(file_path: Path, content: bytes) -> None:
-    """Write bytes as one synchronous worker-thread operation."""
-    with open(file_path, "wb") as file:
-        file.write(content)
-
-
 def _guess_suffix_from_url_headers(url: str) -> Optional[str]:
     """
     HEAD request to get Content-Type and return a suffix like '.pdf'.
@@ -304,7 +302,7 @@ async def download_file_from_base64(
         The local file path.
     """
     try:
-        file_content, file_hash = await asyncio.to_thread(
+        file_content, file_hash = await run_sync_io(
             _decode_base64,
             base64_data,
         )
@@ -312,22 +310,13 @@ async def download_file_from_base64(
         download_path = Path(
             download_dir if download_dir else _default_download_dir(),
         )
-        await asyncio.to_thread(
-            download_path.mkdir,
-            parents=True,
-            exist_ok=True,
-        )
+        await make_dirs_async(download_path)
 
         if not filename:
             filename = f"file_{file_hash}"
 
         local_file_path = download_path / filename
-        async with get_path_lock(local_file_path):
-            await asyncio.to_thread(
-                _write_bytes,
-                local_file_path,
-                file_content,
-            )
+        await write_bytes_async(local_file_path, file_content)
 
         logger.debug("Downloaded file to: %s", local_file_path)
         return str(local_file_path.absolute())
@@ -361,18 +350,14 @@ async def download_file_from_url(
     """
     try:
         parsed = urllib.parse.urlparse(url)
-        local = await asyncio.to_thread(_resolve_local_path, url, parsed)
+        local = await run_sync_io(_resolve_local_path, url, parsed)
         if local is not None:
             return local
 
         download_path = Path(
             download_dir if download_dir else _default_download_dir(),
         )
-        await asyncio.to_thread(
-            download_path.mkdir,
-            parents=True,
-            exist_ok=True,
-        )
+        await make_dirs_async(download_path)
         if not filename:
             url_filename = os.path.basename(parsed.path)
             filename = (
@@ -382,7 +367,7 @@ async def download_file_from_url(
             )
         local_file_path = download_path / filename
         async with get_path_lock(local_file_path):
-            local_file_path = await asyncio.to_thread(
+            local_file_path = await run_sync_io(
                 _finish_remote_download,
                 url,
                 local_file_path,

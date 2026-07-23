@@ -10,12 +10,12 @@ injects all dependencies into the agent constructor.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Iterable
 
 from ..agents.acp.meta import ACP_CODING_PROJECT_META_KEY
+from ..utils.io_utils import run_sync_io
 
 _logger = logging.getLogger(__name__)
 
@@ -232,7 +232,7 @@ class AgentBuilder:
             if _cm and getattr(_cm, "project_dir", None)
             else None
         )
-        governor = await asyncio.to_thread(
+        governor = await run_sync_io(
             self._init_governor,
             workspace_dir,
             _project_dir,

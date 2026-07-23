@@ -12,7 +12,12 @@ from urllib.parse import quote
 
 from .base import BaseJobRepository
 from ..models import CronExecutionRecord, JobsFile
-from ....utils.atomic_io import read_json_async, write_json_atomic_async
+from ....utils.io_utils import (
+    read_json_async,
+    run_sync_io,
+    unlink_async,
+    write_json_atomic_async,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +81,7 @@ class JsonJobRepository(BaseJobRepository):
         return [CronExecutionRecord.model_validate(item) for item in data]
 
     async def get_history(self, job_id: str) -> list[CronExecutionRecord]:
-        return await asyncio.to_thread(self._read_job_history, job_id)
+        return await run_sync_io(self._read_job_history, job_id)
 
     async def append_history(
         self,
@@ -87,7 +92,7 @@ class JsonJobRepository(BaseJobRepository):
     ) -> list[CronExecutionRecord]:
         lock = self._get_history_write_lock(job_id)
         async with lock:
-            records = await asyncio.to_thread(
+            records = await run_sync_io(
                 self._read_job_history,
                 job_id,
             )
@@ -104,14 +109,11 @@ class JsonJobRepository(BaseJobRepository):
     async def delete_history(self, job_id: str) -> None:
         lock = self._get_history_write_lock(job_id)
         async with lock:
-            await asyncio.to_thread(
-                self._history_file_path(job_id).unlink,
-                missing_ok=True,
-            )
+            await unlink_async(self._history_file_path(job_id))
         self._history_write_locks.pop(job_id, None)
 
     async def prune_orphan_history(self, valid_job_ids: set[str]) -> None:
-        await asyncio.to_thread(
+        await run_sync_io(
             self._prune_orphan_history,
             valid_job_ids,
         )

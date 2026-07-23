@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for cross-platform atomic file writes."""
+"""Tests for asynchronous and atomic filesystem utilities."""
 
 from __future__ import annotations
 
@@ -14,8 +14,13 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from qwenpaw.utils.atomic_io import (
+from qwenpaw.utils.io_utils import (
+    append_text_async,
+    read_bytes_async,
     read_json_async,
+    read_text_async,
+    run_sync_io,
+    write_bytes_async,
     write_json_atomic,
     write_json_atomic_async,
     write_text_atomic,
@@ -43,7 +48,7 @@ def test_write_text_atomic_preserves_destination_on_replace_error(
 
     with (
         patch(
-            "qwenpaw.utils.atomic_io.os.replace",
+            "qwenpaw.utils.io_utils.os.replace",
             side_effect=PermissionError("locked"),
         ),
         pytest.raises(PermissionError, match="locked"),
@@ -119,8 +124,8 @@ async def test_async_json_helpers_run_sync_io_in_worker_thread(
         return {"ok": True}
 
     with (
-        patch("qwenpaw.utils.atomic_io.write_json_atomic", fake_write),
-        patch("qwenpaw.utils.atomic_io.read_json", fake_read),
+        patch("qwenpaw.utils.io_utils.write_json_atomic", fake_write),
+        patch("qwenpaw.utils.io_utils.read_json", fake_read),
     ):
         await write_json_atomic_async(path, {"ok": True})
         payload = await read_json_async(path)
@@ -146,14 +151,28 @@ async def test_async_json_write_allows_event_loop_progress(
         release.wait(timeout=2)
 
     with patch(
-        "qwenpaw.utils.atomic_io.write_json_atomic",
+        "qwenpaw.utils.io_utils.write_json_atomic",
         delayed_write,
     ):
         task = asyncio.create_task(
             write_json_atomic_async(path, {"ok": True}),
         )
-        await asyncio.to_thread(started.wait, 2)
+        await run_sync_io(started.wait, 2)
         await asyncio.sleep(0)
         assert not task.done()
         release.set()
         await task
+
+
+@pytest.mark.asyncio
+async def test_async_plain_file_helpers_round_trip(tmp_path: Path) -> None:
+    """Plain helpers expose common file operations without manual offload."""
+    text_path = tmp_path / "events.txt"
+    bytes_path = tmp_path / "artifact.bin"
+
+    await append_text_async(text_path, "first\n")
+    await append_text_async(text_path, "second\n")
+    await write_bytes_async(bytes_path, b"\x00\x01")
+
+    assert await read_text_async(text_path) == "first\nsecond\n"
+    assert await read_bytes_async(bytes_path) == b"\x00\x01"

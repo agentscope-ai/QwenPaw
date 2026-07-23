@@ -12,10 +12,13 @@ import shutil
 
 from typing import Union, Sequence
 
-import aiofiles
 from qwenpaw.exceptions import ConfigurationException
 from ...exceptions import AgentStateError
-from ...utils.atomic_io import write_json_atomic
+from ...utils.io_utils import (
+    path_exists_async,
+    read_text_async,
+    write_json_atomic_async,
+)
 from ...utils.json_utils import safe_json_loads as _safe_json_loads
 
 logger = logging.getLogger(__name__)
@@ -262,8 +265,7 @@ class SafeJSONSession:
             channel=channel,
         )
         async with self._get_write_lock(session_save_path):
-            await asyncio.to_thread(
-                write_json_atomic,
+            await write_json_atomic_async(
                 session_save_path,
                 state_dicts,
                 indent=None,
@@ -288,15 +290,13 @@ class SafeJSONSession:
             user_id=user_id,
             channel=channel,
         )
-        if os.path.exists(session_save_path):
-            async with aiofiles.open(
+        if await path_exists_async(session_save_path):
+            content = await read_text_async(
                 session_save_path,
-                "r",
                 encoding="utf-8",
                 errors="surrogatepass",
-            ) as f:
-                content = await f.read()
-                states = _safe_json_loads(content, session_save_path)
+            )
+            states = _safe_json_loads(content, session_save_path)
 
             for name, state_module in state_modules_mapping.items():
                 if name in states:
@@ -344,18 +344,16 @@ class SafeJSONSession:
             )
 
         async with self._get_write_lock(session_save_path):
-            if os.path.exists(session_save_path):
-                async with aiofiles.open(
+            if await path_exists_async(session_save_path):
+                content = await read_text_async(
                     session_save_path,
-                    "r",
                     encoding="utf-8",
                     errors="surrogatepass",
-                ) as f:
-                    content = await f.read()
-                    states = _safe_json_loads(
-                        content,
-                        session_save_path,
-                    )
+                )
+                states = _safe_json_loads(
+                    content,
+                    session_save_path,
+                )
             else:
                 if not create_if_not_exist:
                     raise AgentStateError(
@@ -375,8 +373,7 @@ class SafeJSONSession:
 
             cur[path[-1]] = value
 
-            await asyncio.to_thread(
-                write_json_atomic,
+            await write_json_atomic_async(
                 session_save_path,
                 states,
                 indent=None,
@@ -419,15 +416,13 @@ class SafeJSONSession:
             user_id=user_id,
             channel=channel,
         )
-        if os.path.exists(session_save_path):
-            async with aiofiles.open(
+        if await path_exists_async(session_save_path):
+            content = await read_text_async(
                 session_save_path,
-                "r",
                 encoding="utf-8",
                 errors="surrogatepass",
-            ) as file:
-                content = await file.read()
-                states = _safe_json_loads(content, session_save_path)
+            )
+            states = _safe_json_loads(content, session_save_path)
 
             logger.info(
                 "Get session state dict from %s successfully.",

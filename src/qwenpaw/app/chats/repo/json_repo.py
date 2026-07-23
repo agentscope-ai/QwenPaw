@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .base import BaseChatRepository
 from ..models import ChatsFile
-from ....utils.atomic_io import read_json_async, write_json_atomic_async
+from ....utils.io_utils import read_json_async, write_json_atomic_async
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,6 @@ as constructor parameters and does not build them internally.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -29,6 +28,7 @@ from agentscope.tool import Toolkit
 
 from .skill_system import get_workspace_skills_dir
 from ..modes.coding import CodingModeMixin
+from ..utils.io_utils import run_sync_io
 from ..constant import (
     LOOP_CONTINUATION_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
@@ -298,7 +298,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         gov = getattr(self, "_governor", None)
         if gov is not None:
             try:
-                await asyncio.to_thread(gov.stop)
+                await run_sync_io(gov.stop)
             except Exception:
                 logger.debug("governor stop failed", exc_info=True)
 
@@ -310,7 +310,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
             if hasattr(cm, "purge_old"):
                 try:
                     lcc = self._agent_config.running.light_context_config
-                    await asyncio.to_thread(
+                    await run_sync_io(
                         cm.purge_old,
                         lcc.scroll_config.history_retention_days,
                     )
@@ -321,7 +321,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
             if hasattr(cm, "close"):
                 try:
-                    await asyncio.to_thread(cm.close)
+                    await run_sync_io(cm.close)
                 except Exception:
                     logger.debug(
                         "context manager close failed",
@@ -337,7 +337,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 lcc = self._agent_config.running.light_context_config
                 retention_days = _effective_artifact_retention_days(lcc)
                 if retention_days > 0:
-                    await asyncio.to_thread(
+                    await run_sync_io(
                         offloader.cleanup_expired,
                         retention_days=retention_days,
                     )

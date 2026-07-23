@@ -28,6 +28,7 @@ from .policy import (
 )
 from .audit import AuditLog
 from ..constant import WORKING_DIR
+from ..utils.io_utils import run_sync_io
 
 from ..sandbox import (
     SandboxCapability,
@@ -512,7 +513,7 @@ class ResourceGovernor:
             async with self._policy_lock:
                 self.policy.add_rule(rule)
                 if self._policy is not None:
-                    await asyncio.to_thread(
+                    await run_sync_io(
                         save_governance_policy,
                         self._policy,
                         str(self._policy_dir),

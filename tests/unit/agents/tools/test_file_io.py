@@ -307,7 +307,7 @@ class TestAppendFile:
                 active -= 1
 
         with patch(
-            "qwenpaw.agents.tools.file_io._append_text",
+            "qwenpaw.utils.io_utils._append_text",
             delayed_append,
         ):
             await asyncio.gather(

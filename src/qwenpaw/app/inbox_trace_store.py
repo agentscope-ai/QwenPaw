@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from ..constant import WORKING_DIR
-from ..utils.atomic_io import read_json, write_json_atomic
+from ..utils.io_utils import (
+    read_json,
+    run_sync_io,
+    unlink_async,
+    write_json_atomic,
+)
 
 _TRACE_DIR = WORKING_DIR / "inbox_traces"
 _LOCK = asyncio.Lock()
@@ -73,7 +78,7 @@ async def create_trace(
             "meta": _to_jsonable(meta or {}),
             "events": [],
         }
-        await asyncio.to_thread(_write_trace, run_id, payload)
+        await run_sync_io(_write_trace, run_id, payload)
 
 
 async def append_trace_events(
@@ -99,11 +104,11 @@ async def append_trace_events(
         return
 
     async with _LOCK:
-        payload = await asyncio.to_thread(_read_trace, run_id)
+        payload = await run_sync_io(_read_trace, run_id)
         existing_events = payload.get("events", [])
         existing_events.extend(normalized_events)
         payload["events"] = existing_events
-        await asyncio.to_thread(_write_trace, run_id, payload)
+        await run_sync_io(_write_trace, run_id, payload)
 
 
 def flatten_session_messages(content: Any) -> list[dict[str, Any]]:
@@ -197,12 +202,12 @@ async def finalize_trace(
     error: str | None = None,
 ) -> None:
     async with _LOCK:
-        payload = await asyncio.to_thread(_read_trace, run_id)
+        payload = await run_sync_io(_read_trace, run_id)
         payload["status"] = status
         payload["completed_at"] = time.time()
         if error is not None:
             payload["error"] = error
-        await asyncio.to_thread(_write_trace, run_id, payload)
+        await run_sync_io(_write_trace, run_id, payload)
 
 
 async def get_trace(run_id: str) -> dict[str, Any] | None:
@@ -210,7 +215,7 @@ async def get_trace(run_id: str) -> dict[str, Any] | None:
     if not path.exists():
         return None
     async with _LOCK:
-        return await asyncio.to_thread(_read_trace, run_id)
+        return await run_sync_io(_read_trace, run_id)
 
 
 async def delete_trace(run_id: str) -> bool:
@@ -220,5 +225,5 @@ async def delete_trace(run_id: str) -> bool:
     async with _LOCK:
         if not path.exists():
             return False
-        await asyncio.to_thread(path.unlink, missing_ok=True)
+        await unlink_async(path)
     return True

@@ -37,7 +37,7 @@ from ..constant import (
     LLM_RATE_LIMIT_PAUSE,
     WORKING_DIR,
 )
-from ..utils.atomic_io import write_json_atomic
+from ..utils.io_utils import write_json_atomic
 from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)

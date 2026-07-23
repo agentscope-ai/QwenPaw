@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ...utils.atomic_io import write_json_atomic, write_text_atomic
+from ...utils.io_utils import write_json_atomic, write_text_atomic
 from ...utils.command_runner import (
     CommandExecutionError,
     run_command_async,
