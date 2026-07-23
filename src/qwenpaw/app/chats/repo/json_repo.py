@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .base import BaseChatRepository
 from ..models import ChatsFile
+from ....utils.atomic_io import read_json_async, write_json_atomic_async
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class JsonChatRepository(BaseChatRepository):
         if not self._path.exists():
             return ChatsFile(version=1, chats=[])
 
-        data = json.loads(self._path.read_text(encoding="utf-8"))
+        data = await read_json_async(self._path)
         return ChatsFile.model_validate(data)
 
     async def save(self, chats_file: ChatsFile) -> None:
@@ -59,20 +60,12 @@ class JsonChatRepository(BaseChatRepository):
         Args:
             chats_file: ChatsFile to persist
         """
-        # Create parent directory if needed
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Write to temp file first (atomic write)
-        tmp_path = self._path.with_suffix(self._path.suffix + ".tmp")
         payload = chats_file.model_dump(mode="json")
-
-        tmp_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
+        await write_json_atomic_async(
+            self._path,
+            payload,
+            sort_keys=True,
         )
-
-        # Atomic replace (shutil.move handles cross-disk on Windows)
-        shutil.move(str(tmp_path), str(self._path))
 
 
 def migrate_legacy_weixin_chats_file(chats_path: Path | str) -> None:

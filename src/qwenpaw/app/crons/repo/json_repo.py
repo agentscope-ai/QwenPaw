@@ -12,6 +12,7 @@ from urllib.parse import quote
 
 from .base import BaseJobRepository
 from ..models import CronExecutionRecord, JobsFile
+from ....utils.atomic_io import read_json_async, write_json_atomic_async
 
 logger = logging.getLogger(__name__)
 
@@ -43,20 +44,16 @@ class JsonJobRepository(BaseJobRepository):
         if not self._path.exists():
             return JobsFile(version=1, jobs=[])
 
-        data = json.loads(self._path.read_text(encoding="utf-8"))
+        data = await read_json_async(self._path)
         return JobsFile.model_validate(data)
 
     async def save(self, jobs_file: JobsFile) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-
-        tmp_path = self._path.with_suffix(self._path.suffix + ".tmp")
         payload = jobs_file.model_dump(mode="json")
-
-        tmp_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
+        await write_json_atomic_async(
+            self._path,
+            payload,
+            sort_keys=True,
         )
-        shutil.move(str(tmp_path), str(self._path))
 
     def _history_file_path(self, job_id: str) -> Path:
         encoded = quote(job_id, safe="")
@@ -69,15 +66,6 @@ class JsonJobRepository(BaseJobRepository):
             self._history_write_locks[job_id] = lock
         return lock
 
-    def _write_json_atomic(self, target: Path, payload: list[dict]) -> None:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = target.with_suffix(target.suffix + ".tmp")
-        tmp_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-        shutil.move(str(tmp_path), str(target))
-
     def _read_job_history(self, job_id: str) -> list[CronExecutionRecord]:
         file_path = self._history_file_path(job_id)
         if not file_path.exists():
@@ -88,7 +76,7 @@ class JsonJobRepository(BaseJobRepository):
         return [CronExecutionRecord.model_validate(item) for item in data]
 
     async def get_history(self, job_id: str) -> list[CronExecutionRecord]:
-        return self._read_job_history(job_id)
+        return await asyncio.to_thread(self._read_job_history, job_id)
 
     async def append_history(
         self,
@@ -99,20 +87,37 @@ class JsonJobRepository(BaseJobRepository):
     ) -> list[CronExecutionRecord]:
         lock = self._get_history_write_lock(job_id)
         async with lock:
-            records = self._read_job_history(job_id)
+            records = await asyncio.to_thread(
+                self._read_job_history,
+                job_id,
+            )
             records.insert(0, record)
             del records[limit:]
             payload = [r.model_dump(mode="json") for r in records]
-            self._write_json_atomic(self._history_file_path(job_id), payload)
+            await write_json_atomic_async(
+                self._history_file_path(job_id),
+                payload,
+                sort_keys=True,
+            )
             return records
 
     async def delete_history(self, job_id: str) -> None:
         lock = self._get_history_write_lock(job_id)
         async with lock:
-            self._history_file_path(job_id).unlink(missing_ok=True)
+            await asyncio.to_thread(
+                self._history_file_path(job_id).unlink,
+                missing_ok=True,
+            )
         self._history_write_locks.pop(job_id, None)
 
     async def prune_orphan_history(self, valid_job_ids: set[str]) -> None:
+        await asyncio.to_thread(
+            self._prune_orphan_history,
+            valid_job_ids,
+        )
+
+    def _prune_orphan_history(self, valid_job_ids: set[str]) -> None:
+        """Remove orphan history files in a worker thread."""
         if not self._history_dir.exists():
             return
         valid_filenames = {

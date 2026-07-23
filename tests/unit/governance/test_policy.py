@@ -1160,6 +1160,51 @@ class TestAddApprovedRuleGeneralization:
         with pytest.raises(TypeError):
             await governor.add_approved_rule(_tc("Bash", "git status"))
 
+    async def test_concurrent_policy_writes_are_serialized(
+        self,
+        governor,
+        monkeypatch,
+    ):
+        """Concurrent approvals cannot overlap policy persistence."""
+        import asyncio
+        import threading
+        import time
+
+        from qwenpaw.governance import resource_governor as governor_module
+
+        active = 0
+        max_active = 0
+        guard = threading.Lock()
+
+        def delayed_save(*_args, **_kwargs):
+            nonlocal active, max_active
+            with guard:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.01)
+            with guard:
+                active -= 1
+
+        monkeypatch.setattr(
+            governor_module,
+            "save_governance_policy",
+            delayed_save,
+        )
+
+        results = await asyncio.gather(
+            governor.add_approved_rule(
+                _tc("Bash", "git status"),
+                generalized_target="git status",
+            ),
+            governor.add_approved_rule(
+                _tc("Bash", "git diff"),
+                generalized_target="git diff",
+            ),
+        )
+
+        assert results == [True, True]
+        assert max_active == 1
+
 
 class TestGeneralizeTargetForApproval:
     """generalize_target_for_approval is the single entry point the

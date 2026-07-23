@@ -11,6 +11,7 @@ as constructor parameters and does not build them internally.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -297,7 +298,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         gov = getattr(self, "_governor", None)
         if gov is not None:
             try:
-                gov.stop()
+                await asyncio.to_thread(gov.stop)
             except Exception:
                 logger.debug("governor stop failed", exc_info=True)
 
@@ -309,7 +310,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
             if hasattr(cm, "purge_old"):
                 try:
                     lcc = self._agent_config.running.light_context_config
-                    cm.purge_old(lcc.scroll_config.history_retention_days)
+                    await asyncio.to_thread(
+                        cm.purge_old,
+                        lcc.scroll_config.history_retention_days,
+                    )
                 except Exception:
                     logger.debug(
                         "history retention purge failed",
@@ -317,7 +321,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
             if hasattr(cm, "close"):
                 try:
-                    cm.close()
+                    await asyncio.to_thread(cm.close)
                 except Exception:
                     logger.debug(
                         "context manager close failed",
@@ -333,7 +337,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 lcc = self._agent_config.running.light_context_config
                 retention_days = _effective_artifact_retention_days(lcc)
                 if retention_days > 0:
-                    offloader.cleanup_expired(
+                    await asyncio.to_thread(
+                        offloader.cleanup_expired,
                         retention_days=retention_days,
                     )
             except Exception:

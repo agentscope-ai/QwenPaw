@@ -10,6 +10,7 @@ injects all dependencies into the agent constructor.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Iterable
@@ -231,7 +232,11 @@ class AgentBuilder:
             if _cm and getattr(_cm, "project_dir", None)
             else None
         )
-        governor = self._init_governor(workspace_dir, _project_dir)
+        governor = await asyncio.to_thread(
+            self._init_governor,
+            workspace_dir,
+            _project_dir,
+        )
 
         # Inject governor into local_workspace so list_tools() can
         # wrap tools with PolicyGuardedTool.

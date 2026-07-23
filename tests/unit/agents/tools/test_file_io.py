@@ -11,6 +11,9 @@ Covers:
 """
 # pylint: disable=protected-access,unused-argument
 
+import asyncio
+import threading
+import time
 from unittest.mock import patch
 
 import pytest
@@ -284,3 +287,32 @@ class TestAppendFile:
             "No" in result.content[0].text
             and "file_path" in result.content[0].text
         )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_appends_are_serialized_per_path(self, tmp_path):
+        f = tmp_path / "concurrent.txt"
+        active = 0
+        max_active = 0
+        guard = threading.Lock()
+
+        def delayed_append(file_path, content, encoding):
+            nonlocal active, max_active
+            with guard:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.01)
+            with open(file_path, "a", encoding=encoding) as handle:
+                handle.write(content)
+            with guard:
+                active -= 1
+
+        with patch(
+            "qwenpaw.agents.tools.file_io._append_text",
+            delayed_append,
+        ):
+            await asyncio.gather(
+                *(append_file(str(f), f"{index}\n") for index in range(8)),
+            )
+
+        assert max_active == 1
+        assert len(f.read_text(encoding="utf-8-sig").splitlines()) == 8

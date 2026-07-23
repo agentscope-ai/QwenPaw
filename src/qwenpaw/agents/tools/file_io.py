@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # pylint: disable=line-too-long
+import asyncio
 import os
 from pathlib import Path
 from typing import Optional
 
-import aiofiles
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
@@ -22,6 +22,13 @@ from ...config.context import (
 )
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
+from ...utils.atomic_io import get_path_lock, write_text_atomic_async
+
+
+def _append_text(file_path: str, content: str, encoding: str) -> None:
+    """Append text as one synchronous worker-thread operation."""
+    with open(file_path, "a", encoding=encoding) as file:
+        file.write(content)
 
 
 def _path_to_file_url(path: str) -> str:
@@ -294,8 +301,12 @@ async def write_file(
     encoding = _get_encoding_for_file(file_path)
 
     try:
-        async with aiofiles.open(file_path, "w", encoding=encoding) as file:
-            await file.write(content)
+        async with get_path_lock(file_path):
+            await write_text_atomic_async(
+                file_path,
+                content,
+                encoding=encoding,
+            )
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,
@@ -384,42 +395,52 @@ async def edit_file(
             ],
         )
 
-    try:
-        content = await read_file_safe(resolved_path)
-    except Exception as e:
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: Read file failed due to \n{e}",
-                ),
-            ],
-        )
+    encoding = _get_encoding_for_file(resolved_path)
+    async with get_path_lock(resolved_path):
+        try:
+            content = await read_file_safe(resolved_path)
+        except Exception as e:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: Read file failed due to \n{e}",
+                    ),
+                ],
+            )
 
-    if old_text not in content:
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The text to replace was not found in {file_path}.",
-                ),
-            ],
-        )
+        if old_text not in content:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: The text to replace was not found in {file_path}.",
+                    ),
+                ],
+            )
 
-    new_content = content.replace(old_text, new_text)
-    write_response = await write_file(
-        file_path=resolved_path,
-        content=new_content,
-    )
-
-    if write_response.content and len(write_response.content) > 0:
-        write_text = getattr(write_response.content[0], "text", "")
-        if write_text.startswith("Error:"):
-            return write_response
+        try:
+            new_content = content.replace(old_text, new_text)
+            await write_text_atomic_async(
+                resolved_path,
+                new_content,
+                encoding=encoding,
+            )
+        except Exception as e:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: Write file failed due to \n{e}",
+                    ),
+                ],
+            )
 
     return ToolChunk(
         is_last=True,
@@ -473,8 +494,13 @@ async def append_file(
     encoding = _get_encoding_for_file(file_path)
 
     try:
-        with open(file_path, "a", encoding=encoding) as file:
-            file.write(content)
+        async with get_path_lock(file_path):
+            await asyncio.to_thread(
+                _append_text,
+                file_path,
+                content,
+                encoding,
+            )
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,

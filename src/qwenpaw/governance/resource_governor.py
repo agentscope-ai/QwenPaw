@@ -7,6 +7,7 @@ addition, sandbox config compilation.
 """
 
 from __future__ import annotations
+import asyncio
 import hashlib
 import logging
 from pathlib import Path
@@ -88,6 +89,7 @@ class ResourceGovernor:
             self._governance_dir / f"{self.workspace_dir.name}_{ws_hash}"
         )
         self._policy: Optional[GovernancePolicy] = None
+        self._policy_lock = asyncio.Lock()
         self._sandbox_available: bool = False
         self._sandbox_capability: Optional[SandboxCapability] = None
 
@@ -507,7 +509,16 @@ class ResourceGovernor:
                 duration="session",
                 session_id=tc_spec.session_id,
             )
-            self.add_rule(rule)
+            async with self._policy_lock:
+                self.policy.add_rule(rule)
+                if self._policy is not None:
+                    await asyncio.to_thread(
+                        save_governance_policy,
+                        self._policy,
+                        str(self._policy_dir),
+                        str(self.workspace_dir),
+                        str(self.coding_project_dir),
+                    )
             logger.info(
                 "ResourceGovernor: added approved rule: %s",
                 rule.match,

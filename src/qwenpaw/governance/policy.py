@@ -26,6 +26,7 @@ import yaml
 
 from .tool_registry import ToolRegistry, DEFAULT_REGISTRY
 from ..sandbox import SandboxConfig
+from ..utils.atomic_io import write_yaml_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -1295,14 +1296,13 @@ def save_governance_policy(
             _detection_rule_to_dict(r) for r in policy.detection_rules
         ]
 
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(
-            data,
-            f,
-            default_flow_style=False,
-            allow_unicode=True,
-            sort_keys=False,
-        )
+    write_yaml_atomic(
+        path,
+        data,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -7,52 +7,18 @@ Windows filenames cannot contain: \\ / : * ? " < > |
 import asyncio
 import os
 import re
-import json
 import logging
 import shutil
-import tempfile
 
 from typing import Union, Sequence
 
 import aiofiles
 from qwenpaw.exceptions import ConfigurationException
 from ...exceptions import AgentStateError
+from ...utils.atomic_io import write_json_atomic
 from ...utils.json_utils import safe_json_loads as _safe_json_loads
 
 logger = logging.getLogger(__name__)
-
-
-def _atomic_write_json(path: str, payload: dict) -> None:
-    """Atomically write JSON to *path* (tmp → os.replace).
-
-    This prevents session corruption on crash/power-loss mid-write.
-    """
-    parent = os.path.dirname(path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    tmp_path: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=parent or None,
-            prefix=f".{os.path.basename(path)}.",
-            suffix=".tmp",
-            delete=False,
-            encoding="utf-8",
-            newline="\n",
-        ) as f:
-            tmp_path = f.name
-            f.write(json.dumps(payload, ensure_ascii=False))
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, path)
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-
 
 # Characters forbidden in Windows filenames
 _UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|]')
@@ -297,9 +263,10 @@ class SafeJSONSession:
         )
         async with self._get_write_lock(session_save_path):
             await asyncio.to_thread(
-                _atomic_write_json,
+                write_json_atomic,
                 session_save_path,
                 state_dicts,
+                indent=None,
             )
 
         logger.info(
@@ -409,9 +376,10 @@ class SafeJSONSession:
             cur[path[-1]] = value
 
             await asyncio.to_thread(
-                _atomic_write_json,
+                write_json_atomic,
                 session_save_path,
                 states,
+                indent=None,
             )
 
         logger.info(
