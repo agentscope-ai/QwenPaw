@@ -173,6 +173,7 @@ markers = [
 ]
 testpaths = [
     "tests",
+    "plugins",
 ]
 
 [tool.coverage.run]
