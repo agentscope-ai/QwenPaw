@@ -12,6 +12,7 @@ Tests cover:
 
 Run: python -m unittest tests.unit.test_memory_reranker -v
 """
+
 import asyncio
 import pathlib
 import sys
@@ -27,6 +28,7 @@ if str(_SRC) not in sys.path:
 
 # pylint: disable=wrong-import-position
 import qwenpaw.agents.memory.reme_light_memory_manager as mgr  # noqa: E402
+
 # pylint: enable=wrong-import-position
 
 ReMeLightMemoryManager = mgr.ReMeLightMemoryManager
@@ -65,9 +67,13 @@ class RerankerTests(unittest.TestCase):
 
     def _run(self, query="q", max_results=2, min_score=0.0):
         return asyncio.get_event_loop().run_until_complete(
-            self.m.memory_search(query, max_results=max_results,
-                                 min_score=min_score)
+            self.m.memory_search(
+                query,
+                max_results=max_results,
+                min_score=min_score,
+            ),
         )
+
     # pylint: disable=unused-argument
 
     def test_disabled_no_rerank(self):
@@ -81,8 +87,11 @@ class RerankerTests(unittest.TestCase):
 
     def test_overfetch_multiplier(self):
         cfg = types.SimpleNamespace(
-            enabled=True, base_url="https://x", model_name="m",
-            candidate_multiplier=3, timeout=10.0,
+            enabled=True,
+            base_url="https://x",
+            model_name="m",
+            candidate_multiplier=3,
+            timeout=10.0,
         )
         self.m._get_reranker_config = MagicMock(return_value=cfg)
         self.m._rerank_search_results = AsyncMock()
@@ -94,8 +103,11 @@ class RerankerTests(unittest.TestCase):
 
     def test_enabled_rerank_ok_and_cap(self):
         cfg = types.SimpleNamespace(
-            enabled=True, base_url="https://x", model_name="m",
-            candidate_multiplier=3, timeout=10.0,
+            enabled=True,
+            base_url="https://x",
+            model_name="m",
+            candidate_multiplier=3,
+            timeout=10.0,
         )
         self.m._get_reranker_config = MagicMock(return_value=cfg)
 
@@ -112,8 +124,11 @@ class RerankerTests(unittest.TestCase):
 
     def test_rerank_timeout_fallback(self):
         cfg = types.SimpleNamespace(
-            enabled=True, base_url="https://x", model_name="m",
-            candidate_multiplier=3, timeout=10.0,
+            enabled=True,
+            base_url="https://x",
+            model_name="m",
+            candidate_multiplier=3,
+            timeout=10.0,
         )
         self.m._get_reranker_config = MagicMock(return_value=cfg)
         import httpx
@@ -130,8 +145,11 @@ class RerankerTests(unittest.TestCase):
 
     def test_rerank_http_error_fallback(self):
         cfg = types.SimpleNamespace(
-            enabled=True, base_url="https://x", model_name="m",
-            candidate_multiplier=2, timeout=10.0,
+            enabled=True,
+            base_url="https://x",
+            model_name="m",
+            candidate_multiplier=2,
+            timeout=10.0,
         )
         self.m._get_reranker_config = MagicMock(return_value=cfg)
         import httpx
@@ -140,8 +158,12 @@ class RerankerTests(unittest.TestCase):
             raise httpx.RequestError("boom", request=None)
 
         self.m._call_reranker_api = raise_http
-        rs = [_result(0, text="a"), _result(1, text="b"),
-              _result(2, text="c"), _result(3, text="d")]
+        rs = [
+            _result(0, text="a"),
+            _result(1, text="b"),
+            _result(2, text="c"),
+            _result(3, text="d"),
+        ]
         resp = self._patch_run(rs)
         self._run(query="q", max_results=2)
         self.assertEqual(resp.metadata["results"][0]["text"], "a")
@@ -149,8 +171,11 @@ class RerankerTests(unittest.TestCase):
 
     def test_rerank_index_mismatch_fallback(self):
         cfg = types.SimpleNamespace(
-            enabled=True, base_url="https://x", model_name="m",
-            candidate_multiplier=3, timeout=10.0,
+            enabled=True,
+            base_url="https://x",
+            model_name="m",
+            candidate_multiplier=3,
+            timeout=10.0,
         )
         self.m._get_reranker_config = MagicMock(return_value=cfg)
 
@@ -166,8 +191,11 @@ class RerankerTests(unittest.TestCase):
 
     def test_no_base_url_skip(self):
         cfg = types.SimpleNamespace(
-            enabled=True, base_url="", model_name="m",
-            candidate_multiplier=3, timeout=10.0,
+            enabled=True,
+            base_url="",
+            model_name="m",
+            candidate_multiplier=3,
+            timeout=10.0,
         )
         self.m._get_reranker_config = MagicMock(return_value=cfg)
         called = {"n": 0}
@@ -186,8 +214,11 @@ class RerankerTests(unittest.TestCase):
 
     def test_empty_results(self):
         cfg = types.SimpleNamespace(
-            enabled=True, base_url="https://x", model_name="m",
-            candidate_multiplier=3, timeout=10.0,
+            enabled=True,
+            base_url="https://x",
+            model_name="m",
+            candidate_multiplier=3,
+            timeout=10.0,
         )
         self.m._get_reranker_config = MagicMock(return_value=cfg)
         self.m._rerank_search_results = AsyncMock()
@@ -199,12 +230,21 @@ class RerankerTests(unittest.TestCase):
         self.assertIn(NO_MEMORY_RESULTS, text)
 
     def test_rebuild_answer_format(self):
-        rs = [{"path": "a.md", "start_line": 2, "end_line": 4,
-               "score": 0.1234, "text": "hello"}]
+        rs = [
+            {
+                "path": "a.md",
+                "start_line": 2,
+                "end_line": 4,
+                "score": 0.1234,
+                "text": "hello",
+            },
+        ]
         out = ReMeLightMemoryManager._rebuild_search_answer(rs)
         self.assertIn("a.md:2-4", out)
         self.assertIn("[score=0.1234]", out)
         self.assertIn("hello", out)
+
+
 # pylint: enable=protected-access,unused-argument
 
 

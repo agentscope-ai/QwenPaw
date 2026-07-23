@@ -26,7 +26,11 @@ from .reme_config import get_reme_app_config
 from ..model_factory import create_model_and_formatter
 from ...app.inbox_store import append_event as append_inbox_event
 from ...config import load_config
-from ...config.config import load_agent_config, AgentProfileConfig, RerankerConfig
+from ...config.config import (
+    load_agent_config,
+    AgentProfileConfig,
+    RerankerConfig,
+)
 
 if TYPE_CHECKING:
     from reme import ReMe
@@ -347,9 +351,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 name,
                 event.get("id"),
                 event.get("status"),
-                response_metadata.get("modified")
-                if isinstance(response_metadata, dict)
-                else None,
+                (
+                    response_metadata.get("modified")
+                    if isinstance(response_metadata, dict)
+                    else None
+                ),
             )
             return True
         except Exception:  # pylint: disable=broad-except
@@ -436,7 +442,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if response is None:
             return _tool_chunk("ReMe is not started.", ok=False)
 
-        results = response.metadata.get("results") if response.success else None
+        results = (
+            response.metadata.get("results") if response.success else None
+        )
         if results:
             # Rerank (only reorders results, answer is rebuilt below)
             if reranker_config and len(results) > 1:
