@@ -1,0 +1,26 @@
+{
+  "id": "computer-use-tool",
+  "name": "Computer Use",
+  "version": "2.0.0",
+  "description": "Control approved desktop applications through the native runtime (Windows only)",
+  "author": "QwenPaw Team",
+  "entry": {
+    "backend": "plugin.py",
+    "frontend": "dist/index.js"
+  },
+  "dependencies": [],
+  "qwenpaw_version": {
+    "min": "1.1.6",
+    "max": "2.1.0"
+  },
+  "meta": {
+    "tools": [
+      {
+        "name": "computer_use",
+        "description": "Control approved desktop applications through the native runtime",
+        "icon": "screen",
+        "requires_config": false
+      }
+    ]
+  }
+}
