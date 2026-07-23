@@ -11,7 +11,7 @@
  * And that the synthesized `plugins-group` parent exists.
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { installHostExternals } from "../../hostExternals";
+import { installHostExternals, pluginSystem } from "../../hostExternals";
 import { menuRegistry, routeRegistry } from "../store";
 import { auditStore } from "../audit";
 
@@ -20,6 +20,7 @@ function freshInstall() {
   (window as any).QwenPaw = undefined;
   menuRegistry.__resetForTests();
   routeRegistry.__resetForTests();
+  pluginSystem.__resetForTests();
   auditStore.clear();
   installHostExternals();
 }
@@ -104,10 +105,63 @@ describe("legacy registerRoutes shim", () => {
     expect(settings.find((i) => i.id === "newPlugin.foo")).toBeUndefined();
   });
 
-  it("legacy registerToolRender still writes to pluginSystem", async () => {
-    const { pluginSystem } = await import("../../hostExternals");
+  it("legacy registerToolRender still writes to pluginSystem", () => {
     const RenderFC = () => null;
     window.QwenPaw.registerToolRender!("p1", { my_tool: RenderFC });
     expect(pluginSystem.getToolRenderConfig().my_tool).toBe(RenderFC);
+  });
+});
+
+describe("registerCommandSuggestions", () => {
+  it("attaches window.QwenPaw.registerCommandSuggestions", () => {
+    expect(typeof window.QwenPaw.registerCommandSuggestions).toBe("function");
+  });
+
+  it("registers command suggestions to pluginSystem", () => {
+    window.QwenPaw.registerCommandSuggestions!("cloudpaw", [
+      { command: "/a2a", description: "Call remote A2A agents" },
+      { command: "/status", description: "Check agent status" },
+    ]);
+    const suggestions = pluginSystem.getCommandSuggestions();
+    expect(suggestions).toHaveLength(2);
+    expect(suggestions[0].command).toBe("/a2a");
+    expect(suggestions[1].command).toBe("/status");
+  });
+
+  it("replaces same command instead of duplicating (language switch)", () => {
+    window.QwenPaw.registerCommandSuggestions!("cloudpaw", [
+      { command: "/a2a", description: "查看远程 A2A Agent" },
+    ]);
+    // Simulate language change
+    window.QwenPaw.registerCommandSuggestions!("cloudpaw", [
+      { command: "/a2a", description: "View remote A2A agents" },
+    ]);
+    const suggestions = pluginSystem.getCommandSuggestions();
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0].description).toBe("View remote A2A agents");
+  });
+
+  it("multiple plugins register independently without conflict", () => {
+    window.QwenPaw.registerCommandSuggestions!("pluginA", [
+      { command: "/cmd-a", description: "Plugin A command" },
+    ]);
+    window.QwenPaw.registerCommandSuggestions!("pluginB", [
+      { command: "/cmd-b", description: "Plugin B command" },
+    ]);
+    const suggestions = pluginSystem.getCommandSuggestions();
+    expect(suggestions).toHaveLength(2);
+    expect(suggestions.map((s) => s.command)).toContain("/cmd-a");
+    expect(suggestions.map((s) => s.command)).toContain("/cmd-b");
+  });
+
+  it("subscribe fires on suggestion change", () => {
+    let notifyCount = 0;
+    pluginSystem.subscribe(() => {
+      notifyCount++;
+    });
+    window.QwenPaw.registerCommandSuggestions!("p1", [
+      { command: "/test", description: "test" },
+    ]);
+    expect(notifyCount).toBe(1);
   });
 });

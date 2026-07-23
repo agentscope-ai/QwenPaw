@@ -11,7 +11,10 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { pluginSystem } from "./hostExternals";
 import { loadAllPlugins } from "./usePluginLoader";
-import type { PluginRouteDeclaration } from "./hostExternals";
+import type {
+  PluginRouteDeclaration,
+  PluginCommandSuggestion,
+} from "./hostExternals";
 import {
   routeRegistry,
   subscribe as registrySubscribe,
@@ -41,6 +44,8 @@ export interface PluginContextValue {
   toolRenderConfig: Record<string, React.FC<any>>;
   /** Page routes registered by plugins. Inject into the router + sidebar. */
   pluginRoutes: PluginRouteDeclaration[];
+  /** Command suggestions registered by plugins, shown in chat input popup. */
+  pluginCommandSuggestions: PluginCommandSuggestion[];
   /** True until the initial plugin-load attempt completes. */
   loading: boolean;
   /** Non-null if one or more plugins failed to load. */
@@ -50,6 +55,7 @@ export interface PluginContextValue {
 const PluginContext = createContext<PluginContextValue>({
   toolRenderConfig: {},
   pluginRoutes: [],
+  pluginCommandSuggestions: [],
   loading: true,
   error: null,
 });
@@ -70,6 +76,9 @@ export function PluginProvider({ children }: { children: React.ReactNode }) {
   const [pluginRoutes, setPluginRoutes] = useState<PluginRouteDeclaration[]>(
     derivePluginRoutes(),
   );
+  const [pluginCommandSuggestions, setPluginCommandSuggestions] = useState<
+    PluginCommandSuggestion[]
+  >(pluginSystem.getCommandSuggestions());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,6 +88,7 @@ export function PluginProvider({ children }: { children: React.ReactNode }) {
     // (routes via shim + direct route.add) notify on change.
     const unsubA = pluginSystem.subscribe(() => {
       setToolRenderConfig(pluginSystem.getToolRenderConfig());
+      setPluginCommandSuggestions(pluginSystem.getCommandSuggestions());
     });
     const unsubB = registrySubscribe(() => {
       setPluginRoutes(derivePluginRoutes());
@@ -101,7 +111,13 @@ export function PluginProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <PluginContext.Provider
-      value={{ toolRenderConfig, pluginRoutes, loading, error }}
+      value={{
+        toolRenderConfig,
+        pluginRoutes,
+        pluginCommandSuggestions,
+        loading,
+        error,
+      }}
     >
       {children}
     </PluginContext.Provider>

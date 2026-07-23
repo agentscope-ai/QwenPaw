@@ -521,6 +521,46 @@ window.QwenPaw.chat.sender.addSuggestion("my-plugin", {
 });
 ```
 
+### 斜杠命令注册 — `registerCommandSuggestions`
+
+注册插件提供的 `/` 斜杠命令。注册后，用户输入 `/` 时命令会出现在聊天输入框的自动补全弹窗中，执行时消息会被分发到后端的命令处理器。
+
+```ts
+// 插件加载时注册
+window.QwenPaw.registerCommandSuggestions?.("my-plugin", [
+  { command: "/analyze", description: "分析已上传的数据" },
+  { command: "/visualize", description: "创建数据可视化" },
+]);
+```
+
+`command` 字段是斜杠命令的标识（必须以 `/` 开头）。`description` 字段展示在补全弹窗中，帮助用户理解命令的用途。
+
+**多语言支持：** 当用户切换控制台语言时，host 会派发 `qwenpaw:language-change` 自定义事件。监听此事件以更新描述：
+
+```ts
+const descriptions: Record<string, string> = {
+  en: "Analyze uploaded data",
+  zh: "分析已上传的数据",
+};
+
+// 初始注册
+window.QwenPaw.registerCommandSuggestions?.("my-plugin", [
+  { command: "/analyze", description: descriptions.en },
+]);
+
+// 语言切换时更新
+window.addEventListener("qwenpaw:language-change", (e) => {
+  const lang = (e as CustomEvent).detail.language;
+  window.QwenPaw.registerCommandSuggestions?.("my-plugin", [
+    { command: "/analyze", description: descriptions[lang] ?? descriptions.en },
+  ]);
+});
+```
+
+重新注册同一命令会替换之前的条目（按 key 合并），因此语言切换时不会重复出现。
+
+> **注意：** 此 API 负责命令的展示和路由注册。实际的命令处理逻辑需要在 Python 后端通过 `register_command()` 注册。详见 [命令插件](#命令插件)。
+
 ### 消息操作按钮 — `chat.actions` / `chat.requestActions`
 
 ```tsx

@@ -521,6 +521,46 @@ window.QwenPaw.chat.sender.addSuggestion("my-plugin", {
 });
 ```
 
+### Slash Command Registration — `registerCommandSuggestions`
+
+Register `/slash` commands that the plugin provides. Registered commands appear in the chat input suggestion popup when the user types `/`, and are dispatched to the backend command handler when executed.
+
+```ts
+// Register on plugin load
+window.QwenPaw.registerCommandSuggestions?.("my-plugin", [
+  { command: "/analyze", description: "Analyze uploaded data" },
+  { command: "/visualize", description: "Create data visualizations" },
+]);
+```
+
+Each entry's `command` field is the slash command token (must start with `/`). The `description` field is shown in the autocomplete popup to help users understand what the command does.
+
+**Language switching support:** the host dispatches a `qwenpaw:language-change` custom event when the user switches the console language. Listen to this event to update descriptions:
+
+```ts
+const descriptions: Record<string, string> = {
+  en: "Analyze uploaded data",
+  zh: "分析已上传的数据",
+};
+
+// Initial registration
+window.QwenPaw.registerCommandSuggestions?.("my-plugin", [
+  { command: "/analyze", description: descriptions.en },
+]);
+
+// Update on language change
+window.addEventListener("qwenpaw:language-change", (e) => {
+  const lang = (e as CustomEvent).detail.language;
+  window.QwenPaw.registerCommandSuggestions?.("my-plugin", [
+    { command: "/analyze", description: descriptions[lang] ?? descriptions.en },
+  ]);
+});
+```
+
+Re-registering the same command replaces the previous entry (merge-by-key), so suggestions never duplicate across language switches.
+
+> **Note:** This API registers the command for display and routing. The actual command handler must be registered on the backend via `register_command()` in the plugin's Python code. See [Command Plugins](#command-plugins) for backend implementation.
+
 ### Message Action Buttons — `chat.actions` / `chat.requestActions`
 
 ```tsx

@@ -40,6 +40,11 @@ export default function LanguageSwitcher() {
   const changeLanguage = (lang: string) => {
     i18n.changeLanguage(lang);
     localStorage.setItem("language", lang);
+    window.dispatchEvent(
+      new CustomEvent("qwenpaw:language-change", {
+        detail: { language: lang },
+      }),
+    );
     languageApi
       .updateLanguage(lang)
       .catch((err) =>

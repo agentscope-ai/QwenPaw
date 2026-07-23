@@ -6,6 +6,36 @@
  * without bundling their own copies of React / antd.
  *
  * Call `installHostExternals()` once at application startup (main.tsx).
+ *
+ * ── Plugin command suggestions ─────────────────────────────────────────
+ *
+ * Plugins can register slash-command suggestions that appear in the chat
+ * input autocomplete popup.  To support language switching, listen for the
+ * host-dispatched `qwenpaw:language-change` event and re-register with the
+ * new locale's descriptions:
+ *
+ * ```ts
+ * // 1. Register on load
+ * window.QwenPaw.registerCommandSuggestions?.("my-plugin", [
+ *   { command: "/cmd", description: "Do something useful" },
+ * ]);
+ *
+ * // 2. Listen for language change to update descriptions
+ * window.addEventListener("qwenpaw:language-change", (e) => {
+ *   const lang = (e as CustomEvent).detail.language;
+ *   const descriptions: Record<string, string> = {
+ *     en: "Do something useful",
+ *     zh: "做一些有用的事",
+ *   };
+ *   window.QwenPaw.registerCommandSuggestions?.("my-plugin", [
+ *     { command: "/cmd", description: descriptions[lang] ?? descriptions.en },
+ *   ]);
+ * });
+ * ```
+ *
+ * The host fires `qwenpaw:language-change` from `LanguageSwitcher` whenever
+ * the user switches the console language.  Same-command re-registrations
+ * replace the previous entry (merge-by-key), so suggestions never duplicate.
  */
 
 import React from "react";
@@ -68,6 +98,14 @@ export interface PluginRouteDeclaration {
   priority?: number;
 }
 
+/** Per-plugin command suggestion exposed to frontend. */
+export interface PluginCommandSuggestion {
+  /** Command string, e.g. "/a2a". */
+  command: string;
+  /** Human-readable description shown in suggestion popup. */
+  description: string;
+}
+
 /** Internal per-plugin registration record. */
 export interface PluginRegistration {
   pluginId: string;
@@ -76,6 +114,7 @@ export interface PluginRegistration {
   isBuiltin: boolean;
   routes: PluginRouteDeclaration[];
   toolRenderers: Record<string, React.FC<any>>;
+  commandSuggestions: PluginCommandSuggestion[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,6 +144,27 @@ class PluginSystem {
     this._notify();
   }
 
+  addCommandSuggestions(
+    pluginId: string,
+    suggestions: PluginCommandSuggestion[],
+  ): void {
+    const rec = this._record(pluginId);
+    const existing = new Set(rec.commandSuggestions.map((s) => s.command));
+    for (const s of suggestions) {
+      if (existing.has(s.command)) {
+        // Replace existing command (e.g. language change)
+        const idx = rec.commandSuggestions.findIndex(
+          (x) => x.command === s.command,
+        );
+        rec.commandSuggestions[idx] = s;
+      } else {
+        rec.commandSuggestions.push(s);
+        existing.add(s.command);
+      }
+    }
+    this._notify();
+  }
+
   // ── Read API (consumed by PluginContext / usePlugins) ────────────────────
 
   /** Merged map of all tool renderers across all plugins.
@@ -127,6 +187,14 @@ class PluginSystem {
     return out.sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
   }
 
+  /** Flat list of all command suggestions across all plugins. */
+  getCommandSuggestions(): PluginCommandSuggestion[] {
+    const out: PluginCommandSuggestion[] = [];
+    for (const rec of this.records.values())
+      out.push(...rec.commandSuggestions);
+    return out;
+  }
+
   // ── Subscription ─────────────────────────────────────────────────────────
 
   /** Subscribe to any registration change. Returns an unsubscribe function. */
@@ -144,6 +212,7 @@ class PluginSystem {
         isBuiltin: false,
         routes: [],
         toolRenderers: {},
+        commandSuggestions: [],
       });
     }
     return this.records.get(pluginId)!;
@@ -151,6 +220,11 @@ class PluginSystem {
 
   private _notify(): void {
     this.listeners.forEach((fn) => fn());
+  }
+
+  /** Reset all plugin data — for testing only. */
+  __resetForTests(): void {
+    this.records.clear();
   }
 }
 
@@ -176,6 +250,11 @@ export interface WindowNamespace {
   registerToolRender?: (
     pluginId: string,
     renderers: Record<string, React.FC<any>>,
+  ) => void;
+  /** Register command suggestions for a plugin. */
+  registerCommandSuggestions?: (
+    pluginId: string,
+    suggestions: PluginCommandSuggestion[],
   ) => void;
   /** Console-wide plugin Menu API. Attached by installHostExternals(). */
   menu?: QwenPawMenuNamespace;
@@ -303,6 +382,15 @@ export function installHostExternals(): void {
         `[plugin:${pluginId}] registerToolRender → ${Object.keys(
           renderers,
         ).join(", ")}`,
+      );
+    };
+  }
+
+  if (!window.QwenPaw.registerCommandSuggestions) {
+    window.QwenPaw.registerCommandSuggestions = (pluginId, suggestions) => {
+      pluginSystem.addCommandSuggestions(pluginId, suggestions);
+      console.info(
+        `[plugin:${pluginId}] registerCommandSuggestions → ${suggestions.length} command(s)`,
       );
     };
   }

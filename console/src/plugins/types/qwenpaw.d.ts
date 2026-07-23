@@ -16,6 +16,11 @@
  *   render(pluginId, node)  → whole-section replacement (welcome / leftHeader)
  *   add(pluginId, item)     → append to additive lists
  * ─────────────────────────────────────────────────────────────────────────
+ *
+ * Language switching: the host dispatches a `qwenpaw:language-change` custom
+ * event (via `window.addEventListener`) when the user switches the console
+ * language.  Plugins can listen to this event and re-register command
+ * suggestions with locale-appropriate descriptions.
  */
 import type React from "react";
 
@@ -270,6 +275,13 @@ export interface PluginRouteDeclaration {
   priority?: number;
 }
 
+export interface PluginCommandSuggestion {
+  /** Command string, e.g. "/a2a". */
+  command: string;
+  /** Human-readable description shown in suggestion popup. */
+  description: string;
+}
+
 export interface QwenPawWindowNamespace {
   host: QwenPawHostNamespace;
   chat: QwenPawChatNamespace;
@@ -279,6 +291,10 @@ export interface QwenPawWindowNamespace {
   registerToolRender?(
     pluginId: string,
     renderers: Record<string, React.FC<Record<string, unknown>>>,
+  ): void;
+  registerCommandSuggestions?(
+    pluginId: string,
+    suggestions: PluginCommandSuggestion[],
   ): void;
 }
 
