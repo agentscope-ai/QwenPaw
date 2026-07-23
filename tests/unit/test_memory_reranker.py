@@ -26,7 +26,7 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 # pylint: disable=wrong-import-position
-import qwenpaw.agents.memory.reme_light_memory_manager as mgr
+import qwenpaw.agents.memory.reme_light_memory_manager as mgr  # noqa: E402
 # pylint: enable=wrong-import-position
 
 ReMeLightMemoryManager = mgr.ReMeLightMemoryManager
