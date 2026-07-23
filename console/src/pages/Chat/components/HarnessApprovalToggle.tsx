@@ -5,6 +5,7 @@ import { ChevronDown, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import type { HarnessApprovalPreset } from "@/api/modules/harness";
+import styles from "./HarnessApprovalToggle.module.less";
 
 interface HarnessApprovalToggleProps {
   backend: string;
@@ -50,7 +51,7 @@ export default function HarnessApprovalToggle({
                 preset.name,
               )}
             </div>
-            <div style={{ color: "#8b8179", fontSize: 12 }}>
+            <div className={styles.description}>
               {t(
                 `agent.backend.approvalPresets.${preset.id}.description`,
                 preset.description,
@@ -74,16 +75,7 @@ export default function HarnessApprovalToggle({
         menu={{ items, selectedKeys: [selected.id] }}
         trigger={["click"]}
       >
-        <Tag
-          color="orange"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            cursor: "pointer",
-            lineHeight: "22px",
-          }}
-        >
+        <Tag color="orange" className={styles.trigger}>
           <ShieldCheck size={13} />
           {t(
             `agent.backend.approvalPresets.${selected.id}.name`,

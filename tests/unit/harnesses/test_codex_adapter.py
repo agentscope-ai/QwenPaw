@@ -15,6 +15,7 @@ import pytest
 from qwenpaw.harnesses.codex.adapter import CodexAdapter
 from qwenpaw.harnesses.events import HarnessEventKind
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
+from qwenpaw.utils.io_utils import write_json_atomic
 
 
 class FakeCodexClient:
@@ -144,13 +145,32 @@ class FakeCodexClient:
 class BlockingCodexClient(FakeCodexClient):
     """Fake a turn that remains active until the stream is cancelled."""
 
+    def __init__(self) -> None:
+        super().__init__()
+        self.turn_started = asyncio.Event()
+
     async def request(self, method: str, params: dict[str, Any]) -> Any:
         self.requests.append((method, params))
         if method == "thread/start":
             return {"thread": {"id": "thread-1"}}
         if method == "turn/start":
+            self.turn_started.set()
             return {"turn": {"id": "turn-1"}}
         return {}
+
+
+def test_loads_persisted_threads_with_io_utils(tmp_path: Path) -> None:
+    write_json_atomic(
+        tmp_path / "codex_sessions.json",
+        {"chat-1": "thread-1"},
+    )
+
+    adapter = CodexAdapter(
+        tmp_path,
+        client=FakeCodexClient(),  # type: ignore[arg-type]
+    )
+
+    assert adapter._threads == {"chat-1": "thread-1"}
 
 
 @pytest.mark.asyncio
@@ -333,7 +353,7 @@ async def test_cancelled_stream_interrupts_active_turn(tmp_path: Path) -> None:
             pass
 
     task = asyncio.create_task(consume())
-    await asyncio.sleep(0)
+    await asyncio.wait_for(client.turn_started.wait(), timeout=1)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task

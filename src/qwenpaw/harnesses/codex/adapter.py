@@ -14,7 +14,7 @@ from ...app.approvals import (
     get_approval_service,
 )
 from ...security.tool_guard.approval import ApprovalDecision
-from ...utils.atomic_io import write_json_atomic
+from ...utils.io_utils import read_json, write_json_atomic_async
 from ..base import HarnessAdapter
 from ..events import (
     HarnessEvent,
@@ -292,7 +292,10 @@ class CodexAdapter(HarnessAdapter):
             if thread_id:
                 self._loaded_threads.discard(thread_id)
                 self._thread_contexts.pop(thread_id, None)
-            write_json_atomic(self._session_path, self._threads)
+            await write_json_atomic_async(
+                self._session_path,
+                self._threads,
+            )
 
     async def stop(self) -> None:
         """Stop the workspace Codex process."""
@@ -333,7 +336,10 @@ class CodexAdapter(HarnessAdapter):
                 raise CodexAppServerError("Codex did not return a thread id")
             self._threads[session_id] = thread_id
             self._loaded_threads.add(thread_id)
-            write_json_atomic(self._session_path, self._threads)
+            await write_json_atomic_async(
+                self._session_path,
+                self._threads,
+            )
             return thread_id
 
     async def _handle_server_request(
@@ -443,10 +449,8 @@ class CodexAdapter(HarnessAdapter):
         return "Codex skills:\n" + "\n".join(entries)
 
     def _load_threads(self) -> dict[str, str]:
-        if not self._session_path.is_file():
-            return {}
         try:
-            payload = json.loads(self._session_path.read_text("utf-8"))
+            payload = read_json(self._session_path)
         except (OSError, json.JSONDecodeError):
             return {}
         if not isinstance(payload, dict):
