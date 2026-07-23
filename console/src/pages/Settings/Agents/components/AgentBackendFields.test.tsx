@@ -202,4 +202,71 @@ describe("AgentBackendFields", () => {
     expect(screen.queryByText("harnesses.connect")).not.toBeInTheDocument();
     expect(screen.queryByText("harnesses.disconnect")).not.toBeInTheDocument();
   });
+
+  it("selects Qoder and uses its executable and login flow", async () => {
+    vi.mocked(harnessApi.status).mockImplementation(async (providerId) => ({
+      ...mockProvider,
+      id: providerId,
+      name: providerId === "qoder" ? "Qoder" : "Codex",
+      authenticated: false,
+      account: null,
+      runtime_path:
+        providerId === "qoder"
+          ? "/opt/qoder/qodercli"
+          : mockProvider.runtime_path,
+      runtime_source: providerId === "qoder" ? "python-sdk" : "chatgpt-app",
+    }));
+    vi.mocked(harnessApi.login).mockResolvedValue({
+      type: "external",
+      loginId: "qoder-login",
+      command: "/opt/qoder/qodercli login",
+    });
+    const view = renderWithProviders(<BackendForm />);
+    fireEvent.click(screen.getByText("agent.backend.thirdPartyTitle"));
+    fireEvent.click(screen.getByText("Qoder"));
+
+    const input = await screen.findByLabelText("agent.backend.qoderBinary");
+    fireEvent.change(input, { target: { value: "/custom/qodercli" } });
+    fireEvent.click(screen.getByText("agent.backend.detect"));
+
+    await waitFor(() =>
+      expect(harnessApi.status).toHaveBeenLastCalledWith("qoder", {
+        binary: "/custom/qodercli",
+      }),
+    );
+    expect(screen.queryByText("harnesses.connect")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("agent.backend.qoderConnect"));
+    await waitFor(() =>
+      expect(harnessApi.login).toHaveBeenCalledWith("qoder", false, {
+        binary: "/custom/qodercli",
+      }),
+    );
+    view.unmount();
+  });
+
+  it("shows the authenticated Qoder CLI account", async () => {
+    vi.mocked(harnessApi.status).mockImplementation(async (providerId) => ({
+      ...mockProvider,
+      id: providerId,
+      name: providerId === "qoder" ? "Qoder" : "Codex",
+      authenticated: providerId === "qoder",
+      account:
+        providerId === "qoder"
+          ? { type: "qodercli", username: "qoder-user" }
+          : mockProvider.account,
+      runtime_path:
+        providerId === "qoder"
+          ? "/opt/qoder/qodercli"
+          : mockProvider.runtime_path,
+      runtime_source: providerId === "qoder" ? "python-sdk" : "chatgpt-app",
+    }));
+    renderWithProviders(<BackendForm />);
+    fireEvent.click(screen.getByText("agent.backend.thirdPartyTitle"));
+    fireEvent.click(screen.getByText("Qoder"));
+
+    expect(await screen.findByText(/qoder-user/)).toBeInTheDocument();
+    expect(
+      screen.queryByText("agent.backend.qoderConnect"),
+    ).not.toBeInTheDocument();
+  });
 });

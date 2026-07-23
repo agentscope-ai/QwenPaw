@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Coding harness catalog and authentication endpoints."""
+"""Third-party agent catalog and authentication endpoints."""
 
 from __future__ import annotations
 

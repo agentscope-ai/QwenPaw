@@ -44,3 +44,9 @@ def test_codex_declares_console_attachment_support() -> None:
     capabilities = get_provider("codex").capabilities
 
     assert capabilities.attachments is True
+
+
+def test_qoder_declares_console_attachment_support() -> None:
+    capabilities = get_provider("qoder").capabilities
+
+    assert capabilities.attachments is True

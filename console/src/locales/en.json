@@ -616,19 +616,28 @@
       "providerTitle": "Choose a third-party agent",
       "providerDescription": "Authentication is shared on this device; projects and conversations stay isolated per agent.",
       "codexHint": "ChatGPT OAuth · Agent workspace",
+      "qoderHint": "Qoder account or PAT · Agent workspace",
       "account": "Codex account",
+      "qoderAccount": "Qoder account",
       "binary": "Codex executable",
       "binaryHelp": "Leave blank to detect automatically. Otherwise enter the full path to the executable file itself—codex on macOS/Linux or codex.exe on Windows—not just its containing folder. QwenPaw also reads CODEX_BINARY and the backend PATH.",
       "binaryPlaceholder": "Auto-detect, or paste the Codex executable path",
+      "qoderBinary": "Qoder executable",
+      "qoderBinaryHelp": "Leave blank to use the qodercli bundled with the Python SDK or detect an existing installation. Otherwise enter the full path to qodercli on macOS/Linux or qodercli.exe on Windows. QwenPaw also reads QODERCLI_PATH and the backend PATH.",
+      "qoderBinaryPlaceholder": "Auto-detect, or paste the qodercli executable path",
       "detect": "Detect",
       "detectedBinary": "Codex detected",
+      "qoderDetectedBinary": "Qoder detected",
       "apiKeyLoginHint": "You can also authenticate in a terminal with: codex login --with-api-key",
-      "model": "Codex model",
-      "modelDefault": "Use the Codex default",
+      "qoderAuthHint": "Connect opens Qoder browser login. You can also run qodercli login or set QODER_PERSONAL_ACCESS_TOKEN before starting the backend.",
+      "qoderConnect": "Connect to Qoder",
+      "model": "Agent model",
+      "modelDefault": "Use the agent default",
       "defaultBadge": "Default",
       "reasoningEffort": "Reasoning effort",
       "reasoningDefault": "Use the model default",
       "codexNotFound": "Codex was not found in PATH or the ChatGPT editor extension",
+      "qoderNotFound": "Qoder was not found in the Python SDK, QODERCLI_PATH, or PATH",
       "chatSettingsHint": "Choose the model, reasoning effort, and execution permissions from the Chat toolbar.",
       "chatModelHint": "Agent-scoped settings · applied on the next turn",
       "appliesNextTurn": "Applies on the next turn",
@@ -645,6 +654,18 @@
         "workspace": {
           "name": "Workspace access",
           "description": "Allow workspace changes without confirmation."
+        },
+        "accept-edits": {
+          "name": "Accept edits",
+          "description": "Allow file edits while keeping other safeguards."
+        },
+        "plan": {
+          "name": "Plan only",
+          "description": "Analyze and plan without changing files."
+        },
+        "auto": {
+          "name": "Automatic",
+          "description": "Let Qoder decide which safe actions can run."
         },
         "full-access": {
           "name": "Full access",
@@ -2513,11 +2534,14 @@
       "skills": {
         "description": "List chat-available skills and expose explicit skill commands"
       },
+      "agents": {
+        "description": "List agents available to the current runtime"
+      },
       "review": {
         "description": "Review uncommitted workspace changes with Codex"
       },
       "status": {
-        "description": "Show the current Codex account, model, and workspace"
+        "description": "Show the current agent account, model, and workspace"
       },
       "plan": {
         "description": "Create a structured plan to decompose the task into subtasks"

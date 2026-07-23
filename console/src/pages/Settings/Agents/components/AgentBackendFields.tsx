@@ -23,9 +23,58 @@ import styles from "./AgentBackendFields.module.less";
 
 const POLL_INTERVAL_MS = 2_000;
 
+type ProviderId = "codex" | "qoder";
+
+interface ProviderOption {
+  id: ProviderId;
+  name: string;
+  hintKey: string;
+  accountKey: string;
+  binaryKey: string;
+  binaryHelpKey: string;
+  binaryPlaceholderKey: string;
+  detectedKey: string;
+  notFoundKey: string;
+  authHintKey: string;
+  connectKey: string;
+}
+
+const PROVIDERS: ProviderOption[] = [
+  {
+    id: "codex",
+    name: "Codex",
+    hintKey: "agent.backend.codexHint",
+    accountKey: "agent.backend.account",
+    binaryKey: "agent.backend.binary",
+    binaryHelpKey: "agent.backend.binaryHelp",
+    binaryPlaceholderKey: "agent.backend.binaryPlaceholder",
+    detectedKey: "agent.backend.detectedBinary",
+    notFoundKey: "agent.backend.codexNotFound",
+    authHintKey: "agent.backend.apiKeyLoginHint",
+    connectKey: "harnesses.connect",
+  },
+  {
+    id: "qoder",
+    name: "Qoder",
+    hintKey: "agent.backend.qoderHint",
+    accountKey: "agent.backend.qoderAccount",
+    binaryKey: "agent.backend.qoderBinary",
+    binaryHelpKey: "agent.backend.qoderBinaryHelp",
+    binaryPlaceholderKey: "agent.backend.qoderBinaryPlaceholder",
+    detectedKey: "agent.backend.qoderDetectedBinary",
+    notFoundKey: "agent.backend.qoderNotFound",
+    authHintKey: "agent.backend.qoderAuthHint",
+    connectKey: "agent.backend.qoderConnect",
+  },
+];
+
 interface AgentBackendFieldsProps {
   form: ReturnType<typeof Form.useForm>[0];
   open: boolean;
+}
+
+function providerOption(backend: AgentBackend): ProviderOption {
+  return PROVIDERS.find((item) => item.id === backend) ?? PROVIDERS[0];
 }
 
 export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
@@ -33,7 +82,8 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
   const { message } = useAppMessage();
   const backend =
     (Form.useWatch("backend", form) as AgentBackend | undefined) ?? "qwenpaw";
-  const [codex, setCodex] = useState<HarnessProvider | null>(null);
+  const selectedProvider = providerOption(backend);
+  const [provider, setProvider] = useState<HarnessProvider | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [checking, setChecking] = useState(false);
   const pollTimer = useRef<number | undefined>(undefined);
@@ -53,10 +103,13 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
   }, [form]);
 
   const loadStatus = useCallback(async () => {
-    const provider = await harnessApi.status("codex", providerSettings());
-    setCodex(provider);
-    return provider;
-  }, [providerSettings]);
+    const result = await harnessApi.status(
+      selectedProvider.id,
+      providerSettings(),
+    );
+    setProvider(result);
+    return result;
+  }, [providerSettings, selectedProvider.id]);
 
   const checkStatus = useCallback(async () => {
     setChecking(true);
@@ -68,64 +121,95 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
   }, [loadStatus]);
 
   useEffect(() => {
-    if (!open) return stopPolling;
-    void checkStatus().catch(() => setCodex(null));
+    if (!open || backend === "qwenpaw") {
+      setProvider(null);
+      return stopPolling;
+    }
+    void checkStatus().catch(() => setProvider(null));
     return stopPolling;
-  }, [checkStatus, open, stopPolling]);
+  }, [backend, checkStatus, open, stopPolling]);
+
+  const beginPolling = useCallback(() => {
+    stopPolling();
+    pollTimer.current = window.setInterval(async () => {
+      try {
+        const result = await loadStatus();
+        if (result.authenticated) {
+          stopPolling();
+          setConnecting(false);
+          message.success(t("harnesses.connected"));
+        }
+      } catch {
+        return;
+      }
+    }, POLL_INTERVAL_MS);
+    pollTimeout.current = window.setTimeout(() => {
+      stopPolling();
+      setConnecting(false);
+    }, 120_000);
+  }, [loadStatus, message, stopPolling, t]);
 
   const connect = useCallback(async () => {
-    const popup = window.open("about:blank", "_blank");
+    const popup =
+      selectedProvider.id === "codex"
+        ? window.open("about:blank", "_blank")
+        : null;
     if (popup) popup.opener = null;
     setConnecting(true);
     try {
-      const login = await harnessApi.login("codex", false, providerSettings());
-      if (!login.authUrl) throw new Error("Codex did not return a login URL");
-      if (popup) popup.location.href = login.authUrl;
-      else window.open(login.authUrl, "_blank", "noopener,noreferrer");
-      stopPolling();
-      pollTimer.current = window.setInterval(async () => {
-        try {
-          const provider = await loadStatus();
-          if (provider?.authenticated) {
-            stopPolling();
-            setConnecting(false);
-            message.success(t("harnesses.connected"));
-          }
-        } catch {
-          return;
-        }
-      }, POLL_INTERVAL_MS);
-      pollTimeout.current = window.setTimeout(() => {
-        stopPolling();
-        setConnecting(false);
-      }, 120_000);
+      const login = await harnessApi.login(
+        selectedProvider.id,
+        false,
+        providerSettings(),
+      );
+      if (login.authUrl) {
+        if (popup) popup.location.href = login.authUrl;
+        else window.open(login.authUrl, "_blank", "noopener,noreferrer");
+      } else if (login.type !== "external") {
+        throw new Error(`${selectedProvider.name} did not start login`);
+      }
+      beginPolling();
     } catch (error) {
       popup?.close();
       setConnecting(false);
       message.error(error instanceof Error ? error.message : String(error));
     }
-  }, [loadStatus, message, providerSettings, stopPolling, t]);
+  }, [
+    beginPolling,
+    message,
+    providerSettings,
+    selectedProvider.id,
+    selectedProvider.name,
+  ]);
 
   const disconnect = useCallback(async () => {
     try {
-      await harnessApi.logout("codex", providerSettings());
+      await harnessApi.logout(selectedProvider.id, providerSettings());
       await loadStatus();
       message.success(t("harnesses.disconnected"));
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     }
-  }, [loadStatus, message, providerSettings, t]);
+  }, [loadStatus, message, providerSettings, selectedProvider.id, t]);
 
-  const accountType = codex?.account?.type;
-  const apiKeyAuthenticated = codex?.authenticated && accountType === "apiKey";
+  const accountType = provider?.account?.type;
+  const tokenAuthenticated =
+    provider?.authenticated &&
+    (accountType === "apiKey" || accountType === "accessToken");
   const chatGptAuthenticated =
-    codex?.authenticated && accountType === "chatgpt";
+    provider?.authenticated && accountType === "chatgpt";
+  const accountIdentity =
+    provider?.account?.email ?? provider?.account?.username;
 
   const selectBackend = useCallback(
     (next: AgentBackend) => {
+      const switchingProvider =
+        next !== "qwenpaw" && next !== form.getFieldValue("backend");
       form.setFieldsValue({
         backend: next,
-        ...(next === "qwenpaw" ? { backend_settings: {} } : {}),
+        ...(next === "qwenpaw" || switchingProvider
+          ? { backend_settings: {} }
+          : {}),
       });
     },
     [form],
@@ -165,7 +249,9 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
           className={`${styles.typeCard} ${
             backend !== "qwenpaw" ? styles.selected : ""
           }`}
-          onClick={() => selectBackend("codex")}
+          onClick={() =>
+            selectBackend(backend === "qwenpaw" ? "codex" : backend)
+          }
         >
           <span className={styles.typeIcon}>
             <Blocks size={20} />
@@ -178,7 +264,7 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
         </button>
       </div>
 
-      {backend === "codex" && (
+      {backend !== "qwenpaw" && (
         <div className={styles.thirdPartyPanel}>
           <div className={styles.panelHeading}>
             <h4>{t("agent.backend.providerTitle")}</h4>
@@ -186,16 +272,30 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
           </div>
 
           <div className={styles.providerGrid}>
-            <button type="button" className={styles.providerCardSelected}>
-              <span className={styles.providerIcon}>
-                <SquareTerminal size={18} />
-              </span>
-              <span className={styles.providerCopy}>
-                <strong>Codex</strong>
-                <small>{t("agent.backend.codexHint")}</small>
-              </span>
-              <Check size={15} className={styles.providerCheck} />
-            </button>
+            {PROVIDERS.map((item) => {
+              const selected = backend === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={
+                    selected ? styles.providerCardSelected : styles.providerCard
+                  }
+                  onClick={() => selectBackend(item.id)}
+                >
+                  <span className={styles.providerIcon}>
+                    <SquareTerminal size={18} />
+                  </span>
+                  <span className={styles.providerCopy}>
+                    <strong>{item.name}</strong>
+                    <small>{t(item.hintKey)}</small>
+                  </span>
+                  {selected && (
+                    <Check size={15} className={styles.providerCheck} />
+                  )}
+                </button>
+              );
+            })}
             <div className={styles.providerCardDisabled}>
               <span className={styles.providerIcon}>
                 <Blocks size={18} />
@@ -206,25 +306,15 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
               </span>
               <Clock3 size={14} />
             </div>
-            <div className={styles.providerCardDisabled}>
-              <span className={styles.providerIcon}>
-                <Blocks size={18} />
-              </span>
-              <span className={styles.providerCopy}>
-                <strong>Qoder</strong>
-                <small>{t("harnesses.comingSoon")}</small>
-              </span>
-              <Clock3 size={14} />
-            </div>
           </div>
 
-          <div className={styles.codexConfig}>
+          <div className={styles.providerConfig}>
             <Form.Item
               name={["backend_settings", "binary"]}
               label={
                 <span className={styles.binaryLabel}>
-                  {t("agent.backend.binary")}
-                  <Tooltip title={t("agent.backend.binaryHelp")}>
+                  {t(selectedProvider.binaryKey)}
+                  <Tooltip title={t(selectedProvider.binaryHelpKey)}>
                     <span
                       className={styles.helpIcon}
                       aria-label={t("common.help")}
@@ -239,7 +329,7 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
             >
               <Input
                 allowClear
-                placeholder={t("agent.backend.binaryPlaceholder")}
+                placeholder={t(selectedProvider.binaryPlaceholderKey)}
                 onBlur={(event) => {
                   const value = event.target.value.trim();
                   form.setFieldValue(
@@ -262,15 +352,15 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                 }
               />
             </Form.Item>
-            {codex?.runtime_path && (
+            {provider?.runtime_path && (
               <div className={`${styles.binaryStatus} ${styles.detected}`}>
                 <span className={styles.binaryStatusLabel}>
                   <Check size={14} />
-                  {t("agent.backend.detectedBinary")}
+                  {t(selectedProvider.detectedKey)}
                 </span>
-                <Tooltip title={codex.runtime_path}>
+                <Tooltip title={provider.runtime_path}>
                   <code className={styles.binaryPath}>
-                    {codex.runtime_path}
+                    {provider.runtime_path}
                   </code>
                 </Tooltip>
                 <Tooltip title={t("common.copy")}>
@@ -279,7 +369,7 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                     className={styles.copyPathButton}
                     aria-label={t("common.copy")}
                     onClick={() => {
-                      void copyText(codex.runtime_path as string)
+                      void copyText(provider.runtime_path as string)
                         .then(() => message.success(t("common.copied")))
                         .catch(() => message.error(t("common.copyFailed")));
                     }}
@@ -289,49 +379,49 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                 </Tooltip>
               </div>
             )}
-            {!checking && codex && !codex.runtime_path && (
+            {!checking && provider && !provider.runtime_path && (
               <div className={`${styles.binaryStatus} ${styles.notDetected}`}>
                 <span className={styles.binaryStatusLabel}>
                   <CircleAlert size={14} />
-                  {t("agent.backend.codexNotFound")}
+                  {t(selectedProvider.notFoundKey)}
                 </span>
               </div>
             )}
             <div className={styles.accountRow}>
               <div className={styles.accountState}>
                 <span className={styles.accountLabel}>
-                  {t("agent.backend.account")}
+                  {t(selectedProvider.accountKey)}
                 </span>
-                {codex?.authenticated ? (
+                {provider?.authenticated ? (
                   <span className={styles.connectedState}>
                     <Check size={14} />
-                    {apiKeyAuthenticated
+                    {tokenAuthenticated
                       ? t("harnesses.apiKeyAuthenticated")
                       : chatGptAuthenticated
                       ? t("harnesses.chatGptAuthenticated")
                       : t("harnesses.cliAuthenticated", {
-                          type: accountType || "Codex",
+                          type: selectedProvider.name,
                         })}
-                    {codex.account?.email ? ` · ${codex.account.email}` : ""}
+                    {accountIdentity ? ` · ${accountIdentity}` : ""}
                   </span>
                 ) : (
                   <span className={styles.disconnectedState}>
                     <CircleAlert size={14} />
-                    {codex?.installed
+                    {provider?.installed
                       ? t("harnesses.notConnected")
-                      : t("agent.backend.codexNotFound")}
+                      : t(selectedProvider.notFoundKey)}
                   </span>
                 )}
               </div>
               <div className={styles.accountAction}>
-                {!codex?.authenticated && (
+                {!provider?.authenticated && (
                   <Button
                     icon={<ExternalLink size={14} />}
                     loading={connecting}
-                    disabled={codex ? !codex.installed : true}
+                    disabled={provider ? !provider.installed : true}
                     onClick={() => void connect()}
                   >
-                    {t("harnesses.connect")}
+                    {t(selectedProvider.connectKey)}
                   </Button>
                 )}
                 {chatGptAuthenticated && (
@@ -344,12 +434,12 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                 )}
               </div>
             </div>
-            {!codex?.authenticated && codex?.installed && (
+            {!provider?.authenticated && provider?.installed && (
               <p className={styles.authHint}>
-                {t("agent.backend.apiKeyLoginHint")}
+                {t(selectedProvider.authHintKey)}
               </p>
             )}
-            {codex?.authenticated && (
+            {provider?.authenticated && (
               <p className={styles.chatSettingsHint}>
                 {t("agent.backend.chatSettingsHint")}
               </p>

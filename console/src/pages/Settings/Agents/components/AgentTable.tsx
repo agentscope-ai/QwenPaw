@@ -35,6 +35,11 @@ import { providerIcon } from "../../Models/components/providerIcon";
 import { AgentStatusIndicator } from "@/components/AgentStatusIndicator";
 import styles from "../index.module.less";
 
+const THIRD_PARTY_AGENT_NAMES: Record<string, string> = {
+  codex: "Codex",
+  qoder: "Qoder",
+};
+
 interface AgentTableProps {
   agents: AgentSummary[];
   loading: boolean;
@@ -138,24 +143,24 @@ export function AgentTable({
       dataIndex: "backend",
       key: "backend",
       width: 180,
-      render: (backend: AgentSummary["backend"]) => (
-        <Tag
-          className={`${styles.backendTag} ${
-            backend === "codex" ? styles.backendTagThirdParty : ""
-          }`}
-          icon={
-            backend === "codex" ? (
-              <SquareTerminal size={12} />
-            ) : (
-              <PawPrint size={12} />
-            )
-          }
-        >
-          {backend === "codex"
-            ? `Codex · ${t("agent.backend.thirdPartyBadge")}`
-            : `QwenPaw · ${t("agent.backend.nativeBadge")}`}
-        </Tag>
-      ),
+      render: (backend: AgentSummary["backend"]) => {
+        const thirdParty = backend !== "qwenpaw";
+        const name = THIRD_PARTY_AGENT_NAMES[backend] ?? backend;
+        return (
+          <Tag
+            className={`${styles.backendTag} ${
+              thirdParty ? styles.backendTagThirdParty : ""
+            }`}
+            icon={
+              thirdParty ? <SquareTerminal size={12} /> : <PawPrint size={12} />
+            }
+          >
+            {thirdParty
+              ? `${name} · ${t("agent.backend.thirdPartyBadge")}`
+              : `QwenPaw · ${t("agent.backend.nativeBadge")}`}
+          </Tag>
+        );
+      },
     },
     {
       title: t("agent.description"),

@@ -206,11 +206,14 @@
       "skills": {
         "description": "Tampilkan skill yang tersedia untuk chat dan perintah skill eksplisit"
       },
+      "agents": {
+        "description": "Tampilkan agen yang tersedia di runtime saat ini"
+      },
       "review": {
         "description": "Tinjau perubahan ruang kerja yang belum di-commit dengan Codex"
       },
       "status": {
-        "description": "Tampilkan akun Codex, model, dan ruang kerja saat ini"
+        "description": "Tampilkan akun agen, model, dan ruang kerja saat ini"
       },
       "goal": {
         "description": "Loop Goal — Agen mengejar tujuan secara terus-menerus, evaluasi otomatis via Rubric"
@@ -361,19 +364,28 @@
       "providerTitle": "Pilih agen pihak ketiga",
       "providerDescription": "Autentikasi digunakan bersama di perangkat ini; proyek dan percakapan tetap terisolasi untuk setiap agen.",
       "codexHint": "ChatGPT OAuth · Ruang kerja agen",
+      "qoderHint": "Akun Qoder atau PAT · Ruang kerja agen",
       "account": "Akun Codex",
+      "qoderAccount": "Akun Qoder",
       "binary": "File executable Codex",
       "binaryHelp": "Kosongkan untuk mendeteksi secara otomatis. Jika diisi, masukkan path lengkap ke file executable itu sendiri—codex di macOS/Linux atau codex.exe di Windows—bukan hanya foldernya. QwenPaw juga membaca CODEX_BINARY dan PATH backend.",
       "binaryPlaceholder": "Deteksi otomatis atau tempel path executable Codex",
+      "qoderBinary": "File executable Qoder",
+      "qoderBinaryHelp": "Kosongkan untuk memakai qodercli yang disertakan dalam SDK Python atau mendeteksi instalasi yang ada. Jika diisi, masukkan path lengkap ke qodercli di macOS/Linux atau qodercli.exe di Windows. QwenPaw juga membaca QODERCLI_PATH dan PATH backend.",
+      "qoderBinaryPlaceholder": "Deteksi otomatis atau tempel path qodercli",
       "detect": "Deteksi",
       "detectedBinary": "Codex terdeteksi",
+      "qoderDetectedBinary": "Qoder terdeteksi",
       "apiKeyLoginHint": "Anda juga dapat melakukan autentikasi di terminal dengan: codex login --with-api-key",
-      "model": "Model Codex",
-      "modelDefault": "Gunakan default Codex",
+      "qoderAuthHint": "Hubungkan akan membuka login Qoder di browser. Anda juga dapat menjalankan qodercli login atau mengatur QODER_PERSONAL_ACCESS_TOKEN sebelum memulai backend.",
+      "qoderConnect": "Hubungkan ke Qoder",
+      "model": "Model agen",
+      "modelDefault": "Gunakan default agen",
       "defaultBadge": "Default",
       "reasoningEffort": "Tingkat penalaran",
       "reasoningDefault": "Gunakan default model",
       "codexNotFound": "Codex tidak ditemukan di PATH atau ekstensi editor ChatGPT",
+      "qoderNotFound": "Qoder tidak ditemukan di SDK Python, QODERCLI_PATH, atau PATH",
       "chatSettingsHint": "Pilih model, tingkat penalaran, dan izin eksekusi dari bilah alat Chat.",
       "chatModelHint": "Pengaturan per agen · diterapkan pada giliran berikutnya",
       "appliesNextTurn": "Diterapkan pada giliran berikutnya",
@@ -390,6 +402,18 @@
         "workspace": {
           "name": "Akses ruang kerja",
           "description": "Izinkan perubahan ruang kerja tanpa konfirmasi."
+        },
+        "accept-edits": {
+          "name": "Terima edit",
+          "description": "Izinkan pengeditan file sambil mempertahankan perlindungan lain."
+        },
+        "plan": {
+          "name": "Hanya rencana",
+          "description": "Analisis dan rencanakan tanpa mengubah file."
+        },
+        "auto": {
+          "name": "Otomatis",
+          "description": "Biarkan Qoder menentukan tindakan aman yang dapat dijalankan."
         },
         "full-access": {
           "name": "Akses penuh",

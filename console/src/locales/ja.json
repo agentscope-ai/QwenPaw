@@ -135,19 +135,28 @@
       "providerTitle": "サードパーティエージェントを選択",
       "providerDescription": "認証情報はこのデバイスで共有されますが、プロジェクトと会話はエージェントごとに分離されます。",
       "codexHint": "ChatGPT OAuth · エージェントワークスペース",
+      "qoderHint": "Qoder アカウントまたは PAT · エージェントワークスペース",
       "account": "Codex アカウント",
+      "qoderAccount": "Qoder アカウント",
       "binary": "Codex 実行ファイル",
       "binaryHelp": "空欄の場合は自動検出します。手動で指定する場合は、フォルダーではなく実行ファイル自体のフルパス（macOS/Linux は codex、Windows は codex.exe）を入力してください。QwenPaw は CODEX_BINARY とバックエンドの PATH も参照します。",
       "binaryPlaceholder": "自動検出、または Codex 実行ファイルのパスを貼り付け",
+      "qoderBinary": "Qoder 実行ファイル",
+      "qoderBinaryHelp": "空欄の場合は Python SDK 同梱の qodercli を優先し、既存のインストールも自動検出します。手動指定では macOS/Linux の qodercli または Windows の qodercli.exe へのフルパスを入力してください。QODERCLI_PATH とバックエンドの PATH も参照します。",
+      "qoderBinaryPlaceholder": "自動検出、または qodercli のパスを貼り付け",
       "detect": "再検出",
       "detectedBinary": "Codex を検出しました",
+      "qoderDetectedBinary": "Qoder を検出しました",
       "apiKeyLoginHint": "ターミナルで codex login --with-api-key を実行して認証することもできます。",
-      "model": "Codex モデル",
-      "modelDefault": "Codex のデフォルトを使用",
+      "qoderAuthHint": "接続すると Qoder のブラウザログインが開きます。qodercli login の実行、またはバックエンド起動前の QODER_PERSONAL_ACCESS_TOKEN 設定も利用できます。",
+      "qoderConnect": "Qoder に接続",
+      "model": "エージェントモデル",
+      "modelDefault": "エージェントのデフォルトを使用",
       "defaultBadge": "デフォルト",
       "reasoningEffort": "推論レベル",
       "reasoningDefault": "モデルのデフォルトを使用",
       "codexNotFound": "PATH または ChatGPT エディター拡張機能で Codex が見つかりません",
+      "qoderNotFound": "Python SDK、QODERCLI_PATH、PATH のいずれにも Qoder が見つかりません",
       "chatSettingsHint": "Chat ツールバーでモデル、推論レベル、実行権限を選択します。",
       "chatModelHint": "エージェント単位の設定 · 次のターンから適用",
       "appliesNextTurn": "次のターンから適用",
@@ -164,6 +173,18 @@
         "workspace": {
           "name": "ワークスペースアクセス",
           "description": "確認なしでワークスペースの変更を許可します。"
+        },
+        "accept-edits": {
+          "name": "編集を許可",
+          "description": "ファイル編集を許可し、その他の安全確認は維持します。"
+        },
+        "plan": {
+          "name": "計画のみ",
+          "description": "ファイルを変更せずに分析と計画を行います。"
+        },
+        "auto": {
+          "name": "自動",
+          "description": "安全な操作を Qoder が判断して実行します。"
         },
         "full-access": {
           "name": "フルアクセス",
@@ -2115,11 +2136,14 @@
       "skills": {
         "description": "チャットで利用可能なスキルを一覧し、明示的なスキルコマンドを表示します"
       },
+      "agents": {
+        "description": "現在のランタイムで利用可能なエージェントを一覧表示"
+      },
       "review": {
         "description": "Codex で未コミットのワークスペース変更をレビュー"
       },
       "status": {
-        "description": "現在の Codex アカウント、モデル、ワークスペースを表示"
+        "description": "現在のエージェントアカウント、モデル、ワークスペースを表示"
       },
       "goal": {
         "description": "Goalループ — エージェントが目標に向かって継続実行し、Rubric評価で完了を自動判定"

@@ -70,7 +70,11 @@ describe("AgentTable", () => {
   it("shows each agent runtime backend", () => {
     renderWithProviders(
       <AgentTable
-        agents={[agent("native", false), agent("coding", false, "codex")]}
+        agents={[
+          agent("native", false),
+          agent("coding", false, "codex"),
+          agent("qoder", false, "qoder"),
+        ]}
         loading={false}
         reordering={false}
         onEdit={vi.fn()}
@@ -84,9 +88,12 @@ describe("AgentTable", () => {
 
     const nativeTag = screen.getByText(/QwenPaw/).closest(".ant-tag");
     const codexTag = screen.getByText(/Codex/).closest(".ant-tag");
+    const qoderTag = screen.getByText(/Qoder/).closest(".ant-tag");
     expect(nativeTag).toBeInTheDocument();
     expect(codexTag).toBeInTheDocument();
+    expect(qoderTag).toBeInTheDocument();
     expect(nativeTag?.className).toContain("backendTag");
     expect(codexTag?.className).toContain("backendTagThirdParty");
+    expect(qoderTag?.className).toContain("backendTagThirdParty");
   });
 });

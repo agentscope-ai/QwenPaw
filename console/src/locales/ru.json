@@ -135,19 +135,28 @@
       "providerTitle": "Выберите стороннего агента",
       "providerDescription": "Авторизация общая для этого устройства; проекты и диалоги изолированы для каждого агента.",
       "codexHint": "ChatGPT OAuth · Рабочая область агента",
+      "qoderHint": "Учётная запись Qoder или PAT · Рабочая область агента",
       "account": "Учётная запись Codex",
+      "qoderAccount": "Учётная запись Qoder",
       "binary": "Исполняемый файл Codex",
       "binaryHelp": "Оставьте поле пустым для автоматического поиска. При ручной настройке укажите полный путь к самому исполняемому файлу—codex в macOS/Linux или codex.exe в Windows—а не только к папке. QwenPaw также читает CODEX_BINARY и PATH бэкенда.",
       "binaryPlaceholder": "Автоопределение или путь к исполняемому файлу Codex",
+      "qoderBinary": "Исполняемый файл Qoder",
+      "qoderBinaryHelp": "Оставьте поле пустым, чтобы использовать qodercli из Python SDK или найти установленную версию. При ручной настройке укажите полный путь к qodercli в macOS/Linux или qodercli.exe в Windows. QwenPaw также читает QODERCLI_PATH и PATH бэкенда.",
+      "qoderBinaryPlaceholder": "Автоопределение или путь к qodercli",
       "detect": "Проверить",
       "detectedBinary": "Codex обнаружен",
+      "qoderDetectedBinary": "Qoder обнаружен",
       "apiKeyLoginHint": "Также можно выполнить аутентификацию в терминале: codex login --with-api-key",
-      "model": "Модель Codex",
-      "modelDefault": "Использовать значение Codex по умолчанию",
+      "qoderAuthHint": "Подключение откроет вход Qoder в браузере. Также можно выполнить qodercli login или задать QODER_PERSONAL_ACCESS_TOKEN перед запуском бэкенда.",
+      "qoderConnect": "Подключить Qoder",
+      "model": "Модель агента",
+      "modelDefault": "Использовать модель агента по умолчанию",
       "defaultBadge": "По умолчанию",
       "reasoningEffort": "Уровень рассуждения",
       "reasoningDefault": "Использовать значение модели по умолчанию",
       "codexNotFound": "Codex не найден в PATH или расширении редактора ChatGPT",
+      "qoderNotFound": "Qoder не найден в Python SDK, QODERCLI_PATH или PATH",
       "chatSettingsHint": "Выберите модель, уровень рассуждения и разрешения на выполнение на панели Chat.",
       "chatModelHint": "Настройки агента · применяются со следующего хода",
       "appliesNextTurn": "Применяется со следующего хода",
@@ -164,6 +173,18 @@
         "workspace": {
           "name": "Доступ к рабочей области",
           "description": "Разрешает изменения рабочей области без подтверждения."
+        },
+        "accept-edits": {
+          "name": "Разрешать правки",
+          "description": "Разрешает правки файлов, сохраняя остальные проверки."
+        },
+        "plan": {
+          "name": "Только план",
+          "description": "Анализирует и планирует без изменения файлов."
+        },
+        "auto": {
+          "name": "Автоматически",
+          "description": "Qoder сам определяет безопасные действия."
         },
         "full-access": {
           "name": "Полный доступ",
@@ -2130,11 +2151,14 @@
       "skills": {
         "description": "Показать доступные в чате навыки и явные команды их вызова"
       },
+      "agents": {
+        "description": "Показать агентов, доступных в текущей среде"
+      },
       "review": {
         "description": "Проверить в Codex незакоммиченные изменения рабочей области"
       },
       "status": {
-        "description": "Показать текущую учётную запись Codex, модель и рабочую область"
+        "description": "Показать текущую учётную запись агента, модель и рабочую область"
       },
       "goal": {
         "description": "Goal-цикл — агент непрерывно преследует цель, автоматически оценивая завершение через Rubric"

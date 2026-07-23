@@ -68,6 +68,7 @@ dependencies = [
     # wheels for all three OSes.
     "ast-grep-cli>=0.20",
     "html2text>=2024.2.26",
+    "qoder-agent-sdk>=1.0.9,<2",
 ]
 
 [project.urls]

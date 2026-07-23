@@ -14,6 +14,7 @@ from .events import (
     HarnessCapabilities,
     HarnessCommand,
 )
+from .qoder.adapter import QoderAdapter
 
 
 @dataclass(frozen=True)
@@ -114,8 +115,74 @@ PROVIDER_CATALOG = (
     ProviderCatalogItem(
         "qoder",
         "Qoder",
-        True,
-        HarnessCapabilities(),
+        False,
+        HarnessCapabilities(
+            authentication=True,
+            model_selection=True,
+            reasoning_effort=True,
+            reasoning_stream=True,
+            tool_stream=True,
+            session_resume=True,
+            attachments=True,
+            commands=[
+                HarnessCommand(
+                    name="compact",
+                    description="Compact the current Qoder session",
+                ),
+                HarnessCommand(
+                    name="agents",
+                    description="List agents available to Qoder",
+                ),
+                HarnessCommand(
+                    name="skills",
+                    description="List skills available to Qoder",
+                ),
+                HarnessCommand(
+                    name="status",
+                    description="Show Qoder account and session status",
+                ),
+            ],
+            approval_presets=[
+                HarnessApprovalPreset(
+                    id="ask",
+                    name="Ask before actions",
+                    description=(
+                        "Ask before file changes and command execution."
+                    ),
+                    settings={"permission_mode": "default"},
+                ),
+                HarnessApprovalPreset(
+                    id="accept-edits",
+                    name="Accept edits",
+                    description=(
+                        "Allow file edits while keeping other safeguards."
+                    ),
+                    settings={"permission_mode": "acceptEdits"},
+                ),
+                HarnessApprovalPreset(
+                    id="plan",
+                    name="Plan only",
+                    description="Analyze and plan without changing files.",
+                    settings={"permission_mode": "plan"},
+                ),
+                HarnessApprovalPreset(
+                    id="auto",
+                    name="Automatic",
+                    description=(
+                        "Let Qoder decide which safe actions can run."
+                    ),
+                    settings={"permission_mode": "auto"},
+                ),
+                HarnessApprovalPreset(
+                    id="full-access",
+                    name="Full access",
+                    description=(
+                        "Skip permission checks in a trusted workspace."
+                    ),
+                    settings={"permission_mode": "bypassPermissions"},
+                ),
+            ],
+        ),
     ),
 )
 
@@ -134,7 +201,7 @@ def adapter_config_key(
 ) -> tuple[Any, ...]:
     """Return settings that require recreating one provider adapter."""
     values = settings or {}
-    if provider_id == "codex":
+    if provider_id in {"codex", "qoder"}:
         return (str(values.get("binary") or "").strip(),)
     return ()
 
@@ -148,6 +215,9 @@ def create_adapter(
     if provider_id == "codex":
         binary = str((settings or {}).get("binary") or "").strip() or None
         return CodexAdapter(state_dir=state_dir, binary=binary)
+    if provider_id == "qoder":
+        binary = str((settings or {}).get("binary") or "").strip() or None
+        return QoderAdapter(state_dir=state_dir, binary=binary)
     raise ValueError(f"Unsupported third-party agent backend: {provider_id}")
 
 

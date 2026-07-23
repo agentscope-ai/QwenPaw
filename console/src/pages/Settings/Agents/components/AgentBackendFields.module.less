@@ -153,6 +153,7 @@
 }
 
 .providerCardSelected,
+.providerCard,
 .providerCardDisabled {
   display: flex;
   min-width: 0;
@@ -169,6 +170,23 @@
   background: #fffaf5;
   cursor: default;
   box-shadow: 0 5px 16px rgba(186, 83, 0, 0.08);
+}
+
+.providerCard {
+  border: 1px solid #e5d9cf;
+  color: #30251e;
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    transform 150ms ease;
+
+  &:hover {
+    border-color: rgba(255, 127, 22, 0.55);
+    background: #fffaf5;
+    transform: translateY(-1px);
+  }
 }
 
 .providerCardDisabled {
@@ -192,7 +210,7 @@
   color: #e66900;
 }
 
-.codexConfig {
+.providerConfig {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid #eadfd6;
@@ -374,6 +392,17 @@
     color: #f5eee8;
   }
 
+  .providerCard {
+    border-color: #3b332d;
+    color: #e8dfd7;
+    background: rgba(255, 255, 255, 0.025);
+
+    &:hover {
+      border-color: rgba(255, 127, 22, 0.65);
+      background: rgba(255, 127, 22, 0.07);
+    }
+  }
+
   .eyebrow {
     color: #ff9a47;
   }
@@ -445,7 +474,7 @@
     }
   }
 
-  .codexConfig {
+  .providerConfig {
     border-top-color: #3b332d;
   }
 

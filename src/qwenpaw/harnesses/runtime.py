@@ -59,7 +59,7 @@ class HarnessRuntime:
         self,
         provider_settings: dict[str, dict[str, Any]] | None = None,
     ) -> list[HarnessProvider]:
-        """Return the provider catalog with live status for Codex."""
+        """Return the third-party agent catalog with live provider status."""
         result: list[HarnessProvider] = []
         for item in PROVIDER_CATALOG:
             provider_id = item.id

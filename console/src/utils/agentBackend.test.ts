@@ -25,6 +25,14 @@ describe("supportsAgentAttachments", () => {
     ).toBe(true);
   });
 
+  it("enables sender drop handling when Qoder declares attachments", () => {
+    expect(
+      supportsAgentAttachments("qoder", {
+        attachments: true,
+      }),
+    ).toBe(true);
+  });
+
   it("keeps attachments hidden for backends without the capability", () => {
     expect(supportsAgentAttachments("qoder", {})).toBe(false);
   });

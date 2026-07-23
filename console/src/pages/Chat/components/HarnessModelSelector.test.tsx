@@ -124,4 +124,43 @@ describe("HarnessModelSelector", () => {
     await waitFor(() => expect(harnessApi.listModels).toHaveBeenCalledOnce());
     expect(agentsApi.updateBackendSettings).not.toHaveBeenCalled();
   });
+
+  it("loads and persists Qoder-owned models through the same selector", async () => {
+    mockUseAgentStore.mockReturnValue({
+      selectedAgent: "qoder-agent",
+      agents: [
+        {
+          id: "qoder-agent",
+          backend: "qoder",
+          backend_model: null,
+        },
+      ],
+      updateAgent: mockUpdateAgent,
+    });
+    vi.mocked(harnessApi.listModels).mockResolvedValue({
+      models: [
+        {
+          id: "auto",
+          name: "Auto",
+          description: "",
+          is_default: true,
+          reasoning_efforts: ["high"],
+          default_reasoning_effort: "high",
+        },
+      ],
+    });
+
+    renderWithProviders(<HarnessModelSelector providerId="qoder" />);
+
+    await waitFor(() =>
+      expect(harnessApi.listModels).toHaveBeenCalledWith("qoder"),
+    );
+    expect(agentsApi.updateBackendSettings).toHaveBeenCalledWith(
+      "qoder-agent",
+      {
+        model: "auto",
+        reasoning_effort: "high",
+      },
+    );
+  });
 });

@@ -9,6 +9,7 @@ export interface HarnessProvider {
   authenticated: boolean;
   account: {
     type?: string;
+    username?: string | null;
     email?: string | null;
     planType?: string;
   } | null;
@@ -65,6 +66,7 @@ export interface HarnessLogin {
   authUrl?: string;
   verificationUrl?: string;
   userCode?: string;
+  command?: string;
 }
 
 export const harnessApi = {
