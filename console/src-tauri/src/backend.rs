@@ -28,6 +28,7 @@ const DESKTOP_SHUTDOWN_TOKEN_HEADER: &str = "X-QwenPaw-Desktop-Shutdown-Token";
 /// bounds the sidecar's internal drain independently.
 const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const GRACEFUL_SHUTDOWN_EXIT_TIMEOUT: Duration = Duration::from_secs(60);
+const FORCED_SHUTDOWN_EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Shared sidecar process state managed by Tauri.
 #[derive(Default)]
@@ -50,7 +51,7 @@ enum StopPlan {
     NoProcess,
     Wait(watch::Receiver<bool>),
     Request {
-        child: CommandChild,
+        pid: u32,
         port: Option<u16>,
         shutdown_token: Option<String>,
         terminated: watch::Receiver<bool>,
@@ -139,37 +140,49 @@ impl BackendState {
             if inner.stopping {
                 return StopPlan::Wait(terminated);
             }
-            let Some(child) = inner.child.take() else {
+            let Some(child) = &inner.child else {
                 return StopPlan::Wait(terminated);
             };
 
             self.next_generation();
             inner.stopping = true;
             StopPlan::Request {
-                child,
-                port: inner.port.take(),
-                shutdown_token: inner.shutdown_token.take(),
+                pid: child.pid(),
+                port: inner.port,
+                shutdown_token: inner.shutdown_token.clone(),
                 terminated,
             }
         })
     }
 
-    async fn request_stop(child: CommandChild, port: Option<u16>, shutdown_token: Option<String>) {
+    fn force_kill(&self) {
+        let child = self.with_inner(|inner| inner.child.take());
+        let Some(child) = child else {
+            return;
+        };
+
         let pid = child.pid();
+        if let Err(err) = child.kill() {
+            log::warn!("[backend] failed to stop process pid={pid}: {err}");
+        }
+    }
+
+    fn finish_stop(&self) {
+        self.with_inner(|inner| {
+            inner.child.take();
+            inner.port = None;
+            inner.shutdown_token = None;
+            inner.terminated = None;
+            inner.stopping = false;
+        });
+    }
+
+    async fn request_stop(&self, pid: u32, port: Option<u16>, shutdown_token: Option<String>) {
         log::info!("[backend] stopping process pid={pid}");
 
         if let (Some(port), Some(shutdown_token)) = (port, shutdown_token) {
             match request_graceful_shutdown(port, &shutdown_token).await {
                 Ok(()) => {
-                    // Fire-and-forget: dropping `child` does NOT kill the
-                    // sidecar. tauri-plugin-shell 2.3.5 has no `impl Drop`
-                    // on `CommandChild`, spawns without a Job Object, and
-                    // its `RunEvent::Exit` handler only kills children in
-                    // `shell.children` (populated by the IPC `execute`
-                    // command; our Rust-side `command.spawn()` is not in
-                    // that map). The sidecar therefore keeps running past
-                    // Tauri exit and completes its own lifespan shutdown
-                    // (memory/index flush) on its own timeline.
                     log::info!("[backend] graceful shutdown requested pid={pid}");
                     return;
                 }
@@ -183,21 +196,7 @@ impl BackendState {
             log::warn!("[backend] no shutdown credentials for pid={pid}; killing process");
         }
 
-        if let Err(err) = child.kill() {
-            log::warn!("[backend] failed to stop process: {err}");
-        }
-    }
-
-    async fn stop(&self) {
-        if let StopPlan::Request {
-            child,
-            port,
-            shutdown_token,
-            ..
-        } = self.begin_stop()
-        {
-            Self::request_stop(child, port, shutdown_token).await;
-        }
+        self.force_kill();
     }
 
     async fn stop_and_wait(&self) -> Result<(), String> {
@@ -205,16 +204,39 @@ impl BackendState {
             StopPlan::NoProcess => return Ok(()),
             StopPlan::Wait(terminated) => terminated,
             StopPlan::Request {
-                child,
+                pid,
                 port,
                 shutdown_token,
                 terminated,
             } => {
-                Self::request_stop(child, port, shutdown_token).await;
+                self.request_stop(pid, port, shutdown_token).await;
                 terminated
             }
         };
-        wait_for_termination(terminated, GRACEFUL_SHUTDOWN_EXIT_TIMEOUT).await
+
+        match wait_for_termination(terminated.clone(), GRACEFUL_SHUTDOWN_EXIT_TIMEOUT).await {
+            Ok(()) => {
+                self.finish_stop();
+                Ok(())
+            }
+            Err(err) => {
+                log::warn!("[backend] {err}; forcing sidecar termination");
+                self.force_kill();
+                match wait_for_termination(terminated, FORCED_SHUTDOWN_EXIT_TIMEOUT).await {
+                    Ok(()) => {
+                        log::warn!("[backend] sidecar force-terminated after graceful shutdown failure");
+                        self.finish_stop();
+                        Ok(())
+                    }
+                    Err(force_err) => {
+                        self.finish_stop();
+                        Err(format!(
+                            "{err}; failed to confirm forced backend termination: {force_err}"
+                        ))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -305,11 +327,6 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
 
     start(app.handle());
     Ok(())
-}
-
-/// Terminates the current sidecar process, if one is running.
-pub(crate) async fn stop(app: &tauri::AppHandle) {
-    let _ = app.state::<BackendState>().stop().await;
 }
 
 /// Gracefully stops the current sidecar and waits for its process to exit.
