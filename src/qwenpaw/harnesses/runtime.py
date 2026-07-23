@@ -331,12 +331,13 @@ class HarnessRuntime:
                             ),
                         )
                     continue
-                attachment_fields = {
-                    ContentType.FILE: "file_url",
-                    ContentType.AUDIO: "data",
-                    ContentType.VIDEO: "video_url",
-                }
-                path_field = attachment_fields.get(content_type)
+                path_field = None
+                if content_type == ContentType.FILE:
+                    path_field = "file_url"
+                elif content_type == ContentType.AUDIO:
+                    path_field = "data"
+                elif content_type == ContentType.VIDEO:
+                    path_field = "video_url"
                 raw_path = (
                     getattr(content, path_field, None) if path_field else None
                 )
