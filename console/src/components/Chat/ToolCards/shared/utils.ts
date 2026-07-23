@@ -192,6 +192,24 @@ function getPathFromParams(params: Record<string, unknown>): string {
     "") as string;
 }
 
+/**
+ * Whether a param path can actually be previewed by the backend.
+ * The preview endpoint only resolves absolute paths (plus `~`, drive
+ * letters and full URLs) — a bare relative path always 404s, so it
+ * must not be used as a preview URL fallback.
+ */
+function isPreviewablePath(path: string): boolean {
+  return (
+    path.startsWith("/") ||
+    path.startsWith("~") ||
+    /^[a-zA-Z]:[\\/]/.test(path) ||
+    path.startsWith("file://") ||
+    path.startsWith("http://") ||
+    path.startsWith("https://") ||
+    path.startsWith("data:")
+  );
+}
+
 /** Extract media info from tool params/result (unified for all tool names) */
 export function getMediaInfo(tc: ToolCallContent): MediaInfo | null {
   const params = tc.params || {};
@@ -206,7 +224,8 @@ export function getMediaInfo(tc: ToolCallContent): MediaInfo | null {
     textUrl = extractUrlFromText(tc.result) || "";
   }
 
-  const rawUrl = fromResult?.url || paramPath || textUrl || "";
+  const previewableParamPath = isPreviewablePath(paramPath) ? paramPath : "";
+  const rawUrl = fromResult?.url || previewableParamPath || textUrl || "";
   if (!rawUrl) return null;
 
   const name =
