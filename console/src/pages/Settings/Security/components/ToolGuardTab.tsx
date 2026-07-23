@@ -90,16 +90,15 @@ export function ToolGuardTab({
                 onChange={(val) => setSandboxEnabled(val)}
               />
             </Form.Item>
-            {sandboxEnabled &&
-              sandboxReason === "unelevated" && (
-                <Alert
-                  type="warning"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                  message={t("security.sandboxUnelevatedWarning")}
-                  description={t("security.sandboxUnelevatedDescription")}
-                />
-              )}
+            {sandboxEnabled && sandboxReason === "unelevated" && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message={t("security.sandboxUnelevatedWarning")}
+                description={t("security.sandboxUnelevatedDescription")}
+              />
+            )}
             <div className={styles.toolGuardRow}>
               <Form.Item
                 label={t("security.guardedTools")}
