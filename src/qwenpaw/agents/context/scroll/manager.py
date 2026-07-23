@@ -1547,12 +1547,19 @@ class ScrollContextManager:
         tail: list[Msg],
     ) -> None:
         """Rebuild from separate summary/index state plus the live tail."""
-        memory = self._index.render()
+        index_detail_budget = max(
+            512,
+            min(16_000, int(agent.model.context_size * 0.05)),
+        )
+        memory = self._index.render(
+            detail_char_budget=index_detail_budget,
+        )
         if self._continuation_summary is not None:
             body = (
                 self._index.render(
                     include_envelope=False,
                     include_live_banner=False,
+                    detail_char_budget=index_detail_budget,
                 )
                 + "\n\n"
                 + self._continuation_summary.render_background(
