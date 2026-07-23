@@ -59,6 +59,9 @@ class MCPDriverHandler(DriverHandler):
             ]
             | None
         ) = None
+        self._capability_refresh_task: (
+            asyncio.Task[list[DriverCapability]] | None
+        ) = None
 
     async def _setup(self) -> None:
         """Create and connect StdIOStatefulClient or HttpStatefulClient."""
@@ -103,6 +106,11 @@ class MCPDriverHandler(DriverHandler):
 
     async def _teardown(self) -> None:
         """Close connected MCP client if present."""
+        refresh_task = self._capability_refresh_task
+        if refresh_task is not None and not refresh_task.done():
+            refresh_task.cancel()
+            await asyncio.gather(refresh_task, return_exceptions=True)
+        self._capability_refresh_task = None
         self._capability_cache = None
         if self._client is not None:
             await self._client.close()
@@ -141,7 +149,46 @@ class MCPDriverHandler(DriverHandler):
             cached_at, cached = self._capability_cache
             if now - cached_at <= _CAPABILITY_CACHE_TTL_SECONDS:
                 return list(cached)
+            self._start_capability_refresh()
+            return list(cached)
 
+        refresh_task = self._start_capability_refresh()
+        return list(await asyncio.shield(refresh_task))
+
+    def _start_capability_refresh(
+        self,
+    ) -> asyncio.Task[list[DriverCapability]]:
+        """Start one shared capability refresh task."""
+        task = self._capability_refresh_task
+        if task is None or task.done():
+            task = asyncio.create_task(
+                self._refresh_capabilities(),
+                name=f"mcp-capability-refresh:{self.name}",
+            )
+            self._capability_refresh_task = task
+            task.add_done_callback(self._on_capability_refresh_done)
+        return task
+
+    def _on_capability_refresh_done(
+        self,
+        task: asyncio.Task[list[DriverCapability]],
+    ) -> None:
+        """Consume background failures and release the single-flight slot."""
+        if self._capability_refresh_task is task:
+            self._capability_refresh_task = None
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            logger.warning(
+                "MCP Driver '%s' capability refresh failed: %s",
+                self.name,
+                error,
+                exc_info=(type(error), error, error.__traceback__),
+            )
+
+    async def _refresh_capabilities(self) -> list[DriverCapability]:
+        """Fetch and cache the current MCP tool capability snapshot."""
         tools = await self.list_tools()
         capabilities = [
             _mcp_tool_to_capability(
@@ -151,7 +198,7 @@ class MCPDriverHandler(DriverHandler):
             )
             for tool in tools
         ]
-        self._capability_cache = (now, capabilities)
+        self._capability_cache = (time.monotonic(), capabilities)
         return list(capabilities)
 
     async def invoke_capability(
