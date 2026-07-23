@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
+import asyncio
 import json
 from importlib.metadata import PackageNotFoundError
 import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import tomllib
 from unittest.mock import MagicMock, patch
 
@@ -25,6 +27,7 @@ from qwenpaw.app.channels.dependencies import (
     missing_requirements,
     requirements_for_extra,
 )
+from qwenpaw.config.utils import get_available_channels
 
 
 def test_lazy_runtime_imports_are_declared_in_channel_extras():
@@ -107,6 +110,28 @@ def test_every_catalog_extra_exists_and_channels_all_is_complete():
     assert actual == expected
 
 
+def test_available_channel_keys_do_not_load_builtin_registry():
+    plugin_registry = MagicMock()
+    plugin_registry.get_registered_channels.return_value = {
+        "plugin-channel": object(),
+    }
+    with (
+        patch(
+            "qwenpaw.plugins.registry.PluginRegistry",
+            return_value=plugin_registry,
+        ),
+        patch(
+            "qwenpaw.app.channels.registry.get_channel_registry",
+        ) as load_registry,
+        patch.dict(os.environ, {}, clear=True),
+    ):
+        available = get_available_channels()
+
+    assert "console" in available
+    assert "plugin-channel" in available
+    load_registry.assert_not_called()
+
+
 def test_channel_only_sdks_are_not_core_dependencies():
     pyproject = Path(__file__).resolve().parents[3] / "pyproject.toml"
     data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
@@ -182,6 +207,41 @@ def test_missing_requirements_returns_only_unsatisfied_items():
         side_effect=lambda req: req.name != "dingtalk-stream",
     ):
         assert missing_requirements(spec) == ["dingtalk-stream>=0.24.3"]
+
+
+def test_requirements_for_extra_caches_pyproject_reads(tmp_path):
+    project = tmp_path / "pyproject.toml"
+    project.write_text(
+        "[project]\n"
+        'name = "qwenpaw"\n'
+        "[project.optional-dependencies]\n"
+        'channel-test = ["example-package>=1"]\n',
+        encoding="utf-8",
+    )
+    from qwenpaw.app.channels import dependencies
+
+    dependencies._requirements_for_extra_cached.cache_clear()
+    original_read_text = Path.read_text
+    reads = 0
+
+    def counting_read_text(path, *args, **kwargs):
+        nonlocal reads
+        reads += 1
+        return original_read_text(path, *args, **kwargs)
+
+    with (
+        patch.object(dependencies, "_source_pyproject", return_value=project),
+        patch.object(Path, "read_text", counting_read_text),
+    ):
+        assert requirements_for_extra("channel-test") == [
+            "example-package>=1",
+        ]
+        assert requirements_for_extra("channel-test") == [
+            "example-package>=1",
+        ]
+
+    assert reads == 1
+    dependencies._requirements_for_extra_cached.cache_clear()
 
 
 def test_non_frozen_uninstalled_package_is_not_satisfied_by_loaded_module():
@@ -391,17 +451,6 @@ def test_each_source_has_one_public_fallback(tmp_path):
     requirements = ["python-telegram-bot>=20.0"]
     assert service._source_candidates(  # pylint: disable=protected-access
         InstallJob(
-            id="system-source-job",
-            channel="telegram",
-            requirements=requirements,
-            source="system",
-        ),
-    ) == [
-        (None, "system-config"),
-        ("https://mirrors.aliyun.com/pypi/simple/", "aliyun"),
-    ]
-    assert service._source_candidates(  # pylint: disable=protected-access
-        InstallJob(
             id="pypi-source-job",
             channel="telegram",
             requirements=requirements,
@@ -421,6 +470,89 @@ def test_each_source_has_one_public_fallback(tmp_path):
         ("https://mirrors.aliyun.com/pypi/simple/", "aliyun"),
         ("https://pypi.org/simple/", "pypi"),
     ]
+
+
+def test_pypi_missing_distribution_does_not_fallback(tmp_path):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    job = InstallJob(
+        id="pypi-missing-job",
+        channel="telegram",
+        requirements=["python-telegram-bot>=20.0"],
+        source="pypi",
+    )
+
+    with patch.object(
+        service,
+        "_run_install",
+        return_value=subprocess.CompletedProcess(
+            [],
+            1,
+            "No matching distribution found",
+            "",
+        ),
+    ) as run_install:
+        with pytest.raises(RuntimeError, match="No matching distribution"):
+            service._install_with_sources(job, job.requirements)
+
+    run_install.assert_called_once()
+
+
+def test_pypi_not_found_does_not_fallback(tmp_path):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    job = InstallJob(
+        id="pypi-not-found-job",
+        channel="telegram",
+        requirements=["python-telegram-bot>=20.0"],
+        source="pypi",
+    )
+
+    with patch.object(
+        service,
+        "_run_install",
+        return_value=subprocess.CompletedProcess(
+            [],
+            1,
+            "HTTP error 404 while fetching package index",
+            "",
+        ),
+    ) as run_install:
+        with pytest.raises(RuntimeError, match="HTTP error 404"):
+            service._install_with_sources(job, job.requirements)
+
+    run_install.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "Package requires a different Python version: 3.9 not in >=3.10",
+        "Ignored version with Requires-Python >=3.12",
+        "package.whl is not a supported wheel on this platform",
+    ],
+)
+def test_python_or_platform_incompatibility_does_not_fallback(
+    tmp_path,
+    output,
+):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    job = InstallJob(
+        id="incompatible-job",
+        channel="telegram",
+        requirements=["python-telegram-bot>=20.0"],
+    )
+
+    with patch.object(
+        service,
+        "_run_install",
+        return_value=subprocess.CompletedProcess([], 1, output, ""),
+    ) as run_install:
+        with pytest.raises(RuntimeError):
+            service._install_with_sources(job, job.requirements)
+
+    run_install.assert_called_once()
 
 
 def test_custom_source_credentials_are_not_exposed_or_persisted(tmp_path):
@@ -748,3 +880,135 @@ async def test_successful_install_runs_post_install_callback(tmp_path):
 
     assert job.status == "succeeded"
     callback.assert_called_once_with()
+
+
+async def test_install_state_persistence_does_not_block_event_loop(tmp_path):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    job = InstallJob(
+        id="slow-state-job",
+        channel="telegram",
+        requirements=["python-telegram-bot>=20.0"],
+    )
+    release_update = threading.Event()
+
+    def slow_update(*_args, **_kwargs):
+        assert release_update.wait(timeout=1)
+
+    with (
+        patch.object(service, "_update_job", side_effect=slow_update),
+        patch.object(service, "_install_locked"),
+        patch.object(service, "_verify_channel", return_value=[]),
+    ):
+        job_task = asyncio.create_task(service._run_job(job))
+        await asyncio.sleep(0)
+        release_update.set()
+        await asyncio.wait_for(job_task, timeout=0.5)
+
+
+async def test_reinstall_requires_a_load_error(tmp_path):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    with (
+        patch(
+            "qwenpaw.app.channels.dependencies.missing_requirements",
+            return_value=[],
+        ),
+        patch.object(service, "_channel_load_error", return_value=None),
+    ):
+        with pytest.raises(ValueError, match="already ready"):
+            await service.start_install("telegram", reinstall=True)
+
+
+async def test_reinstall_rejects_missing_dependencies(tmp_path):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    with patch(
+        "qwenpaw.app.channels.dependencies.missing_requirements",
+        return_value=["python-telegram-bot>=20.0"],
+    ):
+        with pytest.raises(ValueError, match="only available"):
+            await service.start_install("telegram", reinstall=True)
+
+
+async def test_reinstall_uses_full_channel_requirements(tmp_path):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    created = InstallJob(
+        id="reinstall-job",
+        channel="telegram",
+        requirements=["python-telegram-bot>=20.0"],
+        reinstall=True,
+    )
+    with (
+        patch(
+            "qwenpaw.app.channels.dependencies.missing_requirements",
+            return_value=[],
+        ),
+        patch.object(
+            service,
+            "_channel_load_error",
+            return_value="ImportError: broken",
+        ),
+        patch(
+            "qwenpaw.app.channels.dependencies.requirements_for_extra",
+            return_value=created.requirements,
+        ),
+        patch.object(
+            service,
+            "_create_install_job",
+            return_value=(created, False),
+        ) as create_job,
+    ):
+        result = await service.start_install("telegram", reinstall=True)
+
+    assert result is created
+    assert create_job.call_args.args[1] == created.requirements
+    assert create_job.call_args.kwargs["reinstall"] is True
+
+
+async def test_reinstall_rejects_channel_without_optional_dependencies(
+    tmp_path,
+):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    with (
+        patch(
+            "qwenpaw.app.channels.dependencies.missing_requirements",
+            return_value=[],
+        ),
+        patch.object(
+            service,
+            "_channel_load_error",
+            return_value="ImportError: broken core channel",
+        ),
+        patch(
+            "qwenpaw.app.channels.dependencies.requirements_for_extra",
+            return_value=[],
+        ),
+    ):
+        with pytest.raises(ValueError, match="no reinstallable"):
+            await service.start_install("console", reinstall=True)
+
+
+def test_verify_channel_reimports_module_after_install(tmp_path):
+    spec = BUILTIN_CHANNEL_CATALOG["telegram"]
+    module_name = "qwenpaw.app.channels.telegram"
+    stale_module = object()
+    sys.modules[module_name] = stale_module
+    with (
+        patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path),
+        patch(
+            "qwenpaw.app.channels.dependencies.missing_requirements",
+            return_value=[],
+        ),
+        patch.object(
+            ChannelDependencyService,
+            "_channel_load_error",
+            return_value=None,
+        ) as load_error,
+    ):
+        assert not ChannelDependencyService._verify_channel("telegram")
+
+    assert module_name not in sys.modules
+    load_error.assert_called_once_with(spec)

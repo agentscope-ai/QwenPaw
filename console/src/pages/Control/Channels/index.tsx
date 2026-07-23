@@ -35,7 +35,6 @@ function DependencyInstallOptions({
     useState<ChannelDependencyInstallSource>("aliyun");
   const [customIndexUrl, setCustomIndexUrl] = useState("");
   const sourceDescriptions: Record<ChannelDependencyInstallSource, string> = {
-    system: t("channels.installSourceSystemDescription"),
     pypi: t("channels.installSourcePypiDescription"),
     aliyun: t("channels.installSourceAliyunDescription"),
     custom: t("channels.installSourceCustomDescription"),
@@ -57,7 +56,6 @@ function DependencyInstallOptions({
         value={source}
         options={[
           { value: "aliyun", label: t("channels.installSourceAliyun") },
-          { value: "system", label: t("channels.installSourceSystem") },
           { value: "pypi", label: t("channels.installSourcePypi") },
           { value: "custom", label: t("channels.installSourceCustom") },
         ]}
@@ -167,18 +165,38 @@ function ChannelsPage() {
     (key: ChannelKey) => {
       const dependency = dependencyStatuses[key];
       if (isBuiltin(key) && !dependency) return;
-      if (dependency?.status === "missing" || dependency?.status === "failed") {
+      if (
+        dependency?.status === "missing" ||
+        dependency?.status === "failed" ||
+        (dependency?.status === "load_error" &&
+          dependency.requirements.length > 0)
+      ) {
+        const reinstall = dependency.status === "load_error";
+        const displayedRequirements = reinstall
+          ? dependency.requirements
+          : dependency.missing_requirements;
         let source: ChannelDependencyInstallSource = "aliyun";
         let customIndexUrl = "";
         Modal.confirm({
-          title: t("channels.installDependenciesTitle", {
-            channel: getChannelLabel(key, t),
-          }),
+          title: t(
+            reinstall
+              ? "channels.reinstallDependenciesTitle"
+              : "channels.installDependenciesTitle",
+            {
+              channel: getChannelLabel(key, t),
+            },
+          ),
           content: (
             <div>
-              <p>{t("channels.installDependenciesDescription")}</p>
+              <p>
+                {t(
+                  reinstall
+                    ? "channels.reinstallDependenciesDescription"
+                    : "channels.installDependenciesDescription",
+                )}
+              </p>
               <ul className={styles.dependencyList}>
-                {dependency.missing_requirements.map((requirement) => (
+                {displayedRequirements.map((requirement) => (
                   <li key={requirement}>{requirement}</li>
                 ))}
               </ul>
@@ -203,7 +221,10 @@ function ChannelsPage() {
               } catch {
                 throw new Error(t("channels.installCustomSourceInvalid"));
               }
-              const job = await api.installChannelDependencies(key, request);
+              const job = await api.installChannelDependencies(key, {
+                ...request,
+                reinstall,
+              });
               if (job.status === "failed") {
                 throw new Error(job.error || t("channels.installFailed"));
               }

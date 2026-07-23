@@ -88,12 +88,31 @@ describe("ChannelAvailableItem", () => {
     expect(onClick).toHaveBeenCalledOnce();
   });
 
-  it("disables the load error state", () => {
+  it("offers reinstall when the channel fails to load", () => {
     const onClick = vi.fn();
     render(
       <ChannelAvailableItem
         channelKey="telegram"
         dependencyStatus={status("load_error")}
+        onClick={onClick}
+      />,
+    );
+
+    const item = screen.getByRole("button");
+    fireEvent.click(item);
+    expect(screen.getByText("channels.reinstallAction")).toBeInTheDocument();
+    expect(item).toHaveAttribute("aria-disabled", "false");
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a core-only load error disabled", () => {
+    const onClick = vi.fn();
+    const loadError = status("load_error");
+    loadError.requirements = [];
+    render(
+      <ChannelAvailableItem
+        channelKey="telegram"
+        dependencyStatus={loadError}
         onClick={onClick}
       />,
     );

@@ -141,6 +141,7 @@ def test_install_channel_dependencies_starts_background_job(client):
         assert args == ("telegram",)
         assert kwargs["source"] == "aliyun"
         assert kwargs["custom_index_url"] is None
+        assert kwargs["reinstall"] is False
         assert callable(kwargs["on_success"])
         kwargs["on_success"]()
         reload_all.assert_called_once()
@@ -174,6 +175,27 @@ def test_install_channel_dependencies_rejects_removed_auto_source(client):
         json={"source": "auto"},
     )
     assert response.status_code == 422
+
+
+def test_install_channel_dependencies_passes_reinstall(client):
+    job = InstallJob(
+        id="job-reinstall",
+        channel="telegram",
+        requirements=["python-telegram-bot>=20.0"],
+        reinstall=True,
+    )
+    with patch(
+        "qwenpaw.app.routers.config."
+        "channel_dependency_service.start_install",
+        new=AsyncMock(return_value=job),
+    ) as start_install:
+        response = client.post(
+            "/api/config/channels/telegram/dependencies/install",
+            json={"source": "pypi", "reinstall": True},
+        )
+
+    assert response.status_code == 200
+    assert start_install.await_args.kwargs["reinstall"] is True
 
 
 def test_cancel_channel_dependency_install(client):

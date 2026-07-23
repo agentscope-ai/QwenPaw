@@ -57,15 +57,12 @@ export interface ChannelDependencyJob {
   error?: string;
 }
 
-export type ChannelDependencyInstallSource =
-  | "system"
-  | "pypi"
-  | "aliyun"
-  | "custom";
+export type ChannelDependencyInstallSource = "pypi" | "aliyun" | "custom";
 
 export interface ChannelDependencyInstallRequest {
   source?: ChannelDependencyInstallSource;
   custom_index_url?: string;
+  reinstall?: boolean;
 }
 
 export const channelApi = {

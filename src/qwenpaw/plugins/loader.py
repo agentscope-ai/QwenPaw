@@ -1003,9 +1003,14 @@ class PluginLoader:
             or "No module named pip" in result.stdout
         )
         if not pip_missing:
+            output = (
+                result.stdout
+                or result.stderr
+                or "dependency installation failed"
+            )
             raise RuntimeError(
                 f"Dependency installation failed for '{plugin_id}': "
-                f"{result.stderr}",
+                f"{output[-4000:]}",
             )
 
         # ── Attempt 2: uv pip install ─────────────────────────────────
@@ -1041,9 +1046,14 @@ class PluginLoader:
             ) from exc
 
         if uv_result.returncode != 0:
+            output = (
+                uv_result.stdout
+                or uv_result.stderr
+                or "dependency installation failed"
+            )
             raise RuntimeError(
                 f"Dependency installation failed for '{plugin_id}' "
-                f"(via uv): {uv_result.stderr}",
+                f"(via uv): {output[-4000:]}",
             )
         logger.info(
             f"Dependencies installed for plugin '{plugin_id}' (via uv)",
@@ -1096,9 +1106,14 @@ class PluginLoader:
             ) from exc
 
         if result.returncode != 0:
+            output = (
+                result.stdout
+                or result.stderr
+                or "dependency installation failed"
+            )
             raise RuntimeError(
                 f"Dependency installation failed for '{plugin_id}': "
-                f"{result.stdout}",
+                f"{output[-4000:]}",
             )
         importlib.invalidate_caches()
         logger.info(

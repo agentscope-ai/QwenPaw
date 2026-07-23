@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
+from functools import lru_cache
 import hashlib
 import importlib
 from importlib.metadata import PackageNotFoundError, requires, version
@@ -43,7 +44,7 @@ _SOURCE_URLS = {
     "pypi": "https://pypi.org/simple/",
     "aliyun": "https://mirrors.aliyun.com/pypi/simple/",
 }
-_SOURCE_FAILURE_MARKERS = (
+_NETWORK_FAILURE_MARKERS = (
     "connection broken",
     "connection error",
     "connection reset",
@@ -71,8 +72,18 @@ _SOURCE_FAILURE_MARKERS = (
     "http error 504",
     "bad gateway",
     "service unavailable",
+)
+_MISSING_DISTRIBUTION_MARKERS = (
     "no matching distribution found",
     "could not find a version that satisfies the requirement",
+)
+_INCOMPATIBILITY_MARKERS = (
+    "requires-python",
+    "require a different python",
+    "requires a different python",
+    "not a supported wheel",
+    "unsupported platform",
+    "is not compatible with this python",
 )
 
 
@@ -92,7 +103,7 @@ def _redact_url_credentials(value: str | None) -> str | None:
 
 
 def _safe_source_label(value: str) -> str:
-    if value in {"system-config", "pypi", "aliyun"} or value.startswith(
+    if value in {"pypi", "aliyun"} or value.startswith(
         "custom:",
     ):
         return value
@@ -142,8 +153,9 @@ def _ensure_channel_site_on_path() -> None:
     importlib.invalidate_caches()
 
 
-def _source_pyproject() -> Path | None:
-    for parent in Path(__file__).resolve().parents:
+@lru_cache(maxsize=None)
+def _source_pyproject_for(module_file: str) -> Path | None:
+    for parent in Path(module_file).resolve().parents:
         candidate = parent / "pyproject.toml"
         if not candidate.is_file():
             continue
@@ -156,6 +168,11 @@ def _source_pyproject() -> Path | None:
     return None
 
 
+def _source_pyproject() -> Path | None:
+    return _source_pyproject_for(__file__)
+
+
+@lru_cache(maxsize=None)
 def _requirements_from_metadata(extra: str) -> list[str]:
     try:
         values = requires("qwenpaw") or []
@@ -176,19 +193,32 @@ def _requirements_from_metadata(extra: str) -> list[str]:
     return result
 
 
+@lru_cache(maxsize=None)
+def _requirements_for_extra_cached(
+    extra: str,
+    pyproject_path: str | None,
+) -> tuple[str, ...]:
+    if pyproject_path is not None:
+        data = tomllib.loads(Path(pyproject_path).read_text(encoding="utf-8"))
+        values = (
+            data.get("project", {}).get("optional-dependencies", {}).get(extra)
+        )
+        if isinstance(values, list):
+            return tuple(str(value) for value in values)
+    return tuple(_requirements_from_metadata(extra))
+
+
 def requirements_for_extra(extra: str | None) -> list[str]:
     """Return requirements for an extra, preferring source metadata in dev."""
     if not extra:
         return []
     pyproject = _source_pyproject()
-    if pyproject is not None:
-        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-        values = (
-            data.get("project", {}).get("optional-dependencies", {}).get(extra)
-        )
-        if isinstance(values, list):
-            return [str(value) for value in values]
-    return _requirements_from_metadata(extra)
+    return list(
+        _requirements_for_extra_cached(
+            extra,
+            str(pyproject) if pyproject is not None else None,
+        ),
+    )
 
 
 def _requirement_applies(raw: str) -> bool:
@@ -226,6 +256,7 @@ class InstallJob:
     requirements: list[str]
     source: str = "aliyun"
     custom_index_url: str | None = None
+    reinstall: bool = False
     status: str = "queued"
     created_at: str = field(default_factory=_utc_now)
     updated_at: str = field(default_factory=_utc_now)
@@ -373,14 +404,50 @@ class ChannelDependencyService:
         *,
         source: str = "aliyun",
         custom_index_url: str | None = None,
+        reinstall: bool = False,
         on_success: Callable[[], None] | None = None,
     ) -> InstallJob:
         spec = BUILTIN_CHANNEL_CATALOG[channel]
         if not spec.platform_supported:
             raise ValueError("Channel is not supported on this platform")
         missing = await asyncio.to_thread(missing_requirements, spec)
+        if missing and reinstall:
+            raise ValueError(
+                "Reinstall is only available when Channel loading fails",
+            )
         if not missing:
-            raise ValueError("Channel dependencies are already installed")
+            if not reinstall:
+                raise ValueError("Channel dependencies are already installed")
+            error = await asyncio.to_thread(self._channel_load_error, spec)
+            if error is None:
+                raise ValueError("Channel is already ready")
+            missing = await asyncio.to_thread(
+                requirements_for_extra,
+                spec.extra,
+            )
+            if not missing:
+                raise ValueError("Channel has no reinstallable dependencies")
+        job, created = await asyncio.to_thread(
+            self._create_install_job,
+            channel,
+            missing,
+            source=source,
+            custom_index_url=custom_index_url,
+            reinstall=reinstall,
+        )
+        if created:
+            asyncio.create_task(self._run_job(job, on_success=on_success))
+        return job
+
+    def _create_install_job(
+        self,
+        channel: str,
+        requirements: list[str],
+        *,
+        source: str,
+        custom_index_url: str | None,
+        reinstall: bool,
+    ) -> tuple[InstallJob, bool]:
         with self._persist_lock, self._jobs_file_lock() as acquired:
             if not acquired:
                 raise RuntimeError(
@@ -397,7 +464,7 @@ class ChannelDependencyService:
                 if changed:
                     self._write_jobs_file(jobs)
                 self._replace_cached_jobs(jobs)
-                return replace(existing)
+                return replace(existing), False
             jobs = {
                 job_id: saved
                 for job_id, saved in jobs.items()
@@ -406,9 +473,10 @@ class ChannelDependencyService:
             job = InstallJob(
                 id=uuid4().hex,
                 channel=channel,
-                requirements=missing,
+                requirements=requirements,
                 source=source,
                 custom_index_url=custom_index_url,
+                reinstall=reinstall,
                 owner_pid=os.getpid(),
                 owner_started_at=psutil.Process().create_time(),
             )
@@ -416,8 +484,7 @@ class ChannelDependencyService:
             self._cancel_path(job.id).unlink(missing_ok=True)
             self._write_jobs_file(jobs)
             self._replace_cached_jobs(jobs, local_job=job)
-        asyncio.create_task(self._run_job(job, on_success=on_success))
-        return job
+        return job, True
 
     async def _run_job(
         self,
@@ -425,39 +492,23 @@ class ChannelDependencyService:
         *,
         on_success: Callable[[], None] | None = None,
     ) -> None:
-        self._update_job(job, status="installing")
+        await asyncio.to_thread(self._update_job, job, status="installing")
         try:
             await asyncio.to_thread(self._install_locked, job)
-            self._raise_if_cancelled(job)
-            self._update_job(job, status="verifying")
-            importlib.invalidate_caches()
-            _ensure_channel_site_on_path()
-            from .registry import clear_builtin_channel_cache
-
-            clear_builtin_channel_cache()
+            await asyncio.to_thread(self._raise_if_cancelled, job)
+            await asyncio.to_thread(self._update_job, job, status="verifying")
             remaining = await asyncio.to_thread(
-                missing_requirements,
-                BUILTIN_CHANNEL_CATALOG[job.channel],
+                self._verify_channel,
+                job.channel,
             )
-            self._raise_if_cancelled(job)
+            await asyncio.to_thread(self._raise_if_cancelled, job)
             if remaining:
                 raise RuntimeError(
                     "Installation completed but dependencies are still "
                     "missing: " + ", ".join(remaining),
                 )
-            spec = BUILTIN_CHANNEL_CATALOG[job.channel]
-            try:
-                module = importlib.import_module(
-                    spec.module,
-                    package=__package__,
-                )
-                getattr(module, spec.class_name)
-            except Exception as exc:
-                raise RuntimeError(
-                    f"Channel failed to load: {type(exc).__name__}: {exc}",
-                ) from exc
-            self._raise_if_cancelled(job)
-            self._update_job(job, status="succeeded")
+            await asyncio.to_thread(self._raise_if_cancelled, job)
+            await asyncio.to_thread(self._update_job, job, status="succeeded")
             if on_success is not None:
                 try:
                     on_success()
@@ -471,9 +522,17 @@ class ChannelDependencyService:
                 "Channel dependency installation failed: %s",
                 job.channel,
             )
-            self._update_job(job, status="failed", error=str(exc)[-4000:])
+            await asyncio.to_thread(
+                self._update_job,
+                job,
+                status="failed",
+                error=str(exc)[-4000:],
+            )
         finally:
-            self._cancel_path(job.id).unlink(missing_ok=True)
+            await asyncio.to_thread(
+                self._cancel_path(job.id).unlink,
+                missing_ok=True,
+            )
 
     def _install_locked(self, job: InstallJob) -> None:
         self._state_dir.mkdir(parents=True, exist_ok=True)
@@ -491,18 +550,48 @@ class ChannelDependencyService:
             current = missing_requirements(
                 BUILTIN_CHANNEL_CATALOG[job.channel],
             )
-            if not current:
+            if not current and not job.reinstall:
                 return
-            self._install_with_sources(job, current)
+            requirements = job.requirements if job.reinstall else current
+            self._install_with_sources(
+                job,
+                requirements,
+                reinstall=job.reinstall,
+            )
+
+    @staticmethod
+    def _channel_load_error(spec: ChannelSpec) -> str | None:
+        try:
+            module = importlib.import_module(spec.module, package=__package__)
+            getattr(module, spec.class_name)
+        except Exception as exc:
+            return f"{type(exc).__name__}: {exc}"
+        return None
+
+    @classmethod
+    def _verify_channel(cls, channel: str) -> list[str]:
+        importlib.invalidate_caches()
+        _ensure_channel_site_on_path()
+        from .registry import clear_builtin_channel_cache
+
+        clear_builtin_channel_cache()
+        spec = BUILTIN_CHANNEL_CATALOG[channel]
+        remaining = missing_requirements(spec)
+        if remaining:
+            return remaining
+        module_name = importlib.util.resolve_name(spec.module, __package__)
+        sys.modules.pop(module_name, None)
+        error = cls._channel_load_error(spec)
+        if error is not None:
+            raise RuntimeError(f"Channel failed to load: {error}")
+        return []
 
     def _source_candidates(
         self,
         job: InstallJob,
     ) -> list[tuple[str | None, str]]:
         primary: tuple[str | None, str]
-        if job.source == "system":
-            primary = (None, "system-config")
-        elif job.source == "custom":
+        if job.source == "custom":
             if not job.custom_index_url:
                 raise ValueError(
                     "custom_index_url is required for custom source",
@@ -521,6 +610,8 @@ class ChannelDependencyService:
         self,
         job: InstallJob,
         requirements: list[str],
+        *,
+        reinstall: bool = False,
     ) -> None:
         last_output = ""
         for index_url, label in self._source_candidates(job):
@@ -532,6 +623,7 @@ class ChannelDependencyService:
                     index_url,
                     job.channel,
                     cancel_checker=lambda: self._is_cancel_requested(job),
+                    reinstall=reinstall,
                 )
             except subprocess.TimeoutExpired:
                 last_output = f"Package source {label} timed out"
@@ -543,21 +635,31 @@ class ChannelDependencyService:
                 or result.stderr
                 or "dependency installation failed"
             )
-            if not self._is_source_failure(last_output):
+            if not self._should_fallback(last_output, label):
                 break
         raise RuntimeError(last_output[-4000:])
 
     @staticmethod
-    def _is_source_failure(output: str) -> bool:
+    def _should_fallback(output: str, source: str) -> bool:
         lowered = output.lower()
-        return any(marker in lowered for marker in _SOURCE_FAILURE_MARKERS)
+        if any(marker in lowered for marker in _INCOMPATIBILITY_MARKERS):
+            return False
+        if source == "pypi" and "http error 404" in lowered:
+            return False
+        if any(marker in lowered for marker in _NETWORK_FAILURE_MARKERS):
+            return True
+        return source != "pypi" and any(
+            marker in lowered for marker in _MISSING_DISTRIBUTION_MARKERS
+        )
 
     def _run_install(
         self,
         requirements: list[str],
         index_url: str | None,
         channel: str,
+        *,
         cancel_checker: Callable[[], bool] | None = None,
+        reinstall: bool = False,
     ) -> subprocess.CompletedProcess:
         redact_values: list[str] | None = None
         install_env: dict[str, str] | None = None
@@ -625,6 +727,8 @@ class ChannelDependencyService:
                     "-r",
                     req_path,
                 ]
+            if reinstall:
+                cmd.insert(-2, "--force-reinstall")
             result = PluginLoader.run_subprocess_with_streaming_log(
                 cmd,
                 timeout=600,
@@ -649,6 +753,8 @@ class ChannelDependencyService:
                         "-r",
                         req_path,
                     ]
+                    if reinstall:
+                        cmd.insert(-2, "--force-reinstall")
                     result = PluginLoader.run_subprocess_with_streaming_log(
                         cmd,
                         timeout=600,

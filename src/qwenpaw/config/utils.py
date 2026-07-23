@@ -393,11 +393,11 @@ def get_available_channels() -> Tuple[str, ...]:
     * If neither is set, all discovered channels are returned.
     """
     from ..app.channels.catalog import BUILTIN_CHANNEL_CATALOG
-    from ..app.channels.registry import get_channel_registry
+    from ..plugins.registry import PluginRegistry
 
-    registry = get_channel_registry()
+    plugin_keys = PluginRegistry().get_registered_channels().keys()
     all_keys = tuple(
-        dict.fromkeys((*BUILTIN_CHANNEL_CATALOG.keys(), *registry.keys())),
+        dict.fromkeys((*BUILTIN_CHANNEL_CATALOG.keys(), *plugin_keys)),
     )
 
     raw_enabled = EnvVarLoader.get_str("QWENPAW_ENABLED_CHANNELS", "").strip()

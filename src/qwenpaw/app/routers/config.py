@@ -99,6 +99,7 @@ class ACPNodeRuntimeUpdate(BaseModel):
 class ChannelDependencyInstallRequest(BaseModel):
     source: str = "aliyun"
     custom_index_url: Optional[str] = None
+    reinstall: bool = False
 
 
 @router.get(
@@ -212,7 +213,7 @@ async def install_channel_dependencies(
             status_code=404,
             detail="Built-in channel not found",
         )
-    if body.source not in {"system", "pypi", "aliyun", "custom"}:
+    if body.source not in {"pypi", "aliyun", "custom"}:
         raise HTTPException(
             status_code=422,
             detail="Unsupported package source",
@@ -244,6 +245,7 @@ async def install_channel_dependencies(
                 if body.custom_index_url is not None
                 else None
             ),
+            reinstall=body.reinstall,
             on_success=lambda: schedule_all_agents_reload(request),
         )
     except ValueError as exc:

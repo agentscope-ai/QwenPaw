@@ -23,10 +23,12 @@ export const ChannelAvailableItem = React.memo(function ChannelAvailableItem({
   const { t } = useTranslation();
   const label = getChannelLabel(channelKey, t);
   const status = dependencyStatus?.status ?? "ready";
+  const canReinstall =
+    status === "load_error" && (dependencyStatus?.requirements.length ?? 0) > 0;
   const disabled =
     dependencyCheckState !== "ready" ||
     status === "platform_unsupported" ||
-    status === "load_error";
+    (status === "load_error" && !canReinstall);
   const actionLabel =
     dependencyCheckState === "checking"
       ? t("channels.dependencyCheckingAction")
@@ -41,7 +43,9 @@ export const ChannelAvailableItem = React.memo(function ChannelAvailableItem({
       : status === "platform_unsupported"
       ? t("channels.macosOnlyAction")
       : status === "load_error"
-      ? t("channels.loadFailedAction")
+      ? canReinstall
+        ? t("channels.reinstallAction")
+        : t("channels.loadFailedAction")
       : t("channels.enableAction");
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
