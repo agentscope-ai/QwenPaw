@@ -74,15 +74,81 @@ def test_write_text_atomic_preserves_existing_mode(tmp_path: Path) -> None:
     os.name == "nt",
     reason="POSIX umask semantics do not apply on Windows",
 )
-def test_write_text_atomic_new_file_respects_umask(tmp_path: Path) -> None:
-    """A new atomic target has the same default mode as a regular file."""
+def test_write_text_atomic_new_state_file_is_private(tmp_path: Path) -> None:
+    """New internal state remains private even under a permissive umask."""
     path = tmp_path / "state.txt"
-    previous_umask = os.umask(0o027)
+    previous_umask = os.umask(0)
     try:
         write_text_atomic(path, "new")
     finally:
         os.umask(previous_umask)
 
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX umask semantics do not apply on Windows",
+)
+def test_write_text_atomic_uses_explicit_user_mode(tmp_path: Path) -> None:
+    """A complete user artifact receives its explicit non-writable mode."""
+    path = tmp_path / "artifact.txt"
+    previous_umask = os.umask(0o027)
+    try:
+        write_text_atomic(path, "new", new_file_mode=0o644)
+    finally:
+        os.umask(previous_umask)
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o644
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX permission bits are required",
+)
+def test_write_text_atomic_temp_is_private_while_writing(
+    tmp_path: Path,
+) -> None:
+    """The temporary inode stays private until complete content is synced."""
+    path = tmp_path / "artifact.txt"
+    observed_mode: int | None = None
+    real_fsync = os.fsync
+
+    def inspect_fsync(fd: int) -> None:
+        nonlocal observed_mode
+        observed_mode = stat.S_IMODE(os.fstat(fd).st_mode)
+        real_fsync(fd)
+
+    with patch("qwenpaw.utils.io_utils.os.fsync", inspect_fsync):
+        write_text_atomic(path, "new", new_file_mode=0o644)
+
+    assert observed_mode == 0o600
+    assert stat.S_IMODE(path.stat().st_mode) == 0o644
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX permission bits are required",
+)
+def test_write_text_atomic_sets_existing_mode_before_replace(
+    tmp_path: Path,
+) -> None:
+    """Atomic publication exposes the preserved mode immediately."""
+    path = tmp_path / "state.txt"
+    path.write_text("old", encoding="utf-8")
+    path.chmod(0o640)
+    observed_mode: int | None = None
+    real_replace = os.replace
+
+    def inspect_replace(source: Path, destination: Path) -> None:
+        nonlocal observed_mode
+        observed_mode = stat.S_IMODE(Path(source).stat().st_mode)
+        real_replace(source, destination)
+
+    with patch("qwenpaw.utils.io_utils.os.replace", inspect_replace):
+        write_text_atomic(path, "new")
+
+    assert observed_mode == 0o640
     assert stat.S_IMODE(path.stat().st_mode) == 0o640
 
 

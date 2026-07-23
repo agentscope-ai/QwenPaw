@@ -12,6 +12,8 @@ Covers:
 # pylint: disable=protected-access,unused-argument
 
 import asyncio
+import os
+import stat
 import threading
 import time
 from unittest.mock import patch
@@ -192,6 +194,8 @@ class TestWriteFile:
         assert "Wrote" in result.content[0].text
         # .txt uses utf-8-sig which adds BOM
         assert f.read_text(encoding="utf-8-sig") == "hello"
+        if os.name != "nt":
+            assert stat.S_IMODE(f.stat().st_mode) == 0o644
 
     @pytest.mark.asyncio
     async def test_write_overwrites_existing(self, tmp_path):

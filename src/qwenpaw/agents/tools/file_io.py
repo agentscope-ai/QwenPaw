@@ -27,6 +27,8 @@ from ...utils.io_utils import (
     write_text_atomic_async,
 )
 
+_USER_FILE_MODE = 0o644
+
 
 def _path_to_file_url(path: str) -> str:
     """Convert a local file path to a ``file://`` URL.
@@ -301,6 +303,7 @@ async def write_file(
                 file_path,
                 content,
                 encoding=encoding,
+                new_file_mode=_USER_FILE_MODE,
             )
         return ToolChunk(
             is_last=True,
@@ -428,6 +431,7 @@ async def edit_file(
                 resolved_path,
                 new_content,
                 encoding=encoding,
+                new_file_mode=_USER_FILE_MODE,
             )
         except Exception as e:
             return ToolChunk(

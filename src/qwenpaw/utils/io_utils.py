@@ -233,15 +233,21 @@ def write_text_atomic(
     content: str,
     *,
     encoding: str = "utf-8",
+    new_file_mode: int = 0o600,
 ) -> None:
     """Synchronously replace a file with complete text content.
 
     The temporary file is created beside the destination so ``os.replace``
     stays on one filesystem on Windows, Linux, and macOS. Existing file
-    modes and symlinks are preserved. New files receive the normal
-    ``0o666`` permissions filtered by the process umask. Atomic replacement
-    changes the destination directory entry, so hard links keep referring
-    to the previous inode.
+    modes and symlinks are preserved. New internal state files default to
+    owner-only access. Callers that publish user workspace artifacts may
+    request the explicit non-writable shared mode ``0o644``.
+
+    The temporary file remains ``0o600`` while content is written. Its final
+    mode is applied only after the complete content has been flushed and
+    synced, immediately before atomic publication. Atomic replacement changes
+    the destination directory entry, so hard links keep referring to the
+    previous inode.
 
     This guarantees complete-file visibility during normal operation. It
     does not promise power-loss durability because the parent directory is
@@ -253,6 +259,7 @@ def write_text_atomic(
     original_mode = (
         stat.S_IMODE(target.stat().st_mode) if target.exists() else None
     )
+    final_mode = original_mode if original_mode is not None else new_file_mode
     temp_path: Path | None = None
     try:
         handle, temp_path = _open_atomic_temp(target, encoding)
@@ -260,10 +267,9 @@ def write_text_atomic(
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
+        temp_path.chmod(final_mode)
         os.replace(temp_path, target)
         temp_path = None
-        if original_mode is not None:
-            target.chmod(original_mode)
     finally:
         if temp_path is not None:
             try:
@@ -276,7 +282,7 @@ def _open_atomic_temp(
     target: Path,
     encoding: str,
 ) -> tuple[TextIO, Path]:
-    """Create one exclusive sibling temp file using the process umask."""
+    """Create one exclusive, owner-only sibling temporary file."""
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_BINARY"):
         flags |= os.O_BINARY
@@ -286,7 +292,7 @@ def _open_atomic_temp(
             f".{target.name}.{secrets.token_hex(8)}.tmp",
         )
         try:
-            fd = os.open(temp_path, flags, 0o666)
+            fd = os.open(temp_path, flags, 0o600)
         except FileExistsError:
             continue
         try:
@@ -314,8 +320,12 @@ def write_json_atomic(
     *,
     indent: int | None = 2,
     sort_keys: bool = False,
+    new_file_mode: int = 0o600,
 ) -> None:
     """Synchronously serialize and atomically replace one JSON file.
+
+    New files default to owner-only state. Pass the explicit mode
+    ``new_file_mode=0o644`` only for user workspace artifacts.
 
     Synchronous worker functions may use this directly. Async application
     code should use :func:`write_json_atomic_async`.
@@ -328,6 +338,7 @@ def write_json_atomic(
             indent=indent,
             sort_keys=sort_keys,
         ),
+        new_file_mode=new_file_mode,
     )
 
 
@@ -339,8 +350,12 @@ def write_yaml_atomic(
     allow_unicode: bool = True,
     sort_keys: bool = False,
     extra_content: str = "",
+    new_file_mode: int = 0o600,
 ) -> None:
     """Synchronously serialize and atomically replace one YAML file.
+
+    New files default to owner-only state. Pass the explicit mode
+    ``new_file_mode=0o644`` only for user workspace artifacts.
 
     Synchronous worker functions may use this directly. Async application
     code should use :func:`write_yaml_atomic_async`.
@@ -353,7 +368,11 @@ def write_yaml_atomic(
     )
     if extra_content:
         content = f"{content}{extra_content}"
-    write_text_atomic(path, content)
+    write_text_atomic(
+        path,
+        content,
+        new_file_mode=new_file_mode,
+    )
 
 
 async def read_json_async(path: Path | str) -> Any:
@@ -371,17 +390,20 @@ async def write_text_atomic_async(
     content: str,
     *,
     encoding: str = "utf-8",
+    new_file_mode: int = 0o600,
 ) -> None:
     """Atomically replace text without blocking the event loop.
 
-    Choose this for overwrite semantics. Callers should not add another
-    ``to_thread`` layer.
+    Choose this for overwrite semantics. New files default to owner-only
+    state; user workspace artifacts should pass ``new_file_mode=0o644``.
+    Callers should not add another ``to_thread`` layer.
     """
     await run_sync_io(
         write_text_atomic,
         path,
         content,
         encoding=encoding,
+        new_file_mode=new_file_mode,
     )
 
 
@@ -391,10 +413,12 @@ async def write_json_atomic_async(
     *,
     indent: int | None = 2,
     sort_keys: bool = False,
+    new_file_mode: int = 0o600,
 ) -> None:
     """Serialize and atomically replace JSON off the event loop.
 
-    Choose this for durable JSON state and configuration files.
+    Choose this for durable JSON state and configuration files. User
+    workspace artifacts should pass ``new_file_mode=0o644``.
     """
     await run_sync_io(
         write_json_atomic,
@@ -402,6 +426,7 @@ async def write_json_atomic_async(
         payload,
         indent=indent,
         sort_keys=sort_keys,
+        new_file_mode=new_file_mode,
     )
 
 
@@ -413,10 +438,12 @@ async def write_yaml_atomic_async(
     allow_unicode: bool = True,
     sort_keys: bool = False,
     extra_content: str = "",
+    new_file_mode: int = 0o600,
 ) -> None:
     """Serialize and atomically replace YAML off the event loop.
 
-    Choose this for durable YAML state and configuration files.
+    Choose this for durable YAML state and configuration files. User
+    workspace artifacts should pass ``new_file_mode=0o644``.
     """
     await run_sync_io(
         write_yaml_atomic,
@@ -426,6 +453,7 @@ async def write_yaml_atomic_async(
         allow_unicode=allow_unicode,
         sort_keys=sort_keys,
         extra_content=extra_content,
+        new_file_mode=new_file_mode,
     )
 
 
