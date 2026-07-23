@@ -88,11 +88,9 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-# Check if dependencies are installed
-if ! python3 -c "import copaw" 2>/dev/null; then
-    echo -e "${YELLOW}Installing dependencies...${NC}"
-    pip install -e ".[dev]" -q
-fi
+# Channel tests import their optional SDKs directly.
+echo -e "${YELLOW}Installing channel test dependencies...${NC}"
+python3 -m pip install -e ".[dev,test,channels-all]" -q
 
 # Run tests
 echo ""

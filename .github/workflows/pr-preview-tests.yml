@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,test,full]"
+          pip install -e ".[dev,test,full,channels-all]"
 
       - name: Run unit tests
         shell: bash
@@ -87,7 +87,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,test,full]"
+          pip install -e ".[dev,test,full,channels-all]"
 
       - name: Run contract tests
         shell: bash
