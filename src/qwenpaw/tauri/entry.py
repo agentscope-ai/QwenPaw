@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 """Tauri sidecar entry point for starting the Python backend."""
+
 from __future__ import annotations
 
-from collections.abc import Sequence
 import json
 import logging
 import multiprocessing as mp
 import os
 import socket
 import sys
+from collections.abc import Sequence
 
 import click
 
@@ -359,12 +360,11 @@ def main() -> None:
             label="initialization",
         )
 
-    # On Windows, auto-disable sandbox when not running as admin so the
-    # desktop backend starts without a half-broken sandbox layer (mirrors
-    # the same guard in cli/app_cmd.py for `qwenpaw app`).
-    from qwenpaw.utils.platform import auto_disable_sandbox_on_windows
+    # On Windows without admin, warn that sandbox runs in unelevated mode
+    # with limited isolation (mirrors the same guard in cli/app_cmd.py).
+    from qwenpaw.utils.platform import warn_unelevated_sandbox
 
-    auto_disable_sandbox_on_windows()
+    warn_unelevated_sandbox()
 
     _run_backend_server(os.environ.get(LOG_LEVEL_ENV, "info"))
 

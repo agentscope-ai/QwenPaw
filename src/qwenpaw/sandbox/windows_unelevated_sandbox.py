@@ -35,6 +35,7 @@ import asyncio
 import atexit
 import ctypes
 import ctypes.wintypes
+import hashlib
 import json
 import logging
 import os
@@ -44,6 +45,7 @@ import struct
 import subprocess
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -1715,65 +1717,131 @@ def _create_process_as_user(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Unelevated-specific: State Persistence
+# Unelevated-specific: Per-instance Metadata and Fingerprinting
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _state_file_path() -> Path:
-    """Path to the unelevated sandbox state file."""
-    home = Path(os.environ.get("USERPROFILE", Path.home()))
-    return home / ".qwenpaw" / "unelevated_sandbox_state.json"
+@dataclass
+class _UnelevatedAclEntry:
+    """Tracks one ACL entry applied by an unelevated sandbox instance."""
+
+    path: str
+    access_mode: str  # "allow_write" | "deny_write"
+    sid_type: str  # always "cap"
 
 
-def _save_state(
-    cap_sid: str,
-    acl_paths: List[str],
-    deny_paths: List[str],
-) -> None:
-    """Persists unelevated sandbox state for cleanup on restart.
+_unelevated_state_dir = (
+    Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / ".qwenpaw"
+)
 
-    Args:
-        cap_sid: Capability SID string.
-        acl_paths: Paths with allow ACEs applied.
-        deny_paths: Paths with deny ACEs applied.
+
+def _compute_unelevated_fingerprint(config: SandboxConfig) -> str:
+    """Computes a config fingerprint for sandbox reuse.
+
+    Hashes security-boundary fields to a 16-char hex digest.  Sandboxes
+    with the same fingerprint can reuse each other's ACLs and token SID.
     """
-    state_file = _state_file_path()
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    state = {
-        "cap_sid": cap_sid,
-        "acl_paths": acl_paths,
-        "deny_paths": deny_paths,
-        "pid": os.getpid(),
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    data = {
+        "workspace_dir": os.path.normpath(config.workspace_dir),
+        "deny_paths": sorted(
+            os.path.normpath(os.path.expanduser(p)) for p in config.deny_paths
+        ),
+        "mounts": sorted(
+            (os.path.normpath(m.path), m.writable, m.executable)
+            for m in config.mounts
+        ),
+        "network_allow": sorted(config.network_allow),
     }
-    try:
-        state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    except OSError as e:
-        logger.warning("Failed to save unelevated sandbox state: %s", e)
+    return hashlib.sha256(
+        json.dumps(data, sort_keys=True).encode(),
+    ).hexdigest()[:16]
 
 
-def _load_state() -> Optional[dict]:
-    """Loads persisted unelevated sandbox state.
+def _unelevated_sandboxes_dir() -> Path:
+    """Directory for per-instance unelevated sandbox metadata."""
+    return _unelevated_state_dir / "unelevated_sandboxes"
+
+
+def _save_unelevated_metadata(
+    sandbox_name: str,
+    cap_sid: str,
+    config_fingerprint: str,
+    acl_entries: List[_UnelevatedAclEntry],
+) -> Path:
+    """Persists per-instance metadata for cleanup and reuse.
 
     Returns:
-        State dict, or None if no state file exists or it is corrupt.
+        Path to the written metadata file.
     """
-    state_file = _state_file_path()
-    if not state_file.exists():
+    sb_dir = _unelevated_sandboxes_dir()
+    sb_dir.mkdir(parents=True, exist_ok=True)
+    meta_path = sb_dir / f"{sandbox_name}.json"
+    meta = {
+        "sandbox_id": sandbox_name,
+        "cap_sid": cap_sid,
+        "config_fingerprint": config_fingerprint,
+        "owner_pid": os.getpid(),
+        "acl_entries": [
+            {
+                "path": e.path,
+                "access_mode": e.access_mode,
+                "sid_type": e.sid_type,
+            }
+            for e in acl_entries
+        ],
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    tmp_path = meta_path.with_suffix(".tmp")
+    try:
+        tmp_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        os.replace(str(tmp_path), str(meta_path))
+    except OSError as e:
+        logger.warning("Failed to save unelevated sandbox metadata: %s", e)
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return meta_path
+
+
+def _find_reusable_unelevated(sandbox_name: str) -> Optional[dict]:
+    """Looks for existing metadata for a sandbox name.
+
+    Returns:
+        Metadata dict if found and parseable, None otherwise.
+    """
+    meta_file = _unelevated_sandboxes_dir() / f"{sandbox_name}.json"
+    if not meta_file.exists():
         return None
     try:
-        return json.loads(state_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        return json.loads(meta_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
         return None
 
 
-def _clear_state() -> None:
-    """Remove the state file."""
-    state_file = _state_file_path()
+def _verify_acl_present_sync(path: str, sid: str) -> bool:
+    """Checks that a SID appears in a path's DACL.
+
+    Used during sandbox reuse to validate that ACLs from a previous
+    instance are still intact.
+    """
+    if not os.path.exists(path):
+        return False
     try:
-        state_file.unlink(missing_ok=True)
-    except OSError:
-        pass
+        result = subprocess.run(
+            ["icacls", path],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    output = result.stdout.decode("utf-8", errors="replace")
+    if sid in output:
+        return True
+    if sid.upper() in output.upper():
+        return True
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1790,12 +1858,19 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
     unrestricted. Network is soft-blocked via proxy environment variables
     when ``network_allow`` is empty.
 
+    Uses per-instance metadata files for sandbox reuse across invocations.
+    A config fingerprint determines whether an existing sandbox can be
+    reused (same workspace, mounts, deny paths, and network settings).
+
     Lifecycle:
-        ``__aenter__``: Creates the restricted token and applies
-            workspace/mount ACEs.
+        ``__aenter__``: Acquires a sandbox (reuse or create new) — sets
+            up the restricted token and applies workspace/mount ACEs.
         ``execute``: Launches a command under the restricted token.
-        ``__aexit__`` / ``stop``: Terminates the process, removes ACEs,
-            and closes the token handle.
+        ``__aexit__`` / ``stop``: Terminates the process and closes
+            token handles. ACLs and metadata persist for reuse.
+        ``shutdown_cleanup``: atexit handler — iterates per-instance
+            metadata files and removes ACLs with verified multi-strategy
+            removal.
     """
 
     def __init__(self, config: SandboxConfig):
@@ -1803,8 +1878,10 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         self._h_token: Optional[ctypes.wintypes.HANDLE] = None
         self._cap_psid: Optional[ctypes.c_void_p] = None
         self._cap_sid_string: Optional[str] = None
-        self._acl_paths: List[str] = []
-        self._deny_acl_paths: List[str] = []
+        self._sandbox_name: Optional[str] = None
+        self._config_fingerprint: Optional[str] = None
+        self._metadata_path: Optional[Path] = None
+        self._acl_entries: List[_UnelevatedAclEntry] = []
         self._initialized = False
 
     async def __aenter__(self):
@@ -1822,16 +1899,77 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         self._initialized = True
 
     def _initialize_sync(self) -> None:
-        """Synchronous initialization: create token and apply ACLs."""
+        """Synchronous initialization: acquire or create a sandbox instance.
+
+        Computes a config fingerprint and attempts to reuse an existing
+        sandbox with matching ACLs.  Falls back to creating a new sandbox
+        with a fresh capability SID if no reusable instance is found.
+        """
         kernel32 = _get_kernel32()
         advapi32 = _get_advapi32()
 
         workspace = self._config.workspace_dir
         os.makedirs(workspace, exist_ok=True)
 
+        fingerprint = _compute_unelevated_fingerprint(self._config)
+        sandbox_name = f"qwenpaw_u_{fingerprint[:12]}"
+        self._config_fingerprint = fingerprint
+        self._sandbox_name = sandbox_name
+
+        # Try to reuse an existing sandbox with the same fingerprint
+        meta = _find_reusable_unelevated(sandbox_name)
+        if meta is not None:
+            cap_sid = meta.get("cap_sid", "")
+            if cap_sid and _verify_acl_present_sync(workspace, cap_sid):
+                logger.info(
+                    "Reusing unelevated sandbox %s (cap_sid=%s)",
+                    sandbox_name,
+                    cap_sid,
+                )
+                self._cap_sid_string = cap_sid
+
+                h_base = ctypes.wintypes.HANDLE()
+                ok = advapi32.OpenProcessToken(
+                    kernel32.GetCurrentProcess(),
+                    0x000F01FF,
+                    ctypes.byref(h_base),
+                )
+                if not ok:
+                    raise OSError(
+                        "OpenProcessToken failed: "
+                        f"error={ctypes.get_last_error()}",
+                    )
+                try:
+                    self._h_token, self._cap_psid = _create_restricted_token(
+                        h_base,
+                        cap_sid,
+                    )
+                finally:
+                    kernel32.CloseHandle(h_base)
+
+                self._acl_entries = [
+                    _UnelevatedAclEntry(
+                        e["path"],
+                        e["access_mode"],
+                        e["sid_type"],
+                    )
+                    for e in meta.get("acl_entries", [])
+                ]
+
+                # Update owner_pid in the metadata file
+                self._metadata_path = _save_unelevated_metadata(
+                    sandbox_name,
+                    cap_sid,
+                    fingerprint,
+                    self._acl_entries,
+                )
+                return
+
+        # Create a new sandbox instance
         self._cap_sid_string = _make_random_cap_sid_string()
         logger.info(
-            "Unelevated sandbox: cap_sid=%s workspace=%s",
+            "Creating unelevated sandbox %s: cap_sid=%s workspace=%s",
+            sandbox_name,
             self._cap_sid_string,
             workspace,
         )
@@ -1861,16 +1999,19 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
                 workspace,
             )
         else:
-            self._acl_paths.append(workspace)
+            self._acl_entries.append(
+                _UnelevatedAclEntry(workspace, "allow_write", "cap"),
+            )
 
         self._apply_mount_acls(workspace)
         self._apply_deny_acls()
 
         assert self._cap_sid_string is not None
-        _save_state(
+        self._metadata_path = _save_unelevated_metadata(
+            sandbox_name,
             self._cap_sid_string,
-            self._acl_paths,
-            self._deny_acl_paths,
+            fingerprint,
+            self._acl_entries,
         )
 
     def _apply_mount_acls(self, workspace: str) -> None:
@@ -1884,7 +2025,9 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
             if mount_path == ws_abs:
                 continue
             if _add_write_allow_ace(mount_path, self._cap_psid):
-                self._acl_paths.append(mount_path)
+                self._acl_entries.append(
+                    _UnelevatedAclEntry(mount_path, "allow_write", "cap"),
+                )
             else:
                 logger.warning("Failed to set ACE on mount: %s", mount_path)
 
@@ -1895,7 +2038,9 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
             if not os.path.exists(deny_path):
                 continue
             if _add_deny_write_ace(deny_path, self._cap_psid):
-                self._deny_acl_paths.append(deny_path)
+                self._acl_entries.append(
+                    _UnelevatedAclEntry(deny_path, "deny_write", "cap"),
+                )
             else:
                 logger.warning("Failed to set deny ACE on: %s", deny_path)
 
@@ -2023,13 +2168,14 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         return (exit_code.value, stdout, stderr, timed_out)
 
     async def stop(self) -> None:
-        """Terminate any running process and clean up resources."""
+        """Terminate any running process and release token handles.
+
+        ACLs and metadata are preserved on disk for sandbox reuse.
+        Full cleanup happens in ``shutdown_cleanup()`` at process exit.
+        """
         kernel32 = _get_kernel32()
 
         self._terminate_process()
-
-        if self._cap_sid_string:
-            await asyncio.to_thread(self._cleanup_acls)
 
         if self._h_token:
             kernel32.CloseHandle(self._h_token)
@@ -2039,21 +2185,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
             kernel32.LocalFree(self._cap_psid)
             self._cap_psid = None
 
-        _clear_state()
         self._initialized = False
-
-    def _cleanup_acls(self) -> None:
-        """Remove all ACEs placed by this sandbox instance."""
-        if not self._cap_sid_string:
-            return
-
-        all_paths = self._acl_paths + self._deny_acl_paths
-        for path in all_paths:
-            if os.path.exists(path):
-                _remove_ace_sync(path, self._cap_sid_string)
-
-        self._acl_paths.clear()
-        self._deny_acl_paths.clear()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2061,49 +2193,101 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _migrate_legacy_state_file() -> None:
+    """One-time migration: clean up the legacy single state file."""
+    legacy_file = _unelevated_state_dir / "unelevated_sandbox_state.json"
+    if not legacy_file.exists():
+        return
+    try:
+        state = json.loads(legacy_file.read_text(encoding="utf-8"))
+        cap_sid = state.get("cap_sid", "")
+        if cap_sid:
+            all_paths = state.get("acl_paths", []) + state.get(
+                "deny_paths",
+                [],
+            )
+            deadline = time.monotonic() + 60.0
+            for path in all_paths:
+                if os.path.exists(path):
+                    _remove_acl_with_verify_sync(
+                        path,
+                        cap_sid,
+                        deadline=deadline,
+                    )
+        legacy_file.unlink(missing_ok=True)
+        logger.info("Migrated legacy unelevated sandbox state file")
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to migrate legacy state file: %s", e)
+
+
 def shutdown_cleanup() -> None:
     """Best-effort cleanup of unelevated sandbox ACLs on process exit.
 
-    Loads persisted state, checks that the owning process is no longer
-    alive, and removes all ACEs via ``icacls``.
+    Iterates per-instance metadata files under
+    ``~/.qwenpaw/unelevated_sandboxes/``, skips sandboxes whose owner
+    process is still alive, and removes all ACEs using the multi-strategy
+    verified removal.
     """
     import sys
 
     if sys.platform != "win32":
         return
 
-    state = _load_state()
-    if not state:
+    _migrate_legacy_state_file()
+
+    sb_dir = _unelevated_sandboxes_dir()
+    if not sb_dir.exists():
         return
 
-    cap_sid = state.get("cap_sid")
-    if not cap_sid:
-        return
+    my_pid = os.getpid()
 
-    saved_pid = state.get("pid")
-    if saved_pid and saved_pid != os.getpid():
+    for meta_file in sb_dir.glob("*.json"):
         try:
-            result = subprocess.run(
-                ["tasklist", "/FI", f"PID eq {saved_pid}", "/NH"],
-                capture_output=True,
-                timeout=5,
-                check=False,
-            )
-            if str(saved_pid) in result.stdout.decode(
-                "utf-8",
-                errors="replace",
-            ):
-                return
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        owner_pid = meta.get("owner_pid")
+        if owner_pid is not None and owner_pid != my_pid:
+            if _is_pid_alive(owner_pid):
+                logger.debug(
+                    "Skipping unelevated sandbox %s — owner pid %d alive",
+                    meta.get("sandbox_id", "?"),
+                    owner_pid,
+                )
+                continue
+
+        cap_sid = meta.get("cap_sid", "")
+        if not cap_sid:
+            continue
+
+        acl_entries = meta.get("acl_entries", [])
+        deadline = time.monotonic() + 60.0
+
+        for entry in acl_entries:
+            entry_path = entry.get("path", "")
+            if entry_path and os.path.exists(entry_path):
+                _remove_acl_with_verify_sync(
+                    entry_path,
+                    cap_sid,
+                    deadline=deadline,
+                )
+
+        try:
+            meta_file.unlink()
+        except OSError:
             pass
 
-    all_paths = state.get("acl_paths", []) + state.get("deny_paths", [])
-    for path in all_paths:
-        if os.path.exists(path):
-            _remove_ace_sync(path, cap_sid)
+        logger.info(
+            "Unelevated sandbox cleanup: removed ACEs for %s",
+            meta.get("sandbox_id", cap_sid),
+        )
 
-    _clear_state()
-    logger.info("Unelevated sandbox cleanup: removed ACEs for %s", cap_sid)
+    if sb_dir.exists() and not list(sb_dir.glob("*.json")):
+        try:
+            sb_dir.rmdir()
+        except OSError:
+            pass
 
 
 atexit.register(shutdown_cleanup)

@@ -2271,6 +2271,8 @@
     "sandboxEnabled": "启用沙箱执行",
     "sandboxEnabledTooltip": "启用后，无匹配规则的 shell 命令会在沙箱内静默执行；关闭后，此类命令将不经沙箱直接执行（无需审批）。无论开关如何，密钥文件读取与危险命令（如 rm -rf /、sudo）等仍会被拦截或要求审批。",
     "sandboxDegradedWarning": "沙箱已配置为开启，但当前未以管理员身份运行，沙箱本次会话不会生效。如需使用沙箱，请以管理员身份重新启动 QwenPaw。",
+    "sandboxUnelevatedWarning": "沙箱正在以非管理员模式运行，隔离能力有限",
+    "sandboxUnelevatedDescription": "非管理员模式下的沙箱功能不完整，存在额外的安全风险。建议以管理员身份运行 QwenPaw 以获得完整的沙箱保护。启用方法：右键点击 QwenPaw 快捷方式 → 以管理员身份运行；或打开管理员权限的终端，运行 `qwenpaw app`。",
     "guardedTools": "受保护的工具",
     "guardedToolsTooltip": "检测到危险模式时需要审批的工具。留空则使用内置默认集合。",
     "guardedToolsPlaceholder": "选择工具或输入自定义工具名",

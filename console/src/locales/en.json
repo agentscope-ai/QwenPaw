@@ -2412,6 +2412,8 @@
     "sandboxEnabled": "Enable Sandbox Execution",
     "sandboxEnabledTooltip": "When enabled, shell commands with no matching rule run silently inside the sandbox. When disabled, such commands run directly without the sandbox (no approval prompt). Either way, secret-file reads and dangerous commands (e.g. rm -rf /, sudo) are still blocked or require approval.",
     "sandboxDegradedWarning": "Sandbox is configured as enabled, but QwenPaw is not running as administrator. The sandbox will be inactive for this session. To use the sandbox, restart QwenPaw with administrator privileges.",
+    "sandboxUnelevatedWarning": "Sandbox is running in non-administrator mode with limited isolation",
+    "sandboxUnelevatedDescription": "The unelevated sandbox provides incomplete protection and carries additional security risks compared to the full sandbox. For maximum security, it is recommended to run QwenPaw as administrator. To do so: right-click the QwenPaw shortcut → Run as administrator, or open an elevated terminal and run `qwenpaw app`.",
     "guardedTools": "Guarded Tools",
     "guardedToolsTooltip": "Tools that require approval when dangerous patterns are detected. Leave empty to use the built-in default set.",
     "guardedToolsPlaceholder": "Select tools or type custom tool names",
