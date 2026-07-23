@@ -59,6 +59,10 @@ def test_write_text_atomic_preserves_destination_on_replace_error(
     assert not list(tmp_path.glob(".state.txt.*.tmp"))
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows does not expose complete POSIX permission bits",
+)
 def test_write_text_atomic_preserves_existing_mode(tmp_path: Path) -> None:
     """Replacing an existing file keeps its permission bits."""
     path = tmp_path / "state.txt"
@@ -258,6 +262,38 @@ async def test_async_plain_file_helpers_round_trip(tmp_path: Path) -> None:
 
     assert await read_text_async(text_path) == "first\nsecond\n"
     assert await read_bytes_async(bytes_path) == b"\x00\x01"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX umask semantics do not apply on Windows",
+)
+async def test_write_bytes_async_publishes_only_new_files(
+    tmp_path: Path,
+) -> None:
+    """Explicit publication mode applies only when creating a new file."""
+    new_path = tmp_path / "new.bin"
+    existing_path = tmp_path / "existing.bin"
+    existing_path.write_bytes(b"old")
+    existing_path.chmod(0o640)
+    previous_umask = os.umask(0o077)
+    try:
+        await write_bytes_async(
+            new_path,
+            b"new",
+            new_file_mode=0o644,
+        )
+        await write_bytes_async(
+            existing_path,
+            b"updated",
+            new_file_mode=0o644,
+        )
+    finally:
+        os.umask(previous_umask)
+
+    assert stat.S_IMODE(new_path.stat().st_mode) == 0o644
+    assert stat.S_IMODE(existing_path.stat().st_mode) == 0o640
 
 
 @pytest.mark.asyncio

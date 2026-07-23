@@ -179,23 +179,51 @@ async def append_text_async(
         await run_sync_io(_append_text, path, content, encoding)
 
 
-def _write_bytes(path: Path | str, content: bytes) -> None:
-    with open(path, "wb") as handle:
+def _write_bytes(
+    path: Path | str,
+    content: bytes,
+    new_file_mode: int | None,
+) -> None:
+    target = Path(path)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+
+    created = False
+    try:
+        fd = os.open(
+            target,
+            flags,
+            0o600 if new_file_mode is not None else 0o666,
+        )
+        created = True
+    except FileExistsError:
+        flags = os.O_WRONLY | os.O_TRUNC
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        fd = os.open(target, flags)
+
+    with os.fdopen(fd, "wb") as handle:
         handle.write(content)
+    if created and new_file_mode is not None:
+        target.chmod(new_file_mode)
 
 
 async def write_bytes_async(
     path: Path | str,
     content: bytes,
+    *,
+    new_file_mode: int | None = None,
 ) -> None:
     """Serialize and offload a non-atomic byte-file write.
 
     Use this for generated or downloaded artifacts whose path is published
     only after this coroutine returns. Durable shared state should use an
-    atomic replacement API instead.
+    atomic replacement API instead. Pass ``new_file_mode=0o644`` for a new
+    published workspace artifact. Existing destination modes are preserved.
     """
     async with get_path_lock(path):
-        await run_sync_io(_write_bytes, path, content)
+        await run_sync_io(_write_bytes, path, content, new_file_mode)
 
 
 async def make_dirs_async(path: Path | str) -> None:

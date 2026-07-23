@@ -201,6 +201,18 @@ def _download_remote_to_path(url: str, local_file_path: Path) -> None:
 
 def _finish_remote_download(url: str, local_file_path: Path) -> Path:
     """Download and validate one remote file in a worker thread."""
+    created = False
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    try:
+        fd = os.open(local_file_path, flags, 0o600)
+    except FileExistsError:
+        pass
+    else:
+        os.close(fd)
+        created = True
+
     _download_remote_to_path(url, local_file_path)
     if not local_file_path.exists():
         raise FileNotFoundError("Downloaded file does not exist")
@@ -209,23 +221,22 @@ def _finish_remote_download(url: str, local_file_path: Path) -> Path:
             code="FILE_EMPTY",
             message="Downloaded file is empty",
         )
-    if local_file_path.suffix != ".file":
-        return local_file_path
-
-    real_suffix = _guess_suffix_from_url_headers(url)
-    if not real_suffix:
-        real_suffix = _guess_suffix_from_file_content(local_file_path)
-    if not real_suffix:
-        return local_file_path
-
-    new_path = local_file_path.with_suffix(real_suffix)
-    local_file_path.rename(new_path)
-    logger.debug(
-        "Replaced .file with %s for %s",
-        real_suffix,
-        new_path,
-    )
-    return new_path
+    result_path = local_file_path
+    if local_file_path.suffix == ".file":
+        real_suffix = _guess_suffix_from_url_headers(url)
+        if not real_suffix:
+            real_suffix = _guess_suffix_from_file_content(local_file_path)
+        if real_suffix:
+            result_path = local_file_path.with_suffix(real_suffix)
+            local_file_path.rename(result_path)
+            logger.debug(
+                "Replaced .file with %s for %s",
+                real_suffix,
+                result_path,
+            )
+    if created:
+        result_path.chmod(0o644)
+    return result_path
 
 
 def _decode_base64(base64_data: str) -> tuple[bytes, str]:
@@ -316,7 +327,11 @@ async def download_file_from_base64(
             filename = f"file_{file_hash}"
 
         local_file_path = download_path / filename
-        await write_bytes_async(local_file_path, file_content)
+        await write_bytes_async(
+            local_file_path,
+            file_content,
+            new_file_mode=0o644,
+        )
 
         logger.debug("Downloaded file to: %s", local_file_path)
         return str(local_file_path.absolute())

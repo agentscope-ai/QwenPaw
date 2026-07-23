@@ -125,6 +125,14 @@ class TestReadFile:
         assert await read_file_safe(str(path)) == "hello"
 
     @pytest.mark.asyncio
+    async def test_safe_read_normalizes_platform_newlines(self, tmp_path):
+        """Binary snapshots retain text-mode universal newline behavior."""
+        path = tmp_path / "newlines.txt"
+        path.write_bytes(b"first\r\nsecond\rthird\n")
+
+        assert await read_file_safe(str(path)) == "first\nsecond\nthird\n"
+
+    @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, tmp_path):
         result = await read_file(str(tmp_path / "missing.txt"))
         assert "does not exist" in result.content[0].text

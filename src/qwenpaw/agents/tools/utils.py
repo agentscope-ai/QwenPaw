@@ -532,9 +532,10 @@ def _read_file_safe_sync(
         read_size = min(os.fstat(file.fileno()).st_size, max_bytes)
         content = file.read(read_size)
     try:
-        return content.decode("utf-8-sig")
+        text = content.decode("utf-8-sig")
     except UnicodeDecodeError:
-        return content.decode("utf-8-sig", errors="ignore")
+        text = content.decode("utf-8-sig", errors="ignore")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 async def read_file_safe(

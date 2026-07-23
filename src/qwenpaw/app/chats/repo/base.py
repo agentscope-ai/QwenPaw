@@ -110,7 +110,8 @@ class BaseChatRepository(ABC):
 
         The default file-backed implementation performs exactly one load and
         one save. Repositories with indexed storage may override this method
-        with a direct update.
+        with a direct update. For backward compatibility, ``None`` and an
+        empty ``user_id`` both disable user filtering.
         """
         cf = await self.load()
         matching = [

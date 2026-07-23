@@ -341,6 +341,41 @@ async def test_touch_chat_by_session_uses_one_load_and_one_save(
     save.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_touch_chat_by_session_empty_user_disables_filter(
+    manager: ChatManager,
+):
+    """An empty user keeps the established no-filter lookup behavior."""
+    await manager.create_chat(
+        _make_spec(
+            session_id="console:shared",
+            user_id="u1",
+            name="older",
+        ),
+    )
+    latest = await manager.create_chat(
+        _make_spec(
+            session_id="console:shared",
+            user_id="u2",
+            name="latest",
+        ),
+    )
+    latest = await manager.patch_chat(
+        latest.id,
+        ChatUpdate(name="latest+1"),
+    )
+    assert latest is not None
+
+    touched = await manager.touch_chat_by_session(
+        "console:shared",
+        DEFAULT_CHANNEL,
+        user_id="",
+    )
+
+    assert touched is not None
+    assert touched.id == latest.id
+
+
 # ---------------------------------------------------------------------------
 # Lock serializes concurrent writes.
 # ---------------------------------------------------------------------------
