@@ -310,19 +310,23 @@ Important fields:
 
 ## Manual Compaction
 
-`/compact` still exists. Under scroll it forces archival; when turns are actually evicted it also updates the continuation summary and shows the current eviction-index map. `/compact <hint>` supplies one-shot focus guidance to that compression only. The hint is secret-redacted and bounded; under scroll it is not treated as evidence or persisted task state, and auto-compaction remains unchanged.
+`/compact` still exists. Under Scroll it forces eligible older turns into durable history while preserving the configured recent tail and active turn. When turns are actually archived, Scroll also updates the continuation summary. The command response reports what changed, but does not expose the internal eviction index, retrieval headlines, or continuation state in the chat transcript. Use `/compact_str` to inspect the current continuation summary; archived originals remain recoverable through Scroll history.
+
+`/compact <hint>` supplies one-shot focus guidance to that compression only. The hint is secret-redacted and bounded; under Scroll it is not treated as evidence or persisted task state, and auto-compaction remains unchanged.
 
 Typical result:
 
 ```text
-Context compressed.
+✅ Compact Complete!
 
-===== Tier 0 (recently compressed) =====
-  [seq 81-96]
-    · seq 84  ⟦ implemented context builder wiring ⟧
+- Messages archived: 12
+- Continuation summary: available via `/compact_str`
+- Older turns remain recoverable through Scroll history
 ```
 
 If no messages are eligible or the context is already small enough, there may be no new eviction.
+
+Retrieval headlines and the synthetic `<system-info>` continuation block are model-facing context. The Console hides them both while streaming and when a saved chat is loaded, so they do not appear as assistant text or synthetic user messages.
 
 ## Legacy Compatibility
 

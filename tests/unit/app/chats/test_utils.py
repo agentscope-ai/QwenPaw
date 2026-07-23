@@ -210,6 +210,61 @@ def test_msg_to_message_preserves_ordinary_memory_named_message():
     assert rendered == "remember this preference"
 
 
+def test_history_batch_hides_scroll_internals_but_keeps_transcript():
+    """A reloaded compacted session exposes only real conversation turns."""
+    messages = [
+        Msg(
+            name="memory",
+            role="user",
+            content=[
+                {
+                    "type": "text",
+                    "text": (
+                        "<system-info>\n"
+                        "[context compressed] private continuation state\n"
+                        "</system-info>"
+                    ),
+                },
+            ],
+            metadata={
+                QWENPAW_MESSAGE_TAG_KEY: SCROLL_MEMORY_MESSAGE_TAG,
+            },
+        ),
+        Msg(
+            name="user",
+            role="user",
+            content=[{"type": "text", "text": "keep this request visible"}],
+        ),
+        Msg(
+            name="assistant",
+            role="assistant",
+            content=[
+                {
+                    "type": "text",
+                    "text": (
+                        "keep this answer visible\n"
+                        "⟦ private retrieval headline ⟧"
+                    ),
+                },
+            ],
+        ),
+    ]
+
+    rendered_messages = agentscope_msg_to_message(messages)
+    rendered_text = "\n".join(
+        content.text
+        for message in rendered_messages
+        for content in message.content
+    )
+
+    assert len(rendered_messages) == 2
+    assert "keep this request visible" in rendered_text
+    assert "keep this answer visible" in rendered_text
+    assert "system-info" not in rendered_text
+    assert "private continuation state" not in rendered_text
+    assert "private retrieval headline" not in rendered_text
+
+
 # ---------------------------------------------------------------------------
 # _clean_title
 # ---------------------------------------------------------------------------
