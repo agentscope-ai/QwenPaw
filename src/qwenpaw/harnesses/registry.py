@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .base import HarnessAdapter
 from .codex.adapter import CodexAdapter
@@ -126,11 +127,32 @@ def get_provider(provider_id: str) -> ProviderCatalogItem:
     raise ValueError(f"Unknown third-party agent backend: {provider_id}")
 
 
-def create_adapter(provider_id: str, state_dir: Path) -> HarnessAdapter:
+def adapter_config_key(
+    provider_id: str,
+    settings: dict[str, Any] | None = None,
+) -> tuple[Any, ...]:
+    """Return settings that require recreating one provider adapter."""
+    values = settings or {}
+    if provider_id == "codex":
+        return (str(values.get("binary") or "").strip(),)
+    return ()
+
+
+def create_adapter(
+    provider_id: str,
+    state_dir: Path,
+    settings: dict[str, Any] | None = None,
+) -> HarnessAdapter:
     """Create one supported provider adapter."""
     if provider_id == "codex":
-        return CodexAdapter(state_dir=state_dir)
+        binary = str((settings or {}).get("binary") or "").strip() or None
+        return CodexAdapter(state_dir=state_dir, binary=binary)
     raise ValueError(f"Unsupported third-party agent backend: {provider_id}")
 
 
-__all__ = ["PROVIDER_CATALOG", "create_adapter", "get_provider"]
+__all__ = [
+    "PROVIDER_CATALOG",
+    "adapter_config_key",
+    "create_adapter",
+    "get_provider",
+]

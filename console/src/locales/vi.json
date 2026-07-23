@@ -39,7 +39,10 @@
     "notConnected": "Chưa kết nối",
     "comingSoon": "Sắp ra mắt",
     "connect": "Kết nối với ChatGPT",
-    "disconnect": "Ngắt kết nối"
+    "disconnect": "Ngắt kết nối",
+    "apiKeyAuthenticated": "Đã xác thực bằng API key",
+    "chatGptAuthenticated": "Đã kết nối với ChatGPT",
+    "cliAuthenticated": "Codex CLI đã xác thực ({{type}})"
   },
   "desktop": {
     "closeWindow": {
@@ -495,6 +498,12 @@
       "providerDescription": "Thông tin xác thực được dùng chung trên thiết bị này; dự án và cuộc trò chuyện vẫn được tách riêng theo từng tác nhân.",
       "codexHint": "ChatGPT OAuth · Không gian làm việc của tác nhân",
       "account": "Tài khoản Codex",
+      "binary": "Tệp thực thi Codex",
+      "binaryHelp": "Để trống để tự động phát hiện. Nếu nhập thủ công, hãy nhập đường dẫn đầy đủ tới chính tệp thực thi—codex trên macOS/Linux hoặc codex.exe trên Windows—không chỉ nhập thư mục chứa. QwenPaw cũng đọc CODEX_BINARY và PATH của backend.",
+      "binaryPlaceholder": "/đường/dẫn/đầy/đủ/codex hoặc C:\\...\\codex.exe",
+      "detect": "Phát hiện",
+      "detectedBinary": "Tệp thực thi đã phát hiện: {{path}}",
+      "apiKeyLoginHint": "Bạn cũng có thể xác thực trong terminal bằng: codex login --with-api-key",
       "model": "Mô hình Codex",
       "modelDefault": "Dùng mặc định của Codex",
       "defaultBadge": "Mặc định",

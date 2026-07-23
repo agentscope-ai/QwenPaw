@@ -94,7 +94,10 @@
     "notConnected": "未连接",
     "comingSoon": "即将推出",
     "connect": "使用 ChatGPT 连接",
-    "disconnect": "断开连接"
+    "disconnect": "断开连接",
+    "apiKeyAuthenticated": "已通过 API Key 认证",
+    "chatGptAuthenticated": "已连接 ChatGPT",
+    "cliAuthenticated": "Codex CLI 已认证（{{type}}）"
   },
   "nav": {
     "chat": "聊天",
@@ -397,6 +400,12 @@
       "providerDescription": "授权在本机共享，项目与会话仍按智能体隔离。",
       "codexHint": "ChatGPT OAuth · 智能体工作区",
       "account": "Codex 账户",
+      "binary": "Codex 可执行文件",
+      "binaryHelp": "留空将自动检测。手动填写时请输入可执行文件本身的完整路径：macOS/Linux 下为 codex，Windows 下为 codex.exe；不要只填写所在目录。QwenPaw 也会读取 CODEX_BINARY 和后端进程的 PATH。",
+      "binaryPlaceholder": "/Applications/.../codex 或 C:\\...\\codex.exe",
+      "detect": "重新检测",
+      "detectedBinary": "已检测到可执行文件：{{path}}",
+      "apiKeyLoginHint": "也可以在终端运行 codex login --with-api-key 完成 API Key 认证。",
       "model": "Codex 模型",
       "modelDefault": "使用 Codex 默认模型",
       "defaultBadge": "默认",

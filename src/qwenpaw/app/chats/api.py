@@ -271,6 +271,7 @@ async def get_chat(
                 session_id=chat_spec.session_id,
                 user_id=chat_spec.user_id,
                 channel=chat_spec.channel,
+                settings=dict(workspace.config.backend_settings),
             )
             state = await session.get_session_state_dict(
                 chat_spec.session_id,

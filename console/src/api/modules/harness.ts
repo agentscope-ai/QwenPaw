@@ -12,6 +12,8 @@ export interface HarnessProvider {
     email?: string | null;
     planType?: string;
   } | null;
+  runtime_path: string | null;
+  runtime_source: string | null;
   error: string | null;
   capabilities: HarnessCapabilities;
 }
@@ -75,20 +77,37 @@ export const harnessApi = {
       `/harnesses/${encodeURIComponent(providerId)}/models`,
       { timeout: 60_000 },
     ),
-  login: (providerId: string, deviceCode = false) =>
+  status: (providerId: string, settings: Record<string, unknown> = {}) =>
+    request<HarnessProvider>(
+      `/harnesses/${encodeURIComponent(providerId)}/status`,
+      {
+        method: "POST",
+        body: JSON.stringify({ settings }),
+        timeout: 60_000,
+      },
+    ),
+  login: (
+    providerId: string,
+    deviceCode = false,
+    settings: Record<string, unknown> = {},
+  ) =>
     request<HarnessLogin>(
       `/harnesses/${encodeURIComponent(providerId)}/login`,
       {
         method: "POST",
-        body: JSON.stringify({ device_code: deviceCode }),
+        body: JSON.stringify({
+          device_code: deviceCode,
+          settings,
+        }),
         timeout: 60_000,
       },
     ),
-  logout: (providerId: string) =>
+  logout: (providerId: string, settings: Record<string, unknown> = {}) =>
     request<{ ok: boolean }>(
       `/harnesses/${encodeURIComponent(providerId)}/logout`,
       {
         method: "POST",
+        body: JSON.stringify({ settings }),
       },
     ),
 };

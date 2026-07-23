@@ -37,7 +37,10 @@
     "notConnected": "Не подключено",
     "comingSoon": "Скоро",
     "connect": "Подключить через ChatGPT",
-    "disconnect": "Отключить"
+    "disconnect": "Отключить",
+    "apiKeyAuthenticated": "Аутентификация по API-ключу",
+    "chatGptAuthenticated": "Подключено к ChatGPT",
+    "cliAuthenticated": "Codex CLI аутентифицирован ({{type}})"
   },
   "desktop": {
     "closeWindow": {
@@ -133,6 +136,12 @@
       "providerDescription": "Авторизация общая для этого устройства; проекты и диалоги изолированы для каждого агента.",
       "codexHint": "ChatGPT OAuth · Рабочая область агента",
       "account": "Учётная запись Codex",
+      "binary": "Исполняемый файл Codex",
+      "binaryHelp": "Оставьте поле пустым для автоматического поиска. При ручной настройке укажите полный путь к самому исполняемому файлу—codex в macOS/Linux или codex.exe в Windows—а не только к папке. QwenPaw также читает CODEX_BINARY и PATH бэкенда.",
+      "binaryPlaceholder": "/полный/путь/codex или C:\\...\\codex.exe",
+      "detect": "Проверить",
+      "detectedBinary": "Найден исполняемый файл: {{path}}",
+      "apiKeyLoginHint": "Также можно выполнить аутентификацию в терминале: codex login --with-api-key",
       "model": "Модель Codex",
       "modelDefault": "Использовать значение Codex по умолчанию",
       "defaultBadge": "По умолчанию",

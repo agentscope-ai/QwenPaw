@@ -94,7 +94,10 @@
     "notConnected": "Not connected",
     "comingSoon": "Coming soon",
     "connect": "Connect with ChatGPT",
-    "disconnect": "Disconnect"
+    "disconnect": "Disconnect",
+    "apiKeyAuthenticated": "Authenticated with API key",
+    "chatGptAuthenticated": "Connected with ChatGPT",
+    "cliAuthenticated": "Codex CLI authenticated ({{type}})"
   },
   "nav": {
     "chat": "Chat",
@@ -614,6 +617,12 @@
       "providerDescription": "Authentication is shared on this device; projects and conversations stay isolated per agent.",
       "codexHint": "ChatGPT OAuth · Agent workspace",
       "account": "Codex account",
+      "binary": "Codex executable",
+      "binaryHelp": "Leave blank to detect automatically. Otherwise enter the full path to the executable file itself—codex on macOS/Linux or codex.exe on Windows—not just its containing folder. QwenPaw also reads CODEX_BINARY and the backend PATH.",
+      "binaryPlaceholder": "/absolute/path/to/codex or C:\\...\\codex.exe",
+      "detect": "Detect",
+      "detectedBinary": "Detected executable: {{path}}",
+      "apiKeyLoginHint": "You can also authenticate in a terminal with: codex login --with-api-key",
       "model": "Codex model",
       "modelDefault": "Use the Codex default",
       "defaultBadge": "Default",

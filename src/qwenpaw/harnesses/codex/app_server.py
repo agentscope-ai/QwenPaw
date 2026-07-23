@@ -6,11 +6,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from collections.abc import AsyncIterator
 from typing import Any, Awaitable, Callable
 
-from .discovery import resolve_codex_binary
+from .discovery import (
+    CodexBinaryResolution,
+    resolve_codex_binary_info,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +30,7 @@ class CodexAppServerClient:
     """Own one Codex app-server subprocess and correlate JSON-RPC calls."""
 
     def __init__(self, binary: str | None = None) -> None:
-        self._binary = binary or os.environ.get("CODEX_BINARY") or "codex"
+        self._binary = binary
         self._process: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task[None] | None = None
         self._stderr_task: asyncio.Task[None] | None = None
@@ -42,20 +44,23 @@ class CodexAppServerClient:
     @property
     def installed(self) -> bool:
         """Return whether the configured executable can be found."""
-        return resolve_codex_binary(self._binary) is not None
+        return self.binary_resolution is not None
+
+    @property
+    def binary_resolution(self) -> CodexBinaryResolution | None:
+        """Return the current executable resolution and source."""
+        return resolve_codex_binary_info(self._binary)
 
     async def start(self) -> None:
         """Start and initialize the app-server once."""
         async with self._start_lock:
             if self._process is not None and self._process.returncode is None:
                 return
-            if not self.installed:
-                raise CodexAppServerError("Codex CLI not found")
-            binary = resolve_codex_binary(self._binary)
-            if binary is None:
+            resolution = self.binary_resolution
+            if resolution is None:
                 raise CodexAppServerError("Codex CLI not found")
             self._process = await asyncio.create_subprocess_exec(
-                str(binary),
+                str(resolution.path),
                 "app-server",
                 "--listen",
                 "stdio://",

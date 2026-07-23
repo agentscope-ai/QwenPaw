@@ -43,6 +43,7 @@ export interface AgentProfileConfig {
   workspace_dir?: string;
   backend?: AgentBackend;
   backend_settings?: {
+    binary?: string;
     model?: string;
     reasoning_effort?: string;
     [key: string]: unknown;
@@ -69,6 +70,7 @@ export interface CreateAgentRequest {
   active_model?: ModelSlotConfig | null;
   backend?: AgentBackend;
   backend_settings?: {
+    binary?: string;
     model?: string;
     reasoning_effort?: string;
     [key: string]: unknown;

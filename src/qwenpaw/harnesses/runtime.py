@@ -18,7 +18,12 @@ from ..schemas import (
 )
 from .base import HarnessAdapter
 from .events import HarnessEvent, HarnessEventKind, HarnessProvider
-from .registry import PROVIDER_CATALOG, create_adapter, get_provider
+from .registry import (
+    PROVIDER_CATALOG,
+    adapter_config_key,
+    create_adapter,
+    get_provider,
+)
 from .session import HarnessSessionBridge
 from .streaming import TextStream, ToolStream
 
@@ -37,11 +42,16 @@ class HarnessRuntime:
         self._state_dir = workspace_dir / "harnesses"
         self._agent_id = agent_id
         self._adapters: dict[str, HarnessAdapter] = {}
+        self._adapter_keys: dict[str, tuple[Any, ...]] = {}
+        self._adapter_lock = asyncio.Lock()
         self._session_bridge = (
             HarnessSessionBridge(session) if session is not None else None
         )
 
-    async def providers(self) -> list[HarnessProvider]:
+    async def providers(
+        self,
+        provider_settings: dict[str, dict[str, Any]] | None = None,
+    ) -> list[HarnessProvider]:
         """Return the provider catalog with live status for Codex."""
         result: list[HarnessProvider] = []
         for item in PROVIDER_CATALOG:
@@ -56,18 +66,35 @@ class HarnessRuntime:
                     ),
                 )
                 continue
-            provider = await self.adapter(provider_id).status()
+            adapter = await self.adapter(
+                provider_id,
+                (provider_settings or {}).get(provider_id),
+            )
+            provider = await adapter.status()
             provider.capabilities = item.capabilities
             result.append(provider)
         return result
 
-    def adapter(self, provider_id: str) -> HarnessAdapter:
-        """Return one lazily-created supported adapter."""
-        adapter = self._adapters.get(provider_id)
-        if adapter is None:
-            adapter = create_adapter(provider_id, self._state_dir)
+    async def adapter(
+        self,
+        provider_id: str,
+        settings: dict[str, Any] | None = None,
+    ) -> HarnessAdapter:
+        """Return an adapter matching the current provider configuration."""
+        next_key = adapter_config_key(provider_id, settings)
+        async with self._adapter_lock:
+            adapter = self._adapters.get(provider_id)
+            current_key = self._adapter_keys.get(provider_id)
+            if adapter is not None and (
+                current_key is None or current_key == next_key
+            ):
+                return adapter
+            if adapter is not None:
+                await adapter.stop()
+            adapter = create_adapter(provider_id, self._state_dir, settings)
+            self._adapter_keys[provider_id] = next_key
             self._adapters[provider_id] = adapter
-        return adapter
+            return adapter
 
     async def stream(  # pylint: disable=too-many-branches,too-many-statements
         self,
@@ -78,7 +105,7 @@ class HarnessRuntime:
         settings: dict[str, Any] | None = None,
     ) -> AsyncGenerator[Any, None]:
         """Run a harness turn and emit the established QwenPaw protocol."""
-        adapter = self.adapter(backend)
+        adapter = await self.adapter(backend, settings)
         session_id = str(getattr(request, "session_id", "") or "default")
         prompt = self._prompt_from_request(request)
         command, arguments = self._parse_command(prompt)
@@ -233,9 +260,11 @@ class HarnessRuntime:
 
     async def stop(self) -> None:
         """Stop every initialized adapter."""
-        for adapter in tuple(self._adapters.values()):
-            await adapter.stop()
-        self._adapters.clear()
+        async with self._adapter_lock:
+            for adapter in tuple(self._adapters.values()):
+                await adapter.stop()
+            self._adapters.clear()
+            self._adapter_keys.clear()
 
     async def hydrate_session(
         self,
@@ -244,6 +273,7 @@ class HarnessRuntime:
         session_id: str,
         user_id: str,
         channel: str,
+        settings: dict[str, Any] | None = None,
     ) -> None:
         """Recover an unmaterialized provider thread into QwenPaw."""
         if self._session_bridge is None:
@@ -254,7 +284,8 @@ class HarnessRuntime:
             channel=channel,
         ):
             return
-        history = await self.adapter(backend).history(session_id)
+        adapter = await self.adapter(backend, settings)
+        history = await adapter.history(session_id)
         await self._session_bridge.hydrate(
             session_id=session_id,
             user_id=user_id,

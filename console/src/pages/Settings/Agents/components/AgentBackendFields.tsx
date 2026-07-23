@@ -8,6 +8,7 @@ import {
   ExternalLink,
   LogOut,
   PawPrint,
+  RefreshCw,
   SquareTerminal,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -31,6 +32,7 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
     (Form.useWatch("backend", form) as AgentBackend | undefined) ?? "qwenpaw";
   const [codex, setCodex] = useState<HarnessProvider | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [checking, setChecking] = useState(false);
   const pollTimer = useRef<number | undefined>(undefined);
   const pollTimeout = useRef<number | undefined>(undefined);
 
@@ -41,25 +43,39 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
     pollTimeout.current = undefined;
   }, []);
 
+  const providerSettings = useCallback(() => {
+    const value = form.getFieldValue(["backend_settings", "binary"]);
+    const binary = typeof value === "string" ? value.trim() : "";
+    return binary ? { binary } : {};
+  }, [form]);
+
   const loadStatus = useCallback(async () => {
-    const result = await harnessApi.list();
-    const provider = result.providers.find((item) => item.id === "codex");
-    setCodex(provider ?? null);
+    const provider = await harnessApi.status("codex", providerSettings());
+    setCodex(provider);
     return provider;
-  }, []);
+  }, [providerSettings]);
+
+  const checkStatus = useCallback(async () => {
+    setChecking(true);
+    try {
+      return await loadStatus();
+    } finally {
+      setChecking(false);
+    }
+  }, [loadStatus]);
 
   useEffect(() => {
     if (!open) return stopPolling;
-    void loadStatus().catch(() => setCodex(null));
+    void checkStatus().catch(() => setCodex(null));
     return stopPolling;
-  }, [loadStatus, open, stopPolling]);
+  }, [checkStatus, open, stopPolling]);
 
   const connect = useCallback(async () => {
     const popup = window.open("about:blank", "_blank");
     if (popup) popup.opener = null;
     setConnecting(true);
     try {
-      const login = await harnessApi.login("codex");
+      const login = await harnessApi.login("codex", false, providerSettings());
       if (!login.authUrl) throw new Error("Codex did not return a login URL");
       if (popup) popup.location.href = login.authUrl;
       else window.open(login.authUrl, "_blank", "noopener,noreferrer");
@@ -85,17 +101,22 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
       setConnecting(false);
       message.error(error instanceof Error ? error.message : String(error));
     }
-  }, [loadStatus, message, stopPolling, t]);
+  }, [loadStatus, message, providerSettings, stopPolling, t]);
 
   const disconnect = useCallback(async () => {
     try {
-      await harnessApi.logout("codex");
+      await harnessApi.logout("codex", providerSettings());
       await loadStatus();
       message.success(t("harnesses.disconnected"));
     } catch (error) {
       message.error(error instanceof Error ? error.message : String(error));
     }
-  }, [loadStatus, message, t]);
+  }, [loadStatus, message, providerSettings, t]);
+
+  const accountType = codex?.account?.type;
+  const apiKeyAuthenticated = codex?.authenticated && accountType === "apiKey";
+  const chatGptAuthenticated =
+    codex?.authenticated && accountType === "chatgpt";
 
   const selectBackend = useCallback(
     (next: AgentBackend) => {
@@ -195,6 +216,42 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
           </div>
 
           <div className={styles.codexConfig}>
+            <Form.Item
+              name={["backend_settings", "binary"]}
+              label={t("agent.backend.binary")}
+              help={t("agent.backend.binaryHelp")}
+              className={styles.binaryField}
+            >
+              <Input
+                allowClear
+                placeholder={t("agent.backend.binaryPlaceholder")}
+                onBlur={(event) => {
+                  const value = event.target.value.trim();
+                  form.setFieldValue(
+                    ["backend_settings", "binary"],
+                    value || undefined,
+                  );
+                }}
+                suffix={
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<RefreshCw size={14} />}
+                    loading={checking}
+                    onClick={() => void checkStatus()}
+                  >
+                    {t("agent.backend.detect")}
+                  </Button>
+                }
+              />
+            </Form.Item>
+            {codex?.runtime_path && (
+              <p className={styles.binaryPath}>
+                {t("agent.backend.detectedBinary", {
+                  path: codex.runtime_path,
+                })}
+              </p>
+            )}
             <div className={styles.accountRow}>
               <div className={styles.accountState}>
                 <span className={styles.accountLabel}>
@@ -202,7 +259,14 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                 </span>
                 {codex?.authenticated ? (
                   <span className={styles.connectedState}>
-                    <Check size={14} /> {t("harnesses.connected")}
+                    <Check size={14} />
+                    {apiKeyAuthenticated
+                      ? t("harnesses.apiKeyAuthenticated")
+                      : chatGptAuthenticated
+                      ? t("harnesses.chatGptAuthenticated")
+                      : t("harnesses.cliAuthenticated", {
+                          type: accountType || "Codex",
+                        })}
                     {codex.account?.email ? ` · ${codex.account.email}` : ""}
                   </span>
                 ) : (
@@ -225,7 +289,7 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                     {t("harnesses.connect")}
                   </Button>
                 )}
-                {codex?.authenticated && (
+                {chatGptAuthenticated && (
                   <Button
                     icon={<LogOut size={14} />}
                     onClick={() => void disconnect()}
@@ -235,6 +299,11 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                 )}
               </div>
             </div>
+            {!codex?.authenticated && codex?.installed && (
+              <p className={styles.authHint}>
+                {t("agent.backend.apiKeyLoginHint")}
+              </p>
+            )}
             {codex?.authenticated && (
               <p className={styles.chatSettingsHint}>
                 {t("agent.backend.chatSettingsHint")}

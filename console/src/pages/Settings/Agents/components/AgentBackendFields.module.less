@@ -198,6 +198,28 @@
   border-top: 1px solid #eadfd6;
 }
 
+.binaryField {
+  margin-bottom: 8px;
+
+  :global(.ant-form-item-label) {
+    padding-bottom: 4px;
+  }
+
+  :global(.ant-form-item-explain) {
+    font-size: 11px;
+    line-height: 1.45;
+  }
+}
+
+.binaryPath,
+.authHint {
+  margin: 0 2px 10px;
+  color: #7b6d62;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .accountRow {
   display: flex;
   align-items: center;
@@ -347,6 +369,11 @@
   }
 
   .chatSettingsHint {
+    color: #a99d94;
+  }
+
+  .binaryPath,
+  .authHint {
     color: #a99d94;
   }
 }

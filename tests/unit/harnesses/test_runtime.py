@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -28,6 +29,9 @@ from qwenpaw.schemas import (
 
 class FakeAdapter(HarnessAdapter):
     """Emit one deterministic response for envelope assertions."""
+
+    def __init__(self) -> None:
+        self.stopped = False
 
     async def status(self) -> HarnessProvider:
         return HarnessProvider(
@@ -62,7 +66,7 @@ class FakeAdapter(HarnessAdapter):
         yield HarnessEvent(kind=HarnessEventKind.COMPLETED)
 
     async def stop(self) -> None:
-        return None
+        self.stopped = True
 
 
 class ToolAdapter(FakeAdapter):
@@ -117,6 +121,7 @@ class CommandAdapter(FakeAdapter):
     """Record a provider-owned command without starting a normal turn."""
 
     def __init__(self) -> None:
+        super().__init__()
         self.command = ""
         self.reset_session_id = ""
 
@@ -141,6 +146,25 @@ class CommandAdapter(FakeAdapter):
 
     async def reset_session(self, session_id: str) -> None:
         self.reset_session_id = session_id
+
+
+@pytest.mark.asyncio
+async def test_runtime_recreates_adapter_when_binary_changes(
+    tmp_path: Path,
+) -> None:
+    runtime = HarnessRuntime(tmp_path)
+
+    with patch(
+        "qwenpaw.harnesses.runtime.create_adapter",
+        side_effect=lambda *_args, **_kwargs: FakeAdapter(),
+    ):
+        first = await runtime.adapter("codex", {"binary": "/first/codex"})
+        reused = await runtime.adapter("codex", {"binary": "/first/codex"})
+        second = await runtime.adapter("codex", {"binary": "/second/codex"})
+
+    assert reused is first
+    assert second is not first
+    assert first.stopped is True
 
 
 @pytest.mark.asyncio

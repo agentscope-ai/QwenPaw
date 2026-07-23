@@ -113,6 +113,8 @@ class HarnessProvider(BaseModel):
     installed: bool = False
     authenticated: bool = False
     account: dict[str, Any] | None = None
+    runtime_path: str | None = None
+    runtime_source: str | None = None
     error: str | None = None
     capabilities: HarnessCapabilities = Field(
         default_factory=HarnessCapabilities,

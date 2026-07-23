@@ -25,11 +25,18 @@ describe("harnessApi", () => {
   });
 
   it("starts Codex OAuth without exposing credentials", async () => {
-    await harnessApi.login("codex");
+    await harnessApi.login("codex", false, {
+      binary: "/Applications/ChatGPT.app/Contents/Resources/codex",
+    });
 
     expect(request).toHaveBeenCalledWith("/harnesses/codex/login", {
       method: "POST",
-      body: JSON.stringify({ device_code: false }),
+      body: JSON.stringify({
+        device_code: false,
+        settings: {
+          binary: "/Applications/ChatGPT.app/Contents/Resources/codex",
+        },
+      }),
       timeout: 60_000,
     });
   });
@@ -39,6 +46,19 @@ describe("harnessApi", () => {
 
     expect(request).toHaveBeenCalledWith("/harnesses/codex/logout", {
       method: "POST",
+      body: JSON.stringify({ settings: {} }),
+    });
+  });
+
+  it("probes Codex with unsaved binary settings", async () => {
+    await harnessApi.status("codex", { binary: "/custom/codex" });
+
+    expect(request).toHaveBeenCalledWith("/harnesses/codex/status", {
+      method: "POST",
+      body: JSON.stringify({
+        settings: { binary: "/custom/codex" },
+      }),
+      timeout: 60_000,
     });
   });
 

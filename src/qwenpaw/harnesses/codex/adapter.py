@@ -51,10 +51,11 @@ class CodexAdapter(HarnessAdapter):
         self,
         state_dir: Path,
         client: CodexAppServerClient | None = None,
+        binary: str | None = None,
     ) -> None:
         self._state_dir = state_dir
         self._session_path = state_dir / "codex_sessions.json"
-        self._client = client or CodexAppServerClient()
+        self._client = client or CodexAppServerClient(binary=binary)
         self._session_lock = asyncio.Lock()
         self._threads = self._load_threads()
         self._loaded_threads: set[str] = set()
@@ -65,13 +66,18 @@ class CodexAdapter(HarnessAdapter):
             )
 
     async def status(self) -> HarnessProvider:
-        """Return Codex installation and ChatGPT account status."""
+        """Return Codex installation and local account status."""
+        resolution = getattr(self._client, "binary_resolution", None)
+        runtime_path = str(resolution.path) if resolution is not None else None
+        runtime_source = resolution.source if resolution is not None else None
         if not self._client.installed:
             return HarnessProvider(
                 id="codex",
                 name="Codex",
                 available=True,
                 installed=False,
+                runtime_path=runtime_path,
+                runtime_source=runtime_source,
             )
         try:
             await self._client.start()
@@ -92,8 +98,10 @@ class CodexAdapter(HarnessAdapter):
                 name="Codex",
                 available=True,
                 installed=True,
-                authenticated=(account or {}).get("type") == "chatgpt",
+                authenticated=bool(account),
                 account=public_account,
+                runtime_path=runtime_path,
+                runtime_source=runtime_source,
             )
         except CodexAppServerError as exc:
             return HarnessProvider(
@@ -102,6 +110,8 @@ class CodexAdapter(HarnessAdapter):
                 available=True,
                 installed=True,
                 error=str(exc),
+                runtime_path=runtime_path,
+                runtime_source=runtime_source,
             )
 
     async def start_login(self, device_code: bool = False) -> dict[str, Any]:

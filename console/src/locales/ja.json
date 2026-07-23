@@ -37,7 +37,10 @@
     "notConnected": "未接続",
     "comingSoon": "近日公開",
     "connect": "ChatGPTで接続",
-    "disconnect": "切断"
+    "disconnect": "切断",
+    "apiKeyAuthenticated": "API キーで認証済み",
+    "chatGptAuthenticated": "ChatGPT に接続済み",
+    "cliAuthenticated": "Codex CLI 認証済み（{{type}}）"
   },
   "desktop": {
     "closeWindow": {
@@ -133,6 +136,12 @@
       "providerDescription": "認証情報はこのデバイスで共有されますが、プロジェクトと会話はエージェントごとに分離されます。",
       "codexHint": "ChatGPT OAuth · エージェントワークスペース",
       "account": "Codex アカウント",
+      "binary": "Codex 実行ファイル",
+      "binaryHelp": "空欄の場合は自動検出します。手動で指定する場合は、フォルダーではなく実行ファイル自体のフルパス（macOS/Linux は codex、Windows は codex.exe）を入力してください。QwenPaw は CODEX_BINARY とバックエンドの PATH も参照します。",
+      "binaryPlaceholder": "/absolute/path/to/codex または C:\\...\\codex.exe",
+      "detect": "再検出",
+      "detectedBinary": "検出された実行ファイル：{{path}}",
+      "apiKeyLoginHint": "ターミナルで codex login --with-api-key を実行して認証することもできます。",
       "model": "Codex モデル",
       "modelDefault": "Codex のデフォルトを使用",
       "defaultBadge": "デフォルト",

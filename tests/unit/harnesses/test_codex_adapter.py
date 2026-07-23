@@ -22,6 +22,7 @@ class FakeCodexClient:
     """Small app-server double that preserves request ordering."""
 
     installed = True
+    account_type = "chatgpt"
 
     def __init__(self) -> None:
         self.requests: list[tuple[str, dict[str, Any]]] = []
@@ -45,7 +46,7 @@ class FakeCodexClient:
         if method == "account/read":
             return {
                 "account": {
-                    "type": "chatgpt",
+                    "type": self.account_type,
                     "email": "person@example.com",
                     "planType": "plus",
                     "futureCredential": "must-not-leak",
@@ -173,6 +174,15 @@ def test_loads_persisted_threads_with_io_utils(tmp_path: Path) -> None:
     assert adapter._threads == {"chat-1": "thread-1"}
 
 
+def test_passes_manual_binary_to_app_server(tmp_path: Path) -> None:
+    with patch(
+        "qwenpaw.harnesses.codex.adapter.CodexAppServerClient",
+    ) as client_class:
+        CodexAdapter(tmp_path, binary="/custom/bin/codex")
+
+    client_class.assert_called_once_with(binary="/custom/bin/codex")
+
+
 @pytest.mark.asyncio
 async def test_status_and_login_use_app_server(tmp_path: Path) -> None:
     client = FakeCodexClient()
@@ -187,6 +197,19 @@ async def test_status_and_login_use_app_server(tmp_path: Path) -> None:
     assert "futureCredential" not in status.account
     assert login["authUrl"] == "https://example.com"
     assert client.requests[1][0] == "account/login/start"
+
+
+@pytest.mark.asyncio
+async def test_api_key_account_is_authenticated(tmp_path: Path) -> None:
+    client = FakeCodexClient()
+    client.account_type = "apiKey"
+    adapter = CodexAdapter(tmp_path, client=client)  # type: ignore[arg-type]
+
+    status = await adapter.status()
+
+    assert status.authenticated is True
+    assert status.account is not None
+    assert status.account["type"] == "apiKey"
 
 
 @pytest.mark.asyncio

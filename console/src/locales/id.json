@@ -39,7 +39,10 @@
     "notConnected": "Belum terhubung",
     "comingSoon": "Segera hadir",
     "connect": "Hubungkan dengan ChatGPT",
-    "disconnect": "Putuskan koneksi"
+    "disconnect": "Putuskan koneksi",
+    "apiKeyAuthenticated": "Diautentikasi dengan API key",
+    "chatGptAuthenticated": "Terhubung dengan ChatGPT",
+    "cliAuthenticated": "Codex CLI telah diautentikasi ({{type}})"
   },
   "desktop": {
     "closeWindow": {
@@ -359,6 +362,12 @@
       "providerDescription": "Autentikasi digunakan bersama di perangkat ini; proyek dan percakapan tetap terisolasi untuk setiap agen.",
       "codexHint": "ChatGPT OAuth · Ruang kerja agen",
       "account": "Akun Codex",
+      "binary": "File executable Codex",
+      "binaryHelp": "Kosongkan untuk mendeteksi secara otomatis. Jika diisi, masukkan path lengkap ke file executable itu sendiri—codex di macOS/Linux atau codex.exe di Windows—bukan hanya foldernya. QwenPaw juga membaca CODEX_BINARY dan PATH backend.",
+      "binaryPlaceholder": "/path/lengkap/ke/codex atau C:\\...\\codex.exe",
+      "detect": "Deteksi",
+      "detectedBinary": "Executable terdeteksi: {{path}}",
+      "apiKeyLoginHint": "Anda juga dapat melakukan autentikasi di terminal dengan: codex login --with-api-key",
       "model": "Model Codex",
       "modelDefault": "Gunakan default Codex",
       "defaultBadge": "Default",
