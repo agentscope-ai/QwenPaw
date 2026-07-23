@@ -41,9 +41,10 @@ async function executePluginScript(entryUrl: string): Promise<void> {
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  // A plugin can be reinstalled without changing its declared entry path.
-  // Always request the current bundle so an already-open Console does not
-  // revive a browser-cached, older plugin UI on its next reload.
+  // `cache: "no-store"` prevents WebView2 / Chromium from serving a stale
+  // plugin bundle from its HTTP cache when a plugin is hot-updated on disk.
+  // The backend also sends `Cache-Control: no-cache`, but pinning the fetch
+  // side is a belt-and-braces defence against future header regressions.
   const response = await fetch(entryUrl, { headers, cache: "no-store" });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} for ${entryUrl}`);
@@ -82,7 +83,10 @@ export async function loadAllPlugins(): Promise<{
     const token = getApiToken();
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(getApiUrl("/frontend_plugin"), { headers });
+    const res = await fetch(getApiUrl("/frontend_plugin"), {
+      headers,
+      cache: "no-store",
+    });
     if (!res.ok) {
       console.warn(`[PluginLoader] /api/plugins returned ${res.status}`);
       return { loaded: 0, failed: [] };

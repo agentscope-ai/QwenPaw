@@ -21,6 +21,7 @@
 import type {
   ChatActionItem,
   ChatActionSpec,
+  ChatApprovalRendererItem,
   ChatCardItem,
   ChatListField,
   ChatNodeItem,
@@ -124,6 +125,7 @@ export interface ChatListSnapshot {
   requestActions: ListEntry<ChatActionItem>[];
   cards: ListEntry<ChatCardItem>[];
   customToolRender: ListEntry<ChatToolRendererItem>[];
+  "approval.renderers": ListEntry<ChatApprovalRendererItem>[];
   "request.prepend": ListEntry<ChatSlotItem<ChatRequestSlotFn>>[];
   "request.append": ListEntry<ChatSlotItem<ChatRequestSlotFn>>[];
   "request.payloadTransforms": ListEntry<ChatRequestPayloadTransformItem>[];
@@ -150,6 +152,7 @@ class ChatExtensionsRegistry {
     requestActions: [],
     cards: [],
     customToolRender: [],
+    "approval.renderers": [],
     "request.prepend": [],
     "request.append": [],
     "request.payloadTransforms": [],
@@ -281,6 +284,18 @@ class ChatExtensionsRegistry {
     return this.addToList("cards", pluginId, {
       id: `${pluginId}:${cardName}`,
       cardName,
+      render,
+    });
+  }
+
+  addApprovalRenderer(
+    pluginId: string,
+    sourceType: string,
+    render: ChatApprovalRendererItem["render"],
+  ): Disposable {
+    return this.addToList("approval.renderers", pluginId, {
+      id: `${pluginId}:${sourceType}`,
+      sourceType,
       render,
     });
   }
@@ -463,6 +478,7 @@ class ChatExtensionsRegistry {
       requestActions: this.listMaps.requestActions.slice(),
       cards: this.listMaps.cards.slice(),
       customToolRender: this.listMaps.customToolRender.slice(),
+      "approval.renderers": this.listMaps["approval.renderers"].slice(),
       "request.prepend": this.listMaps["request.prepend"].slice(),
       "request.append": this.listMaps["request.append"].slice(),
       "request.payloadTransforms":
@@ -493,6 +509,9 @@ class ChatExtensionsRegistry {
     }
     if (field === "cards") {
       return (item as ChatCardItem).cardName;
+    }
+    if (field === "approval.renderers") {
+      return (item as ChatApprovalRendererItem).sourceType;
     }
     if (field === "sender.suggestions") {
       return (item as ChatSuggestionsItem).id;
