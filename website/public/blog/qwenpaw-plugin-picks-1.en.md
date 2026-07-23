@@ -35,12 +35,12 @@ This is the first issue of **Fun QwenPaw Plugin Picks**. We chose four very diff
 
 > Compatibility note: As of July 23, 2026, the marketplace compatibility info for the versions below all includes QwenPaw 2.0. Plugins keep updating—always check the latest version shown on the detail page before installing.
 
-| Plugin | Version checked | QwenPaw 2.0 | One-line highlight |
-| --- | --- | --- | --- |
-| [TeamChat](https://platform.agentscope.io/plugins/team_chat) | 5.0.18 | Supported | Let an AI host organize multi-agent meetings |
-| [Agent Kanban](https://platform.agentscope.io/plugins/agent-kanban) | 0.1.0 | Native | Assign tasks to agents and watch them work live |
-| [AgentAura](https://platform.agentscope.io/plugins/agentaura) | 0.3.0 | Supported | Show agent status with a desktop pet or ring light |
-| [OpenRouter Image Tool](https://platform.agentscope.io/plugins/openrouter-image-tool) | 2.0.0 | Native | Generate and edit images in chat with multiple models |
+| Plugin                                                                                | Version checked | QwenPaw 2.0 | One-line highlight                                    |
+| ------------------------------------------------------------------------------------- | --------------- | ----------- | ----------------------------------------------------- |
+| [TeamChat](https://platform.agentscope.io/plugins/team_chat)                          | 5.0.18          | Supported   | Let an AI host organize multi-agent meetings          |
+| [Agent Kanban](https://platform.agentscope.io/plugins/agent-kanban)                   | 0.1.0           | Native      | Assign tasks to agents and watch them work live       |
+| [AgentAura](https://platform.agentscope.io/plugins/agentaura)                         | 0.3.0           | Supported   | Show agent status with a desktop pet or ring light    |
+| [OpenRouter Image Tool](https://platform.agentscope.io/plugins/openrouter-image-tool) | 2.0.0           | Native      | Generate and edit images in chat with multiple models |
 
 ## 01 TeamChat: Invite Multiple Agents Into One Meeting Room
 
@@ -125,7 +125,7 @@ In the next issue, we will keep hunting Plugin Marketplace ideas that make QwenP
 
 ## Install & Safety Notes
 
-* All four plugins are available from the [AgentScope Platform Plugin Marketplace](https://platform.agentscope.io/plugins)—open each detail page to review and install.
-* As of the check date in this article, all four detail pages show a passed platform security scan. A scan is not absolute safety: plugins run inside the QwenPaw process, so still verify source and permissions.
-* Before installing, re-check QwenPaw compatibility, dependencies, and the latest version notes on the detail page.
-* AgentAura needs a desktop-pet app or compatible hardware; the OpenRouter Image Tool needs a separate API Key and may incur model usage costs.
+- All four plugins are available from the [AgentScope Platform Plugin Marketplace](https://platform.agentscope.io/plugins)—open each detail page to review and install.
+- As of the check date in this article, all four detail pages show a passed platform security scan. A scan is not absolute safety: plugins run inside the QwenPaw process, so still verify source and permissions.
+- Before installing, re-check QwenPaw compatibility, dependencies, and the latest version notes on the detail page.
+- AgentAura needs a desktop-pet app or compatible hardware; the OpenRouter Image Tool needs a separate API Key and may incur model usage costs.

@@ -35,12 +35,12 @@ related:
 
 > 兼容性说明：截至 2026 年 7 月 23 日，以下版本在插件广场的兼容信息中均包含 QwenPaw 2.0。插件仍会持续更新，安装时请以详情页显示的最新版本为准。
 
-| 插件 | 本期核对版本 | QwenPaw 2.0 | 一句话亮点 |
-| --- | --- | --- | --- |
-| [TeamChat](https://platform.agentscope.io/plugins/team_chat) | 5.0.18 | 支持 | 让一个 AI 主持人组织多个智能体开会 |
-| [Agent Kanban](https://platform.agentscope.io/plugins/agent-kanban) | 0.1.0 | 原生适配 | 把任务分给智能体，并实时观看执行过程 |
-| [AgentAura](https://platform.agentscope.io/plugins/agentaura) | 0.3.0 | 支持 | 用桌宠或环形灯显示智能体的实时状态 |
-| [OpenRouter 图像生成工具](https://platform.agentscope.io/plugins/openrouter-image-tool) | 2.0.0 | 原生适配 | 在对话中调用多种模型生成和编辑图片 |
+| 插件                                                                                    | 本期核对版本 | QwenPaw 2.0 | 一句话亮点                           |
+| --------------------------------------------------------------------------------------- | ------------ | ----------- | ------------------------------------ |
+| [TeamChat](https://platform.agentscope.io/plugins/team_chat)                            | 5.0.18       | 支持        | 让一个 AI 主持人组织多个智能体开会   |
+| [Agent Kanban](https://platform.agentscope.io/plugins/agent-kanban)                     | 0.1.0        | 原生适配    | 把任务分给智能体，并实时观看执行过程 |
+| [AgentAura](https://platform.agentscope.io/plugins/agentaura)                           | 0.3.0        | 支持        | 用桌宠或环形灯显示智能体的实时状态   |
+| [OpenRouter 图像生成工具](https://platform.agentscope.io/plugins/openrouter-image-tool) | 2.0.0        | 原生适配    | 在对话中调用多种模型生成和编辑图片   |
 
 ## 01 TeamChat：把多个智能体请进同一间会议室
 
@@ -125,7 +125,7 @@ OpenRouter 图像生成工具让 QwenPaw 可以直接调用 OpenRouter Image API
 
 ## 安装与安全提示
 
-* 四个插件均可从 [AgentScope Platform Plugin 广场](https://platform.agentscope.io/plugins)进入详情页查看和安装。
-* 截至本文核对日期，四个详情页均显示通过平台安全扫描；安全扫描不等于绝对安全，插件会在 QwenPaw 进程内运行，仍应确认来源和权限。
-* 安装前请再次核对详情页中的 QwenPaw 兼容信息、依赖条件和最新版本说明。
-* AgentAura 需要桌宠 App 或兼容硬件；OpenRouter 图像生成工具需要单独的 API Key，并可能产生模型调用费用。
+- 四个插件均可从 [AgentScope Platform Plugin 广场](https://platform.agentscope.io/plugins)进入详情页查看和安装。
+- 截至本文核对日期，四个详情页均显示通过平台安全扫描；安全扫描不等于绝对安全，插件会在 QwenPaw 进程内运行，仍应确认来源和权限。
+- 安装前请再次核对详情页中的 QwenPaw 兼容信息、依赖条件和最新版本说明。
+- AgentAura 需要桌宠 App 或兼容硬件；OpenRouter 图像生成工具需要单独的 API Key，并可能产生模型调用费用。
