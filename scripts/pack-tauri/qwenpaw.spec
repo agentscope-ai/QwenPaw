@@ -188,8 +188,6 @@ a = Analysis(
         "qwenpaw.app.chats",
         "qwenpaw.app.task_tracker",
         "qwenpaw.runtime.commands",
-        # Computer Use loads this session approval store from a plugin.
-        "qwenpaw.app.approvals.computer_use_access",
         # Backup modules are exposed through qwenpaw.backup.__getattr__, which
         # PyInstaller cannot discover from static imports.
         *collect_submodules("qwenpaw.backup"),
@@ -211,20 +209,6 @@ a = Analysis(
         *collect_submodules("agentscope.workspace._mcp_gateway"),
         *collect_submodules("whisper"),
         *collect_submodules("chromadb"),
-        # Desktop GUI automation (computer_use tool)
-        "pyautogui",
-        "pyautogui._pyautogui_win",
-        "pyscreeze",
-        "pytweening",
-        "pymsgbox",
-        "pyperclip",
-        # Windows UI Automation for computer_use structural actions.
-        "uiautomation",
-        "comtypes",
-        "comtypes.client",
-        "comtypes.gen",
-        "comtypes.persist",
-        "comtypes.automation",
     ],
     hookspath=[],
     hooksconfig={},
