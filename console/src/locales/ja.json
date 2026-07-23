@@ -19,6 +19,7 @@
     "view": "閲覧",
     "content": "内容",
     "loading": "読み込み中...",
+    "saving": "保存中...",
     "copy": "コピー",
     "copied": "クリップボードにコピーしました",
     "copyFailed": "クリップボードへのコピーに失敗しました",
@@ -29,6 +30,14 @@
     "total": "合計 {{count}} 件",
     "clear": "クリア",
     "paste": "貼り付け"
+  },
+  "harnesses": {
+    "connected": "接続済み",
+    "disconnected": "切断済み",
+    "notConnected": "未接続",
+    "comingSoon": "近日公開",
+    "connect": "ChatGPTで接続",
+    "disconnect": "切断"
   },
   "desktop": {
     "closeWindow": {
@@ -109,6 +118,50 @@
     "id": "ID",
     "description": "説明",
     "workspace": "ワークスペースパス",
+    "backend": {
+      "column": "バックエンド",
+      "eyebrow": "エージェントアーキテクチャ",
+      "typeTitle": "このエージェントの動作方式を選択",
+      "typeDescription": "エージェントの種類は、Chat、Coding、Channel のすべての会話に適用されます。",
+      "nativeTitle": "QwenPaw ネイティブエージェント",
+      "nativeBadge": "ネイティブ",
+      "nativeDescription": "設定済みの LLM、Skills、ツール、メモリ、QwenPaw ランタイムを使用します。",
+      "thirdPartyTitle": "サードパーティエージェント",
+      "thirdPartyBadge": "サードパーティ",
+      "thirdPartyDescription": "QwenPaw モデルの代わりに、認証済みの外部エージェントランタイムを使用します。",
+      "providerTitle": "サードパーティエージェントを選択",
+      "providerDescription": "認証情報はこのデバイスで共有されますが、プロジェクトと会話はエージェントごとに分離されます。",
+      "codexHint": "ChatGPT OAuth · エージェントワークスペース",
+      "account": "Codex アカウント",
+      "model": "Codex モデル",
+      "modelDefault": "Codex のデフォルトを使用",
+      "defaultBadge": "デフォルト",
+      "reasoningEffort": "推論レベル",
+      "reasoningDefault": "モデルのデフォルトを使用",
+      "codexNotFound": "PATH または ChatGPT エディター拡張機能で Codex が見つかりません",
+      "chatSettingsHint": "Chat ツールバーでモデル、推論レベル、実行権限を選択します。",
+      "chatModelHint": "エージェント単位の設定 · 次のターンから適用",
+      "appliesNextTurn": "次のターンから適用",
+      "approvalMode": "実行権限",
+      "approvalPresets": {
+        "ask": {
+          "name": "変更前に確認",
+          "description": "ワークスペースの変更を許可し、昇格操作の前に確認します。"
+        },
+        "read-only": {
+          "name": "読み取り専用",
+          "description": "ファイルを変更せずに確認します。"
+        },
+        "workspace": {
+          "name": "ワークスペースアクセス",
+          "description": "確認なしでワークスペースの変更を許可します。"
+        },
+        "full-access": {
+          "name": "フルアクセス",
+          "description": "確認なしで無制限のローカル実行を許可します。"
+        }
+      }
+    },
     "create": "エージェントを作成",
     "createTitle": "新しいエージェントを作成",
     "createSuccess": "エージェントが正常に作成されました",
@@ -2052,6 +2105,12 @@
       },
       "skills": {
         "description": "チャットで利用可能なスキルを一覧し、明示的なスキルコマンドを表示します"
+      },
+      "review": {
+        "description": "Codex で未コミットのワークスペース変更をレビュー"
+      },
+      "status": {
+        "description": "現在の Codex アカウント、モデル、ワークスペースを表示"
       },
       "goal": {
         "description": "Goalループ — エージェントが目標に向かって継続実行し、Rubric評価で完了を自動判定"

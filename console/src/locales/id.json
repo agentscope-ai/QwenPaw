@@ -19,6 +19,7 @@
     "view": "Lihat",
     "content": "Konten",
     "loading": "Memuat...",
+    "saving": "Menyimpan...",
     "copy": "Salin",
     "copied": "Disalin ke papan klip",
     "copyFailed": "Gagal menyalin ke papan klip",
@@ -31,6 +32,14 @@
     "paste": "Tempel",
     "yes": "Ya",
     "no": "Tidak"
+  },
+  "harnesses": {
+    "connected": "Terhubung",
+    "disconnected": "Terputus",
+    "notConnected": "Belum terhubung",
+    "comingSoon": "Segera hadir",
+    "connect": "Hubungkan dengan ChatGPT",
+    "disconnect": "Putuskan koneksi"
   },
   "desktop": {
     "closeWindow": {
@@ -194,6 +203,12 @@
       "skills": {
         "description": "Tampilkan skill yang tersedia untuk chat dan perintah skill eksplisit"
       },
+      "review": {
+        "description": "Tinjau perubahan ruang kerja yang belum di-commit dengan Codex"
+      },
+      "status": {
+        "description": "Tampilkan akun Codex, model, dan ruang kerja saat ini"
+      },
       "goal": {
         "description": "Loop Goal — Agen mengejar tujuan secara terus-menerus, evaluasi otomatis via Rubric"
       }
@@ -329,6 +344,50 @@
     "id": "ID",
     "description": "Deskripsi",
     "workspace": "Path Workspace",
+    "backend": {
+      "column": "Backend",
+      "eyebrow": "Arsitektur agen",
+      "typeTitle": "Pilih cara agen ini bekerja",
+      "typeDescription": "Jenis agen mengontrol setiap percakapan Chat, Coding, dan Channel.",
+      "nativeTitle": "Agen native QwenPaw",
+      "nativeBadge": "Native",
+      "nativeDescription": "Menggunakan LLM, Skills, alat, memori, dan runtime QwenPaw yang telah Anda konfigurasi.",
+      "thirdPartyTitle": "Agen pihak ketiga",
+      "thirdPartyBadge": "Pihak ketiga",
+      "thirdPartyDescription": "Menggunakan runtime agen eksternal yang telah diotorisasi, bukan model QwenPaw.",
+      "providerTitle": "Pilih agen pihak ketiga",
+      "providerDescription": "Autentikasi digunakan bersama di perangkat ini; proyek dan percakapan tetap terisolasi untuk setiap agen.",
+      "codexHint": "ChatGPT OAuth · Ruang kerja agen",
+      "account": "Akun Codex",
+      "model": "Model Codex",
+      "modelDefault": "Gunakan default Codex",
+      "defaultBadge": "Default",
+      "reasoningEffort": "Tingkat penalaran",
+      "reasoningDefault": "Gunakan default model",
+      "codexNotFound": "Codex tidak ditemukan di PATH atau ekstensi editor ChatGPT",
+      "chatSettingsHint": "Pilih model, tingkat penalaran, dan izin eksekusi dari bilah alat Chat.",
+      "chatModelHint": "Pengaturan per agen · diterapkan pada giliran berikutnya",
+      "appliesNextTurn": "Diterapkan pada giliran berikutnya",
+      "approvalMode": "Izin eksekusi",
+      "approvalPresets": {
+        "ask": {
+          "name": "Tanyakan sebelum perubahan",
+          "description": "Izinkan perubahan ruang kerja dan tanyakan sebelum tindakan dengan hak akses lebih tinggi."
+        },
+        "read-only": {
+          "name": "Hanya baca",
+          "description": "Periksa file tanpa mengubahnya."
+        },
+        "workspace": {
+          "name": "Akses ruang kerja",
+          "description": "Izinkan perubahan ruang kerja tanpa konfirmasi."
+        },
+        "full-access": {
+          "name": "Akses penuh",
+          "description": "Izinkan eksekusi lokal tanpa batasan dan tanpa konfirmasi."
+        }
+      }
+    },
     "create": "Buat Agen",
     "createTitle": "Buat Agen Baru",
     "createSuccess": "Agen berhasil dibuat",

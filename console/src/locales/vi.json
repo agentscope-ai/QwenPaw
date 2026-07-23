@@ -19,6 +19,7 @@
     "view": "Xem",
     "content": "Nội dung",
     "loading": "Đang tải...",
+    "saving": "Đang lưu...",
     "copy": "Sao chép",
     "copied": "Đã sao chép",
     "copyFailed": "Sao chép thất bại",
@@ -31,6 +32,14 @@
     "paste": "Dán",
     "yes": "Có",
     "no": "Không"
+  },
+  "harnesses": {
+    "connected": "Đã kết nối",
+    "disconnected": "Đã ngắt kết nối",
+    "notConnected": "Chưa kết nối",
+    "comingSoon": "Sắp ra mắt",
+    "connect": "Kết nối với ChatGPT",
+    "disconnect": "Ngắt kết nối"
   },
   "desktop": {
     "closeWindow": {
@@ -200,6 +209,12 @@
       },
       "goal": {
         "description": "Loop Goal — Agent theo đuổi mục tiêu liên tục, tự đánh giá qua Rubric"
+      },
+      "review": {
+        "description": "Dùng Codex để đánh giá các thay đổi chưa commit trong không gian làm việc"
+      },
+      "status": {
+        "description": "Hiển thị tài khoản Codex, mô hình và không gian làm việc hiện tại"
       }
     },
     "turnUsagePopover": {
@@ -465,6 +480,50 @@
     "id": "ID",
     "description": "Mô tả",
     "workspace": "Đường dẫn Workspace",
+    "backend": {
+      "column": "Backend",
+      "eyebrow": "Kiến trúc tác nhân",
+      "typeTitle": "Chọn cách tác nhân này hoạt động",
+      "typeDescription": "Loại tác nhân chi phối mọi cuộc trò chuyện trong Chat, Coding và Channel.",
+      "nativeTitle": "Tác nhân QwenPaw gốc",
+      "nativeBadge": "Gốc",
+      "nativeDescription": "Sử dụng LLM, Skills, công cụ, bộ nhớ và runtime QwenPaw đã cấu hình.",
+      "thirdPartyTitle": "Tác nhân bên thứ ba",
+      "thirdPartyBadge": "Bên thứ ba",
+      "thirdPartyDescription": "Sử dụng runtime tác nhân bên ngoài đã được cấp quyền thay cho mô hình QwenPaw.",
+      "providerTitle": "Chọn tác nhân bên thứ ba",
+      "providerDescription": "Thông tin xác thực được dùng chung trên thiết bị này; dự án và cuộc trò chuyện vẫn được tách riêng theo từng tác nhân.",
+      "codexHint": "ChatGPT OAuth · Không gian làm việc của tác nhân",
+      "account": "Tài khoản Codex",
+      "model": "Mô hình Codex",
+      "modelDefault": "Dùng mặc định của Codex",
+      "defaultBadge": "Mặc định",
+      "reasoningEffort": "Mức suy luận",
+      "reasoningDefault": "Dùng mặc định của mô hình",
+      "codexNotFound": "Không tìm thấy Codex trong PATH hoặc tiện ích mở rộng trình soạn thảo ChatGPT",
+      "chatSettingsHint": "Chọn mô hình, mức suy luận và quyền thực thi trên thanh công cụ Chat.",
+      "chatModelHint": "Cài đặt theo tác nhân · áp dụng từ lượt tiếp theo",
+      "appliesNextTurn": "Áp dụng từ lượt tiếp theo",
+      "approvalMode": "Quyền thực thi",
+      "approvalPresets": {
+        "ask": {
+          "name": "Hỏi trước khi thay đổi",
+          "description": "Cho phép thay đổi không gian làm việc và hỏi trước các thao tác nâng quyền."
+        },
+        "read-only": {
+          "name": "Chỉ đọc",
+          "description": "Kiểm tra tệp mà không thay đổi."
+        },
+        "workspace": {
+          "name": "Truy cập không gian làm việc",
+          "description": "Cho phép thay đổi không gian làm việc mà không cần xác nhận."
+        },
+        "full-access": {
+          "name": "Toàn quyền",
+          "description": "Cho phép thực thi cục bộ không giới hạn mà không cần xác nhận."
+        }
+      }
+    },
     "create": "Tạo Agent",
     "createTitle": "Tạo Agent mới",
     "createSuccess": "Tạo agent thành công",
