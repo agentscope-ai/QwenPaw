@@ -35,6 +35,9 @@ _HEADLINE_RE = re.compile(
 _TRAILING_HEADLINE_RE = re.compile(
     rf"(?:<!--[ \t]*{_OPEN}|(?:^|\n)[ \t]*{_OPEN})[^\r\n]*\Z",
 )
+_HEADLINE_START_RE = re.compile(
+    rf"(?:<!--[ \t]*{_OPEN}|(?:^|\n)[ \t]*{_OPEN})",
+)
 _HEADLINE_MAX = 2000  # safety ceiling; prompts still ask for concise headlines
 
 
@@ -135,6 +138,33 @@ def strip_headline(text: str | None) -> str | None:
     cleaned = text[:start] + text[end:]
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)  # collapse blank line left
     return cleaned.strip()
+
+
+def strip_headline_delta(
+    text: str,
+    *,
+    suppressing: bool = False,
+) -> tuple[str, bool]:
+    """Hide one streamed headline fragment and return suppression state.
+
+    SSE content events carry deltas rather than the complete assistant text.
+    Once a delta starts a headline, later fragments may contain neither the
+    opening fence nor enough context for :func:`strip_headline` to recognize
+    them. Keep suppressing that stream until a closing fence arrives.
+
+    Headlines are a trailing protocol line, so any text after their opening
+    fence in the same delta is intentionally hidden.
+    """
+    if suppressing:
+        return "", re.search(_CLOSE, text) is None
+
+    start = _HEADLINE_START_RE.search(text)
+    if not start:
+        return text, False
+
+    headline_fragment = text[start.start() :]
+    visible = text[: start.start()]
+    return visible, re.search(_CLOSE, headline_fragment) is None
 
 
 def msg_to_entries(msg: Msg) -> list[LogEntry]:

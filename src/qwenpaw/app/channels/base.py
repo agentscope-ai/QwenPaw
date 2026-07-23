@@ -792,6 +792,9 @@ class BaseChannel(ABC):
 
         # Fire-and-forget flush
         flush_meta["last_ts"] = now
+        from qwenpaw.agents.context.scroll.serialize import strip_headline
+
+        display_text = strip_headline(streaming_buffers[stream_type]) or ""
         flush_meta["task"] = asyncio.create_task(
             self._safe_streaming_delta(
                 request,
@@ -799,7 +802,7 @@ class BaseChannel(ABC):
                 event,
                 send_meta,
                 stream_type,
-                streaming_buffers[stream_type],
+                display_text,
             ),
         )
         return True
@@ -853,6 +856,9 @@ class BaseChannel(ABC):
 
             buf = streaming_buffers.pop(stream_type, "")
             accumulated = self._extract_text_from_event(event) or buf
+            from qwenpaw.agents.context.scroll.serialize import strip_headline
+
+            accumulated = strip_headline(accumulated) or ""
             await self.on_streaming_end(
                 request,
                 to_handle,
@@ -913,10 +919,14 @@ class BaseChannel(ABC):
         process_iterator = None
         msg_id_to_stream_type: Dict[str, str] = {}
         streaming_buffers: Dict[str, str] = {}
+        suppressing_headline_streams: set[str] = set()
         try:
             process_iterator = self._process(request)
             async for event in process_iterator:
-                data = self._serialize_event_for_sse(event)
+                data = self._serialize_event_for_sse(
+                    event,
+                    suppressing_headline_streams,
+                )
 
                 yield f"data: {data}\n\n"
 
@@ -1037,7 +1047,11 @@ class BaseChannel(ABC):
         return value
 
     @staticmethod
-    def _strip_event_headlines(event: Any, fallback: str) -> str:
+    def _strip_event_headlines(
+        event: Any,
+        fallback: str,
+        suppressing_streams: set[str] | None = None,
+    ) -> str:
         """Drop scroll headlines (``<!-- ⟦ … ⟧ -->``) from an SSE payload.
 
         Channels strip headlines via ``MessageRenderer``, but this raw-event
@@ -1047,12 +1061,38 @@ class BaseChannel(ABC):
         the headline verbatim (those go through separate paths). A no-op on any
         text block that holds no headline, so user/tool text is untouched.
         """
-        from qwenpaw.agents.context.scroll.serialize import strip_headline
+        from qwenpaw.agents.context.scroll.serialize import (
+            strip_headline,
+            strip_headline_delta,
+        )
 
         try:
             payload = event.model_dump(mode="json")
         except Exception:  # noqa: BLE001 - fall back to the unstripped data
             return fallback
+
+        # A content delta may split the protocol line over several events.
+        # Track that state inside the current SSE request rather than on the
+        # shared channel instance, where concurrent sessions could interfere.
+        if (
+            suppressing_streams is not None
+            and getattr(event, "object", None) == "content"
+            and getattr(event, "delta", False)
+        ):
+            msg_id = str(getattr(event, "msg_id", "") or "")
+            index = int(getattr(event, "index", 0) or 0)
+            stream_key = f"{msg_id}:{index}"
+            raw_text = getattr(event, "text", "") or ""
+            clean_text, still_suppressing = strip_headline_delta(
+                raw_text,
+                suppressing=stream_key in suppressing_streams,
+            )
+            if isinstance(payload, dict) and "text" in payload:
+                payload["text"] = clean_text
+            if still_suppressing:
+                suppressing_streams.add(stream_key)
+            else:
+                suppressing_streams.discard(stream_key)
 
         def walk(node: Any) -> Any:
             if isinstance(node, str):
@@ -1068,7 +1108,11 @@ class BaseChannel(ABC):
         payload = walk(payload)
         return json.dumps(payload, ensure_ascii=False, default=str)
 
-    def _serialize_event_for_sse(self, event: Any) -> str:
+    def _serialize_event_for_sse(
+        self,
+        event: Any,
+        suppressing_headline_streams: set[str] | None = None,
+    ) -> str:
         try:
             if hasattr(event, "model_dump_json"):
                 data = event.model_dump_json()
@@ -1080,8 +1124,23 @@ class BaseChannel(ABC):
             # Headlines reach the UI only through this raw-event path; rewrite
             # to strip them, but only when a fence marker is actually present
             # so the common (headline-free) event pays nothing.
-            if hasattr(event, "model_dump") and ("⟦" in data or "〚" in data):
-                data = self._strip_event_headlines(event, data)
+            is_tracked_delta = (
+                suppressing_headline_streams is not None
+                and getattr(event, "object", None) == "content"
+                and getattr(event, "delta", False)
+            )
+            should_strip = (
+                "⟦" in data
+                or "〚" in data
+                or bool(suppressing_headline_streams)
+                or is_tracked_delta
+            )
+            if hasattr(event, "model_dump") and should_strip:
+                data = self._strip_event_headlines(
+                    event,
+                    data,
+                    suppressing_headline_streams,
+                )
 
             return self._sanitize_surrogate_text(data)
 

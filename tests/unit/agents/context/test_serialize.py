@@ -7,6 +7,7 @@ from qwenpaw.agents.context.scroll.prompt import build_scroll_system_prompt
 from qwenpaw.agents.context.scroll.serialize import (
     extract_headline,
     strip_headline,
+    strip_headline_delta,
 )
 
 
@@ -118,3 +119,25 @@ def test_strip_headline_preserves_inline_plain_fence() -> None:
     text = "compare ⟦left⟧ and ⟦right⟧"
     assert extract_headline(text) is None
     assert strip_headline(text) == text
+
+
+def test_strip_headline_delta_suppresses_split_protocol_line() -> None:
+    visible, suppressing = strip_headline_delta(
+        "done\n⟦ model discovery |",
+    )
+    assert visible == "done"
+    assert suppressing is True
+
+    visible, suppressing = strip_headline_delta(
+        " status: fixed; next: test",
+        suppressing=suppressing,
+    )
+    assert visible == ""
+    assert suppressing is True
+
+    visible, suppressing = strip_headline_delta(
+        " | anchors: TC-1 ⟧",
+        suppressing=suppressing,
+    )
+    assert visible == ""
+    assert suppressing is False

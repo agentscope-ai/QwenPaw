@@ -16,7 +16,7 @@ Key patterns demonstrated:
 # pylint: disable=unused-argument
 from __future__ import annotations
 
-
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -29,10 +29,15 @@ from qwenpaw.app.channels.console.channel import ConsoleChannel
 class _FakeDumpEvent:
     def __init__(self, payload):
         self._payload = payload
+        for key, value in payload.items():
+            setattr(self, key, value)
 
     def model_dump(self, mode="json"):
         del mode
         return self._payload
+
+    def model_dump_json(self):
+        return json.dumps(self._payload, ensure_ascii=True)
 
 
 class TestConsoleChannelUnit:
@@ -109,6 +114,70 @@ class TestConsoleChannelUnit:
         assert "streamed headline" not in data
         assert "completed headline" not in data
         assert "visible" in data
+
+    def test_sse_headline_strip_tracks_split_delta_line(self):
+        """Later headline chunks stay hidden without repeating the opener."""
+        suppressing_streams = set()
+        chunks = (
+            "visible\n⟦ model discovery |",
+            " status: fixed; next: test",
+            " | anchors: TC-1 ⟧",
+        )
+        rendered = []
+
+        for text in chunks:
+            payload = {
+                "object": "content",
+                "delta": True,
+                "msg_id": "message-1",
+                "index": 0,
+                "text": text,
+            }
+            data = ConsoleChannel._strip_event_headlines(
+                _FakeDumpEvent(payload),
+                "{}",
+                suppressing_streams,
+            )
+            rendered.append(data)
+
+        assert "visible" in rendered[0]
+        assert all("model discovery" not in item for item in rendered)
+        assert all("status: fixed" not in item for item in rendered)
+        assert all("anchors: TC-1" not in item for item in rendered)
+        assert suppressing_streams == set()
+
+    def test_sse_serializer_hides_split_delta_line(self, channel):
+        """The public SSE serializer carries suppression between deltas."""
+        suppressing_streams = set()
+        chunks = (
+            "visible\n⟦ model discovery |",
+            " status: fixed; next: test",
+            " | anchors: TC-1 ⟧",
+        )
+
+        rendered = []
+        for text in chunks:
+            event = _FakeDumpEvent(
+                {
+                    "object": "content",
+                    "delta": True,
+                    "msg_id": "message-1",
+                    "index": 0,
+                    "text": text,
+                },
+            )
+            rendered.append(
+                channel._serialize_event_for_sse(
+                    event,
+                    suppressing_streams,
+                ),
+            )
+
+        assert "visible" in rendered[0]
+        assert all("model discovery" not in item for item in rendered)
+        assert all("status: fixed" not in item for item in rendered)
+        assert all("anchors: TC-1" not in item for item in rendered)
+        assert suppressing_streams == set()
 
     @pytest.mark.asyncio
     async def test_send_prints_to_stdout(self, channel, capsys):
