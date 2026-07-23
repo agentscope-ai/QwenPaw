@@ -61,6 +61,10 @@ _MAX_OUTPUT_RESERVE_TOKENS = 4096
 _SUMMARY_UPDATE_TIMEOUT_SECONDS = 60.0
 
 
+class _SummaryCandidateError(ValueError):
+    """A returned summary candidate failed local format or quality checks."""
+
+
 class ScrollContextManager:
     """Context management as an injectable strategy (not an agent subclass).
 
@@ -1006,13 +1010,17 @@ class ScrollContextManager:
             timeout=timeout,
         )
         if len(plain_text) > 16_000:
-            raise ValueError("plain Markdown summary exceeds hard limit")
+            raise _SummaryCandidateError(
+                "plain Markdown summary exceeds hard limit",
+            )
         candidate = parse_plain_markdown(
             plain_text,
             covered_seq=covered,
         )
         if candidate is None:
-            raise ValueError("empty or malformed plain Markdown summary")
+            raise _SummaryCandidateError(
+                "empty or malformed plain Markdown summary",
+            )
         endpoints = {
             endpoint
             for lo, hi in candidate.seq_spans()
@@ -1024,7 +1032,7 @@ class ScrollContextManager:
             existing_seqs=self._history.existing_seqs(endpoints),
         )
         if issues:
-            raise ValueError("; ".join(issues))
+            raise _SummaryCandidateError("; ".join(issues))
         return candidate
 
     async def _update_continuation_summary(
@@ -1105,16 +1113,22 @@ class ScrollContextManager:
                 # issue that a repair prompt can fix. Preserve a still-valid
                 # previous summary as stale without making a second call.
                 break
-            except Exception as exc:  # noqa: BLE001 - retry is best-effort
+            except _SummaryCandidateError as exc:
                 failure = exc
                 repair_issues = (str(exc) or type(exc).__name__,)
                 if attempt == 0:
                     self.last_compress["summary_retries"] = 1
+            except Exception as exc:  # noqa: BLE001 - provider failure
+                # Authentication, rate-limit, transport, and provider errors
+                # cannot be repaired by asking the same provider again with a
+                # quality prompt. Preserve the previous valid state now.
+                failure = exc
+                break
 
         if updated is None:
             self._summary_update_failed = True
             logger.warning(
-                "scroll: continuation summary update failed after retry; "
+                "scroll: continuation summary update failed; "
                 "preserving the previous valid summary",
                 exc_info=(
                     type(failure),

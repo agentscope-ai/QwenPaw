@@ -130,6 +130,19 @@ class HangingSummaryModel(FakeModel):
         await asyncio.Event().wait()
 
 
+class FailingSummaryModel(FakeModel):
+    """Chat model simulating a provider/transport failure."""
+
+    def __init__(self, tokens) -> None:
+        super().__init__(tokens)
+        self.summary_calls = 0
+
+    async def __call__(self, **kwargs):
+        del kwargs
+        self.summary_calls += 1
+        raise RuntimeError("provider unavailable")
+
+
 class FakeConfig:
     trigger_ratio = 0.1
     reserve_ratio = 0.5
@@ -1034,6 +1047,38 @@ async def test_summary_timeout_preserves_valid_previous_without_retry(
 
     assert hanging.summary_calls == 1
     assert mgr.describe_summary() == previous
+    assert "Summary status: stale" in agent.state.context[0].get_text_content()
+
+
+async def test_summary_provider_failure_preserves_previous_without_retry(
+    store: HistoryStore,
+):
+    old = [user("fix discovery"), assistant("DashScope passes")]
+    current = user("continue")
+    mgr = make_manager(store)
+    agent = FakeAgent([*old, current], tokens=[900, 300])
+    agent.model = PlainSummaryModel(
+        [900, 300],
+        [_VALID_CONTINUATION_SUMMARY],
+    )
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (old, [current])
+    await mgr.compress(agent)
+    previous = mgr.describe_summary()
+
+    failing = FailingSummaryModel([900, 300])
+    agent.model = failing
+    finished = assistant("OpenAI is still pending")
+    next_request = user("continue again")
+    context = [*agent.state.context, finished, next_request]
+    agent.state.context = context
+    agent._split_return = (context[:-1], [next_request])
+
+    await mgr.compress(agent)
+
+    assert failing.summary_calls == 1
+    assert mgr.describe_summary() == previous
+    assert "summary_retries" not in mgr.last_compress
     assert "Summary status: stale" in agent.state.context[0].get_text_content()
 
 
