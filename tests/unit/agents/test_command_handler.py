@@ -470,20 +470,71 @@ async def test_compact_uses_manual_force_context_config() -> None:
     assert "Compact Complete" in msg.get_text_content()
 
 
-def test_scroll_compact_detail_hides_internal_index_terms() -> None:
-    index_text = (
-        "===== Tier 0 (recently compressed) =====\n"
-        "  [seq 2850–2852]\n"
-        "    · seq 2851  ⟦ 执行 yes | head -n 3000 成功，输出 3000 行重复字符串 ⟧"
+@pytest.mark.asyncio
+async def test_scroll_compact_reply_hides_internal_state() -> None:
+    async def _compress_context(context_config=None, instructions=None):
+        del context_config, instructions
+        agent.state.context.pop(0)
+
+    context_manager = SimpleNamespace(
+        last_compress={"evicted": 1, "folded": 0},
+        describe_index=lambda: (
+            "===== Tier 0 =====\n"
+            "  [seq 1–2]\n"
+            "    · seq 2 ⟦ internal headline ⟧"
+        ),
+        describe_summary=lambda: "## Active Task\ninternal task state",
     )
+    agent = _make_agent()
+    agent.state = SimpleNamespace(
+        context=[object(), object()],
+        summary="",
+    )
+    agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
+    agent.compress_context = _compress_context
+    agent._context_manager = context_manager
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+    handler._get_agent_config = lambda: _make_config(strategy="scroll")
 
-    # pylint: disable=protected-access
-    detail = CommandHandler._format_scroll_compact_detail(index_text)
+    msg = await handler.handle_command("/compact")
+    text = msg.get_text_content()
 
-    assert "执行 yes | head -n 3000 成功" in detail
-    assert "Tier 0" not in detail
-    assert "seq 2851" not in detail
-    assert "live context" in detail
+    assert "Messages archived: 1" in text
+    assert "available via `/compact_str`" in text
+    assert "remain recoverable through Scroll history" in text
+    assert "internal headline" not in text
+    assert "internal task state" not in text
+    assert "seq 1" not in text
+
+
+@pytest.mark.asyncio
+async def test_compact_str_reads_persisted_scroll_summary() -> None:
+    state = SimpleNamespace(context=[], summary="")
+    scroll_state = {
+        "continuation_summary": {
+            "version": 1,
+            "covered_seq": [1, 8],
+            "active_task": "Fix provider discovery.",
+            "status": "in_progress",
+            "current_state": [],
+            "constraints": [],
+            "decisions": [],
+            "open_work": [],
+        },
+    }
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        state=state,
+        scroll_state=scroll_state,
+    )
+    handler._get_agent_config = lambda: _make_config(strategy="scroll")
+
+    msg = await handler.handle_command("/compact_str")
+    text = msg.get_text_content()
+
+    assert "**Continuation Summary**" in text
+    assert "Fix provider discovery." in text
+    assert "**No Compressed Summary**" not in text
 
 
 @pytest.mark.asyncio

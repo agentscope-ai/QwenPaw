@@ -6,13 +6,15 @@ This module handles system commands like /compact, /new, /clear, etc.
 
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from agentscope.message import HintBlock, Msg, TextBlock
 
-from .context.scroll.continuation_summary import redact_secrets
+from .context.scroll.continuation_summary import (
+    ContinuationSummary,
+    redact_secrets,
+)
 from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
@@ -413,7 +415,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         after = len(self._state.context)
-        evicted = max(0, before - after)
+        inferred_evicted = max(0, before - after)
+        evicted = int(
+            compress_stats.get("evicted", inferred_evicted) or 0,
+        )
         reme_cfg = agent_config.running.reme_light_memory_config
         if self._has_memory_manager() and reme_cfg.summarize_when_compact:
             self.memory_manager.add_summarize_task(
@@ -423,21 +428,22 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         summary = self._get_summary()
         folded = int(compress_stats.get("folded", 0) or 0)
-        if evicted == 0 and folded == 0 and not summary and not index_text:
+        if evicted == 0 and folded == 0 and (bool(index_text) or not summary):
             return await self._make_system_msg(
                 "ℹ️ **Nothing to compact.**\n\n"
                 f"- Context is already minimal ({before} message(s))\n"
                 "- No turns were evicted",
             )
         if index_text:
+            summary_line = (
+                "- Continuation summary: available via `/compact_str`\n"
+                if continuation_text
+                else "- Continuation summary: unavailable; archived "
+                "turns remain recoverable\n"
+            )
             detail = (
-                (
-                    "**Continuation State:**\n" f"{continuation_text}\n"
-                    if continuation_text
-                    else ""
-                )
-                + "**Archived Turns:**\n"
-                f"{self._format_scroll_compact_detail(index_text)}\n"
+                f"{summary_line}"
+                "- Older turns remain recoverable through Scroll history\n"
             )
         else:
             detail = f"**Compressed Summary:**\n{summary}\n" if summary else ""
@@ -449,51 +455,25 @@ class CommandHandler(ConversationCommandHandlerMixin):
             if folded
             else ""
         )
+        action_label = (
+            "Messages archived"
+            if compress_stats or index_text
+            else "Messages compacted"
+        )
         return await self._make_system_msg(
             f"✅ **Compact Complete!**\n\n"
-            f"- Messages compacted: {evicted}\n"
+            f"- {action_label}: {evicted}\n"
             f"{folded_line}"
             f"{detail}",
         )
-
-    @staticmethod
-    def _format_scroll_compact_detail(
-        index_text: str,
-        *,
-        max_items: int = 5,
-    ) -> str:
-        """Return a user-readable summary of the scroll eviction index."""
-        headlines = []
-        for line in index_text.splitlines():
-            match = re.search(r"⟦\s*(.*?)\s*⟧", line)
-            if match:
-                headline = match.group(1).strip()
-                if headline:
-                    headlines.append(headline)
-
-        if not headlines:
-            return (
-                "- Older turns were archived and remain available through "
-                "scroll history."
-            )
-
-        shown = headlines[-max_items:]
-        lines = [f"- {headline}" for headline in shown]
-        remaining = len(headlines) - len(shown)
-        if remaining > 0:
-            lines.append(f"- ...and {remaining} older archived turn(s)")
-        lines.append(
-            "\nOlder turns were removed from the live context but remain "
-            "available in scroll history.",
-        )
-        return "\n".join(lines)
 
     @staticmethod
     def _scroll_index_text(agent: "Agent") -> str:
         """Scroll eviction-index map for a live agent, or '' under native."""
         cm = getattr(agent, "_context_manager", None)
         if cm is not None and hasattr(cm, "describe_index"):
-            return cm.describe_index()
+            value = cm.describe_index()
+            return value if isinstance(value, str) else ""
         return ""
 
     @staticmethod
@@ -501,8 +481,32 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Scroll continuation state for a live agent, else an empty string."""
         cm = getattr(agent, "_context_manager", None)
         if cm is not None and hasattr(cm, "describe_summary"):
-            return str(cm.describe_summary() or "")
+            value = cm.describe_summary()
+            return value if isinstance(value, str) else ""
         return ""
+
+    def _stored_scroll_summary_text(self) -> str:
+        """Render the persisted Scroll continuation state, if available."""
+        if self._agent is not None:
+            return self._scroll_summary_text(self._agent)
+        state = self._scroll_state
+        if not isinstance(state, dict):
+            return ""
+        raw_summary = state.get("continuation_summary")
+        if not isinstance(raw_summary, dict):
+            return ""
+        summary = ContinuationSummary.from_dict(raw_summary)
+        return summary.render() if summary is not None else ""
+
+    def _uses_scroll_context(self) -> bool:
+        """Return whether the active light-context strategy is Scroll."""
+        try:
+            light_context = (
+                self._get_agent_config().running.light_context_config
+            )
+        except Exception:
+            return False
+        return getattr(light_context, "strategy", "native") == "scroll"
 
     @staticmethod
     def _build_manual_context_config(agent_config: Any) -> Any:
@@ -662,6 +666,20 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _args: str = "",
     ) -> Msg:
         """Process /compact_str command to show compressed summary."""
+        if self._uses_scroll_context():
+            summary = self._stored_scroll_summary_text()
+            if not summary:
+                return await self._make_system_msg(
+                    "**No Continuation Summary**\n\n"
+                    "- Scroll has not generated a continuation summary yet\n"
+                    "- Use `/compact` or wait for auto-compaction\n"
+                    "- Archived turns remain recoverable through Scroll "
+                    "history",
+                )
+            return await self._make_system_msg(
+                f"**Continuation Summary**\n\n{summary}",
+            )
+
         summary = self._get_summary()
         if not summary:
             return await self._make_system_msg(
