@@ -121,15 +121,15 @@ class QwenPawOffloader:
 
         output = getattr(tool_result, "output", None) or ""
         if isinstance(output, list):
-            parts = []
-            for block in output:
-                if isinstance(block, dict):
-                    if block.get("type") == "text":
-                        parts.append(block.get("text", ""))
-                elif getattr(block, "type", None) == "text":
-                    parts.append(getattr(block, "text", ""))
-            content = "\n".join(parts)
+            parts = [self._render_block(block) for block in output]
+            content = "\n".join(part for part in parts if part)
         else:
+            content = str(output)
+
+        # Never persist an empty file: downstream readers treat a missing
+        # payload as a hard error, so fall back to a compact repr of the
+        # raw output when no renderable block was found.
+        if not content:
             content = str(output)
 
         async with aiofiles.open(filepath, mode="w", encoding="utf-8") as f:
@@ -137,6 +137,50 @@ class QwenPawOffloader:
 
         logger.info("Offloaded tool result to %s", filepath)
         return filepath
+
+    @staticmethod
+    def _render_block(block: object) -> str:
+        """Render a single tool-result block to text for on-disk storage.
+
+        Handles both plain ``dict`` blocks and the typed message blocks
+        (``TextBlock`` / ``DataBlock``) produced by the runtime. Text blocks
+        contribute their text; binary blocks (images, audio, video) are
+        replaced with a short placeholder so the persisted file stays
+        human-readable and never ends up empty.
+        """
+        if isinstance(block, dict):
+            block_type = block.get("type")
+            text = block.get("text")
+            source = block.get("source")
+        else:
+            block_type = getattr(block, "type", None)
+            text = getattr(block, "text", None)
+            source = getattr(block, "source", None)
+
+        if block_type == "text" and text:
+            return str(text)
+
+        # Binary payloads have no textual form; emit a short placeholder so
+        # the persisted file stays human-readable and is never empty. The
+        # runtime models these as ``DataBlock(type="data")`` with the
+        # concrete kind carried in ``source.media_type`` (e.g. "image/jpeg").
+        if block_type in ("data", "image", "audio", "video", "file"):
+            media_type = None
+            if isinstance(source, dict):
+                media_type = source.get("media_type")
+            elif source is not None:
+                media_type = getattr(source, "media_type", None)
+            if media_type:
+                kind = str(media_type).split("/")[0]
+            elif block_type != "data":
+                kind = block_type
+            else:
+                kind = "binary"
+            return f"<{kind} content omitted>"
+
+        if text:
+            return str(text)
+        return ""
 
     def cleanup_expired(self, retention_days: int = 5) -> int:
         """Delete tool-result files older than *retention_days*.
