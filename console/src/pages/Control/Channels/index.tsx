@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Form } from "@agentscope-ai/design";
 import { Badge, Button, Input, Modal, Select, Space, Tooltip } from "antd";
-import { SafetyOutlined, AuditOutlined } from "@ant-design/icons";
+import {
+  AuditOutlined,
+  CloudDownloadOutlined,
+  SafetyOutlined,
+} from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { ChannelDependencyInstallSource } from "../../../api/modules/channel";
@@ -47,7 +51,10 @@ function DependencyInstallOptions({
 
   return (
     <div className={styles.dependencySourceFields}>
-      <label htmlFor="channel-dependency-source">
+      <label
+        className={styles.dependencySourceLabel}
+        htmlFor="channel-dependency-source"
+      >
         {t("channels.installSourceLabel")}
       </label>
       <Select
@@ -178,17 +185,26 @@ function ChannelsPage() {
         let source: ChannelDependencyInstallSource = "aliyun";
         let customIndexUrl = "";
         Modal.confirm({
-          title: t(
-            reinstall
-              ? "channels.reinstallDependenciesTitle"
-              : "channels.installDependenciesTitle",
-            {
-              channel: getChannelLabel(key, t),
-            },
+          title: (
+            <Space size={8}>
+              <CloudDownloadOutlined />
+              {t(
+                reinstall
+                  ? "channels.reinstallDependenciesTitle"
+                  : "channels.installDependenciesTitle",
+                {
+                  channel: getChannelLabel(key, t),
+                },
+              )}
+            </Space>
           ),
+          icon: null,
+          centered: true,
+          width: 480,
+          className: styles.dependencyInstallModal,
           content: (
-            <div>
-              <p>
+            <div className={styles.dependencyInstallContent}>
+              <p className={styles.dependencyInstallDescription}>
                 {t(
                   reinstall
                     ? "channels.reinstallDependenciesDescription"
@@ -254,6 +270,7 @@ function ChannelsPage() {
             channel: getChannelLabel(key, t),
           }),
           content: t("channels.stopInstallDescription"),
+          centered: true,
           okText: t("channels.stopInstallConfirm"),
           okButtonProps: { danger: true },
           cancelText: t("common.cancel"),
