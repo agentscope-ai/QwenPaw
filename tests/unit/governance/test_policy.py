@@ -671,14 +671,14 @@ class TestGovernancePolicyEvaluate:
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ASK
 
-    def test_sudo_ask(self, policy):
-        """Bash(sudo ...) is ASK from builtin rules (privilege escalation
-        gated on user approval). Note ``sudo rm -rf /`` is still DENY —
-        that is caught earlier by the Phase 1.5 rm-root regex, not this
-        builtin rule."""
+    def test_sudo_deny(self, policy):
+        """Bash(sudo ...) is DENY — caught by TOOL_CMD_PRIVILEGE_ESCALATION
+        (CRITICAL) in Phase 1 deep-security scanning. Users can disable
+        this detection rule in the frontend to fall back to the Phase 2
+        builtin ASK rule."""
         tc = _tc("Bash", "sudo apt-get install something")
         decision = policy.evaluate(tc)
-        assert decision.action == GovernanceAction.ASK
+        assert decision.action == GovernanceAction.DENY
 
     def test_internal_tool_allow(self, policy):
         """Internal tools should be ALLOW from user_rules."""
