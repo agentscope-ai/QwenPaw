@@ -463,3 +463,27 @@ class ChatManager:
                 f"(from {len(matching_chats)} matches)",
             )
             return most_recent.id
+
+    async def touch_chat_by_session(
+        self,
+        session_id: str,
+        channel: str,
+        user_id: str | None = None,
+    ) -> Optional[ChatSpec]:
+        """Find and touch a chat with one repository load and save.
+
+        This is the message-path variant of :meth:`touch_chat`. It avoids a
+        separate session lookup followed by another read-modify-write cycle.
+        """
+        async with self._lock:
+            touched = await self._repo.touch_chat_by_session(
+                session_id=session_id,
+                channel=channel,
+                user_id=user_id,
+            )
+            if touched is None:
+                logger.debug(
+                    f"No chat to touch for session={session_id[:30]} "
+                    f"channel={channel} user_id={user_id}",
+                )
+            return touched

@@ -2676,7 +2676,11 @@
     "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
-    "marketDeveloper": "Developer"
+    "marketDeveloper": "Developer",
+    "marketSortLabel": "Sort plugins",
+    "marketSortDownloads": "Most downloaded",
+    "marketSortUpdated": "Recently updated",
+    "marketSortFavorites": "Most favorited"
   },
   "inbox": {
     "title": "受信トレイ",

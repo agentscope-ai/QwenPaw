@@ -2915,6 +2915,10 @@
     "marketDetails": "详情",
     "marketDownloads": "下载量",
     "marketDeveloper": "开发者",
+    "marketSortLabel": "插件排序",
+    "marketSortDownloads": "下载量最多",
+    "marketSortUpdated": "最近更新",
+    "marketSortFavorites": "收藏量最多",
     "compatWarningTitle": "兼容性警告",
     "compatWarningContent": "该插件标注适配 QwenPaw {{labels}}，而您当前的 QwenPaw 版本为 {{version}}。安装后可能出现错误，是否确认继续？",
     "compatWarningConfirm": "仍然安装"

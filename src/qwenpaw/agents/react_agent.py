@@ -28,6 +28,7 @@ from agentscope.tool import Toolkit
 
 from .skill_system import get_workspace_skills_dir
 from ..modes.coding import CodingModeMixin
+from ..utils.io_utils import run_sync_io
 from ..constant import (
     LOOP_CONTINUATION_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
@@ -326,7 +327,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
             if hasattr(cm, "purge_old"):
                 try:
                     lcc = self._agent_config.running.light_context_config
-                    cm.purge_old(lcc.scroll_config.history_retention_days)
+                    await run_sync_io(
+                        cm.purge_old,
+                        lcc.scroll_config.history_retention_days,
+                    )
                 except Exception:
                     logger.debug(
                         "history retention purge failed",
@@ -334,7 +338,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
             if hasattr(cm, "close"):
                 try:
-                    cm.close()
+                    await run_sync_io(cm.close)
                 except Exception:
                     logger.debug(
                         "context manager close failed",
@@ -350,7 +354,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 lcc = self._agent_config.running.light_context_config
                 retention_days = _effective_artifact_retention_days(lcc)
                 if retention_days > 0:
-                    offloader.cleanup_expired(
+                    await run_sync_io(
+                        offloader.cleanup_expired,
                         retention_days=retention_days,
                     )
             except Exception:

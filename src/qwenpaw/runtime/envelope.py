@@ -399,7 +399,7 @@ class Envelope:
 
             self._tool_calls[call_id] = {
                 "name": event.tool_call_name,
-                "args_json_acc": "",
+                "argument_fragments": [],
                 "message": plugin_call_message,
                 "output_text_acc": "",
                 "output_data_blocks": {},
@@ -410,7 +410,8 @@ class Envelope:
             state = self._tool_calls.get(call_id)
             if state is None:
                 return
-            state["args_json_acc"] += event.delta or ""
+            argument_delta = event.delta or ""
+            state["argument_fragments"].append(argument_delta)
 
             delta_content = DataContent(
                 type=ContentType.DATA,
@@ -418,7 +419,7 @@ class Envelope:
                 # send the incremental argument fragment here; repeating the
                 # call ID or name would concatenate those fields as well.
                 data=FunctionCall(
-                    arguments=event.delta or "",
+                    arguments=argument_delta,
                 ).model_dump(exclude_none=True),
                 delta=True,
                 index=0,
@@ -431,13 +432,14 @@ class Envelope:
             state = self._tool_calls.get(call_id)
             if state is None:
                 return
+            arguments = "".join(state.pop("argument_fragments", []))
 
             final_content = DataContent(
                 type=ContentType.DATA,
                 data=FunctionCall(
                     call_id=call_id,
                     name=state["name"],
-                    arguments=state["args_json_acc"],
+                    arguments=arguments,
                 ).model_dump(),
                 delta=False,
             )
@@ -453,7 +455,7 @@ class Envelope:
             if state is None:
                 state = {
                     "name": event.tool_call_name,
-                    "args_json_acc": "",
+                    "argument_fragments": [],
                     "output_text_acc": "",
                     "output_data_blocks": {},
                 }

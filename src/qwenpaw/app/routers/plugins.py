@@ -977,6 +977,7 @@ async def search_market_plugins(
     page_size: int = 20,
     search: Optional[str] = None,
     category: Optional[str] = None,
+    sort_by: Optional[str] = None,
 ):
     """Proxy plugin search to AgentScope Platform to avoid CORS."""
     import httpx
@@ -989,6 +990,8 @@ async def search_market_plugins(
         params["search"] = search
     if category:
         params["category"] = category
+    if sort_by:
+        params["sort_by"] = sort_by
 
     try:
         async with httpx.AsyncClient(

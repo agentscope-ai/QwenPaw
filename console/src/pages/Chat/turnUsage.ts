@@ -298,6 +298,9 @@ function parseSseDataLines(buffer: string): {
 }
 
 function snapshotFromSsePayload(raw: string): TurnUsageSnapshot | null {
+  // Fast path: skip the (second) JSON.parse for the vast majority of SSE
+  // events — only `type: "turn_usage"` payloads are relevant here.
+  if (!raw.includes("turn_usage")) return null;
   try {
     return parseTurnUsageSsePayload(JSON.parse(raw) as Record<string, unknown>);
   } catch {

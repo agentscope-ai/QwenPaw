@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 from typing import Optional
 
-import aiofiles
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
@@ -22,6 +21,13 @@ from ...config.context import (
 )
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
+from ...utils.io_utils import (
+    append_text_async,
+    get_path_lock,
+    write_text_atomic_async,
+)
+
+_USER_FILE_MODE = 0o644
 
 
 def _path_to_file_url(path: str) -> str:
@@ -149,30 +155,6 @@ async def read_file(  # pylint: disable=too-many-return-statements
 
     file_path = _resolve_file_path(file_path)
 
-    if not os.path.exists(file_path):
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The file {file_path} does not exist.",
-                ),
-            ],
-        )
-
-    if not os.path.isfile(file_path):
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The path {file_path} is not a file.",
-                ),
-            ],
-        )
-
     try:
         content = await read_file_safe(file_path)
         all_lines = content.split("\n")
@@ -243,6 +225,28 @@ async def read_file(  # pylint: disable=too-many-return-statements
             metadata=metadata,
         )
 
+    except FileNotFoundError:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: The file {file_path} does not exist.",
+                ),
+            ],
+        )
+    except IsADirectoryError:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: The path {file_path} is not a file.",
+                ),
+            ],
+        )
     except Exception as e:
         return ToolChunk(
             is_last=True,
@@ -294,8 +298,13 @@ async def write_file(
     encoding = _get_encoding_for_file(file_path)
 
     try:
-        async with aiofiles.open(file_path, "w", encoding=encoding) as file:
-            await file.write(content)
+        async with get_path_lock(file_path):
+            await write_text_atomic_async(
+                file_path,
+                content,
+                encoding=encoding,
+                new_file_mode=_USER_FILE_MODE,
+            )
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,
@@ -360,66 +369,81 @@ async def edit_file(
 
     resolved_path = _resolve_file_path(file_path)
 
-    if not os.path.exists(resolved_path):
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The file {resolved_path} does not exist.",
-                ),
-            ],
-        )
+    encoding = _get_encoding_for_file(resolved_path)
+    async with get_path_lock(resolved_path):
+        try:
+            content = await read_file_safe(resolved_path)
+        except FileNotFoundError:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Error: The file {resolved_path} "
+                            f"does not exist."
+                        ),
+                    ),
+                ],
+            )
+        except IsADirectoryError:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Error: The path {resolved_path} "
+                            f"is not a file."
+                        ),
+                    ),
+                ],
+            )
+        except Exception as e:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: Read file failed due to \n{e}",
+                    ),
+                ],
+            )
 
-    if not os.path.isfile(resolved_path):
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The path {resolved_path} is not a file.",
-                ),
-            ],
-        )
+        if old_text not in content:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: The text to replace was not found in {file_path}.",
+                    ),
+                ],
+            )
 
-    try:
-        content = await read_file_safe(resolved_path)
-    except Exception as e:
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: Read file failed due to \n{e}",
-                ),
-            ],
-        )
-
-    if old_text not in content:
-        return ToolChunk(
-            is_last=True,
-            state=ToolResultState.ERROR,
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The text to replace was not found in {file_path}.",
-                ),
-            ],
-        )
-
-    new_content = content.replace(old_text, new_text)
-    write_response = await write_file(
-        file_path=resolved_path,
-        content=new_content,
-    )
-
-    if write_response.content and len(write_response.content) > 0:
-        write_text = getattr(write_response.content[0], "text", "")
-        if write_text.startswith("Error:"):
-            return write_response
+        try:
+            new_content = content.replace(old_text, new_text)
+            await write_text_atomic_async(
+                resolved_path,
+                new_content,
+                encoding=encoding,
+                new_file_mode=_USER_FILE_MODE,
+            )
+        except Exception as e:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: Write file failed due to \n{e}",
+                    ),
+                ],
+            )
 
     return ToolChunk(
         is_last=True,
@@ -473,8 +497,11 @@ async def append_file(
     encoding = _get_encoding_for_file(file_path)
 
     try:
-        with open(file_path, "a", encoding=encoding) as file:
-            file.write(content)
+        await append_text_async(
+            file_path,
+            content,
+            encoding=encoding,
+        )
         return ToolChunk(
             is_last=True,
             state=ToolResultState.SUCCESS,

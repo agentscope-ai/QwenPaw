@@ -514,6 +514,60 @@ class TestConsoleStreaming:
         assert len(events) == 1
         assert "data:" in events[0]
 
+    async def test_stream_one_touches_chat_in_one_manager_call(
+        self,
+        stream_channel,
+    ):
+        """Console activity uses the single-transaction touch API."""
+        from qwenpaw.schemas import (
+            ContentType,
+            Event,
+            Message,
+            MessageType,
+            Role,
+            RunStatus,
+            TextContent,
+        )
+
+        mock_event = Event(
+            object="message",
+            status=RunStatus.Completed,
+            type="message.completed",
+            id="ev-touch",
+            created_at=1234567890,
+            message=Message(
+                type=MessageType.MESSAGE,
+                role=Role.ASSISTANT,
+                content=[
+                    TextContent(type=ContentType.TEXT, text="Hello"),
+                ],
+            ),
+        )
+
+        async def mock_process(_request):
+            yield mock_event
+
+        stream_channel._process = mock_process
+        chat_manager = MagicMock()
+        chat_manager.touch_chat_by_session = AsyncMock()
+        stream_channel._workspace = MagicMock(chat_manager=chat_manager)
+        payload = {
+            "sender_id": "user123",
+            "content_parts": [
+                TextContent(type=ContentType.TEXT, text="Hello"),
+            ],
+            "meta": {},
+        }
+
+        async for _event in stream_channel.stream_one(payload):
+            break
+
+        chat_manager.touch_chat_by_session.assert_awaited_once_with(
+            session_id="console:user123",
+            channel="console",
+            user_id="user123",
+        )
+
     async def test_stream_one_handles_dict_payload(self, stream_channel):
         """stream_one should handle dict payload with debounce."""
         from qwenpaw.schemas import (

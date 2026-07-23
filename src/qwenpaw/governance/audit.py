@@ -11,6 +11,7 @@ Storage: single-file SQLite (~/.qwenpaw/audit.db), global singleton.
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import sqlite3
@@ -109,10 +110,11 @@ class AuditLog:
     _CHECK_INTERVAL = 1_000
 
     _instance: Optional[AuditLog] = None
+    _instance_lock = threading.Lock()
     _db_path: Path
-    _conn: sqlite3.Connection
+    _conn: Optional[sqlite3.Connection]
     _insert_count: int
-    _lock: threading.Lock
+    _lock: threading.RLock
 
     @classmethod
     def get_instance(
@@ -127,13 +129,22 @@ class AuditLog:
                 exists in a different directory, the request is logged
                 and ignored (the singleton stays shared).
         """
-        if cls._instance is None:
-            if db_dir is not None:
-                resolved_dir = Path(db_dir)
-            else:
-                resolved_dir = WORKING_DIR / "governance"
-            cls._instance = cls._create(resolved_dir / "audit.db")
-        return cls._instance
+        with cls._instance_lock:
+            if cls._instance is None:
+                if db_dir is not None:
+                    resolved_dir = Path(db_dir)
+                else:
+                    resolved_dir = WORKING_DIR / "governance"
+                cls._instance = cls._create(resolved_dir / "audit.db")
+            return cls._instance
+
+    @classmethod
+    def close_instance(cls) -> None:
+        """Close the process-wide singleton if it has been initialized."""
+        with cls._instance_lock:
+            instance = cls._instance
+        if instance is not None:
+            instance.close()
 
     @classmethod
     def _create(cls, db_path: Path) -> AuditLog:
@@ -154,7 +165,7 @@ class AuditLog:
         obj._conn.executescript(_SCHEMA)
         obj._conn.commit()
         obj._insert_count = 0
-        obj._lock = threading.Lock()
+        obj._lock = threading.RLock()
         return obj
 
     @staticmethod
@@ -175,14 +186,17 @@ class AuditLog:
         auto-purge DELETE operations (VACUUM is intentionally NOT run
         inside ``_auto_purge`` to avoid blocking the event loop).
         """
-        if self._conn:
-            try:
-                self._conn.execute("VACUUM")
-            except sqlite3.Error:
-                pass
-            self._conn.close()
-            self._conn = None
-        AuditLog._instance = None
+        with self._lock:
+            if self._conn is not None:
+                try:
+                    self._conn.execute("VACUUM")
+                except sqlite3.Error:
+                    pass
+                self._conn.close()
+                self._conn = None
+        with AuditLog._instance_lock:
+            if AuditLog._instance is self:
+                AuditLog._instance = None
 
     def record(
         self,
@@ -207,7 +221,10 @@ class AuditLog:
         """
         try:
             with self._lock:
-                self._conn.execute(
+                conn = self._conn
+                if conn is None:
+                    return
+                conn.execute(
                     "INSERT INTO audit_events "
                     "(ts, workspace_dir, agent_id, session_id, "
                     "tool_name, target, decision, reason, extra) "
@@ -224,7 +241,7 @@ class AuditLog:
                         "{}",
                     ),
                 )
-                self._conn.commit()
+                conn.commit()
 
                 # Auto-cleanup check
                 self._insert_count += 1
@@ -295,19 +312,21 @@ class AuditLog:
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
 
         try:
-            # Total count
-            count_sql = f"SELECT COUNT(*) FROM audit_events{where}"
-            total = self._conn.execute(count_sql, params).fetchone()[0]
+            with self._lock:
+                conn = self._conn
+                if conn is None:
+                    return [], 0
+                count_sql = f"SELECT COUNT(*) FROM audit_events{where}"
+                total = conn.execute(count_sql, params).fetchone()[0]
 
-            # Paginated query
-            data_sql = (
-                f"SELECT * FROM audit_events{where} "
-                "ORDER BY ts DESC LIMIT ? OFFSET ?"
-            )
-            data_params = params + [limit, offset]
-            rows = self._conn.execute(data_sql, data_params).fetchall()
+                data_sql = (
+                    f"SELECT * FROM audit_events{where} "
+                    "ORDER BY ts DESC LIMIT ? OFFSET ?"
+                )
+                data_params = params + [limit, offset]
+                rows = conn.execute(data_sql, data_params).fetchall()
 
-            return [_event_from_row(r) for r in rows], total
+                return [_event_from_row(r) for r in rows], total
         except sqlite3.Error as e:
             _logger.error(
                 "AuditLog.query: SQLite error: %s",
@@ -327,15 +346,19 @@ class AuditLog:
             Number of deleted records, or ``0`` on SQLite error.
         """
         try:
-            cursor = self._conn.execute(
-                "DELETE FROM audit_events WHERE ts < ?",
-                (before,),
-            )
-            self._conn.commit()
-            deleted = cursor.rowcount
-            if deleted > 0:
-                self._conn.execute("VACUUM")
-            return deleted
+            with self._lock:
+                conn = self._conn
+                if conn is None:
+                    return 0
+                cursor = conn.execute(
+                    "DELETE FROM audit_events WHERE ts < ?",
+                    (before,),
+                )
+                conn.commit()
+                deleted = cursor.rowcount
+                if deleted > 0:
+                    conn.execute("VACUUM")
+                return deleted
         except sqlite3.Error as e:
             _logger.error(
                 "AuditLog.purge: SQLite error: %s",
@@ -347,9 +370,12 @@ class AuditLog:
     @property
     def count(self) -> int:
         """Total number of records."""
-        return self._conn.execute(
-            "SELECT COUNT(*) FROM audit_events",
-        ).fetchone()[0]
+        with self._lock:
+            if self._conn is None:
+                return 0
+            return self._conn.execute(
+                "SELECT COUNT(*) FROM audit_events",
+            ).fetchone()[0]
 
     def _auto_purge(self) -> None:
         """Delete the oldest PURGE_COUNT records (caller holds ``_lock``).
@@ -361,6 +387,8 @@ class AuditLog:
         # oldest row; ``DELETE ... WHERE rowid <= ?`` then removes exactly
         # PURGE_COUNT rows. Using ``OFFSET PURGE_COUNT`` would have left an
         # off-by-one bug (deleting PURGE_COUNT + 1 rows).
+        if self._conn is None:
+            return
         row = self._conn.execute(
             "SELECT rowid FROM audit_events "
             "ORDER BY rowid ASC LIMIT 1 OFFSET ?",
@@ -377,3 +405,6 @@ class AuditLog:
                 "(VACUUM deferred to close).",
                 self.PURGE_COUNT,
             )
+
+
+atexit.register(AuditLog.close_instance)
