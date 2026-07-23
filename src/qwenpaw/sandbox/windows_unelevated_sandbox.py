@@ -18,7 +18,7 @@ Shared infrastructure:
     Process helpers:
         Shell command line building, stdio pipe I/O, Job Object creation.
     ACL cleanup:
-        Multi-strategy icacls-based removal with verification.
+        Win32 API-based DACL manipulation with verification.
 
 ``WindowsUnelevatedSandbox`` uses a WRITE_RESTRICTED token derived from
 the current process token without requiring administrator privileges.
@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import contextlib
 import ctypes
 import ctypes.wintypes
 import hashlib
@@ -43,13 +44,20 @@ import random
 import re
 import struct
 import subprocess
+import sys
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .config import ExecutionResult, SandboxConfig
+if sys.platform == "win32":
+    import msvcrt
+
+from .config import (  # noqa: E402  pylint: disable=wrong-import-position
+    ExecutionResult,
+    SandboxConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -110,16 +118,6 @@ class _WC:
     # Unelevated-specific write masks
     WRITE_ALLOW_MASK = (
         FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE | DELETE
-    )
-    DENY_WRITE_MASK = (
-        FILE_GENERIC_WRITE
-        | FILE_WRITE_DATA
-        | FILE_APPEND_DATA
-        | FILE_WRITE_EA
-        | FILE_WRITE_ATTRIBUTES
-        | GENERIC_WRITE
-        | DELETE
-        | FILE_DELETE_CHILD
     )
 
     # Token information classes
@@ -390,9 +388,7 @@ def _decode_pipe_output(raw: bytes) -> str:
 
 def _get_python_install_dir() -> Optional[str]:
     """Returns the Python installation root directory, or None."""
-    import sys as _sys
-
-    exe = _sys.executable
+    exe = sys.executable
     if not exe or not os.path.isfile(exe):
         return None
     install_dir = os.path.dirname(os.path.abspath(exe))
@@ -613,6 +609,32 @@ def _get_advapi32():
             ctypes.c_void_p,
         ]
         _dll_advapi32.CreateProcessAsUserW.restype = ctypes.wintypes.BOOL
+        # ACL enumeration / manipulation (used by _remove_ace_by_sid_api)
+        _dll_advapi32.GetAclInformation.argtypes = [
+            ctypes.c_void_p,  # pAcl
+            ctypes.c_void_p,  # pAclInformation
+            ctypes.wintypes.DWORD,  # nAclInformationLength
+            ctypes.wintypes.DWORD,  # dwAclInformationClass
+        ]
+        _dll_advapi32.GetAclInformation.restype = ctypes.wintypes.BOOL
+        _dll_advapi32.GetAce.argtypes = [
+            ctypes.c_void_p,  # pAcl
+            ctypes.wintypes.DWORD,  # dwAceIndex
+            ctypes.POINTER(ctypes.c_void_p),  # pAce
+        ]
+        _dll_advapi32.GetAce.restype = ctypes.wintypes.BOOL
+        _dll_advapi32.DeleteAce.argtypes = [
+            ctypes.c_void_p,  # pAcl
+            ctypes.wintypes.DWORD,  # dwAceIndex
+        ]
+        _dll_advapi32.DeleteAce.restype = ctypes.wintypes.BOOL
+        _dll_advapi32.IsValidSid.argtypes = [ctypes.c_void_p]
+        _dll_advapi32.IsValidSid.restype = ctypes.wintypes.BOOL
+        _dll_advapi32.EqualSid.argtypes = [
+            ctypes.c_void_p,  # pSid1
+            ctypes.c_void_p,  # pSid2
+        ]
+        _dll_advapi32.EqualSid.restype = ctypes.wintypes.BOOL
     return _dll_advapi32
 
 
@@ -1111,89 +1133,249 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
-def _run_icacls_sync(args: List[str], timeout: float = 30.0) -> bool:
-    """Runs ``icacls`` synchronously.
+def _remove_ace_by_sid_api(  # pylint: disable=too-many-branches
+    path: str,
+    sid_string: str,
+) -> bool:
+    """Removes all ACEs matching a SID from a path's DACL using Win32 API.
+
+    Unlike ``icacls /remove``, this directly manipulates the ACL structure
+    and does not require the SID to resolve to a known account.  This is
+    necessary because the unelevated sandbox uses fabricated SIDs
+    (``S-1-5-21-<random>``) that ``icacls`` cannot handle (returns
+    ``ERROR_NONE_MAPPED`` / exit code 1332).
 
     Args:
-        args: Arguments to pass to ``icacls``.
-        timeout: Maximum seconds to wait.
+        path: Filesystem path to clean.
+        sid_string: SID string whose ACEs should be removed.
 
     Returns:
-        True if icacls exited with code 0.
+        True if all matching ACEs were removed (or none existed).
     """
-    if timeout <= 0:
-        return False
+    advapi32 = _get_advapi32()
+    kernel32 = _get_kernel32()
+
     try:
-        result = subprocess.run(
-            ["icacls"] + args,
-            capture_output=True,
-            timeout=int(max(1, timeout)),
-            check=False,
+        target_psid = _string_to_sid(sid_string)
+    except OSError:
+        logger.warning(
+            "Failed to convert SID string for removal: %s",
+            sid_string,
         )
-        return result.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
         return False
 
+    try:
+        p_sd = ctypes.c_void_p()
+        p_dacl = ctypes.c_void_p()
+        rc = advapi32.GetNamedSecurityInfoW(
+            ctypes.c_wchar_p(path),
+            _WC.SE_FILE_OBJECT,
+            _WC.DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            ctypes.byref(p_dacl),
+            None,
+            ctypes.byref(p_sd),
+        )
+        if rc != 0:
+            logger.warning(
+                "GetNamedSecurityInfoW(%s) failed during removal: rc=%d",
+                path,
+                rc,
+            )
+            return False
 
-def _verify_acl_removed_sync(
-    path: str,
-    sid: str,
-    timeout: float = 180.0,
-) -> bool:
+        try:
+            # Get ACE count
+            class _ACL_SIZE_INFORMATION(ctypes.Structure):
+                _fields_ = [
+                    ("AceCount", ctypes.wintypes.DWORD),
+                    ("AclBytesInUse", ctypes.wintypes.DWORD),
+                    ("AclBytesFree", ctypes.wintypes.DWORD),
+                ]
+
+            acl_info = _ACL_SIZE_INFORMATION()
+            _AclSizeInformation = 2
+            ok = advapi32.GetAclInformation(
+                p_dacl,
+                ctypes.byref(acl_info),
+                ctypes.sizeof(acl_info),
+                _AclSizeInformation,
+            )
+            if not ok:
+                logger.warning(
+                    "GetAclInformation(%s) failed: error=%d",
+                    path,
+                    ctypes.get_last_error(),
+                )
+                return False
+
+            # Find ACEs matching our SID (iterate forward, collect indices)
+            aces_to_delete: List[int] = []
+            for i in range(acl_info.AceCount):
+                ace_ptr = ctypes.c_void_p()
+                if not advapi32.GetAce(p_dacl, i, ctypes.byref(ace_ptr)):
+                    continue
+                if ace_ptr.value is None:
+                    continue
+                # ACE: AceType(1) AceFlags(1) AceSize(2) Mask(4) SID
+                ace_type = ctypes.cast(
+                    ace_ptr,
+                    ctypes.POINTER(ctypes.c_ubyte),
+                )[0]
+                # ACCESS_ALLOWED_ACE_TYPE=0, ACCESS_DENIED_ACE_TYPE=1
+                if ace_type > 1:
+                    continue
+                # SID starts at offset 8
+                sid_ptr = ctypes.c_void_p(ace_ptr.value + 8)
+                if advapi32.IsValidSid(sid_ptr) and advapi32.EqualSid(
+                    sid_ptr,
+                    target_psid,
+                ):
+                    aces_to_delete.append(i)
+
+            if not aces_to_delete:
+                return True  # Nothing to remove
+
+            # Delete in reverse order to preserve indices
+            for idx in reversed(aces_to_delete):
+                advapi32.DeleteAce(p_dacl, idx)
+
+            # Write back the modified DACL
+            rc2 = advapi32.SetNamedSecurityInfoW(
+                ctypes.c_wchar_p(path),
+                _WC.SE_FILE_OBJECT,
+                _WC.DACL_SECURITY_INFORMATION,
+                None,
+                None,
+                p_dacl,
+                None,
+            )
+            if rc2 != 0:
+                logger.warning(
+                    "SetNamedSecurityInfoW(%s) failed during removal: rc=%d",
+                    path,
+                    rc2,
+                )
+                return False
+
+            return True
+        finally:
+            if p_sd:
+                kernel32.LocalFree(p_sd)
+    finally:
+        kernel32.LocalFree(target_psid)
+
+
+def _verify_acl_removed_sync(path: str, sid: str) -> bool:
     """Verifies that a SID no longer appears in a path's DACL.
+
+    Uses Win32 API to enumerate the DACL and check for the SID,
+    avoiding reliance on icacls output parsing.
 
     Args:
         path: Filesystem path to check.
-        sid: SID string to look for in the ACL output.
-        timeout: Maximum seconds to wait for ``icacls``.
+        sid: SID string to look for in the DACL.
 
     Returns:
-        True if the SID is absent from the path's ACL (or the path
-        does not exist).
+        True if the SID is absent from the path's explicit ACEs
+        (or the path does not exist).
     """
     if not os.path.exists(path):
         return True
-    if timeout <= 0:
-        return False
+
+    advapi32 = _get_advapi32()
+    kernel32 = _get_kernel32()
+
     try:
-        result = subprocess.run(
-            ["icacls", path],
-            capture_output=True,
-            timeout=int(max(1, timeout)),
-            check=False,
+        target_psid = _string_to_sid(sid)
+    except OSError:
+        return False
+
+    try:
+        p_sd = ctypes.c_void_p()
+        p_dacl = ctypes.c_void_p()
+        rc = advapi32.GetNamedSecurityInfoW(
+            ctypes.c_wchar_p(path),
+            _WC.SE_FILE_OBJECT,
+            _WC.DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            ctypes.byref(p_dacl),
+            None,
+            ctypes.byref(p_sd),
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    output = result.stdout.decode("utf-8", errors="replace")
-    if sid in output:
-        return False
-    if sid.upper() in output.upper():
-        return False
-    return True
+        if rc != 0:
+            return False
+
+        try:
+
+            class _ACL_SIZE_INFORMATION(ctypes.Structure):
+                _fields_ = [
+                    ("AceCount", ctypes.wintypes.DWORD),
+                    ("AclBytesInUse", ctypes.wintypes.DWORD),
+                    ("AclBytesFree", ctypes.wintypes.DWORD),
+                ]
+
+            acl_info = _ACL_SIZE_INFORMATION()
+            ok = advapi32.GetAclInformation(
+                p_dacl,
+                ctypes.byref(acl_info),
+                ctypes.sizeof(acl_info),
+                2,  # AclSizeInformation
+            )
+            if not ok:
+                return False
+
+            for i in range(acl_info.AceCount):
+                ace_ptr = ctypes.c_void_p()
+                if not advapi32.GetAce(p_dacl, i, ctypes.byref(ace_ptr)):
+                    continue
+                if ace_ptr.value is None:
+                    continue
+                ace_type = ctypes.cast(
+                    ace_ptr,
+                    ctypes.POINTER(ctypes.c_ubyte),
+                )[0]
+                if ace_type > 1:
+                    continue
+                sid_ptr = ctypes.c_void_p(ace_ptr.value + 8)
+                if advapi32.IsValidSid(sid_ptr) and advapi32.EqualSid(
+                    sid_ptr,
+                    target_psid,
+                ):
+                    return False  # SID still present
+
+            return True  # SID not found
+        finally:
+            if p_sd:
+                kernel32.LocalFree(p_sd)
+    finally:
+        kernel32.LocalFree(target_psid)
 
 
 def _remove_acl_with_verify_sync(
     path: str,
     sid: str,
     *,
-    reset_only: bool = False,
+    _reset_only: bool = False,
     deadline: float = 0.0,
 ) -> bool:
-    """Removes ACEs for a SID using multi-strategy retry with verification.
+    """Removes ACEs for a SID using Win32 API with verification.
 
-    Tries up to six escalating strategies, verifying removal after each:
-        1. Basic ``/remove``
-        2. Recursive ``/remove /T /C``
-        3. Explicit ``/remove:g`` and ``/remove:d``
-        4. Enable inheritance then ``/remove``
-        5. Break inheritance then ``/remove``
-        6. ``/reset`` then ``/remove``
+    Uses direct DACL manipulation via ``GetNamedSecurityInfoW`` /
+    ``DeleteAce`` / ``SetNamedSecurityInfoW`` to remove ACEs matching
+    the given SID.  This approach works reliably with fabricated SIDs
+    that ``icacls`` cannot handle (icacls returns ERROR_NONE_MAPPED
+    for SIDs not in SAM/AD).
+
+    Falls back to a retry loop if the first attempt fails (e.g. due
+    to a transient sharing violation from a process exiting).
 
     Args:
         path: Filesystem path to clean.
         sid: SID string to remove from the DACL.
-        reset_only: If True, skip strategies 1-5 and only use
-            reset+remove.
+        _reset_only: Unused (kept for API compatibility).
         deadline: Monotonic time deadline. 0.0 means no deadline.
 
     Returns:
@@ -1206,91 +1388,28 @@ def _remove_acl_with_verify_sync(
     def _budget_ok() -> bool:
         return deadline <= 0 or time.monotonic() < deadline
 
-    def _budget_timeout() -> float:
-        if deadline <= 0:
-            return 30.0
-        return min(30.0, max(1.0, deadline - time.monotonic()))
-
-    strategies = [
-        lambda: _run_icacls_sync(
-            [path, "/remove", f"*{sid}"],
-            timeout=_budget_timeout(),
-        ),
-        lambda: _run_icacls_sync(
-            [path, "/remove", f"*{sid}", "/T", "/C"],
-            timeout=_budget_timeout(),
-        ),
-        lambda: (
-            _run_icacls_sync(
-                [path, "/remove:g", f"*{sid}", "/T", "/C"],
-                timeout=_budget_timeout(),
-            ),
-            _run_icacls_sync(
-                [path, "/remove:d", f"*{sid}", "/T", "/C"],
-                timeout=_budget_timeout(),
-            ),
-        ),
-        lambda: (
-            _run_icacls_sync(
-                [path, "/inheritance:e"],
-                timeout=_budget_timeout(),
-            ),
-            _run_icacls_sync(
-                [path, "/remove", f"*{sid}", "/T", "/C"],
-                timeout=_budget_timeout(),
-            ),
-        ),
-        lambda: (
-            _run_icacls_sync(
-                [path, "/inheritance:d"],
-                timeout=_budget_timeout(),
-            ),
-            _run_icacls_sync(
-                [path, "/remove", f"*{sid}", "/T", "/C"],
-                timeout=_budget_timeout(),
-            ),
-        ),
-        lambda: (
-            _run_icacls_sync([path, "/reset"], timeout=_budget_timeout()),
-            _run_icacls_sync(
-                [path, "/remove", f"*{sid}", "/T", "/C"],
-                timeout=_budget_timeout(),
-            ),
-        ),
-    ]
-
-    if reset_only:
-        strategies = [strategies[-1]]
-
-    for attempt, strategy in enumerate(strategies, 1):
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
         if not _budget_ok():
             logger.warning(
-                "ACL cleanup deadline reached; skipping remaining removal "
-                "for %s",
+                "ACL cleanup deadline reached; skipping removal for %s",
                 path,
             )
             return False
 
-        strategy()
+        if _remove_ace_by_sid_api(path, sid):
+            if _verify_acl_removed_sync(path, sid):
+                return True
 
-        if attempt > 1:
-            if not _budget_ok():
-                return False
-            sleep_time = (
-                min(1.0, max(0, deadline - time.monotonic()))
-                if deadline > 0
-                else 1.0
-            )
-            time.sleep(sleep_time)
-
-        if _verify_acl_removed_sync(path, sid, timeout=_budget_timeout()):
-            return True
+        # Brief pause before retry (handles transient sharing violations)
+        if attempt < max_attempts and _budget_ok():
+            time.sleep(0.5)
 
     logger.warning(
         "ACL for SID %s could NOT be removed from %s after %d attempts",
         sid,
         path,
-        len(strategies),
+        max_attempts,
     )
     return False
 
@@ -1421,25 +1540,6 @@ def _add_write_allow_ace(path: str, cap_psid: ctypes.c_void_p) -> bool:
     )
 
 
-def _add_deny_write_ace(path: str, cap_psid: ctypes.c_void_p) -> bool:
-    """Adds an inheritable deny-write ACE for a capability SID on a path.
-
-    Args:
-        path: Filesystem path to deny write access to.
-        cap_psid: Pointer to the capability SID.
-
-    Returns:
-        True if the ACE was set successfully.
-    """
-    return _set_path_ace(
-        path,
-        cap_psid,
-        _WC.DENY_WRITE_MASK,
-        _WC.DENY_ACCESS,
-        inherit=True,
-    )
-
-
 def _set_path_ace(
     path: str,
     psid: ctypes.c_void_p,
@@ -1518,28 +1618,6 @@ def _set_path_ace(
         return False
 
     return True
-
-
-def _remove_ace_sync(path: str, cap_sid_string: str) -> bool:
-    """Removes all ACEs for a SID from a path using ``icacls``.
-
-    Args:
-        path: Filesystem path to clean.
-        cap_sid_string: SID string to remove.
-
-    Returns:
-        True if removal succeeded.
-    """
-    try:
-        result = subprocess.run(
-            ["icacls", path, "/remove", f"*{cap_sid_string}"],
-            capture_output=True,
-            timeout=30,
-            check=False,
-        )
-        return result.returncode == 0
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1735,6 +1813,52 @@ _unelevated_state_dir = (
 )
 
 
+@contextlib.contextmanager
+def _sandbox_file_lock(sandbox_name: str):
+    """Cross-process/cross-thread file lock for sandbox initialization.
+
+    Uses a ``.lock`` file in the unelevated sandboxes directory with
+    ``msvcrt.locking`` (Windows mandatory lock) to serialize concurrent
+    ``_initialize_sync`` calls for the same sandbox_name.  This prevents
+    multiple instances from generating different capability SIDs and
+    racing on ACL application for the same workspace.
+
+    The lock is held only during initialization (acquire-or-create) and
+    released immediately after metadata is written.
+    """
+    lock_dir = _unelevated_state_dir / "unelevated_sandboxes"
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = lock_dir / f"{sandbox_name}.lock"
+
+    fd = None
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+        # Blocking lock: retry until acquired (handles concurrent access)
+        deadline = time.monotonic() + 30.0
+        while True:
+            try:
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                break
+            except (OSError, IOError) as exc:
+                if time.monotonic() > deadline:
+                    raise OSError(
+                        f"Timeout acquiring sandbox lock: {lock_path}",
+                    ) from exc
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            # Release the lock
+            try:
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def _compute_unelevated_fingerprint(config: SandboxConfig) -> str:
     """Computes a config fingerprint for sandbox reuse.
 
@@ -1904,6 +2028,10 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         Computes a config fingerprint and attempts to reuse an existing
         sandbox with matching ACLs.  Falls back to creating a new sandbox
         with a fresh capability SID if no reusable instance is found.
+
+        Uses a per-sandbox file lock to serialize concurrent initialization
+        for the same sandbox_name, preventing multiple instances from
+        generating conflicting capability SIDs and racing on ACL updates.
         """
         kernel32 = _get_kernel32()
         advapi32 = _get_advapi32()
@@ -1916,6 +2044,28 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         self._config_fingerprint = fingerprint
         self._sandbox_name = sandbox_name
 
+        # File lock ensures only one thread/process at a time can
+        # check-then-create for the same sandbox_name.  This prevents
+        # concurrent callers from generating different capability SIDs
+        # and overwriting each other's metadata.
+        with _sandbox_file_lock(sandbox_name):
+            self._initialize_locked(
+                kernel32,
+                advapi32,
+                workspace,
+                sandbox_name,
+                fingerprint,
+            )
+
+    def _initialize_locked(
+        self,
+        kernel32,
+        advapi32,
+        workspace: str,
+        sandbox_name: str,
+        fingerprint: str,
+    ) -> None:
+        """Inner initialization logic, called under the sandbox file lock."""
         # Try to reuse an existing sandbox with the same fingerprint
         meta = _find_reusable_unelevated(sandbox_name)
         if meta is not None:
@@ -2004,7 +2154,6 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
             )
 
         self._apply_mount_acls(workspace)
-        self._apply_deny_acls()
 
         assert self._cap_sid_string is not None
         self._metadata_path = _save_unelevated_metadata(
@@ -2030,19 +2179,6 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
                 )
             else:
                 logger.warning("Failed to set ACE on mount: %s", mount_path)
-
-    def _apply_deny_acls(self) -> None:
-        """Applies deny-write ACEs on configured deny paths."""
-        assert self._cap_psid is not None
-        for deny_path in self._config.deny_paths:
-            if not os.path.exists(deny_path):
-                continue
-            if _add_deny_write_ace(deny_path, self._cap_psid):
-                self._acl_entries.append(
-                    _UnelevatedAclEntry(deny_path, "deny_write", "cap"),
-                )
-            else:
-                logger.warning("Failed to set deny ACE on: %s", deny_path)
 
     async def execute(
         self,
@@ -2201,6 +2337,7 @@ def _migrate_legacy_state_file() -> None:
     try:
         state = json.loads(legacy_file.read_text(encoding="utf-8"))
         cap_sid = state.get("cap_sid", "")
+        failed_paths: List[str] = []
         if cap_sid:
             all_paths = state.get("acl_paths", []) + state.get(
                 "deny_paths",
@@ -2209,27 +2346,34 @@ def _migrate_legacy_state_file() -> None:
             deadline = time.monotonic() + 60.0
             for path in all_paths:
                 if os.path.exists(path):
-                    _remove_acl_with_verify_sync(
+                    if not _remove_acl_with_verify_sync(
                         path,
                         cap_sid,
                         deadline=deadline,
-                    )
+                    ):
+                        failed_paths.append(path)
+        if failed_paths:
+            logger.warning(
+                "Legacy migration: failed to remove ACL for SID %s "
+                "from %d path(s): %s",
+                cap_sid,
+                len(failed_paths),
+                failed_paths,
+            )
         legacy_file.unlink(missing_ok=True)
         logger.info("Migrated legacy unelevated sandbox state file")
     except (json.JSONDecodeError, OSError) as e:
         logger.warning("Failed to migrate legacy state file: %s", e)
 
 
-def shutdown_cleanup() -> None:
+def shutdown_cleanup() -> None:  # pylint: disable=too-many-branches
     """Best-effort cleanup of unelevated sandbox ACLs on process exit.
 
     Iterates per-instance metadata files under
     ``~/.qwenpaw/unelevated_sandboxes/``, skips sandboxes whose owner
-    process is still alive, and removes all ACEs using the multi-strategy
-    verified removal.
+    process is still alive, and removes all ACEs using Win32 API-based
+    DACL manipulation.
     """
-    import sys
-
     if sys.platform != "win32":
         return
 
@@ -2263,25 +2407,38 @@ def shutdown_cleanup() -> None:
 
         acl_entries = meta.get("acl_entries", [])
         deadline = time.monotonic() + 60.0
+        failed_paths: List[str] = []
 
         for entry in acl_entries:
             entry_path = entry.get("path", "")
             if entry_path and os.path.exists(entry_path):
-                _remove_acl_with_verify_sync(
+                if not _remove_acl_with_verify_sync(
                     entry_path,
                     cap_sid,
                     deadline=deadline,
-                )
+                ):
+                    failed_paths.append(entry_path)
+
+        sandbox_id = meta.get("sandbox_id", cap_sid)
+
+        if failed_paths:
+            logger.warning(
+                "Unelevated sandbox cleanup: failed to remove ACL for "
+                "SID %s from %d path(s): %s",
+                cap_sid,
+                len(failed_paths),
+                failed_paths,
+            )
+        else:
+            logger.info(
+                "Unelevated sandbox cleanup: removed ACEs for %s",
+                sandbox_id,
+            )
 
         try:
             meta_file.unlink()
         except OSError:
             pass
-
-        logger.info(
-            "Unelevated sandbox cleanup: removed ACEs for %s",
-            meta.get("sandbox_id", cap_sid),
-        )
 
     if sb_dir.exists() and not list(sb_dir.glob("*.json")):
         try:
