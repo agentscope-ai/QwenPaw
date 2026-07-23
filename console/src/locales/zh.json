@@ -221,6 +221,8 @@
     "createSuccess": "Harvest 创建成功",
     "emptyApprovals": "暂无待审批项",
     "emptyPush": "暂无推送消息",
+    "wobbleEnable": "开启审批震动提醒",
+    "wobbleDisable": "关闭审批震动提醒",
     "emptyHarvests": "暂无 Harvest 任务",
     "statusReadyToHarvest": "可立即收获",
     "statusGrowing": "生成中",

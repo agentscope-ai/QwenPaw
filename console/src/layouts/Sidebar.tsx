@@ -36,6 +36,7 @@ import { useCodingMode } from "../stores/codingModeStore";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
 import { buildSessionPath, getSessionIdFromPath } from "../utils/sessionRoute";
 import sessionApi from "../pages/Chat/sessionApi";
+import { useInboxWobble } from "../hooks/useInboxWobble";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 import { useMenuItems, useRoutes } from "../plugins/registry/hooks";
@@ -133,6 +134,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [hasPendingApprovals, setHasPendingApprovals] = useState(false);
   const [shakeInbox, setShakeInbox] = useState(false);
+  const [wobbleEnabled] = useInboxWobble();
   const currentApprovalIdsRef = useRef<Set<string>>(new Set());
   const seenApprovalIdsRef = useRef<Set<string>>(new Set());
 
@@ -261,12 +263,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     };
   }, []);
 
-  // ── Inbox badge dot: orange when approvals pending, green when only unread
-  // messages, hidden when nothing.
+  // ── Inbox badge dot & wobble ─────────────────────────────────────────────
   const hasInboxUnread = hasUnreadMessages || hasPendingApprovals;
   const inboxDotColor = hasPendingApprovals
     ? "#e04848"
     : "rgba(255, 157, 77, 1)";
+  const effectiveShake = shakeInbox && wobbleEnabled;
 
   // ── Adapter: convert MenuItem trees to antd, with inbox badge decoration.
 
@@ -303,7 +305,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   };
 
   const getItemClassName = (item: MenuItem) => {
-    if (item.id === "core.inbox" && shakeInbox) {
+    if (item.id === "core.inbox" && effectiveShake) {
       return styles.inboxShake;
     }
     return undefined;
@@ -312,9 +314,14 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const agentMenuItems = useMemo(
     () =>
       toAntdItems(agentMenu, { collapsed, decorateLabel, getItemClassName }),
-    // hasUnreadMessages / hasPendingApprovals / shakeInbox closures — listed as deps explicitly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [agentMenu, collapsed, hasUnreadMessages, hasPendingApprovals, shakeInbox],
+    [
+      agentMenu,
+      collapsed,
+      hasUnreadMessages,
+      hasPendingApprovals,
+      effectiveShake,
+    ],
   );
 
   const settingsMenuItems = useMemo(
@@ -517,7 +524,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                   className={`${styles.collapsedNavItem} ${
                     isActive ? styles.collapsedNavItemActive : ""
                   }${
-                    item.key === "core.inbox" && shakeInbox
+                    item.key === "core.inbox" && effectiveShake
                       ? ` ${styles.inboxShake}`
                       : ""
                   }`}
@@ -553,7 +560,9 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                     key={entry.key}
                     className={`${styles.simpleNavItem} ${
                       isActive ? styles.simpleNavItemActive : ""
-                    }${isInbox && shakeInbox ? ` ${styles.inboxShake}` : ""}`}
+                    }${
+                      isInbox && effectiveShake ? ` ${styles.inboxShake}` : ""
+                    }`}
                     onMouseEnter={isInbox ? handleInboxHover : undefined}
                     onClick={() =>
                       entry.href

@@ -221,6 +221,8 @@
     "createSuccess": "Harvest created successfully",
     "emptyApprovals": "No pending approvals",
     "emptyPush": "No push messages",
+    "wobbleEnable": "Enable approval wobble notification",
+    "wobbleDisable": "Disable approval wobble notification",
     "emptyHarvests": "No harvests yet",
     "statusReadyToHarvest": "Ready to Harvest",
     "statusGrowing": "Growing",

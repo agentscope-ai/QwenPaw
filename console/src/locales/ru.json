@@ -2732,6 +2732,8 @@
     "createSuccess": "Сбор успешно создан",
     "emptyApprovals": "Нет ожидающих подтверждений",
     "emptyPush": "Нет push-сообщений",
+    "wobbleEnable": "Включить уведомление о подтверждении",
+    "wobbleDisable": "Отключить уведомление о подтверждении",
     "emptyHarvests": "Сборов пока нет",
     "statusReadyToHarvest": "Готово к сбору",
     "statusGrowing": "Растёт",
