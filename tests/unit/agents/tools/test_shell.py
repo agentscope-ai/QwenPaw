@@ -118,9 +118,7 @@ class TestCollapseNewlinesOutsideQuotes:
         assert _collapse_newlines_outside_quotes("echo\nhello") == "echo hello"
 
     def test_crlf_to_space(self):
-        assert (
-            _collapse_newlines_outside_quotes("echo\r\nhello") == "echo hello"
-        )
+        assert _collapse_newlines_outside_quotes("echo\r\nhello") == "echo hello"
 
     def test_single_quoted_newline_preserved(self):
         result = _collapse_newlines_outside_quotes("echo 'hello\nworld'")
@@ -157,9 +155,7 @@ class TestCollapseEmbeddedNewlines:
 
     def test_no_newlines_unchanged(self):
         command = "echo hello"
-        assert (
-            _collapse_embedded_newlines(command, "powershell.exe") == command
-        )
+        assert _collapse_embedded_newlines(command, "powershell.exe") == command
 
     @patch("qwenpaw.agents.tools.shell.sys")
     def test_windows_cmd_collapses_all(self, mock_sys):
@@ -187,8 +183,7 @@ class TestCollapseEmbeddedNewlines:
     ):
         mock_sys.platform = "win32"
         command = (
-            f'$content = @"{newline}hello{newline}world'
-            f'{newline}"@{newline}$content'
+            f'$content = @"{newline}hello{newline}world{newline}"@{newline}$content'
         )
         assert _collapse_embedded_newlines(command, shell) == command
 
@@ -426,12 +421,15 @@ class TestExecuteShellCommand:
         mock_proc.returncode = 0
         mock_proc.pid = 12345
 
-        with patch(
-            "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
-            AsyncMock(return_value=mock_proc),
-        ), patch(
-            "qwenpaw.agents.tools.shell.asyncio.wait_for",
-            side_effect=fake_wait_for,
+        with (
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
+                AsyncMock(return_value=mock_proc),
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.wait_for",
+                side_effect=fake_wait_for,
+            ),
         ):
             from qwenpaw.agents.tools.shell import (
                 execute_shell_command,
@@ -466,12 +464,15 @@ class TestExecuteShellCommand:
         mock_proc.returncode = 1
         mock_proc.pid = 12345
 
-        with patch(
-            "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
-            AsyncMock(return_value=mock_proc),
-        ), patch(
-            "qwenpaw.agents.tools.shell.asyncio.wait_for",
-            side_effect=fake_wait_for,
+        with (
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
+                AsyncMock(return_value=mock_proc),
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.wait_for",
+                side_effect=fake_wait_for,
+            ),
         ):
             from qwenpaw.agents.tools.shell import (
                 execute_shell_command,
@@ -503,12 +504,15 @@ class TestExecuteShellCommand:
         mock_proc.returncode = 0
         mock_proc.pid = 12345
 
-        with patch(
-            "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
-            AsyncMock(return_value=mock_proc),
-        ), patch(
-            "qwenpaw.agents.tools.shell.asyncio.wait_for",
-            side_effect=fake_wait_for,
+        with (
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
+                AsyncMock(return_value=mock_proc),
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.wait_for",
+                side_effect=fake_wait_for,
+            ),
         ):
             from qwenpaw.agents.tools.shell import (
                 execute_shell_command,
@@ -540,12 +544,15 @@ class TestExecuteShellCommand:
         mock_proc.returncode = 0
         mock_proc.pid = 12345
 
-        with patch(
-            "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
-            AsyncMock(return_value=mock_proc),
-        ), patch(
-            "qwenpaw.agents.tools.shell.asyncio.wait_for",
-            side_effect=fake_wait_for,
+        with (
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
+                AsyncMock(return_value=mock_proc),
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.wait_for",
+                side_effect=fake_wait_for,
+            ),
         ):
             from qwenpaw.agents.tools.shell import (
                 execute_shell_command,
@@ -577,12 +584,15 @@ class TestExecuteShellCommand:
         mock_proc.returncode = 0
         mock_proc.pid = 12345
 
-        with patch(
-            "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
-            AsyncMock(return_value=mock_proc),
-        ), patch(
-            "qwenpaw.agents.tools.shell.asyncio.wait_for",
-            side_effect=fake_wait_for,
+        with (
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.create_subprocess_shell",
+                AsyncMock(return_value=mock_proc),
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.asyncio.wait_for",
+                side_effect=fake_wait_for,
+            ),
         ):
             from qwenpaw.agents.tools.shell import (
                 execute_shell_command,
