@@ -26,6 +26,13 @@ _SRC = pathlib.Path(__file__).resolve().parents[2] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+# Clear any cached site-packages qwenpaw modules (pytest loads qwenpaw via
+# conftest / plugins before our test runs) so the source-tree import below
+# resolves from src/ rather than the installed package.
+for _mod_name in list(sys.modules):
+    if _mod_name.startswith("qwenpaw") or _mod_name.startswith("agentscope"):
+        del sys.modules[_mod_name]
+
 # pylint: disable=wrong-import-position
 import qwenpaw.agents.memory.reme_light_memory_manager as mgr  # noqa: E402
 
