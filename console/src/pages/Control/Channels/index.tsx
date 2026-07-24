@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Form } from "@agentscope-ai/design";
 import { Badge, Button, Input, Modal, Select, Space, Tooltip } from "antd";
-import {
-  AuditOutlined,
-  CloudDownloadOutlined,
-  SafetyOutlined,
-} from "@ant-design/icons";
+import { AuditOutlined, SafetyOutlined } from "@ant-design/icons";
+import { Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { ChannelDependencyInstallSource } from "../../../api/modules/channel";
@@ -187,7 +184,7 @@ function ChannelsPage() {
         Modal.confirm({
           title: (
             <Space size={8}>
-              <CloudDownloadOutlined />
+              <Download size={18} />
               {t(
                 reinstall
                   ? "channels.reinstallDependenciesTitle"

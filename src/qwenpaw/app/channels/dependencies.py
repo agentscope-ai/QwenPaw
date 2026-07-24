@@ -22,7 +22,7 @@ import sys
 import tempfile
 import threading
 import tomllib
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable, Literal
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -226,14 +226,39 @@ def _requirement_applies(raw: str) -> bool:
     return req.marker is None or req.marker.evaluate()
 
 
-def _is_requirement_satisfied(req: Requirement) -> bool:
-    if _is_frozen():
-        return PluginLoader.is_requirement_satisfied(req)
+RequirementState = Literal["satisfied", "missing", "version_mismatch"]
+
+
+def _requirement_state(req: Requirement) -> RequirementState:
     try:
         installed = version(req.name)
     except PackageNotFoundError:
-        return False
-    return not req.specifier or req.specifier.contains(installed)
+        if _is_frozen():
+            unversioned = Requirement(req.name)
+            if PluginLoader.is_requirement_satisfied(unversioned):
+                return "satisfied"
+        return "missing"
+    if not req.specifier or req.specifier.contains(installed):
+        return "satisfied"
+    return "version_mismatch"
+
+
+def _is_requirement_satisfied(req: Requirement) -> bool:
+    return _requirement_state(req) == "satisfied"
+
+
+def _requirements_with_state(
+    spec: ChannelSpec,
+    state: RequirementState,
+) -> list[str]:
+    _ensure_channel_site_on_path()
+    result: list[str] = []
+    for raw in requirements_for_extra(spec.extra):
+        if not _requirement_applies(raw):
+            continue
+        if _requirement_state(Requirement(raw)) == state:
+            result.append(raw)
+    return result
 
 
 def missing_requirements(spec: ChannelSpec) -> list[str]:
@@ -249,6 +274,20 @@ def missing_requirements(spec: ChannelSpec) -> list[str]:
     return missing
 
 
+def version_mismatch_requirements(spec: ChannelSpec) -> list[str]:
+    """Return installed requirements outside the supported version."""
+    return _requirements_with_state(spec, "version_mismatch")
+
+
+def runtime_dependency_install_enabled() -> bool:
+    """Return whether runtime dependency installation is enabled."""
+    return os.environ.get("QWENPAW_RUNTIME_DEP_INSTALL", "1").lower() not in {
+        "0",
+        "false",
+        "no",
+    }
+
+
 @dataclass
 class InstallJob:
     id: str
@@ -257,6 +296,7 @@ class InstallJob:
     source: str = "aliyun"
     custom_index_url: str | None = None
     reinstall: bool = False
+    version_repair: bool = False
     status: str = "queued"
     created_at: str = field(default_factory=_utc_now)
     updated_at: str = field(default_factory=_utc_now)
@@ -278,6 +318,7 @@ class InstallJob:
         data = self.storage_dict()
         data.pop("owner_pid", None)
         data.pop("owner_started_at", None)
+        data.pop("version_repair", None)
         return data
 
 
@@ -434,6 +475,7 @@ class ChannelDependencyService:
             source=source,
             custom_index_url=custom_index_url,
             reinstall=reinstall,
+            version_repair=False,
         )
         if created:
             asyncio.create_task(self._run_job(job, on_success=on_success))
@@ -447,6 +489,7 @@ class ChannelDependencyService:
         source: str,
         custom_index_url: str | None,
         reinstall: bool,
+        version_repair: bool,
     ) -> tuple[InstallJob, bool]:
         with self._persist_lock, self._jobs_file_lock() as acquired:
             if not acquired:
@@ -477,6 +520,7 @@ class ChannelDependencyService:
                 source=source,
                 custom_index_url=custom_index_url,
                 reinstall=reinstall,
+                version_repair=version_repair,
                 owner_pid=os.getpid(),
                 owner_started_at=psutil.Process().create_time(),
             )
@@ -485,6 +529,53 @@ class ChannelDependencyService:
             self._write_jobs_file(jobs)
             self._replace_cached_jobs(jobs, local_job=job)
         return job, True
+
+    async def repair_version_mismatches(
+        self,
+        *,
+        on_success: Callable[[], Awaitable[None]] | None = None,
+    ) -> list[InstallJob]:
+        """Repair installed Channel dependencies with unsupported versions."""
+        if not runtime_dependency_install_enabled():
+            return []
+
+        repaired: list[InstallJob] = []
+        for channel, spec in BUILTIN_CHANNEL_CATALOG.items():
+            if not spec.platform_supported or not spec.extra:
+                continue
+            try:
+                requirements = await asyncio.to_thread(
+                    version_mismatch_requirements,
+                    spec,
+                )
+                if not requirements:
+                    continue
+                job, created = await asyncio.to_thread(
+                    self._create_install_job,
+                    channel,
+                    requirements,
+                    source="aliyun",
+                    custom_index_url=None,
+                    reinstall=False,
+                    version_repair=True,
+                )
+            except Exception:
+                logger.exception(
+                    "Could not schedule Channel dependency repair: %s",
+                    channel,
+                )
+                continue
+            if created:
+                await self._run_job(job)
+                repaired.append(job)
+
+        succeeded = any(job.status == "succeeded" for job in repaired)
+        if on_success is not None and succeeded:
+            try:
+                await on_success()
+            except Exception:
+                logger.exception("Post-repair Channel reload failed")
+        return repaired
 
     async def _run_job(
         self,
@@ -497,10 +588,16 @@ class ChannelDependencyService:
             await asyncio.to_thread(self._install_locked, job)
             await asyncio.to_thread(self._raise_if_cancelled, job)
             await asyncio.to_thread(self._update_job, job, status="verifying")
-            remaining = await asyncio.to_thread(
-                self._verify_channel,
-                job.channel,
-            )
+            if job.version_repair:
+                remaining = await asyncio.to_thread(
+                    self._verify_requirements,
+                    job.requirements,
+                )
+            else:
+                remaining = await asyncio.to_thread(
+                    self._verify_channel,
+                    job.channel,
+                )
             await asyncio.to_thread(self._raise_if_cancelled, job)
             if remaining:
                 raise RuntimeError(
@@ -547,9 +644,17 @@ class ChannelDependencyService:
                 raise RuntimeError(
                     "Timed out waiting for another channel dependency install",
                 )
-            current = missing_requirements(
-                BUILTIN_CHANNEL_CATALOG[job.channel],
-            )
+            if job.version_repair:
+                current = [
+                    raw
+                    for raw in job.requirements
+                    if _requirement_state(Requirement(raw))
+                    == "version_mismatch"
+                ]
+            else:
+                current = missing_requirements(
+                    BUILTIN_CHANNEL_CATALOG[job.channel],
+                )
             if not current and not job.reinstall:
                 return
             requirements = job.requirements if job.reinstall else current
@@ -567,6 +672,19 @@ class ChannelDependencyService:
         except Exception as exc:
             return f"{type(exc).__name__}: {exc}"
         return None
+
+    @staticmethod
+    def _verify_requirements(requirements: list[str]) -> list[str]:
+        importlib.invalidate_caches()
+        _ensure_channel_site_on_path()
+        from .registry import clear_builtin_channel_cache
+
+        clear_builtin_channel_cache()
+        return [
+            raw
+            for raw in requirements
+            if not _is_requirement_satisfied(Requirement(raw))
+        ]
 
     @classmethod
     def _verify_channel(cls, channel: str) -> list[str]:
@@ -818,9 +936,6 @@ class ChannelDependencyService:
                 changed = True
                 continue
             job = InstallJob(**raw)
-            if job.source == "auto":
-                job.source = "aliyun"
-                changed = True
             safe_sources = [
                 _safe_source_label(value) for value in job.attempted_sources
             ]

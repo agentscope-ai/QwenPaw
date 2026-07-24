@@ -2,7 +2,6 @@
 
 import asyncio
 from datetime import datetime, timezone
-import os
 from typing import Any, List, Optional
 from urllib.parse import urlsplit
 
@@ -29,7 +28,10 @@ from ...config import (
 )
 from ..channels.registry import BUILTIN_CHANNEL_KEYS
 from ..channels.catalog import BUILTIN_CHANNEL_CATALOG
-from ..channels.dependencies import channel_dependency_service
+from ..channels.dependencies import (
+    channel_dependency_service,
+    runtime_dependency_install_enabled,
+)
 from ...config.timezone import normalize_tz
 from ...config.config import (
     AgentsLLMRoutingConfig,
@@ -199,11 +201,7 @@ async def install_channel_dependencies(
         default_factory=ChannelDependencyInstallRequest,
     ),
 ) -> dict:
-    if os.environ.get("QWENPAW_RUNTIME_DEP_INSTALL", "1").lower() in {
-        "0",
-        "false",
-        "no",
-    }:
+    if not runtime_dependency_install_enabled():
         raise HTTPException(
             status_code=403,
             detail="Runtime dependency installation is disabled",

@@ -355,6 +355,24 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             elif app.state.startup_ready.is_set():
                 startup_display.mark_finalizing()
 
+            from .channels.dependencies import channel_dependency_service
+
+            async def _reload_after_channel_repair() -> None:
+                current = await asyncio.to_thread(
+                    load_config,
+                    get_config_path(),
+                )
+                if not current.agents or not current.agents.profiles:
+                    return
+                for agent_id in current.agents.profiles:
+                    await workspace_registry.reload_agent(agent_id)
+
+            app.state.channel_dependency_repair_task = asyncio.create_task(
+                channel_dependency_service.repair_version_mismatches(
+                    on_success=_reload_after_channel_repair,
+                ),
+            )
+
             provider_manager.start_local_model_resume(local_model_manager)
 
             # Phase 2: load remaining plugins (channel plugins already
@@ -497,6 +515,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     try:
         yield
     finally:
+        channel_repair_task = getattr(
+            app.state,
+            "channel_dependency_repair_task",
+            None,
+        )
+        if channel_repair_task is not None and not channel_repair_task.done():
+            channel_repair_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await channel_repair_task
+
         # Cancel background startup if still in progress
         if not _bg_task.done():
             _bg_task.cancel()

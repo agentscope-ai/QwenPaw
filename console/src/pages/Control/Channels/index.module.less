@@ -195,6 +195,20 @@
     outline: 2px solid #1677ff;
     outline-offset: 1px;
   }
+
+  &[aria-disabled="true"] {
+    cursor: not-allowed;
+    opacity: 0.65;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.01);
+      border-color: rgba(0, 0, 0, 0.06);
+
+      .availableItemAction {
+        color: rgba(0, 0, 0, 0.45);
+      }
+    }
+  }
 }
 
 .availableItemName {
@@ -694,6 +708,15 @@
 
     &:focus-visible {
       outline-color: #ff7f16;
+    }
+
+    &[aria-disabled="true"]:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.08);
+
+      .availableItemAction {
+        color: rgba(255, 255, 255, 0.45);
+      }
     }
   }
 

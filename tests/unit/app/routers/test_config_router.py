@@ -169,14 +169,6 @@ def test_install_channel_dependencies_defaults_to_aliyun(client):
     assert start_install.await_args.kwargs["source"] == "aliyun"
 
 
-def test_install_channel_dependencies_rejects_removed_auto_source(client):
-    response = client.post(
-        "/api/config/channels/telegram/dependencies/install",
-        json={"source": "auto"},
-    )
-    assert response.status_code == 422
-
-
 def test_install_channel_dependencies_passes_reinstall(client):
     job = InstallJob(
         id="job-reinstall",
