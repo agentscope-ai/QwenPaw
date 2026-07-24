@@ -2676,7 +2676,11 @@
     "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
-    "marketDeveloper": "Developer"
+    "marketDeveloper": "Developer",
+    "marketSortLabel": "Sort plugins",
+    "marketSortDownloads": "Most downloaded",
+    "marketSortUpdated": "Recently updated",
+    "marketSortFavorites": "Most favorited"
   },
   "inbox": {
     "title": "受信トレイ",
@@ -2919,6 +2923,8 @@
       "status": "ステータス"
     },
     "loading": "読み込み中...",
+    "inputProgress": "{{count}} 文字を受信",
+    "rawInputPreview": "リアルタイムの未加工入力（末尾 4,096 文字）",
     "browserAction": {
       "startHeaded": "ブラウザを起動（表示あり）",
       "start": "ブラウザを起動",

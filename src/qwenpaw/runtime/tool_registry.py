@@ -107,6 +107,10 @@ class ToolRegistry:
         for d in descs:
             self.register(d)
 
+    def unregister(self, name: str) -> bool:
+        """Remove a tool by name. Returns ``True`` if it was present."""
+        return self._descs.pop(name, None) is not None
+
     def get(self, name: str) -> ToolDescriptor | None:
         return self._descs.get(name)
 

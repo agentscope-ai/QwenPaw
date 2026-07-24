@@ -1511,7 +1511,9 @@
     "memorySearch": "Tìm bộ nhớ {{query}}",
     "memorySearchDefault": "Tìm bộ nhớ",
     "updateMemory": "Cập nhật bộ nhớ",
-    "deleteMemory": "Xóa bộ nhớ"
+    "deleteMemory": "Xóa bộ nhớ",
+    "inputProgress": "Đã nhận {{count}} ký tự",
+    "rawInputPreview": "Đầu vào thô trực tiếp (4.096 ký tự cuối)"
   },
   "sessions": {
     "title": "Phiên làm việc",

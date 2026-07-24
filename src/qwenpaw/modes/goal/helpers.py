@@ -44,6 +44,7 @@ def register_goal_tools_governance() -> None:
                 python_name=py,
                 tool_type="internal",
                 policy_name=policy,
+                owner="builtin",
             )
     except Exception:  # noqa: BLE001
         logger.debug(

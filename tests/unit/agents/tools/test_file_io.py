@@ -11,6 +11,11 @@ Covers:
 """
 # pylint: disable=protected-access,unused-argument
 
+import asyncio
+import os
+import stat
+import threading
+import time
 from unittest.mock import patch
 
 import pytest
@@ -23,7 +28,10 @@ from qwenpaw.agents.tools.file_io import (
     read_file,
     write_file,
 )
-from qwenpaw.agents.tools.utils import TRUNCATION_METADATA_KEY
+from qwenpaw.agents.tools.utils import (
+    TRUNCATION_METADATA_KEY,
+    read_file_safe,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +117,22 @@ class TestReadFile:
         assert "hello world" in result.content[0].text
 
     @pytest.mark.asyncio
+    async def test_safe_read_uses_one_binary_snapshot(self, tmp_path):
+        """Safe reads strip a BOM and tolerate invalid trailing bytes."""
+        path = tmp_path / "snapshot.txt"
+        path.write_bytes(b"\xef\xbb\xbfhello\xff")
+
+        assert await read_file_safe(str(path)) == "hello"
+
+    @pytest.mark.asyncio
+    async def test_safe_read_normalizes_platform_newlines(self, tmp_path):
+        """Binary snapshots retain text-mode universal newline behavior."""
+        path = tmp_path / "newlines.txt"
+        path.write_bytes(b"first\r\nsecond\rthird\n")
+
+        assert await read_file_safe(str(path)) == "first\nsecond\nthird\n"
+
+    @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, tmp_path):
         result = await read_file(str(tmp_path / "missing.txt"))
         assert "does not exist" in result.content[0].text
@@ -178,6 +202,8 @@ class TestWriteFile:
         assert "Wrote" in result.content[0].text
         # .txt uses utf-8-sig which adds BOM
         assert f.read_text(encoding="utf-8-sig") == "hello"
+        if os.name != "nt":
+            assert stat.S_IMODE(f.stat().st_mode) == 0o644
 
     @pytest.mark.asyncio
     async def test_write_overwrites_existing(self, tmp_path):
@@ -284,3 +310,32 @@ class TestAppendFile:
             "No" in result.content[0].text
             and "file_path" in result.content[0].text
         )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_appends_are_serialized_per_path(self, tmp_path):
+        f = tmp_path / "concurrent.txt"
+        active = 0
+        max_active = 0
+        guard = threading.Lock()
+
+        def delayed_append(file_path, content, encoding):
+            nonlocal active, max_active
+            with guard:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.01)
+            with open(file_path, "a", encoding=encoding) as handle:
+                handle.write(content)
+            with guard:
+                active -= 1
+
+        with patch(
+            "qwenpaw.utils.io_utils._append_text",
+            delayed_append,
+        ):
+            await asyncio.gather(
+                *(append_file(str(f), f"{index}\n") for index in range(8)),
+            )
+
+        assert max_active == 1
+        assert len(f.read_text(encoding="utf-8-sig").splitlines()) == 8

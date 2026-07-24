@@ -31,10 +31,12 @@ class OMPModeBase(AgentMode):
 
     def __init__(self) -> None:
         self._gate: Any = None
+        self._workspace_ref: weakref.ReferenceType[Any] | None = None
         OMPModeBase._instances.append(weakref.ref(self))
 
     def setup(self, workspace: object) -> None:
         super().setup(workspace)
+        self._workspace_ref = weakref.ref(workspace)
         from qwenpaw.loop.gates import StopHandler, StopHandlerRegistration
 
         handler = StopHandler()
@@ -79,7 +81,11 @@ class OMPModeBase(AgentMode):
         ``_filter_by_scope`` keeps the first active non-default scope;
         without mutual exclusion a later ``/ralph`` would be ignored
         while an earlier ``/ultraqa`` gate still holds session state.
+
+        Only peers bound to the **same workspace** are deactivated —
+        modes from other workspaces must keep their own gates.
         """
+        my_ws = self._workspace_ref() if self._workspace_ref else None
         alive: list[weakref.ReferenceType] = []
         for ref in OMPModeBase._instances:
             mode = ref()
@@ -89,6 +95,9 @@ class OMPModeBase(AgentMode):
             # pylint: disable=protected-access
             peer_gate = mode._gate
             if mode is self or peer_gate is None:
+                continue
+            peer_ws = mode._workspace_ref() if mode._workspace_ref else None
+            if my_ws is not None and peer_ws is not my_ws:
                 continue
             if peer_gate._state() is not None:
                 logger.info(

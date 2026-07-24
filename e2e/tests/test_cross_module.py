@@ -167,10 +167,7 @@ When invoked, respond with: "Cross-module test skill executed successfully."
             log_test_step("7. Find an editable agent and click edit")
             editable_agent_found = False
             for agent_row in agent_rows:
-                edit_btn = agent_row.locator(
-                    'button:has(.spark-icon-spark-edit-line), '
-                    '.qwenpaw-space-item:nth-child(1) button'
-                ).first
+                edit_btn = agent_row.locator('button:has(.anticon-edit)').first
                 if edit_btn.count() > 0 and edit_btn.is_enabled(timeout=1000):
                     edit_btn.click()
                     page.wait_for_timeout(1500)

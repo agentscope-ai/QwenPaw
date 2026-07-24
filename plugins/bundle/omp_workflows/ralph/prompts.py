@@ -26,11 +26,13 @@ def build_continuation(
         )
 
     reviewer = resolve_role(critic_type)
+    # Sequential story loop runs in the main workspace (no fork): each
+    # story must land on the shared tree before the next story starts.
     executor_spawn = format_spawn_call(
         "executor",
         "Implement the following user story:\\n"
         "<story details + acceptance criteria>",
-        fork=True,
+        fork=False,
     )
     reviewer_spawn = format_spawn_call(
         reviewer,

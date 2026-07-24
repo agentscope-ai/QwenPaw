@@ -38,6 +38,9 @@ class ToolRegistry:
         # supplied — as opposed to shell tools like Bash that execute directly
         # when unsandboxed. See ``requires_sandbox`` for why this matters.
         self._sandbox_required: Dict[str, bool] = {}
+        # python_name → owner id (``"builtin"`` or plugin_id). Used to revoke
+        # plugin identities on unload / hot-reload.
+        self._owners: Dict[str, str] = {}
 
     def register(
         self,
@@ -66,15 +69,58 @@ class ToolRegistry:
                 -end in a sandbox-violation → approval loop.
         """
         self._types[tool_name] = tool_type
-        self._target_params[tool_name] = target_param
+        self._target_params[tool_name] = target_param or ""
         if pattern_param:
             self._pattern_params[tool_name] = pattern_param
+        else:
+            self._pattern_params.pop(tool_name, None)
         if sandbox_required:
             self._sandbox_required[tool_name] = True
+        else:
+            self._sandbox_required.pop(tool_name, None)
 
     def register_python_name(self, python_name: str, policy_name: str) -> None:
         """Register a python function name → policy tool name mapping."""
         self._python_name_map[python_name] = policy_name
+
+    def set_owner(self, python_name: str, owner: str) -> None:
+        """Record the lifecycle owner for a python tool name."""
+        if owner:
+            self._owners[python_name] = owner
+
+    def get_owner(self, python_name: str) -> Optional[str]:
+        """Return the lifecycle owner for *python_name*, if any."""
+        return self._owners.get(python_name)
+
+    def unregister_python_tool(self, python_name: str) -> bool:
+        """Remove one python tool mapping and orphaned policy identity.
+
+        Returns ``True`` when a mapping was removed.
+        """
+        pname = self._python_name_map.pop(python_name, None)
+        self._owners.pop(python_name, None)
+        if pname is None:
+            return False
+        if pname not in self._python_name_map.values():
+            self._types.pop(pname, None)
+            self._target_params.pop(pname, None)
+            self._pattern_params.pop(pname, None)
+            self._sandbox_required.pop(pname, None)
+        return True
+
+    def unregister_owner(self, owner: str) -> List[str]:
+        """Revoke all python tools owned by *owner*.
+
+        Built-in owner ``"builtin"`` and empty owner are refused so a
+        plugin unload cannot wipe the static catalog. Returns the removed
+        python names.
+        """
+        if not owner or owner == "builtin":
+            return []
+        names = [n for n, o in self._owners.items() if o == owner]
+        for name in names:
+            self.unregister_python_tool(name)
+        return names
 
     def get_type(self, tool_name: str) -> str:
         """Return the tool's type. Returns "unknown" if not registered."""
@@ -218,12 +264,14 @@ def register_tool_governance(
     policy_name: str = "",
     pattern_param: str = "",
     sandbox_required: bool = False,
+    owner: str = "",
 ) -> str:
     """Register one tool into the governance registry.
 
-    Idempotent only when the existing policy identity is owned by the same
-    ``python_name`` and metadata (type / target / pattern / sandbox) match.
-    Conflicting re-registration fails closed.
+    Idempotent when the existing policy identity is owned by the same
+    ``python_name`` and metadata match. The same *owner* may replace
+    identity metadata (plugin hot-reload). Conflicting re-registration
+    from a different owner fails closed.
 
     Used by:
     - builtin ``@tool_descriptor`` scan (``_register_from_descriptors``)
@@ -243,11 +291,23 @@ def register_tool_governance(
     )
     existing_type = registry.get_type(pname)
     existing_map = registry.get_mapped_policy_name(python_name)
+    existing_owner = registry.get_owner(python_name) or ""
 
     if existing_map is not None and existing_map != pname:
         raise GovernanceRegistrationConflict(
             f"Python tool {python_name!r} already maps to policy "
             f"{existing_map!r}; cannot remap to {pname!r}",
+        )
+
+    if (
+        existing_owner
+        and owner
+        and existing_owner != owner
+        and existing_map is not None
+    ):
+        raise GovernanceRegistrationConflict(
+            f"Python tool {python_name!r} is owned by {existing_owner!r}; "
+            f"refusing registration from {owner!r}",
         )
 
     if existing_type == "unknown":
@@ -259,9 +319,27 @@ def register_tool_governance(
             sandbox_required=sandbox_required,
         )
         registry.register_python_name(python_name, pname)
+        registry.set_owner(python_name, owner)
         return pname
 
     existing_identity = registry.get_identity(pname)
+
+    # Same owner may replace identity on hot-reload / force reinstall.
+    if (
+        owner
+        and existing_owner == owner
+        and existing_map == pname
+        and existing_identity != new_identity
+    ):
+        registry.register(
+            pname,
+            tool_type,
+            target_param,
+            pattern_param=pattern_param,
+            sandbox_required=sandbox_required,
+        )
+        return pname
+
     if existing_identity != new_identity:
         raise GovernanceRegistrationConflict(
             f"Governance policy identity conflict for {pname!r}: "
@@ -277,7 +355,8 @@ def register_tool_governance(
             f"(name-fold / ownership collision)",
         )
 
-    # Same python_name + identical metadata → idempotent.
+    # Same python_name + identical metadata → idempotent; bind owner if new.
+    registry.set_owner(python_name, owner)
     return pname
 
 
@@ -314,6 +393,7 @@ def _register_from_descriptors(registry: ToolRegistry) -> None:
             policy_name=gov.policy_name,
             pattern_param=gov.pattern_param,
             sandbox_required=gov.fail_without_sandbox,
+            owner="builtin",
         )
 
 
@@ -331,6 +411,7 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
         tool_type="internal",
         target_param="op",
         policy_name="RecallHistory",
+        owner="builtin",
     )
     register_tool_governance(
         registry,
@@ -339,6 +420,7 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
         target_param="source",
         policy_name="RecallHistoryPython",
         sandbox_required=True,
+        owner="builtin",
     )
     # Memory manager tool — registered dynamically outside agents.tools.
     register_tool_governance(
@@ -347,6 +429,7 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
         tool_type="internal",
         target_param="",
         policy_name="MemorySearch",
+        owner="builtin",
     )
 
 

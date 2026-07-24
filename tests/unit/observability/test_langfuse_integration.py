@@ -151,7 +151,7 @@ class TestLangfuseTraceHook:
         assert lf.get_current_trace().name == "qwenpaw.agent.react_loop"
         assert len(client.started) == 1
 
-    async def test_handles_scope_open_failure(self, monkeypatch):
+    async def test_handles_scope_open_failure(self, monkeypatch, caplog):
         """Hook swallows exceptions from scope.__aenter__ gracefully."""
         from qwenpaw.hooks.observability.langfuse_hook import (
             LangfuseTraceHook,
@@ -168,10 +168,12 @@ class TestLangfuseTraceHook:
         hook = LangfuseTraceHook()
         ctx = _make_hook_context()
 
-        result = await hook.run(ctx)
+        with caplog.at_level("WARNING"):
+            result = await hook.run(ctx)
 
         assert _LANGFUSE_SCOPE_KEY not in ctx.extras
         assert result.action.value == "continue"
+        assert "langfuse trace scope open failed" in caplog.text
 
     async def test_trace_id_is_hex_without_dashes(self, monkeypatch):
         """Hook emits a 32-char hex trace_id (uuid4().hex), not a dashed UUID.

@@ -771,6 +771,16 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     window.currentChannel = session.channel || DEFAULT_CHANNEL;
   }
 
+  /** Resets window identity globals to their defaults. Called on agent
+   *  switch: the globals are otherwise only rewritten when another session
+   *  loads, so a new agent would inherit the previous agent's session and
+   *  channel (possibly one that has since been deleted). */
+  resetWindowIdentity(): void {
+    window.currentSessionId = "";
+    window.currentUserId = DEFAULT_USER_ID;
+    window.currentChannel = DEFAULT_CHANNEL;
+  }
+
   private findSession(id: string): ExtendedSession | undefined {
     return this.sessionList.find(
       (x) => x.id === id || (x as ExtendedSession).realId === id,
@@ -845,10 +855,32 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         channel: session.channel || DEFAULT_CHANNEL,
       };
     }
+    // Window globals can outlive the session they came from (they are only
+    // rewritten when another session loads), so trust them only when they
+    // still resolve to a session in the current list. After an agent switch
+    // the list is reloaded and a stale identity — including a channel that
+    // may no longer exist — fails this lookup and falls through to defaults.
+    const windowSessionId = window.currentSessionId || "";
+    const windowSession = windowSessionId
+      ? (this.sessionList.find(
+          (s) =>
+            (s as ExtendedSession).sessionId === windowSessionId ||
+            s.id === windowSessionId,
+        ) as ExtendedSession | undefined)
+      : undefined;
+    if (windowSession?.userId) {
+      return {
+        sessionId: windowSession.sessionId || "",
+        userId: windowSession.userId,
+        channel: windowSession.channel || DEFAULT_CHANNEL,
+      };
+    }
+    // A fresh local id is still safe to keep: blank chats are always
+    // created on the console channel.
     return {
-      sessionId: window.currentSessionId || "",
-      userId: window.currentUserId || DEFAULT_USER_ID,
-      channel: window.currentChannel || DEFAULT_CHANNEL,
+      sessionId: isLocalTimestamp(windowSessionId) ? windowSessionId : "",
+      userId: DEFAULT_USER_ID,
+      channel: DEFAULT_CHANNEL,
     };
   }
 

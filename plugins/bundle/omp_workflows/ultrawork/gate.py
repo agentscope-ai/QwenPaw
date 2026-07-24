@@ -12,6 +12,8 @@ from qwenpaw.loop.gates.base import StopAction, StopHandlerResult
 from qwenpaw.loop.gates.loop_gate import LoopGate
 
 from ..shared.constants import ULTRAWORK_MAX_ITERATIONS
+from ..shared.fork_guard import forks_integrated, merge_blocked_continuation
+from ..shared.role_prompts import FORK_MERGE_PROTOCOL
 from ..shared.state import WorkflowState
 from .prompts import build_continuation as _build_prompt
 
@@ -24,6 +26,7 @@ class _UltraworkState:
     phase: str = "working"
     iteration: int = 0
     max_iterations: int = ULTRAWORK_MAX_ITERATIONS
+    blocked_on_merge: bool = False
 
 
 class UltraworkGate(LoopGate):
@@ -39,6 +42,16 @@ class UltraworkGate(LoopGate):
 
     def activate_for_work(self, workspace_dir: Path) -> Path:
         """Create state directory and activate."""
+        try:
+            from qwenpaw.agents.fork_project import begin_fork_scope
+
+            begin_fork_scope(workspace_dir)
+        except ImportError:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "begin_fork_scope unavailable; fork merge scope disabled",
+            )
         wf = WorkflowState(workspace_dir, "ultrawork")
         loop_dir = wf.create_instance()
         state = _UltraworkState(
@@ -70,6 +83,30 @@ class UltraworkGate(LoopGate):
         st.phase = phase
 
         if phase == "done":
+            integrated = await asyncio.to_thread(
+                forks_integrated,
+                data,
+                st.workspace_dir,
+            )
+            if not integrated:
+                # Keep target phase "done"; do not rewind to working.
+                st.blocked_on_merge = True
+                st.phase = "done"
+                await asyncio.to_thread(
+                    wf.update_state,
+                    {
+                        "merge_blocked": True,
+                        "resume_phase": "done",
+                    },
+                )
+                return StopHandlerResult(
+                    action=StopAction.INTERRUPT_AND_CONTINUE,
+                    reason="Ultrawork blocked: forks not integrated",
+                )
+            await asyncio.to_thread(
+                wf.update_state,
+                {"merge_blocked": False},
+            )
             await asyncio.to_thread(wf.cleanup)
             self.deactivate()
             return StopHandlerResult(
@@ -77,6 +114,7 @@ class UltraworkGate(LoopGate):
                 reason="Ultrawork completed",
             )
 
+        st.blocked_on_merge = False
         st.iteration += 1
         if st.iteration > st.max_iterations:
             await asyncio.to_thread(wf.cleanup)
@@ -101,6 +139,8 @@ class UltraworkGate(LoopGate):
         st: _UltraworkState | None = self._state()
         if st is None:
             return ""
+        if st.blocked_on_merge:
+            return merge_blocked_continuation(FORK_MERGE_PROTOCOL)
         return _build_prompt(
             st.loop_dir,
             iteration=st.iteration,

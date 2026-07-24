@@ -7,6 +7,7 @@ Wraps all interactions on the Chat page and exposes business-level methods.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional, List, Tuple
 from pathlib import Path
 from playwright.sync_api import Page, Locator, expect, TimeoutError
@@ -102,6 +103,27 @@ class ChatPage(BasePage):
     SESSION_PIN_BTN = 'button:has(.spark-icon-spark-mark-line), button:has(.anticon-pushpin)'
     SESSION_EDIT_BTN = 'button:has(.spark-icon-spark-edit-line), button:has(.anticon-edit)'
     SESSION_DELETE_BTN = 'button:has(.spark-icon-spark-delete-line), button:has(.anticon-delete)'
+
+    # --- Tool approval level toggle (composer / sender area) — upstream #5685 ---
+    # A single antd Tag whose text is one of the 4 levels; clicking it opens a
+    # dropdown of exactly 4 options. No CSS-module class or data-testid, so we
+    # anchor on the level texts (browser locale is en-US; ZH kept as fallback).
+    APPROVAL_LEVELS = {
+        "STRICT": ("Strict Mode", "严格模式"),
+        "SMART": ("Smart Mode", "智能模式"),
+        "AUTO": ("Auto Mode", "自动模式"),
+        "OFF": ("Off Mode", "关闭模式"),
+    }
+    _APPROVAL_LABEL_RE = re.compile(
+        r"Strict Mode|Smart Mode|Auto Mode|Off Mode|"
+        r"严格模式|智能模式|自动模式|关闭模式"
+    )
+    # Only items inside the currently-open dropdown (antd keeps closed menus in
+    # the DOM with a ``-hidden`` modifier).
+    APPROVAL_MENU_ITEM = (
+        '.qwenpaw-dropdown:not(.qwenpaw-dropdown-hidden) '
+        '.qwenpaw-dropdown-menu-item'
+    )
 
     # Settings and model
     MODEL_SELECTOR = '.qwenpaw-dropdown-trigger'
@@ -844,43 +866,92 @@ class ChatPage(BasePage):
         The dropdown is triggered by the SparkMoreLine "more" button and
         holds Pin / Rename / Archive / Delete items. Returns True when the
         menu is visible.
+
+        The ``moreBtn`` is a ``<span>`` that is ``pointer-events:none`` until
+        the row is ``:hover``-ed, and antd opens the menu on a real click. In
+        headless CI the CSS ``:hover`` can be lost between hovering the row and
+        clicking, so a plain/force click may land on the element *behind* the
+        span and never open the menu. We therefore hover the row and the
+        button, try a normal click, and fall back to a DOM
+        ``dispatchEvent('click')`` that bypasses the pointer-events gate
+        (React's delegated onClick still fires). Two attempts total.
         """
         sessions = self.get_session_items()
         if not sessions or index >= len(sessions):
             logger.warning(f"Session at index {index} not found")
             return False
         target = sessions[index]
-        try:
-            target.scroll_into_view_if_needed(timeout=5000)
-            target.hover(timeout=8000)
-        except Exception:
+
+        # antd keeps closed menus in the DOM with a ``-hidden`` modifier; the
+        # open one is the menu WITHOUT it.
+        open_menu_item = (
+            '.qwenpaw-dropdown:not(.qwenpaw-dropdown-hidden) '
+            '.qwenpaw-dropdown-menu-item'
+        )
+
+        def _menu_visible(timeout: int) -> bool:
             try:
-                target.hover(force=True, timeout=5000)
-            except Exception as exc:
-                logger.warning(f"[_open_session_menu] hover failed: {exc}")
+                self.page.locator(open_menu_item).first.wait_for(
+                    state="visible", timeout=timeout
+                )
+                return True
+            except (TimeoutError, Exception):
                 return False
-        self.wait(300)
-        more_btn = target.locator(self.SESSION_MORE_BTN).first
-        if more_btn.count() == 0:
-            logger.warning("[_open_session_menu] more button not found")
-            return False
-        try:
-            more_btn.click(timeout=5000)
-        except Exception:
+
+        for attempt in range(2):
+            # Reset any stale hover / overlay before (re)trying.
             try:
-                more_btn.click(force=True, timeout=5000)
-            except Exception as exc:
-                logger.warning(f"[_open_session_menu] more click failed: {exc}")
+                self.page.mouse.move(0, 0)
+            except Exception:
+                pass
+            try:
+                target.scroll_into_view_if_needed(timeout=5000)
+                target.hover(timeout=8000)
+            except Exception:
+                try:
+                    target.hover(force=True, timeout=5000)
+                except Exception as exc:
+                    logger.warning(f"[_open_session_menu] hover failed: {exc}")
+            self.wait(300)
+
+            more_btn = target.locator(self.SESSION_MORE_BTN).first
+            if more_btn.count() == 0:
+                logger.warning("[_open_session_menu] more button not found")
                 return False
-        try:
-            self.page.locator(
-                '.qwenpaw-dropdown-menu-item'
-            ).first.wait_for(state="visible", timeout=5000)
-        except (TimeoutError, Exception):
-            logger.warning("[_open_session_menu] dropdown did not appear")
-            return False
-        self.wait(200)
-        return True
+
+            # Hover the button so the row stays :hover-ed (moreBtn is
+            # pointer-events:none otherwise), then click.
+            try:
+                more_btn.hover(timeout=3000)
+            except Exception:
+                pass
+            try:
+                more_btn.click(timeout=4000)
+            except Exception:
+                pass
+            if _menu_visible(4000):
+                self.wait(200)
+                return True
+
+            # The click may have been swallowed by the pointer-events gate;
+            # fire it via the DOM so React's delegated onClick still opens the
+            # menu.
+            try:
+                more_btn.dispatch_event("click")
+            except Exception as exc:
+                logger.warning(
+                    f"[_open_session_menu] dispatch click failed: {exc}"
+                )
+            if _menu_visible(3000):
+                self.wait(200)
+                return True
+
+            logger.warning(
+                f"[_open_session_menu] dropdown did not appear "
+                f"(attempt {attempt + 1})"
+            )
+
+        return False
 
     def rename_session(self, index: int, new_name: str) -> "ChatPage":
         """Rename a session via more-menu → Rename → inline input → Enter."""
@@ -1009,6 +1080,57 @@ class ChatPage(BasePage):
             box.fill("")
             self.wait(800)
         return self
+
+    # ========== Tool approval level toggle ==========
+
+    def get_approval_toggle(self) -> Locator:
+        """Locate the approval-level Tag in the composer (matches any level)."""
+        return (
+            self.page.locator("span.qwenpaw-tag")
+            .filter(has_text=self._APPROVAL_LABEL_RE)
+            .first
+        )
+
+    def open_approval_menu(self) -> "ChatPage":
+        """Click the approval Tag and wait for its dropdown to render."""
+        self.get_approval_toggle().click()
+        self.page.locator(self.APPROVAL_MENU_ITEM).first.wait_for(
+            state="visible", timeout=5000
+        )
+        self.wait(200)
+        return self
+
+    def get_approval_menu_items(self) -> List[Locator]:
+        """Return the visible approval dropdown items (expected: 4)."""
+        return self.page.locator(self.APPROVAL_MENU_ITEM).all()
+
+    def select_approval_level(self, level: str) -> "ChatPage":
+        """Open the menu and pick a level by key (STRICT/SMART/AUTO/OFF)."""
+        en, zh = self.APPROVAL_LEVELS[level]
+        self.open_approval_menu()
+        item = self.page.locator(
+            f'{self.APPROVAL_MENU_ITEM}:has-text("{en}"), '
+            f'{self.APPROVAL_MENU_ITEM}:has-text("{zh}")'
+        ).first
+        item.click()
+        self.wait(500)
+        self.step_shot(f"approval_select_{level}")
+        return self
+
+    def get_approval_storage_entries(self) -> dict:
+        """Read all ``approval_level-*`` localStorage entries as {key: value}."""
+        return self.page.evaluate(
+            """() => {
+                const out = {};
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (k && k.indexOf('approval_level-') === 0) {
+                        out[k] = localStorage.getItem(k);
+                    }
+                }
+                return out;
+            }"""
+        )
 
     # ========== Model and Agent switching ==========
     

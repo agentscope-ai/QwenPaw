@@ -111,12 +111,20 @@ class WorkflowState:
             f.write(entry + "\n")
 
     def cleanup(self) -> None:
-        """Remove instance artifacts, keeping progress.txt if present."""
+        """Remove temporary control files; keep audit artifacts.
+
+        Deletes ``state.json`` / ``prd.json`` (and ``*.tmp`` sidecars)
+        only.  Specs, plans, handoffs, worker results, and
+        ``progress.txt`` are retained for post-run inspection.
+        """
         if not self._instance_dir or not self._instance_dir.exists():
             return
-        keep = {"progress.txt"}
+        remove_names = {"state.json", "prd.json"}
         for child in list(self._instance_dir.iterdir()):
-            if child.name in keep:
+            should_remove = child.name in remove_names or (
+                child.is_file() and child.name.endswith(".tmp")
+            )
+            if not should_remove:
                 continue
             try:
                 if child.is_dir():
@@ -130,7 +138,7 @@ class WorkflowState:
                     exc_info=True,
                 )
         self.append_log(f"[{self.mode_name}] cleanup complete")
-        logger.info("Cleaned up state files in %s", self._instance_dir)
+        logger.info("Cleaned up control files in %s", self._instance_dir)
 
     @staticmethod
     def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:

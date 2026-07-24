@@ -2915,6 +2915,10 @@
     "marketDetails": "详情",
     "marketDownloads": "下载量",
     "marketDeveloper": "开发者",
+    "marketSortLabel": "插件排序",
+    "marketSortDownloads": "下载量最多",
+    "marketSortUpdated": "最近更新",
+    "marketSortFavorites": "收藏量最多",
     "compatWarningTitle": "兼容性警告",
     "compatWarningContent": "该插件标注适配 QwenPaw {{labels}}，而您当前的 QwenPaw 版本为 {{version}}。安装后可能出现错误，是否确认继续？",
     "compatWarningConfirm": "仍然安装"
@@ -3081,6 +3085,8 @@
       "status": "状态"
     },
     "loading": "处理中...",
+    "inputProgress": "已接收 {{count}} 个字符",
+    "rawInputPreview": "实时原始参数（最后 4096 个字符）",
     "browserAction": {
       "startHeaded": "启动浏览器(有界面)",
       "start": "启动浏览器",
