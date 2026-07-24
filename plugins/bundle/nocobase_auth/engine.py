@@ -86,10 +86,11 @@ class NocoBaseEngine:
             )
         return self._client
 
-    def update_config(self, config: NocoBaseAuthConfig) -> None:
-        """Update runtime config and reset the client so new settings apply."""
+    async def update_config(self, config: NocoBaseAuthConfig) -> None:
+        """Update runtime config; close the old admin client so new settings
+        apply without leaking the old httpx client."""
+        await self.stop()
         self.config = config
-        self._client = None
         self.config.save()
 
     async def verify_user_token(
@@ -153,7 +154,8 @@ class NocoBaseEngine:
         user = payload.get("user")
         row = user if isinstance(user, dict) else payload
         sender_id = NocoBaseClient.extract_sender_id(
-            row, self.config.user_id_field
+            row,
+            self.config.user_id_field,
         )
         if sender_id:
             return sender_id

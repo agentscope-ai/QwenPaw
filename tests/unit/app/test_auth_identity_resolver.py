@@ -104,7 +104,8 @@ async def test_external_login_returns_first_authenticated_identity():
     register_external_login_authenticator(first)
     register_external_login_authenticator(second)
     result = await authenticate_external_login(
-        "admin@nocobase.com", "admin123"
+        "admin@nocobase.com",
+        "admin123",
     )
     assert result == ExternalLogin(identity="admin@nocobase.com")
 
@@ -112,12 +113,14 @@ async def test_external_login_returns_first_authenticated_identity():
 async def test_external_login_passes_through_provider_token():
     async def nb_login(_username, _password):
         return ExternalLogin(
-            identity="admin@nocobase.com", token="nb-jwt-token"
+            identity="admin@nocobase.com",
+            token="nb-jwt-token",
         )
 
     register_external_login_authenticator(nb_login)
     result = await authenticate_external_login(
-        "admin@nocobase.com", "admin123"
+        "admin@nocobase.com",
+        "admin123",
     )
     assert result is not None
     assert result.identity == "admin@nocobase.com"
@@ -134,7 +137,8 @@ async def test_external_login_swallows_exceptions_and_continues():
     register_external_login_authenticator(boom)
     register_external_login_authenticator(ok)
     result = await authenticate_external_login(
-        "admin@nocobase.com", "admin123"
+        "admin@nocobase.com",
+        "admin123",
     )
     assert result == ExternalLogin(identity="admin@nocobase.com")
 
@@ -187,7 +191,7 @@ def _build_client(monkeypatch) -> TestClient:
             {
                 "user": getattr(request.state, "user", None),
                 "roles": getattr(request.state, "user_roles", None),
-            }
+            },
         )
 
     app = Starlette(
@@ -201,7 +205,8 @@ def test_middleware_uses_resolver_when_identity_present(monkeypatch):
     async def r(request):
         if request.headers.get("X-NocoBase-Token"):
             return ResolvedIdentity(
-                sender_id="carol@example.com", roles=["admin"]
+                sender_id="carol@example.com",
+                roles=["admin"],
             )
         return None
 
@@ -228,6 +233,21 @@ def test_middleware_401_when_resolver_returns_none(monkeypatch):
 def test_middleware_401_when_no_resolver(monkeypatch):
     client = _build_client(monkeypatch)
     resp = client.post("/api/console/chat")
+    assert resp.status_code == 401
+
+
+def test_middleware_rejects_unresolvable_bearer_token(monkeypatch):
+    async def r(request):
+        if request.headers.get("Authorization") == "Bearer valid-nb":
+            return ResolvedIdentity(sender_id="u@x.io")
+        return None
+
+    register_external_identity_resolver(r)
+    client = _build_client(monkeypatch)
+    resp = client.post(
+        "/api/console/chat",
+        headers={"Authorization": "Bearer garbage-local-token"},
+    )
     assert resp.status_code == 401
 
 

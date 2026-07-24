@@ -83,7 +83,7 @@ def build_router() -> APIRouter:
             config = NocoBaseAuthConfig.from_dict(data)
         except ValidationError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        engine.update_config(config)
+        await engine.update_config(config)
         return {"status": "ok"}
 
     @router.post("/test-connection")
