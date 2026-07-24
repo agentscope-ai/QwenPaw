@@ -14,8 +14,6 @@ export default function LoginPage() {
   const [searchParams] = useSearchParams();
   const { isDark } = useTheme();
   const [loading, setLoading] = useState(false);
-  const [isRegister, setIsRegister] = useState(false);
-  const [hasUsers, setHasUsers] = useState(true);
   const { message } = useAppMessage();
 
   useEffect(() => {
@@ -24,11 +22,6 @@ export default function LoginPage() {
       .then((res) => {
         if (!res.enabled) {
           navigate("/chat", { replace: true });
-          return;
-        }
-        setHasUsers(res.has_users);
-        if (!res.has_users) {
-          setIsRegister(true);
         }
       })
       .catch(() => {});
@@ -40,35 +33,16 @@ export default function LoginPage() {
       const raw = searchParams.get("redirect") || "/chat";
       const redirect =
         raw.startsWith("/") && !raw.startsWith("//") ? raw : "/chat";
-
-      if (isRegister) {
-        const res = await authApi.register(values.username, values.password);
-        if (res.token) {
-          setAuthToken(res.token);
-          message.success(t("login.registerSuccess"));
-          navigate(redirect, { replace: true });
-        }
+      const res = await authApi.login(values.username, values.password);
+      if (res.token) {
+        setAuthToken(res.token);
+        navigate(redirect, { replace: true });
       } else {
-        const res = await authApi.login(values.username, values.password);
-        if (res.token) {
-          setAuthToken(res.token);
-          navigate(redirect, { replace: true });
-        } else {
-          message.info(t("login.authNotEnabled"));
-          navigate(redirect, { replace: true });
-        }
+        message.info(t("login.authNotEnabled"));
+        navigate(redirect, { replace: true });
       }
     } catch (err) {
-      let errorMsg = t("login.failed");
-
-      // Check if it's an Error object and use the backend message directly
-      if (err instanceof Error) {
-        // Use the backend message directly without complex parsing
-        errorMsg = err.message;
-      } else if (isRegister) {
-        errorMsg = t("login.registerFailed");
-      }
-
+      const errorMsg = err instanceof Error ? err.message : t("login.failed");
       message.error(errorMsg);
     } finally {
       setLoading(false);
@@ -105,19 +79,8 @@ export default function LoginPage() {
             style={{ height: 48, marginBottom: 12 }}
           />
           <h2 style={{ margin: 0, fontWeight: 600, fontSize: 20 }}>
-            {isRegister ? t("login.registerTitle") : t("login.title")}
+            {t("login.title")}
           </h2>
-          {!hasUsers && (
-            <p
-              style={{
-                margin: "8px 0 0",
-                color: isDark ? "rgba(255,255,255,0.45)" : "#666",
-                fontSize: 13,
-              }}
-            >
-              {t("login.firstUserHint")}
-            </p>
-          )}
         </div>
 
         <Form
@@ -167,7 +130,7 @@ export default function LoginPage() {
               block
               style={{ height: 44, borderRadius: 8, fontWeight: 500 }}
             >
-              {isRegister ? t("login.register") : t("login.submit")}
+              {t("login.submit")}
             </Button>
           </Form.Item>
         </Form>
