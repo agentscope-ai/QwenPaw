@@ -1,5 +1,6 @@
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::fs::File;
 use std::os::windows::io::FromRawHandle;
 use std::path::{Path, PathBuf};
@@ -167,7 +168,7 @@ fn accept_connection(pipe_path: &str) -> Result<File, String> {
     Ok(unsafe { File::from_raw_handle(handle.0 as _) })
 }
 
-fn serve_connection(connection: &mut File, capability: &str) -> Result<(), String> {
+fn serve_connection(connection: &mut (impl Read + Write), capability: &str) -> Result<(), String> {
     let hello = read_message(connection)?;
     let hello_id = request_id(&hello)?;
     let secret = hello
@@ -204,7 +205,7 @@ fn serve_connection(connection: &mut File, capability: &str) -> Result<(), Strin
 }
 
 fn dispatch_request(
-    connection: &mut File,
+    connection: &mut (impl Read + Write),
     state: &mut ServerState,
     message: &Value,
 ) -> Result<Value, (&'static str, String)> {
@@ -299,7 +300,7 @@ fn dispatch_request(
 }
 
 fn launch_app(
-    connection: &mut File,
+    connection: &mut (impl Read + Write),
     params: &Map<String, Value>,
     meta: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
@@ -363,7 +364,7 @@ fn resolve_launch_path(app: &str) -> Result<PathBuf, (&'static str, String)> {
 }
 
 fn request_approval(
-    connection: &mut File,
+    connection: &mut (impl Read + Write),
     window: &WindowInfo,
     meta: &Map<String, Value>,
 ) -> Result<(), (&'static str, String)> {
