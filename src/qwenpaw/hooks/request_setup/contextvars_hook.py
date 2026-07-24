@@ -19,10 +19,7 @@ logger = logging.getLogger(__name__)
 class ContextVarsSetupHook(LifecycleHook):
     """Inject per-request ContextVars before agent execution."""
 
-    # POST_AGENT_BUILD, not PRE_DISPATCH: ``ctx.agent`` (and thus its toolkit
-    # / state) does not exist until the agent is built. Nothing before this
-    # phase reads these ContextVars — only tools during agent execution do.
-    phase = Phase.POST_AGENT_BUILD
+    phase = Phase.PRE_DISPATCH
     name = "contextvars_setup"
     priority = 10
 
@@ -33,8 +30,6 @@ class ContextVarsSetupHook(LifecycleHook):
             set_current_recent_max_bytes,
             set_current_shell_command_timeout,
             set_current_shell_command_executable,
-            set_current_toolkit,
-            set_current_agent_state,
         )
         from ...app.agent_context import (
             set_current_agent_id,
@@ -45,9 +40,6 @@ class ContextVarsSetupHook(LifecycleHook):
             set_current_user_id,
         )
 
-        if ctx.agent is not None:
-            set_current_toolkit(getattr(ctx.agent, "toolkit", None))
-            set_current_agent_state(getattr(ctx.agent, "state", None))
         set_current_agent_id(ctx.agent_id or "default")
         _session_id = ctx.session_id or ""
         set_current_session_id(_session_id)

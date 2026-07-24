@@ -9,6 +9,7 @@ import json
 import logging
 import operator
 import re
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -376,8 +377,6 @@ def _resolve_token(
     token: str,
     results: list[dict[str, Any]],
     variables: dict[str, Any],
-    *,
-    missing_var_default: Any = None,
 ) -> Any:
     """Resolve one expression token from vars, steps, or scalar literals."""
     stripped = token.strip()
@@ -389,8 +388,6 @@ def _resolve_token(
         parsed = _parse_scalar(stripped)
         if parsed != stripped:
             return parsed
-        if missing_var_default is not None:
-            return missing_var_default
         raise ValueError(f"Undefined variable: {stripped}")
     resolved = _resolve_ref_string(stripped, results, variables)
     return _parse_scalar(resolved)
@@ -615,7 +612,7 @@ async def _call_tool(
         )
 
     tool_call = ToolCallBlock(
-        id=f"batch_{id(arguments):x}",
+        id=f"batch_{uuid.uuid4().hex[:8]}",
         name=tool_name,
         input=json.dumps(arguments, ensure_ascii=False),
     )
@@ -625,9 +622,12 @@ async def _call_tool(
         response: ToolChunk | None = None
         tool_stream = toolkit.call_tool(tool_call, agent_state)
         async for chunk in tool_stream:
-            if getattr(chunk, "is_interrupted", False):
-                raise asyncio.CancelledError()
             response = chunk
+            # An INTERRUPTED chunk is terminal: keep it as the response and
+            # stop consuming so a later chunk can't overwrite the signal.
+            # (Post-loop callers detect interruption via ``response.state``.)
+            if getattr(chunk, "state", None) == ToolResultState.INTERRUPTED:
+                break
         if response is None:
             return _json_tool_response(
                 {
