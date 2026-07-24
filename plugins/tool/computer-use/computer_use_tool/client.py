@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import uuid
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -19,7 +20,7 @@ from qwenpaw.config.context import (
 
 from .approval import ComputerUseApprovalCoordinator
 from .protocol import ComputerUseProtocolError, NativeRequest, parse_response
-from .transport import ComputerUseTransport, WindowsPipeTransport
+from .transport import ComputerUseTransport, UnixSocketTransport, WindowsPipeTransport
 
 _DEFAULT_DEADLINE_MS = 10000
 # The desktop host spawns the helper process while answering acquire; the
@@ -167,7 +168,11 @@ class ComputerUseClient:
                     "runtime_unavailable",
                     "Computer Use native runtime is unavailable.",
                 )
-            transport = WindowsPipeTransport(capability)
+            transport = (
+                WindowsPipeTransport(capability)
+                if sys.platform == "win32"
+                else UnixSocketTransport(capability)
+            )
         transport.set_reverse_request_handler(self._approvals.decide)
         await transport.connect()
         self._transport = transport

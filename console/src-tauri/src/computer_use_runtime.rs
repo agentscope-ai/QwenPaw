@@ -1,15 +1,17 @@
-//! Desktop-owned lifecycle for the Windows Computer Use helper.
+//! Desktop-owned lifecycle for the native Computer Use helper.
+//!
+//! The authenticated localhost control endpoint and capability handoff are
+//! platform neutral; only the kill-on-close Job Object and the console-window
+//! spawn flag remain Windows specific (macOS relies on the helper's own
+//! parent-death watch for reaping).
 
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
 
-#[cfg(windows)]
 use std::{
     io::{BufRead, BufReader, Read, Write},
     net::{Ipv4Addr, TcpListener, TcpStream},
-    os::windows::io::AsRawHandle,
-    os::windows::process::CommandExt,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -17,23 +19,21 @@ use std::{
     thread::{self, JoinHandle},
     time::Duration,
 };
+#[cfg(windows)]
+use std::os::windows::{io::AsRawHandle, process::CommandExt};
 
 use rand::RngCore;
-#[cfg(windows)]
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-#[cfg(windows)]
 const CONTROL_PROTOCOL_VERSION: u8 = 1;
-#[cfg(windows)]
 const CONTROL_MAX_MESSAGE_BYTES: usize = 4096;
 
 #[derive(Default)]
 pub(crate) struct ComputerUseRuntimeState {
     inner: Mutex<RuntimeInner>,
-    #[cfg(windows)]
     control: Mutex<Option<ControlEndpoint>>,
     // Raw HANDLE (as isize) of a Job Object configured with
     // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE. The helper process is assigned to it
@@ -56,7 +56,6 @@ struct RuntimeCapability {
     secret: String,
 }
 
-#[cfg(windows)]
 struct ControlEndpoint {
     port: u16,
     token: String,
@@ -64,7 +63,6 @@ struct ControlEndpoint {
     thread: JoinHandle<()>,
 }
 
-#[cfg(windows)]
 #[derive(Deserialize)]
 struct ControlRequest {
     protocol_version: u8,
@@ -72,7 +70,6 @@ struct ControlRequest {
     action: String,
 }
 
-#[cfg(windows)]
 #[derive(Serialize)]
 struct ControlResponse {
     ok: bool,
@@ -86,7 +83,6 @@ struct ControlResponse {
     error: Option<&'static str>,
 }
 
-#[cfg(windows)]
 impl ControlResponse {
     fn capability(capability: RuntimeCapability) -> Self {
         Self {
@@ -112,9 +108,6 @@ impl ControlResponse {
 /// Prepare the authenticated local control endpoint before the Python sidecar starts.
 /// It does not start the Computer Use helper.
 pub(crate) fn prepare(app: &tauri::AppHandle) -> Result<(), String> {
-    #[cfg(not(windows))]
-    let _ = app;
-    #[cfg(windows)]
     {
         let state = app.state::<ComputerUseRuntimeState>();
         let mut control = state
@@ -172,11 +165,7 @@ pub(crate) fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
 
     let helper = helper_path(app)?;
     let capability = RuntimeCapability {
-        pipe_name: format!(
-            "qwenpaw-computer-use-{}-{}",
-            std::process::id(),
-            random_hex(12),
-        ),
+        pipe_name: endpoint_address(),
         secret: random_hex(32),
     };
     let mut command = Command::new(&helper);
@@ -268,7 +257,6 @@ fn assign_helper_to_job(state: &ComputerUseRuntimeState, child: &Child) {
 /// Return the sidecar-only environment used by the controlled client.
 pub(crate) fn backend_environment(app: &tauri::AppHandle) -> Vec<(String, String)> {
     let mut environment = Vec::new();
-    #[cfg(windows)]
     if let Ok(control) = app.state::<ComputerUseRuntimeState>().control.lock() {
         if let Some(control) = control.as_ref() {
             environment.extend([
@@ -314,7 +302,6 @@ pub(crate) fn backend_environment(app: &tauri::AppHandle) -> Vec<(String, String
 /// Stop the helper when the desktop host exits.
 pub(crate) fn stop(app: &tauri::AppHandle) {
     let state = app.state::<ComputerUseRuntimeState>();
-    #[cfg(windows)]
     if let Some(control) = state
         .control
         .lock()
@@ -343,7 +330,33 @@ fn random_hex(byte_count: usize) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+/// Build the endpoint the helper listens on: a Windows named pipe name, or a
+/// private Unix domain socket path on other platforms. The value is passed to
+/// the helper via `--pipe` and returned to the Python sidecar as the opaque
+/// capability endpoint, so both transports read it from the same field.
 #[cfg(windows)]
+fn endpoint_address() -> String {
+    format!(
+        "qwenpaw-computer-use-{}-{}",
+        std::process::id(),
+        random_hex(12),
+    )
+}
+
+#[cfg(not(windows))]
+fn endpoint_address() -> String {
+    let dir = std::env::temp_dir().join(format!("qwenpaw-cu-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
+    dir.join(format!("{}.sock", random_hex(8)))
+        .to_string_lossy()
+        .into_owned()
+}
+
 fn serve_control(
     listener: TcpListener,
     app: tauri::AppHandle,
@@ -369,7 +382,6 @@ fn serve_control(
     }
 }
 
-#[cfg(windows)]
 fn serve_control_connection(
     mut stream: TcpStream,
     app: &tauri::AppHandle,
@@ -411,7 +423,6 @@ fn serve_control_connection(
         .map_err(|err| err.to_string())
 }
 
-#[cfg(windows)]
 fn read_control_request(stream: &TcpStream) -> Result<ControlRequest, String> {
     let reader = stream.try_clone().map_err(|err| err.to_string())?;
     let mut reader = BufReader::new(reader);

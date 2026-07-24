@@ -1,7 +1,10 @@
-//! Length-prefixed JSON framing over the Computer Use pipe connection.
+//! Length-prefixed JSON framing over the Computer Use connection.
+//!
+//! The framing is transport neutral: it works over any byte stream that
+//! implements [`Read`]/[`Write`], so the same code serves the Windows named
+//! pipe and the macOS Unix domain socket.
 
 use serde_json::{json, Value};
-use std::fs::File;
 use std::io::{Read, Write};
 
 use super::MAX_FRAME_BYTES;
@@ -15,7 +18,7 @@ pub(super) fn request_id(message: &Value) -> Result<String, String> {
         .ok_or_else(|| "request_id is required".to_string())
 }
 
-pub(super) fn read_message(connection: &mut File) -> Result<Value, String> {
+pub(super) fn read_message(connection: &mut impl Read) -> Result<Value, String> {
     let mut header = [0_u8; 4];
     connection
         .read_exact(&mut header)
@@ -32,7 +35,7 @@ pub(super) fn read_message(connection: &mut File) -> Result<Value, String> {
 }
 
 pub(super) fn write_result(
-    connection: &mut File,
+    connection: &mut impl Write,
     request_id: &str,
     result: Value,
 ) -> Result<(), String> {
@@ -43,7 +46,7 @@ pub(super) fn write_result(
 }
 
 pub(super) fn write_error(
-    connection: &mut File,
+    connection: &mut impl Write,
     request_id: &str,
     code: &str,
     message: &str,
@@ -54,7 +57,7 @@ pub(super) fn write_error(
     )
 }
 
-pub(super) fn write_message(connection: &mut File, message: &Value) -> Result<(), String> {
+pub(super) fn write_message(connection: &mut impl Write, message: &Value) -> Result<(), String> {
     let payload = serde_json::to_vec(message).map_err(|error| error.to_string())?;
     let length = u32::try_from(payload.len()).map_err(|_| "Frame is too large".to_string())?;
     connection
@@ -66,6 +69,7 @@ pub(super) fn write_message(connection: &mut File, message: &Value) -> Result<()
     connection.flush().map_err(|error| error.to_string())
 }
 
+#[cfg(windows)]
 pub(super) fn wide_string(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(Some(0)).collect()
 }
