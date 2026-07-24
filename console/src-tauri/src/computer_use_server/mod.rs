@@ -1,41 +1,69 @@
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::fs::File;
-use std::os::windows::io::FromRawHandle;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
+
+// Windows named-pipe server primitives. The macOS build listens on a Unix
+// domain socket instead (see the platform_macos leaf and the cfg-split run).
+#[cfg(windows)]
+use std::fs::File;
+#[cfg(windows)]
+use std::os::windows::io::FromRawHandle;
+#[cfg(windows)]
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{
-    GetLastError, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE,
-};
+#[cfg(windows)]
+use windows::Win32::Foundation::{GetLastError, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE};
+#[cfg(windows)]
 use windows::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
-use windows::Win32::System::Com::{
-    CoInitializeEx, COINIT_MULTITHREADED,
-};
+#[cfg(windows)]
+use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+#[cfg(windows)]
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE,
     PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
-use windows::Win32::UI::Accessibility::IUIAutomationElement;
 
 mod framing;
-use framing::{
-    read_message, request_id, wide_string, write_error, write_message,
-    write_result,
-};
+use framing::{read_message, request_id, write_error, write_message, write_result};
+
+// Platform leaves expose the same function surface (window discovery, capture,
+// UI automation, input); only the implementation differs. The shared dispatch
+// core below never names a platform-specific type directly.
+#[cfg(windows)]
 mod window;
-use window::{is_forbidden, list_apps, list_windows, resolve_window};
+#[cfg(windows)]
 mod capture;
-use capture::observe_window;
+#[cfg(windows)]
 mod uia;
-use uia::{collect_accessibility, invoke_element, set_value};
+#[cfg(windows)]
 mod input;
+#[cfg(windows)]
+use capture::observe_window;
+#[cfg(windows)]
 use input::{
-    click, drag, press_key, reject_recent_user_intervention, scroll, set_focus,
-    type_text,
+    click, drag, press_key, reject_recent_user_intervention, scroll, set_focus, type_text,
 };
+#[cfg(windows)]
+use uia::{collect_accessibility, invoke_element, set_value};
+#[cfg(windows)]
+use window::{is_forbidden, list_apps, list_windows, resolve_window};
+
+#[cfg(target_os = "macos")]
+mod platform_macos;
+#[cfg(target_os = "macos")]
+use platform_macos::{
+    click, drag, invoke_element, is_forbidden, list_apps, list_windows, observe_window, press_key,
+    resolve_window, scroll, set_focus, set_value, type_text,
+};
+
+/// Native accessibility element handle stored in an accessibility snapshot.
+/// Windows uses a UI Automation element; macOS uses an AXUIElement wrapper.
+#[cfg(windows)]
+type NativeElement = windows::Win32::UI::Accessibility::IUIAutomationElement;
+#[cfg(target_os = "macos")]
+type NativeElement = platform_macos::AxElement;
 
 const PROTOCOL_VERSION: u64 = 1;
 const MAX_FRAME_BYTES: usize = 64 * 1024 * 1024;
@@ -75,7 +103,7 @@ struct Snapshot {
 
 struct AccessibilitySnapshot {
     window_hwnd: isize,
-    elements: HashMap<String, IUIAutomationElement>,
+    elements: HashMap<String, NativeElement>,
 }
 
 #[derive(Default)]
@@ -85,6 +113,7 @@ struct ServerState {
     stopped_turn: Option<String>,
 }
 
+#[cfg(windows)]
 pub(super) fn run(args: &[String]) -> Result<(), String> {
     let (pipe_name, capability) = parse_arguments(args)?;
     let result = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
@@ -113,6 +142,42 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub(super) fn run(args: &[String]) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::net::UnixListener;
+    let (socket_path, capability) = parse_arguments(args)?;
+    // Fresh bind: clear any stale socket file left by a previous run.
+    let _ = std::fs::remove_file(&socket_path);
+    let listener = UnixListener::bind(&socket_path)
+        .map_err(|error| format!("failed to bind Computer Use socket: {error}"))?;
+    let _ = std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600));
+    // macOS has no Job Object; exit when the desktop parent goes away so the
+    // helper is reaped on host crash or force-quit.
+    platform_macos::spawn_parent_death_watch();
+    for stream in listener.incoming() {
+        let mut connection = match stream {
+            Ok(stream) => stream,
+            Err(error) => {
+                eprintln!("Computer Use socket accept failed: {error}");
+                continue;
+            }
+        };
+        let worker_capability = capability.clone();
+        let worker = thread::Builder::new()
+            .name("computer-use-conn".to_string())
+            .spawn(move || {
+                if let Err(error) = serve_connection(&mut connection, &worker_capability) {
+                    eprintln!("Computer Use socket connection ended: {error}");
+                }
+            });
+        if let Err(error) = worker {
+            eprintln!("Computer Use worker thread spawn failed: {error}");
+        }
+    }
+    Ok(())
+}
+
 fn parse_arguments(args: &[String]) -> Result<(String, String), String> {
     let mut pipe_name = None;
     let mut capability = None;
@@ -139,8 +204,9 @@ fn parse_arguments(args: &[String]) -> Result<(String, String), String> {
     Ok((pipe_name, capability))
 }
 
+#[cfg(windows)]
 fn accept_connection(pipe_path: &str) -> Result<File, String> {
-    let wide = wide_string(pipe_path);
+    let wide = framing::wide_string(pipe_path);
     let handle = unsafe {
         CreateNamedPipeW(
             PCWSTR(wide.as_ptr()),
