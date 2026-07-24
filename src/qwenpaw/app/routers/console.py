@@ -103,6 +103,7 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
 def _extract_session_and_payload(
     request_data: Union[AgentRequest, dict],
     acl_sender_id: str = "",
+    acl_roles: Optional[list] = None,
 ):
     """Extract run_key (ChatSpec.id), session_id, and native payload.
 
@@ -112,6 +113,10 @@ def _extract_session_and_payload(
     authenticated login user). When set it is attached to the payload so the
     console access-control gate can evaluate it; the client-supplied
     ``user_id`` is never trusted for access decisions.
+
+    ``acl_roles`` is the caller's live NocoBase roles (server-derived, from
+    ``request.state.user_roles``). When set it is attached to ``meta`` so
+    the console access-control gate can enforce role-to-channel policy.
     """
     if isinstance(request_data, AgentRequest):
         channel_id = getattr(request_data, "channel", None) or "console"
@@ -159,6 +164,8 @@ def _extract_session_and_payload(
     if acl_sender_id:
         native_payload["acl_sender_id"] = acl_sender_id
         meta["acl_sender_id"] = acl_sender_id
+    if acl_roles:
+        meta["acl_roles"] = list(acl_roles)
     return native_payload
 
 
@@ -214,10 +221,12 @@ async def post_console_chat(
     # set by AuthMiddleware. Empty when auth is disabled (local operator),
     # which leaves the console ungated.
     acl_sender_id = getattr(request.state, "user", "") or ""
+    acl_roles = getattr(request.state, "user_roles", None) or []
     try:
         native_payload = _extract_session_and_payload(
             request_data,
             acl_sender_id=acl_sender_id,
+            acl_roles=acl_roles,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
