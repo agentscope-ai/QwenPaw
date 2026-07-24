@@ -154,10 +154,10 @@ export function CommunityBenefitsTriggerLabel({
         </span>
       )}
       <ChevronDown
-        size={14}
-        strokeWidth={2}
+        size={16}
+        strokeWidth={1.5}
         aria-hidden
-        className={`transition-transform ${open ? "rotate-180" : ""}`}
+        className={`shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
       />
       {badgeAfter && badge}
     </span>

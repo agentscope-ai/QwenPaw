@@ -39,14 +39,14 @@ function AgentScopeLogo() {
   );
 }
 
-const navLinkBaseClass =
-  "inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-1 py-1.5 text-sm font-medium text-neutral-800 no-underline transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
+const navTextClass = "font-inter text-[14px] font-medium leading-5";
+
+const navLinkBaseClass = `inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-1 py-1.5 ${navTextClass} text-neutral-800 no-underline transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2`;
 
 const navLinkOrangeClass = `${navLinkBaseClass} hover:!text-orange-400 focus-visible:outline-orange-400`;
 const navLinkBlueClass = `${navLinkBaseClass} hover:!text-[#0064FD] focus-visible:outline-[#0064FD]`;
 
-const navDownloadBtnClass =
-  "inline-flex min-w-[6.75rem] shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm font-medium text-neutral-800 no-underline transition-colors cursor-pointer border border-[#F3F1F0] bg-(--color-card-fill) hover:bg-(--color-secondary)";
+const navDownloadBtnClass = `inline-flex min-w-[6.75rem] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 ${navTextClass} text-neutral-800 no-underline transition-colors cursor-pointer border border-[#F3F1F0] bg-(--color-card-fill) hover:bg-(--color-secondary)`;
 
 const navIconStroke = 1.5;
 const exploreMenuItemClass = `${navLinkOrangeClass} w-full justify-start px-3 py-2`;
@@ -172,18 +172,25 @@ export function Nav() {
             onMouseEnter={openBenefits}
             onMouseLeave={scheduleCloseBenefits}
           >
-            <button
-              type="button"
-              className={`${navLinkOrangeClass} cursor-pointer border-0 bg-transparent pt-2`}
+            <span
+              role="button"
+              tabIndex={0}
+              className={`${navLinkOrangeClass} cursor-pointer pt-2`}
               aria-expanded={benefitsOpen}
               aria-haspopup="true"
               onClick={() => {
                 setExploreOpen(false);
                 setBenefitsOpen((v) => !v);
               }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                setExploreOpen(false);
+                setBenefitsOpen((v) => !v);
+              }}
             >
               <CommunityBenefitsTriggerLabel open={benefitsOpen} />
-            </button>
+            </span>
             {benefitsOpen && (
               <div
                 className="absolute left-1/2 top-full z-100 mt-2 -translate-x-1/2 rounded-lg border border-neutral-100 bg-white shadow-[0_12px_40px_rgba(0,0,0,0.12)]"
@@ -204,12 +211,19 @@ export function Nav() {
             onMouseEnter={openExplore}
             onMouseLeave={scheduleCloseExplore}
           >
-            <button
-              type="button"
-              className={`${navLinkOrangeClass} cursor-pointer border-0 bg-transparent`}
+            <span
+              role="button"
+              tabIndex={0}
+              className={`${navLinkOrangeClass} cursor-pointer`}
               aria-expanded={exploreOpen}
               aria-haspopup="true"
               onClick={() => {
+                setBenefitsOpen(false);
+                setExploreOpen((v) => !v);
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
                 setBenefitsOpen(false);
                 setExploreOpen((v) => !v);
               }}
@@ -223,7 +237,7 @@ export function Nav() {
                 }`}
                 aria-hidden
               />
-            </button>
+            </span>
             {exploreOpen && (
               <div
                 className="absolute left-1/2 top-full z-100 mt-2 min-w-44 -translate-x-1/2 rounded-lg border border-neutral-100 bg-white py-2 shadow-[0_12px_40px_rgba(0,0,0,0.12)]"
@@ -280,15 +294,21 @@ export function Nav() {
             <span>{t("nav.docs")}</span>
           </Link>
 
-          <button
-            type="button"
+          <span
+            role="button"
+            tabIndex={0}
             onClick={toggleLang}
-            className={`${navLinkOrangeClass} cursor-pointer border-0 bg-transparent`}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              toggleLang();
+            }}
+            className={`${navLinkOrangeClass} cursor-pointer`}
             aria-label={t("nav.lang")}
           >
             <Globe size={18} strokeWidth={navIconStroke} aria-hidden />
             <span>{t("nav.lang")}</span>
-          </button>
+          </span>
           <Link to="/downloads" className={navDownloadBtnClass}>
             <Download size={18} strokeWidth={navIconStroke} aria-hidden />
             <span>{t("nav.download")}</span>
@@ -362,17 +382,23 @@ export function Nav() {
         </a>
 
         <div>
-          <button
-            type="button"
-            className={`${navLinkOrangeClass} w-full cursor-pointer border-0 bg-transparent text-left`}
+          <span
+            role="button"
+            tabIndex={0}
+            className={`${navLinkOrangeClass} w-full cursor-pointer text-left`}
             aria-expanded={mobileBenefitsOpen}
             onClick={() => setMobileBenefitsOpen((v) => !v)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              setMobileBenefitsOpen((v) => !v);
+            }}
           >
             <CommunityBenefitsTriggerLabel
               open={mobileBenefitsOpen}
               badgeAfter
             />
-          </button>
+          </span>
           {mobileBenefitsOpen && (
             <CommunityBenefitsMobileList
               onNavigate={() => {
@@ -383,16 +409,23 @@ export function Nav() {
           )}
         </div>
 
-        <button
-          type="button"
-          className={`${navLinkOrangeClass} w-full cursor-pointer border-0 bg-transparent text-left`}
+        <span
+          role="button"
+          tabIndex={0}
+          className={`${navLinkOrangeClass} w-full cursor-pointer text-left`}
           onClick={() => {
+            toggleLang();
+            setOpen(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
             toggleLang();
             setOpen(false);
           }}
         >
           <Globe size={18} strokeWidth={navIconStroke} /> {t("nav.lang")}
-        </button>
+        </span>
         <Link
           to="/release-notes"
           className={navLinkOrangeClass}
