@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from agentscope.model import OpenAIChatModel
+
 import qwenpaw.providers.openai_provider as openai_provider_module
 from qwenpaw.providers.openai_provider import OpenAIProvider
 
@@ -177,6 +179,31 @@ def test_token_limit_kwargs_handles_reasoning_model_ids() -> None:
         "openai/gpt-4o-mini",
         200,
     ) == {"max_tokens": 200}
+
+
+async def test_summary_limit_uses_reasoning_model_parameter(
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+
+    async def fake_call_api(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(OpenAIChatModel, "_call_api", fake_call_api)
+    model = _make_provider().get_chat_model_instance("gpt-5.2")
+
+    result = await model._call_api(
+        "gpt-5.2",
+        [],
+        max_tokens=256,
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert captured["max_completion_tokens"] == 256
+    assert "max_tokens" not in captured
 
 
 def test_get_gpt5_model_maps_configured_max_tokens() -> None:

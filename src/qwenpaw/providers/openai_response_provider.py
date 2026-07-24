@@ -43,6 +43,12 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
     ) -> Any:
         # Pop the neutral ``disable_thinking`` flag
         generate_kwargs.pop("disable_thinking", None)
+        max_tokens = generate_kwargs.pop("max_tokens", None)
+        if (
+            max_tokens is not None
+            and "max_output_tokens" not in generate_kwargs
+        ):
+            generate_kwargs["max_output_tokens"] = max_tokens
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
         return await super()._call_api(
             model_name,

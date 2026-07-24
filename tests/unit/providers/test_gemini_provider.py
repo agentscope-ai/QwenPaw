@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+from agentscope.model import GeminiChatModel
 from google.genai import errors as genai_errors
 
 from qwenpaw.providers.gemini_provider import GeminiProvider
@@ -17,6 +19,33 @@ def _make_provider() -> GeminiProvider:
         api_key="gem-test",
         chat_model="GeminiChatModel",
     )
+
+
+async def test_summary_limit_is_adapted_and_thinking_is_restored(
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+
+    async def fake_call_api(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        raise RuntimeError("provider failed")
+
+    monkeypatch.setattr(GeminiChatModel, "_call_api", fake_call_api)
+    model = _make_provider().get_chat_model_instance("gemini-2.5-flash")
+    model.parameters.thinking_enable = True
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        await model._call_api(
+            "gemini-2.5-flash",
+            [],
+            max_tokens=256,
+            disable_thinking=True,
+        )
+
+    assert captured["max_output_tokens"] == 256
+    assert "max_tokens" not in captured
+    assert model.parameters.thinking_enable is True
 
 
 class _AsyncIter:
