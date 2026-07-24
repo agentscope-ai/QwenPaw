@@ -7,7 +7,7 @@ import pytest
 
 from nocobase_auth.nocobase_client import NocoBaseClient
 from nocobase_auth.config import NocoBaseAuthConfig
-from nocobase_auth.sync_engine import SyncEngine
+from nocobase_auth.engine import NocoBaseEngine
 
 
 @pytest.mark.p0
@@ -80,18 +80,12 @@ async def test_sign_in_returns_none_for_invalid_credentials():
 
 
 @pytest.mark.p0
-async def test_sync_engine_login_only_requires_enabled_base_url(monkeypatch):
-    monkeypatch.setattr(
-        SyncEngine,
-        "_load_config",
-        staticmethod(
-            lambda: NocoBaseAuthConfig(
-                enabled=True,
-                base_url="http://nocobase.local",
-                api_token="",
-                user_id_field="email",
-            ),
-        ),
+async def test_engine_login_only_requires_enabled_base_url(monkeypatch):
+    config = NocoBaseAuthConfig(
+        enabled=True,
+        base_url="http://nocobase.local",
+        api_token="",
+        user_id_field="email",
     )
 
     async def fake_sign_in(
@@ -110,7 +104,7 @@ async def test_sync_engine_login_only_requires_enabled_base_url(monkeypatch):
 
     monkeypatch.setattr(NocoBaseClient, "sign_in", fake_sign_in)
 
-    engine = SyncEngine()
+    engine = NocoBaseEngine(config=config)
     result = await engine.authenticate_credentials(
         "admin@nocobase.com",
         "admin123",
@@ -121,20 +115,14 @@ async def test_sync_engine_login_only_requires_enabled_base_url(monkeypatch):
 
 
 @pytest.mark.p0
-async def test_sync_engine_login_falls_back_to_username_when_email_missing(
+async def test_engine_login_falls_back_to_username_when_email_missing(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        SyncEngine,
-        "_load_config",
-        staticmethod(
-            lambda: NocoBaseAuthConfig(
-                enabled=True,
-                base_url="http://nocobase.local",
-                api_token="",
-                user_id_field="email",
-            ),
-        ),
+    config = NocoBaseAuthConfig(
+        enabled=True,
+        base_url="http://nocobase.local",
+        api_token="",
+        user_id_field="email",
     )
 
     async def fake_sign_in(
@@ -159,7 +147,7 @@ async def test_sync_engine_login_falls_back_to_username_when_email_missing(
 
     monkeypatch.setattr(NocoBaseClient, "sign_in", fake_sign_in)
 
-    engine = SyncEngine()
+    engine = NocoBaseEngine(config=config)
     result = await engine.authenticate_credentials("test22", "test22")
 
     # Identity falls back to username; the NocoBase token is passed through

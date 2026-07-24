@@ -1,137 +1,61 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=redefined-outer-name
-"""Unit tests for the NocoBase channel gate checker."""
+"""Unit tests for the live-role NocoBase channel gate checker."""
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-
-import pytest
-
 from nocobase_auth.channel_gate import build_checker
-from nocobase_auth.permission_store import PermissionStore
+from nocobase_auth.config import NocoBaseAuthConfig, RoleChannelMapping
 
 
-def _enabled() -> bool:
-    return True
+def _checker(mappings, enabled=True):
+    config = NocoBaseAuthConfig(enabled=enabled, role_channel_map=mappings)
+    return build_checker(lambda: config, is_enabled=lambda: enabled)
 
 
-def _disabled() -> bool:
-    return False
-
-
-@pytest.fixture
-def store() -> PermissionStore:
-    with tempfile.TemporaryDirectory() as tmp:
-        yield PermissionStore(path=Path(tmp) / "perms.json")
-
-
-def test_checker_allows(store: PermissionStore) -> None:
-    store.update_from_sync(
-        users=[
-            {"id": "1", "sender_id": "alice@example.com", "roles": ["admin"]},
-        ],
-        roles=[{"id": "1", "name": "admin", "title": "Admin"}],
-        role_channel_map={"admin": {"allowed": ["console"], "denied": []}},
-    )
-    checker = build_checker(store, _enabled)
-    assert checker("console", "alice@example.com", {}) == "allow"
-
-
-def test_checker_denies(store: PermissionStore) -> None:
-    store.update_from_sync(
-        users=[
-            {"id": "1", "sender_id": "bob@example.com", "roles": ["viewer"]},
-        ],
-        roles=[{"id": "1", "name": "viewer", "title": "Viewer"}],
-        role_channel_map={"viewer": {"allowed": [], "denied": ["dingtalk"]}},
-    )
-    checker = build_checker(store, _enabled)
-    assert checker("dingtalk", "bob@example.com", {}) == "deny"
-
-
-def test_checker_falls_through_unknown_channel(store: PermissionStore) -> None:
-    store.update_from_sync(
-        users=[
-            {"id": "1", "sender_id": "alice@example.com", "roles": ["admin"]},
-        ],
-        roles=[{"id": "1", "name": "admin", "title": "Admin"}],
-        role_channel_map={"admin": {"allowed": ["console"], "denied": []}},
-    )
-    checker = build_checker(store, _enabled)
-    # Non-fail-closed channel with no opinion -> fall through.
-    assert checker("telegram", "alice@example.com", {}) is None
-
-
-# ── Fail-closed semantics for the console channel ────────────────────────
-
-
-def test_console_denies_unknown_user_when_enabled(
-    store: PermissionStore,
-) -> None:
-    """An authenticated login user with no NocoBase account is blocked."""
-    checker = build_checker(store, _enabled)
-    assert checker("console", "stranger@example.com", {}) == "deny"
-
-
-def test_console_denies_empty_sender_when_enabled(
-    store: PermissionStore,
-) -> None:
-    """No identity (not logged into NocoBase) is blocked on console."""
-    checker = build_checker(store, _enabled)
+def test_console_no_identity_denies_when_enabled():
+    checker = _checker([])
     assert checker("console", "", {}) == "deny"
 
 
-def test_console_allows_known_user_without_mapping(
-    store: PermissionStore,
-) -> None:
-    """A known NocoBase user with no explicit console mapping is allowed."""
-    store.update_from_sync(
-        users=[
-            {"id": "1", "sender_id": "alice@example.com", "roles": ["member"]},
-        ],
-        roles=[{"id": "1", "name": "member", "title": "Member"}],
-        role_channel_map={},
+def test_console_known_user_default_allows():
+    checker = _checker([])
+    assert checker("console", "u@x.io", {"acl_roles": ["member"]}) == "allow"
+
+
+def test_console_denied_role_blocks():
+    checker = _checker(
+        [RoleChannelMapping(role_name="banned", denied_channels=["console"])]
     )
-    checker = build_checker(store, _enabled)
-    assert checker("console", "alice@example.com", {}) == "allow"
+    assert checker("console", "u@x.io", {"acl_roles": ["banned"]}) == "deny"
 
 
-def test_console_explicit_deny_wins_for_known_user(
-    store: PermissionStore,
-) -> None:
-    store.update_from_sync(
-        users=[
-            {"id": "1", "sender_id": "bob@example.com", "roles": ["member"]},
-        ],
-        roles=[{"id": "1", "name": "member", "title": "Member"}],
-        role_channel_map={"member": {"allowed": [], "denied": ["console"]}},
+def test_console_allow_list_excludes_other_roles():
+    checker = _checker(
+        [RoleChannelMapping(role_name="admin", allowed_channels=["console"])]
     )
-    checker = build_checker(store, _enabled)
-    assert checker("console", "bob@example.com", {}) == "deny"
+    # allow-list exists for console but caller lacks the role -> no explicit
+    # opinion -> fail-closed channel still allows an authenticated user.
+    assert checker("console", "u@x.io", {"acl_roles": ["member"]}) == "allow"
 
 
-def test_console_falls_through_when_disabled(store: PermissionStore) -> None:
-    """A disabled integration never blocks; console falls through."""
-    checker = build_checker(store, _disabled)
-    assert checker("console", "stranger@example.com", {}) is None
+def test_console_explicit_allow_role():
+    checker = _checker(
+        [RoleChannelMapping(role_name="admin", allowed_channels=["console"])]
+    )
+    assert checker("console", "u@x.io", {"acl_roles": ["admin"]}) == "allow"
+
+
+def test_disabled_plugin_never_blocks():
+    checker = _checker([], enabled=False)
     assert checker("console", "", {}) is None
 
 
-def test_non_console_unknown_user_falls_through_when_enabled(
-    store: PermissionStore,
-) -> None:
-    """Fail-closed is scoped to console; IM channels keep fall-through."""
-    checker = build_checker(store, _enabled)
-    assert checker("dingtalk", "stranger@example.com", {}) is None
-    assert checker("telegram", "", {}) is None
+def test_non_failclosed_channel_no_opinion_falls_through():
+    checker = _checker([])
+    assert checker("feishu", "someone", {"acl_roles": []}) is None
 
 
-def test_checker_survives_store_exception(store: PermissionStore) -> None:
-    # Simulate a checker that uses a broken store by overriding
-    # is_channel_allowed.
-    store.is_channel_allowed = lambda *_a, **_kw: (_ for _ in ()).throw(
-        RuntimeError("boom"),
+def test_non_failclosed_channel_explicit_deny():
+    checker = _checker(
+        [RoleChannelMapping(role_name="x", denied_channels=["feishu"])]
     )
-    checker = build_checker(store, _enabled)
-    assert checker("console", "alice@example.com", {}) is None
+    assert checker("feishu", "someone", {"acl_roles": ["x"]}) == "deny"

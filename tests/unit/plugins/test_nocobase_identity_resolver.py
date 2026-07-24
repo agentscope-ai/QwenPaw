@@ -7,6 +7,8 @@ from nocobase_auth.identity_cache import TokenIdentityCache
 from nocobase_auth.identity_resolver import build_identity_resolver
 from nocobase_auth.nocobase_client import NocoBaseRequestError
 
+from qwenpaw.app.auth import ResolvedIdentity
+
 
 class _Cfg:
     def __init__(self, enabled=True, user_id_field="email"):
@@ -58,7 +60,10 @@ async def test_bearer_header_resolves() -> None:
     eng = _FakeEngine(_Cfg(), user={"id": 1, "email": "eve@example.com"})
     resolve = build_identity_resolver(eng, _cache())
     req = _Req({"Authorization": "Bearer nb-tok"})
-    assert await resolve(req) == "eve@example.com"
+    result = await resolve(req)
+    assert isinstance(result, ResolvedIdentity)
+    assert result.sender_id == "eve@example.com"
+    assert result.roles == []
     assert eng.calls == 1
 
 
@@ -67,7 +72,10 @@ async def test_query_param_token_resolves() -> None:
     eng = _FakeEngine(_Cfg(), user={"id": 1, "email": "eve@example.com"})
     resolve = build_identity_resolver(eng, _cache())
     req = _Req({}, {"token": "nb-tok"})
-    assert await resolve(req) == "eve@example.com"
+    result = await resolve(req)
+    assert isinstance(result, ResolvedIdentity)
+    assert result.sender_id == "eve@example.com"
+    assert result.roles == []
     assert eng.calls == 1
 
 
@@ -80,7 +88,10 @@ async def test_dedicated_header_wins_over_bearer() -> None:
             "Authorization": "Bearer other-tok",
         },
     )
-    assert await resolve(req) == "eve@example.com"
+    result = await resolve(req)
+    assert isinstance(result, ResolvedIdentity)
+    assert result.sender_id == "eve@example.com"
+    assert result.roles == []
     assert eng.calls == 1
 
 
@@ -89,9 +100,10 @@ async def test_success_extracts_email_and_caches() -> None:
     cache = _cache()
     resolve = build_identity_resolver(eng, cache)
     req = _Req({"X-NocoBase-Token": "t"})
-    assert await resolve(req) == "eve@example.com"
-    # second call served from cache, no extra verify
-    assert await resolve(req) == "eve@example.com"
+    result = await resolve(req)
+    assert result.sender_id == "eve@example.com"
+    result2 = await resolve(req)
+    assert result2.sender_id == "eve@example.com"
     assert eng.calls == 1
 
 
@@ -113,3 +125,18 @@ async def test_network_error_not_cached() -> None:
     assert await resolve(req) is None
     assert await resolve(req) is None
     assert eng.calls == 2  # retried, not cached
+
+
+async def test_roles_extracted_into_identity() -> None:
+    eng = _FakeEngine(
+        _Cfg(),
+        user={
+            "id": 1,
+            "email": "eve@example.com",
+            "roles": [{"name": "admin"}, "member"],
+        },
+    )
+    resolve = build_identity_resolver(eng, _cache())
+    result = await resolve(_Req({"X-NocoBase-Token": "t"}))
+    assert result.sender_id == "eve@example.com"
+    assert result.roles == ["admin", "member"]

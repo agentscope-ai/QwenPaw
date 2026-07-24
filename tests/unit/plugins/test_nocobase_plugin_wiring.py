@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access,unused-argument
-"""The plugin registers/unregisters an identity resolver with core auth."""
+"""The plugin registers/unregisters identity+login hooks with core auth."""
 from __future__ import annotations
 
 import pytest
+
+from nocobase_auth.config import NocoBaseAuthConfig, RoleChannelMapping
 
 from qwenpaw.app import auth as auth_mod
 
@@ -19,14 +21,17 @@ def _clear():
 
 async def _started_plugin(monkeypatch):
     from nocobase_auth.plugin import NocoBaseAuthPlugin
-
-    # Avoid real network sync: stub SyncEngine.start.
-    from nocobase_auth import sync_engine as se
+    from nocobase_auth import engine as eng_mod
 
     async def _noop_start(self):
         return None
 
-    monkeypatch.setattr(se.SyncEngine, "start", _noop_start)
+    monkeypatch.setattr(eng_mod.NocoBaseEngine, "start", _noop_start)
+    monkeypatch.setattr(
+        NocoBaseAuthConfig,
+        "seed_from_env",
+        classmethod(lambda cls, path=None: False),
+    )
 
     plugin = NocoBaseAuthPlugin()
     await plugin._on_startup()
@@ -43,25 +48,30 @@ async def test_startup_registers_and_uninstall_removes(monkeypatch) -> None:
     assert len(auth_mod._external_login_authenticators) == 0
 
 
-async def test_login_authenticator_raises_denied_when_console_acl_denies(
-    monkeypatch,
-) -> None:
+async def test_login_denied_when_role_denies_console(monkeypatch) -> None:
     plugin = await _started_plugin(monkeypatch)
-    engine = plugin._sync_engine
+    engine = plugin._engine
+    engine.config = NocoBaseAuthConfig(
+        enabled=True,
+        base_url="http://nb.local",
+        role_channel_map=[
+            RoleChannelMapping(
+                role_name="blocked", denied_channels=["console"]
+            )
+        ],
+    )
 
-    async def _valid_credentials(_username, _password):
+    async def _creds(_u, _p):
         return ("blocked@example.com", "nb-token")
 
-    monkeypatch.setattr(
-        engine,
-        "authenticate_credentials",
-        _valid_credentials,
-    )
-    monkeypatch.setattr(
-        engine.store,
-        "is_channel_allowed",
-        lambda _sender, _channel: False,
-    )
+    async def _verify(_tok):
+        return {
+            "email": "blocked@example.com",
+            "roles": [{"name": "blocked"}],
+        }
+
+    monkeypatch.setattr(engine, "authenticate_credentials", _creds)
+    monkeypatch.setattr(engine, "verify_user_token", _verify)
 
     authenticator = auth_mod._external_login_authenticators[0]
     with pytest.raises(auth_mod.ExternalLoginDenied):
@@ -70,56 +80,43 @@ async def test_login_authenticator_raises_denied_when_console_acl_denies(
     await plugin._on_uninstall("nocobase-auth", delete_files=False)
 
 
-async def test_login_authenticator_returns_identity_when_acl_allows(
-    monkeypatch,
-) -> None:
+async def test_login_returns_identity_when_allowed(monkeypatch) -> None:
     plugin = await _started_plugin(monkeypatch)
-    engine = plugin._sync_engine
+    engine = plugin._engine
+    engine.config = NocoBaseAuthConfig(
+        enabled=True, base_url="http://nb.local", role_channel_map=[]
+    )
 
-    async def _valid_credentials(_username, _password):
+    async def _creds(_u, _p):
         return ("member@example.com", "nb-token")
 
-    monkeypatch.setattr(
-        engine,
-        "authenticate_credentials",
-        _valid_credentials,
-    )
-    monkeypatch.setattr(
-        engine.store,
-        "is_channel_allowed",
-        lambda _sender, _channel: True,
-    )
+    async def _verify(_tok):
+        return {"email": "member@example.com", "roles": [{"name": "member"}]}
+
+    monkeypatch.setattr(engine, "authenticate_credentials", _creds)
+    monkeypatch.setattr(engine, "verify_user_token", _verify)
 
     authenticator = auth_mod._external_login_authenticators[0]
     result = await authenticator("member@example.com", "correct-pw")
-    # The authenticator passes through the NocoBase-issued token so the
-    # provider owns the token system end-to-end.
     assert result == auth_mod.ExternalLogin(
-        identity="member@example.com",
-        token="nb-token",
+        identity="member@example.com", token="nb-token"
     )
 
     await plugin._on_uninstall("nocobase-auth", delete_files=False)
 
 
-async def test_login_authenticator_skips_acl_for_bad_credentials(
-    monkeypatch,
-) -> None:
+async def test_login_skips_acl_for_bad_credentials(monkeypatch) -> None:
     plugin = await _started_plugin(monkeypatch)
-    engine = plugin._sync_engine
+    engine = plugin._engine
 
-    async def _invalid_credentials(_username, _password):
+    async def _invalid(_u, _p):
         return None
 
-    def _never_called(_sender, _channel):
-        raise AssertionError("ACL must not run for invalid credentials")
+    async def _verify_never(_tok):
+        raise AssertionError("verify must not run for invalid credentials")
 
-    monkeypatch.setattr(
-        engine,
-        "authenticate_credentials",
-        _invalid_credentials,
-    )
-    monkeypatch.setattr(engine.store, "is_channel_allowed", _never_called)
+    monkeypatch.setattr(engine, "authenticate_credentials", _invalid)
+    monkeypatch.setattr(engine, "verify_user_token", _verify_never)
 
     authenticator = auth_mod._external_login_authenticators[0]
     assert await authenticator("nobody@example.com", "wrong") is None

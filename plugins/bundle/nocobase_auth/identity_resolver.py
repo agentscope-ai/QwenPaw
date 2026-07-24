@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Resolve a NocoBase user token into an ACL sender_id."""
+"""Resolve a NocoBase user token into a ResolvedIdentity (sender_id+roles)."""
 
 from __future__ import annotations
 
 import logging
 from typing import Any, Awaitable, Callable, Optional
+
+from qwenpaw.app.auth import ResolvedIdentity
 
 from .identity_cache import TokenIdentityCache
 from .nocobase_client import NocoBaseClient
@@ -13,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 NOCOBASE_TOKEN_HEADER = "X-NocoBase-Token"
 
-IdentityResolver = Callable[[Any], Awaitable[Optional[str]]]
+IdentityResolver = Callable[[Any], Awaitable[Optional[ResolvedIdentity]]]
 
 
 def build_identity_resolver(
@@ -28,9 +30,10 @@ def build_identity_resolver(
     the NocoBase token itself to clients, the Bearer header *is* a NocoBase
     token in this deployment.
 
-    Contract: returns the user's ``sender_id`` (per ``user_id_field``) or
-    ``None`` (no opinion / invalid). Never raises. Positive and definitively
-    invalid results are cached; "could not verify" (network error) is not.
+    Contract: returns a :class:`ResolvedIdentity` (sender_id per
+    ``user_id_field`` plus the caller's NocoBase role names) or ``None`` (no
+    opinion / invalid). Never raises. Positive and definitively invalid
+    results are cached; "could not verify" (network error) is not.
     """
 
     def _extract_token(request: Any) -> Optional[str]:
@@ -45,8 +48,8 @@ def build_identity_resolver(
             return None
         return query_params.get("token")
 
-    async def resolve(request: Any) -> Optional[str]:
-        # pylint: disable=too-many-return-statements
+    async def resolve(request: Any) -> Optional[ResolvedIdentity]:
+        # pylint: disable=too-many-return-statements,protected-access
         config = getattr(engine, "config", None)
         if not (config and getattr(config, "enabled", False)):
             return None
@@ -77,7 +80,11 @@ def build_identity_resolver(
         if not sender_id:
             cache.put(token, None)
             return None
-        cache.put(token, sender_id)
-        return sender_id
+        identity = ResolvedIdentity(
+            sender_id=sender_id,
+            roles=NocoBaseClient._extract_roles(user),
+        )
+        cache.put(token, identity)
+        return identity
 
     return resolve

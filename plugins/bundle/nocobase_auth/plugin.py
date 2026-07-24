@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, List, Optional
 
 logger = logging.getLogger("qwenpaw").getChild("plugin.nocobase-auth")
 
@@ -24,7 +24,7 @@ class NocoBaseAuthPlugin:
         ] = None
         self._identity_resolver: Optional[Callable[..., Any]] = None
         self._login_authenticator: Optional[Callable[..., Any]] = None
-        self._sync_engine: Optional[Any] = None
+        self._engine: Optional[Any] = None
 
     def register(self, api: Any) -> None:
         """Called by PluginLoader when the plugin is loaded."""
@@ -46,18 +46,26 @@ class NocoBaseAuthPlugin:
         logger.info("NocoBase auth plugin hooks registered")
 
     async def _on_startup(self) -> None:
-        """Initialize the sync engine and register the channel gate checker."""
+        """Initialize the engine and register identity/login/gate hooks."""
         from .channel_gate import build_checker
-        from .sync_engine import SyncEngine
+        from .config import NocoBaseAuthConfig
+        from .engine import NocoBaseEngine
 
         logger.info("NocoBase auth plugin starting up...")
 
-        self._sync_engine = SyncEngine()
-        await self._sync_engine.start()
+        try:
+            NocoBaseAuthConfig.seed_from_env()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "NocoBase auth: seeding config from env failed: %s", exc
+            )
 
-        engine = self._sync_engine
+        self._engine = NocoBaseEngine()
+        await self._engine.start()
+
+        engine = self._engine
         self._checker = build_checker(
-            engine.store,
+            get_config=lambda: engine.config,
             is_enabled=lambda: bool(engine.config and engine.config.enabled),
         )
         try:
@@ -78,10 +86,11 @@ class NocoBaseAuthPlugin:
 
             from .identity_cache import TokenIdentityCache
             from .identity_resolver import build_identity_resolver
+            from .nocobase_client import NocoBaseClient
 
             cache = TokenIdentityCache()
             self._identity_resolver = build_identity_resolver(
-                self._sync_engine,
+                self._engine,
                 cache,
             )
             register_external_identity_resolver(self._identity_resolver)
@@ -93,8 +102,10 @@ class NocoBaseAuthPlugin:
                 username: str,
                 password: str,
             ) -> Optional[ExternalLogin]:
-                # Same checker as the per-message channel gate, so login
-                # and chat can never disagree on who is allowed in.
+                # pylint: disable=protected-access
+                # Same checker as the per-message channel gate, so login and
+                # chat can never disagree. Resolve the user's roles live so
+                # the role→channel policy applies at login too.
                 result = await engine.authenticate_credentials(
                     username,
                     password,
@@ -102,15 +113,24 @@ class NocoBaseAuthPlugin:
                 if not result:
                     return None
                 sender_id, nb_token = result
+                roles: List[str] = []
+                if nb_token:
+                    try:
+                        user = await engine.verify_user_token(nb_token)
+                        if user:
+                            roles = NocoBaseClient._extract_roles(user)
+                    except Exception:  # noqa: BLE001
+                        roles = []
                 if (
                     checker is not None
-                    and checker("console", sender_id, {}) == "deny"
+                    and checker("console", sender_id, {"acl_roles": roles})
+                    == "deny"
                 ):
                     raise ExternalLoginDenied(
                         "This account is not allowed to access the console",
                     )
-                # Pass the NocoBase-issued token through so NocoBase owns
-                # the token system (issuing + verification) end-to-end.
+                # Pass the NocoBase-issued token through so NocoBase owns the
+                # token system (issuing + verification) end-to-end.
                 return ExternalLogin(identity=sender_id, token=nb_token)
 
             self._login_authenticator = _login_with_console_acl
@@ -178,13 +198,13 @@ class NocoBaseAuthPlugin:
                 )
             self._login_authenticator = None
 
-        if self._sync_engine is not None:
-            from .sync_engine import set_sync_engine
+        if self._engine is not None:
+            from .engine import set_engine
 
-            await self._sync_engine.stop()
-            self._sync_engine = None
-            set_sync_engine(None)
-            logger.info("NocoBase auth sync engine cleared")
+            await self._engine.stop()
+            self._engine = None
+            set_engine(None)
+            logger.info("NocoBase auth engine cleared")
 
 
 plugin = NocoBaseAuthPlugin()
