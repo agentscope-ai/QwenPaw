@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from agentscope.message import Msg
@@ -35,10 +36,20 @@ _HEADLINE_RE = re.compile(
 _TRAILING_HEADLINE_RE = re.compile(
     rf"(?:<!--[ \t]*{_OPEN}|(?:^|\n)[ \t]*{_OPEN})[^\r\n]*\Z",
 )
-_HEADLINE_START_RE = re.compile(
-    rf"(?:<!--[ \t]*{_OPEN}|(?:^|\n)[ \t]*{_OPEN})",
-)
 _HEADLINE_MAX = 2000  # safety ceiling; prompts still ask for concise headlines
+_LEGACY_START_RE = re.compile(r"<!--\s*[⟦〚]")
+_PLAIN_START_RE = re.compile(r"(?:^|\n)[ \t]*[⟦〚]")
+_LEGACY_CLOSE_RE = re.compile(r"[⟧〛]\s*-->")
+_PLAIN_CLOSE_RE = re.compile(r"[⟧〛]")
+
+
+@dataclass
+class HeadlineDeltaState:
+    """Per-output-stream state for hiding a chunked headline protocol."""
+
+    pending: str = ""
+    suppressing: bool = False
+    legacy_comment: bool = False
 
 
 def _dump(block: Any) -> dict:
@@ -143,28 +154,86 @@ def strip_headline(text: str | None) -> str | None:
 def strip_headline_delta(
     text: str,
     *,
-    suppressing: bool = False,
-) -> tuple[str, bool]:
-    """Hide one streamed headline fragment and return suppression state.
+    state: HeadlineDeltaState | None = None,
+) -> tuple[str, HeadlineDeltaState]:
+    """Hide one streamed headline fragment and return its updated state.
 
     SSE content events carry deltas rather than the complete assistant text.
-    Once a delta starts a headline, later fragments may contain neither the
-    opening fence nor enough context for :func:`strip_headline` to recognize
-    them. Keep suppressing that stream until a closing fence arrives.
+    Both the opening and closing markers may straddle chunk boundaries, so
+    ambiguous trailing prefixes are buffered until the next delta.
 
     Headlines are a trailing protocol line, so any text after their opening
     fence in the same delta is intentionally hidden.
     """
-    if suppressing:
-        return "", re.search(_CLOSE, text) is None
+    state = state or HeadlineDeltaState()
+    text = state.pending + text
+    state.pending = ""
+    visible: list[str] = []
 
-    start = _HEADLINE_START_RE.search(text)
-    if not start:
-        return text, False
+    while text:
+        if state.suppressing:
+            close_re = (
+                _LEGACY_CLOSE_RE if state.legacy_comment else _PLAIN_CLOSE_RE
+            )
+            close = close_re.search(text)
+            if close is not None:
+                text = text[close.end() :]
+                state.suppressing = False
+                state.legacy_comment = False
+                continue
+            if state.legacy_comment:
+                close_start = max(text.rfind("⟧"), text.rfind("〛"))
+                if close_start >= 0 and _possible_legacy_close_prefix(
+                    text[close_start:],
+                ):
+                    state.pending = text[close_start:]
+            return "".join(visible), state
 
-    headline_fragment = text[start.start() :]
-    visible = text[: start.start()]
-    return visible, re.search(_CLOSE, headline_fragment) is None
+        legacy = _LEGACY_START_RE.search(text)
+        plain = _PLAIN_START_RE.search(text)
+        starts = [
+            (match.start(), match.end(), is_legacy)
+            for match, is_legacy in ((legacy, True), (plain, False))
+            if match is not None
+        ]
+        if starts:
+            start, end, is_legacy = min(starts, key=lambda item: item[0])
+            visible.append(text[:start])
+            text = text[end:]
+            state.suppressing = True
+            state.legacy_comment = is_legacy
+            continue
+
+        prefix_start = text.rfind("<")
+        if prefix_start >= 0 and _possible_legacy_start_prefix(
+            text[prefix_start:],
+        ):
+            visible.append(text[:prefix_start])
+            state.pending = text[prefix_start:]
+            return "".join(visible), state
+
+        visible.append(text)
+        break
+
+    return "".join(visible), state
+
+
+def _possible_legacy_start_prefix(value: str) -> bool:
+    marker = "<!--"
+    if len(value) < len(marker):
+        return marker.startswith(value)
+    return value.startswith(marker) and not value[len(marker) :].strip()
+
+
+def _possible_legacy_close_prefix(value: str) -> bool:
+    if not value or value[0] not in "⟧〛":
+        return False
+    suffix = value[1:]
+    marker_start = next(
+        (index for index, char in enumerate(suffix) if not char.isspace()),
+        len(suffix),
+    )
+    return "-->".startswith(suffix[marker_start:])
 
 
 def msg_to_entries(msg: Msg) -> list[LogEntry]:

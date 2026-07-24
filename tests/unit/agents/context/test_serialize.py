@@ -5,6 +5,7 @@ import pytest
 
 from qwenpaw.agents.context.scroll.prompt import build_scroll_system_prompt
 from qwenpaw.agents.context.scroll.serialize import (
+    HeadlineDeltaState,
     extract_headline,
     strip_headline,
     strip_headline_delta,
@@ -122,22 +123,55 @@ def test_strip_headline_preserves_inline_plain_fence() -> None:
 
 
 def test_strip_headline_delta_suppresses_split_protocol_line() -> None:
-    visible, suppressing = strip_headline_delta(
+    state = HeadlineDeltaState()
+    visible, state = strip_headline_delta(
         "done\n⟦ model discovery |",
+        state=state,
     )
     assert visible == "done"
-    assert suppressing is True
+    assert state.suppressing is True
 
-    visible, suppressing = strip_headline_delta(
+    visible, state = strip_headline_delta(
         " status: fixed; next: test",
-        suppressing=suppressing,
+        state=state,
     )
     assert visible == ""
-    assert suppressing is True
+    assert state.suppressing is True
 
-    visible, suppressing = strip_headline_delta(
+    visible, state = strip_headline_delta(
         " | anchors: TC-1 ⟧",
-        suppressing=suppressing,
+        state=state,
     )
     assert visible == ""
-    assert suppressing is False
+    assert state.suppressing is False
+
+
+@pytest.mark.parametrize(
+    "split_at",
+    range(1, len("<!-- ⟦ hidden headline ⟧ -->")),
+)
+def test_strip_headline_delta_buffers_every_legacy_marker_split(
+    split_at: int,
+) -> None:
+    marker = "<!-- ⟦ hidden headline ⟧ -->"
+    state = HeadlineDeltaState()
+    first, state = strip_headline_delta(
+        "answer\n" + marker[:split_at],
+        state=state,
+    )
+    second, state = strip_headline_delta(
+        marker[split_at:],
+        state=state,
+    )
+
+    assert first + second == "answer\n"
+    assert state == HeadlineDeltaState()
+
+
+def test_strip_headline_delta_releases_non_protocol_prefix() -> None:
+    state = HeadlineDeltaState()
+    first, state = strip_headline_delta("answer\n<!", state=state)
+    second, state = strip_headline_delta("important", state=state)
+
+    assert first + second == "answer\n<!important"
+    assert state == HeadlineDeltaState()

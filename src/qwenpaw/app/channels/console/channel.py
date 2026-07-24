@@ -417,7 +417,7 @@ class ConsoleChannel(BaseChannel):
             send_meta.setdefault("bot_prefix", self.bot_prefix)
             last_response = None
             event_count = 0
-            suppressing_headline_streams: set[str] = set()
+            headline_stream_states: dict[str, Any] = {}
 
             async for event in self._process(request):
                 event_count += 1
@@ -445,7 +445,7 @@ class ConsoleChannel(BaseChannel):
 
                 data = self._serialize_event_for_sse(
                     event,
-                    suppressing_headline_streams,
+                    headline_stream_states,
                 )
                 yield f"data: {data}\n\n"
 

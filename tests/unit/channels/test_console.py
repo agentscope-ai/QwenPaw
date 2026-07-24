@@ -117,7 +117,7 @@ class TestConsoleChannelUnit:
 
     def test_sse_headline_strip_tracks_split_delta_line(self):
         """Later headline chunks stay hidden without repeating the opener."""
-        suppressing_streams = set()
+        stream_states = {}
         chunks = (
             "visible\n⟦ model discovery |",
             " status: fixed; next: test",
@@ -136,7 +136,7 @@ class TestConsoleChannelUnit:
             data = ConsoleChannel._strip_event_headlines(
                 _FakeDumpEvent(payload),
                 "{}",
-                suppressing_streams,
+                stream_states,
             )
             rendered.append(data)
 
@@ -144,11 +144,11 @@ class TestConsoleChannelUnit:
         assert all("model discovery" not in item for item in rendered)
         assert all("status: fixed" not in item for item in rendered)
         assert all("anchors: TC-1" not in item for item in rendered)
-        assert suppressing_streams == set()
+        assert not stream_states
 
     def test_sse_serializer_hides_split_delta_line(self, channel):
         """The public SSE serializer carries suppression between deltas."""
-        suppressing_streams = set()
+        stream_states = {}
         chunks = (
             "visible\n⟦ model discovery |",
             " status: fixed; next: test",
@@ -169,7 +169,7 @@ class TestConsoleChannelUnit:
             rendered.append(
                 channel._serialize_event_for_sse(
                     event,
-                    suppressing_streams,
+                    stream_states,
                 ),
             )
 
@@ -177,7 +177,32 @@ class TestConsoleChannelUnit:
         assert all("model discovery" not in item for item in rendered)
         assert all("status: fixed" not in item for item in rendered)
         assert all("anchors: TC-1" not in item for item in rendered)
-        assert suppressing_streams == set()
+        assert not stream_states
+
+    def test_sse_serializer_buffers_split_opening_marker(self, channel):
+        stream_states = {}
+        chunks = (
+            "answer\n<!",
+            "-- ⟦ hidden",
+            " headline ⟧ -->",
+        )
+        visible = []
+
+        for text in chunks:
+            event = _FakeDumpEvent(
+                {
+                    "object": "content",
+                    "delta": True,
+                    "msg_id": "message-1",
+                    "index": 0,
+                    "text": text,
+                },
+            )
+            data = channel._serialize_event_for_sse(event, stream_states)
+            visible.append(json.loads(data)["text"])
+
+        assert "".join(visible) == "answer\n"
+        assert not stream_states
 
     @pytest.mark.asyncio
     async def test_send_prints_to_stdout(self, channel, capsys):

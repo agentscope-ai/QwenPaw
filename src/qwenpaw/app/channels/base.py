@@ -919,13 +919,13 @@ class BaseChannel(ABC):
         process_iterator = None
         msg_id_to_stream_type: Dict[str, str] = {}
         streaming_buffers: Dict[str, str] = {}
-        suppressing_headline_streams: set[str] = set()
+        headline_stream_states: dict[str, Any] = {}
         try:
             process_iterator = self._process(request)
             async for event in process_iterator:
                 data = self._serialize_event_for_sse(
                     event,
-                    suppressing_headline_streams,
+                    headline_stream_states,
                 )
 
                 yield f"data: {data}\n\n"
@@ -1050,7 +1050,7 @@ class BaseChannel(ABC):
     def _strip_event_headlines(
         event: Any,
         fallback: str,
-        suppressing_streams: set[str] | None = None,
+        headline_stream_states: dict[str, Any] | None = None,
     ) -> str:
         """Drop scroll headlines (``<!-- ⟦ … ⟧ -->``) from an SSE payload.
 
@@ -1062,6 +1062,7 @@ class BaseChannel(ABC):
         text block that holds no headline, so user/tool text is untouched.
         """
         from qwenpaw.agents.context.scroll.serialize import (
+            HeadlineDeltaState,
             strip_headline,
             strip_headline_delta,
         )
@@ -1075,7 +1076,7 @@ class BaseChannel(ABC):
         # Track that state inside the current SSE request rather than on the
         # shared channel instance, where concurrent sessions could interfere.
         if (
-            suppressing_streams is not None
+            headline_stream_states is not None
             and getattr(event, "object", None) == "content"
             and getattr(event, "delta", False)
         ):
@@ -1083,16 +1084,20 @@ class BaseChannel(ABC):
             index = int(getattr(event, "index", 0) or 0)
             stream_key = f"{msg_id}:{index}"
             raw_text = getattr(event, "text", "") or ""
-            clean_text, still_suppressing = strip_headline_delta(
+            state = headline_stream_states.get(
+                stream_key,
+                HeadlineDeltaState(),
+            )
+            clean_text, state = strip_headline_delta(
                 raw_text,
-                suppressing=stream_key in suppressing_streams,
+                state=state,
             )
             if isinstance(payload, dict) and "text" in payload:
                 payload["text"] = clean_text
-            if still_suppressing:
-                suppressing_streams.add(stream_key)
+            if state.suppressing or state.pending:
+                headline_stream_states[stream_key] = state
             else:
-                suppressing_streams.discard(stream_key)
+                headline_stream_states.pop(stream_key, None)
 
         def walk(node: Any) -> Any:
             if isinstance(node, str):
@@ -1111,7 +1116,7 @@ class BaseChannel(ABC):
     def _serialize_event_for_sse(
         self,
         event: Any,
-        suppressing_headline_streams: set[str] | None = None,
+        headline_stream_states: dict[str, Any] | None = None,
     ) -> str:
         try:
             if hasattr(event, "model_dump_json"):
@@ -1125,21 +1130,21 @@ class BaseChannel(ABC):
             # to strip them, but only when a fence marker is actually present
             # so the common (headline-free) event pays nothing.
             is_tracked_delta = (
-                suppressing_headline_streams is not None
+                headline_stream_states is not None
                 and getattr(event, "object", None) == "content"
                 and getattr(event, "delta", False)
             )
             should_strip = (
                 "⟦" in data
                 or "〚" in data
-                or bool(suppressing_headline_streams)
+                or bool(headline_stream_states)
                 or is_tracked_delta
             )
             if hasattr(event, "model_dump") and should_strip:
                 data = self._strip_event_headlines(
                     event,
                     data,
-                    suppressing_headline_streams,
+                    headline_stream_states,
                 )
 
             return self._sanitize_surrogate_text(data)
