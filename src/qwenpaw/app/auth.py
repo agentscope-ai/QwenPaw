@@ -25,7 +25,7 @@ import logging
 import os
 import secrets
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional
 
 from fastapi import Request, Response
@@ -77,11 +77,27 @@ _PUBLIC_PREFIXES: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 # External identity resolvers (e.g. NocoBase SSO plugin)
 # ---------------------------------------------------------------------------
-# A resolver maps an incoming request to an identity string (the sender_id
+@dataclass
+class ResolvedIdentity:
+    """Result of one external identity resolution.
+
+    ``sender_id`` is the stable identity string (per ``user_id_field``) used
+    by channel ACL and token-usage attribution. ``roles`` are the caller's
+    NocoBase role names, resolved live so the console gate can evaluate the
+    role→channel map without any local user mirror.
+    """
+
+    sender_id: str
+    roles: list[str] = field(default_factory=list)
+
+
+# A resolver maps an incoming request to a ResolvedIdentity (the sender_id
 # used by channel ACL) or None when it has no opinion. Mirrors the
 # BaseChannel._external_acl_checkers pattern: the core stays ignorant of any
 # specific identity provider; plugins fill this in.
-IdentityResolver = Callable[["Request"], Awaitable[Optional[str]]]
+IdentityResolver = Callable[
+    ["Request"], Awaitable[Optional["ResolvedIdentity"]]
+]
 _external_identity_resolvers: list[IdentityResolver] = []
 
 # A login authenticator maps a username/password pair to an identity string
@@ -197,7 +213,9 @@ async def authenticate_external_login(
     return None
 
 
-async def _resolve_external_identity(request: Request) -> Optional[str]:
+async def _resolve_external_identity(
+    request: Request,
+) -> Optional[ResolvedIdentity]:
     """Return the first non-empty identity from registered resolvers.
 
     A resolver that raises is logged and skipped so one bad plugin never
