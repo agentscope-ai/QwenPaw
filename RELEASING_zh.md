@@ -34,7 +34,8 @@ QwenPaw 一个版本会发布四种产物——**PyPI** wheel、**Docker** 镜�
 3. **Gate + Publish（门禁 + 发布）**——每个 publish job 都 `needs` **全部** prepare
    job，因此上面任一失败都会跳过整个发布阶段。全绿后：发布 PyPI、推多架构 Docker
    镜像、把桌面安装包挂到 release 并上传 OSS、发布插件——然后**最后一步**才把草稿翻成
-   *published*（tag 钉到构建用的 SHA），并创建 Release Duty 验收 issue。
+   *published*（tag 钉到构建用的 SHA）。发布后再：推桌面 `latest`/更新清单、部署官网
+   （仅正式版/post，beta 跳过）、创建 Release Duty 验收 issue。
 
 整体约 60–75 分钟，主要耗时在桌面 Tauri 构建。
 
@@ -71,6 +72,8 @@ QwenPaw 一个版本会发布四种产物——**PyPI** wheel、**Docker** 镜�
 
 - 预发布判定是**基于 tag** 的：tag 含 `beta`/`alpha`/`rc`/`dev` 即为预发布
   （所以用 `-beta.N` 写法）；`stable` 与 `.postN` 会更新 Docker 的 `latest` 标签。
+- **官网**（GitHub Pages，`qwenpaw.agentscope.io`）只在**正式版**与 `.postN` 部署；
+  预发布跳过，保证官网只展示 GA 版本。
 - ⚠️ 桌面 OSS 的 `latest` 文件与 Tauri 自动更新清单目前对**每个**版本（含 beta）
   都会更新（与之前 `desktop-release.yml` 行为一致，本次未改）。让桌面
   `latest`/自动更新只在正式版更新，可作为后续改进。
@@ -87,6 +90,7 @@ release 就仍是草稿。
 | `finalize` 失败 | 产物都发了但 release 没翻 | 重跑 `finalize`，或手动 `gh release edit <tag> --draft=false --target <sha>`（或 UI 点 *Publish*）。 |
 | `duty-issue` 失败 | release 已发布，只是缺验收 issue | 重跑该 job，或用 `tag` 手动 dispatch `release-duty.yml`。不阻塞发布。 |
 | `promote-desktop` 失败 | release 已发布，但桌面 `latest` 文件 / 更新清单 / index 未刷新（存量用户的自动更新暂时看不到新版；版本化下载仍可用） | 重跑该 job，幂等（`ossutil cp --force`）。对首装用户不阻塞。 |
+| `deploy-website` 失败（仅正式/post） | release 已发布，但官网（`qwenpaw.agentscope.io`）仍是旧版本 | 重跑该 job，或手动 dispatch `deploy-website.yml`（workflow_dispatch）。幂等、不阻塞。 |
 | "Multiple draft releases found" | 存在多个草稿 | 重跑 *Run workflow* 时显式填 `tag`。 |
 | "No draft release found" / "not a draft" | 没有草稿，或 tag 填错 | 先建草稿 / 改正 tag，再重跑。 |
 | resolve 拒绝该 tag（版本不匹配） | 草稿 tag 与 `src/qwenpaw/__version__.py` 不一致 | 让 tag 与版本对齐（`packaging` 归一化，如 `v2.0.1-beta.1` ↔ `2.0.1b1`），再重跑。 |
