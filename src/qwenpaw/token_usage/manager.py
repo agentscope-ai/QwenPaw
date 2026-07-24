@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from ..constant import WORKING_DIR, TOKEN_USAGE_FILE
 from .buffer import TokenUsageBuffer, _UsageEvent
+from .users import UNKNOWN_USER_ID
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +26,12 @@ class TokenUsageStats(BaseModel):
 
 
 class TokenUsageRecord(TokenUsageStats):
-    """Single row from token usage query (per date + provider + model)."""
+    """One row per date + provider + model + user."""
 
     date: str = Field(..., description="Date (YYYY-MM-DD)")
     provider_id: str = Field("", description="Provider ID")
     model: str = Field(..., description="Model name")
+    user_id: str = Field("", description="Caller the usage belongs to")
 
 
 class TokenUsageByModel(TokenUsageStats):
@@ -60,6 +62,67 @@ class TokenUsageSummary(BaseModel):
         default_factory=dict,
         description="Per date (YYYY-MM-DD) - all models combined",
     )
+    by_user: dict[str, TokenUsageStats] = Field(
+        default_factory=dict,
+        description="Per user - all models and dates combined",
+    )
+
+
+def _expand_entry(
+    date_str: str,
+    provider_id: str,
+    model: str,
+    entry: dict,
+) -> list[TokenUsageRecord]:
+    """Split one on-disk entry into one record per user.
+
+    The entry's own counters are authoritative. Whatever they hold beyond
+    the sum of the ``by_user`` buckets — all of it for data written before
+    per-user attribution existed — is reported as ``unknown`` so the
+    per-user rows always add back up to the per-model totals.
+    """
+    total_prompt = entry.get("prompt_tokens", 0)
+    total_completion = entry.get("completion_tokens", 0)
+    total_calls = entry.get("call_count", 0)
+    by_user = entry.get("by_user") or {}
+
+    records: list[TokenUsageRecord] = []
+    seen_prompt = seen_completion = seen_calls = 0
+    for uid, bucket in by_user.items():
+        prompt = bucket.get("prompt_tokens", 0)
+        completion = bucket.get("completion_tokens", 0)
+        calls = bucket.get("call_count", 0)
+        seen_prompt += prompt
+        seen_completion += completion
+        seen_calls += calls
+        records.append(
+            TokenUsageRecord(
+                date=date_str,
+                provider_id=provider_id,
+                model=model,
+                user_id=uid,
+                prompt_tokens=prompt,
+                completion_tokens=completion,
+                call_count=calls,
+            ),
+        )
+
+    residual_prompt = max(0, total_prompt - seen_prompt)
+    residual_completion = max(0, total_completion - seen_completion)
+    residual_calls = max(0, total_calls - seen_calls)
+    if not records or residual_prompt or residual_completion or residual_calls:
+        records.append(
+            TokenUsageRecord(
+                date=date_str,
+                provider_id=provider_id,
+                model=model,
+                user_id=UNKNOWN_USER_ID,
+                prompt_tokens=residual_prompt,
+                completion_tokens=residual_completion,
+                call_count=residual_calls,
+            ),
+        )
+    return records
 
 
 class TokenUsageManager:
@@ -108,6 +171,7 @@ class TokenUsageManager:
         prompt_tokens: int,
         completion_tokens: int,
         at_date: Optional[date] = None,
+        user_id: str = "",
     ) -> None:
         """Record token usage for a given provider, model and date.
 
@@ -120,6 +184,7 @@ class TokenUsageManager:
             prompt_tokens: Number of input/prompt tokens.
             completion_tokens: Number of output/completion tokens.
             at_date: Date to record under. Defaults to today (local).
+            user_id: Caller the usage belongs to. Empty → ``system``.
         """
         from datetime import datetime, timezone
 
@@ -135,6 +200,7 @@ class TokenUsageManager:
                 now_iso=datetime.now(tz=timezone.utc).isoformat(
                     timespec="seconds",
                 ),
+                user_id=user_id,
             ),
         )
 
@@ -145,8 +211,9 @@ class TokenUsageManager:
         end_date: date,
         model_name: Optional[str],
         provider_id: Optional[str],
+        user_id: Optional[str] = None,
     ) -> list[TokenUsageRecord]:
-        """Return per-day records from the merged data dict."""
+        """Return per-day, per-user records from the merged data dict."""
         results: list[TokenUsageRecord] = []
 
         current = start_date
@@ -160,16 +227,15 @@ class TokenUsageManager:
                     continue
                 if provider_id is not None and rec_provider != provider_id:
                     continue
-                results.append(
-                    TokenUsageRecord(
-                        date=date_str,
-                        provider_id=rec_provider,
-                        model=rec_model,
-                        prompt_tokens=entry.get("prompt_tokens", 0),
-                        completion_tokens=entry.get("completion_tokens", 0),
-                        call_count=entry.get("call_count", 0),
-                    ),
+                expanded = _expand_entry(
+                    date_str,
+                    rec_provider,
+                    rec_model,
+                    entry,
                 )
+                if user_id is not None:
+                    expanded = [r for r in expanded if r.user_id == user_id]
+                results.extend(expanded)
             current += timedelta(days=1)
 
         return results
@@ -180,6 +246,7 @@ class TokenUsageManager:
         end_date: Optional[date] = None,
         model_name: Optional[str] = None,
         provider_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> TokenUsageSummary:
         """Get aggregated token usage summary.
 
@@ -188,9 +255,10 @@ class TokenUsageManager:
             end_date: End of date range (inclusive). Default: today.
             model_name: Optional model name filter.
             provider_id: Optional provider ID filter.
+            user_id: Optional caller filter.
 
         Returns:
-            TokenUsageSummary with totals, by_model, by_provider, by_date.
+            TokenUsageSummary with totals, by_model, by_date, by_user.
         """
         if end_date is None:
             end_date = date.today()
@@ -205,6 +273,7 @@ class TokenUsageManager:
             end_date,
             model_name,
             provider_id,
+            user_id,
         )
 
         total_prompt = 0
@@ -212,6 +281,7 @@ class TokenUsageManager:
         total_calls = 0
         by_model_raw: dict[str, dict] = {}
         by_date_raw: dict[str, dict] = {}
+        by_user_raw: dict[str, dict] = {}
 
         for r in records:
             pt = r.prompt_tokens
@@ -248,6 +318,15 @@ class TokenUsageManager:
             bd["completion_tokens"] += ct
             bd["call_count"] += calls
 
+            # Aggregate by user
+            bu = by_user_raw.setdefault(
+                r.user_id,
+                {"prompt_tokens": 0, "completion_tokens": 0, "call_count": 0},
+            )
+            bu["prompt_tokens"] += pt
+            bu["completion_tokens"] += ct
+            bu["call_count"] += calls
+
         return TokenUsageSummary(
             total_prompt_tokens=total_prompt,
             total_completion_tokens=total_completion,
@@ -260,6 +339,10 @@ class TokenUsageManager:
                 k: TokenUsageStats.model_validate(v)
                 for k, v in sorted(by_date_raw.items())
             },
+            by_user={
+                k: TokenUsageStats.model_validate(v)
+                for k, v in sorted(by_user_raw.items())
+            },
         )
 
     async def get_details(
@@ -268,6 +351,7 @@ class TokenUsageManager:
         end_date: Optional[date] = None,
         model_name: Optional[str] = None,
         provider_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> list[TokenUsageRecord]:
         """Get raw token usage records for frontend aggregation.
 
@@ -276,9 +360,10 @@ class TokenUsageManager:
             end_date: End of date range (inclusive). Default: today.
             model_name: Optional model name filter.
             provider_id: Optional provider ID filter.
+            user_id: Optional caller filter.
 
         Returns:
-            List of TokenUsageRecord with per-date per-model data.
+            List of TokenUsageRecord with per-date per-model per-user data.
         """
         if end_date is None:
             end_date = date.today()
@@ -293,6 +378,7 @@ class TokenUsageManager:
             end_date,
             model_name,
             provider_id,
+            user_id,
         )
 
         return records

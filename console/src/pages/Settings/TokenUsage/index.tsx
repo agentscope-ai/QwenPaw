@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DatePicker } from "antd";
+import { DatePicker, Select } from "antd";
 import { useTranslation } from "react-i18next";
 import dayjs, { type Dayjs } from "dayjs";
 import { useTheme } from "../../../contexts/ThemeContext";
@@ -31,6 +31,7 @@ function TokenUsagePage() {
     dayjs().subtract(30, "day"),
   );
   const [endDate, setEndDate] = useState<Dayjs>(dayjs());
+  const [userFilter, setUserFilter] = useState<string | undefined>(undefined);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -61,7 +62,17 @@ function TokenUsagePage() {
     setEndDate(dates[1]);
   };
 
-  const aggregatedData = useDataAggregation(records);
+  const userOptions = useMemo(() => {
+    const users = new Set(records.map((r) => r.user_id || "system"));
+    return [...users].sort().map((user) => ({ value: user, label: user }));
+  }, [records]);
+
+  const filteredRecords = useMemo(() => {
+    if (!userFilter) return records;
+    return records.filter((r) => (r.user_id || "system") === userFilter);
+  }, [records, userFilter]);
+
+  const aggregatedData = useDataAggregation(filteredRecords);
 
   const modelTrendConfig = useModelTrendConfig({
     byDateModel: aggregatedData?.by_date_model ?? null,
@@ -87,6 +98,17 @@ function TokenUsagePage() {
       call_count: stats.call_count,
     }));
   }, [aggregatedData?.by_model]);
+
+  const byUserData = useMemo(() => {
+    if (!aggregatedData?.by_user) return [];
+    return Object.entries(aggregatedData.by_user).map(([user, stats]) => ({
+      key: user,
+      user,
+      prompt_tokens: stats.prompt_tokens,
+      completion_tokens: stats.completion_tokens,
+      call_count: stats.call_count,
+    }));
+  }, [aggregatedData?.by_user]);
 
   const byDateData = useMemo(() => {
     if (!aggregatedData?.by_date) return [];
@@ -140,6 +162,15 @@ function TokenUsagePage() {
               current && current.isAfter(dayjs(), "day")
             }
           />
+          <Select
+            className={styles.userFilter}
+            value={userFilter}
+            onChange={setUserFilter}
+            options={userOptions}
+            placeholder={t("tokenUsage.allUsers")}
+            allowClear
+            showSearch
+          />
         </div>
 
         {aggregatedData && (
@@ -162,7 +193,11 @@ function TokenUsagePage() {
         {byModelData.length === 0 && byDateData.length === 0 ? (
           <EmptyState message={t("tokenUsage.noData")} />
         ) : (
-          <DataTables byModelData={byModelData} byDateData={byDateData} />
+          <DataTables
+            byModelData={byModelData}
+            byUserData={byUserData}
+            byDateData={byDateData}
+          />
         )}
       </div>
     </div>

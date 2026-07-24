@@ -19,12 +19,25 @@ interface ByDateData {
   call_count: number;
 }
 
+interface ByUserData {
+  key: string;
+  user: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  call_count: number;
+}
+
 interface DataTablesProps {
   byModelData: ByModelData[];
   byDateData: ByDateData[];
+  byUserData: ByUserData[];
 }
 
-export function DataTables({ byModelData, byDateData }: DataTablesProps) {
+export function DataTables({
+  byModelData,
+  byDateData,
+  byUserData,
+}: DataTablesProps) {
   const { t } = useTranslation();
 
   const byModelColumns = [
@@ -65,6 +78,47 @@ export function DataTables({ byModelData, byDateData }: DataTablesProps) {
       key: "call_count",
       render: (v: number) => formatCompact(v),
       sorter: (a: ByModelData, b: ByModelData) => a.call_count - b.call_count,
+    },
+  ];
+
+  const byUserColumns = [
+    {
+      title: t("tokenUsage.user"),
+      dataIndex: "user",
+      key: "user",
+    },
+    {
+      title: t("tokenUsage.promptTokens"),
+      dataIndex: "prompt_tokens",
+      key: "prompt_tokens",
+      render: (v: number) => formatCompact(v),
+      sorter: (a: ByUserData, b: ByUserData) =>
+        a.prompt_tokens - b.prompt_tokens,
+    },
+    {
+      title: t("tokenUsage.completionTokens"),
+      dataIndex: "completion_tokens",
+      key: "completion_tokens",
+      render: (v: number) => formatCompact(v),
+      sorter: (a: ByUserData, b: ByUserData) =>
+        a.completion_tokens - b.completion_tokens,
+    },
+    {
+      title: t("tokenUsage.totalTokens"),
+      key: "total_tokens",
+      render: (_: unknown, record: ByUserData) =>
+        formatCompact(record.prompt_tokens + record.completion_tokens),
+      sorter: (a: ByUserData, b: ByUserData) =>
+        a.prompt_tokens +
+        a.completion_tokens -
+        (b.prompt_tokens + b.completion_tokens),
+    },
+    {
+      title: t("tokenUsage.totalCalls"),
+      dataIndex: "call_count",
+      key: "call_count",
+      render: (v: number) => formatCompact(v),
+      sorter: (a: ByUserData, b: ByUserData) => a.call_count - b.call_count,
     },
   ];
 
@@ -119,6 +173,21 @@ export function DataTables({ byModelData, byDateData }: DataTablesProps) {
           <Table
             columns={byModelColumns}
             dataSource={byModelData}
+            pagination={{ pageSize: 10 }}
+            size="small"
+            scroll={{ x: "max-content" }}
+          />
+        </Card>
+      )}
+
+      {byUserData.length > 0 && (
+        <Card
+          className={`${styles.tableCard} mobile-scroll-x`}
+          title={t("tokenUsage.byUser")}
+        >
+          <Table
+            columns={byUserColumns}
+            dataSource={byUserData}
             pagination={{ pageSize: 10 }}
             size="small"
             scroll={{ x: "max-content" }}

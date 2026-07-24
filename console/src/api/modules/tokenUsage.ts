@@ -6,6 +6,7 @@ export interface GetTokenUsageParams {
   end_date: string;
   model?: string;
   provider?: string;
+  user?: string;
 }
 
 function buildQuery(params: GetTokenUsageParams): string {
@@ -15,6 +16,7 @@ function buildQuery(params: GetTokenUsageParams): string {
   });
   if (params.model) search.set("model", params.model);
   if (params.provider) search.set("provider", params.provider);
+  if (params.user) search.set("user", params.user);
   return `?${search.toString()}`;
 }
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import NamedTuple, Optional
 
 from .storage import load_data, save_data_sync
+from .users import SYSTEM_USER_ID
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class _UsageEvent(NamedTuple):
     completion_tokens: int
     date_str: str  # YYYY-MM-DD, pre-computed by producer
     now_iso: str  # ISO-8601 timestamp, pre-computed by producer
+    user_id: str = ""  # trusted caller; "" → SYSTEM_USER_ID
 
 
 class TokenUsageBuffer:
@@ -181,7 +183,18 @@ class TokenUsageBuffer:
 def _apply_event(cache: dict, ev: _UsageEvent) -> None:
     """Accumulate a single usage event into *cache* in-place.
 
-    Cache format: { "2026-04-23": { "provider:model": {...} } }
+    Cache format::
+
+        { "2026-04-23": { "provider:model": {
+              "provider_id": ..., "model_name": ...,
+              "prompt_tokens": ..., "completion_tokens": ...,
+              "call_count": ...,
+              "by_user": { "alice": {...tokens...} },
+        } } }
+
+    The top-level counters stay the authoritative per-model totals, so files
+    written before per-user attribution existed load unchanged; ``by_user``
+    only accounts for events recorded since.
     """
     composite_key = f"{ev.provider_id}:{ev.model_name}"
 
@@ -204,6 +217,15 @@ def _apply_event(cache: dict, ev: _UsageEvent) -> None:
     entry["prompt_tokens"] += ev.prompt_tokens
     entry["completion_tokens"] += ev.completion_tokens
     entry["call_count"] += 1
+
+    # Accumulate the same tokens against the caller
+    user_bucket = entry.setdefault("by_user", {}).setdefault(
+        ev.user_id or SYSTEM_USER_ID,
+        {"prompt_tokens": 0, "completion_tokens": 0, "call_count": 0},
+    )
+    user_bucket["prompt_tokens"] += ev.prompt_tokens
+    user_bucket["completion_tokens"] += ev.completion_tokens
+    user_bucket["call_count"] += 1
 
 
 __all__ = ["TokenUsageBuffer", "_UsageEvent"]
