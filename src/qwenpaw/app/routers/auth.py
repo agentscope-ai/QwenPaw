@@ -65,21 +65,27 @@ async def login(request: Request, req: LoginRequest):
         )
     except ExternalLoginDenied as exc:
         rate_limiter.record_login_attempt(
-            client_ip, req.username, success=False
+            client_ip,
+            req.username,
+            success=False,
         )
         raise HTTPException(status_code=403, detail=exc.detail) from exc
 
     if not external_login or not external_login.token:
         rate_limiter.record_login_attempt(
-            client_ip, req.username, success=False
+            client_ip,
+            req.username,
+            success=False,
         )
         raise HTTPException(
-            status_code=401, detail="Invalid username or password"
+            status_code=401,
+            detail="Invalid username or password",
         )
 
     rate_limiter.record_login_attempt(client_ip, req.username, success=True)
     return LoginResponse(
-        token=external_login.token, username=external_login.identity
+        token=external_login.token,
+        username=external_login.identity,
     )
 
 

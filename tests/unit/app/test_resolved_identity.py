@@ -1,10 +1,11 @@
+# -*- coding: utf-8 -*-
 from qwenpaw.app.auth import ResolvedIdentity
 
 
 def test_resolved_identity_defaults_roles_to_empty_list():
     ident = ResolvedIdentity(sender_id="u@x.io")
     assert ident.sender_id == "u@x.io"
-    assert ident.roles == []
+    assert not ident.roles
 
 
 def test_resolved_identity_carries_roles():
@@ -16,4 +17,4 @@ def test_resolved_identity_mutable_default_is_independent():
     first = ResolvedIdentity(sender_id="a")
     second = ResolvedIdentity(sender_id="b")
     first.roles.append("admin")
-    assert second.roles == []
+    assert not second.roles

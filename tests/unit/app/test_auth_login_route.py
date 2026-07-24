@@ -91,7 +91,8 @@ def test_login_returns_401_when_no_authenticator_accepts(monkeypatch):
 def test_login_returns_provider_token(monkeypatch):
     async def nb_login(_username, _password):
         return ExternalLogin(
-            identity="admin@nocobase.com", token="nb-jwt-token"
+            identity="admin@nocobase.com",
+            token="nb-jwt-token",
         )
 
     register_external_login_authenticator(nb_login)

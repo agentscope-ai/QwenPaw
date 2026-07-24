@@ -57,7 +57,8 @@ class NocoBaseAuthPlugin:
             NocoBaseAuthConfig.seed_from_env()
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "NocoBase auth: seeding config from env failed: %s", exc
+                "NocoBase auth: seeding config from env failed: %s",
+                exc,
             )
 
         self._engine = NocoBaseEngine()

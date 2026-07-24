@@ -56,8 +56,9 @@ async def test_login_denied_when_role_denies_console(monkeypatch) -> None:
         base_url="http://nb.local",
         role_channel_map=[
             RoleChannelMapping(
-                role_name="blocked", denied_channels=["console"]
-            )
+                role_name="blocked",
+                denied_channels=["console"],
+            ),
         ],
     )
 
@@ -84,7 +85,9 @@ async def test_login_returns_identity_when_allowed(monkeypatch) -> None:
     plugin = await _started_plugin(monkeypatch)
     engine = plugin._engine
     engine.config = NocoBaseAuthConfig(
-        enabled=True, base_url="http://nb.local", role_channel_map=[]
+        enabled=True,
+        base_url="http://nb.local",
+        role_channel_map=[],
     )
 
     async def _creds(_u, _p):
@@ -99,7 +102,8 @@ async def test_login_returns_identity_when_allowed(monkeypatch) -> None:
     authenticator = auth_mod._external_login_authenticators[0]
     result = await authenticator("member@example.com", "correct-pw")
     assert result == auth_mod.ExternalLogin(
-        identity="member@example.com", token="nb-token"
+        identity="member@example.com",
+        token="nb-token",
     )
 
     await plugin._on_uninstall("nocobase-auth", delete_files=False)

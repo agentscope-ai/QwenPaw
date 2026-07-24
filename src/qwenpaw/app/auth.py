@@ -72,7 +72,8 @@ class ResolvedIdentity:
 # BaseChannel._external_acl_checkers pattern: the core stays ignorant of any
 # specific identity provider; plugins fill this in.
 IdentityResolver = Callable[
-    ["Request"], Awaitable[Optional["ResolvedIdentity"]]
+    ["Request"],
+    Awaitable[Optional["ResolvedIdentity"]],
 ]
 _external_identity_resolvers: list[IdentityResolver] = []
 

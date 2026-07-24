@@ -23,14 +23,14 @@ def test_console_known_user_default_allows():
 
 def test_console_denied_role_blocks():
     checker = _checker(
-        [RoleChannelMapping(role_name="banned", denied_channels=["console"])]
+        [RoleChannelMapping(role_name="banned", denied_channels=["console"])],
     )
     assert checker("console", "u@x.io", {"acl_roles": ["banned"]}) == "deny"
 
 
 def test_console_allow_list_excludes_other_roles():
     checker = _checker(
-        [RoleChannelMapping(role_name="admin", allowed_channels=["console"])]
+        [RoleChannelMapping(role_name="admin", allowed_channels=["console"])],
     )
     # allow-list exists for console but caller lacks the role -> no explicit
     # opinion -> fail-closed channel still allows an authenticated user.
@@ -39,7 +39,7 @@ def test_console_allow_list_excludes_other_roles():
 
 def test_console_explicit_allow_role():
     checker = _checker(
-        [RoleChannelMapping(role_name="admin", allowed_channels=["console"])]
+        [RoleChannelMapping(role_name="admin", allowed_channels=["console"])],
     )
     assert checker("console", "u@x.io", {"acl_roles": ["admin"]}) == "allow"
 
@@ -56,6 +56,6 @@ def test_non_failclosed_channel_no_opinion_falls_through():
 
 def test_non_failclosed_channel_explicit_deny():
     checker = _checker(
-        [RoleChannelMapping(role_name="x", denied_channels=["feishu"])]
+        [RoleChannelMapping(role_name="x", denied_channels=["feishu"])],
     )
     assert checker("feishu", "someone", {"acl_roles": ["x"]}) == "deny"

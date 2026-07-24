@@ -50,10 +50,12 @@ def _config():
         base_url="http://nb.local",
         role_channel_map=[
             RoleChannelMapping(
-                role_name="member", denied_channels=["console"]
+                role_name="member",
+                denied_channels=["console"],
             ),
             RoleChannelMapping(
-                role_name="admin", allowed_channels=["console"]
+                role_name="admin",
+                allowed_channels=["console"],
             ),
         ],
     )

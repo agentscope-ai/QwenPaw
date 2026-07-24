@@ -34,13 +34,16 @@ async def test_users_live_passthrough():
 
     engine = NocoBaseEngine(
         config=NocoBaseAuthConfig(
-            enabled=True, base_url="http://nb.local", api_token="admin"
+            enabled=True,
+            base_url="http://nb.local",
+            api_token="admin",
         ),
         transport=httpx.MockTransport(nb),
     )
     app = _app(engine)
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://t"
+        transport=ASGITransport(app=app),
+        base_url="http://t",
     ) as c:
         resp = await c.get("/nocobase-auth/users")
     assert resp.status_code == 200
@@ -49,11 +52,12 @@ async def test_users_live_passthrough():
 
 async def test_users_errors_not_silent_empty_when_unconfigured():
     engine = NocoBaseEngine(
-        config=NocoBaseAuthConfig(enabled=True, base_url="http://nb.local")
+        config=NocoBaseAuthConfig(enabled=True, base_url="http://nb.local"),
     )  # no api_token -> unconfigured
     app = _app(engine)
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://t"
+        transport=ASGITransport(app=app),
+        base_url="http://t",
     ) as c:
         resp = await c.get("/nocobase-auth/users")
     assert resp.status_code == 503  # explicit error, NOT [] with 200
@@ -63,7 +67,8 @@ async def test_sync_and_webhook_routes_removed():
     engine = NocoBaseEngine(config=NocoBaseAuthConfig())
     app = _app(engine)
     async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://t"
+        transport=ASGITransport(app=app),
+        base_url="http://t",
     ) as c:
         assert (await c.post("/nocobase-auth/sync")).status_code == 404
         assert (

@@ -10,7 +10,11 @@ from nocobase_auth.engine import NocoBaseEngine, get_engine, set_engine
 
 
 def _cfg(**kw):
-    base = dict(enabled=True, base_url="http://nb.local", api_token="admin")
+    base = {
+        "enabled": True,
+        "base_url": "http://nb.local",
+        "api_token": "admin",
+    }
     base.update(kw)
     return NocoBaseAuthConfig(**base)
 

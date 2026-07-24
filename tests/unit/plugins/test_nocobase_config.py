@@ -139,7 +139,9 @@ def test_seed_from_env_writes_when_missing(tmp_path, monkeypatch):
 def test_seed_from_env_does_not_overwrite_existing(tmp_path, monkeypatch):
     target = tmp_path / "nocobase_auth_config.json"
     NocoBaseAuthConfig(
-        enabled=True, base_url="http://existing", api_token="keep"
+        enabled=True,
+        base_url="http://existing",
+        api_token="keep",
     ).save(path=target)
 
     monkeypatch.setenv("QWENPAW_NOCOBASE_BASE_URL", "http://override")
