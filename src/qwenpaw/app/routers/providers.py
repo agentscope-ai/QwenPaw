@@ -14,7 +14,7 @@ from fastapi import (
     Query,
     Request,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from qwenpaw.exceptions import (
     AppBaseException,
@@ -76,6 +76,7 @@ def _active_models_info(
 
 
 class ProviderConfigRequest(BaseModel):
+    name: Optional[str] = Field(default=None)
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     chat_model: Optional[ChatModelName] = Field(
@@ -101,6 +102,17 @@ class ProviderConfigRequest(BaseModel):
             "Only applies to Anthropic-compatible providers."
         ),
     )
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: Optional[str]) -> Optional[str]:
+        """Normalize and validate an optional provider display name."""
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError(f"{'Provider name cannot be empty.'}")
+        return value
 
 
 class ModelSlotRequest(BaseModel):
@@ -236,9 +248,22 @@ async def configure_provider(
     provider_id: str = Path(...),
     body: ProviderConfigRequest = Body(...),
 ) -> ProviderInfo:
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found",
+        )
+    if body.name is not None and not provider.is_custom:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{'Only custom providers can be renamed.'}",
+        )
+
     ok = manager.update_provider(
         provider_id,
         {
+            "name": body.name,
             "api_key": body.api_key,
             "base_url": body.base_url,
             "chat_model": body.chat_model,

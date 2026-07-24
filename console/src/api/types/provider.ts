@@ -79,6 +79,7 @@ export interface BaseUrlOption {
 }
 
 export interface ProviderConfigRequest {
+  name?: string;
   api_key?: string;
   base_url?: string;
   chat_model?: string;

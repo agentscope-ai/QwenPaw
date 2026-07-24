@@ -172,6 +172,29 @@ async def test_add_custom_provider_and_reload_from_storage(
     assert isinstance(loaded_duplicate, OpenAIProvider)
 
 
+async def test_update_custom_provider_name_persists(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    await manager.add_custom_provider(
+        OpenAIProvider(
+            id="custom-openai",
+            name="Custom OpenAI",
+        ),
+    )
+
+    ok = manager.update_provider(
+        "custom-openai",
+        {"name": "Renamed Provider"},
+    )
+
+    assert ok is True
+    reloaded = ProviderManager()
+    provider = reloaded.get_provider("custom-openai")
+    assert provider is not None
+    assert provider.name == "Renamed Provider"
+
+
 async def test_custom_provider_preserves_explicit_default_context_window(
     isolated_secret_dir,
 ) -> None:
