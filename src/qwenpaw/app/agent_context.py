@@ -210,6 +210,24 @@ def get_current_root_session_id() -> Optional[str]:
     return _current_root_session_id.get()
 
 
+def resolve_request_user_id(request: object) -> str:
+    """Return the caller a request should be attributed to.
+
+    Prefers ``acl_sender_id`` — the server-derived identity (the
+    authenticated login user for the console, the native platform sender
+    for chat channels) — over the client-supplied ``user_id``, which is
+    never trusted. Returns ``""`` when no identity is known.
+    """
+    acl_sender_id = getattr(request, "acl_sender_id", "") or ""
+    if not acl_sender_id:
+        meta = getattr(request, "channel_meta", None)
+        if isinstance(meta, dict):
+            acl_sender_id = meta.get("acl_sender_id") or ""
+    if acl_sender_id:
+        return str(acl_sender_id)
+    return str(getattr(request, "user_id", "") or "")
+
+
 def set_current_user_id(user_id: Optional[str]) -> None:
     """Set current user ID in context."""
     _current_user_id.set(user_id)

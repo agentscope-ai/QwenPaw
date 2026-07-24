@@ -16,6 +16,7 @@ async def get_token_usage(
     days: int = 30,
     model_name: str | None = None,
     provider_id: str | None = None,
+    user_id: str | None = None,
 ) -> ToolChunk:
     """Query LLM token usage over the past N days.
 
@@ -26,6 +27,7 @@ async def get_token_usage(
         days: Number of days to look back (default: 30).
         model_name: Optional model name to filter by.
         provider_id: Optional provider ID to filter by.
+        user_id: Optional user (caller) to filter by.
 
     Returns:
         ToolChunk with a formatted summary of token usage.
@@ -37,6 +39,7 @@ async def get_token_usage(
         end_date=end,
         model_name=model_name,
         provider_id=provider_id,
+        user_id=user_id,
     )
 
     lines: list[str] = []
@@ -45,6 +48,8 @@ async def get_token_usage(
         filter_desc.append(f"model={model_name}")
     if provider_id:
         filter_desc.append(f"provider={provider_id}")
+    if user_id:
+        filter_desc.append(f"user={user_id}")
     if not filter_desc:
         filter_desc.append("all models")
     lines.append(f"Token usage ({start} ~ {end}, {', '.join(filter_desc)}):")
@@ -66,6 +71,15 @@ async def get_token_usage(
             tokens = stats.prompt_tokens + stats.completion_tokens
             lines.append(
                 f"  - {model}: {tokens:,} tokens ({stats.call_count} calls)",
+            )
+        lines.append("")
+
+    if summary.by_user:
+        lines.append("By user:")
+        for user, stats in summary.by_user.items():
+            tokens = stats.prompt_tokens + stats.completion_tokens
+            lines.append(
+                f"  - {user}: {tokens:,} tokens ({stats.call_count} calls)",
             )
         lines.append("")
 

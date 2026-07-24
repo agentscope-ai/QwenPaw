@@ -37,6 +37,7 @@ class ContextVarsSetupHook(LifecycleHook):
             set_current_root_session_id,
             set_current_session_id as _set_app_session_id,
             set_current_user_id,
+            resolve_request_user_id,
         )
 
         if ctx.workspace_dir is not None:
@@ -48,7 +49,7 @@ class ContextVarsSetupHook(LifecycleHook):
         set_current_root_session_id(
             ctx.root_session_id or ctx.session_id or "",
         )
-        set_current_user_id(ctx.request.user_id)
+        set_current_user_id(resolve_request_user_id(ctx.request))
         set_current_channel(getattr(ctx.request, "channel", None))
 
         try:

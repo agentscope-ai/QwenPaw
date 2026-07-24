@@ -23,6 +23,14 @@ interface AggregatedData {
       call_count: number;
     }
   >;
+  by_user: Record<
+    string,
+    {
+      prompt_tokens: number;
+      completion_tokens: number;
+      call_count: number;
+    }
+  >;
   by_date_model: Record<
     string,
     Record<
@@ -44,6 +52,7 @@ export function useDataAggregation(records: TokenUsageRecord[]) {
 
     const byModel: AggregatedData["by_model"] = {};
     const byDate: AggregatedData["by_date"] = {};
+    const byUser: AggregatedData["by_user"] = {};
     const byDateModel: AggregatedData["by_date_model"] = {};
 
     let totalPrompt = 0;
@@ -84,6 +93,18 @@ export function useDataAggregation(records: TokenUsageRecord[]) {
       byDate[r.date].completion_tokens += ct;
       byDate[r.date].call_count += calls;
 
+      const userKey = r.user_id || "system";
+      if (!byUser[userKey]) {
+        byUser[userKey] = {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          call_count: 0,
+        };
+      }
+      byUser[userKey].prompt_tokens += pt;
+      byUser[userKey].completion_tokens += ct;
+      byUser[userKey].call_count += calls;
+
       if (!byDateModel[r.date]) {
         byDateModel[r.date] = {};
       }
@@ -107,6 +128,7 @@ export function useDataAggregation(records: TokenUsageRecord[]) {
       total_calls: totalCalls,
       by_model: byModel,
       by_date: byDate,
+      by_user: byUser,
       by_date_model: byDateModel,
     };
   }, [records]);

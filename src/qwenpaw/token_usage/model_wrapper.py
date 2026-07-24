@@ -40,8 +40,24 @@ class TokenRecordingModelWrapper(ChatModelBase):
         # None when compaction is disabled/unknown.
         self._compact_threshold = compact_threshold
 
-    def _record_usage(self, usage: ChatUsage | None) -> None:
-        """Enqueue a usage event synchronously — never blocks the caller."""
+    @staticmethod
+    def _caller_user_id() -> str:
+        """Return the caller the current request belongs to, if any."""
+        from ..app.agent_context import get_current_user_id
+
+        return get_current_user_id() or ""
+
+    def _record_usage(
+        self,
+        usage: ChatUsage | None,
+        user_id: str | None = None,
+    ) -> None:
+        """Enqueue a usage event synchronously — never blocks the caller.
+
+        ``user_id`` lets the streaming path pass the caller captured when
+        the call started, since the stream is drained later and may run
+        under a different context.
+        """
         if usage is None:
             return
         pt = getattr(usage, "input_tokens", 0) or 0
@@ -57,6 +73,9 @@ class TokenRecordingModelWrapper(ChatModelBase):
             date_str=date.today().isoformat(),
             now_iso=datetime.now(tz=timezone.utc).isoformat(
                 timespec="seconds",
+            ),
+            user_id=(
+                user_id if user_id is not None else self._caller_user_id()
             ),
         )
         # Fire-and-forget: synchronous put_nowait, ~100 ns, no await needed.
@@ -119,6 +138,10 @@ class TokenRecordingModelWrapper(ChatModelBase):
         if tool_choice == "auto":
             tool_choice = None
 
+        # Capture the caller now: a streamed response is drained later,
+        # possibly outside the request's ContextVar context.
+        caller = self._caller_user_id()
+
         result = await self._model(
             messages=messages,
             tools=tools,
@@ -127,17 +150,18 @@ class TokenRecordingModelWrapper(ChatModelBase):
         )
 
         if isinstance(result, AsyncGenerator):
-            return self._wrap_stream(result)
-        self._record_usage(getattr(result, "usage", None))
+            return self._wrap_stream(result, caller)
+        self._record_usage(getattr(result, "usage", None), caller)
         return result
 
     async def _wrap_stream(
         self,
         stream: AsyncGenerator[ChatResponse, None],
+        user_id: str = "",
     ) -> AsyncGenerator[ChatResponse, None]:
         last_usage: ChatUsage | None = None
         async for chunk in stream:
             if getattr(chunk, "usage", None) is not None:
                 last_usage = chunk.usage
             yield chunk
-        self._record_usage(last_usage)
+        self._record_usage(last_usage, user_id)

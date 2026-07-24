@@ -44,6 +44,32 @@ describe("tokenUsageApi", () => {
     expect(result).toEqual(records);
   });
 
+  it("getTokenUsage includes user when provided", async () => {
+    vi.mocked(request).mockResolvedValue({} as any);
+    await tokenUsageApi.getTokenUsage({
+      start_date: "2026-01-01",
+      end_date: "2026-01-31",
+      user: "alice@example.com",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/token-usage?start_date=2026-01-01&end_date=2026-01-31&user=alice%40example.com",
+    );
+  });
+
+  it("getTokenUsageDetails includes user alongside model + provider", async () => {
+    vi.mocked(request).mockResolvedValue([] as any);
+    await tokenUsageApi.getTokenUsageDetails({
+      start_date: "2026-01-01",
+      end_date: "2026-01-31",
+      model: "gpt-4",
+      provider: "openai",
+      user: "bob",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/token-usage/details?start_date=2026-01-01&end_date=2026-01-31&model=gpt-4&provider=openai&user=bob",
+    );
+  });
+
   it("getTokenUsageDetails omits model/provider query when not provided", async () => {
     const records = [] as any;
     vi.mocked(request).mockResolvedValue(records);

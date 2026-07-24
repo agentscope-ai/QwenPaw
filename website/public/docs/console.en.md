@@ -460,17 +460,28 @@ Click **Save** after changing toggles or rules. Details: [Security](./security).
 
 ![Token Usage](https://img.alicdn.com/imgextra/i1/O1CN01FWWKrS1hYsGvs4wG1_!!6000000004290-2-tps-3810-2064.png)
 
-View LLM token usage over a range, by date and model.
+View LLM token usage over a range, by date, model and user.
 
 **View usage:**
 
 1. Select a date range (default: last 30 days).
 2. Click **Refresh** to fetch data.
-3. The page shows total tokens, total calls, and breakdowns by model and date.
+3. The page shows total tokens, total calls, and breakdowns by model, user and
+   date.
+4. Use the user dropdown in the toolbar to narrow the page to one caller.
+
+**Per-user attribution:**
+Every call is billed to whoever made it — the login user for the console, the
+platform sender id for DingTalk/Feishu/Slack and other channels. Two user names
+are reserved:
+
+- `system` — calls with no user context: scheduled tasks, heartbeat runs,
+  sub-agents, context compaction.
+- `unknown` — usage recorded before per-user attribution existed.
 
 **Query via chat:**
 Ask e.g. "How many tokens have I used?" or "Show token usage." The agent calls
-`get_token_usage` and returns stats.
+`get_token_usage` and returns stats; pass `user_id` to scope it to one caller.
 
 > Data is stored in `~/.qwenpaw/token_usage.json`. Override the filename with
 > `QWENPAW_TOKEN_USAGE_FILE`. See [Config — Environment variables](./config#environment-variables).
@@ -517,7 +528,7 @@ model (same settings apply to voice input in chat and channel voice messages).
 | Skill pool            | Settings → Skill pool          | Built-in and shared reusable skills            |
 | Environment Variables | Settings → Environments        | Keys for tools/skills                          |
 | Security              | Settings → Security            | Tool guard, skill scan, file guard             |
-| Token Usage           | Settings → Token Usage         | Usage by date/model                            |
+| Token Usage           | Settings → Token Usage         | Usage by date/model/user                       |
 | Voice transcription   | Settings → Voice transcription | Audio mode, Whisper API/local                  |
 
 ---

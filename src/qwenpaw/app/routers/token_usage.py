@@ -27,7 +27,9 @@ def _parse_date(s: str | None) -> date | None:
 @router.get(
     "",
     summary="Get token usage summary",
-    description="Return aggregated token usage by date, model, and provider",
+    description=(
+        "Return aggregated token usage by date, model, provider, and user"
+    ),
 )
 async def get_token_usage(
     start_date: str
@@ -50,6 +52,11 @@ async def get_token_usage(
         None,
         description="Filter by provider ID",
     ),
+    user: str
+    | None = Query(
+        None,
+        description="Filter by user (caller) ID",
+    ),
 ) -> TokenUsageSummary:
     """Return aggregated token usage summary for the given date range."""
     end_d = _parse_date(end_date) or date.today()
@@ -62,6 +69,7 @@ async def get_token_usage(
         end_date=end_d,
         model_name=model,
         provider_id=provider,
+        user_id=user,
     )
 
 
@@ -91,6 +99,11 @@ async def get_token_usage_details(
         None,
         description="Filter by provider ID",
     ),
+    user: str
+    | None = Query(
+        None,
+        description="Filter by user (caller) ID",
+    ),
 ) -> list[TokenUsageRecord]:
     """Return raw token usage records for the given date range."""
     end_d = _parse_date(end_date) or date.today()
@@ -103,4 +116,5 @@ async def get_token_usage_details(
         end_date=end_d,
         model_name=model,
         provider_id=provider,
+        user_id=user,
     )
