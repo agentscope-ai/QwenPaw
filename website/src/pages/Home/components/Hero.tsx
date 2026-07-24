@@ -164,21 +164,21 @@ export function Hero() {
           </div>
 
           <motion.div
-            className="relative mt-10 h-56 overflow-hidden sm:h-90 md:mt-12 md:h-150"
+            className="relative mt-10 h-64 overflow-hidden sm:h-105 md:mt-12 md:h-175"
             initial={{ opacity: 0, filter: "blur(10px)" }}
             whileInView={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
             viewport={{ once: true, amount: 0.35 }}
             transition={{ duration: 1.15, ease: "easeOut" }}
           >
             <img
-              src="https://img.alicdn.com/imgextra/i1/O1CN01omYMId1zLHaFKHulx_!!6000000006697-2-tps-2936-1650.png"
+              src="https://img.alicdn.com/imgextra/i4/O1CN01FfAjWi25UnWwNLgzT_!!6000000007530-2-tps-2520-1446.png"
               alt=""
               className="absolute inset-0 h-full w-full object-cover"
               aria-hidden
               loading="lazy"
             />
             <motion.div
-              className="relative z-10 flex h-full flex-col justify-end overflow-hidden p-4 pb-0 md:p-16 md:pb-0"
+              className="relative z-10 flex h-full items-center justify-center overflow-hidden px-[5%] py-[5%]"
               initial={{ opacity: 0, y: 56, scale: 0.95, filter: "blur(6px)" }}
               whileInView={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
               viewport={{ once: true, amount: 0.35 }}
@@ -191,7 +191,7 @@ export function Hero() {
               <img
                 src="https://img.alicdn.com/imgextra/i3/O1CN01C57zol1ud4um3nSMH_!!6000000006059-2-tps-1930-1202.png"
                 alt="QwenPaw console preview"
-                className="block h-auto max-h-full w-full object-top md:h-full md:object-cover"
+                className="block h-full w-full object-contain object-center drop-shadow-md"
                 loading="lazy"
               />
             </motion.div>
