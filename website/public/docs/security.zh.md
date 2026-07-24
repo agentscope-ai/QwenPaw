@@ -876,41 +876,40 @@ policy:
 
 ## Web 登录认证
 
-QwenPaw 支持可选的 Web 登录认证,保护控制台免受未授权访问。认证**默认关闭**,需要通过 `QWENPAW_AUTH_ENABLED` 环境变量显式启用。
+QwenPaw 支持可选的 Web 登录认证,保护控制台免受未授权访问。认证**默认关闭**,需要通过 `QWENPAW_AUTH_ENABLED` 环境变量显式启用。QwenPaw 自身不拥有本地账号存储——启用后,认证完全委托给 **NocoBase**(通过内置的 `nocobase-auth` 插件)。用户、密码和角色都保存在 NocoBase 中。
 
 ![login](https://img.alicdn.com/imgextra/i4/O1CN01VdXCuP1tWpsl0TlQ5_!!6000000005910-2-tps-3822-2070.png)
 
 ### 工作原理
 
 1. **启用认证** — 设置 `QWENPAW_AUTH_ENABLED=true` 并启动 QwenPaw
-2. **注册流程**:
-   - 首次访问时,控制台显示**注册页面**
-   - 创建唯一的管理员账户(用户名 + 密码)
-   - 系统采用单用户模式,专为个人使用设计
+2. **配置 NocoBase 连接** — 设置下方的 `QWENPAW_NOCOBASE_*` 环境变量。首次启动时,如果连接配置文件尚不存在,这些变量会被写入 `~/.qwenpaw/nocobase_auth_config.json`;此后应改为在控制台插件管理页中编辑连接信息——管理员在页面上的修改始终优先于后续重启时的环境变量
 3. **登录流程**:
-   - 注册完成后,后续访问显示**登录页面**
-   - 输入凭据后,生成签名令牌(有效期 7 天)
+   - 首次访问时,控制台显示**登录页面**
+   - 用户输入自己的 NocoBase 用户名和密码
+   - QwenPaw 将凭据转发给 NocoBase,并把 NocoBase 签发的令牌返回给浏览器
    - 令牌存储在浏览器 localStorage,自动附加到所有 API 请求
-4. **自动注册**(可选):
-   - 设置 `QWENPAW_AUTH_USERNAME` 和 `QWENPAW_AUTH_PASSWORD` 环境变量
-   - QwenPaw 启动时自动创建管理员账户,跳过网页注册
-   - 适用于 Docker、Kubernetes、服务器管理面板等自动化部署场景
+4. **控制台访问控制** — 对 `console` 频道的访问由角色→频道映射(在插件管理页中配置)决定:已通过 NocoBase 认证的合法用户**默认允许访问**,仅当其角色被显式加入该角色的拒绝列表时才会被拒绝(拒绝始终优先于允许)
 5. **本地免认证** — 来自本地(`127.0.0.1` / `::1`)的请求自动跳过认证,CLI 命令(`qwenpaw app`、`qwenpaw chat` 等)无需令牌即可正常工作
 
 **安全特性**:
 
-- 密码加盐 SHA-256 哈希存储,不存储明文
-- HMAC-SHA256 签名令牌,7 天自动过期
-- 仅使用 Python 标准库(`hashlib`、`hmac`、`secrets`),无外部依赖
-- `auth.json` 文件以 `0o600` 权限保护(仅所有者可读写)
+- 没有本地账号、密码或令牌存储——QwenPaw 从不接触或持久化明文密码
+- NocoBase `api_token`(仅用于管理员的"用户/角色列表"页面,登录和访问门禁均不需要它)在连接配置文件中以 keyring 支持的密钥库加密存储
+- 连接配置文件(`nocobase_auth_config.json`)以 `0o600` 权限写入(仅所有者可读写)
 
 ### 环境变量
 
-| 变量                    | 说明                         | 是否必填 |
-| ----------------------- | ---------------------------- | -------- |
-| `QWENPAW_AUTH_ENABLED`  | 设为 `true` 启用认证         | **是**   |
-| `QWENPAW_AUTH_USERNAME` | 自动注册时预设的管理员用户名 | 可选     |
-| `QWENPAW_AUTH_PASSWORD` | 自动注册时预设的管理员密码   | 可选     |
+| 变量                             | 说明                                                                     | 是否必填 |
+| --------------------------------- | -------------------------------------------------------------------------- | -------- |
+| `QWENPAW_AUTH_ENABLED`           | 设为 `true` 启用认证                                                     | **是**   |
+| `QWENPAW_NOCOBASE_ENABLED`       | 设为 `true`/`1`/`yes` 启用 NocoBase 集成                                 | 可选     |
+| `QWENPAW_NOCOBASE_BASE_URL`      | NocoBase 实例地址(例如 `http://nocobase:13000`)                        | 可选     |
+| `QWENPAW_NOCOBASE_API_TOKEN`     | NocoBase 管理员 API Token——仅用于管理员的"用户/角色列表"页面,登录和访问门禁均不需要它 | 可选     |
+| `QWENPAW_NOCOBASE_USER_ID_FIELD` | 作为频道发送者标识使用的 NocoBase 用户字段(默认 `email`)                | 可选     |
+| `QWENPAW_NOCOBASE_AUTHENTICATOR` | 用于密码登录的 NocoBase 认证器名称(默认 `basic`)                        | 可选     |
+
+这些 `QWENPAW_NOCOBASE_*` 变量仅在 `~/.qwenpaw/nocobase_auth_config.json` 尚不存在时用于*首次播种*该文件。文件存在后,请改为在控制台插件管理页中管理连接信息(包括角色→频道映射)。
 
 ### 认证豁免主机白名单
 
@@ -925,7 +924,7 @@ QwenPaw 支持可选的 Web 登录认证,保护控制台免受未授权访问。
 ```
 
 | 字段                  | 类型          | 默认值                 | 说明                                                         |
-| --------------------- | ------------- | ---------------------- | ------------------------------------------------------------ |
+| --------------------- | ------------- | ----------------------- | ------------------------------------------------------------ |
 | `allow_no_auth_hosts` | array[string] | `["127.0.0.1", "::1"]` | 允许无需认证令牌即可访问 `/api/*` 路由的客户端 IP 地址列表。 |
 
 也可以在控制台 **设置 → 安全** 中管理。
@@ -935,10 +934,8 @@ QwenPaw 支持可选的 Web 登录认证,保护控制台免受未授权访问。
 **配置说明**:
 
 - `QWENPAW_AUTH_ENABLED=true` 是启用认证的唯一必需变量
-- `QWENPAW_AUTH_USERNAME` 和 `QWENPAW_AUTH_PASSWORD` 成对使用:
-  - 两者都设置 → 启动时自动创建管理员账户(适用于自动化部署)
-  - 不设置或只设置其一 → 首次访问通过网页注册(交互式部署)
-- 如果已有注册用户,自动注册环境变量会被忽略
+- `QWENPAW_NOCOBASE_*` 变量用于配置 NocoBase 连接;它们在环境变量层面都是可选的,因为同样的设置也可以之后在插件管理页中填写
+- 如果连接配置文件已经存在,用于播种的 `QWENPAW_NOCOBASE_*` 环境变量会被忽略——请改为在控制台中编辑连接信息
 
 ### 启用认证
 
@@ -949,14 +946,9 @@ QwenPaw 支持可选的 Web 登录认证,保护控制台免受未授权访问。
 **Linux / macOS:**
 
 ```bash
-# 基础启用(网页注册)
 export QWENPAW_AUTH_ENABLED=true
-qwenpaw app
-
-# 或: 自动注册模式
-export QWENPAW_AUTH_ENABLED=true
-export QWENPAW_AUTH_USERNAME=admin
-export QWENPAW_AUTH_PASSWORD=mypassword
+export QWENPAW_NOCOBASE_ENABLED=true
+export QWENPAW_NOCOBASE_BASE_URL=http://localhost:13000
 qwenpaw app
 ```
 
@@ -966,9 +958,8 @@ qwenpaw app
 
 ```cmd
 set QWENPAW_AUTH_ENABLED=true
-rem 可选: 自动注册
-rem set QWENPAW_AUTH_USERNAME=admin
-rem set QWENPAW_AUTH_PASSWORD=mypassword
+set QWENPAW_NOCOBASE_ENABLED=true
+set QWENPAW_NOCOBASE_BASE_URL=http://localhost:13000
 qwenpaw app
 ```
 
@@ -976,20 +967,19 @@ qwenpaw app
 
 ```powershell
 $env:QWENPAW_AUTH_ENABLED = "true"
-# 可选: 自动注册
-# $env:QWENPAW_AUTH_USERNAME = "admin"
-# $env:QWENPAW_AUTH_PASSWORD = "mypassword"
+$env:QWENPAW_NOCOBASE_ENABLED = "true"
+$env:QWENPAW_NOCOBASE_BASE_URL = "http://localhost:13000"
 qwenpaw app
 ```
 
 #### Docker
 
-通过 `-e` 传递环境变量(推荐使用自动注册):
+通过 `-e` 传递环境变量:
 
 ```bash
 docker run -e QWENPAW_AUTH_ENABLED=true \
-  -e QWENPAW_AUTH_USERNAME=admin \
-  -e QWENPAW_AUTH_PASSWORD=mypassword \
+  -e QWENPAW_NOCOBASE_ENABLED=true \
+  -e QWENPAW_NOCOBASE_BASE_URL=http://nocobase:13000 \
   -p 127.0.0.1:8088:8088 \
   -v qwenpaw-data:/app/working \
   -v qwenpaw-secrets:/app/working.secret \
@@ -997,7 +987,7 @@ docker run -e QWENPAW_AUTH_ENABLED=true \
   agentscope/qwenpaw:latest
 ```
 
-> **提示**: 不使用自动注册时,移除 `QWENPAW_AUTH_USERNAME` 和 `QWENPAW_AUTH_PASSWORD`,首次通过浏览器注册。
+> **提示**: 这些变量只在首次启动时用于播种连接配置。之后如需更改 NocoBase 连接,请使用控制台中插件的管理页面,而不是用不同的环境变量重启。
 
 #### docker-compose.yml
 
@@ -1009,8 +999,8 @@ services:
       - "127.0.0.1:8088:8088"
     environment:
       - QWENPAW_AUTH_ENABLED=true
-      - QWENPAW_AUTH_USERNAME=admin
-      - QWENPAW_AUTH_PASSWORD=mypassword
+      - QWENPAW_NOCOBASE_ENABLED=true
+      - QWENPAW_NOCOBASE_BASE_URL=http://nocobase:13000
     volumes:
       - qwenpaw-data:/app/working
       - qwenpaw-secrets:/app/working.secret
@@ -1023,8 +1013,8 @@ services:
 
 ```
 QWENPAW_AUTH_ENABLED=true
-QWENPAW_AUTH_USERNAME=admin
-QWENPAW_AUTH_PASSWORD=mypassword
+QWENPAW_NOCOBASE_ENABLED=true
+QWENPAW_NOCOBASE_BASE_URL=http://nocobase:13000
 ```
 
 然后通过 `--env-file .env` 传递给 Docker，或在运行 `qwenpaw app` 前在 shell 中 source 该文件。
@@ -1042,35 +1032,20 @@ qwenpaw app
 docker run -p 127.0.0.1:8088:8088 -v qwenpaw-data:/app/working -v qwenpaw-secrets:/app/working.secret -v qwenpaw-backups:/app/working.backups agentscope/qwenpaw:latest
 ```
 
-### 重置密码
+### 密码管理
 
-如果忘记密码,使用 CLI 命令重置:
+QwenPaw 不再拥有本地账号或密码——用户和密码完全由 NocoBase 管理。运行:
 
 ```bash
 qwenpaw auth reset-password
 ```
 
-该命令会:
-
-1. 显示当前注册的用户名
-2. 提示输入新密码(隐藏输入,需确认两次)
-3. 轮换 JWT 签名密钥,**使所有现有会话失效** — 所有已登录设备需使用新密码重新登录
+现在只会打印提示,引导你去 NocoBase 控制台重置密码;它不会在本地重置任何内容。
 
 **Docker 部署**:
 
 ```bash
 docker exec -it <容器名> qwenpaw auth reset-password
-```
-
-**替代方案**:
-
-如需完全重置认证系统:
-
-```bash
-# 删除认证文件
-rm ~/.qwenpaw.secret/auth.json  # 或 $WORKING_DIR.secret/auth.json
-# 重启 QwenPaw,下次访问时重新注册
-qwenpaw app
 ```
 
 ### 退出登录
@@ -1083,24 +1058,23 @@ qwenpaw app
 
 **自动退出**:
 
-- 令牌过期(7 天后)
-- 令牌失效(密码重置或签名密钥轮换)
+- NocoBase 签发的令牌过期或以其他方式失效(由 NocoBase 的认证器配置决定,QwenPaw 不参与)
 - 服务端返回 401 未授权响应
 
 ### 安全细节
 
-| 特性           | 说明                                                                                  |
-| -------------- | ------------------------------------------------------------------------------------- |
-| 密码存储       | 加盐 SHA-256 哈希存储在 `auth.json` 中（不存储明文）                                  |
-| 令牌格式       | HMAC-SHA256 签名载荷，7 天过期                                                        |
-| 令牌存储       | 浏览器 localStorage，退出登录或收到 401 响应时清除                                    |
-| 外部依赖       | 无 — 仅使用 Python 标准库（`hashlib`、`hmac`、`secrets`）                             |
-| 文件权限       | `auth.json` 以 `0o600` 权限写入（仅所有者可读写）                                     |
-| 本地免认证     | 来自 `127.0.0.1` / `::1` 的请求跳过认证（CLI 访问不受影响）                           |
-| CORS 预检      | `OPTIONS` 请求无需认证直接放行                                                        |
-| WebSocket 认证 | 令牌通过查询参数传递，仅限升级请求                                                    |
-| 受保护路由     | 仅 `/api/*` 路由需要认证                                                              |
-| 公开路由       | `/api/auth/login`、`/api/auth/register`、`/api/auth/status`、`/api/version`、静态资源 |
+| 特性           | 说明                                                                  |
+| -------------- | ----------------------------------------------------------------------- |
+| 账号存储       | 无——账号、密码和角色完全由 NocoBase 拥有                              |
+| 令牌格式       | 由 NocoBase 签发;格式和有效期由 NocoBase 的认证器配置决定             |
+| 令牌存储       | 浏览器 localStorage，退出登录或收到 401 响应时清除                    |
+| 连接密钥       | `QWENPAW_NOCOBASE_API_TOKEN` 在 `nocobase_auth_config.json` 中加密存储 |
+| 文件权限       | `nocobase_auth_config.json` 以 `0o600` 权限写入(仅所有者可读写)      |
+| 本地免认证     | 来自 `127.0.0.1` / `::1` 的请求跳过认证（CLI 访问不受影响）           |
+| CORS 预检      | `OPTIONS` 请求无需认证直接放行                                        |
+| WebSocket 认证 | 令牌通过查询参数传递，仅限升级请求                                    |
+| 受保护路由     | 仅 `/api/*` 路由需要认证                                              |
+| 公开路由       | `/api/auth/login`、`/api/auth/status`、`/api/version`、静态资源       |
 
 ---
 
@@ -1164,7 +1138,7 @@ fetch("/api/console/chat", {
 
 #### 角色与准入优先级
 
-- `member` 角色默认拒绝 `console` 频道访问。
+- 已通过 NocoBase 认证的合法用户**默认允许**访问 `console` 频道；仅当角色被显式加入插件配置页的「拒绝频道」列表时才会被拒绝。
 - 判定采用 **deny 优先**：用户即使同时挂了其他放行角色，只要有一个角色 deny，仍会被拒绝。
 
 #### 身份缓存时效

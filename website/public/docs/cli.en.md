@@ -780,7 +780,7 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 | `qwenpaw chats`     | `list` · `get` · `create` · `update` · `delete`                                      |     **Yes**      |
 | `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `info`                                 |        No        |
 | `qwenpaw task`      | —                                                                                    |        No        |
-| `qwenpaw auth`      | `reset-password`                                                                     |        No        |
+| `qwenpaw auth`      | `reset-password` ²                                                                   |        No        |
 | `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate`                               |        No        |
 | `qwenpaw acp`       | —                                                                                    |        No        |
 | `qwenpaw clean`     | —                                                                                    |        No        |
@@ -789,6 +789,8 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 | `qwenpaw uninstall` | —                                                                                    |        No        |
 
 ¹ `create` does not require server; `list`, `delete`, and `chat` require server.
+
+² Authentication is now delegated entirely to NocoBase — `qwenpaw auth reset-password` no longer resets a local password; it just prints guidance to reset the password from your NocoBase console.
 
 ---
 

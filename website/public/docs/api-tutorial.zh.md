@@ -605,97 +605,39 @@ curl -X POST http://localhost:8088/api/console/chat \
 
 ### Web 认证令牌（可选）
 
-如果启用了 [Web 登录认证](./security#Web-登录认证)（`QWENPAW_AUTH_ENABLED=true`），所有 API 请求都需要提供身份验证令牌。
+如果启用了 [Web 登录认证](./security#Web-登录认证)（`QWENPAW_AUTH_ENABLED=true`），所有 API 请求都需要提供身份验证令牌。认证完全委托给 **NocoBase** —— QwenPaw 自身不再拥有本地账号存储，用户和密码均由 NocoBase 管理。
 
-#### 注册账号
+#### 启用认证
 
-**首次使用需要先注册管理员账号**（QwenPaw 采用单用户模式）：
-
-```bash
-curl -X POST http://localhost:8088/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "admin",
-    "password": "admin123"
-  }'
-```
-
-**响应示例**：
-
-```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "username": "admin"
-}
-```
-
-**注册时指定令牌有效期**：
-
-```bash
-# 注册并获取永久令牌
-curl -X POST http://localhost:8088/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "admin",
-    "password": "admin123",
-    "expires_in": 0
-  }'
-```
-
-**注意事项**：
-
-- 注册接口只能调用一次（单用户模式）
-- 注册成功后会直接返回登录令牌
-- 如果已有用户，会返回 `{"detail":"User already registered"}` 错误
-- 支持通过 `expires_in` 参数自定义令牌有效期（同登录接口）
-
-**如果需要重新注册**（例如忘记密码或想更换账号）：
-
-方法 1：使用 CLI 重置密码
-
-```bash
-qwenpaw auth reset-password
-```
-
-方法 2：删除认证文件后重新注册
-
-```bash
-# 删除认证文件
-rm ~/.qwenpaw.secret/auth.json
-
-# 或者使用 QWENPAW_SECRET_DIR 环境变量
-rm "${QWENPAW_SECRET_DIR}/auth.json"
-
-# 重启 QwenPaw 后重新注册
-qwenpaw app
-```
-
-**Docker 部署**：
-
-```bash
-# 进入容器删除认证文件
-docker exec -it <容器名> rm /app/working.secret/auth.json
-
-# 或者使用 CLI 重置密码
-docker exec -it <容器名> qwenpaw auth reset-password
-```
-
-**自动注册**（可选）：
-
-你也可以在启动 QwenPaw 时通过环境变量自动创建账号：
+设置 `QWENPAW_AUTH_ENABLED=true` 以及 NocoBase 连接相关的环境变量：
 
 ```bash
 export QWENPAW_AUTH_ENABLED=true
-export QWENPAW_AUTH_USERNAME=admin
-export QWENPAW_AUTH_PASSWORD=admin123
+export QWENPAW_NOCOBASE_ENABLED=true
+export QWENPAW_NOCOBASE_BASE_URL=http://nocobase:13000
 qwenpaw app
 ```
 
-这样就无需手动调用注册 API。
+首次启动时，这些 `QWENPAW_NOCOBASE_*` 环境变量会被写入 `~/.qwenpaw/nocobase_auth_config.json` 作为初始配置。此后应在控制台插件管理页中编辑连接信息（Base URL、管理员 API Token、用户标识字段、认证器、角色→频道映射），而不是重新导出环境变量。完整的 `QWENPAW_NOCOBASE_*` 变量列表见 [安全设置 → Web 登录认证](./security#Web-登录认证)。
 
-#### 获取认证令牌
+**查看认证状态**：
 
-**注册后，使用登录 API 获取令牌**
+```bash
+curl http://localhost:8088/api/auth/status
+```
+
+**响应示例**：
+
+```json
+{
+  "enabled": true,
+  "mode": "nocobase"
+}
+```
+
+#### 登录获取令牌
+
+使用 NocoBase 用户名和密码登录以获取令牌：
 
 ```bash
 curl -X POST http://localhost:8088/api/auth/login \
@@ -715,36 +657,7 @@ curl -X POST http://localhost:8088/api/auth/login \
 }
 ```
 
-**自定义令牌有效期**：
-
-你可以通过 `expires_in` 参数指定令牌的有效时长（单位：秒）：
-
-```bash
-# 申请 30 天有效期的令牌
-curl -X POST http://localhost:8088/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "admin",
-    "password": "admin123",
-    "expires_in": 2592000
-  }'
-
-# 申请永久令牌（100 年有效期）
-curl -X POST http://localhost:8088/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "admin",
-    "password": "admin123",
-    "expires_in": 0
-  }'
-```
-
-**常用有效期**：
-
-- `604800` = 7 天（默认）
-- `2592000` = 30 天
-- `31536000` = 1 年
-- `0` 或 `-1` = 永久令牌（100 年）
+`token` 由 NocoBase 自身签发；其格式、有效期均完全由 NocoBase 中配置的认证器（`QWENPAW_NOCOBASE_AUTHENTICATOR`，默认 `basic`）决定 —— QwenPaw 自身不签发、不存储、也不会使令牌过期。
 
 **步骤 2：在 API 请求中使用令牌**
 
@@ -768,97 +681,33 @@ curl -X POST http://localhost:8088/api/console/chat \
   }'
 ```
 
+#### 校验令牌
+
+```bash
+curl http://localhost:8088/api/auth/verify \
+  -H "Authorization: Bearer <YOUR_TOKEN>"
+```
+
+**响应示例**：
+
+```json
+{
+  "valid": true,
+  "username": "admin"
+}
+```
+
+如果令牌缺失、无效或已过期，会返回 `401`。
+
 #### 令牌特性
 
-- **有效期**：
-  - 默认：7 天
-  - 可通过 `expires_in` 参数自定义（支持永久令牌）
-  - 最长：100 年
-- **格式**：HMAC-SHA256 签名令牌
+- **签发方**：NocoBase —— 令牌格式、有效期均由 NocoBase 控制，而非 QwenPaw
 - **存储**：建议安全存储，不要硬编码在代码中
-- **本地免认证**：来自 `127.0.0.1` 或 `::1` 的请求自动跳过认证
-- **多令牌共存**：
-  - ⚠️ 每次登录都会创建新令牌，旧令牌不会自动失效
-  - 只要令牌未过期且签名有效，多个令牌可以同时使用
-  - 这意味着如果令牌泄露，需要手动撤销
+- **本地免认证**：来自 `127.0.0.1` 或 `::1` 的请求默认自动跳过认证（可通过 `allow_no_auth_hosts` 配置，见[安全设置](./security#Web-登录认证)）
 
-#### 撤销令牌
+#### 退出登录
 
-如果你想使令牌失效（例如令牌泄露、注销登录或安全事件），有以下方法：
-
-**方法 1：撤销单个令牌**（推荐用于注销或撤销特定设备）
-
-```bash
-# 撤销当前令牌（注销当前会话）
-curl -X POST http://localhost:8088/api/auth/revoke-token \
-  -H "Authorization: Bearer <YOUR_CURRENT_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{}'
-
-# 撤销指定令牌（例如泄露的令牌）
-curl -X POST http://localhost:8088/api/auth/revoke-token \
-  -H "Authorization: Bearer <YOUR_CURRENT_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "token": "eyJhbGciOi..."
-  }'
-```
-
-**响应示例**：
-
-```json
-{
-  "message": "Current token has been revoked. Please login again.",
-  "revoked": true,
-  "revoked_current_token": true
-}
-```
-
-**方法 2：撤销所有令牌**（用于安全事件或密码重置）
-
-```bash
-curl -X POST http://localhost:8088/api/auth/revoke-all-tokens \
-  -H "Authorization: Bearer <YOUR_CURRENT_TOKEN>"
-```
-
-**响应示例**：
-
-```json
-{
-  "message": "All tokens have been revoked. Please login again.",
-  "revoked": true
-}
-```
-
-**方法 3：修改密码**（同时撤销所有令牌）
-
-修改密码时会自动轮换 JWT 密钥，使所有旧令牌失效：
-
-```bash
-curl -X POST http://localhost:8088/api/auth/update-profile \
-  -H "Authorization: Bearer <YOUR_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "current_password": "old_password",
-    "new_password": "new_password"
-  }'
-```
-
-**撤销方法对比**：
-
-| 方法         | 作用范围 | 优点                     | 缺点               | 使用场景               |
-| ------------ | -------- | ------------------------ | ------------------ | ---------------------- |
-| 撤销单个令牌 | 单个     | 精确控制，不影响其他设备 | 需要知道令牌内容   | 注销登录、撤销特定设备 |
-| 撤销所有令牌 | 全部     | 一次性失效所有会话       | 所有设备需重新登录 | 安全事件、密码泄露     |
-| 修改密码     | 全部     | 同时更新密码和撤销令牌   | 需要记住旧密码     | 定期密码更新           |
-| 删除认证文件 | 全部     | 彻底清除（包括密码）     | 需要服务器访问权限 | 完全重置系统           |
-
-**注意事项**：
-
-- 撤销后，所有客户端都需要重新登录获取新令牌
-- 撤销操作不可逆
-- 建议在令牌泄露或设备丢失时立即撤销
-- 如果使用永久令牌（`expires_in: 0`），强烈建议定期手动撤销并重新申请
+QwenPaw 自身不追踪或撤销令牌，因此不存在 `revoke-token` 接口。退出登录只需在客户端丢弃令牌即可（例如从本地存储中删除）。如果还想同时结束 NocoBase 侧的会话，可直接对你的 NocoBase 实例调用其自身的 `auth:signOut` 接口。
 
 #### 关闭认证
 

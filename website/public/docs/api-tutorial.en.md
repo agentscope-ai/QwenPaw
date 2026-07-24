@@ -605,97 +605,39 @@ curl -X POST http://localhost:8088/api/console/chat \
 
 ### Web Authentication Token (Optional)
 
-If [Web Login Authentication](./security#web-authentication) is enabled (`QWENPAW_AUTH_ENABLED=true`), all API requests require an authentication token.
+If [Web Login Authentication](./security#web-authentication) is enabled (`QWENPAW_AUTH_ENABLED=true`), all API requests require an authentication token. Authentication is delegated entirely to **NocoBase** — QwenPaw has no local account store; users and passwords are managed in NocoBase.
 
-#### Register Account
+#### Enable Authentication
 
-**First-time setup requires registering an admin account** (QwenPaw uses single-user mode):
-
-```bash
-curl -X POST http://localhost:8088/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "admin",
-    "password": "admin123"
-  }'
-```
-
-**Response Example**:
-
-```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "username": "admin"
-}
-```
-
-**Register with Custom Token Expiration**:
-
-```bash
-# Register and get a permanent token
-curl -X POST http://localhost:8088/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "admin",
-    "password": "admin123",
-    "expires_in": 0
-  }'
-```
-
-**Important Notes**:
-
-- Registration endpoint can only be called once (single-user mode)
-- Registration returns a login token immediately
-- Returns `{"detail":"User already registered"}` error if a user already exists
-- Supports custom token expiration via `expires_in` parameter (same as login)
-
-**If you need to re-register** (e.g., forgot password or want to change account):
-
-Method 1: Use CLI to reset password
-
-```bash
-qwenpaw auth reset-password
-```
-
-Method 2: Delete auth file and re-register
-
-```bash
-# Delete auth file
-rm ~/.qwenpaw.secret/auth.json
-
-# Or use QWENPAW_SECRET_DIR environment variable
-rm "${QWENPAW_SECRET_DIR}/auth.json"
-
-# Restart QwenPaw and re-register
-qwenpaw app
-```
-
-**Docker Deployment**:
-
-```bash
-# Enter container to delete auth file
-docker exec -it <container_name> rm /app/working.secret/auth.json
-
-# Or use CLI to reset password
-docker exec -it <container_name> qwenpaw auth reset-password
-```
-
-**Auto-Registration** (Optional):
-
-You can also auto-create an account via environment variables when starting QwenPaw:
+Set `QWENPAW_AUTH_ENABLED=true` plus the NocoBase connection variables:
 
 ```bash
 export QWENPAW_AUTH_ENABLED=true
-export QWENPAW_AUTH_USERNAME=admin
-export QWENPAW_AUTH_PASSWORD=admin123
+export QWENPAW_NOCOBASE_ENABLED=true
+export QWENPAW_NOCOBASE_BASE_URL=http://nocobase:13000
 qwenpaw app
 ```
 
-This eliminates the need to manually call the registration API.
+On first run, these `QWENPAW_NOCOBASE_*` variables are seeded into `~/.qwenpaw/nocobase_auth_config.json`. After that, edit the connection (base URL, admin API token, user ID field, authenticator, role→channel map) from the plugin's admin page in the Console rather than re-exporting env vars. See [Security → Web Authentication](./security#web-authentication) for the full list of `QWENPAW_NOCOBASE_*` variables.
 
-#### Obtaining an Authentication Token
+**Check authentication status**:
 
-**After registration, use the login API to get a token**
+```bash
+curl http://localhost:8088/api/auth/status
+```
+
+**Response Example**:
+
+```json
+{
+  "enabled": true,
+  "mode": "nocobase"
+}
+```
+
+#### Log In to Get a Token
+
+Log in with a NocoBase username and password to obtain a token:
 
 ```bash
 curl -X POST http://localhost:8088/api/auth/login \
@@ -715,36 +657,7 @@ curl -X POST http://localhost:8088/api/auth/login \
 }
 ```
 
-**Customize Token Expiration**:
-
-You can specify token expiration time using the `expires_in` parameter (in seconds):
-
-```bash
-# Request a 30-day token
-curl -X POST http://localhost:8088/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "admin",
-    "password": "admin123",
-    "expires_in": 2592000
-  }'
-
-# Request a permanent token (100-year validity)
-curl -X POST http://localhost:8088/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "admin",
-    "password": "admin123",
-    "expires_in": 0
-  }'
-```
-
-**Common Expiration Values**:
-
-- `604800` = 7 days (default)
-- `2592000` = 30 days
-- `31536000` = 1 year
-- `0` or `-1` = permanent token (100 years)
+The `token` is issued by NocoBase itself; its format, validity, and expiration are governed entirely by the NocoBase authenticator (`QWENPAW_NOCOBASE_AUTHENTICATOR`, default `basic`) configured in NocoBase — QwenPaw does not mint, store, or expire tokens on its own.
 
 **Step 2: Use Token in API Requests**
 
@@ -768,97 +681,33 @@ curl -X POST http://localhost:8088/api/console/chat \
   }'
 ```
 
+#### Verifying a Token
+
+```bash
+curl http://localhost:8088/api/auth/verify \
+  -H "Authorization: Bearer <YOUR_TOKEN>"
+```
+
+**Response Example**:
+
+```json
+{
+  "valid": true,
+  "username": "admin"
+}
+```
+
+Returns `401` if the token is missing, invalid, or expired.
+
 #### Token Characteristics
 
-- **Validity**:
-  - Default: 7 days
-  - Customizable via `expires_in` parameter (supports permanent tokens)
-  - Maximum: 100 years
-- **Format**: HMAC-SHA256 signed token
+- **Issuer**: NocoBase — token format, validity, and expiry are controlled by NocoBase, not QwenPaw
 - **Storage**: Store securely, do not hardcode in code
-- **Local Bypass**: Requests from `127.0.0.1` or `::1` automatically skip authentication
-- **Multiple Tokens**:
-  - ⚠️ Each login creates a new token; old tokens are NOT automatically revoked
-  - Multiple tokens can be used simultaneously if they are valid and not expired
-  - If a token is compromised, you need to manually revoke all tokens
+- **Local Bypass**: Requests from `127.0.0.1` or `::1` automatically skip authentication by default (configurable via `allow_no_auth_hosts`, see [Security](./security#web-authentication))
 
-#### Revoking Tokens
+#### Logging Out
 
-If you need to invalidate tokens (e.g., logout, token leak, or security incident):
-
-**Method 1: Revoke a Single Token** (Recommended for logout or specific device revocation)
-
-```bash
-# Revoke current token (logout current session)
-curl -X POST http://localhost:8088/api/auth/revoke-token \
-  -H "Authorization: Bearer <YOUR_CURRENT_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{}'
-
-# Revoke a specific token (e.g., leaked token)
-curl -X POST http://localhost:8088/api/auth/revoke-token \
-  -H "Authorization: Bearer <YOUR_CURRENT_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "token": "eyJhbGciOi..."
-  }'
-```
-
-**Response Example**:
-
-```json
-{
-  "message": "Current token has been revoked. Please login again.",
-  "revoked": true,
-  "revoked_current_token": true
-}
-```
-
-**Method 2: Revoke All Tokens** (For security incidents or password reset)
-
-```bash
-curl -X POST http://localhost:8088/api/auth/revoke-all-tokens \
-  -H "Authorization: Bearer <YOUR_CURRENT_TOKEN>"
-```
-
-**Response Example**:
-
-```json
-{
-  "message": "All tokens have been revoked. Please login again.",
-  "revoked": true
-}
-```
-
-**Method 3: Change Password** (Also revokes all tokens)
-
-Changing your password automatically rotates the JWT secret, invalidating all old tokens:
-
-```bash
-curl -X POST http://localhost:8088/api/auth/update-profile \
-  -H "Authorization: Bearer <YOUR_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "current_password": "old_password",
-    "new_password": "new_password"
-  }'
-```
-
-**Comparison of Revocation Methods**:
-
-| Method              | Scope  | Advantages                                    | Disadvantages                 | Use Cases                         |
-| ------------------- | ------ | --------------------------------------------- | ----------------------------- | --------------------------------- |
-| Revoke Single Token | Single | Precise control, doesn't affect other devices | Need to know token content    | Logout, revoke specific device    |
-| Revoke All Tokens   | All    | Invalidates all sessions at once              | All devices need re-login     | Security incidents, password leak |
-| Change Password     | All    | Updates password and revokes tokens           | Need to remember old password | Regular password updates          |
-| Delete auth file    | All    | Complete reset (including password)           | Requires server access        | Full system reset                 |
-
-**Important Notes**:
-
-- After revocation, all clients must re-login to get new tokens
-- Revocation is irreversible
-- Recommended to revoke immediately when tokens are compromised or devices are lost
-- If using permanent tokens (`expires_in: 0`), strongly recommend periodic manual revocation and reissuance
+QwenPaw does not track or revoke tokens itself, so there is no `revoke-token` API. To log out, simply drop the token on the client side (e.g., remove it from local storage). If you also want to end the underlying NocoBase session, call NocoBase's own `auth:signOut` API directly against your NocoBase instance.
 
 #### Disabling Authentication
 

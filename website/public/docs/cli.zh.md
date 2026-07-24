@@ -762,7 +762,7 @@ qwenpaw --host 0.0.0.0 --port 9090 cron list
 | `qwenpaw chats`     | `list` · `get` · `create` · `update` · `delete`                                      |      **是**       |
 | `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `info`                                 |        否         |
 | `qwenpaw task`      | —                                                                                    |        否         |
-| `qwenpaw auth`      | `reset-password`                                                                     |        否         |
+| `qwenpaw auth`      | `reset-password` ²                                                                   |        否         |
 | `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate`                               |        否         |
 | `qwenpaw acp`       | —                                                                                    |        否         |
 | `qwenpaw clean`     | —                                                                                    |        否         |
@@ -771,6 +771,8 @@ qwenpaw --host 0.0.0.0 --port 9090 cron list
 | `qwenpaw uninstall` | —                                                                                    |        否         |
 
 ¹ `create` 不需要服务运行；`list`、`delete`、`chat` 需要服务运行。
+
+² 认证现已完全委托给 NocoBase —— `qwenpaw auth reset-password` 不再重置本地密码，只会打印提示，引导你去 NocoBase 控制台重置密码。
 
 ---
 

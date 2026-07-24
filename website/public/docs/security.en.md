@@ -880,41 +880,40 @@ Here's a complete `config.json` with all security features configured:
 
 ## Web Authentication
 
-QwenPaw supports optional web login authentication to protect the Console from unauthorized access. Authentication is **disabled by default** and must be explicitly enabled via the `QWENPAW_AUTH_ENABLED` environment variable.
+QwenPaw supports optional web login authentication to protect the Console from unauthorized access. Authentication is **disabled by default** and must be explicitly enabled via the `QWENPAW_AUTH_ENABLED` environment variable. QwenPaw has no local account store of its own — when enabled, authentication is delegated entirely to **NocoBase** (via the bundled `nocobase-auth` plugin). Users, passwords, and roles all live in NocoBase.
 
 ![login](https://img.alicdn.com/imgextra/i1/O1CN01wh3Sv01SxPEXpb6Wj_!!6000000002313-2-tps-3822-2070.png)
 
 ### How it works
 
 1. **Enable authentication** — Set `QWENPAW_AUTH_ENABLED=true` and start QwenPaw
-2. **Registration flow**:
-   - On first visit, the Console shows a **registration page**
-   - Create the single admin account (username + password)
-   - System uses single-user mode, designed for personal use
+2. **Configure the NocoBase connection** — Set the `QWENPAW_NOCOBASE_*` environment variables (below). On first run, if no connection config file exists yet, they are seeded into `~/.qwenpaw/nocobase_auth_config.json`; after that, edit the connection from the plugin's admin page in the Console instead — admin edits always win over the env vars on later restarts
 3. **Login flow**:
-   - After registration, subsequent visits show the **login page**
-   - After entering credentials, a signed token is generated (valid for 7 days)
-   - Token is stored in browser localStorage and automatically attached to all API requests
-4. **Auto-registration** (optional):
-   - Set `QWENPAW_AUTH_USERNAME` and `QWENPAW_AUTH_PASSWORD` environment variables
-   - QwenPaw automatically creates the admin account on startup, skipping web registration
-   - Useful for Docker, Kubernetes, server management panels, and other automated deployments
+   - On first visit, the Console shows the **login page**
+   - The user enters their NocoBase username and password
+   - QwenPaw forwards the credentials to NocoBase and returns the NocoBase-issued token to the browser
+   - The token is stored in browser localStorage and automatically attached to all API requests
+4. **Console access control** — access to the `console` channel is governed by a role→channel map (configured on the plugin's admin page): a valid, authenticated NocoBase user is **allowed by default**, and is denied only if their role is explicitly added to that role's denied channels (deny always wins over allow)
 5. **Localhost bypass** — Requests from localhost (`127.0.0.1` / `::1`) automatically skip authentication; CLI commands (`qwenpaw app`, `qwenpaw chat`, etc.) work without a token
 
 **Security features**:
 
-- Password stored as salted SHA-256 hash, no plaintext stored
-- HMAC-SHA256 signed tokens with 7-day auto-expiry
-- Uses only Python standard library (`hashlib`, `hmac`, `secrets`), no external dependencies
-- `auth.json` file protected with `0o600` permissions (owner read/write only)
+- No local account, password, or token store — QwenPaw never sees or persists a plaintext password
+- The NocoBase `api_token` (used only for the admin "list users/roles" views, not for login or the access gate) is encrypted at rest in the connection config file using the keyring-backed secret store
+- Connection config file (`nocobase_auth_config.json`) written with `0o600` permissions (owner read/write only)
 
 ### Environment variables
 
-| Variable                | Description                                  | Required |
-| ----------------------- | -------------------------------------------- | -------- |
-| `QWENPAW_AUTH_ENABLED`  | Set to `true` to enable authentication       | **Yes**  |
-| `QWENPAW_AUTH_USERNAME` | Pre-set admin username for auto-registration | Optional |
-| `QWENPAW_AUTH_PASSWORD` | Pre-set admin password for auto-registration | Optional |
+| Variable                        | Description                                                                                                      | Required |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------- |
+| `QWENPAW_AUTH_ENABLED`           | Set to `true` to enable authentication                                                                            | **Yes**  |
+| `QWENPAW_NOCOBASE_ENABLED`       | Set to `true`/`1`/`yes` to enable the NocoBase integration                                                        | Optional |
+| `QWENPAW_NOCOBASE_BASE_URL`      | NocoBase instance URL (e.g. `http://nocobase:13000`)                                                              | Optional |
+| `QWENPAW_NOCOBASE_API_TOKEN`     | NocoBase admin API token — only used for the admin "list users/roles" views, not for login or the access gate     | Optional |
+| `QWENPAW_NOCOBASE_USER_ID_FIELD` | NocoBase user field used as the channel sender ID (default `email`)                                               | Optional |
+| `QWENPAW_NOCOBASE_AUTHENTICATOR` | NocoBase authenticator name used for password sign-in (default `basic`)                                           | Optional |
+
+These `QWENPAW_NOCOBASE_*` variables are only consulted to *seed* `~/.qwenpaw/nocobase_auth_config.json` on first run, when that file doesn't exist yet. Once the file exists, manage the connection (including the role→channel map) from the plugin's admin page in the Console.
 
 ### Auth-bypass host whitelist
 
@@ -929,7 +928,7 @@ In `config.json`, the `security.allow_no_auth_hosts` field specifies client IP a
 ```
 
 | Field                 | Type          | Default                | Description                                                                          |
-| --------------------- | ------------- | ---------------------- | ------------------------------------------------------------------------------------ |
+| --------------------- | ------------- | ----------------------- | -------------------------------------------------------------------------------------- |
 | `allow_no_auth_hosts` | array[string] | `["127.0.0.1", "::1"]` | Client IP addresses allowed to access `/api/*` routes without authentication tokens. |
 
 This can also be managed from the Console under **Settings → Security**.
@@ -939,10 +938,8 @@ This can also be managed from the Console under **Settings → Security**.
 **Configuration notes**:
 
 - `QWENPAW_AUTH_ENABLED=true` is the only required variable to enable authentication
-- `QWENPAW_AUTH_USERNAME` and `QWENPAW_AUTH_PASSWORD` are used together:
-  - Both set → Auto-creates admin account on startup (for automated deployments)
-  - Not set or only one set → Register via web UI on first visit (interactive deployments)
-- If a user is already registered, auto-registration environment variables are ignored
+- `QWENPAW_NOCOBASE_*` variables configure the NocoBase connection; they are optional at the environment-variable level because the same settings can be entered later from the plugin's admin page
+- If a connection config file already exists, the `QWENPAW_NOCOBASE_*` seeding env vars are ignored — edit the connection from the Console instead
 
 ### Enable authentication
 
@@ -953,14 +950,9 @@ Set environment variables before starting:
 **Linux / macOS:**
 
 ```bash
-# Basic enable (web registration)
 export QWENPAW_AUTH_ENABLED=true
-qwenpaw app
-
-# Or: Auto-registration mode
-export QWENPAW_AUTH_ENABLED=true
-export QWENPAW_AUTH_USERNAME=admin
-export QWENPAW_AUTH_PASSWORD=mypassword
+export QWENPAW_NOCOBASE_ENABLED=true
+export QWENPAW_NOCOBASE_BASE_URL=http://localhost:13000
 qwenpaw app
 ```
 
@@ -970,9 +962,8 @@ To make it permanent, add the `export` lines to your `~/.bashrc`, `~/.zshrc`, or
 
 ```cmd
 set QWENPAW_AUTH_ENABLED=true
-rem Optional: auto-registration
-rem set QWENPAW_AUTH_USERNAME=admin
-rem set QWENPAW_AUTH_PASSWORD=mypassword
+set QWENPAW_NOCOBASE_ENABLED=true
+set QWENPAW_NOCOBASE_BASE_URL=http://localhost:13000
 qwenpaw app
 ```
 
@@ -980,20 +971,19 @@ qwenpaw app
 
 ```powershell
 $env:QWENPAW_AUTH_ENABLED = "true"
-# Optional: auto-registration
-# $env:QWENPAW_AUTH_USERNAME = "admin"
-# $env:QWENPAW_AUTH_PASSWORD = "mypassword"
+$env:QWENPAW_NOCOBASE_ENABLED = "true"
+$env:QWENPAW_NOCOBASE_BASE_URL = "http://localhost:13000"
 qwenpaw app
 ```
 
 #### Docker
 
-Pass environment variables with `-e` (recommended with auto-registration):
+Pass environment variables with `-e`:
 
 ```bash
 docker run -e QWENPAW_AUTH_ENABLED=true \
-  -e QWENPAW_AUTH_USERNAME=admin \
-  -e QWENPAW_AUTH_PASSWORD=mypassword \
+  -e QWENPAW_NOCOBASE_ENABLED=true \
+  -e QWENPAW_NOCOBASE_BASE_URL=http://nocobase:13000 \
   -p 127.0.0.1:8088:8088 \
   -v qwenpaw-data:/app/working \
   -v qwenpaw-secrets:/app/working.secret \
@@ -1001,7 +991,7 @@ docker run -e QWENPAW_AUTH_ENABLED=true \
   agentscope/qwenpaw:latest
 ```
 
-> **Tip**: To skip auto-registration, remove `QWENPAW_AUTH_USERNAME` and `QWENPAW_AUTH_PASSWORD` and register via browser on first visit.
+> **Tip**: These variables only seed the connection on first run. To change the NocoBase connection afterward, use the plugin's admin page in the Console rather than restarting with different env vars.
 
 #### docker-compose.yml
 
@@ -1013,8 +1003,8 @@ services:
       - "127.0.0.1:8088:8088"
     environment:
       - QWENPAW_AUTH_ENABLED=true
-      - QWENPAW_AUTH_USERNAME=admin
-      - QWENPAW_AUTH_PASSWORD=mypassword
+      - QWENPAW_NOCOBASE_ENABLED=true
+      - QWENPAW_NOCOBASE_BASE_URL=http://nocobase:13000
     volumes:
       - qwenpaw-data:/app/working
       - qwenpaw-secrets:/app/working.secret
@@ -1027,8 +1017,8 @@ You can also use a `.env` file:
 
 ```
 QWENPAW_AUTH_ENABLED=true
-QWENPAW_AUTH_USERNAME=admin
-QWENPAW_AUTH_PASSWORD=mypassword
+QWENPAW_NOCOBASE_ENABLED=true
+QWENPAW_NOCOBASE_BASE_URL=http://nocobase:13000
 ```
 
 Then pass it to Docker with `--env-file .env`, or source it in your shell before running `qwenpaw app`.
@@ -1046,35 +1036,20 @@ qwenpaw app
 docker run -p 127.0.0.1:8088:8088 -v qwenpaw-data:/app/working -v qwenpaw-secrets:/app/working.secret -v qwenpaw-backups:/app/working.backups agentscope/qwenpaw:latest
 ```
 
-### Password reset
+### Password management
 
-If you forget your password, use the CLI to reset:
+QwenPaw no longer owns a local account or password — users and passwords are managed entirely by NocoBase. Running:
 
 ```bash
 qwenpaw auth reset-password
 ```
 
-This command will:
-
-1. Display the current registered username
-2. Prompt for a new password (hidden input, requires confirmation twice)
-3. Rotate the session signing secret (the key stored in `auth.json`), which **invalidates all existing sessions** — all logged-in devices must log in again with the new password
+now simply prints guidance pointing you to reset the password from your NocoBase console; it does not reset anything locally.
 
 **Docker deployments**:
 
 ```bash
 docker exec -it <container_name> qwenpaw auth reset-password
-```
-
-**Alternative approach**:
-
-To completely reset the authentication system:
-
-```bash
-# Delete the auth file
-rm ~/.qwenpaw.secret/auth.json  # or $WORKING_DIR.secret/auth.json
-# Restart QwenPaw; re-register on next visit
-qwenpaw app
 ```
 
 ### Logout
@@ -1087,21 +1062,20 @@ Click the **Logout** button at the bottom of the sidebar in the Console:
 
 **Automatic logout**:
 
-- Token expires (after 7 days)
-- Token becomes invalid (password reset or signing secret rotation)
+- The NocoBase-issued token expires or is otherwise invalidated (governed by NocoBase's authenticator configuration, not QwenPaw)
 - Server returns 401 unauthorized response
 
 ### Security details
 
 | Feature               | Detail                                                                                     |
-| --------------------- | ------------------------------------------------------------------------------------------ |
-| Password storage      | Salted SHA-256 hash in `auth.json` (no plaintext stored)                                   |
-| Token format          | HMAC-SHA256 signed payload, 7-day expiry                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| Account storage        | None — accounts, passwords, and roles are owned entirely by NocoBase                       |
+| Token format          | Issued by NocoBase; format and expiry are controlled by NocoBase's authenticator config     |
 | Token storage         | Browser localStorage, cleared on logout or 401 response                                    |
-| External dependencies | None — uses only Python standard library (`hashlib`, `hmac`, `secrets`)                    |
-| File permissions      | `auth.json` written with `0o600` (owner read/write only)                                   |
-| Localhost bypass      | Requests from `127.0.0.1` / `::1` skip auth (CLI access unaffected)                        |
+| Connection secrets    | `QWENPAW_NOCOBASE_API_TOKEN` is encrypted at rest in `nocobase_auth_config.json`            |
+| File permissions      | `nocobase_auth_config.json` written with `0o600` (owner read/write only)                   |
+| Localhost bypass      | Requests from `127.0.0.1` / `::1` skip auth (CLI access unaffected)                         |
 | CORS preflight        | `OPTIONS` requests pass through without auth check                                         |
 | WebSocket auth        | Token passed via query parameter, restricted to upgrade requests only                      |
 | Protected routes      | Only `/api/*` routes require authentication                                                |
-| Public routes         | `/api/auth/login`, `/api/auth/register`, `/api/auth/status`, `/api/version`, static assets |
+| Public routes         | `/api/auth/login`, `/api/auth/status`, `/api/version`, static assets                       |
