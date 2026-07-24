@@ -57,7 +57,7 @@ def test_core_dependencies_are_not_repeated_in_channel_extras():
             assert core.isdisjoint(extra)
 
 
-def test_legacy_channel_dependency_ranges_are_preserved():
+def test_optional_channel_dependencies_use_verified_pins():
     pyproject = Path(__file__).resolve().parents[3] / "pyproject.toml"
     project = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]
     core = {
@@ -72,19 +72,34 @@ def test_legacy_channel_dependency_ranges_are_preserved():
     }.items() <= core.items()
 
     expected_extras = {
-        "discord": {"discord-py": ">=2.3"},
+        "discord": {"discord-py": "==2.7.1"},
         "feishu": {
-            "lark-oapi": ">=1.5.3",
-            "python-socks": ">=2.5.3",
+            "lark-oapi": "==1.7.1",
+            "python-socks": "==2.8.2",
         },
-        "slack": {"slack-bolt": ">=1.22.0"},
-        "mqtt": {"paho-mqtt": ">=2.0.0"},
+        "qq": {"websocket-client": "==1.9.0"},
+        "mattermost": {"websockets": "==15.0.1"},
+        "slack": {
+            "slack-bolt": "==1.30.0",
+            "slack-sdk": "==3.43.0",
+        },
+        "mqtt": {"paho-mqtt": "==2.1.0"},
         "matrix": {
-            "matrix-nio": ">=0.25.0",
-            "python-socks": ">=2.5.3",
+            "matrix-nio": "==0.26.0",
+            "python-socks": "==2.8.2",
         },
-        "voice": {"twilio": ">=9.10.2"},
+        "voice": {"twilio": "==9.10.9"},
+        "sip": {
+            "pyvoip": "==1.6.8",
+            "dashscope": "==1.26.4",
+            "dashscope-realtime": "==0.1.8",
+            "audioop-lts": "==0.2.2",
+            "livekit": "==1.1.13",
+            "livekit-api": "==1.2.0",
+        },
         "wecom": {"wecom-aibot-python-sdk": "==1.0.2"},
+        "wechat": {"pycryptodome": "==3.23.0"},
+        "yuanbao": {"protobuf": "==7.35.1"},
     }
     for channel, requirements in expected_extras.items():
         spec = BUILTIN_CHANNEL_CATALOG[channel]
@@ -92,7 +107,7 @@ def test_legacy_channel_dependency_ranges_are_preserved():
             Requirement(raw).name.lower(): str(Requirement(raw).specifier)
             for raw in requirements_for_extra(spec.extra)
         }
-        assert requirements.items() <= actual.items()
+        assert actual == requirements
 
 
 def test_every_catalog_extra_exists_and_channels_all_is_complete():
@@ -195,6 +210,26 @@ def test_legacy_sip_extras_keep_their_original_scope():
     assert "livekit-api" not in sip
     assert {"livekit", "livekit-api", "qwenpaw"} <= sip_livekit
 
+    sip_versions = {
+        Requirement(raw).name.lower(): str(Requirement(raw).specifier)
+        for raw in extras["sip"]
+    }
+    assert sip_versions == {
+        "pyvoip": "==1.6.8",
+        "dashscope": "==1.26.4",
+        "dashscope-realtime": "==0.1.8",
+        "audioop-lts": "==0.2.2",
+    }
+    sip_livekit_versions = {
+        Requirement(raw).name.lower(): str(Requirement(raw).specifier)
+        for raw in extras["sip-livekit"]
+    }
+    assert sip_livekit_versions == {
+        "qwenpaw": "",
+        "livekit": "==1.1.13",
+        "livekit-api": "==1.2.0",
+    }
+
 
 def test_source_pyproject_skips_unrelated_parent_project(tmp_path):
     project = tmp_path / "qwenpaw"
@@ -218,7 +253,7 @@ def test_missing_requirements_returns_only_unsatisfied_items():
         "qwenpaw.app.channels.dependencies._is_requirement_satisfied",
         side_effect=lambda req: req.name != "lark-oapi",
     ):
-        assert missing_requirements(spec) == ["lark-oapi>=1.5.3"]
+        assert missing_requirements(spec) == ["lark-oapi==1.7.1"]
 
 
 def test_requirements_for_extra_caches_pyproject_reads(tmp_path):
@@ -257,7 +292,7 @@ def test_requirements_for_extra_caches_pyproject_reads(tmp_path):
 
 
 def test_non_frozen_uninstalled_package_is_not_satisfied_by_loaded_module():
-    req = Requirement("lark-oapi>=1.5.3")
+    req = Requirement("lark-oapi==1.7.1")
     with (
         patch(
             "qwenpaw.app.channels.dependencies._is_frozen",
@@ -937,7 +972,7 @@ async def test_reinstall_rejects_missing_dependencies(tmp_path):
         service = ChannelDependencyService()
     with patch(
         "qwenpaw.app.channels.dependencies.missing_requirements",
-        return_value=["lark-oapi>=1.5.3"],
+        return_value=["lark-oapi==1.7.1"],
     ):
         with pytest.raises(ValueError, match="only available"):
             await service.start_install("feishu", reinstall=True)
@@ -949,7 +984,7 @@ async def test_reinstall_uses_full_channel_requirements(tmp_path):
     created = InstallJob(
         id="reinstall-job",
         channel="feishu",
-        requirements=["lark-oapi>=1.5.3"],
+        requirements=["lark-oapi==1.7.1"],
         reinstall=True,
     )
     with (

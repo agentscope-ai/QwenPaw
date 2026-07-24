@@ -108,69 +108,69 @@ copaw = "qwenpaw.cli.main:cli"
 
 [project.optional-dependencies]
 channel-discord = [
-    "discord-py>=2.3",
+    "discord-py==2.7.1",
 ]
 channel-feishu = [
-    "lark-oapi>=1.5.3",
-    "python-socks>=2.5.3",
+    "lark-oapi==1.7.1",
+    "python-socks==2.8.2",
 ]
 channel-qq = [
-    "websocket-client>=1.7",
+    "websocket-client==1.9.0",
 ]
 channel-mattermost = [
-    "websockets>=12",
+    "websockets==15.0.1",
 ]
 channel-slack = [
-    "slack-bolt>=1.22.0",
-    "slack-sdk>=3.38",
+    "slack-bolt==1.30.0",
+    "slack-sdk==3.43.0",
 ]
 channel-mqtt = [
-    "paho-mqtt>=2.0.0",
+    "paho-mqtt==2.1.0",
 ]
 channel-matrix = [
-    "matrix-nio>=0.25.0",
-    "python-socks>=2.5.3",
+    "matrix-nio==0.26.0",
+    "python-socks==2.8.2",
 ]
 channel-voice = [
-    "twilio>=9.10.2",
+    "twilio==9.10.9",
 ]
 channel-sip = [
-    "pyVoIP>=1.6.0",
-    "dashscope>=1.0.0",
-    "dashscope-realtime>=0.1.0",
-    "audioop-lts; python_version >= '3.13'",
-    "livekit>=1.0.0",
-    "livekit-api>=0.6.0",
+    "pyVoIP==1.6.8",
+    "dashscope==1.26.4",
+    "dashscope-realtime==0.1.8",
+    "audioop-lts==0.2.2; python_version >= '3.13'",
+    "livekit==1.1.13",
+    "livekit-api==1.2.0",
 ]
 channel-wecom = [
     "wecom-aibot-python-sdk==1.0.2",
 ]
 channel-wechat = [
-    "pycryptodome>=3.20",
+    "pycryptodome==3.23.0",
 ]
 channel-yuanbao = [
-    "protobuf>=4",
+    "protobuf==7.35.1",
 ]
 channels-all = [
-    "discord-py>=2.3",
-    "lark-oapi>=1.5.3",
-    "python-socks>=2.5.3",
-    "websockets>=12",
-    "slack-bolt>=1.22.0",
-    "slack-sdk>=3.38",
-    "paho-mqtt>=2.0.0",
-    "matrix-nio>=0.25.0",
-    "twilio>=9.10.2",
-    "pyVoIP>=1.6.0",
-    "dashscope>=1.0.0",
-    "dashscope-realtime>=0.1.0",
-    "audioop-lts; python_version >= '3.13'",
-    "livekit>=1.0.0",
-    "livekit-api>=0.6.0",
+    "discord-py==2.7.1",
+    "lark-oapi==1.7.1",
+    "python-socks==2.8.2",
+    "websockets==15.0.1",
+    "slack-bolt==1.30.0",
+    "slack-sdk==3.43.0",
+    "paho-mqtt==2.1.0",
+    "matrix-nio==0.26.0",
+    "twilio==9.10.9",
+    "pyVoIP==1.6.8",
+    "dashscope==1.26.4",
+    "dashscope-realtime==0.1.8",
+    "audioop-lts==0.2.2; python_version >= '3.13'",
+    "livekit==1.1.13",
+    "livekit-api==1.2.0",
     "wecom-aibot-python-sdk==1.0.2",
-    "websocket-client>=1.7",
-    "pycryptodome>=3.20",
-    "protobuf>=4",
+    "websocket-client==1.9.0",
+    "pycryptodome==3.23.0",
+    "protobuf==7.35.1",
 ]
 test = [
     "pytest>=8.3.5",
@@ -195,15 +195,15 @@ full = [
 # Preserve the legacy extras: ``sip`` is the PyVoIP backend, while the
 # channel UI installs both backends through ``channel-sip``.
 sip = [
-    "pyVoIP>=1.6.0",
-    "dashscope>=1.0.0",
-    "dashscope-realtime>=0.1.0",
-    "audioop-lts; python_version >= '3.13'",
+    "pyVoIP==1.6.8",
+    "dashscope==1.26.4",
+    "dashscope-realtime==0.1.8",
+    "audioop-lts==0.2.2; python_version >= '3.13'",
 ]
 sip-livekit = [
     "qwenpaw[sip]",
-    "livekit>=1.0.0",
-    "livekit-api>=0.6.0",
+    "livekit==1.1.13",
+    "livekit-api==1.2.0",
 ]
 
 [tool.pytest.ini_options]

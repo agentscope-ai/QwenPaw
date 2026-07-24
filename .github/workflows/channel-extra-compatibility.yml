@@ -128,9 +128,9 @@ jobs:
       - name: Install the test environment from PyPI
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[test,channels-all]"
+          python -m pip install -e ".[test]"
 
-      - name: Reinstall direct Channel dependencies from Aliyun
+      - name: Install Channel dependencies from Aliyun
         shell: bash
         run: |
           python - <<'PY'
@@ -149,8 +149,7 @@ jobs:
                   "-m",
                   "pip",
                   "install",
-                  "--force-reinstall",
-                  "--no-deps",
+                  "--no-cache-dir",
                   "--index-url",
                   "https://mirrors.aliyun.com/pypi/simple/",
                   *requirements,
@@ -189,3 +188,21 @@ jobs:
               import_module(module)
               print(f"Imported {module}")
           PY
+
+      - name: Run optional Channel unit tests
+        shell: bash
+        run: |
+          python -m pytest -q \
+            tests/unit/channels/test_channel_dependencies.py \
+            tests/unit/channels/test_discord.py \
+            tests/unit/channels/test_feishu.py \
+            tests/unit/channels/test_qq.py \
+            tests/unit/channels/test_mattermost.py \
+            tests/unit/channels/test_mqtt.py \
+            tests/unit/channels/test_matrix.py \
+            tests/unit/channels/test_slack.py \
+            tests/unit/channels/test_voice.py \
+            tests/unit/channels/test_sip_memory_bounds.py \
+            tests/unit/channels/test_wecom.py \
+            tests/unit/channels/test_wechat.py \
+            tests/unit/channels/test_yuanbao.py
