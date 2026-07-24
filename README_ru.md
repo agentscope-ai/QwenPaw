@@ -60,7 +60,7 @@
 
 ## Новости
 
-- [2026-07-23] **v2.0.1** | Платформа мини-приложений PawApp, редактируемые Agent Mode, Oh-My-Paw plugins, улучшения памяти ReMe, улучшения UX десктопа и др. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+- [2026-07-24] **v2.0.1** | Платформа мини-приложений PawApp, редактируемые Agent Mode, Oh-My-Paw plugins, улучшения памяти ReMe, улучшения UX десктопа и др. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
 - [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Полностью переписанный на основе AgentScope 2.0: архитектура Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory и встроенный TUI.
 

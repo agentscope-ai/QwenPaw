@@ -60,7 +60,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 ## Tin Tức
 
-- [2026-07-23] **v2.0.1** | Nền tảng mini-app PawApp, Agent Mode do người dùng chỉnh sửa, Oh-My-Paw plugins, nâng cấp bộ nhớ ReMe, cải thiện UX desktop v.v. [Ghi chú phát hành v2.0.1 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
+- [2026-07-24] **v2.0.1** | Nền tảng mini-app PawApp, Agent Mode do người dùng chỉnh sửa, Oh-My-Paw plugins, nâng cấp bộ nhớ ReMe, cải thiện UX desktop v.v. [Ghi chú phát hành v2.0.1 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
 - [2026-07-10] **v2.0.0 — QwenPaw 2.0 Official Release** 🎉 | Viết lại toàn bộ dựa trên AgentScope 2.0: kiến trúc Agent OS, Loop Engineering, Scroll Context, ReMe v0.4.0 Long-term Memory và TUI tích hợp.
 
