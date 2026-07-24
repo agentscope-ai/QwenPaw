@@ -65,6 +65,10 @@ class _SummaryCandidateError(ValueError):
     """A returned summary candidate failed local format or quality checks."""
 
 
+class _SummaryInputBudgetError(ValueError):
+    """The fixed summary prompt cannot fit beside its output reserve."""
+
+
 class ScrollContextManager:
     """Context management as an injectable strategy (not an agent subclass).
 
@@ -941,24 +945,9 @@ class ScrollContextManager:
         """Call the chat model normally; structured output is never used."""
         if not callable(getattr(agent, "model", None)):
             return ""
-        system_content = (
-            "你负责更新一份紧凑的 continuation summary。严格遵循指定的 "
-            "Markdown headings，并使用中文填写自然语言内容。"
-            if str(language).lower().startswith("zh")
-            else (
-                "You update a compact continuation summary. Follow the "
-                "requested Markdown headings exactly and write natural-"
-                "language content in English."
-            )
-        )
+        messages = self._summary_messages(prompt, language)
         response = await agent.model(
-            messages=[
-                SystemMsg(
-                    name="system",
-                    content=system_content,
-                ),
-                UserMsg(name="user", content=prompt),
-            ],
+            messages=messages,
             tools=None,
             max_tokens=max_tokens,
             disable_thinking=True,
@@ -974,6 +963,104 @@ class ScrollContextManager:
             elif text:
                 deltas.append(text)
         return final or "".join(deltas).strip()
+
+    @staticmethod
+    def _summary_messages(prompt: str, language: str) -> list[Msg]:
+        """Build the exact message list used for counting and generation."""
+        system_content = (
+            "你负责更新一份紧凑的 continuation summary。严格遵循指定的 "
+            "Markdown headings，并使用中文填写自然语言内容。"
+            if str(language).lower().startswith("zh")
+            else (
+                "You update a compact continuation summary. Follow the "
+                "requested Markdown headings exactly and write natural-"
+                "language content in English."
+            )
+        )
+        return [
+            SystemMsg(name="system", content=system_content),
+            UserMsg(name="user", content=prompt),
+        ]
+
+    async def _fit_summary_prompt(
+        self,
+        agent: Any,
+        middle: list[Msg],
+        *,
+        mode: SummaryMode,
+        previous: ContinuationSummary | None,
+        covered: tuple[int, int],
+        repair_issues: tuple[str, ...],
+        focus_hint: str,
+        language: str,
+        output_tokens: int,
+    ) -> tuple[str, str]:
+        """Fit evidence using model token accounting, with output reserved."""
+        context_size = max(
+            1,
+            int(getattr(agent.model, "context_size", 0) or 0),
+        )
+        safety_tokens = max(32, min(1024, context_size // 50))
+        input_budget = context_size - output_tokens - safety_tokens
+        if input_budget <= 0:
+            raise _SummaryInputBudgetError(
+                "no input tokens remain after summary output reserve",
+            )
+
+        async def build_and_count(max_chars: int) -> tuple[str, str, int]:
+            archived_context = self._summary_archived_context(
+                middle,
+                max_chars=max_chars,
+            )
+            prompt = build_update_prompt(
+                mode=mode,
+                previous=previous,
+                archived_context=archived_context,
+                covered_seq=covered,
+                repair_issues=repair_issues,
+                focus_hint=focus_hint,
+                language=language,
+            )
+            tokens = await agent.model.count_tokens(
+                messages=self._summary_messages(prompt, language),
+                tools=None,
+            )
+            return prompt, archived_context, tokens
+
+        # First ensure that the fixed instructions and previous state fit.
+        empty_prompt, _, empty_tokens = await build_and_count(0)
+        if empty_tokens > input_budget:
+            raise _SummaryInputBudgetError(
+                "summary instructions and previous state exceed input budget",
+            )
+
+        high = 80_000
+        prompt, archived_context, tokens = await build_and_count(high)
+        if tokens <= input_budget:
+            return prompt, archived_context
+
+        best_prompt = empty_prompt
+        best_context = ""
+        low = 1
+        high -= 1
+        while low <= high:
+            mid = (low + high) // 2
+            (
+                candidate_prompt,
+                candidate_context,
+                tokens,
+            ) = await build_and_count(mid)
+            if tokens <= input_budget:
+                best_prompt = candidate_prompt
+                best_context = candidate_context
+                low = mid + 1
+            else:
+                high = mid - 1
+        if not best_context:
+            raise _SummaryInputBudgetError(
+                "no archived evidence fits the summary input budget",
+            )
+        return best_prompt, best_context
 
     def _source_backed_previous_summary(
         self,
@@ -995,6 +1082,37 @@ class ScrollContextManager:
         # newly archived, durable span.
         self._continuation_summary = None
         return None
+
+    def reconcile_loaded_context(self, agent: Any) -> bool:
+        """Remove an expired summary from a restored model-facing context.
+
+        Session state is normally saved before retention purges durable
+        history.  A later restore can therefore contain a continuation
+        summary whose provenance endpoints no longer exist.  Validate it
+        eagerly, before the below-trigger fast path can return, and rebuild
+        the synthetic memory message without the unsupported summary.
+        """
+        previous = self._continuation_summary
+        if (
+            previous is None
+            or self._source_backed_previous_summary() is not None
+        ):
+            return False
+        tail: list[Msg] = []
+        for msg in list(getattr(agent.state, "context", ()) or ()):
+            metadata = getattr(msg, "metadata", None)
+            is_memory = (
+                isinstance(metadata, dict)
+                and metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+                == SCROLL_MEMORY_MESSAGE_TAG
+            )
+            if is_memory:
+                self._synthetic_ids.discard(getattr(msg, "id", ""))
+                continue
+            tail.append(msg)
+        self._summary_update_failed = False
+        self._rebuild_context(agent, tail)
+        return True
 
     async def _validated_summary_attempt(
         self,
@@ -1078,14 +1196,6 @@ class ScrollContextManager:
             int(getattr(agent.model, "context_size", 0) or 0),
         )
         output_tokens = max(256, min(4000, context_size // 4))
-        input_chars = max(4000, min(80_000, context_size * 2))
-        new_context = self._summary_archived_context(
-            middle,
-            max_chars=input_chars,
-        )
-        evidence_text = new_context
-        if previous is not None:
-            evidence_text = previous.render() + "\n" + evidence_text
         repair_issues: tuple[str, ...] = ()
         updated: ContinuationSummary | None = None
         failure: Exception | None = None
@@ -1094,16 +1204,21 @@ class ScrollContextManager:
             summary_mode: SummaryMode = (
                 "update" if previous is not None else "initial"
             )
-            prompt = build_update_prompt(
-                mode=summary_mode,
-                previous=previous,
-                archived_context=new_context,
-                covered_seq=covered,
-                repair_issues=repair_issues,
-                focus_hint=focus_hint,
-                language=language,
-            )
             try:
+                prompt, new_context = await self._fit_summary_prompt(
+                    agent,
+                    middle,
+                    mode=summary_mode,
+                    previous=previous,
+                    covered=covered,
+                    repair_issues=repair_issues,
+                    focus_hint=focus_hint,
+                    language=language,
+                    output_tokens=output_tokens,
+                )
+                evidence_text = new_context
+                if previous is not None:
+                    evidence_text = previous.render() + "\n" + evidence_text
                 updated = await self._validated_summary_attempt(
                     agent,
                     prompt,
@@ -1571,9 +1686,12 @@ class ScrollContextManager:
         tail: list[Msg],
     ) -> None:
         """Rebuild from separate summary/index state plus the live tail."""
+        context_size = int(
+            getattr(getattr(agent, "model", None), "context_size", 0) or 0,
+        )
         index_detail_budget = max(
             512,
-            min(16_000, int(agent.model.context_size * 0.05)),
+            min(16_000, int(context_size * 0.05)),
         )
         memory = self._index.render(
             detail_char_budget=index_detail_budget,

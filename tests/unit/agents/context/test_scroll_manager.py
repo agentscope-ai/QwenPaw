@@ -100,10 +100,25 @@ class FakeModel:
 class PlainSummaryModel(FakeModel):
     """Fake chat model proving PR3 uses normal text generation only."""
 
-    def __init__(self, tokens, responses: list[str]) -> None:
-        super().__init__(tokens)
+    def __init__(
+        self,
+        tokens,
+        responses: list[str],
+        *,
+        context_size: int = 1000,
+    ) -> None:
+        super().__init__(tokens, context_size=context_size)
         self._responses = list(responses)
         self.summary_calls: list[dict] = []
+        self.summary_input_tokens: list[int] = []
+
+    async def count_tokens(self, *args, **kwargs) -> int:
+        if "messages" not in kwargs:
+            return await super().count_tokens(*args, **kwargs)
+        text = "".join(msg.get_text_content() for msg in kwargs["messages"])
+        tokens = max(1, len(text) // 20)
+        self.summary_input_tokens.append(tokens)
+        return tokens
 
     async def __call__(self, **kwargs):
         self.summary_calls.append(kwargs)
@@ -1141,6 +1156,33 @@ async def test_invalid_summary_is_retried_once_with_quality_feedback(
     assert "failed local validation" in retry_prompt.get_text_content()
     assert mgr.last_compress["summary_retries"] == 1
     assert "Fix provider discovery." in mgr.describe_summary()
+
+
+async def test_summary_evidence_respects_model_token_budget(
+    store: HistoryStore,
+):
+    old = [user("需要记住：" + "部署约束。" * 10_000)]
+    current = user("继续")
+    mgr = make_manager(store)
+    agent = FakeAgent([*old, current], tokens=[7000, 2000])
+    agent.model = PlainSummaryModel(
+        [7000, 2000],
+        [_VALID_CONTINUATION_SUMMARY],
+        context_size=8000,
+    )
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (old, [current])
+
+    await mgr.compress(agent)
+
+    output_tokens = 2000
+    safety_tokens = 160
+    assert agent.model.summary_input_tokens
+    assert agent.model.summary_input_tokens[-1] <= (
+        agent.model.context_size - output_tokens - safety_tokens
+    )
+    prompt = agent.model.summary_calls[0]["messages"][1].get_text_content()
+    assert len(prompt) < len(old[0].get_text_content())
 
 
 @pytest.mark.parametrize("after_trim", [730, 790])

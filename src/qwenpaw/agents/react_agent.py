@@ -261,6 +261,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 and hasattr(cm, "load_state")
             ):
                 cm.load_state(scroll)
+                if hasattr(cm, "reconcile_loaded_context"):
+                    cm.reconcile_loaded_context(self)
             return
 
         # --- 1.x legacy format: migrate ``memory`` → ``state`` ---
