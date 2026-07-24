@@ -16,7 +16,7 @@ import click
 import httpx
 
 from ..__version__ import __version__
-from ..app.auth import has_registered_users, is_auth_enabled
+from ..app.auth import is_auth_enabled
 from ..config import load_config
 from ..config.utils import strict_validate_config_file
 from ..constant import PROJECT_NAME, WORKING_DIR
@@ -208,25 +208,14 @@ def _check_console_static_files() -> tuple[bool, str]:
     )
 
 
-def _check_web_auth(base: str) -> tuple[bool, str]:
+def _check_web_auth() -> tuple[bool, str]:
     if not is_auth_enabled():
         return True, "disabled (default) — open the console without logging in"
-    if not has_registered_users():
-        return (
-            False,
-            "enabled but no account registered yet.\n"
-            f"        1) Start `qwenpaw app`, open {base}/ in a browser.\n"
-            "        2) Complete registration (single user) on the login "
-            "page.\n"
-            "        For automation, set QWENPAW_AUTH_USERNAME and "
-            "QWENPAW_AUTH_PASSWORD (legacy COPAW_* names still work) — the "
-            "server creates the user on startup.",
-        )
     return (
         True,
-        f"enabled — open {base}/ and sign in; the console stores your "
-        "session. API clients must send Authorization: Bearer <token> "
-        "from login.",
+        "enabled — sign in with your NocoBase account. Configure the "
+        "NocoBase connection via QWENPAW_NOCOBASE_BASE_URL / "
+        "QWENPAW_NOCOBASE_API_TOKEN or the console settings page.",
     )
 
 
@@ -760,7 +749,7 @@ def run_doctor_checks(
             click.echo(click.style("Note:", fg="yellow") + f" {line}")
 
     click.echo("\n=== Web authentication ===")
-    auth_ok, detail = _check_web_auth(base)
+    auth_ok, detail = _check_web_auth()
     if auth_ok:
         click.echo(click.style("OK", fg="green") + f" — {detail}")
     else:
