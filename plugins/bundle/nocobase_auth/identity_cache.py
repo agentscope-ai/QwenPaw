@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import time
-from typing import Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 
 class TokenIdentityCache:
-    """Cache ``token -> sender_id`` with a short TTL and lazy expiry.
+    """Cache ``token -> resolved identity`` with a short TTL and lazy expiry.
 
     A cached value of ``None`` is a *negative* entry (token was definitively
     invalid), distinct from a miss. ``time_fn`` is injectable for tests.
@@ -20,9 +20,9 @@ class TokenIdentityCache:
     ) -> None:
         self._ttl = ttl_seconds
         self._time = time_fn
-        self._entries: Dict[str, Tuple[Optional[str], float]] = {}
+        self._entries: Dict[str, Tuple[Optional[Any], float]] = {}
 
-    def get(self, token: str) -> Tuple[bool, Optional[str]]:
+    def get(self, token: str) -> Tuple[bool, Optional[Any]]:
         """Return ``(hit, value)``; ``hit`` is False on miss or expiry."""
         entry = self._entries.get(token)
         if entry is None:
@@ -33,6 +33,6 @@ class TokenIdentityCache:
             return (False, None)
         return (True, value)
 
-    def put(self, token: str, value: Optional[str]) -> None:
-        """Cache ``value`` (an identity, or ``None`` for a negative entry)."""
+    def put(self, token: str, value: Optional[Any]) -> None:
+        """Cache ``value`` (a resolved identity, or None negative entry)."""
         self._entries[token] = (value, self._time() + self._ttl)

@@ -30,3 +30,20 @@ def test_negative_entry_is_hit_with_none() -> None:
     c = TokenIdentityCache(ttl_seconds=60, time_fn=lambda: 100.0)
     c.put("bad", None)
     assert c.get("bad") == (True, None)
+
+
+def test_arbitrary_object_round_trips_by_identity() -> None:
+    c = TokenIdentityCache(ttl_seconds=60, time_fn=lambda: 100.0)
+    identity = object()
+    c.put("t", identity)
+    hit, value = c.get("t")
+    assert hit is True
+    assert value is identity
+
+
+def test_negative_entry_distinct_from_miss() -> None:
+    now = {"t": 100.0}
+    c = TokenIdentityCache(ttl_seconds=60, time_fn=lambda: now["t"])
+    c.put("bad", None)
+    assert c.get("bad") == (True, None)
+    assert c.get("missing") == (False, None)
