@@ -58,19 +58,25 @@ def test_core_dependencies_are_not_repeated_in_channel_extras():
 
 
 def test_legacy_channel_dependency_ranges_are_preserved():
-    expected = {
+    pyproject = Path(__file__).resolve().parents[3] / "pyproject.toml"
+    project = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]
+    core = {
+        Requirement(raw).name.lower(): str(Requirement(raw).specifier)
+        for raw in project["dependencies"]
+    }
+    assert {
+        "dingtalk-stream": ">=0.24.3",
+        "alibabacloud-dingtalk": ">=2.2.42",
+        "python-telegram-bot": ">=20.0",
+        "segno": ">=1.6.6",
+    }.items() <= core.items()
+
+    expected_extras = {
         "discord": {"discord-py": ">=2.3"},
-        "dingtalk": {
-            "dingtalk-stream": ">=0.24.3",
-            "alibabacloud-dingtalk": ">=2.2.42",
-            "segno": ">=1.6.6",
-        },
         "feishu": {
             "lark-oapi": ">=1.5.3",
             "python-socks": ">=2.5.3",
-            "segno": ">=1.6.6",
         },
-        "telegram": {"python-telegram-bot": ">=20.0"},
         "slack": {"slack-bolt": ">=1.22.0"},
         "mqtt": {"paho-mqtt": ">=2.0.0"},
         "matrix": {
@@ -78,12 +84,9 @@ def test_legacy_channel_dependency_ranges_are_preserved():
             "python-socks": ">=2.5.3",
         },
         "voice": {"twilio": ">=9.10.2"},
-        "wecom": {
-            "wecom-aibot-python-sdk": "==1.0.2",
-            "segno": ">=1.6.6",
-        },
+        "wecom": {"wecom-aibot-python-sdk": "==1.0.2"},
     }
-    for channel, requirements in expected.items():
+    for channel, requirements in expected_extras.items():
         spec = BUILTIN_CHANNEL_CATALOG[channel]
         actual = {
             Requirement(raw).name.lower(): str(Requirement(raw).specifier)
@@ -145,11 +148,8 @@ def test_channel_only_sdks_are_not_core_dependencies():
     }
     channel_only = {
         "discord-py",
-        "dingtalk-stream",
-        "alibabacloud-dingtalk",
         "lark-oapi",
         "python-socks",
-        "python-telegram-bot",
         "websockets",
         "websocket-client",
         "slack-bolt",
@@ -162,7 +162,6 @@ def test_channel_only_sdks_are_not_core_dependencies():
         "livekit-api",
         "wecom-aibot-python-sdk",
         "pycryptodome",
-        "segno",
     }
     assert core.isdisjoint(channel_only)
 
@@ -170,8 +169,17 @@ def test_channel_only_sdks_are_not_core_dependencies():
         "alibabacloud-tea-openapi",
         "alibabacloud-credentials",
         "alibabacloud-tea-util",
+        "alibabacloud-dingtalk",
+        "dingtalk-stream",
         "pillow",
+        "python-telegram-bot",
+        "segno",
     } <= core
+
+
+def test_dingtalk_and_telegram_do_not_use_optional_extras():
+    assert BUILTIN_CHANNEL_CATALOG["dingtalk"].extra is None
+    assert BUILTIN_CHANNEL_CATALOG["telegram"].extra is None
 
 
 def test_legacy_sip_extras_keep_their_original_scope():
@@ -205,12 +213,12 @@ def test_source_pyproject_skips_unrelated_parent_project(tmp_path):
 
 
 def test_missing_requirements_returns_only_unsatisfied_items():
-    spec = BUILTIN_CHANNEL_CATALOG["dingtalk"]
+    spec = BUILTIN_CHANNEL_CATALOG["feishu"]
     with patch(
         "qwenpaw.app.channels.dependencies._is_requirement_satisfied",
-        side_effect=lambda req: req.name != "dingtalk-stream",
+        side_effect=lambda req: req.name != "lark-oapi",
     ):
-        assert missing_requirements(spec) == ["dingtalk-stream>=0.24.3"]
+        assert missing_requirements(spec) == ["lark-oapi>=1.5.3"]
 
 
 def test_requirements_for_extra_caches_pyproject_reads(tmp_path):
@@ -921,7 +929,7 @@ async def test_reinstall_requires_a_load_error(tmp_path):
         patch.object(service, "_channel_load_error", return_value=None),
     ):
         with pytest.raises(ValueError, match="already ready"):
-            await service.start_install("telegram", reinstall=True)
+            await service.start_install("feishu", reinstall=True)
 
 
 async def test_reinstall_rejects_missing_dependencies(tmp_path):
@@ -929,10 +937,10 @@ async def test_reinstall_rejects_missing_dependencies(tmp_path):
         service = ChannelDependencyService()
     with patch(
         "qwenpaw.app.channels.dependencies.missing_requirements",
-        return_value=["python-telegram-bot>=20.0"],
+        return_value=["lark-oapi>=1.5.3"],
     ):
         with pytest.raises(ValueError, match="only available"):
-            await service.start_install("telegram", reinstall=True)
+            await service.start_install("feishu", reinstall=True)
 
 
 async def test_reinstall_uses_full_channel_requirements(tmp_path):
@@ -940,8 +948,8 @@ async def test_reinstall_uses_full_channel_requirements(tmp_path):
         service = ChannelDependencyService()
     created = InstallJob(
         id="reinstall-job",
-        channel="telegram",
-        requirements=["python-telegram-bot>=20.0"],
+        channel="feishu",
+        requirements=["lark-oapi>=1.5.3"],
         reinstall=True,
     )
     with (
@@ -964,7 +972,7 @@ async def test_reinstall_uses_full_channel_requirements(tmp_path):
             return_value=(created, False),
         ) as create_job,
     ):
-        result = await service.start_install("telegram", reinstall=True)
+        result = await service.start_install("feishu", reinstall=True)
 
     assert result is created
     assert create_job.call_args.args[1] == created.requirements

@@ -1,0 +1,191 @@
+name: Channel Extra Compatibility
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  pypi-matrix:
+    name: PyPI - Python ${{ matrix.python-version }} - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install all optional Channel dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test,channels-all]"
+
+      - name: Check installed dependency consistency
+        run: python -m pip check
+
+      - name: Show resolved Channel dependency versions
+        shell: bash
+        run: |
+          python - <<'PY'
+          from importlib.metadata import PackageNotFoundError, version
+
+          distributions = (
+              "audioop-lts",
+              "dashscope",
+              "dashscope-realtime",
+              "discord-py",
+              "lark-oapi",
+              "livekit",
+              "livekit-api",
+              "matrix-nio",
+              "paho-mqtt",
+              "protobuf",
+              "pycryptodome",
+              "python-socks",
+              "pyVoIP",
+              "slack-bolt",
+              "slack-sdk",
+              "twilio",
+              "websocket-client",
+              "websockets",
+              "wecom-aibot-python-sdk",
+          )
+          for distribution in distributions:
+              try:
+                  installed = version(distribution)
+              except PackageNotFoundError as error:
+                  installed = f"not installed ({error})"
+              print(f"{distribution}=={installed}")
+          PY
+
+      - name: Verify optional Channel imports
+        shell: bash
+        run: |
+          python - <<'PY'
+          from importlib import import_module
+
+          modules = (
+              "qwenpaw.app.channels.discord_",
+              "qwenpaw.app.channels.feishu",
+              "qwenpaw.app.channels.qq",
+              "qwenpaw.app.channels.mattermost",
+              "qwenpaw.app.channels.mqtt",
+              "qwenpaw.app.channels.matrix",
+              "qwenpaw.app.channels.slack",
+              "qwenpaw.app.channels.voice",
+              "qwenpaw.app.channels.sip",
+              "qwenpaw.app.channels.wecom",
+              "qwenpaw.app.channels.wechat",
+              "qwenpaw.app.channels.yuanbao",
+          )
+          for module in modules:
+              import_module(module)
+              print(f"Imported {module}")
+          PY
+
+      - name: Run optional Channel unit tests
+        shell: bash
+        run: |
+          python -m pytest -q \
+            tests/unit/channels/test_channel_dependencies.py \
+            tests/unit/channels/test_discord.py \
+            tests/unit/channels/test_feishu.py \
+            tests/unit/channels/test_qq.py \
+            tests/unit/channels/test_mattermost.py \
+            tests/unit/channels/test_mqtt.py \
+            tests/unit/channels/test_matrix.py \
+            tests/unit/channels/test_slack.py \
+            tests/unit/channels/test_voice.py \
+            tests/unit/channels/test_sip_memory_bounds.py \
+            tests/unit/channels/test_wecom.py \
+            tests/unit/channels/test_wechat.py \
+            tests/unit/channels/test_yuanbao.py
+
+  aliyun-smoke:
+    name: Aliyun - Python 3.11 - Ubuntu
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install the test environment from PyPI
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test,channels-all]"
+
+      - name: Reinstall direct Channel dependencies from Aliyun
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+          import tomllib
+
+          project = tomllib.loads(
+              Path("pyproject.toml").read_text(encoding="utf-8")
+          )["project"]
+          requirements = project["optional-dependencies"]["channels-all"]
+          subprocess.run(
+              [
+                  sys.executable,
+                  "-m",
+                  "pip",
+                  "install",
+                  "--force-reinstall",
+                  "--no-deps",
+                  "--index-url",
+                  "https://mirrors.aliyun.com/pypi/simple/",
+                  *requirements,
+              ],
+              check=True,
+          )
+          PY
+
+      - name: Check installed dependency consistency
+        run: python -m pip check
+
+      - name: Show resolved dependency versions
+        run: python -m pip freeze
+
+      - name: Verify optional Channel imports
+        shell: bash
+        run: |
+          python - <<'PY'
+          from importlib import import_module
+
+          modules = (
+              "qwenpaw.app.channels.discord_",
+              "qwenpaw.app.channels.feishu",
+              "qwenpaw.app.channels.qq",
+              "qwenpaw.app.channels.mattermost",
+              "qwenpaw.app.channels.mqtt",
+              "qwenpaw.app.channels.matrix",
+              "qwenpaw.app.channels.slack",
+              "qwenpaw.app.channels.voice",
+              "qwenpaw.app.channels.sip",
+              "qwenpaw.app.channels.wecom",
+              "qwenpaw.app.channels.wechat",
+              "qwenpaw.app.channels.yuanbao",
+          )
+          for module in modules:
+              import_module(module)
+              print(f"Imported {module}")
+          PY

@@ -28,20 +28,10 @@ BUILTIN_CHANNEL_SPECS: tuple[ChannelSpec, ...] = (
         platforms=frozenset({"darwin"}),
     ),
     ChannelSpec("discord", ".discord_", "DiscordChannel", "channel-discord"),
-    ChannelSpec(
-        "dingtalk",
-        ".dingtalk",
-        "DingTalkChannel",
-        "channel-dingtalk",
-    ),
+    ChannelSpec("dingtalk", ".dingtalk", "DingTalkChannel"),
     ChannelSpec("feishu", ".feishu", "FeishuChannel", "channel-feishu"),
     ChannelSpec("qq", ".qq", "QQChannel", "channel-qq"),
-    ChannelSpec(
-        "telegram",
-        ".telegram",
-        "TelegramChannel",
-        "channel-telegram",
-    ),
+    ChannelSpec("telegram", ".telegram", "TelegramChannel"),
     ChannelSpec(
         "mattermost",
         ".mattermost",
