@@ -176,7 +176,7 @@ async def test_user_id_field_custom(
 @pytest.mark.asyncio
 async def test_verify_user_token_success(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(
-        url="http://nb.local/api/auth:check",
+        url="http://nb.local/api/auth:check?appends=roles",
         json={"data": {"id": 7, "email": "eve@example.com"}},
         status_code=200,
     )
@@ -192,7 +192,7 @@ async def test_verify_user_token_invalid_returns_none(
     httpx_mock: HTTPXMock,
 ) -> None:
     httpx_mock.add_response(
-        url="http://nb.local/api/auth:check",
+        url="http://nb.local/api/auth:check?appends=roles",
         json={"errors": [{"code": "INVALID_TOKEN"}]},
         status_code=401,
     )
@@ -217,7 +217,7 @@ async def test_verify_user_token_uses_user_token_not_admin(
     httpx_mock: HTTPXMock,
 ) -> None:
     httpx_mock.add_response(
-        url="http://nb.local/api/auth:check",
+        url="http://nb.local/api/auth:check?appends=roles",
         json={"data": {"id": 1, "email": "a@b.com"}},
         status_code=200,
     )
@@ -225,4 +225,40 @@ async def test_verify_user_token_uses_user_token_not_admin(
     await client.verify_user_token("USER-TOK")
     req = httpx_mock.get_requests()[-1]
     assert req.headers["Authorization"] == "Bearer USER-TOK"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_verify_user_token_requests_roles_via_appends(
+    httpx_mock: HTTPXMock,
+) -> None:
+    """auth:check must request roles via appends=roles.
+
+    This lets identity resolution read roles off the caller's own
+    token on the hot path, without a separate admin-token lookup.
+    """
+    httpx_mock.add_response(
+        url="http://nb.local/api/auth:check?appends=roles",
+        json={
+            "data": {
+                "id": 9,
+                "email": "carol@example.com",
+                "roles": [{"name": "admin"}, "member"],
+            },
+        },
+        status_code=200,
+    )
+    client = NocoBaseClient(base_url="http://nb.local", api_token="ADMIN-TOK")
+
+    user = await client.verify_user_token("USER-TOK")
+
+    assert user is not None
+    req = httpx_mock.get_requests()[-1]
+    assert req.headers["Authorization"] == "Bearer USER-TOK"
+    assert req.url.params["appends"] == "roles"
+
+    roles = NocoBaseClient._extract_roles(  # pylint: disable=protected-access
+        user,
+    )
+    assert roles == ["admin", "member"]
     await client.close()

@@ -161,6 +161,9 @@ class NocoBaseClient:
 
         Uses the caller's own token (not the plugin's admin api_token), so a
         one-off client is created rather than reusing ``_get_client()``.
+        Requests the user's roles via ``appends=roles`` so identity
+        resolution can read roles straight off this response, on the hot
+        path, using only the caller's own token.
 
         Returns:
             The user dict on success; ``None`` when the token is invalid
@@ -175,8 +178,12 @@ class NocoBaseClient:
                 timeout=self.timeout,
                 follow_redirects=True,
                 trust_env=False,
+                transport=self.transport,
             ) as client:
-                response = await client.get("/api/auth:check")
+                response = await client.get(
+                    "/api/auth:check",
+                    params={"appends": "roles"},
+                )
         except httpx.HTTPError as exc:
             raise NocoBaseRequestError(
                 f"auth:check request failed: {exc}",
