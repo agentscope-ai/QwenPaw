@@ -1,5 +1,5 @@
 /**
- * Page showing synced NocoBase users and their effective channel access.
+ * Page showing live NocoBase users and their effective channel access.
  */
 
 import { nocobaseApi } from "../api";
@@ -11,7 +11,6 @@ export function UsersPage() {
 
   const [users, setUsers] = useState([] as any[]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -22,19 +21,6 @@ export function UsersPage() {
       message.error(err.message || "加载用户失败");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleSync = async () => {
-    setSyncing(true);
-    try {
-      await nocobaseApi.sync();
-      message.success("同步完成");
-      await fetchUsers();
-    } catch (err: any) {
-      message.error(err.message || "同步失败");
-    } finally {
-      setSyncing(false);
     }
   };
 
@@ -76,11 +62,6 @@ export function UsersPage() {
         Space,
         {},
         React.createElement(Button, { onClick: fetchUsers, loading }, "刷新"),
-        React.createElement(
-          Button,
-          { type: "primary", onClick: handleSync, loading: syncing },
-          "立即同步",
-        ),
       ),
     },
     loading && users.length === 0

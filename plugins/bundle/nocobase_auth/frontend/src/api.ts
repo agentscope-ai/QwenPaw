@@ -62,7 +62,6 @@ async function putJson(path: string, body: any) {
 
 export const nocobaseApi = {
   getStatus: () => getJson("/nocobase-auth/status"),
-  sync: () => postJson("/nocobase-auth/sync"),
   testConnection: () => postJson("/nocobase-auth/test-connection"),
   getUsers: () => getJson("/nocobase-auth/users"),
   getRoles: () => getJson("/nocobase-auth/roles"),
