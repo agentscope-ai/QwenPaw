@@ -2,12 +2,13 @@
 # pylint: disable=redefined-outer-name,unused-argument,protected-access
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
-from agentscope.model import GeminiChatModel
 from google.genai import errors as genai_errors
 
+import qwenpaw.providers.gemini_provider as gemini_provider_module
 from qwenpaw.providers.gemini_provider import GeminiProvider
 
 
@@ -21,18 +22,31 @@ def _make_provider() -> GeminiProvider:
     )
 
 
-async def test_summary_limit_is_adapted_and_thinking_is_restored(
+async def test_summary_limit_is_adapted_without_mutating_thinking(
     monkeypatch,
 ) -> None:
     captured: dict = {}
 
-    async def fake_call_api(self, *args, **kwargs):
-        del self, args
-        captured.update(kwargs)
-        raise RuntimeError("provider failed")
+    class FakeModels:
+        async def generate_content_stream(self, **kwargs):
+            captured.update(kwargs)
+            raise RuntimeError("provider failed")
 
-    monkeypatch.setattr(GeminiChatModel, "_call_api", fake_call_api)
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=FakeModels()),
+    )
+    monkeypatch.setattr(
+        gemini_provider_module.genai,
+        "Client",
+        lambda **kwargs: fake_client,
+    )
     model = _make_provider().get_chat_model_instance("gemini-2.5-flash")
+
+    async def fake_format(self, messages):
+        del self, messages
+        return []
+
+    monkeypatch.setattr(type(model.formatter), "format", fake_format)
     model.parameters.thinking_enable = True
 
     with pytest.raises(RuntimeError, match="provider failed"):
@@ -43,8 +57,63 @@ async def test_summary_limit_is_adapted_and_thinking_is_restored(
             disable_thinking=True,
         )
 
-    assert captured["max_output_tokens"] == 256
-    assert "max_tokens" not in captured
+    config = captured["config"]
+    assert config["max_output_tokens"] == 256
+    assert "max_tokens" not in config
+    assert config["thinking_config"] == {
+        "include_thoughts": False,
+        "thinking_budget": 0,
+    }
+    assert model.parameters.thinking_enable is True
+
+
+async def test_summary_thinking_override_is_concurrency_safe(
+    monkeypatch,
+) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    configs: list[dict] = []
+
+    class FakeModels:
+        async def generate_content_stream(self, **kwargs):
+            configs.append(kwargs["config"])
+            if len(configs) == 1:
+                started.set()
+                await release.wait()
+            return _AsyncIter([])
+
+    fake_client = SimpleNamespace(
+        aio=SimpleNamespace(models=FakeModels()),
+    )
+    monkeypatch.setattr(
+        gemini_provider_module.genai,
+        "Client",
+        lambda **kwargs: fake_client,
+    )
+    model = _make_provider().get_chat_model_instance("gemini-2.5-flash")
+
+    async def fake_format(self, messages):
+        del self, messages
+        return []
+
+    monkeypatch.setattr(type(model.formatter), "format", fake_format)
+    model.parameters.thinking_enable = True
+
+    summary_call = asyncio.create_task(
+        model._call_api(
+            "gemini-2.5-flash",
+            [],
+            disable_thinking=True,
+        ),
+    )
+    await started.wait()
+    normal_call = await model._call_api("gemini-2.5-flash", [])
+    release.set()
+    await summary_call
+
+    assert normal_call is not None
+    assert configs[0]["thinking_config"]["include_thoughts"] is False
+    assert configs[1]["thinking_config"]["include_thoughts"] is True
     assert model.parameters.thinking_enable is True
 
 

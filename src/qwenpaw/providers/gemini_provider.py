@@ -560,77 +560,73 @@ class _GeminiChatModelCompat:
                     )
                 )
                 merged = {**self._qp_extra_config_kwargs, **config_kwargs}
-                previous_thinking = self.parameters.thinking_enable
-                try:
-                    if disable_thinking:
-                        self.parameters.thinking_enable = False
-                    if self._qp_default_headers:
-                        from datetime import datetime
+                effective_thinking_enable = (
+                    False
+                    if disable_thinking
+                    else bool(self.parameters.thinking_enable)
+                )
 
-                        client = genai.Client(
-                            api_key=self.credential.api_key.get_secret_value(),
-                            http_options=genai_types.HttpOptions(
-                                headers=self._qp_default_headers,
-                            ),
-                        )
+                from datetime import datetime
 
-                        formatted = await self.formatter.format(messages)
-                        config: dict[str, Any] = {**merged}
-                        if self.parameters.max_tokens is not None:
-                            config.setdefault(
-                                "max_output_tokens",
-                                self.parameters.max_tokens,
-                            )
-                        if self.parameters.temperature is not None:
-                            config["temperature"] = self.parameters.temperature
-                        if self.parameters.top_p is not None:
-                            config["top_p"] = self.parameters.top_p
-                        if self.parameters.thinking_enable:
-                            config["thinking_config"] = {
-                                "include_thoughts": True,
-                                "thinking_budget": (
-                                    self.parameters.thinking_budget or 1024
-                                ),
-                            }
-
-                        fmt_tools, fmt_tc = self._format_tools(
-                            tools,
-                            tool_choice,
-                        )
-                        if fmt_tools is not None:
-                            config["tools"] = fmt_tools
-                        if fmt_tc is not None:
-                            config["tool_config"] = fmt_tc
-
-                        call_kwargs = {
-                            "model": model_name,
-                            "contents": formatted,
-                            "config": config,
-                        }
-                        start = datetime.now()
-                        if self.stream:
-                            stream_method = (
-                                client.aio.models.generate_content_stream
-                            )
-                            response = await stream_method(**call_kwargs)
-                            return self._parse_stream_response(
-                                start,
-                                response,
-                                client,
-                            )
-                        response = await client.aio.models.generate_content(
-                            **call_kwargs,
-                        )
-                        return self._parse_completion_response(start, response)
-
-                    return await super()._call_api(
-                        model_name,
-                        messages,
-                        tools,
-                        tool_choice,
-                        **merged,
+                if self._qp_default_headers:
+                    client = genai.Client(
+                        api_key=self.credential.api_key.get_secret_value(),
+                        http_options=genai_types.HttpOptions(
+                            headers=self._qp_default_headers,
+                        ),
                     )
-                finally:
-                    self.parameters.thinking_enable = previous_thinking
+                else:
+                    client = genai.Client(
+                        api_key=self.credential.api_key.get_secret_value(),
+                        **self.client_kwargs,
+                    )
+
+                formatted = await self.formatter.format(messages)
+                config: dict[str, Any] = {**merged}
+                if self.parameters.max_tokens is not None:
+                    config.setdefault(
+                        "max_output_tokens",
+                        self.parameters.max_tokens,
+                    )
+                if self.parameters.temperature is not None:
+                    config["temperature"] = self.parameters.temperature
+                if self.parameters.top_p is not None:
+                    config["top_p"] = self.parameters.top_p
+                config["thinking_config"] = {
+                    "include_thoughts": effective_thinking_enable,
+                    "thinking_budget": (
+                        self.parameters.thinking_budget or 1024
+                        if effective_thinking_enable
+                        else 0
+                    ),
+                }
+
+                fmt_tools, fmt_tc = self._format_tools(
+                    tools,
+                    tool_choice,
+                )
+                if fmt_tools is not None:
+                    config["tools"] = fmt_tools
+                if fmt_tc is not None:
+                    config["tool_config"] = fmt_tc
+
+                call_kwargs = {
+                    "model": model_name,
+                    "contents": formatted,
+                    "config": config,
+                }
+                start = datetime.now()
+                if self.stream:
+                    stream_method = client.aio.models.generate_content_stream
+                    response = await stream_method(**call_kwargs)
+                    return self._parse_stream_response(
+                        start,
+                        response,
+                        client,
+                    )
+                response = await client.aio.models.generate_content(
+                    **call_kwargs,
+                )
+                return self._parse_completion_response(start, response)
 
         return _Compat(**kwargs)
