@@ -4,15 +4,14 @@
 from __future__ import annotations
 
 import shutil
-import os
 import re
 import hashlib
 import json
-import tempfile
 import unicodedata
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
+from ..utils.io_utils import get_sync_path_lock, write_text_atomic
 from .models import CheckpointError
 
 ConfigValue = TypeVar("ConfigValue", int, float)
@@ -323,64 +322,47 @@ class CheckpointPolicy:
         values: dict[str, str],
     ) -> None:
         """Replace selected scalar values while preserving other sections."""
-        try:
-            text = self.config_file.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            text = DEFAULT_CONFIG
-        match = re.search(
-            rf"(?ms)^\[{re.escape(section_name)}\]\s*$.*?(?=^\[|\Z)",
-            text,
-        )
-        if match:
-            section = match.group(0)
-            missing: list[tuple[str, str]] = []
-            for key, value in values.items():
-                if re.search(rf"(?m)^{re.escape(key)}\s*=", section):
-                    section = re.sub(
-                        rf"(?m)^{re.escape(key)}\s*=.*$",
-                        f"{key} = {value}",
-                        section,
-                        count=1,
-                    )
-                else:
-                    missing.append((key, value))
-            if missing:
-                additions = "\n".join(
-                    f"{key} = {value}" for key, value in missing
-                )
-                section = section.rstrip() + f"\n{additions}\n\n"
-            text = text[: match.start()] + section + text[match.end() :]
-        else:
-            body = "\n".join(
-                f"{key} = {value}" for key, value in values.items()
+        with get_sync_path_lock(self.config_file):
+            try:
+                text = self.config_file.read_text(encoding="utf-8")
+            except FileNotFoundError:
+                text = DEFAULT_CONFIG
+            match = re.search(
+                rf"(?ms)^\[{re.escape(section_name)}\]\s*$.*?(?=^\[|\Z)",
+                text,
             )
-            text = text.rstrip() + f"\n\n[{section_name}]\n{body}\n"
-        self._atomic_write(text)
-        self.reload(force=True)
-
-    def _atomic_write(self, text: str) -> None:
-        temporary: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=self.config_file.parent,
-                prefix=".config.toml.",
-                suffix=".tmp",
-                delete=False,
-            ) as stream:
-                stream.write(text)
-                stream.flush()
-                os.fsync(stream.fileno())
-                temporary = Path(stream.name)
-            os.replace(temporary, self.config_file)
-        except OSError as exc:
-            if temporary is not None:
-                temporary.unlink(missing_ok=True)
-            raise CheckpointError(
-                "Failed to write checkpoints config "
-                f"{self.config_file}: {exc}",
-            ) from exc
+            if match:
+                section = match.group(0)
+                missing: list[tuple[str, str]] = []
+                for key, value in values.items():
+                    if re.search(rf"(?m)^{re.escape(key)}\s*=", section):
+                        section = re.sub(
+                            rf"(?m)^{re.escape(key)}\s*=.*$",
+                            f"{key} = {value}",
+                            section,
+                            count=1,
+                        )
+                    else:
+                        missing.append((key, value))
+                if missing:
+                    additions = "\n".join(
+                        f"{key} = {value}" for key, value in missing
+                    )
+                    section = section.rstrip() + f"\n{additions}\n\n"
+                text = text[: match.start()] + section + text[match.end() :]
+            else:
+                body = "\n".join(
+                    f"{key} = {value}" for key, value in values.items()
+                )
+                text = text.rstrip() + f"\n\n[{section_name}]\n{body}\n"
+            try:
+                write_text_atomic(self.config_file, text)
+            except OSError as exc:
+                raise CheckpointError(
+                    "Failed to write checkpoints config "
+                    f"{self.config_file}: {exc}",
+                ) from exc
+            self.reload(force=True)
 
 
 # Characters forbidden in Windows filenames, matching SafeJSONSession.

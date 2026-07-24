@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Checkpoint application service: snapshot, timeline, GC, and reset."""
 
-# Synchronous Git helpers run through asyncio.to_thread.
+# Synchronous Git helpers run through run_sync_io.
 # pylint: disable=too-many-arguments
 # pylint: disable=too-many-public-methods
 
@@ -13,6 +13,8 @@ import time
 import weakref
 from dataclasses import dataclass
 from pathlib import Path
+
+from ..utils.io_utils import run_sync_io
 
 from .policy import (
     DEFAULT_AUTO_DEBOUNCE_SECONDS,
@@ -111,19 +113,34 @@ class CheckpointService:
     def auto_enabled(self) -> bool:
         return self.policy.boolean("auto", "enabled", False)
 
-    def set_auto_enabled(self, enabled: bool) -> None:
-        """Toggle auto-snapshot in config.toml."""
-        self.policy.set_auto_enabled(enabled)
+    async def auto_settings(self) -> tuple[bool, float]:
+        """Return auto-snapshot settings without blocking the event loop."""
+        return await run_sync_io(
+            lambda: (self.auto_enabled, self.auto_debounce_seconds),
+        )
 
-    def gc_settings(self) -> dict[str, int]:
-        """Return the effective automatic cleanup settings."""
+    async def set_auto_enabled(self, enabled: bool) -> tuple[bool, float]:
+        """Toggle auto-snapshot and return its effective settings."""
+
+        def _set() -> tuple[bool, float]:
+            self.policy.set_auto_enabled(enabled)
+            return self.auto_enabled, self.auto_debounce_seconds
+
+        return await run_sync_io(_set)
+
+    def _gc_settings_sync(self) -> dict[str, int]:
+        """Return effective automatic cleanup settings in a worker."""
         return {
             "gc_keep_count": self.gc_keep_count,
             "gc_keep_days": self.gc_keep_days,
             "pre_restore_retention_days": self.pre_restore_retention_days,
         }
 
-    def set_gc_settings(
+    async def gc_settings(self) -> dict[str, int]:
+        """Return automatic cleanup settings off the event loop."""
+        return await run_sync_io(self._gc_settings_sync)
+
+    async def set_gc_settings(
         self,
         *,
         gc_keep_count: int,
@@ -131,12 +148,26 @@ class CheckpointService:
         pre_restore_retention_days: int,
     ) -> dict[str, int]:
         """Persist and return automatic cleanup settings."""
-        self.policy.set_gc_retention(
-            gc_keep_count=gc_keep_count,
-            gc_keep_days=gc_keep_days,
-            pre_restore_retention_days=pre_restore_retention_days,
+
+        def _set() -> dict[str, int]:
+            self.policy.set_gc_retention(
+                gc_keep_count=gc_keep_count,
+                gc_keep_days=gc_keep_days,
+                pre_restore_retention_days=pre_restore_retention_days,
+            )
+            return self._gc_settings_sync()
+
+        return await run_sync_io(_set)
+
+    async def timeline_settings(self) -> tuple[int, int, int]:
+        """Return timeline limits and preview length off the event loop."""
+        return await run_sync_io(
+            lambda: (
+                self.timeline_default_limit,
+                self.timeline_max_limit,
+                self.query_preview_chars,
+            ),
         )
-        return self.gc_settings()
 
     @property
     def auto_debounce_seconds(self) -> float:
@@ -297,7 +328,7 @@ class CheckpointService:
             raise ValueError(f"Unsupported checkpoint kind: {kind}")
         async with self.maintenance_lock:
             async with self.lock:
-                result = await asyncio.to_thread(
+                result = await run_sync_io(
                     self.create_snapshot_unlocked,
                     kind,
                     session_id,
@@ -388,7 +419,7 @@ class CheckpointService:
             self.query_gate.clear()
             try:
                 async with self.lock:
-                    await asyncio.to_thread(self._reset_unlocked)
+                    await run_sync_io(self._reset_unlocked)
             finally:
                 self.query_gate.set()
 
@@ -408,16 +439,14 @@ class CheckpointService:
         include_all: bool = False,
     ) -> list[CheckpointEntry]:
         """Return timeline entries grouped by kind, newest first per group."""
-        resolved = self.timeline_default_limit if limit is None else limit
-        resolved = max(1, min(self.timeline_max_limit, resolved))
         async with self.maintenance_lock:
             async with self.lock:
-                return await asyncio.to_thread(
+                return await run_sync_io(
                     self._timeline_sync,
                     session_id,
                     user_id,
                     channel,
-                    resolved,
+                    limit,
                     include_all,
                 )
 
@@ -430,7 +459,7 @@ class CheckpointService:
         resolved = max(1, min(1000, limit))
         async with self.maintenance_lock:
             async with self.lock:
-                return await asyncio.to_thread(
+                return await run_sync_io(
                     self._timeline_sync,
                     "",
                     "",
@@ -444,9 +473,11 @@ class CheckpointService:
         session_id: str,
         user_id: str,
         channel: str,
-        limit: int,
+        limit: int | None,
         include_all: bool,
     ) -> list[CheckpointEntry]:
+        resolved = self.timeline_default_limit if limit is None else limit
+        resolved = max(1, min(self.timeline_max_limit, resolved))
         key = session_key(
             channel=channel,
             user_id=user_id,
@@ -490,7 +521,7 @@ class CheckpointService:
             key=lambda entry: entry.timestamp_ms,
             reverse=True,
         )
-        return entries[: max(1, limit)]
+        return entries[:resolved]
 
     def _list_ref_records(self) -> list[_RefRecord]:
         """Read checkpoint refs and commit metadata in one Git process."""
@@ -572,7 +603,7 @@ class CheckpointService:
             return ()
         async with self.maintenance_lock:
             async with self.lock:
-                return await asyncio.to_thread(
+                return await run_sync_io(
                     self._delete_sessions_sync,
                     keys,
                 )
@@ -823,16 +854,9 @@ class CheckpointService:
         pre_restore_days: int | None = None,
     ) -> GcResult:
         """Delete collectible auto/pre-restore refs and run git gc."""
-        rc = self.gc_keep_count if keep_count is None else keep_count
-        rd = self.gc_keep_days if keep_days is None else keep_days
-        rp = (
-            self.pre_restore_retention_days
-            if pre_restore_days is None
-            else pre_restore_days
-        )
         async with self.maintenance_lock:
             async with self.lock:
-                return await asyncio.to_thread(
+                return await run_sync_io(
                     self._gc_sync,
                     session_id,
                     user_id,
@@ -840,9 +864,9 @@ class CheckpointService:
                     compact,
                     all_sessions,
                     dry_run,
-                    rc,
-                    rd,
-                    rp,
+                    keep_count,
+                    keep_days,
+                    pre_restore_days,
                 )
 
     def _gc_sync(
@@ -853,10 +877,19 @@ class CheckpointService:
         compact: bool,
         all_sessions: bool,
         dry_run: bool,
-        keep_count: int,
-        keep_days: int,
-        pre_restore_days: int,
+        keep_count: int | None,
+        keep_days: int | None,
+        pre_restore_days: int | None,
     ) -> GcResult:
+        resolved_count = (
+            self.gc_keep_count if keep_count is None else keep_count
+        )
+        resolved_days = self.gc_keep_days if keep_days is None else keep_days
+        resolved_pre_restore_days = (
+            self.pre_restore_retention_days
+            if pre_restore_days is None
+            else pre_restore_days
+        )
         key = session_key(
             channel=channel,
             user_id=user_id,
@@ -864,8 +897,8 @@ class CheckpointService:
         )
         records = self._list_ref_records()
         now_ms = int(time.time() * 1000)
-        keep_cutoff_ms = now_ms - keep_days * 86_400_000
-        pre_cutoff_ms = now_ms - pre_restore_days * 86_400_000
+        keep_cutoff_ms = now_ms - resolved_days * 86_400_000
+        pre_cutoff_ms = now_ms - resolved_pre_restore_days * 86_400_000
 
         head_commits = {
             ref_key: self._head_for_records(
@@ -890,7 +923,7 @@ class CheckpointService:
             and (all_sessions or ref_session_key(record.ref) == key)
         ]
         auto_records.sort(key=lambda record: record.timestamp_ms, reverse=True)
-        kept_auto = {record.ref for record in auto_records[:keep_count]}
+        kept_auto = {record.ref for record in auto_records[:resolved_count]}
         delete_refs: list[str] = []
         keep_refs: list[str] = []
         for record in auto_records:

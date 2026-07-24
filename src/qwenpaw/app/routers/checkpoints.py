@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import asdict
 import logging
 
@@ -122,10 +121,11 @@ async def checkpoint_status(request: Request) -> dict:
     service = await _service(request)
     try:
         entries = await service.graph_entries(limit=1)
+        auto_enabled, _debounce_seconds = await service.auto_settings()
     except CheckpointError as exc:
         raise _checkpoint_error(exc) from exc
     return {
-        "auto_enabled": service.auto_enabled,
+        "auto_enabled": auto_enabled,
         "has_checkpoints": bool(entries),
         "workspace_dir": str(service.workspace_dir),
     }
@@ -135,10 +135,12 @@ async def checkpoint_status(request: Request) -> dict:
 async def set_checkpoint_auto(body: AutoRequest, request: Request) -> dict:
     service = await _service(request)
     try:
-        service.set_auto_enabled(body.enabled)
+        auto_enabled, _debounce_seconds = await service.set_auto_enabled(
+            body.enabled,
+        )
     except (CheckpointError, OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"auto_enabled": service.auto_enabled}
+    return {"auto_enabled": auto_enabled}
 
 
 @router.get("/graph")
@@ -267,7 +269,7 @@ async def apply_checkpoint_gc(body: GcRequest, request: Request) -> dict:
 async def get_checkpoint_gc_settings(request: Request) -> dict:
     service = await _service(request)
     try:
-        return await asyncio.to_thread(service.gc_settings)
+        return await service.gc_settings()
     except CheckpointError as exc:
         raise _checkpoint_error(exc) from exc
 
@@ -279,8 +281,7 @@ async def update_checkpoint_gc_settings(
 ) -> dict:
     service = await _service(request)
     try:
-        return await asyncio.to_thread(
-            service.set_gc_settings,
+        return await service.set_gc_settings(
             gc_keep_count=body.gc_keep_count,
             gc_keep_days=body.gc_keep_days,
             pre_restore_retention_days=body.pre_restore_retention_days,
@@ -294,6 +295,7 @@ async def reset_checkpoints(request: Request) -> dict:
     service = await _service(request)
     try:
         await service.reset()
+        auto_enabled, _debounce_seconds = await service.auto_settings()
     except CheckpointError as exc:
         raise _checkpoint_error(exc) from exc
-    return {"reset": True, "auto_enabled": service.auto_enabled}
+    return {"reset": True, "auto_enabled": auto_enabled}

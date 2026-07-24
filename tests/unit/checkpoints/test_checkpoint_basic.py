@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from qwenpaw.checkpoints import policy as checkpoint_policy
 from qwenpaw.runtime.commands.control.checkpoint_handler import (
     CheckpointCommandHandler,
 )
@@ -155,13 +156,14 @@ def test_config_fields_are_validated_lazily(tmp_path: Path) -> None:
         _ = engine.gc_keep_count
 
 
-def test_gc_settings_are_persisted_without_overwriting_other_sections(
+@pytest.mark.asyncio
+async def test_gc_settings_are_persisted_without_overwriting_other_sections(
     tmp_path: Path,
 ) -> None:
     engine = CheckpointService(tmp_path)
-    engine.set_auto_enabled(True)
+    await engine.set_auto_enabled(True)
 
-    result = engine.set_gc_settings(
+    result = await engine.set_gc_settings(
         gc_keep_count=42,
         gc_keep_days=9,
         pre_restore_retention_days=5,
@@ -178,6 +180,54 @@ def test_gc_settings_are_persisted_without_overwriting_other_sections(
     assert "gc_keep_days = 9" in config
     assert "pre_restore_retention_days = 5" in config
     assert "enabled = true" in config
+
+
+@pytest.mark.asyncio
+async def test_concurrent_config_updates_preserve_both_sections(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    first_write_started = threading.Event()
+    release_first_write = threading.Event()
+    original_write = checkpoint_policy.write_text_atomic
+    call_count = 0
+    count_lock = threading.Lock()
+
+    def delayed_first_write(path, content, **kwargs) -> None:
+        nonlocal call_count
+        with count_lock:
+            call_count += 1
+            is_first = call_count == 1
+        if is_first:
+            first_write_started.set()
+            assert release_first_write.wait(timeout=5)
+        original_write(path, content, **kwargs)
+
+    monkeypatch.setattr(
+        checkpoint_policy,
+        "write_text_atomic",
+        delayed_first_write,
+    )
+    auto_task = asyncio.create_task(engine.set_auto_enabled(True))
+    assert await asyncio.to_thread(first_write_started.wait, 5)
+    gc_task = asyncio.create_task(
+        engine.set_gc_settings(
+            gc_keep_count=33,
+            gc_keep_days=11,
+            pre_restore_retention_days=4,
+        ),
+    )
+    await asyncio.sleep(0.05)
+    release_first_write.set()
+    await asyncio.gather(auto_task, gc_task)
+
+    assert await engine.auto_settings() == (True, 1.5)
+    assert await engine.gc_settings() == {
+        "gc_keep_count": 33,
+        "gc_keep_days": 11,
+        "pre_restore_retention_days": 4,
+    }
 
 
 @pytest.mark.asyncio

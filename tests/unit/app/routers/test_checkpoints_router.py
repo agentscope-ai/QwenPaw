@@ -66,6 +66,15 @@ class FakeService:
         self.calls.append(("graph", {"limit": limit}))
         return [_entry()]
 
+    async def auto_settings(self):
+        self.calls.append(("auto_settings", {}))
+        return self.auto_enabled, 1.5
+
+    async def set_auto_enabled(self, enabled: bool):
+        self.calls.append(("set_auto_enabled", {"enabled": enabled}))
+        self.auto_enabled = enabled
+        return self.auto_enabled, 1.5
+
     async def restore_with_files(self, **kwargs):
         self.calls.append(("restore_with_files", kwargs))
         return RestoreResult(
@@ -88,7 +97,7 @@ class FakeService:
             dry_run=kwargs["dry_run"],
         )
 
-    def gc_settings(self):
+    async def gc_settings(self):
         self.calls.append(("gc_settings", {}))
         return {
             "gc_keep_count": self.gc_keep_count,
@@ -96,7 +105,7 @@ class FakeService:
             "pre_restore_retention_days": self.pre_restore_retention_days,
         }
 
-    def set_gc_settings(self, **kwargs):
+    async def set_gc_settings(self, **kwargs):
         self.calls.append(("set_gc_settings", kwargs))
         return kwargs
 

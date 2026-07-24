@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import shutil
 import stat
@@ -12,6 +11,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from ..utils.io_utils import read_json, write_json_atomic, write_text_atomic
 from .policy import (
     DEFAULT_CONFIG,
     EXCLUDE_PATTERNS,
@@ -184,8 +184,8 @@ class CheckpointRepository:
         if not self.heads_file.exists():
             return {}
         try:
-            data = json.loads(self.heads_file.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
+            data = read_json(self.heads_file)
+        except (OSError, UnicodeError, ValueError):
             return {}
         if not isinstance(data, dict):
             return {}
@@ -244,12 +244,13 @@ class CheckpointRepository:
         digest = getattr(self, "_pending_index_policy", None)
         if not digest:
             return
-        temp = self.index_policy_file.with_suffix(".policy.tmp")
         try:
-            temp.write_text(digest + "\n", encoding="ascii")
-            os.replace(temp, self.index_policy_file)
+            write_text_atomic(
+                self.index_policy_file,
+                digest + "\n",
+                encoding="ascii",
+            )
         except OSError as exc:
-            temp.unlink(missing_ok=True)
             raise CheckpointError(
                 f"Failed to persist checkpoint index policy: {exc}",
             ) from exc
@@ -282,31 +283,9 @@ class CheckpointRepository:
         func(path)
 
     def _atomic_write_json(self, path: Path, payload: dict) -> None:
-        temp_path: Path | None = None
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=path.parent,
-                prefix=f".{path.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as temp_file:
-                json.dump(
-                    payload,
-                    temp_file,
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
-                )
-                temp_file.write("\n")
-                temp_file.flush()
-                os.fsync(temp_file.fileno())
-                temp_path = Path(temp_file.name)
-            os.replace(temp_path, path)
+            write_json_atomic(path, payload, indent=2, sort_keys=True)
         except OSError as exc:
-            if temp_path is not None:
-                temp_path.unlink(missing_ok=True)
             raise CheckpointError(
                 f"Failed to write checkpoint state {path.name}: {exc}",
             ) from exc

@@ -199,16 +199,16 @@ class CheckpointCommandHandler(BaseControlCommandHandler):
         engine = await RUNTIME.get_for_workspace_async(context.workspace)
         arg = raw.strip().lower()
         if arg in ("on", "true", "enable", "1"):
-            engine.set_auto_enabled(True)
+            _enabled, debounce_seconds = await engine.set_auto_enabled(True)
             return (
                 "**Auto checkpoint enabled**\n\n"
                 "A checkpoint will be created after each completed, "
                 "non-command "
-                f"response (debounce: {engine.auto_debounce_seconds}s).\n\n"
+                f"response (debounce: {debounce_seconds}s).\n\n"
                 "Disable: `/checkpoint auto off`"
             )
         if arg in ("off", "false", "disable", "0"):
-            engine.set_auto_enabled(False)
+            await engine.set_auto_enabled(False)
             return (
                 "**Auto checkpoint disabled**\n\n"
                 "Use `/checkpoint snapshot [name]` to save checkpoints "
@@ -218,7 +218,8 @@ class CheckpointCommandHandler(BaseControlCommandHandler):
             raise CheckpointError(
                 "Usage: `/checkpoint auto [on|off]`",
             )
-        status = "enabled" if engine.auto_enabled else "disabled"
+        auto_enabled, _debounce_seconds = await engine.auto_settings()
+        status = "enabled" if auto_enabled else "disabled"
         return (
             f"**Auto checkpoint: {status}**\n\n"
             f"- Enable: `/checkpoint auto on`\n"
@@ -233,6 +234,11 @@ class CheckpointCommandHandler(BaseControlCommandHandler):
             allowed_prefixes=("--limit=",),
         )
         engine = await RUNTIME.get_for_workspace_async(context.workspace)
+        (
+            timeline_default_limit,
+            timeline_max_limit,
+            query_preview_chars,
+        ) = await engine.timeline_settings()
         include_all = "--all" in _parse_flags(raw)
         entries = await engine.timeline(
             session_id=context.session_id,
@@ -240,14 +246,14 @@ class CheckpointCommandHandler(BaseControlCommandHandler):
             channel=context_channel(context),
             limit=_parse_limit(
                 raw,
-                default=engine.timeline_default_limit,
-                maximum=engine.timeline_max_limit,
+                default=timeline_default_limit,
+                maximum=timeline_max_limit,
             ),
             include_all=include_all,
         )
         return render_timeline(
             entries,
-            query_preview_chars=engine.query_preview_chars,
+            query_preview_chars=query_preview_chars,
             include_all=include_all,
         )
 

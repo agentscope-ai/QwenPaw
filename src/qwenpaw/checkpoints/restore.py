@@ -10,7 +10,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
+
+from ..utils.io_utils import run_sync_io
 
 from .policy import is_qwenpaw_state_path
 from .policy import session_file_path, session_key
@@ -26,8 +28,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("qwenpaw.checkpoints")
 
-_T = TypeVar("_T")
-
 
 @dataclass(frozen=True)
 class _PreparedRestore:
@@ -36,26 +36,6 @@ class _PreparedRestore:
     plan: RestorePlan
     conversation_blob: bytes
     touched: frozenset[str]
-
-
-async def _wait_for_task_completion(
-    task: asyncio.Task[_T],
-) -> tuple[_T, asyncio.CancelledError | None]:
-    """Wait for a shielded task to finish before propagating cancellation."""
-    cancelled: asyncio.CancelledError | None = None
-    while True:
-        try:
-            result = await asyncio.shield(task)
-            return result, cancelled
-        except Exception as exc:
-            if cancelled is not None:
-                raise cancelled from exc
-            raise
-        except asyncio.CancelledError as exc:
-            if cancelled is None:
-                cancelled = exc
-            if task.done():
-                return task.result(), cancelled
 
 
 def _changed_paths(
@@ -197,39 +177,32 @@ class RestoreService:
             user_id=user_id,
             session_id=session_id,
         )
-        memory = self._memory_restorer() if include_memory else None
+        memory = (
+            await run_sync_io(self._memory_restorer)
+            if include_memory
+            else None
+        )
         prepared: _PreparedRestore | None = None
         pre_ref: str | None = None
-        pending_cancel: asyncio.CancelledError | None = None
         resume_callbacks: list[Callable[[], None]] = []
         async with service.maintenance_lock:
             if not dry_run:
                 service.query_gate.clear()
             try:
                 async with service.lock:
-                    prepare_task = asyncio.create_task(
-                        asyncio.to_thread(
-                            self._prepare_restore,
-                            target=target,
-                            session_id=session_id,
-                            user_id=user_id,
-                            channel=channel,
-                            session_key_str=skey,
-                            conversation_path=conv_rel,
-                            include_memory=include_memory,
-                            include_files=include_files,
-                            selected_files=selected_files,
-                            memory=memory,
-                        ),
-                        name="checkpoint-restore-prepare",
+                    prepared = await run_sync_io(
+                        self._prepare_restore,
+                        target=target,
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                        session_key_str=skey,
+                        conversation_path=conv_rel,
+                        include_memory=include_memory,
+                        include_files=include_files,
+                        selected_files=selected_files,
+                        memory=memory,
                     )
-                    prepared, pending_cancel = await _wait_for_task_completion(
-                        prepare_task,
-                    )
-                    assert prepared is not None
-
-                    if pending_cancel is not None:
-                        raise pending_cancel
 
                     if dry_run:
                         return self._result_from_plan(
@@ -247,23 +220,17 @@ class RestoreService:
                     if memory is not None:
                         resume_callbacks = await memory.quiesce_workspace()
 
-                    transaction_task = asyncio.create_task(
-                        asyncio.to_thread(
-                            self._apply_restore_transaction_sync,
-                            prepared,
-                            session_id=session_id,
-                            user_id=user_id,
-                            channel=channel,
-                            session_key_str=skey,
-                            conversation_path=conv_rel,
-                            include_files=include_files,
-                            description=description,
-                            memory=memory,
-                        ),
-                        name="checkpoint-restore-transaction",
-                    )
-                    pre_ref, pending_cancel = await _wait_for_task_completion(
-                        transaction_task,
+                    pre_ref = await run_sync_io(
+                        self._apply_restore_transaction_sync,
+                        prepared,
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                        session_key_str=skey,
+                        conversation_path=conv_rel,
+                        include_files=include_files,
+                        description=description,
+                        memory=memory,
                     )
             finally:
                 if memory is not None:
@@ -271,8 +238,6 @@ class RestoreService:
                 if not dry_run:
                     service.query_gate.set()
 
-        if pending_cancel is not None:
-            raise pending_cancel
         assert prepared is not None
         return self._result_from_plan(
             prepared.plan,
@@ -595,18 +560,11 @@ class MemoryRestorer:
     async def apply(self, commit: str) -> tuple[list[str], list[str]]:
         """Restore memory without releasing quiesce state on cancellation."""
         resume_callbacks = await self.quiesce_workspace()
-        task = asyncio.create_task(
-            asyncio.to_thread(self.restore_sync, commit),
-            name="checkpoint-memory-restore",
-        )
         self.mutation_started = True
         try:
-            result, cancelled = await _wait_for_task_completion(task)
+            return await run_sync_io(self.restore_sync, commit)
         finally:
             self.resume_workspace(resume_callbacks)
-        if cancelled is not None:
-            raise cancelled
-        return result
 
     def restore_sync(self, commit: str) -> tuple[list[str], list[str]]:
         target_paths = self._checkpoint_paths(commit)

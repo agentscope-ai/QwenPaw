@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Coroutine
 
+from ..utils.io_utils import run_sync_io
 from .policy import CheckpointPolicy, DEFAULT_AUTO_DEBOUNCE_SECONDS
 from .repository import CheckpointRepository
 from .service import CheckpointService
@@ -114,7 +115,7 @@ class CheckpointRuntime:
         workspace_dir: str | Path,
     ) -> CheckpointService:
         """Initialize one workspace service in a worker, single-flight."""
-        key = str(Path(workspace_dir).expanduser().resolve())
+        key = await run_sync_io(self._workspace_key, workspace_dir)
         with self._lock:
             service = self._services.get(key)
             if service is not None:
@@ -136,7 +137,7 @@ class CheckpointRuntime:
         return await asyncio.shield(task)
 
     async def _initialize_service(self, key: str) -> CheckpointService:
-        repository, policy = await asyncio.to_thread(
+        repository, policy = await run_sync_io(
             self._initialize_storage,
             key,
         )
@@ -153,6 +154,10 @@ class CheckpointRuntime:
     ) -> tuple[CheckpointRepository, CheckpointPolicy]:
         repository = CheckpointRepository(key)
         return repository, CheckpointPolicy(repository.config_file)
+
+    @staticmethod
+    def _workspace_key(workspace_dir: str | Path) -> str:
+        return str(Path(workspace_dir).expanduser().resolve())
 
     def _finish_initialization(
         self,
@@ -200,7 +205,8 @@ class CheckpointRuntime:
         if not session_id:
             return
         service = await self.get_for_workspace_async(workspace)
-        if not service.auto_enabled:
+        auto_enabled, debounce_seconds = await service.auto_settings()
+        if not auto_enabled:
             return
         key = session_key(
             channel=channel,
@@ -216,7 +222,7 @@ class CheckpointRuntime:
             try:
                 # The setting may have been disabled while this debounced task
                 # was waiting to run.
-                if not service.auto_enabled:
+                if not (await service.auto_settings())[0]:
                     return
                 with self._lock:
                     if (
@@ -249,7 +255,7 @@ class CheckpointRuntime:
         self.debouncer.schedule(
             debounce_key,
             _snapshot,
-            delay=service.auto_debounce_seconds,
+            delay=debounce_seconds,
         )
 
     async def flush_and_close_all(self) -> None:
@@ -270,12 +276,31 @@ class CheckpointRuntime:
         sessions: list[tuple[str, str, str]],
     ) -> tuple[str, ...]:
         """Quiesce auto snapshots, then remove session checkpoint state."""
-        workspace_dir = Path(workspace.workspace_dir).expanduser().resolve()
-        workspace_key = str(workspace_dir)
         with self._lock:
-            service = self._services.get(workspace_key)
+            cached = next(
+                (
+                    (key, candidate)
+                    for key, candidate in self._services.items()
+                    if candidate.workspace is workspace
+                ),
+                None,
+            )
+        if cached is not None:
+            workspace_key, service = cached
+            workspace_dir = service.workspace_dir
+        else:
+            workspace_key = await run_sync_io(
+                self._workspace_key,
+                workspace.workspace_dir,
+            )
+            workspace_dir = Path(workspace_key)
+            with self._lock:
+                service = self._services.get(workspace_key)
         if service is None:
-            if not (workspace_dir / "checkpoints" / "shadow.git").is_dir():
+            storage_exists = await run_sync_io(
+                (workspace_dir / "checkpoints" / "shadow.git").is_dir,
+            )
+            if not storage_exists:
                 return ()
             service = await self.get_for_workspace_dir_async(workspace_dir)
         service.workspace = workspace
