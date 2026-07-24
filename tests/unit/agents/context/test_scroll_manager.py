@@ -1130,10 +1130,13 @@ async def test_summary_timeout_preserves_valid_previous_without_retry(
     context = [*agent.state.context, finished, next_request]
     agent.state.context = context
     agent._split_return = (context[:-1], [next_request])
+    # The end-to-end timeout also covers SQLite offloads and prompt fitting.
+    # Leave enough headroom for those stages on slower Windows CI runners so
+    # this test deterministically reaches the intentionally hanging model.
     monkeypatch.setattr(
         scroll_manager_module,
         "_SUMMARY_UPDATE_TIMEOUT_SECONDS",
-        0.01,
+        1.0,
     )
 
     await mgr.compress(agent)
