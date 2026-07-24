@@ -119,3 +119,45 @@ def test_base_url_accepts_valid_targets(url: str) -> None:
 def test_base_url_rejects_unsafe_targets(url: str) -> None:
     with pytest.raises(ValueError):
         NocoBaseAuthConfig(base_url=url)
+
+
+def test_seed_from_env_writes_when_missing(tmp_path, monkeypatch):
+    target = tmp_path / "nocobase_auth_config.json"
+    monkeypatch.setenv("QWENPAW_NOCOBASE_ENABLED", "true")
+    monkeypatch.setenv("QWENPAW_NOCOBASE_BASE_URL", "http://nb.local")
+    monkeypatch.setenv("QWENPAW_NOCOBASE_API_TOKEN", "admin-tok")
+    monkeypatch.setenv("QWENPAW_NOCOBASE_USER_ID_FIELD", "email")
+
+    assert NocoBaseAuthConfig.seed_from_env(path=target) is True
+    assert target.exists()
+    cfg = NocoBaseAuthConfig.load(path=target)
+    assert cfg.enabled is True
+    assert cfg.base_url == "http://nb.local"
+    assert cfg.api_token == "admin-tok"  # decrypted on load
+
+
+def test_seed_from_env_does_not_overwrite_existing(tmp_path, monkeypatch):
+    target = tmp_path / "nocobase_auth_config.json"
+    NocoBaseAuthConfig(
+        enabled=True, base_url="http://existing", api_token="keep"
+    ).save(path=target)
+
+    monkeypatch.setenv("QWENPAW_NOCOBASE_BASE_URL", "http://override")
+    assert NocoBaseAuthConfig.seed_from_env(path=target) is False
+
+    cfg = NocoBaseAuthConfig.load(path=target)
+    assert cfg.base_url == "http://existing"
+
+
+def test_seed_from_env_noop_when_no_vars(tmp_path, monkeypatch):
+    target = tmp_path / "nocobase_auth_config.json"
+    for var in (
+        "QWENPAW_NOCOBASE_ENABLED",
+        "QWENPAW_NOCOBASE_BASE_URL",
+        "QWENPAW_NOCOBASE_API_TOKEN",
+        "QWENPAW_NOCOBASE_USER_ID_FIELD",
+        "QWENPAW_NOCOBASE_AUTHENTICATOR",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    assert NocoBaseAuthConfig.seed_from_env(path=target) is False
+    assert not target.exists()

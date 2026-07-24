@@ -158,3 +158,34 @@ class NocoBaseAuthConfig(BaseModel):
                 pass
         except Exception:
             logger.exception("Failed to save config to %s", target)
+
+    @classmethod
+    def seed_from_env(cls, path: Optional[Path] = None) -> bool:
+        """First-run bootstrap: write config from ``QWENPAW_NOCOBASE_*``.
+
+        No-op when the config file already exists (admin edits win) or when
+        no relevant env vars are set. Returns True when a file was written.
+        """
+        target = path or WORKING_DIR / CONFIG_FILE
+        if target.exists():
+            return False
+
+        base_url = os.getenv("QWENPAW_NOCOBASE_BASE_URL", "").strip()
+        api_token = os.getenv("QWENPAW_NOCOBASE_API_TOKEN", "").strip()
+        enabled_raw = os.getenv("QWENPAW_NOCOBASE_ENABLED", "").strip().lower()
+        user_id_field = os.getenv("QWENPAW_NOCOBASE_USER_ID_FIELD", "").strip()
+        authenticator = os.getenv("QWENPAW_NOCOBASE_AUTHENTICATOR", "").strip()
+
+        if not any([base_url, api_token, enabled_raw]):
+            return False
+
+        cfg = cls(
+            enabled=enabled_raw in ("true", "1", "yes"),
+            base_url=base_url,
+            api_token=api_token,
+            user_id_field=user_id_field or "email",
+            authenticator=authenticator or "basic",
+        )
+        cfg.save(path=target)
+        logger.info("Seeded NocoBase auth config from environment")
+        return True
