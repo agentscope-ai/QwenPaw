@@ -218,6 +218,15 @@ def strip_headline_delta(
     return "".join(visible), state
 
 
+def flush_headline_delta(state: HeadlineDeltaState) -> str:
+    """Finalize one stream, releasing only an unconfirmed marker prefix."""
+    visible = "" if state.suppressing else state.pending
+    state.pending = ""
+    state.suppressing = False
+    state.legacy_comment = False
+    return visible
+
+
 def _possible_legacy_start_prefix(value: str) -> bool:
     marker = "<!--"
     if len(value) < len(marker):

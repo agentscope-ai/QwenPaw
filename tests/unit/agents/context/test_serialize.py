@@ -7,6 +7,7 @@ from qwenpaw.agents.context.scroll.prompt import build_scroll_system_prompt
 from qwenpaw.agents.context.scroll.serialize import (
     HeadlineDeltaState,
     extract_headline,
+    flush_headline_delta,
     strip_headline,
     strip_headline_delta,
 )
@@ -174,4 +175,32 @@ def test_strip_headline_delta_releases_non_protocol_prefix() -> None:
     second, state = strip_headline_delta("important", state=state)
 
     assert first + second == "answer\n<!important"
+    assert state == HeadlineDeltaState()
+
+
+@pytest.mark.parametrize("suffix", ("<", "<!", "<!--"))
+def test_flush_headline_delta_releases_unconfirmed_prefix(
+    suffix: str,
+) -> None:
+    state = HeadlineDeltaState()
+    visible, state = strip_headline_delta(
+        "ordinary comparison ends in " + suffix,
+        state=state,
+    )
+
+    assert visible == "ordinary comparison ends in "
+    assert flush_headline_delta(state) == suffix
+    assert state == HeadlineDeltaState()
+
+
+def test_flush_headline_delta_discards_confirmed_headline() -> None:
+    state = HeadlineDeltaState()
+    visible, state = strip_headline_delta(
+        "answer\n<!-- ⟦ unfinished headline",
+        state=state,
+    )
+
+    assert visible == "answer\n"
+    assert state.suppressing is True
+    assert flush_headline_delta(state) == ""
     assert state == HeadlineDeltaState()

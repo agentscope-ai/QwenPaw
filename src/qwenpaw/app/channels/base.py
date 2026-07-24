@@ -923,15 +923,31 @@ class BaseChannel(ABC):
         try:
             process_iterator = self._process(request)
             async for event in process_iterator:
+                obj = getattr(event, "object", None)
+                status = getattr(event, "status", None)
+                if obj == "message" and status == RunStatus.Completed:
+                    msg_id = str(
+                        getattr(event, "msg_id", "")
+                        or getattr(event, "id", "")
+                        or "",
+                    )
+                    for pending_data in self._flush_headline_stream_states(
+                        headline_stream_states,
+                        msg_id=msg_id,
+                    ):
+                        yield f"data: {pending_data}\n\n"
+                elif obj == "response" and status == RunStatus.Completed:
+                    for pending_data in self._flush_headline_stream_states(
+                        headline_stream_states,
+                    ):
+                        yield f"data: {pending_data}\n\n"
+
                 data = self._serialize_event_for_sse(
                     event,
                     headline_stream_states,
                 )
 
                 yield f"data: {data}\n\n"
-
-                obj = getattr(event, "object", None)
-                status = getattr(event, "status", None)
 
                 # --- streaming path ---
                 handled_by_streaming = False
@@ -967,6 +983,11 @@ class BaseChannel(ABC):
                 elif obj == "response":
                     last_response = event
                     await self.on_event_response(request, event)
+
+            for pending_data in self._flush_headline_stream_states(
+                headline_stream_states,
+            ):
+                yield f"data: {pending_data}\n\n"
 
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
@@ -1175,6 +1196,46 @@ class BaseChannel(ABC):
                     },
                     ensure_ascii=True,
                 )
+
+    @staticmethod
+    def _flush_headline_stream_states(
+        headline_stream_states: dict[str, Any],
+        *,
+        msg_id: str | None = None,
+    ) -> list[str]:
+        """Finalize buffered marker prefixes as ordinary content deltas."""
+        from qwenpaw.agents.context.scroll.serialize import (
+            flush_headline_delta,
+        )
+
+        flushed: list[str] = []
+        for stream_key, state in list(headline_stream_states.items()):
+            stream_msg_id, separator, raw_index = stream_key.rpartition(":")
+            if not separator:
+                stream_msg_id, raw_index = stream_key, "0"
+            if msg_id is not None and stream_msg_id != msg_id:
+                continue
+            headline_stream_states.pop(stream_key, None)
+            text = flush_headline_delta(state)
+            if not text:
+                continue
+            try:
+                index = int(raw_index)
+            except ValueError:
+                index = 0
+            flushed.append(
+                json.dumps(
+                    {
+                        "object": "content",
+                        "delta": True,
+                        "msg_id": stream_msg_id,
+                        "index": index,
+                        "text": text,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        return flushed
 
     @classmethod
     def from_env(

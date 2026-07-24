@@ -204,6 +204,49 @@ class TestConsoleChannelUnit:
         assert "".join(visible) == "answer\n"
         assert not stream_states
 
+    @pytest.mark.parametrize("suffix", ("<", "<!", "<!--"))
+    def test_sse_serializer_flushes_unconfirmed_marker_prefix(
+        self,
+        channel,
+        suffix,
+    ):
+        stream_states = {}
+        event = _FakeDumpEvent(
+            {
+                "object": "content",
+                "delta": True,
+                "msg_id": "message-1",
+                "index": 0,
+                "text": "ordinary comparison ends in " + suffix,
+            },
+        )
+
+        data = channel._serialize_event_for_sse(event, stream_states)
+        flushed = channel._flush_headline_stream_states(stream_states)
+
+        assert json.loads(data)["text"] == "ordinary comparison ends in "
+        assert [json.loads(item)["text"] for item in flushed] == [suffix]
+        assert not stream_states
+
+    def test_sse_serializer_discards_confirmed_headline_at_end(self, channel):
+        stream_states = {}
+        event = _FakeDumpEvent(
+            {
+                "object": "content",
+                "delta": True,
+                "msg_id": "message-1",
+                "index": 0,
+                "text": "answer\n<!-- ⟦ unfinished headline",
+            },
+        )
+
+        data = channel._serialize_event_for_sse(event, stream_states)
+        flushed = channel._flush_headline_stream_states(stream_states)
+
+        assert json.loads(data)["text"] == "answer\n"
+        assert flushed == []
+        assert not stream_states
+
     @pytest.mark.asyncio
     async def test_send_prints_to_stdout(self, channel, capsys):
         """send() should print message to stdout when enabled."""
@@ -607,6 +650,73 @@ class TestConsoleStreaming:
 
         assert len(events) == 1
         assert "data:" in events[0]
+
+    @pytest.mark.parametrize("suffix", ("<", "<!", "<!--"))
+    async def test_stream_one_flushes_pending_prefix_before_completion(
+        self,
+        stream_channel,
+        suffix,
+    ):
+        from qwenpaw.schemas import (
+            ContentType,
+            Event,
+            Message,
+            MessageType,
+            Role,
+            RunStatus,
+            TextContent,
+        )
+
+        delta = _FakeDumpEvent(
+            {
+                "object": "content",
+                "delta": True,
+                "msg_id": "message-1",
+                "index": 0,
+                "text": "ordinary comparison ends in " + suffix,
+            },
+        )
+        completed = Event(
+            object="message",
+            status=RunStatus.Completed,
+            type="message.completed",
+            id="message-1",
+            created_at=1234567890,
+            message=Message(
+                type=MessageType.MESSAGE,
+                role=Role.ASSISTANT,
+                content=[
+                    TextContent(
+                        type=ContentType.TEXT,
+                        text="ordinary comparison ends in " + suffix,
+                    ),
+                ],
+            ),
+        )
+
+        async def mock_process(request):
+            del request
+            yield delta
+            yield completed
+
+        stream_channel._process = mock_process
+        payload = {
+            "sender_id": "user123",
+            "content_parts": [
+                TextContent(type=ContentType.TEXT, text="Hello"),
+            ],
+            "meta": {},
+        }
+
+        events = [event async for event in stream_channel.stream_one(payload)]
+        payloads = [
+            json.loads(event.removeprefix("data: ").strip())
+            for event in events
+        ]
+
+        assert payloads[0]["text"] == "ordinary comparison ends in "
+        assert payloads[1]["text"] == suffix
+        assert payloads[2]["object"] == "message"
 
     async def test_stream_one_handles_dict_payload(self, stream_channel):
         """stream_one should handle dict payload with debounce."""
