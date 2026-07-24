@@ -1025,11 +1025,14 @@ class AgentBuilder:
         """Build middleware list.
 
         Order (onion model, outermost first):
-        1. ToolResultPruningMiddleware — tiered tool result pruning
-        2. ToolCoordinatorMiddleware — tool call lifecycle management
-        3. Plugin-registered middlewares (sorted by priority)
+        1. ToolCallInputRepairMiddleware — validate/repair before execution
+        2. ToolResultPruningMiddleware — tiered tool result pruning
+        3. ToolCoordinatorMiddleware — tool call lifecycle management
+        4. Plugin-registered middlewares (sorted by priority)
         """
-        mws: list[Any] = []
+        from ..agents.middlewares import ToolCallInputRepairMiddleware
+
+        mws: list[Any] = [ToolCallInputRepairMiddleware()]
 
         pruning_middleware = None
         try:
