@@ -36,9 +36,11 @@ from ...utils.io_utils import (
     write_json_atomic_async,
 )
 from ..base import HarnessAdapter
+from ..capabilities import HarnessRuntimeCapabilities
 from ..events import (
     HarnessAttachment,
     HarnessAttachmentKind,
+    HarnessDiscoveredSkill,
     HarnessEvent,
     HarnessHistoryItem,
     HarnessModel,
@@ -49,6 +51,10 @@ from .discovery import (
     resolve_qoder_binary_info,
 )
 from .event_mapper import QoderEventMapper, history_items
+from .projection import (
+    materialize_skill_plugin,
+    mcp_servers,
+)
 
 _AUTH_ENV = "QODER_PERSONAL_ACCESS_TOKEN"
 _CONNECT_TIMEOUT_SECONDS = 30
@@ -205,6 +211,47 @@ class QoderAdapter(HarnessAdapter):
         for message in messages:
             history.extend(history_items(message))
         return history
+
+    async def discover_skills(
+        self,
+        cwd: Path,
+    ) -> list[HarnessDiscoveredSkill]:
+        """Discover Qoder-owned Skills through the SDK handshake."""
+        client = self._new_client(
+            QoderAgentOptions(
+                auth=self._auth(),
+                cli_path=self._require_resolution().path,
+                cwd=cwd,
+                setting_sources=["user", "project", "local"],
+                skills="all",
+            ),
+        )
+        try:
+            async with asyncio.timeout(_CONNECT_TIMEOUT_SECONDS):
+                await client.connect()
+                info = await client.get_server_info()
+        finally:
+            await client.disconnect()
+        discovered: list[HarnessDiscoveredSkill] = []
+        seen: set[tuple[str, str]] = set()
+        for item in (info or {}).get("skills", []):
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "")
+            source = str(item.get("source") or "")
+            key = (name, source)
+            if not name or name.startswith("qwenpaw-runtime:") or key in seen:
+                continue
+            seen.add(key)
+            discovered.append(
+                HarnessDiscoveredSkill(
+                    name=name,
+                    description=str(item.get("description") or ""),
+                    provider_id="qoder",
+                    source=source,
+                ),
+            )
+        return discovered
 
     async def run_turn(  # pylint: disable=invalid-overridden-method
         self,
@@ -409,6 +456,14 @@ class QoderAdapter(HarnessAdapter):
     ) -> QoderAgentOptions:
         permission_mode = str(settings.get("permission_mode") or "default")
         effort = settings.get("reasoning_effort")
+        capabilities = settings.get("_runtime_capabilities")
+        if not isinstance(capabilities, HarnessRuntimeCapabilities):
+            capabilities = HarnessRuntimeCapabilities()
+        plugin_path = materialize_skill_plugin(
+            self._state_dir,
+            capabilities,
+        )
+        projected_mcp = mcp_servers(capabilities)
         extra_args = {}
         if effort in {"low", "medium", "high", "max"}:
             extra_args["reasoning-effort"] = effort
@@ -432,6 +487,16 @@ class QoderAdapter(HarnessAdapter):
                     context,
                 )
             ),
+            mcp_servers=projected_mcp,
+            allowed_mcp_server_names=sorted(projected_mcp),
+            strict_mcp_config=True,
+            setting_sources=["user", "project", "local"],
+            plugins=(
+                [{"type": "local", "path": str(plugin_path)}]
+                if plugin_path is not None
+                else []
+            ),
+            skills="all",
         )
 
     async def _approve_tool(
@@ -535,6 +600,7 @@ class QoderAdapter(HarnessAdapter):
             str(settings.get("model") or ""),
             str(settings.get("reasoning_effort") or ""),
             str(settings.get("permission_mode") or "default"),
+            _runtime_capability_fingerprint(settings),
         )
 
     def _load_sessions(self) -> dict[str, str]:
@@ -564,3 +630,12 @@ class QoderAdapter(HarnessAdapter):
 
 
 __all__ = ["QoderAdapter"]
+
+
+def _runtime_capability_fingerprint(
+    settings: dict[str, Any],
+) -> str:
+    capabilities = settings.get("_runtime_capabilities")
+    if isinstance(capabilities, HarnessRuntimeCapabilities):
+        return capabilities.fingerprint
+    return ""

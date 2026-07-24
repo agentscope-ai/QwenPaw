@@ -47,6 +47,11 @@ export interface HarnessCapabilities {
   attachments: boolean;
   context_usage: boolean;
   skills_commands: boolean;
+  qwenpaw_skills_projection: boolean;
+  qwenpaw_mcp_projection: boolean;
+  provider_skills_discovery: boolean;
+  provider_mcp_discovery: boolean;
+  mcp_tool_allowlist: boolean;
   commands: HarnessCommand[];
   approval_presets: HarnessApprovalPreset[];
 }
@@ -58,6 +63,26 @@ export interface HarnessModel {
   is_default: boolean;
   reasoning_efforts: string[];
   default_reasoning_effort: string | null;
+}
+
+export interface HarnessDiscoveredMCPServer {
+  name: string;
+  provider_id: string;
+  transport: string;
+  enabled: boolean;
+  auth_status: string;
+  read_only: boolean;
+  scope: "provider";
+}
+
+export interface HarnessDiscoveredSkill {
+  name: string;
+  description: string;
+  provider_id: string;
+  source: string;
+  enabled: boolean;
+  read_only: boolean;
+  scope: "provider";
 }
 
 export interface HarnessLogin {
@@ -77,6 +102,16 @@ export const harnessApi = {
   listModels: (providerId: string) =>
     request<{ models: HarnessModel[] }>(
       `/harnesses/${encodeURIComponent(providerId)}/models`,
+      { timeout: 60_000 },
+    ),
+  listMCP: (providerId: string) =>
+    request<{ servers: HarnessDiscoveredMCPServer[] }>(
+      `/harnesses/${encodeURIComponent(providerId)}/mcp`,
+      { timeout: 60_000 },
+    ),
+  listSkills: (providerId: string) =>
+    request<{ skills: HarnessDiscoveredSkill[] }>(
+      `/harnesses/${encodeURIComponent(providerId)}/skills`,
       { timeout: 60_000 },
     ),
   status: (providerId: string, settings: Record<string, unknown> = {}) =>

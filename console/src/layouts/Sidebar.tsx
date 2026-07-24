@@ -144,10 +144,15 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const { mode: sidebarMode } = useSidebarModeStore();
   const { selectedAgent, agents } = useAgentStore();
   const currentAgent = agents.find((agent) => agent.id === selectedAgent);
-  const showNativeWorkspace = currentAgent
-    ? currentAgent.backend_capabilities?.workspace_ui ??
-      currentAgent.backend === "qwenpaw"
-    : true;
+  const backendCapabilities = currentAgent
+    ? {
+        ...currentAgent.backend_capabilities,
+        workspace_ui:
+          currentAgent.backend === "qwenpaw"
+            ? currentAgent.backend_capabilities?.workspace_ui ?? true
+            : false,
+      }
+    : undefined;
 
   // Menu + route snapshots from registry (builtin + plugin registrations merged).
   const rawAgentMenu = useMenuItems("primary.agentScoped");
@@ -158,12 +163,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const agentMenu = useMemo(() => {
     const visibleMenu = filterMenuForAgentCapabilities(
       rawAgentMenu,
-      showNativeWorkspace ? undefined : { workspace_ui: false },
+      backendCapabilities,
     );
     return sidebarMode === "simple"
       ? flattenMenuForSimpleMode(visibleMenu)
       : visibleMenu;
-  }, [rawAgentMenu, showNativeWorkspace, sidebarMode]);
+  }, [backendCapabilities, rawAgentMenu, sidebarMode]);
   const settingsMenu = useMemo(
     () =>
       sidebarMode === "simple"

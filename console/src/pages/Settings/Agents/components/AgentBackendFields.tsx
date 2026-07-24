@@ -9,8 +9,11 @@ import {
   Copy,
   ExternalLink,
   LogOut,
+  Network,
   PawPrint,
   RefreshCw,
+  ShieldCheck,
+  Sparkles,
   SquareTerminal,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -443,6 +446,48 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
               <p className={styles.chatSettingsHint}>
                 {t("agent.backend.chatSettingsHint")}
               </p>
+            )}
+            {provider && (
+              <div className={styles.capabilityPanel}>
+                <span className={styles.capabilityTitle}>
+                  {t("agent.backend.capabilityTitle")}
+                </span>
+                <div className={styles.capabilityGrid}>
+                  <div className={styles.capabilityItem}>
+                    <Sparkles size={16} />
+                    <span>
+                      <strong>{t("agent.backend.inheritedSkills")}</strong>
+                      <small>
+                        {provider.capabilities.qwenpaw_skills_projection
+                          ? t("agent.backend.runtimeInherited")
+                          : t("agent.backend.notSupported")}
+                      </small>
+                    </span>
+                  </div>
+                  <div className={styles.capabilityItem}>
+                    <Network size={16} />
+                    <span>
+                      <strong>{t("agent.backend.inheritedMcp")}</strong>
+                      <small>
+                        {provider.capabilities.qwenpaw_mcp_projection
+                          ? t("agent.backend.runtimeInherited")
+                          : t("agent.backend.notSupported")}
+                      </small>
+                    </span>
+                  </div>
+                  <div className={styles.capabilityItem}>
+                    <ShieldCheck size={16} />
+                    <span>
+                      <strong>{t("agent.backend.policyCompatibility")}</strong>
+                      <small>
+                        {provider.capabilities.mcp_tool_allowlist
+                          ? t("agent.backend.toolAllowlistSupported")
+                          : t("agent.backend.policyLimited")}
+                      </small>
+                    </span>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </div>

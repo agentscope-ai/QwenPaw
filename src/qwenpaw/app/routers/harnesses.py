@@ -70,6 +70,46 @@ async def get_harness_models(
     return {"models": [item.model_dump() for item in models]}
 
 
+@router.get("/{provider_id}/mcp")
+async def get_harness_mcp(
+    provider_id: str,
+    request: Request,
+) -> dict:
+    """Return read-only MCP servers owned by one Provider."""
+    provider = _supported_provider(provider_id)
+    if not provider.capabilities.provider_mcp_discovery:
+        return {"servers": []}
+    workspace = await get_agent_for_request(request)
+    config = workspace.config
+    settings = (
+        dict(config.backend_settings) if config.backend == provider_id else {}
+    )
+    adapter = await workspace.harness_runtime.adapter(provider_id, settings)
+    servers = await adapter.discover_mcp(workspace.workspace_dir.resolve())
+    return {"servers": [item.model_dump() for item in servers]}
+
+
+@router.get("/{provider_id}/skills")
+async def get_harness_skills(
+    provider_id: str,
+    request: Request,
+) -> dict:
+    """Return read-only Skills owned by one Provider."""
+    provider = _supported_provider(provider_id)
+    if not provider.capabilities.provider_skills_discovery:
+        return {"skills": []}
+    workspace = await get_agent_for_request(request)
+    config = workspace.config
+    settings = (
+        dict(config.backend_settings) if config.backend == provider_id else {}
+    )
+    adapter = await workspace.harness_runtime.adapter(provider_id, settings)
+    skills = await adapter.discover_skills(
+        workspace.workspace_dir.resolve(),
+    )
+    return {"skills": [item.model_dump() for item in skills]}
+
+
 @router.post("/{provider_id}/status")
 async def post_harness_status(
     provider_id: str,

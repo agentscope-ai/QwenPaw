@@ -18,6 +18,7 @@ from ..schemas import (
     RunStatus,
 )
 from .base import HarnessAdapter
+from .capabilities import HarnessCapabilityResolver
 from .events import (
     HarnessAttachment,
     HarnessAttachmentKind,
@@ -45,6 +46,7 @@ class HarnessRuntime:
         workspace_dir: Path,
         session: Any = None,
         agent_id: str = "default",
+        workspace: Any = None,
     ) -> None:
         self._state_dir = workspace_dir / "harnesses"
         self._agent_id = agent_id
@@ -53,6 +55,10 @@ class HarnessRuntime:
         self._adapter_lock = asyncio.Lock()
         self._session_bridge = (
             HarnessSessionBridge(session) if session is not None else None
+        )
+        self._capability_resolver = HarnessCapabilityResolver(
+            workspace_dir,
+            workspace,
         )
 
     async def providers(
@@ -112,6 +118,11 @@ class HarnessRuntime:
         settings: dict[str, Any] | None = None,
     ) -> AsyncGenerator[Any, None]:
         """Run a harness turn and emit the established QwenPaw protocol."""
+        settings = dict(settings or {})
+        request_context = dict(settings.get("_request_context") or {})
+        settings[
+            "_runtime_capabilities"
+        ] = await self._capability_resolver.resolve(request_context)
         adapter = await self.adapter(backend, settings)
         session_id = str(getattr(request, "session_id", "") or "default")
         prompt, attachments = self._content_from_request(request)
@@ -171,7 +182,7 @@ class HarnessRuntime:
                     command=command,
                     arguments=arguments,
                     cwd=cwd,
-                    settings=settings or {},
+                    settings=settings,
                 )
                 event_stream = self._iter_events(events)
             else:
@@ -179,7 +190,7 @@ class HarnessRuntime:
                     session_id=session_id,
                     prompt=prompt,
                     cwd=cwd,
-                    settings=settings or {},
+                    settings=settings,
                     attachments=attachments,
                 )
             async for event in event_stream:

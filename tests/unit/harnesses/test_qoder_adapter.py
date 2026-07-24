@@ -27,7 +27,13 @@ from qwenpaw.harnesses.events import (
     HarnessAttachmentKind,
     HarnessEventKind,
 )
+from qwenpaw.harnesses.capabilities import (
+    HarnessMCPServerDefinition,
+    HarnessRuntimeCapabilities,
+    HarnessSkillDefinition,
+)
 from qwenpaw.harnesses.qoder.adapter import QoderAdapter
+from qwenpaw.harnesses.qoder.projection import materialize_skill_plugin
 from qwenpaw.harnesses.registry import create_adapter, get_provider
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
 from qwenpaw.utils.io_utils import write_json_atomic
@@ -42,6 +48,7 @@ class FakeQoderClient:
         self.disconnected = False
         self.interrupted = False
         self.prompts: list[tuple[Any, str]] = []
+        self.server_info: dict[str, Any] = {"skills": []}
         self.messages: list[Any] = [
             StreamEvent(
                 uuid="stream-1",
@@ -107,12 +114,46 @@ class FakeQoderClient:
             },
         ]
 
+    async def get_server_info(self) -> dict[str, Any]:
+        """Return discovered Qoder capabilities."""
+        return self.server_info
+
 
 def _executable(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.touch()
     path.chmod(path.stat().st_mode | 0o111)
     return path
+
+
+def test_skill_projection_uses_portable_copies_with_spaced_paths(
+    tmp_path: Path,
+) -> None:
+    skill_dir = tmp_path / "QwenPaw Skills" / "代码审查"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: review\ndescription: Review code\n---\n",
+        encoding="utf-8",
+    )
+    capabilities = HarnessRuntimeCapabilities(
+        skills=[
+            HarnessSkillDefinition(
+                name="review",
+                directory=skill_dir,
+            ),
+        ],
+    )
+
+    plugin = materialize_skill_plugin(
+        tmp_path / "Harness State",
+        capabilities,
+    )
+
+    assert plugin is not None
+    projected = plugin / "skills" / "review" / "SKILL.md"
+    assert projected.is_file()
+    assert not projected.is_symlink()
+    assert projected.read_text(encoding="utf-8").startswith("---")
 
 
 def test_loads_persisted_qoder_sessions(tmp_path: Path) -> None:
@@ -242,6 +283,130 @@ async def test_models_and_turns_use_sdk_capabilities(tmp_path: Path) -> None:
     assert turn_client.options.include_partial_messages is True
     assert turn_client.prompts == [("Fix it", "default")]
     assert (tmp_path / "qoder_sessions.json").is_file()
+
+
+@pytest.mark.asyncio
+async def test_discovers_qoder_owned_skills_as_read_only(
+    tmp_path: Path,
+) -> None:
+    binary = _executable(tmp_path / "qodercli")
+    clients: list[FakeQoderClient] = []
+
+    def factory(options: QoderAgentOptions) -> FakeQoderClient:
+        client = FakeQoderClient(options)
+        client.server_info = {
+            "skills": [
+                {
+                    "name": "find-skills",
+                    "description": "Find installable Skills",
+                    "source": "user",
+                },
+                {
+                    "name": "qwenpaw-runtime:review",
+                    "description": "Projected Skill",
+                    "source": "plugin",
+                },
+            ],
+        }
+        clients.append(client)
+        return client
+
+    adapter = QoderAdapter(
+        tmp_path,
+        binary=str(binary),
+        client_factory=factory,
+    )
+
+    skills = await adapter.discover_skills(tmp_path)
+
+    assert [skill.name for skill in skills] == ["find-skills"]
+    assert skills[0].provider_id == "qoder"
+    assert skills[0].source == "user"
+    assert skills[0].read_only is True
+    assert clients[0].options.setting_sources == [
+        "user",
+        "project",
+        "local",
+    ]
+    assert clients[0].options.skills == "all"
+    assert clients[0].disconnected is True
+
+
+@pytest.mark.asyncio
+async def test_turn_projects_qwenpaw_skills_and_mcp(
+    tmp_path: Path,
+) -> None:
+    binary = _executable(tmp_path / "qodercli")
+    skill_dir = tmp_path / "workspace-skills" / "review"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: review\ndescription: Review code\n---\n",
+        encoding="utf-8",
+    )
+    clients: list[FakeQoderClient] = []
+
+    def factory(options: QoderAgentOptions) -> FakeQoderClient:
+        client = FakeQoderClient(options)
+        clients.append(client)
+        return client
+
+    adapter = QoderAdapter(
+        tmp_path / "harnesses",
+        binary=str(binary),
+        client_factory=factory,
+    )
+    capabilities = HarnessRuntimeCapabilities(
+        skills=[
+            HarnessSkillDefinition(
+                name="review",
+                description="Review code",
+                directory=skill_dir,
+            ),
+        ],
+        mcp_servers=[
+            HarnessMCPServerDefinition(
+                name="docs",
+                display_name="Docs",
+                transport="streamable_http",
+                url="https://mcp.example.test",
+                headers={"Authorization": "Bearer secret"},
+                tools=["search"],
+                tool_policies={"search": "ask"},
+            ),
+        ],
+    )
+
+    _ = [
+        event
+        async for event in adapter.run_turn(
+            session_id="chat-1",
+            prompt="Review it",
+            cwd=tmp_path,
+            settings={"_runtime_capabilities": capabilities},
+        )
+    ]
+
+    options = clients[0].options
+    assert options.skills == "all"
+    assert options.setting_sources == ["user", "project", "local"]
+    assert options.strict_mcp_config is True
+    assert options.allowed_mcp_server_names == ["docs"]
+    assert options.mcp_servers == {
+        "docs": {
+            "type": "http",
+            "url": "https://mcp.example.test",
+            "headers": {"Authorization": "Bearer secret"},
+            "tools": [
+                {
+                    "name": "search",
+                    "permission_policy": "always_ask",
+                },
+            ],
+        },
+    }
+    plugin_path = Path(options.plugins[0]["path"])
+    assert plugin_path.is_relative_to(tmp_path / "harnesses")
+    assert (plugin_path / "skills" / "review" / "SKILL.md").is_file()
 
 
 @pytest.mark.asyncio

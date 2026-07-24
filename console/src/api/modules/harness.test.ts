@@ -69,4 +69,20 @@ describe("harnessApi", () => {
       timeout: 60_000,
     });
   });
+
+  it("discovers Provider-owned MCP through a read-only route", async () => {
+    await harnessApi.listMCP("codex");
+
+    expect(request).toHaveBeenCalledWith("/harnesses/codex/mcp", {
+      timeout: 60_000,
+    });
+  });
+
+  it("discovers Provider-owned Skills through a read-only route", async () => {
+    await harnessApi.listSkills("qoder");
+
+    expect(request).toHaveBeenCalledWith("/harnesses/qoder/skills", {
+      timeout: 60_000,
+    });
+  });
 });

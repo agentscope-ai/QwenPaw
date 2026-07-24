@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from collections.abc import AsyncIterator
 from typing import Any, Awaitable, Callable
 
@@ -29,8 +30,15 @@ class CodexAppServerError(RuntimeError):
 class CodexAppServerClient:
     """Own one Codex app-server subprocess and correlate JSON-RPC calls."""
 
-    def __init__(self, binary: str | None = None) -> None:
+    def __init__(
+        self,
+        binary: str | None = None,
+        config_overrides: tuple[str, ...] = (),
+        environment: dict[str, str] | None = None,
+    ) -> None:
         self._binary = binary
+        self._config_overrides = config_overrides
+        self._runtime_environment = dict(environment or {})
         self._process: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task[None] | None = None
         self._stderr_task: asyncio.Task[None] | None = None
@@ -62,11 +70,17 @@ class CodexAppServerClient:
             self._process = await asyncio.create_subprocess_exec(
                 str(resolution.path),
                 "app-server",
+                *[
+                    item
+                    for override in self._config_overrides
+                    for item in ("-c", override)
+                ],
                 "--listen",
                 "stdio://",
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, **self._runtime_environment},
             )
             self._reader_task = asyncio.create_task(self._read_stdout())
             self._stderr_task = asyncio.create_task(self._read_stderr())
@@ -81,6 +95,27 @@ class CodexAppServerClient:
                 },
             )
             await self.notify("initialized", {})
+
+    async def configure_runtime(
+        self,
+        config_overrides: tuple[str, ...],
+        environment: dict[str, str],
+    ) -> bool:
+        """Apply launch configuration, restarting a running process."""
+        next_environment = dict(environment)
+        if (
+            self._config_overrides == config_overrides
+            and self._runtime_environment == next_environment
+        ):
+            return False
+        was_running = (
+            self._process is not None and self._process.returncode is None
+        )
+        if was_running:
+            await self.stop()
+        self._config_overrides = config_overrides
+        self._runtime_environment = next_environment
+        return was_running
 
     async def request(
         self,

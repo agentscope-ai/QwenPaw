@@ -349,6 +349,61 @@
   font-size: 12px;
 }
 
+.capabilityPanel {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e9ded5;
+}
+
+.capabilityTitle {
+  display: block;
+  margin-bottom: 10px;
+  color: #81756c;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.capabilityGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.capabilityItem {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid #eadfd6;
+  border-radius: 10px;
+  color: #d45f00;
+  background: rgba(255, 127, 22, 0.035);
+
+  > span {
+    display: grid;
+    min-width: 0;
+    gap: 3px;
+  }
+
+  strong {
+    overflow: hidden;
+    color: #2d231d;
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small {
+    color: #7b716a;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+}
+
 .accountState {
   display: flex;
   min-width: 0;
@@ -517,6 +572,25 @@
     background: rgba(255, 255, 255, 0.025);
   }
 
+  .capabilityPanel {
+    border-color: #423a34;
+  }
+
+  .capabilityTitle,
+  .capabilityItem small {
+    color: #a99d94;
+  }
+
+  .capabilityItem {
+    border-color: #423a34;
+    color: #ff9a47;
+    background: rgba(255, 127, 22, 0.06);
+
+    strong {
+      color: #f5eee8;
+    }
+  }
+
   .detected .binaryStatusLabel {
     color: #86c792;
   }
@@ -538,7 +612,8 @@
 
 @media (max-width: 680px) {
   .typeGrid,
-  .providerGrid {
+  .providerGrid,
+  .capabilityGrid {
     grid-template-columns: 1fr;
   }
 

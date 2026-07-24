@@ -40,6 +40,11 @@ PROVIDER_CATALOG = (
             tool_stream=True,
             session_resume=True,
             attachments=True,
+            qwenpaw_skills_projection=True,
+            qwenpaw_mcp_projection=True,
+            provider_skills_discovery=True,
+            provider_mcp_discovery=True,
+            mcp_tool_allowlist=True,
             commands=[
                 HarnessCommand(
                     name="compact",
@@ -124,6 +129,11 @@ PROVIDER_CATALOG = (
             tool_stream=True,
             session_resume=True,
             attachments=True,
+            qwenpaw_skills_projection=True,
+            qwenpaw_mcp_projection=True,
+            provider_skills_discovery=True,
+            provider_mcp_discovery=False,
+            mcp_tool_allowlist=True,
             commands=[
                 HarnessCommand(
                     name="compact",

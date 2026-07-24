@@ -147,6 +147,7 @@ class Workspace:
                 self.workspace_dir,
                 self.session,
                 self.agent_id,
+                self,
             )
         return self._harness_runtime
 

@@ -33,6 +33,11 @@ const { mockCopyText, mockMessage, mockProvider } = vi.hoisted(() => ({
       native_skills_ui: false,
       native_tools_ui: false,
       native_mcp_ui: false,
+      qwenpaw_skills_projection: true,
+      qwenpaw_mcp_projection: true,
+      provider_skills_discovery: true,
+      provider_mcp_discovery: true,
+      mcp_tool_allowlist: true,
       loop_modes: false,
       attachments: false,
       context_usage: false,
@@ -129,6 +134,15 @@ describe("AgentBackendFields", () => {
       await screen.findByText("agent.backend.detectedBinary"),
     ).toBeInTheDocument();
     expect(
+      screen.getByText("agent.backend.capabilityTitle"),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("agent.backend.runtimeInherited")).toHaveLength(
+      2,
+    );
+    expect(
+      screen.getByText("agent.backend.toolAllowlistSupported"),
+    ).toBeInTheDocument();
+    expect(
       screen.getByText("/Applications/ChatGPT.app/Contents/Resources/codex"),
     ).toHaveProperty("tagName", "CODE");
     expect(
@@ -185,6 +199,11 @@ describe("AgentBackendFields", () => {
         native_skills_ui: false,
         native_tools_ui: false,
         native_mcp_ui: false,
+        qwenpaw_skills_projection: true,
+        qwenpaw_mcp_projection: true,
+        provider_skills_discovery: true,
+        provider_mcp_discovery: true,
+        mcp_tool_allowlist: true,
         loop_modes: false,
         attachments: false,
         context_usage: false,

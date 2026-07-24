@@ -102,6 +102,11 @@ class HarnessCapabilities(BaseModel):
     attachments: bool = False
     context_usage: bool = False
     skills_commands: bool = False
+    qwenpaw_skills_projection: bool = False
+    qwenpaw_mcp_projection: bool = False
+    provider_skills_discovery: bool = False
+    provider_mcp_discovery: bool = False
+    mcp_tool_allowlist: bool = False
     commands: list[HarnessCommand] = Field(default_factory=list)
     approval_presets: list[HarnessApprovalPreset] = Field(
         default_factory=list,
@@ -117,6 +122,30 @@ class HarnessModel(BaseModel):
     is_default: bool = False
     reasoning_efforts: list[str] = Field(default_factory=list)
     default_reasoning_effort: str | None = None
+
+
+class HarnessDiscoveredMCPServer(BaseModel):
+    """Read-only MCP server discovered from Provider-owned configuration."""
+
+    name: str
+    provider_id: str
+    transport: str
+    enabled: bool
+    auth_status: str = ""
+    read_only: bool = True
+    scope: str = "provider"
+
+
+class HarnessDiscoveredSkill(BaseModel):
+    """Read-only Skill discovered from Provider-owned configuration."""
+
+    name: str
+    description: str = ""
+    provider_id: str
+    source: str = ""
+    enabled: bool = True
+    read_only: bool = True
+    scope: str = "provider"
 
 
 class HarnessProvider(BaseModel):
@@ -147,6 +176,8 @@ __all__ = [
     "HarnessEventKind",
     "HarnessHistoryItem",
     "HarnessHistoryKind",
+    "HarnessDiscoveredSkill",
+    "HarnessDiscoveredMCPServer",
     "HarnessModel",
     "HarnessProvider",
 ]

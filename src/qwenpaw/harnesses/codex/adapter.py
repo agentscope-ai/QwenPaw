@@ -16,17 +16,21 @@ from ...app.approvals import (
 from ...security.tool_guard.approval import ApprovalDecision
 from ...utils.io_utils import read_json, write_json_atomic_async
 from ..base import HarnessAdapter
+from ..capabilities import HarnessRuntimeCapabilities
 from ..events import (
     HarnessAttachment,
     HarnessAttachmentKind,
+    HarnessDiscoveredSkill,
     HarnessEvent,
     HarnessEventKind,
     HarnessHistoryItem,
     HarnessHistoryKind,
+    HarnessDiscoveredMCPServer,
     HarnessModel,
     HarnessProvider,
 )
 from .app_server import CodexAppServerClient, CodexAppServerError
+from .projection import project_runtime
 
 _TOOL_ITEM_TYPES = {
     "collabAgentToolCall",
@@ -57,7 +61,11 @@ class CodexAdapter(HarnessAdapter):
     ) -> None:
         self._state_dir = state_dir
         self._session_path = state_dir / "codex_sessions.json"
+        self._binary = binary
+        self._injected_client = client is not None
         self._client = client or CodexAppServerClient(binary=binary)
+        self._runtime_clients: dict[str, Any] = {}
+        self._session_clients: dict[str, Any] = {}
         self._session_lock = asyncio.Lock()
         self._threads = self._load_threads()
         self._loaded_threads: set[str] = set()
@@ -175,13 +183,94 @@ class CodexAdapter(HarnessAdapter):
             if not cursor:
                 return [model for model in models if model.id]
 
+    async def discover_mcp(
+        self,
+        cwd: Path,
+    ) -> list[HarnessDiscoveredMCPServer]:
+        """Discover Codex-owned MCP servers without exposing configuration."""
+        resolution = getattr(self._client, "binary_resolution", None)
+        if resolution is None:
+            return []
+        process = await asyncio.create_subprocess_exec(
+            str(resolution.path),
+            "mcp",
+            "list",
+            "--json",
+            cwd=str(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate()
+        if process.returncode != 0:
+            detail = stderr.decode(errors="replace").strip()
+            raise CodexAppServerError(
+                f"Failed to discover Codex MCP servers: {detail}",
+            )
+        try:
+            payload = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            raise CodexAppServerError(
+                "Codex returned invalid MCP discovery data",
+            ) from exc
+        if not isinstance(payload, list):
+            return []
+        return [
+            HarnessDiscoveredMCPServer(
+                name=str(item.get("name") or ""),
+                provider_id="codex",
+                transport=str(
+                    (item.get("transport") or {}).get("type") or "",
+                ),
+                enabled=bool(item.get("enabled")),
+                auth_status=str(item.get("auth_status") or ""),
+            )
+            for item in payload
+            if isinstance(item, dict) and item.get("name")
+        ]
+
+    async def discover_skills(
+        self,
+        cwd: Path,
+    ) -> list[HarnessDiscoveredSkill]:
+        """Discover Codex-owned Skills through the app-server."""
+        await self._client.start()
+        result = await self._client.request(
+            "skills/list",
+            {"cwds": [str(cwd)], "forceReload": False},
+        )
+        discovered: list[HarnessDiscoveredSkill] = []
+        seen: set[tuple[str, str]] = set()
+        for entry in (result or {}).get("data", []):
+            if not isinstance(entry, dict):
+                continue
+            for item in entry.get("skills") or []:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "")
+                source = str(item.get("scope") or "")
+                key = (name, source)
+                if not name or key in seen:
+                    continue
+                seen.add(key)
+                discovered.append(
+                    HarnessDiscoveredSkill(
+                        name=name,
+                        description=str(item.get("description") or ""),
+                        provider_id="codex",
+                        source=source,
+                        enabled=bool(item.get("enabled", True)),
+                    ),
+                )
+        return discovered
+
     async def history(self, session_id: str) -> list[HarnessHistoryItem]:
         """Read the lossy persisted Codex thread for recovery."""
         thread_id = self._threads.get(session_id)
         if not thread_id:
             return []
-        await self._client.start()
-        result = await self._client.request(
+        client = self._session_clients.get(session_id) or self._client
+        await client.start()
+        result = await client.request(
             "thread/read",
             {"threadId": thread_id, "includeTurns": True},
         )
@@ -201,8 +290,9 @@ class CodexAdapter(HarnessAdapter):
         attachments: list[HarnessAttachment] | None = None,
     ) -> AsyncIterator[HarnessEvent]:
         """Start or resume a Codex thread and stream one turn."""
-        await self._client.start()
+        client = await self._prepare_runtime(session_id, settings)
         thread_id = await self._thread_for_session(
+            client,
             session_id,
             cwd,
             settings,
@@ -211,7 +301,7 @@ class CodexAdapter(HarnessAdapter):
             "session_id": session_id,
             **dict(settings.get("_request_context") or {}),
         }
-        queue = self._client.subscribe()
+        queue = client.subscribe()
         turn_id = ""
         try:
             params = {
@@ -229,7 +319,7 @@ class CodexAdapter(HarnessAdapter):
             sandbox_policy = self._sandbox_policy(settings.get("sandbox"))
             if sandbox_policy:
                 params["sandboxPolicy"] = sandbox_policy
-            result = await self._client.request("turn/start", params)
+            result = await client.request("turn/start", params)
             turn_id = str((result or {}).get("turn", {}).get("id", ""))
             while True:
                 message = await queue.get()
@@ -246,10 +336,10 @@ class CodexAdapter(HarnessAdapter):
                     break
         except asyncio.CancelledError:
             if turn_id:
-                await self._interrupt_turn(thread_id, turn_id)
+                await self._interrupt_turn(client, thread_id, turn_id)
             raise
         finally:
-            self._client.unsubscribe(queue)
+            client.unsubscribe(queue)
 
     @staticmethod
     def _turn_input(
@@ -285,20 +375,26 @@ class CodexAdapter(HarnessAdapter):
     ) -> list[HarnessEvent]:
         """Run one Codex app-server command."""
         del arguments
-        await self._client.start()
-        thread_id = await self._thread_for_session(session_id, cwd, settings)
+        client = await self._prepare_runtime(session_id, settings)
+        thread_id = await self._thread_for_session(
+            client,
+            session_id,
+            cwd,
+            settings,
+        )
         if command == "compact":
-            await self._client.request(
+            await client.request(
                 "thread/compact/start",
                 {"threadId": thread_id},
             )
             text = "Codex context compacted."
         elif command == "review":
             return await self._run_review(
+                client,
                 thread_id,
             )
         elif command == "skills":
-            result = await self._client.request(
+            result = await client.request(
                 "skills/list",
                 {"cwds": [str(cwd)], "forceReload": False},
             )
@@ -328,6 +424,7 @@ class CodexAdapter(HarnessAdapter):
             if thread_id:
                 self._loaded_threads.discard(thread_id)
                 self._thread_contexts.pop(thread_id, None)
+            self._session_clients.pop(session_id, None)
             await write_json_atomic_async(
                 self._session_path,
                 self._threads,
@@ -335,10 +432,21 @@ class CodexAdapter(HarnessAdapter):
 
     async def stop(self) -> None:
         """Stop the workspace Codex process."""
-        await self._client.stop()
+        clients = {
+            id(client): client
+            for client in (
+                self._client,
+                *self._runtime_clients.values(),
+            )
+        }
+        for client in clients.values():
+            await client.stop()
+        self._runtime_clients.clear()
+        self._session_clients.clear()
 
     async def _thread_for_session(
         self,
+        client: Any,
         session_id: str,
         cwd: Path,
         settings: dict[str, Any],
@@ -347,7 +455,7 @@ class CodexAdapter(HarnessAdapter):
             thread_id = self._threads.get(session_id)
             if thread_id and thread_id not in self._loaded_threads:
                 try:
-                    await self._client.request(
+                    await client.request(
                         "thread/resume",
                         {"threadId": thread_id},
                     )
@@ -366,7 +474,7 @@ class CodexAdapter(HarnessAdapter):
             }
             if settings.get("model"):
                 params["model"] = settings["model"]
-            result = await self._client.request("thread/start", params)
+            result = await client.request("thread/start", params)
             thread_id = str((result or {}).get("thread", {}).get("id", ""))
             if not thread_id:
                 raise CodexAppServerError("Codex did not return a thread id")
@@ -378,6 +486,51 @@ class CodexAdapter(HarnessAdapter):
             )
             return thread_id
 
+    async def _prepare_runtime(
+        self,
+        session_id: str,
+        settings: dict[str, Any],
+    ) -> Any:
+        existing = self._session_clients.get(session_id)
+        if existing is not None:
+            await existing.start()
+            return existing
+        capabilities = settings.get("_runtime_capabilities")
+        if not isinstance(capabilities, HarnessRuntimeCapabilities):
+            capabilities = HarnessRuntimeCapabilities()
+        projection = project_runtime(capabilities)
+        fingerprint = capabilities.fingerprint
+        if self._injected_client:
+            client = self._client
+            configure = getattr(client, "configure_runtime", None)
+        else:
+            client = self._runtime_clients.get(fingerprint)
+            configure = None
+            if client is None:
+                client = CodexAppServerClient(
+                    binary=self._binary,
+                    config_overrides=projection.config_overrides,
+                    environment=projection.environment,
+                )
+                client.set_server_request_handler(
+                    self._handle_server_request,
+                )
+                self._runtime_clients[fingerprint] = client
+        if configure is not None:
+            restarted = await configure(
+                projection.config_overrides,
+                projection.environment,
+            )
+            if restarted:
+                self._loaded_threads.clear()
+        await client.start()
+        await client.request(
+            "skills/extraRoots/set",
+            {"extraRoots": list(projection.skill_roots)},
+        )
+        self._session_clients[session_id] = client
+        return client
+
     async def _handle_server_request(
         self,
         message: dict[str, Any],
@@ -386,6 +539,7 @@ class CodexAdapter(HarnessAdapter):
         if method not in {
             "item/commandExecution/requestApproval",
             "item/fileChange/requestApproval",
+            "item/permissions/requestApproval",
         }:
             return {"decision": "decline"}
         params = dict(message.get("params") or {})
@@ -396,18 +550,25 @@ class CodexAdapter(HarnessAdapter):
         session_id = str(context.get("session_id") or "default")
         command = str(params.get("command") or "")
         is_command = "commandExecution" in method
-        name = "Codex command" if is_command else "Codex file change"
-        detail = command or str(params.get("reason") or "")
+        is_permissions = "permissions" in method
+        if is_command:
+            name = "Codex command"
+        elif is_permissions:
+            name = "Codex permission request"
+        else:
+            name = "Codex file change"
+        detail = command or str(params.get("reason") or "") or name
         summary = ApprovalRequestSummary(
             source_type="codex",
             name=name,
-            severity="high" if is_command else "medium",
-            result_summary=detail or name,
+            severity="high" if is_command or is_permissions else "medium",
+            result_summary=detail,
             payload={
                 "provider": "codex",
                 "provider_item_id": params.get("itemId"),
                 "command": command,
                 "cwd": params.get("cwd"),
+                "permissions": params.get("permissions"),
             },
         )
         service = get_approval_service()
@@ -424,6 +585,16 @@ class CodexAdapter(HarnessAdapter):
             pending.request_id,
             pending.timeout_seconds,
         )
+        if is_permissions:
+            permissions = (
+                dict(params.get("permissions") or {})
+                if decision == ApprovalDecision.APPROVED
+                else {}
+            )
+            return {
+                "permissions": permissions,
+                "scope": "turn",
+            }
         return {
             "decision": (
                 "accept"
@@ -432,10 +603,14 @@ class CodexAdapter(HarnessAdapter):
             ),
         }
 
-    async def _run_review(self, thread_id: str) -> list[HarnessEvent]:
-        queue = self._client.subscribe()
+    async def _run_review(
+        self,
+        client: Any,
+        thread_id: str,
+    ) -> list[HarnessEvent]:
+        queue = client.subscribe()
         try:
-            result = await self._client.request(
+            result = await client.request(
                 "review/start",
                 {
                     "threadId": thread_id,
@@ -461,7 +636,7 @@ class CodexAdapter(HarnessAdapter):
                 if message.get("method") == "turn/completed":
                     return events
         finally:
-            self._client.unsubscribe(queue)
+            client.unsubscribe(queue)
 
     @staticmethod
     def _sandbox_policy(value: Any) -> dict[str, Any] | None:
@@ -497,9 +672,14 @@ class CodexAdapter(HarnessAdapter):
             if key and value
         }
 
-    async def _interrupt_turn(self, thread_id: str, turn_id: str) -> None:
+    async def _interrupt_turn(
+        self,
+        client: Any,
+        thread_id: str,
+        turn_id: str,
+    ) -> None:
         try:
-            await self._client.request(
+            await client.request(
                 "turn/interrupt",
                 {"threadId": thread_id, "turnId": turn_id},
             )

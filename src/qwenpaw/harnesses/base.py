@@ -10,9 +10,11 @@ from typing import Any
 
 from .events import (
     HarnessAttachment,
+    HarnessDiscoveredSkill,
     HarnessEvent,
     HarnessEventKind,
     HarnessHistoryItem,
+    HarnessDiscoveredMCPServer,
     HarnessModel,
     HarnessProvider,
 )
@@ -40,6 +42,22 @@ class HarnessAdapter(ABC):
     async def history(self, session_id: str) -> list[HarnessHistoryItem]:
         """Return provider history for best-effort session recovery."""
         del session_id
+        return []
+
+    async def discover_mcp(
+        self,
+        cwd: Path,
+    ) -> list[HarnessDiscoveredMCPServer]:
+        """Return read-only Provider-owned MCP configuration."""
+        del cwd
+        return []
+
+    async def discover_skills(
+        self,
+        cwd: Path,
+    ) -> list[HarnessDiscoveredSkill]:
+        """Return read-only Provider-owned Skills."""
+        del cwd
         return []
 
     async def run_command(

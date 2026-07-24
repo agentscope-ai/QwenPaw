@@ -6,13 +6,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from qwenpaw.harnesses.codex.adapter import CodexAdapter
+from qwenpaw.harnesses.capabilities import (
+    HarnessRuntimeCapabilities,
+    HarnessSkillDefinition,
+)
 from qwenpaw.harnesses.events import (
     HarnessAttachment,
     HarnessAttachmentKind,
@@ -75,6 +81,24 @@ class FakeCodexClient:
                     },
                 ],
                 "nextCursor": None,
+            }
+        if method == "skills/list":
+            return {
+                "data": [
+                    {
+                        "cwd": params["cwds"][0],
+                        "errors": [],
+                        "skills": [
+                            {
+                                "name": "openai-docs",
+                                "description": "Read OpenAI documentation",
+                                "enabled": True,
+                                "path": "/provider/openai-docs/SKILL.md",
+                                "scope": "user",
+                            },
+                        ],
+                    },
+                ],
             }
         if method == "thread/start":
             return {"thread": {"id": "thread-1"}}
@@ -234,6 +258,72 @@ async def test_models_are_normalized_from_app_server(
 
 
 @pytest.mark.asyncio
+async def test_discovers_codex_owned_mcp_as_read_only(
+    tmp_path: Path,
+) -> None:
+    client = FakeCodexClient()
+    client.binary_resolution = SimpleNamespace(
+        path=tmp_path / "codex",
+    )
+    adapter = CodexAdapter(tmp_path, client=client)  # type: ignore[arg-type]
+    process = AsyncMock()
+    process.returncode = 0
+    process.communicate.return_value = (
+        json.dumps(
+            [
+                {
+                    "name": "local-docs",
+                    "enabled": True,
+                    "transport": {"type": "streamable_http"},
+                    "auth_status": "authenticated",
+                },
+            ],
+        ).encode("utf-8"),
+        b"",
+    )
+
+    with patch(
+        "qwenpaw.harnesses.codex.adapter.asyncio.create_subprocess_exec",
+        return_value=process,
+    ) as create_process:
+        servers = await adapter.discover_mcp(tmp_path)
+
+    assert servers[0].name == "local-docs"
+    assert servers[0].provider_id == "codex"
+    assert servers[0].read_only is True
+    assert servers[0].scope == "provider"
+    create_process.assert_awaited_once_with(
+        str(tmp_path / "codex"),
+        "mcp",
+        "list",
+        "--json",
+        cwd=str(tmp_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+
+@pytest.mark.asyncio
+async def test_discovers_codex_owned_skills_as_read_only(
+    tmp_path: Path,
+) -> None:
+    client = FakeCodexClient()
+    adapter = CodexAdapter(tmp_path, client=client)  # type: ignore[arg-type]
+
+    skills = await adapter.discover_skills(tmp_path)
+
+    assert [skill.name for skill in skills] == ["openai-docs"]
+    assert skills[0].provider_id == "codex"
+    assert skills[0].source == "user"
+    assert skills[0].read_only is True
+    assert skills[0].scope == "provider"
+    assert (
+        "skills/list",
+        {"cwds": [str(tmp_path)], "forceReload": False},
+    ) in client.requests
+
+
+@pytest.mark.asyncio
 async def test_history_prefers_reasoning_summary(tmp_path: Path) -> None:
     adapter = CodexAdapter(
         tmp_path,
@@ -288,6 +378,83 @@ async def test_run_turn_persists_and_reuses_thread(tmp_path: Path) -> None:
     assert turn_params["model"] == "gpt-test-codex"
     assert turn_params["effort"] == "high"
     assert turn_params["summary"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_run_turn_projects_qwenpaw_skill_roots(
+    tmp_path: Path,
+) -> None:
+    client = FakeCodexClient()
+    adapter = CodexAdapter(tmp_path, client=client)  # type: ignore[arg-type]
+    skill_dir = tmp_path / "skills" / "review"
+
+    _ = [
+        event
+        async for event in adapter.run_turn(
+            session_id="chat-1",
+            prompt="Review it",
+            cwd=tmp_path,
+            settings={
+                "_runtime_capabilities": HarnessRuntimeCapabilities(
+                    skills=[
+                        HarnessSkillDefinition(
+                            name="review",
+                            directory=skill_dir,
+                        ),
+                    ],
+                ),
+            },
+        )
+    ]
+
+    assert (
+        "skills/extraRoots/set",
+        {"extraRoots": [str(skill_dir)]},
+    ) in client.requests
+
+
+@pytest.mark.asyncio
+async def test_runtime_clients_are_isolated_by_capability_fingerprint(
+    tmp_path: Path,
+) -> None:
+    base_client = FakeCodexClient()
+    first_client = FakeCodexClient()
+    second_client = FakeCodexClient()
+    with patch(
+        "qwenpaw.harnesses.codex.adapter.CodexAppServerClient",
+        side_effect=[base_client, first_client, second_client],
+    ):
+        adapter = CodexAdapter(tmp_path, binary="/custom/codex")
+        first = await adapter._prepare_runtime(
+            "chat-1",
+            {
+                "_runtime_capabilities": HarnessRuntimeCapabilities(
+                    skills=[
+                        HarnessSkillDefinition(
+                            name="first",
+                            directory=tmp_path / "skills" / "first",
+                        ),
+                    ],
+                ),
+            },
+        )
+        second = await adapter._prepare_runtime(
+            "chat-2",
+            {
+                "_runtime_capabilities": HarnessRuntimeCapabilities(
+                    skills=[
+                        HarnessSkillDefinition(
+                            name="second",
+                            directory=tmp_path / "skills" / "second",
+                        ),
+                    ],
+                ),
+            },
+        )
+
+    assert first is first_client
+    assert second is second_client
+    assert first is not second
 
 
 @pytest.mark.asyncio
@@ -405,6 +572,62 @@ async def test_codex_approval_uses_qwenpaw_service(
     assert create_call["session_id"] == "chat-1"
     assert create_call["agent_id"] == "agent-1"
     assert create_call["summary"].payload["command"] == "pytest -q"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("decision", "expected_permissions"),
+    [
+        (
+            ApprovalDecision.APPROVED,
+            {"network": {"enabled": True}},
+        ),
+        (ApprovalDecision.DENIED, {}),
+    ],
+)
+async def test_codex_permission_approval_uses_requested_permissions(
+    tmp_path: Path,
+    decision: ApprovalDecision,
+    expected_permissions: dict[str, object],
+) -> None:
+    adapter = CodexAdapter(
+        tmp_path,
+        client=FakeCodexClient(),  # type: ignore[arg-type]
+    )
+    adapter._thread_contexts["thread-1"] = {
+        "session_id": "chat-1",
+        "agent_id": "agent-1",
+        "user_id": "user-1",
+        "channel": "console",
+    }
+    pending = MagicMock(request_id="approval-1", timeout_seconds=30)
+    service = MagicMock()
+    service.create_pending_summary = AsyncMock(return_value=pending)
+    service.wait_for_approval = AsyncMock(return_value=decision)
+    permissions = {"network": {"enabled": True}}
+
+    with patch(
+        "qwenpaw.harnesses.codex.adapter.get_approval_service",
+        return_value=service,
+    ):
+        result = await adapter._handle_server_request(
+            {
+                "method": "item/permissions/requestApproval",
+                "params": {
+                    "threadId": "thread-1",
+                    "itemId": "item-1",
+                    "permissions": permissions,
+                    "reason": "Allow the MCP server to access the network",
+                },
+            },
+        )
+
+    assert result == {
+        "permissions": expected_permissions,
+        "scope": "turn",
+    }
+    create_call = service.create_pending_summary.await_args.kwargs
+    assert create_call["summary"].payload["permissions"] == permissions
 
 
 @pytest.mark.asyncio
