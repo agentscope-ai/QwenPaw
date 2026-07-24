@@ -545,7 +545,9 @@ async def execute_shell_command(
     """
 
     shell_executable = (
-        get_current_shell_command_executable() or os.environ.get("SHELL") or None
+        get_current_shell_command_executable()
+        or os.environ.get("SHELL")
+        or None
     )
     cmd = _collapse_embedded_newlines(
         (command or "").strip(),
