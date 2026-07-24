@@ -940,6 +940,84 @@ def test_summary_reads_prefolded_tool_result_from_exact_durable_seq(
     assert "FOREIGN-SESSION-CONTENT" not in rendered
 
 
+async def test_summary_fitting_loads_folded_results_only_once(
+    store: HistoryStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    folded = assistant_with_tool(
+        "folded-call",
+        "ORIGINAL-OUTCOME-7731 " + "x" * 1000,
+    )
+    noisy_messages = [
+        assistant(f"analysis-{index} " + "y" * 10_000) for index in range(5)
+    ]
+    mgr = make_manager(store)
+    middle = [folded, *noisy_messages]
+    agent = FakeAgent(middle)
+    agent.model = PlainSummaryModel(
+        [900, 300],
+        [_VALID_CONTINUATION_SUMMARY],
+        context_size=800,
+    )
+    mgr._persist_new(agent)
+    folded.content[2].output = [
+        TextBlock(
+            type="text",
+            text=(
+                "[scroll folded] old tool result content cleared; recover "
+                "with recall_history"
+            ),
+        ),
+    ]
+    original = store.contents_by_seqs
+    reads = 0
+
+    def counted_read(seqs):
+        nonlocal reads
+        reads += 1
+        return original(seqs)
+
+    monkeypatch.setattr(store, "contents_by_seqs", counted_read)
+
+    await mgr._update_continuation_summary(agent, middle)
+
+    assert reads == 1
+    assert len(agent.model.summary_input_tokens) > 3
+    assert len(agent.model.summary_calls) == 1
+    prompt = agent.model.summary_calls[0]["messages"][1].get_text_content()
+    assert "ORIGINAL-OUTCOME-7731" in prompt
+
+
+async def test_summary_timeout_covers_prompt_fitting(
+    store: HistoryStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    old = [user("fix discovery")]
+    mgr = make_manager(store)
+    agent = FakeAgent(old)
+    agent.model = PlainSummaryModel(
+        [900, 300],
+        [_VALID_CONTINUATION_SUMMARY],
+    )
+    mgr._persist_new(agent)
+
+    async def hanging_fit(*args, **kwargs):
+        del args, kwargs
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(mgr, "_fit_summary_prompt", hanging_fit)
+    monkeypatch.setattr(
+        scroll_manager_module,
+        "_SUMMARY_UPDATE_TIMEOUT_SECONDS",
+        0.01,
+    )
+
+    await mgr._update_continuation_summary(agent, old)
+
+    assert agent.model.summary_calls == []
+    assert mgr._summary_update_failed is True
+
+
 def test_summary_input_includes_timezone_safe_message_times(
     store: HistoryStore,
 ):

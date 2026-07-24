@@ -59,6 +59,11 @@ _PROTECTED_RECENT_TOOL_RESULTS = 5
 _OUTPUT_RESERVE_RATIO = 0.05
 _MAX_OUTPUT_RESERVE_TOKENS = 4096
 _SUMMARY_UPDATE_TIMEOUT_SECONDS = 60.0
+_SummaryRecords = tuple[
+    list[tuple[int, str]],
+    list[tuple[int, str]],
+    list[tuple[int, str]],
+]
 
 
 class _SummaryCandidateError(ValueError):
@@ -740,6 +745,7 @@ class ScrollContextManager:
         middle: list[Msg],
         *,
         max_chars: int,
+        durable_contents: (dict[tuple[str, int], str | None] | None) = None,
     ) -> str:
         """Render role-aware bounded evidence for the summary model.
 
@@ -755,8 +761,20 @@ class ScrollContextManager:
         so the summary model sees a bounded preview of the real outcome rather
         than only the recovery stub.
         """
-        durable_contents = self._durable_folded_result_contents(middle)
+        if durable_contents is None:
+            durable_contents = self._durable_folded_result_contents(middle)
+        records = self._summary_archived_records(
+            middle,
+            durable_contents,
+        )
+        return self._render_summary_records(records, max_chars)
 
+    def _summary_archived_records(
+        self,
+        middle: list[Msg],
+        durable_contents: dict[tuple[str, int], str | None],
+    ) -> _SummaryRecords:
+        """Serialize summary evidence once before token-budget fitting."""
         essential: list[tuple[int, str]] = []
         supporting: list[tuple[int, str]] = []
         tool_results: list[tuple[int, str]] = []
@@ -823,6 +841,15 @@ class ScrollContextManager:
                     )
                     order += 1
 
+        return essential, supporting, tool_results
+
+    def _render_summary_records(
+        self,
+        records: _SummaryRecords,
+        max_chars: int,
+    ) -> str:
+        """Render cached evidence records under one character candidate."""
+        essential, supporting, tool_results = records
         selected = self._fit_summary_records(essential, max_chars)
         used = sum(len(text) + 1 for _, text in selected)
         remaining = max(0, max_chars - used)
@@ -985,7 +1012,7 @@ class ScrollContextManager:
     async def _fit_summary_prompt(
         self,
         agent: Any,
-        middle: list[Msg],
+        records: _SummaryRecords,
         *,
         mode: SummaryMode,
         previous: ContinuationSummary | None,
@@ -1008,9 +1035,9 @@ class ScrollContextManager:
             )
 
         async def build_and_count(max_chars: int) -> tuple[str, str, int]:
-            archived_context = self._summary_archived_context(
-                middle,
-                max_chars=max_chars,
+            archived_context = self._render_summary_records(
+                records,
+                max_chars,
             )
             prompt = build_update_prompt(
                 mode=mode,
@@ -1064,13 +1091,19 @@ class ScrollContextManager:
 
     def _source_backed_previous_summary(
         self,
+        existing_endpoints: set[int] | None = None,
     ) -> ContinuationSummary | None:
         """Return the previous summary only while its range is durable."""
         previous = self._continuation_summary
         if previous is None:
             return None
         endpoints = set(previous.covered_seq)
-        if self._history.existing_seqs(endpoints) == endpoints:
+        existing = (
+            self._history.existing_seqs(endpoints)
+            if existing_endpoints is None
+            else existing_endpoints
+        )
+        if existing == endpoints:
             return previous
         logger.info(
             "scroll: previous continuation summary references expired "
@@ -1154,10 +1187,14 @@ class ScrollContextManager:
             for lo, hi in candidate.seq_spans()
             for endpoint in (lo, hi)
         }
+        existing_seqs = await asyncio.to_thread(
+            self._history.existing_seqs,
+            endpoints,
+        )
         issues = validate_summary_quality(
             candidate,
             evidence_text=evidence_text,
-            existing_seqs=self._history.existing_seqs(endpoints),
+            existing_seqs=existing_seqs,
         )
         if issues:
             raise _SummaryCandidateError("; ".join(issues))
@@ -1170,11 +1207,42 @@ class ScrollContextManager:
         *,
         focus_hint: str = "",
     ) -> None:
+        """Update the summary within one end-to-end timeout."""
+        try:
+            async with asyncio.timeout(_SUMMARY_UPDATE_TIMEOUT_SECONDS):
+                await self._update_continuation_summary_inner(
+                    agent,
+                    middle,
+                    focus_hint=focus_hint,
+                )
+        except TimeoutError as exc:
+            self._summary_update_failed = True
+            logger.warning(
+                "scroll: continuation summary update timed out after "
+                "%g seconds; preserving the previous valid summary",
+                _SUMMARY_UPDATE_TIMEOUT_SECONDS,
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
+
+    async def _update_continuation_summary_inner(
+        self,
+        agent: Any,
+        middle: list[Msg],
+        *,
+        focus_hint: str = "",
+    ) -> None:
         """Update, validate, and at most once retry the plain summary."""
         new_span = self._evicted_span(middle)
         if new_span is None or not callable(getattr(agent, "model", None)):
             return
-        previous = self._source_backed_previous_summary()
+        previous = self._continuation_summary
+        if previous is not None:
+            endpoints = set(previous.covered_seq)
+            existing = await asyncio.to_thread(
+                self._history.existing_seqs,
+                endpoints,
+            )
+            previous = self._source_backed_previous_summary(existing)
         language = str(
             getattr(
                 getattr(agent, "_agent_config", None),
@@ -1196,6 +1264,15 @@ class ScrollContextManager:
             int(getattr(agent.model, "context_size", 0) or 0),
         )
         output_tokens = max(256, min(4000, context_size // 4))
+        durable_contents = await asyncio.to_thread(
+            self._durable_folded_result_contents,
+            middle,
+        )
+        summary_records = await asyncio.to_thread(
+            self._summary_archived_records,
+            middle,
+            durable_contents,
+        )
         repair_issues: tuple[str, ...] = ()
         updated: ContinuationSummary | None = None
         failure: Exception | None = None
@@ -1207,7 +1284,7 @@ class ScrollContextManager:
             try:
                 prompt, new_context = await self._fit_summary_prompt(
                     agent,
-                    middle,
+                    summary_records,
                     mode=summary_mode,
                     previous=previous,
                     covered=covered,
