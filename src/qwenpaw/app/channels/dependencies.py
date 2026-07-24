@@ -30,6 +30,7 @@ from packaging.requirements import Requirement
 import psutil
 
 from ...constant import WORKING_DIR
+from ...config.config import load_agent_config
 from ...plugins.loader import (
     PluginLoader,
     _desktop_python,
@@ -288,6 +289,30 @@ def runtime_dependency_install_enabled() -> bool:
     }
 
 
+def enabled_builtin_channels(config: Any) -> set[str]:
+    """Return built-in Channels enabled by any enabled Agent."""
+    enabled: set[str] = set()
+    agents = getattr(config, "agents", None)
+    profiles = getattr(agents, "profiles", {}) if agents else {}
+    for agent_id, agent_ref in profiles.items():
+        if not getattr(agent_ref, "enabled", True):
+            continue
+        try:
+            channels = load_agent_config(agent_id).channels
+        except Exception:
+            logger.exception(
+                f"Could not inspect enabled Channels for Agent: {agent_id}",
+            )
+            continue
+        if channels is None:
+            continue
+        for channel in BUILTIN_CHANNEL_CATALOG:
+            channel_config = getattr(channels, channel, None)
+            if getattr(channel_config, "enabled", False):
+                enabled.add(channel)
+    return enabled
+
+
 @dataclass
 class InstallJob:
     id: str
@@ -330,8 +355,30 @@ class ChannelDependencyService:
         self._active_by_channel: dict[str, str] = {}
         self._lock = threading.Lock()
         self._persist_lock = threading.Lock()
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._shutting_down = threading.Event()
         self._state_dir = _channel_state_dir()
         self._load_jobs()
+
+    def begin_runtime(self) -> None:
+        """Allow background installations for a new application lifespan."""
+        self._shutting_down.clear()
+
+    def _track_task(self, task: asyncio.Task[Any]) -> None:
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    def _start_job_task(
+        self,
+        job: InstallJob,
+        *,
+        on_success: Callable[[], None] | None = None,
+    ) -> asyncio.Task[None]:
+        task = asyncio.create_task(
+            self._run_job(job, on_success=on_success),
+        )
+        self._track_task(task)
+        return task
 
     def _load_jobs(self) -> None:
         try:
@@ -448,6 +495,8 @@ class ChannelDependencyService:
         reinstall: bool = False,
         on_success: Callable[[], None] | None = None,
     ) -> InstallJob:
+        if self._shutting_down.is_set():
+            raise RuntimeError("Channel dependency service is shutting down")
         spec = BUILTIN_CHANNEL_CATALOG[channel]
         if not spec.platform_supported:
             raise ValueError("Channel is not supported on this platform")
@@ -478,8 +527,26 @@ class ChannelDependencyService:
             version_repair=False,
         )
         if created:
-            asyncio.create_task(self._run_job(job, on_success=on_success))
+            self._start_job_task(job, on_success=on_success)
         return job
+
+    def start_version_repair(
+        self,
+        enabled_channels: set[str],
+        *,
+        on_success: Callable[[], Awaitable[None]] | None = None,
+    ) -> asyncio.Task[list[InstallJob]]:
+        """Start and track automatic dependency version repair."""
+        if self._shutting_down.is_set():
+            raise RuntimeError("Channel dependency service is shutting down")
+        task = asyncio.create_task(
+            self.repair_version_mismatches(
+                enabled_channels,
+                on_success=on_success,
+            ),
+        )
+        self._track_task(task)
+        return task
 
     def _create_install_job(
         self,
@@ -491,10 +558,16 @@ class ChannelDependencyService:
         reinstall: bool,
         version_repair: bool,
     ) -> tuple[InstallJob, bool]:
+        if self._shutting_down.is_set():
+            raise RuntimeError("Channel dependency service is shutting down")
         with self._persist_lock, self._jobs_file_lock() as acquired:
             if not acquired:
                 raise RuntimeError(
                     "Timed out waiting for channel job state lock",
+                )
+            if self._shutting_down.is_set():
+                raise RuntimeError(
+                    "Channel dependency service is shutting down",
                 )
             jobs, changed = self._read_jobs_file()
             changed = self._mark_interrupted_jobs(jobs) or changed
@@ -532,6 +605,7 @@ class ChannelDependencyService:
 
     async def repair_version_mismatches(
         self,
+        enabled_channels: set[str],
         *,
         on_success: Callable[[], Awaitable[None]] | None = None,
     ) -> list[InstallJob]:
@@ -541,6 +615,10 @@ class ChannelDependencyService:
 
         repaired: list[InstallJob] = []
         for channel, spec in BUILTIN_CHANNEL_CATALOG.items():
+            if channel not in enabled_channels:
+                continue
+            if self._shutting_down.is_set():
+                break
             if not spec.platform_supported or not spec.extra:
                 continue
             try:
@@ -550,6 +628,16 @@ class ChannelDependencyService:
                 )
                 if not requirements:
                     continue
+                if self._shutting_down.is_set():
+                    break
+                target_python = (
+                    _desktop_python() if _is_frozen() else sys.executable
+                )
+                logger.info(
+                    f"Repairing Channel dependencies for {channel} using "
+                    f"{target_python or 'bundled desktop Python'}: "
+                    f"{', '.join(requirements)}",
+                )
                 job, created = await asyncio.to_thread(
                     self._create_install_job,
                     channel,
@@ -561,8 +649,8 @@ class ChannelDependencyService:
                 )
             except Exception:
                 logger.exception(
-                    "Could not schedule Channel dependency repair: %s",
-                    channel,
+                    f"Could not schedule Channel dependency repair: "
+                    f"{channel}",
                 )
                 continue
             if created:
@@ -570,7 +658,11 @@ class ChannelDependencyService:
                 repaired.append(job)
 
         succeeded = any(job.status == "succeeded" for job in repaired)
-        if on_success is not None and succeeded:
+        if (
+            on_success is not None
+            and succeeded
+            and not self._shutting_down.is_set()
+        ):
             try:
                 await on_success()
             except Exception:
@@ -588,16 +680,10 @@ class ChannelDependencyService:
             await asyncio.to_thread(self._install_locked, job)
             await asyncio.to_thread(self._raise_if_cancelled, job)
             await asyncio.to_thread(self._update_job, job, status="verifying")
-            if job.version_repair:
-                remaining = await asyncio.to_thread(
-                    self._verify_requirements,
-                    job.requirements,
-                )
-            else:
-                remaining = await asyncio.to_thread(
-                    self._verify_channel,
-                    job.channel,
-                )
+            remaining = await asyncio.to_thread(
+                self._verify_channel,
+                job.channel,
+            )
             await asyncio.to_thread(self._raise_if_cancelled, job)
             if remaining:
                 raise RuntimeError(
@@ -606,7 +692,7 @@ class ChannelDependencyService:
                 )
             await asyncio.to_thread(self._raise_if_cancelled, job)
             await asyncio.to_thread(self._update_job, job, status="succeeded")
-            if on_success is not None:
+            if on_success is not None and not self._shutting_down.is_set():
                 try:
                     on_success()
                 except Exception:
@@ -672,19 +758,6 @@ class ChannelDependencyService:
         except Exception as exc:
             return f"{type(exc).__name__}: {exc}"
         return None
-
-    @staticmethod
-    def _verify_requirements(requirements: list[str]) -> list[str]:
-        importlib.invalidate_caches()
-        _ensure_channel_site_on_path()
-        from .registry import clear_builtin_channel_cache
-
-        clear_builtin_channel_cache()
-        return [
-            raw
-            for raw in requirements
-            if not _is_requirement_satisfied(Requirement(raw))
-        ]
 
     @classmethod
     def _verify_channel(cls, channel: str) -> list[str]:
@@ -904,6 +977,32 @@ class ChannelDependencyService:
         cancel_path.parent.mkdir(parents=True, exist_ok=True)
         cancel_path.touch()
         return job
+
+    def _cancel_owned_jobs(self) -> None:
+        self._refresh_jobs_from_disk()
+        with self._lock:
+            jobs = [replace(job) for job in self._jobs.values()]
+        for job in jobs:
+            if job.status not in {"queued", "installing", "verifying"}:
+                continue
+            if job.owner_pid != os.getpid():
+                continue
+            cancel_path = self._cancel_path(job.id)
+            cancel_path.parent.mkdir(parents=True, exist_ok=True)
+            cancel_path.touch()
+
+    async def shutdown(self) -> None:
+        """Stop owned installations and wait for their cleanup."""
+        self._shutting_down.set()
+        await asyncio.to_thread(self._cancel_owned_jobs)
+        current = asyncio.current_task()
+        tasks = [
+            task
+            for task in self._background_tasks
+            if task is not current and not task.done()
+        ]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def _cancel_path(self, job_id: str) -> Path:
         return self._state_dir / "cancel" / job_id

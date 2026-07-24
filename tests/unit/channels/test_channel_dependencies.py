@@ -8,7 +8,9 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
 import tomllib
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from packaging.requirements import Requirement
@@ -25,6 +27,7 @@ from qwenpaw.app.channels.dependencies import (
     _requirement_state,
     _is_requirement_satisfied,
     _source_pyproject,
+    enabled_builtin_channels,
     missing_requirements,
     requirements_for_extra,
     version_mismatch_requirements,
@@ -381,6 +384,28 @@ def test_frozen_unversioned_bundled_package_is_satisfied_when_pinned():
     checked = plugin_check.call_args.args[0]
     assert checked.name == "lark-oapi"
     assert not checked.specifier
+
+
+def test_enabled_builtin_channels_uses_enabled_agent_profiles():
+    config = SimpleNamespace(
+        agents=SimpleNamespace(
+            profiles={
+                "enabled-agent": SimpleNamespace(enabled=True),
+                "disabled-agent": SimpleNamespace(enabled=False),
+            },
+        ),
+    )
+    channels = SimpleNamespace(
+        feishu=SimpleNamespace(enabled=True),
+        matrix=SimpleNamespace(enabled=False),
+    )
+    with patch(
+        "qwenpaw.app.channels.dependencies.load_agent_config",
+        return_value=SimpleNamespace(channels=channels),
+    ) as load_agent:
+        assert enabled_builtin_channels(config) == {"feishu"}
+
+    load_agent.assert_called_once_with("enabled-agent")
 
 
 def test_non_frozen_environment_does_not_read_channel_runtime(tmp_path):
@@ -1036,6 +1061,7 @@ async def test_automatic_repair_schedules_only_version_mismatches(tmp_path):
         ) as run_job,
     ):
         jobs = await service.repair_version_mismatches(
+            {"feishu"},
             on_success=callback,
         )
 
@@ -1045,6 +1071,17 @@ async def test_automatic_repair_schedules_only_version_mismatches(tmp_path):
     assert create_job.call_args.kwargs["version_repair"] is True
     run_job.assert_awaited_once_with(repaired)
     callback.assert_awaited_once_with()
+
+
+async def test_automatic_repair_ignores_disabled_channels(tmp_path):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    with patch(
+        "qwenpaw.app.channels.dependencies.version_mismatch_requirements",
+    ) as inspect_requirements:
+        assert await service.repair_version_mismatches(set()) == []
+
+    inspect_requirements.assert_not_called()
 
 
 async def test_automatic_repair_continues_after_inspection_failure(tmp_path):
@@ -1084,7 +1121,9 @@ async def test_automatic_repair_continues_after_inspection_failure(tmp_path):
             new=AsyncMock(side_effect=complete_job),
         ),
     ):
-        jobs = await service.repair_version_mismatches()
+        jobs = await service.repair_version_mismatches(
+            {"feishu", "matrix"},
+        )
 
     assert jobs == [repaired]
     assert create_job.call_args.args[0] == "matrix"
@@ -1141,7 +1180,9 @@ async def test_automatic_repairs_run_sequentially(tmp_path):
             new=AsyncMock(side_effect=complete_job),
         ),
     ):
-        repaired = await service.repair_version_mismatches()
+        repaired = await service.repair_version_mismatches(
+            {"feishu", "matrix"},
+        )
 
     assert repaired == [jobs["feishu"], jobs["matrix"]]
 
@@ -1159,7 +1200,7 @@ async def test_automatic_repair_respects_runtime_install_setting(tmp_path):
             "version_mismatch_requirements",
         ) as inspect_requirements,
     ):
-        assert await service.repair_version_mismatches() == []
+        assert await service.repair_version_mismatches({"feishu"}) == []
 
     inspect_requirements.assert_not_called()
 
@@ -1224,12 +1265,15 @@ async def test_failed_automatic_repairs_do_not_trigger_reload(tmp_path):
         ),
         patch.object(service, "_run_job", side_effect=fail_job),
     ):
-        await service.repair_version_mismatches(on_success=callback)
+        await service.repair_version_mismatches(
+            {"feishu"},
+            on_success=callback,
+        )
 
     callback.assert_not_called()
 
 
-async def test_version_repair_verifies_only_task_requirements(tmp_path):
+async def test_version_repair_verifies_channel_import(tmp_path):
     with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
         service = ChannelDependencyService()
     job = InstallJob(
@@ -1243,16 +1287,72 @@ async def test_version_repair_verifies_only_task_requirements(tmp_path):
         patch.object(service, "_install_locked"),
         patch.object(
             service,
-            "_verify_requirements",
+            "_verify_channel",
             return_value=[],
-        ) as verify,
-        patch.object(service, "_verify_channel") as verify_channel,
+        ) as verify_channel,
     ):
         await service._run_job(job)  # pylint: disable=protected-access
 
     assert job.status == "succeeded"
-    verify.assert_called_once_with(job.requirements)
-    verify_channel.assert_not_called()
+    verify_channel.assert_called_once_with("feishu")
+
+
+async def test_version_repair_import_failure_does_not_reload(tmp_path):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    job = InstallJob(
+        id="repair-import-failure",
+        channel="feishu",
+        requirements=["lark-oapi==1.7.1"],
+        version_repair=True,
+    )
+    callback = MagicMock()
+
+    with (
+        patch.object(service, "_install_locked"),
+        patch.object(
+            service,
+            "_verify_channel",
+            side_effect=RuntimeError("Channel failed to load"),
+        ),
+    ):
+        await service._run_job(  # pylint: disable=protected-access
+            job,
+            on_success=callback,
+        )
+
+    assert job.status == "failed"
+    callback.assert_not_called()
+
+
+async def test_shutdown_cancels_and_waits_for_active_install(tmp_path):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    requirements = ["lark-oapi==1.7.1"]
+    started = threading.Event()
+    stopped = threading.Event()
+
+    def install(current_job):
+        started.set()
+        while not service._is_cancel_requested(current_job):
+            time.sleep(0.01)
+        stopped.set()
+        raise RuntimeError("Dependency installation was stopped by user")
+
+    with (
+        patch(
+            "qwenpaw.app.channels.dependencies.missing_requirements",
+            return_value=requirements,
+        ),
+        patch.object(service, "_install_locked", side_effect=install),
+    ):
+        job = await service.start_install("feishu")
+        await asyncio.to_thread(started.wait, 1)
+        await asyncio.wait_for(service.shutdown(), timeout=2)
+
+    assert stopped.is_set()
+    assert job.status == "failed"
+    assert not service._background_tasks
 
 
 async def test_install_state_persistence_does_not_block_event_loop(tmp_path):
