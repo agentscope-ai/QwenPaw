@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING
 from agentscope.message import Msg
 
 from .serialize import msg_to_entries
+from ....config.history_path import resolve_history_db_path
 
 if TYPE_CHECKING:
     from .history import HistoryStore
@@ -545,7 +546,10 @@ def _sync_all_scroll_agents() -> None:
                     pending,
                 )
 
-        db_path = workspace_dir / lcc.scroll_config.db_filename
+        db_path = resolve_history_db_path(
+            workspace_dir,
+            lcc.scroll_config.db_filename,
+        )
         retention_days = lcc.scroll_config.history_retention_days
         history = HistoryStore(db_path)
         try:

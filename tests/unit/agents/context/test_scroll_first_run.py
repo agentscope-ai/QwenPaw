@@ -163,3 +163,26 @@ def test_wiring_failure_closes_history_store(tmp_path: Path, monkeypatch):
     assert _build(tmp_path) is None
     assert len(histories) == 1
     assert histories[0].closed is True
+
+
+def test_invalid_history_path_falls_back_without_writing_outside_workspace(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    lcc = LightContextConfig()
+    lcc.scroll_config.db_filename = "../outside.db"
+    agent_config = SimpleNamespace(
+        running=SimpleNamespace(light_context_config=lcc),
+    )
+
+    components = build_scroll_components(
+        agent_config=agent_config,
+        workspace_dir=str(workspace),
+        model=_DummyModel(),
+        session_id="s1",
+        agent_id="ag1",
+    )
+
+    assert components is None
+    assert not (tmp_path / "outside.db").exists()
