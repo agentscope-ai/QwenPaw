@@ -11,12 +11,13 @@ import { i18n, LANG_KEY, type Lang } from "@/i18n";
 function getInitialLang(): Lang {
   const params = new URLSearchParams(window.location.search);
   const urlLang = params.get("lang");
-  if (urlLang === "en" || urlLang === "zh") {
+  if (urlLang === "en" || urlLang === "zh" || urlLang === "zh-TW") {
     localStorage.setItem(LANG_KEY, urlLang);
     return urlLang;
   }
   const v = localStorage.getItem(LANG_KEY);
-  return v === "zh" ? "zh" : "en";
+  if (v === "zh" || v === "zh-TW") return v;
+  return "en";
 }
 
 export type SiteLanguageContextValue = {
@@ -33,12 +34,14 @@ export function SiteLanguageProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void i18n.changeLanguage(lang);
-    document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+    document.documentElement.lang =
+      lang === "zh" ? "zh-CN" : lang === "zh-TW" ? "zh-TW" : "en";
   }, [lang]);
 
   const toggleLang = useCallback(() => {
     setLang((prev) => {
-      const next: Lang = prev === "zh" ? "en" : "zh";
+      const next: Lang =
+        prev === "en" ? "zh" : prev === "zh" ? "zh-TW" : "en";
       localStorage.setItem(LANG_KEY, next);
       return next;
     });

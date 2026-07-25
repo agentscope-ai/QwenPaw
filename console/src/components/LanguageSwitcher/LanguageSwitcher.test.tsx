@@ -55,10 +55,11 @@ describe("LanguageSwitcher", () => {
     expect(screen.getByRole("button")).toBeInTheDocument();
   });
 
-  it("shows 4 language options", () => {
+  it("shows language options", () => {
     renderWithProviders(<LanguageSwitcher />);
     expect(screen.getByText("English")).toBeInTheDocument();
     expect(screen.getByText("简体中文")).toBeInTheDocument();
+    expect(screen.getByText("繁體中文")).toBeInTheDocument();
     expect(screen.getByText("日本語")).toBeInTheDocument();
     expect(screen.getByText("Русский")).toBeInTheDocument();
   });
@@ -68,6 +69,13 @@ describe("LanguageSwitcher", () => {
     renderWithProviders(<LanguageSwitcher />);
     await user.click(screen.getByText("简体中文"));
     expect(mockChangeLanguage).toHaveBeenCalledWith("zh");
+  });
+
+  it("calls i18n.changeLanguage with zh-TW when Traditional Chinese is clicked", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<LanguageSwitcher />);
+    await user.click(screen.getByText("繁體中文"));
+    expect(mockChangeLanguage).toHaveBeenCalledWith("zh-TW");
   });
 
   it("writes selected language to localStorage", async () => {

@@ -20,6 +20,7 @@ interface LanguageConfig {
 export const LANGUAGE_LIST: LanguageConfig[] = [
   { key: "en", label: "English", icon: <SparkEnglish02Line /> },
   { key: "zh", label: "简体中文", icon: <SparkChinese02Line /> },
+  { key: "zh-TW", label: "繁體中文", icon: <SparkChinese02Line /> },
   { key: "ja", label: "日本語", icon: <SparkJapanLine /> },
   { key: "ru", label: "Русский", icon: <SparkRusLine /> },
   { key: "pt-BR", label: "Português (Brasil)", icon: <SparkPtLine /> },

@@ -1,0 +1,529 @@
+{
+  "nav": {
+    "docs": "文件",
+    "blog": "部落格",
+    "more": "更多",
+    "releaseNotes": "更新日誌",
+    "qwenpaw": "Qwenpaw",
+    "download": "下載",
+    "github": "GitHub",
+    "githubComingSoon": "Coming Soon",
+    "lang": "ENG",
+    "platform": "Platform",
+    "platformTitle": "AgentScope 體驗平臺",
+    "agentscopeTeam": "AgentScope",
+    "communityBenefits": "社群福利",
+    "communityBenefitsNew": "NEW",
+    "benefit1Title": "百鍊新客免費 1 億 token",
+    "benefit1Desc": "點選查詢我的免費額度",
+    "benefit2Title": "無門檻 Token 滿返補貼",
+    "benefit2Desc": "個企同享新老同享，最高 200 元",
+    "benefit3Title": "最高 100 萬元等額 Token",
+    "benefit3Desc": "OPC 創新助力，補貼權益升級",
+    "benefit4Title": "高校學生創新補貼",
+    "benefit4Desc": "50 元模型通兌，分享贏 iphone17"
+  },
+  "hero": {
+    "titleleft": "歡迎使用你的",
+    "titleright": "專業AI助手",
+    "slogan": "懂你所需，伴你左右",
+    "sub": "{{version}} 五大方面能力升級：",
+    "sub1": "為 QwenPaw 量身定製的 Agent OS, TUI, 迴圈工程, 滾動上下文, 新版 ReMe",
+    "releaseNote": "QwenPaw {{version}}版本全新發布",
+    "cta": "檢視文件",
+    "quickStart": "快速開始",
+    "quickTry": "快速體驗"
+  },
+  "follow": {
+    "title": "關注我們",
+    "sub": "第一時間獲取 QwenPaw 最新動態",
+    "xiaohongshu": "小紅書：",
+    "x": "X："
+  },
+  "channels": {
+    "titleWe": "使用",
+    "titleEverything": "全域互聯",
+    "sub": "內建 10+ 個頻道，更多即將上線"
+  },
+  "finalCta": {
+    "titleBefore": "歡迎使用",
+    "titleEmphasis": "QwenPaw",
+    "titleAfter": "，",
+    "titleLine2": "懂你所需，伴你左右",
+    "downloadFromGithub": "前往 GitHub 下載"
+  },
+  "whyQwenpaw": {
+    "headingPrefix": "Why",
+    "headingEmphasis": "QwenPaw?",
+    "sub": "安裝簡單，可部署在本機或雲端；\n支援多種 IM 應用；能力可輕鬆擴充套件。",
+    "heroLine": "QwenPaw 既是 Qwen Personal Agent Workstation（千問個人智慧體工作臺），也寓意 Qwen 的智識，Paw 的溫度。",
+    "secondPrefix": "我們希望它不是冰冷的工具，而是一隻隨時準備幫忙的智慧、溫暖“小爪子”，是你數字生活中最默契的夥伴。"
+  },
+  "worksForYou": {
+    "title": "懂你所需，伴你左右",
+    "sub": "記憶與個性化由你掌控。",
+    "learnMore": "瞭解更多",
+    "cards": {
+      "agentOs": {
+        "title": "Agent OS",
+        "desc": "QwenPaw 2.0 以類作業系統的 Harness 架構連線模型與應用，將 Agent 從獨立應用升級為開放的智慧基座。未來還將持續推出面向不同場景的 QwenPaw 小程式與輕量應用。"
+      },
+      "tui": {
+        "title": "終端互動",
+        "desc": "基於 Textual 打造全屏終端聊天體驗，支援流式輸出、工具呼叫渲染與會話管理，並與控制檯及各頻道共享會話和記憶。"
+      },
+      "scrollContext": {
+        "title": "滾動上下文",
+        "desc": "每輪對話實時寫入 SQLite。視窗滿時透過索引驅逐騰出空間，不摘要、不丟棄原文；歷史內容可隨時按需回溯，確保上下文資訊完整保留。"
+      },
+      "loopEngineering": {
+        "title": "迴圈工程",
+        "desc": "Agent 執行邏輯從硬編碼走向可編排：當前可透過外掛介面靈活組合流程，未來還將以 “Oh-My-Paw” 官方外掛持續提供更多迴圈控制方案，讓同一個 Agent 按場景切換行為模式。"
+      }
+    }
+  },
+  "clientVoices": {
+    "title": "聆聽來自我們社群的使用者之聲",
+    "sub": "來自真實 QwenPaw 使用者的反饋",
+    "items": {
+      "t1": {
+        "text": "QwenPaw 是一個真正開箱即用的通用型 AI Agent 框架。隨著底層能力持續迭代，我們自研的業務智慧體也能實現智慧躍遷，顯著降低長期維護成本與技術負擔。",
+        "role": "阿里雲開發工程師"
+      },
+      "t2": {
+        "text": "阿里通義這次出手很穩。QwenPaw 強化了本地+雲端雙模部署，這在當前隱私敏感和算力需求並存的環境下非常實用。開源策略也顯示出阿里在 AI 生態佈局上的開放態度。",
+        "role": "開發者"
+      },
+      "t3": {
+        "text": "很棒，使用非常順手，搭配千問模型響應也很快。建議考慮在嵌入式裝置上使用，以降低資源消耗。",
+        "role": "獨立開發者"
+      },
+      "t4": {
+        "text": "程式碼看起來很乾淨、也很好理解。作為開發者我很想進一步玩一玩。",
+        "role": "開發者"
+      },
+      "t5": {
+        "text": "無需重啟即可熱切換 MCP 是 Agent 工作流裡最亮眼的能力。你可以在同一會話中擴充套件 QwenPaw 的工具集，不打斷上下文、也沒有重啟成本；Skill Hub + Claw Hub 的整合會讓生態增長更快。",
+        "role": "開發者"
+      },
+      "t6": {
+        "text": "通義實驗室的 QwenPaw 開源專案真的很棒！看到大家在使用過程中既有成功的喜悅，也有整理桌面變刪除檔案的有趣經歷。開源 AI Agent 框架對於推動整個行業的發展非常重要，期待看到更多基於 QwenPaw 的創新應用。",
+        "role": "開發者"
+      }
+    }
+  },
+  "features": {
+    "title": "核心能力",
+    "channels": {
+      "title": "全域觸達",
+      "desc": "支援釘釘、飛書、QQ、Discord、iMessage 等頻道，一個 QwenPaw 按需連線。"
+    },
+    "private": {
+      "title": "由你掌控",
+      "desc": "記憶與個性化由你掌控，本地或雲端均可；定時與協作發往指定頻道。"
+    },
+    "skills": {
+      "title": "Skills 擴充套件",
+      "desc": "內建定時任務，自定義技能目錄，QwenPaw 自動載入。"
+    }
+  },
+  "testimonials": {
+    "title": "社群怎麼說",
+    "viewAll": "檢視全部",
+    "1": "QwenPaw 就該這樣：多頻道一個入口，Python 好改好部署。",
+    "2": "定時和心跳很實用，Skills 自己加，資料都在本地。",
+    "3": "想完全掌控的團隊用著很順手。"
+  },
+  "usecases": {
+    "title": "QwenPaw可以為你做些什麼",
+    "sub": "記憶配置與個性化設定，由你掌控。",
+    "categories": {
+      "social": {
+        "title": "社交媒體",
+        "description": "QwenPaw 幫你追蹤社交動態：根據你的興趣，彙總熱門帖子、新影片和賬號規律。"
+      },
+      "creative": {
+        "title": "創意與構建",
+        "description": "QwenPaw 可以全天候在您的裝置上執行，幫助您實現想法，並支援從創意構思到實現的整個內容創作過程。"
+      },
+      "productivity": {
+        "title": "生產力",
+        "description": "QwenPaw 提升生產力：彙總更新、整理聯絡人、分析個人日誌，發現有用規律。"
+      },
+      "research": {
+        "title": "研究與學習",
+        "description": "QwenPaw 幫助您追蹤重要的企業動態，並支援建立您的個人通用知識庫，以便日常輕鬆檢索和重複使用。"
+      }
+    }
+  },
+  "quickstart": {
+    "title": "快速開始",
+    "heroTitle": "自己動手，輕鬆搞定。",
+    "heroSub": "幾分鐘，獲得專屬 AI 助理。一行命令，或雙擊桌面應用",
+    "serviceNotice": "幾分鐘，獲得專屬AI助理。一行命令，或雙擊桌面應用，自己動手，輕鬆搞定。",
+    "hintBefore": "安裝 → 初始化 → 啟動；頻道配置見 ",
+    "hintLink": "文件",
+    "hintAfter": "，即可透過釘釘、飛書、QQ 等頻道使用 QwenPaw。",
+    "method": {
+      "pip": "pip",
+      "script": "指令碼安裝",
+      "docker": "Docker",
+      "cloud": "雲部署",
+      "desktop": "桌面應用"
+    },
+    "desc": {
+      "pip": "如果你更喜歡自行管理 Python 環境，我們推薦使用 pip 安裝：",
+      "script": "無需預先配置 Python，一條命令即可完成全部安裝。",
+      "docker": "使用官方 Docker 映象快速部署：環境隔離、易於管理。",
+      "cloud": "一鍵雲端部署或線上執行，無需本地環境準備。",
+      "desktop": "獨立打包的桌面應用，內建 Python 環境、全部依賴與前端資源；雙擊執行，無需命令列，也無需預裝任何工具。"
+    },
+    "platform": {
+      "mac": "macOS / Linux",
+      "windows": "Windows"
+    },
+    "shell": {
+      "cmd": "CMD",
+      "ps": "PowerShell"
+    },
+    "docker": {
+      "hub": "Docker Hub"
+    },
+    "cloud": {
+      "agentscope": "AgentScope 體驗平臺",
+      "aliyun": "阿里雲",
+      "modelscope": "魔搭",
+      "agentscopeGo": "前往 AgentScope 體驗平臺",
+      "aliyunDeploy": "前往阿里雲一鍵部署",
+      "aliyunDoc": "檢視說明文件",
+      "modelscopeGo": "前往魔搭創空間"
+    },
+    "desktop": {
+      "platforms": "支援平臺",
+      "viewDownloads": "檢視下載頁",
+      "downloadGithub": "前往 GitHub 下載",
+      "viewGuide": "檢視使用指南",
+      "recommended": "推薦"
+    },
+    "badgeBeta": "Beta"
+  },
+  "contributors": {
+    "titlePrefix": "感謝每一位",
+    "titleHighlight": "貢獻者",
+    "sub": "QwenPaw 的每一行程式碼、每一個 PR，都凝聚著社群成員的熱愛與投入。",
+    "prev": "上一頁貢獻者",
+    "next": "下一頁貢獻者",
+    "noteLine1Prefix": "貢獻者列表按 GitHub ID 字母順序排列，如對名單有任何疑問，歡迎",
+    "contactUs": "聯絡我們",
+    "noteLine1Suffix": "。",
+    "noteLine2Prefix": "資料來源於"
+  },
+  "footer": {
+    "text": "QwenPaw — 懂你所需，伴你左右",
+    "sections": {
+      "builtBy": "生態",
+      "resources": "資源",
+      "terms": "條款"
+    },
+    "links": {
+      "docs": "文件",
+      "blog": "部落格",
+      "changelog": "更新日誌",
+      "termsOfService": "服務條款",
+      "privacyPolicy": "隱私政策"
+    },
+    "social": {
+      "x": "X",
+      "github": "GitHub",
+      "discord": "Discord",
+      "dingtalk": "釘釘",
+      "xiaohongshu": "小紅書",
+      "wechat": "微信公眾號",
+      "douyin": "抖音"
+    },
+    "copyright": "© 2026 Qwenpaw PRIVATE LIMITED，保留所有權利。",
+    "poweredBy": {
+      "p1": "由 ",
+      "p2": " 基於 ",
+      "p3": "、",
+      "p3b": " 與 ",
+      "p4": " 打造。",
+      "team": "AgentScope 團隊",
+      "agentscope": "AgentScope",
+      "runtime": "AgentScope Runtime",
+      "reme": "ReMe"
+    },
+    "inspiredBy": {
+      "text": "部分靈感來源於 ",
+      "name": "OpenClaw"
+    },
+    "thanksSkills": {
+      "text": "感謝 ",
+      "name": "anthropics/skills",
+      "suffix": " 提供 Agent Skills 規範與示例。"
+    }
+  },
+  "blog": {
+    "breadcrumbHome": "首頁",
+    "breadcrumbCurrent": "部落格",
+    "title": "QwenPaw 團隊的部落格",
+    "subtitle": "來自 QwenPaw 的最新動態、深度解析和使用者故事。",
+    "latestUpdate": "最近更新 {{date}}",
+    "totalPosts": "共 {{count}} 篇",
+    "readTime": "閱讀時間 {{minutes}} 分鐘",
+    "sessionCount": "共 {{count}} 場開發者日會",
+    "backToList": "返回部落格列表",
+    "notFound": "文章未找到",
+    "empty": "暫無部落格文章",
+    "views": "{{count}} 次閱讀",
+    "viewsLabel": "閱讀量",
+    "likes": "{{count}}",
+    "like": "點贊",
+    "unlike": "取消點贊"
+  },
+  "docs": {
+    "intro": "專案介紹",
+    "quickstart": "快速開始",
+    "desktop": "桌面應用",
+    "demo": "功能演示",
+    "console": "控制檯",
+    "tui": "終端介面",
+    "multiAgent": "多智慧體",
+    "models": "模型",
+    "channels": "頻道配置",
+    "skills": "Skills",
+    "mcp": "MCP 與內建工具",
+    "acpServer": "ACP 整合",
+    "memory": "記憶",
+    "memoryEvolvingAndProactive": "記憶進化與主動互動",
+    "codingMode": "Coding 模式",
+    "context": "上下文",
+    "loopEngineering": "迴圈工程",
+    "commands": "魔法命令",
+    "cron": "定時任務",
+    "heartbeat": "心跳",
+    "config": "配置與工作目錄",
+    "security": "安全",
+    "backup": "備份與恢復",
+    "cli": "CLI",
+    "plugins": "外掛系統",
+    "pluginsMigration": "外掛遷移指南",
+    "architecture": "架構設計",
+    "faq": "常見問題",
+    "apiTutorial": "RESTful API 介面",
+    "community": "問題反饋與交流",
+    "contributing": "開源與貢獻",
+    "roadmap": "路線圖",
+    "practiceAgentTeam": "Agent Team 實踐",
+    "groupWelcome": "歡迎",
+    "groupControl": "控制",
+    "groupAgent": "智慧體",
+    "groupSettings": "設定",
+    "groupPractice": "實踐",
+    "groupOthers": "其他",
+    "toggleSidebar": "切換側邊欄",
+    "closeSidebar": "關閉側邊欄",
+    "onThisPage": "本頁目錄",
+    "videoNotSupported": "您的瀏覽器不支援 video 標籤。",
+    "demoTitle": "功能演示",
+    "demoVideos": {
+      "skill": "/skills：智慧體技能的按需呼叫",
+      "doctor": "QwenPaw Doctor：一鍵全面系統診斷",
+      "missionMode": "QwenPaw 任務模式：複雜任務的自主執行",
+      "autoContinue": "純文字步驟自動續跑功能介紹"
+    },
+    "textVersion": "檢視文字版文件",
+    "backToTop": "返回頂部",
+    "copy": "複製",
+    "copied": "已複製",
+    "searchPlaceholder": "搜尋文件",
+    "searchLoading": "載入中…",
+    "searchNoResults": "無結果",
+    "searchResultsTitle": "搜尋結果",
+    "searchResultsTitleEmpty": "搜尋文件",
+    "searchHint": "在左側輸入關鍵詞後按回車搜尋。",
+    "agentPersona": "智慧體的人設"
+  },
+  "homeFaq": {
+    "title": "常見問題",
+    "sub": "記憶與個性化由你掌控。",
+    "intro": "這裡彙總了上手、配置與排障中最常見的問題與解答。",
+    "categories": {
+      "quickStart": "快速開始",
+      "features": "功能",
+      "troubleshooting": "故障排查"
+    },
+    "quickStart": {
+      "install": {
+        "q": "如何安裝 QwenPaw",
+        "p1": "QwenPaw 支援多種安裝方式，包括：",
+        "li1": "桌面應用（Beta）：下載並執行桌面 App，無需命令列，適合不熟悉終端的使用者。",
+        "li2": "指令碼安裝：在本機執行，無需手動配置 Python 環境。",
+        "li3": "pip 安裝：如果你希望自行管理 Python 環境。",
+        "li4": "Docker：使用 Docker Hub 官方映象（中國使用者也可使用 ACR）。",
+        "li5": "ModelScope Studio：雲端一鍵部署，無需本地安裝。",
+        "li6": "阿里雲 ECS：阿里雲一鍵部署，無需本地安裝。",
+        "ctaPrefix": "詳細步驟見",
+        "ctaLink": "Quick Start",
+        "ctaSuffix": "。"
+      },
+      "update": {
+        "q": "如何更新 QwenPaw",
+        "p1": "更新 QwenPaw 請使用與你安裝方式匹配的方法：",
+        "li1": "若透過一行指令碼安裝，重新執行安裝指令碼即可升級。",
+        "li2Prefix": "若透過 pip 安裝，執行：",
+        "li3": "若從原始碼安裝，拉取最新程式碼並重新安裝。",
+        "li4": "若使用 Docker，拉取最新映象並重啟容器。",
+        "li5Prefix": "若使用 Windows 桌面應用（exe），目前需要解除安裝後重灌：",
+        "li5a": "從電腦中解除安裝 QwenPaw。",
+        "li5bPrefix": "從以下地址下載最新版本：",
+        "li5bLink": "GitHub Releases",
+        "li5bSuffix": "。",
+        "li5c": "重新安裝。",
+        "p2": "原 CoPaw 使用者升級 QwenPaw，下載最新的 QwenPaw 即可，無需做額外適配即可繼續使用 CoPaw 時期的所有配置、記憶、技能等。"
+      },
+      "initialize": {
+        "q": "如何初始化並啟動 QwenPaw 服務",
+        "p1": "推薦快速初始化：",
+        "p2": "啟動服務：",
+        "p3Prefix": "預設 Console 地址為",
+        "p3Suffix": "。完成快速初始化後，你可以開啟 Console 並自定義設定。"
+      },
+      "upgrade": {
+        "q": "在哪裡檢視最新版本更新內容",
+        "p1": "你可以在 Console 的 Change Log 區域檢視版本變更，或前往 QwenPaw 的",
+        "link": "GitHub Releases",
+        "p2": "頁面檢視。"
+      }
+    },
+    "features": {
+      "jobs": {
+        "q": "如何管理定時任務（Cron Jobs）",
+        "a": "建立定時任務最簡單的方法是在你的目標頻道里直接讓 QwenPaw 建立。例如：Create a scheduled task that reminds me to drink water every five minutes. 你也可以在 Console → Control → Cron Jobs 中手動建立與管理。"
+      },
+      "models": {
+        "q": "如何配置模型",
+        "p1Prefix": "在 Console 中進入",
+        "p1Strong": "Settings → Models",
+        "p1Mid": "進行配置。更多細節見",
+        "modelsLink": "Models",
+        "p1Suffix": "文件：",
+        "li1": "雲端模型：填寫供應商 API Key（例如 ModelScope、DashScope 或自定義供應商）。",
+        "li2Prefix": "本地模型：支援",
+        "li2Suffix": "以及 Ollama。",
+        "p2": "配置完成後，在 Models 頁面頂部的 Default LLM 選擇目標供應商與模型並儲存，即成為全域性預設模型。",
+        "p3": "若希望為不同 Agent 使用不同模型，可在 Console 左上角切換 Agent，然後在 Chat 頁右上角為該 Agent 選擇模型。",
+        "p4Prefix": "你也可以使用",
+        "p4Mid": "進行配置、下載與切換。詳見",
+        "cliLink": "CLI → Models and environment variables → qwenpaw models",
+        "p4Suffix": "。"
+      },
+      "skills": {
+        "q": "如何管理 Skills",
+        "p1Prefix": "在 Console 中進入",
+        "p1Strong": "Agent → Skills",
+        "p1Mid": "，你可以啟用/禁用 Skills、建立自定義 Skills，並從 Skills Hub 匯入。詳見",
+        "link": "Skills",
+        "p1Suffix": "文件。"
+      },
+      "mcp": {
+        "q": "如何配置 MCP",
+        "p1Prefix": "在 Console 中進入",
+        "p1Strong": "Agent → MCP",
+        "p1Mid": "，你可以在這裡啟用/禁用/刪除/建立 MCP clients。詳見",
+        "link": "MCP",
+        "p1Suffix": "文件。"
+      }
+    },
+    "troubleshooting": {
+      "error401": {
+        "q": "遇到 401 錯誤碼怎麼辦",
+        "p1": "如果你遇到如下錯誤：",
+        "err": "Error code: 401 - {'error': {'message': \"You didn't provide an API key. You need to provide your API key in an Authorization header using Bearer auth (i.e. Authorization: Bearer YOUR_KEY).\"}}",
+        "p2": "通常由以下原因導致：",
+        "li1": "未配置 API key。請獲取 API key 並在 Console → Settings → Models 中配置。",
+        "li2Prefix": "已配置 API key 但仍鑑權失敗。多數情況下是某個配置欄位不正確，請檢查：",
+        "li2a": "Base URL——確認填寫正確。",
+        "li2b": "API key——確認完整複製且無多餘空格。",
+        "li2c": "Model name——確認與供應商提供值完全一致（區分大小寫）。"
+      },
+      "localModels": {
+        "q": "本地模型故障排查",
+        "p1": "大多數情況下這不是 QwenPaw 的 bug，根因通常是模型的上下文長度（context length）配置過小。",
+        "p2": "當你用 Ollama 或 LM Studio 部署本地模型時，如果 context length 太低，QwenPaw 可能出現：",
+        "li1": "多輪對話難以穩定持續",
+        "li2": "複雜工具呼叫時丟失上下文",
+        "li3": "忘記較早輪次的指令",
+        "li4": "長任務互動中逐漸偏離目標",
+        "fixTitle": "如何修復：",
+        "fix1": "執行 QwenPaw 前，把模型的 context length 設為至少 32K。",
+        "fix2": "更復雜的任務、更頻繁的工具呼叫或更長對話，可能需要高於 32K 的值。"
+      },
+      "cron": {
+        "q": "定時任務（Cron Jobs）故障排查",
+        "p1": "如果定時任務沒有按預期執行，可以按以下步驟排查：",
+        "s1": "確認 QwenPaw 服務正在執行。",
+        "s2": "在 Console 中進入 Control → Cron Jobs，確認任務 Status 為 Enabled。",
+        "s3": "在同頁確認 Dispatch Channel 選擇了目標頻道（例如 Console、釘釘、飛書、Discord、iMessage）。",
+        "s4": "確認 Dispatch Target User ID 與 Dispatch Target Session ID 配置正確。",
+        "s5": "在 Console 中進入 Control → Sessions，找到建立任務時使用的 session；其中的 User ID 與 Session ID 必須與任務的 Dispatch Target User ID / Dispatch Target Session ID 一致，回覆才會出現在該會話中。",
+        "s6": "如果執行時間不對，回到 Control → Cron Jobs 檢查 Schedule（Cron）表示式。",
+        "s7": "手動測試可在 Cron Jobs 頁面點選 Execute Now；成功後回覆會出現在目標頻道。也可以直接問 QwenPaw：\"Trigger the 'drink water reminder' task I just created.\""
+      },
+      "help": {
+        "q": "需要幫助怎麼辦",
+        "p1": "如果你需要幫助，可以：",
+        "s1Prefix": "加入我們的",
+        "s1Mid": "或",
+        "s1Suffix": "群組提問。",
+        "dingtalk": "釘釘",
+        "discord": "Discord",
+        "s2Prefix": "在",
+        "githubIssues": "QwenPaw GitHub",
+        "s2Mid": "提交 issue，並附上完整錯誤資訊、錯誤詳情檔案（例如",
+        "s2Suffix": "）、你的模型供應商、模型名稱和 QwenPaw 版本。"
+      }
+    }
+  },
+  "downloads": {
+    "title": "下載資源",
+    "subtitle": "獲取 QwenPaw 的各種安裝包和工具",
+    "loading": "載入中...",
+    "emptyTitle": "暫無可下載內容",
+    "emptyDesc": "桌面應用正在構建中，請稍後再來檢視。",
+    "emptyCta": "檢視其他安裝方式",
+    "tabNavLabel": "下載分類",
+    "desktopTitle": "桌面應用",
+    "desktopDesc": "獨立打包的桌面應用，內建完整 Python 環境和所有依賴。雙擊即用，無需命令列。",
+    "recommended": "推薦",
+    "selectVersion": "選擇版本",
+    "latest": "最新",
+    "download": "下載",
+    "version": "版本",
+    "size": "大小",
+    "updated": "更新時間",
+    "otherMethodsTitle": "其他安裝方式",
+    "otherMethodsDesc": "根據您的需求選擇合適的安裝方式",
+    "pip": "pip",
+    "pipDesc": "使用 pip 安裝到現有 Python 環境",
+    "script": "指令碼安裝",
+    "scriptDesc": "一鍵安裝指令碼，自動配置環境",
+    "docker": "Docker",
+    "dockerDesc": "使用 Docker 映象快速部署",
+    "cloud": "雲部署",
+    "cloudDesc": "阿里雲、魔搭等雲平臺一鍵部署",
+    "verifyTitle": "驗證下載",
+    "verifyDesc": "下載桌面應用後，請使用 SHA256 校驗和驗證檔案完整性。",
+    "helpTitle": "需要幫助？",
+    "helpPrefix": "檢視",
+    "helpLink": "安裝嚮導",
+    "helpSuffix": "瞭解詳細的安裝步驟和配置說明。",
+    "pluginsTitle": "外掛",
+    "pluginsDesc": "QwenPaw 倉庫中已釋出的 Bundle 與 Tool 外掛。下載 zip 包後可在本地安裝。",
+    "downloadZip": "下載 zip"
+  },
+  "releaseNotes": {
+    "title": "更新日誌",
+    "noReleases": "暫無更新日誌"
+  }
+}
