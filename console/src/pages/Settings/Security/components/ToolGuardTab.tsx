@@ -1,4 +1,11 @@
-import { Form, Switch, Button, Card, Select } from "@agentscope-ai/design";
+import {
+  Form,
+  Switch,
+  Button,
+  Card,
+  Select,
+  Alert,
+} from "@agentscope-ai/design";
 import { PlusCircleOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { MergedRule } from "../useToolGuard";
@@ -12,6 +19,10 @@ interface ToolGuardTabProps {
   config: ToolGuardConfig | null;
   enabled: boolean;
   setEnabled: (val: boolean) => void;
+  sandboxEnabled: boolean;
+  setSandboxEnabled: (val: boolean) => void;
+  sandboxEffective: boolean;
+  sandboxReason: string | null;
   toolOptions: { label: string; value: string }[];
   mergedRules: MergedRule[];
   toggleRule: (ruleId: string, currentlyDisabled: boolean) => void;
@@ -29,6 +40,10 @@ export function ToolGuardTab({
   config,
   enabled,
   setEnabled,
+  sandboxEnabled,
+  setSandboxEnabled,
+  sandboxEffective,
+  sandboxReason,
   toolOptions,
   mergedRules,
   toggleRule,
@@ -68,6 +83,25 @@ export function ToolGuardTab({
             >
               <Switch onChange={(val) => setEnabled(val)} />
             </Form.Item>
+            <Form.Item
+              label={t("security.sandboxEnabled")}
+              tooltip={t("security.sandboxEnabledTooltip")}
+            >
+              <Switch
+                checked={sandboxEnabled}
+                onChange={(val) => setSandboxEnabled(val)}
+              />
+            </Form.Item>
+            {sandboxEnabled &&
+              !sandboxEffective &&
+              sandboxReason === "not_admin" && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                  message={t("security.sandboxDegradedWarning")}
+                />
+              )}
             <div className={styles.toolGuardRow}>
               <Form.Item
                 label={t("security.guardedTools")}

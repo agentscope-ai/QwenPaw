@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -296,6 +297,83 @@ async def test_get_chat_id_by_session_returns_most_recent_match(
 
     assert chat_id == new.id
     assert chat_id != old.id
+
+
+@pytest.mark.asyncio
+async def test_touch_chat_by_session_uses_one_load_and_one_save(
+    manager: ChatManager,
+):
+    old = await manager.create_chat(
+        _make_spec(session_id="console:dup", name="old"),
+    )
+    latest = await manager.create_chat(
+        _make_spec(session_id="console:dup", name="latest"),
+    )
+    latest = await manager.patch_chat(
+        latest.id,
+        ChatUpdate(name="latest+1"),
+    )
+    assert latest is not None
+    before = latest.updated_at
+
+    with (
+        patch.object(
+            manager._repo,
+            "load",
+            wraps=manager._repo.load,
+        ) as load,
+        patch.object(
+            manager._repo,
+            "save",
+            wraps=manager._repo.save,
+        ) as save,
+    ):
+        touched = await manager.touch_chat_by_session(
+            "console:dup",
+            DEFAULT_CHANNEL,
+        )
+
+    assert touched is not None
+    assert touched.id == latest.id
+    assert touched.id != old.id
+    assert touched.updated_at >= before
+    load.assert_awaited_once()
+    save.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_touch_chat_by_session_empty_user_disables_filter(
+    manager: ChatManager,
+):
+    """An empty user keeps the established no-filter lookup behavior."""
+    await manager.create_chat(
+        _make_spec(
+            session_id="console:shared",
+            user_id="u1",
+            name="older",
+        ),
+    )
+    latest = await manager.create_chat(
+        _make_spec(
+            session_id="console:shared",
+            user_id="u2",
+            name="latest",
+        ),
+    )
+    latest = await manager.patch_chat(
+        latest.id,
+        ChatUpdate(name="latest+1"),
+    )
+    assert latest is not None
+
+    touched = await manager.touch_chat_by_session(
+        "console:shared",
+        DEFAULT_CHANNEL,
+        user_id="",
+    )
+
+    assert touched is not None
+    assert touched.id == latest.id
 
 
 # ---------------------------------------------------------------------------

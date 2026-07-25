@@ -132,7 +132,7 @@ Object.defineProperty(HTMLElement.prototype, "clientHeight", {
   },
 });
 
-vi.mock("../ChatSessionItem", () => ({
+vi.mock("../../../../components/SessionItem", () => ({
   default: ({
     sessionId,
     name,
@@ -192,18 +192,15 @@ vi.mock("../../../../components/ContextMenu", () => ({
 const defaultProps = { open: true, onClose: vi.fn() };
 
 function withSession(overrides: Record<string, unknown> = {}) {
-  // updatedAt ensures the session falls into the "today" group (not collapsed
-  // by default). Without it, sessions without timestamps land in "older"
-  // which is collapsed, causing them to not render in the virtual list.
+  const session = {
+    id: "s1",
+    name: "Session One",
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  } as any;
+  mockGetSessionList.mockResolvedValue([session]);
   vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
-    sessions: [
-      {
-        id: "s1",
-        name: "Session One",
-        updatedAt: new Date().toISOString(),
-        ...overrides,
-      },
-    ] as any,
+    sessions: [session],
     currentSessionId: null,
     setCurrentSessionId: mockSetCurrentSessionId,
     setSessions: mockSetSessions,
@@ -231,7 +228,7 @@ describe("ChatSessionDrawer", () => {
     expect(mockCreateSession).toHaveBeenCalledOnce();
   });
 
-  it("renders ChatSessionItem for each session", async () => {
+  it("renders SessionItem for each session", async () => {
     withSession();
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
     await waitFor(() =>
@@ -285,6 +282,27 @@ describe("ChatSessionDrawer", () => {
     expect(mockDeleteChat).not.toHaveBeenCalled();
   });
 
+  it("delete clears the message queue for both local id and backend id", async () => {
+    const { useMessageQueueStore } = await import("@/stores/messageQueueStore");
+    useMessageQueueStore.getState().enqueue("s1", { text: "local" });
+    useMessageQueueStore.getState().enqueue("uuid-1", { text: "backend" });
+    expect(useMessageQueueStore.getState().getQueue("s1")).toHaveLength(1);
+    expect(useMessageQueueStore.getState().getQueue("uuid-1")).toHaveLength(1);
+
+    withSession({ realId: "uuid-1" });
+    const user = userEvent.setup();
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("delete-btn")).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId("delete-btn"));
+
+    await waitFor(() => {
+      expect(useMessageQueueStore.getState().getQueue("s1")).toEqual([]);
+      expect(useMessageQueueStore.getState().getQueue("uuid-1")).toEqual([]);
+    });
+  });
+
   it("edit start sets editing state and edit submit calls updateChat", async () => {
     withSession({ realId: "uuid-1" });
     const user = userEvent.setup();
@@ -328,20 +346,20 @@ describe("ChatSessionDrawer", () => {
   });
 
   it("pinned sessions sort before unpinned", async () => {
-    vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
-      sessions: [
-        { id: "s1", name: "Unpinned", updatedAt: new Date().toISOString() },
-        {
-          id: "s2",
-          name: "Pinned",
-          pinned: true,
-          updatedAt: new Date().toISOString(),
-        },
-      ] as any,
-      currentSessionId: null,
-      setCurrentSessionId: mockSetCurrentSessionId,
-      setSessions: mockSetSessions,
-    } as any);
+    mockGetSessionList.mockResolvedValue([
+      {
+        id: "s1",
+        name: "Unpinned",
+        pinned: false,
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: "s2",
+        name: "Pinned",
+        pinned: true,
+        updatedAt: new Date().toISOString(),
+      },
+    ]);
     renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
     const items = await screen.findAllByTestId("session-item");
     expect(items[0]).toHaveTextContent("Pinned");

@@ -500,15 +500,42 @@ class TestCustomProviderCreateAndDelete:
         assert modal_closed, "Modal did not close after creating provider; creation may have failed"
         logger.info(f"Custom provider '{provider_name}' created successfully (modal closed)")
 
-        log_test_step("Verify provider appears in the list")
-        # Page uses a card layout; find the card containing the provider name
-        provider_card = page.locator(
-            f".qwenpaw-card:has-text('{provider_name}'), "
-            f".qwenpaw-card:has-text('{provider_id}'), "
-            f"[class*='providerCard']:has-text('{provider_name}'), "
-            f"[class*='providerCard']:has-text('{provider_id}'), "
-            f":has-text('{provider_id}')"
+        log_test_step("Switch to the Local & Custom tab where custom providers land")
+        # v2.0.0 (PR #5203): a newly created custom provider is filed under
+        # the "Local & Custom" tab, but the page stays on "Cloud Providers"
+        # after the create modal closes. Switch tabs before looking for it.
+        custom_tab = page.locator(
+            '[class*=tabItem]:has-text("Local & Custom"), '
+            '[class*=tabItem]:has-text("Local"), '
+            '[class*=tabItem]:has-text("本地"), '
+            '[class*=tabItem]:has-text("自定义")'
         ).first
+        if custom_tab.count() > 0:
+            try:
+                custom_tab.click()
+                page.wait_for_timeout(1500)
+                logger.info("Switched to Local & Custom tab")
+            except Exception as tab_err:
+                logger.warning(f"Could not click Local & Custom tab: {tab_err}")
+        else:
+            logger.warning("Local & Custom tab not found; staying on current tab")
+
+        log_test_step("Verify provider appears in the list")
+        # A custom provider renders either as a configured card
+        # (`.groupCardGlass`) or an available tile (`div.availableItem`).
+        # Scope to the tile (not a bare `:has-text` which would also match
+        # ancestor nodes). Wait for it to render post-create.
+        created_tile = (
+            f"[class*=groupCardGlass]:has-text('{provider_name}'), "
+            f"[class*=groupCardGlass]:has-text('{provider_id}'), "
+            f"div[class*=availableItem]:has-text('{provider_name}'), "
+            f"div[class*=availableItem]:has-text('{provider_id}')"
+        )
+        try:
+            page.wait_for_selector(created_tile, timeout=10000)
+        except Exception:
+            logger.warning("Created provider tile not visible within 10s")
+        provider_card = page.locator(created_tile).first
         assert provider_card.count() > 0, f"Provider '{provider_name}' not found on page after create"
         logger.info(f"Provider '{provider_name}' appeared in the list")
 
@@ -559,8 +586,7 @@ class TestCustomProviderCreateAndDelete:
         log_test_step("Verify deletion succeeded")
         page.wait_for_timeout(1000)
         deleted_provider = page.locator(
-            f".qwenpaw-card:has-text('{provider_id}'), "
-            f"[class*='providerCard']:has-text('{provider_id}')"
+            f"[class*=groupCardGlass]:has-text('{provider_id}')"
         ).first
         assert deleted_provider.count() == 0, f"Provider '{provider_name}' still exists in list after delete"
         logger.info(f"Custom provider '{provider_name}' deleted successfully")
@@ -701,8 +727,22 @@ class TestProviderSearchFilter:
         expect(search_input).to_be_visible(timeout=5000)
         logger.info("Search box exists")
 
+        # v2.0.0 (PR #5203 Models Page Overhaul): configured providers render
+        # as `.groupCardGlass` inside the Configured section, and unconfigured
+        # ones as `.availableItem` inside the Available section. Fresh e2e
+        # backends have nothing configured but the Available section is
+        # populated. Match the union.
+        provider_tile = (
+            '[class*=groupCardGlass], div[class*=availableItem]'
+        )
+
         log_test_step("Record Provider count before search")
-        provider_cards = page.locator('.qwenpaw-card').all()
+        # Provider data loads asynchronously; wait for the first tile.
+        try:
+            page.wait_for_selector(provider_tile, timeout=15000)
+        except Exception:
+            logger.warning("No provider tile appeared within 15s")
+        provider_cards = page.locator(provider_tile).all()
         initial_count = len(provider_cards)
         assert initial_count > 0, "No Provider cards on the page"
         logger.info(f"Provider count before search: {initial_count}")
@@ -724,7 +764,7 @@ class TestProviderSearchFilter:
             search_input.fill("ollama")
             page.wait_for_timeout(1500)
 
-        filtered_cards = page.locator('.qwenpaw-card').all()
+        filtered_cards = page.locator(provider_tile).all()
         filtered_count = len(filtered_cards)
         logger.info(f"Provider count after searching 'ollama': {filtered_count}")
 
@@ -750,7 +790,7 @@ class TestProviderSearchFilter:
             search_input.clear()
         page.wait_for_timeout(1500)
 
-        restored_cards = page.locator('.qwenpaw-card').all()
+        restored_cards = page.locator(provider_tile).all()
         restored_count = len(restored_cards)
         assert restored_count == initial_count, \
             f"After clearing search, count ({restored_count}) should restore to initial ({initial_count})"
@@ -785,8 +825,19 @@ class TestModelActivation:
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
+        # v2.0.0 (PR #5203) — configured providers use `.groupCardGlass`;
+        # unconfigured providers render as `.availableItem` tiles in the
+        # Available section. Match either.
+        provider_tile = '[class*=groupCardGlass], div[class*=availableItem]'
+
         log_test_step("Find an available Provider card")
-        provider_cards = page.locator('.qwenpaw-card').all()
+        # Provider data loads asynchronously; wait for the first tile to
+        # render rather than relying solely on a fixed sleep.
+        try:
+            page.wait_for_selector(provider_tile, timeout=15000)
+        except Exception:
+            logger.warning("No provider tile appeared within 15s")
+        provider_cards = page.locator(provider_tile).all()
         assert len(provider_cards) > 0, "No Provider cards on the page"
         logger.info(f"Found {len(provider_cards)} Provider cards")
 
@@ -858,34 +909,43 @@ class TestOpenRouterFilter:
         page.wait_for_timeout(3000)
 
         log_test_step("Find the OpenRouter Provider")
-        openrouter_card = page.locator(':text("OpenRouter"), :text("openrouter")').first
+        # v2.0.0 (PR #5203) — click the outer tile (Available section
+        # `.availableItem` or Configured section `.groupCardGlass`) rather
+        # than the label text span, which is not clickable.
+        openrouter_card = page.locator(
+            'div[class*=availableItem]:has-text("OpenRouter"), '
+            '[class*=groupCardGlass]:has-text("OpenRouter")'
+        ).first
         if openrouter_card.count() == 0:
             pytest.skip("OpenRouter Provider not found, skipping test")
 
         logger.info("OpenRouter Provider found")
         openrouter_card.click()
-        page.wait_for_timeout(1500)
 
-        settings_btn = page.locator(
-            'button:has-text("Settings"), button:has-text("设置"), '
-            'button:has-text("Configure"), button:has-text("配置"), '
-            'button:has(.anticon-setting)'
+        # Clicking an unconfigured provider tile opens the "Configure
+        # <Provider>" modal directly (see v2.0.0 Models Overhaul, PR #5203).
+        # Assert that modal appears rather than hunting for a separate
+        # settings button (which does not exist on this flow and caused a
+        # 60s click timeout).
+        config_modal = page.locator(
+            '.qwenpaw-modal:has-text("OpenRouter"), '
+            '.ant-modal:has-text("OpenRouter"), '
+            '.qwenpaw-modal:has-text("Base URL"), '
+            '.ant-modal:has-text("Base URL")'
         ).first
-        if settings_btn.count() > 0:
-            settings_btn.click()
-            page.wait_for_timeout(1500)
-            logger.info("Opened OpenRouter settings")
+        try:
+            expect(config_modal).to_be_visible(timeout=10000)
+            logger.info("OpenRouter configuration modal opened")
             page.keyboard.press("Escape")
             page.wait_for_timeout(500)
-        else:
-            # Clicking the card may have opened the settings panel directly
-            modal_or_drawer = page.locator('.qwenpaw-modal, .ant-modal, .qwenpaw-drawer, .ant-drawer').first
-            if modal_or_drawer.count() > 0:
-                logger.info("Settings panel opened after clicking OpenRouter")
-                page.keyboard.press("Escape")
-                page.wait_for_timeout(500)
-            else:
-                logger.info("OpenRouter has no standalone settings button; verifying card is clickable suffices")
+        except Exception:
+            # Some builds may surface the config inline instead of a modal;
+            # a visible OpenRouter tile that responded to the click is still
+            # acceptable for this smoke-level check.
+            logger.info(
+                "No standalone OpenRouter modal detected after click; "
+                "tile is present and clickable, which suffices"
+            )
 
         log_test_result(test_name, True, 0)
 

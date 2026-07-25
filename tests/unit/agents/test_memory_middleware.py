@@ -10,6 +10,11 @@ import pytest
 from agentscope.message import Msg, TextBlock
 
 from qwenpaw.agents.middlewares import MemoryMiddleware
+from qwenpaw.constant import (
+    EXTERNAL_USER_QUERY_MESSAGE_TAG,
+    LOOP_CONTINUATION_MESSAGE_TAG,
+    QWENPAW_MESSAGE_TAG_KEY,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -26,6 +31,7 @@ def _make_agent(*, source: str | None = None):
         session_id="session-1",
         reply_id="reply-1",
     )
+    agent._context_manager = None
     if source is not None:
         agent._request_context = {"source": source, "session_id": "session-1"}
     else:
@@ -38,6 +44,9 @@ def _user_msg(text: str = "hello", *, msg_id: str = "turn-1") -> Msg:
         name="user",
         role="user",
         content=[TextBlock(type="text", text=text)],
+        metadata={
+            QWENPAW_MESSAGE_TAG_KEY: EXTERNAL_USER_QUERY_MESSAGE_TAG,
+        },
     )
     msg.id = msg_id
     return msg
@@ -50,7 +59,24 @@ def _make_memory_manager(*, interval: int = 1):
     mm.auto_memory = AsyncMock()
     mm.auto_memory_search = AsyncMock(return_value=None)
     mm.get_memory_prompt.return_value = ""
+    mm._auto_memory_turn_states = {}
+
+    def _get_auto_memory_turn_state(session_id: str):
+        return mm._auto_memory_turn_states.setdefault(
+            session_id or "__default__",
+            {
+                "pending": [],
+                "seen": {},
+                "touched_at": 0,
+            },
+        )
+
+    mm.get_auto_memory_turn_state.side_effect = _get_auto_memory_turn_state
     return mm
+
+
+def _auto_memory_turn_state(mm, session_id: str = "session-1"):
+    return mm.get_auto_memory_turn_state(session_id)
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +156,76 @@ class TestOnModelCallAutomationSkip:
         await mw.on_model_call(agent, {"messages": []}, next_handler)
 
         mm.auto_memory_search.assert_awaited_once()
+        assert mm.auto_memory_search.await_args.args[0].id == "turn-1"
+
+    @pytest.mark.asyncio
+    async def test_untagged_user_message_does_not_search(self):
+        mm = _make_memory_manager()
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        agent.state.context = [
+            Msg(
+                name="user",
+                role="user",
+                content=[TextBlock(text="internal prompt")],
+            ),
+        ]
+
+        await mw.on_model_call(
+            agent,
+            {"messages": []},
+            AsyncMock(return_value="model_result"),
+        )
+
+        mm.auto_memory_search.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_loop_continuation_does_not_retrigger_search(self):
+        mm = _make_memory_manager()
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        real_query = _user_msg("real query")
+        agent.state.context = [real_query]
+        next_handler = AsyncMock(return_value="model_result")
+
+        await mw.on_model_call(agent, {"messages": []}, next_handler)
+        continuation = Msg(
+            name="user",
+            role="user",
+            content=[
+                TextBlock(text="[WARNING] Repetitive pattern detected."),
+            ],
+            metadata={
+                QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
+            },
+        )
+        agent.state.context.append(continuation)
+        await mw.on_model_call(agent, {"messages": []}, next_handler)
+
+        mm.auto_memory_search.assert_awaited_once()
+        assert mm.auto_memory_search.await_args.args[0] is real_query
+
+    @pytest.mark.asyncio
+    async def test_model_call_search_state_survives_middleware_rebuild(self):
+        """A rebuilt middleware must not search twice for the same turn."""
+        mm = _make_memory_manager()
+        agent = _make_agent(source="user")
+        agent.state.context = [_user_msg(msg_id="turn-1")]
+
+        next_handler = AsyncMock(return_value="model_result")
+        await MemoryMiddleware(memory_manager=mm).on_model_call(
+            agent,
+            {"messages": []},
+            next_handler,
+        )
+        await MemoryMiddleware(memory_manager=mm).on_model_call(
+            agent,
+            {"messages": []},
+            next_handler,
+        )
+
+        mm.auto_memory_search.assert_awaited_once()
+        assert _auto_memory_turn_state(mm)["searched_turn"] == "turn-1"
 
 
 # ---------------------------------------------------------------------------
@@ -153,8 +249,9 @@ class TestOnReplyAutomationSkip:
         async for _ in gen:
             pass
 
-        assert not mw._pending_auto_memory_turn_markers
-        assert not mw._seen_auto_memory_turn_markers
+        state = _auto_memory_turn_state(mm)
+        assert not state["pending"]
+        assert not state["seen"]
         mm.auto_memory.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -173,6 +270,89 @@ class TestOnReplyAutomationSkip:
             pass
 
         mm.auto_memory.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_internal_user_message_is_excluded_from_memory(self):
+        """Internal user-role controls must not enter auto-memory."""
+        mm = _make_memory_manager(interval=1)
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        query = _user_msg("real query")
+        reply = Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(text="reply")],
+        )
+        continuation = Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="[WARNING] Repetitive pattern detected.")],
+            metadata={
+                QWENPAW_MESSAGE_TAG_KEY: LOOP_CONTINUATION_MESSAGE_TAG,
+            },
+        )
+        final_reply = Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(text="done")],
+        )
+        agent.state.context = [query, reply, continuation, final_reply]
+
+        async def _next(**_kwargs):
+            yield "done"
+
+        async for _ in mw.on_reply(agent, {}, _next):
+            pass
+
+        mm.auto_memory.assert_awaited_once()
+        assert mm.auto_memory.await_args.args[0] == [query, reply, final_reply]
+
+    @pytest.mark.asyncio
+    async def test_interval_state_survives_middleware_rebuild(self):
+        """A rebuilt middleware must keep interval state on the manager."""
+        mm = _make_memory_manager(interval=2)
+
+        async def _next(**_kwargs):
+            yield "done"
+
+        agent1 = _make_agent(source="user")
+        agent1.state.context = [_user_msg(msg_id="turn-1")]
+        gen1 = MemoryMiddleware(memory_manager=mm).on_reply(
+            agent1,
+            {},
+            _next,
+        )
+        async for _ in gen1:
+            pass
+
+        mm.auto_memory.assert_not_awaited()
+        assert _auto_memory_turn_state(mm)["pending"] == ["turn-1"]
+
+        agent2 = _make_agent(source="user")
+        agent2.state.context = [
+            _user_msg(msg_id="turn-1"),
+            Msg(
+                name="agent",
+                role="assistant",
+                content=[TextBlock(text="reply 1")],
+            ),
+            _user_msg(msg_id="turn-2"),
+            Msg(
+                name="agent",
+                role="assistant",
+                content=[TextBlock(text="reply 2")],
+            ),
+        ]
+        gen2 = MemoryMiddleware(memory_manager=mm).on_reply(
+            agent2,
+            {},
+            _next,
+        )
+        async for _ in gen2:
+            pass
+
+        mm.auto_memory.assert_awaited_once()
+        assert not _auto_memory_turn_state(mm)["pending"]
 
 
 # ---------------------------------------------------------------------------
@@ -214,8 +394,8 @@ class TestOnCompressContextAutomationSkip:
         """Non-automation requests follow the normal compress path."""
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
-        mw._pending_auto_memory_turn_markers = ["m1"]
         agent = _make_agent(source="user")
+        _auto_memory_turn_state(mm)["pending"] = ["m1"]
         next_handler = AsyncMock()
 
         with patch.object(
@@ -238,6 +418,45 @@ class TestOnCompressContextAutomationSkip:
             next_handler.assert_awaited_once()
 
 
+class TestWillCompressContextBoundary:
+    @staticmethod
+    def _agent_at(tokens: int):
+        agent = _make_agent(source="user")
+        agent.context_config = SimpleNamespace(trigger_ratio=0.8)
+        agent.model = SimpleNamespace(
+            context_size=1000,
+            count_tokens=AsyncMock(return_value=tokens),
+        )
+        agent._prepare_model_input = AsyncMock(return_value={})
+        return agent
+
+    @pytest.mark.asyncio
+    async def test_native_compacts_at_exact_trigger(self):
+        agent = self._agent_at(800)
+
+        assert await MemoryMiddleware._will_compress_context(agent, {}) is True
+
+    @pytest.mark.asyncio
+    async def test_scroll_does_not_compact_at_exact_trigger(self):
+        agent = self._agent_at(800)
+        agent._context_manager = SimpleNamespace(
+            should_compress=lambda tokens, trigger: tokens > trigger,
+        )
+
+        assert (
+            await MemoryMiddleware._will_compress_context(agent, {}) is False
+        )
+
+    @pytest.mark.asyncio
+    async def test_scroll_compacts_above_trigger(self):
+        agent = self._agent_at(801)
+        agent._context_manager = SimpleNamespace(
+            should_compress=lambda tokens, trigger: tokens > trigger,
+        )
+
+        assert await MemoryMiddleware._will_compress_context(agent, {}) is True
+
+
 # ---------------------------------------------------------------------------
 # _flush_auto_memory defensive guard
 # ---------------------------------------------------------------------------
@@ -249,12 +468,12 @@ class TestFlushAutoMemoryDefensiveGuard:
         """Defensive guard in _flush_auto_memory clears markers."""
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
-        mw._pending_auto_memory_turn_markers = ["m1", "m2"]
         agent = _make_agent(source="cron")
+        _auto_memory_turn_state(mm)["pending"] = ["m1", "m2"]
 
         await mw._flush_auto_memory(agent)
 
-        assert not mw._pending_auto_memory_turn_markers
+        assert not _auto_memory_turn_state(mm)["pending"]
         mm.auto_memory.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -262,8 +481,8 @@ class TestFlushAutoMemoryDefensiveGuard:
         """Non-automation requests proceed with auto_memory."""
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)
-        mw._pending_auto_memory_turn_markers = ["turn-1"]
         agent = _make_agent(source="user")
+        _auto_memory_turn_state(mm)["pending"] = ["turn-1"]
         agent.state.context = [_user_msg()]
 
         await mw._flush_auto_memory(agent)

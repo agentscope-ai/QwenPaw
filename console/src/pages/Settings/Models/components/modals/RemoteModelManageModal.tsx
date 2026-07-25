@@ -63,6 +63,7 @@ function ModelConfigEditor({
   thinkingParamStyle,
   reasoningEffortOptions,
   thinkingBudgetRange = [1, 81920],
+  chatModel,
 }: {
   providerId: string;
   model: ModelInfo;
@@ -73,6 +74,7 @@ function ModelConfigEditor({
   thinkingParamStyle?: "budget" | "effort" | null;
   reasoningEffortOptions?: string[];
   thinkingBudgetRange?: [number, number];
+  chatModel?: string;
 }) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -84,8 +86,9 @@ function ModelConfigEditor({
   const [maxInputLength, setMaxInputLength] = useState<number | null>(
     model.max_input_length ?? 131072,
   );
-  const [preserveThinking, setPreserveThinking] = useState<boolean>(
-    model.preserve_thinking ?? true,
+  const [maxInputLengthDirty, setMaxInputLengthDirty] = useState(false);
+  const [relayReasoning, setRelayReasoning] = useState<boolean>(
+    model.relay_reasoning ?? true,
   );
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean | null>(
     model.thinking_enabled ?? null,
@@ -112,7 +115,8 @@ function ModelConfigEditor({
     setText(initialText);
     setMaxTokens(model.max_tokens ?? 8192);
     setMaxInputLength(model.max_input_length ?? 131072);
-    setPreserveThinking(model.preserve_thinking ?? true);
+    setMaxInputLengthDirty(false);
+    setRelayReasoning(model.relay_reasoning ?? true);
     setThinkingEnabled(model.thinking_enabled ?? null);
     setThinkingBudget(model.thinking_budget ?? null);
     setReasoningEffort(model.reasoning_effort ?? null);
@@ -121,7 +125,7 @@ function ModelConfigEditor({
     initialText,
     model.max_tokens,
     model.max_input_length,
-    model.preserve_thinking,
+    model.relay_reasoning,
     model.thinking_enabled,
     model.thinking_budget,
     model.reasoning_effort,
@@ -142,6 +146,7 @@ function ModelConfigEditor({
 
   const handleMaxInputLengthChange = useCallback((val: number | null) => {
     setMaxInputLength(val);
+    setMaxInputLengthDirty(true);
     setDirty(true);
   }, []);
 
@@ -166,15 +171,18 @@ function ModelConfigEditor({
     try {
       const updated = await api.configureModel(providerId, model.id, {
         max_tokens: effectiveMaxTokens,
-        max_input_length: effectiveMaxInputLength,
+        ...(maxInputLengthDirty
+          ? { max_input_length: effectiveMaxInputLength }
+          : {}),
         generate_kwargs: parsed,
-        preserve_thinking: preserveThinking,
+        relay_reasoning: relayReasoning,
         thinking_enabled: thinkingEnabled,
         thinking_budget: thinkingBudget,
         reasoning_effort: reasoningEffort,
       });
       message.success(t("models.modelConfigSaved", { name: model.name }));
       setDirty(false);
+      setMaxInputLengthDirty(false);
       onProviderUpdated?.(updated);
       await onSaved();
       onClose();
@@ -391,42 +399,47 @@ function ModelConfigEditor({
           )}
         </>
       )}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 8,
-          padding: "6px 0",
-        }}
-      >
-        <div>
-          <span
-            style={{
-              fontSize: 13,
-              color: isDark ? "rgba(255,255,255,0.85)" : "#333",
-            }}
-          >
-            {t("models.preserveThinkingLabel")}
-          </span>
-          <div
-            style={{
-              fontSize: 11,
-              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-              marginTop: 2,
-            }}
-          >
-            {t("models.preserveThinkingHint")}
-          </div>
-        </div>
-        <Switch
-          checked={preserveThinking}
-          onChange={(checked) => {
-            setPreserveThinking(checked);
-            setDirty(true);
+      {/* Responses API models handle reasoning via native reasoning items
+         that the API requires to be echoed back; relay_reasoning has no
+         effect, so hide the toggle to avoid confusion. */}
+      {chatModel !== "OpenAIResponseModel" && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 8,
+            padding: "6px 0",
           }}
-        />
-      </div>
+        >
+          <div>
+            <span
+              style={{
+                fontSize: 13,
+                color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+              }}
+            >
+              {t("models.relayReasoningLabel")}
+            </span>
+            <div
+              style={{
+                fontSize: 11,
+                color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+                marginTop: 2,
+              }}
+            >
+              {t("models.relayReasoningHint")}
+            </div>
+          </div>
+          <Switch
+            checked={relayReasoning}
+            onChange={(checked) => {
+              setRelayReasoning(checked);
+              setDirty(true);
+            }}
+          />
+        </div>
+      )}
 
       <div
         style={{
@@ -1007,20 +1020,18 @@ export function RemoteModelManageModal({
                           flexShrink: 0,
                         }}
                       />
-                      {m.probe_source !== "documentation" && (
-                        <Tooltip
-                          title={t("models.probeMultimodal", "测试多模态")}
-                        >
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<ExperimentOutlined />}
-                            onClick={() => handleProbeMultimodal(m.id)}
-                            loading={probingModelId === m.id}
-                            style={darkBtnStyle}
-                          />
-                        </Tooltip>
-                      )}
+                      <Tooltip
+                        title={t("models.probeMultimodal", "测试多模态")}
+                      >
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<ExperimentOutlined />}
+                          onClick={() => handleProbeMultimodal(m.id)}
+                          loading={probingModelId === m.id}
+                          style={darkBtnStyle}
+                        />
+                      </Tooltip>
                       <Tooltip title={t("models.testConnection")}>
                         <Button
                           type="text"
@@ -1075,6 +1086,7 @@ export function RemoteModelManageModal({
                         onProviderUpdated={onProviderUpdated}
                         onClose={() => setConfigOpenModelId(null)}
                         isDark={isDark}
+                        chatModel={provider.chat_model}
                         thinkingParamStyle={
                           extraModelIds.has(m.id)
                             ? undefined

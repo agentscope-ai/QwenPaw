@@ -4,7 +4,7 @@ export type BlogPostMeta = {
   cover?: string;
 };
 
-/** Display order (first = top of /blog). Add entries when publishing under public/blog/. */
+/** Display order is determined by frontmatter `date` (newest first). */
 export const BLOG_POSTS: BlogPostMeta[] = [
   {
     slug: "qwenpaw-developer-day-collection",
@@ -21,4 +21,34 @@ export const BLOG_POSTS: BlogPostMeta[] = [
     cover:
       "https://img.alicdn.com/imgextra/i3/O1CN01eC3Ngx1Tzz5zy5VCX_!!6000000002454-2-tps-1536-1024.png",
   },
+  {
+    slug: "paw-git",
+    cover:
+      "https://img.alicdn.com/imgextra/i2/O1CN01cdSRbU26gXIFiTRjL_!!6000000007691-2-tps-1254-1254.png",
+  },
+  {
+    slug: "runtime-architecture-upgrade",
+    cover:
+      "https://img.alicdn.com/imgextra/i1/O1CN01eByOkk1h3Gwf2q0It_!!6000000004221-2-tps-1536-1024.png",
+  },
 ];
+
+/** Previous post in list order (top → bottom on /blog, date-desc). */
+export function getPrevBlogSlug(
+  currentSlug: string,
+  sortedSlugs: string[],
+): string | undefined {
+  const index = sortedSlugs.indexOf(currentSlug);
+  if (index <= 0) return undefined;
+  return sortedSlugs[index - 1];
+}
+
+/** Next post in list order (top → bottom on /blog, date-desc). */
+export function getNextBlogSlug(
+  currentSlug: string,
+  sortedSlugs: string[],
+): string | undefined {
+  const index = sortedSlugs.indexOf(currentSlug);
+  if (index < 0 || index >= sortedSlugs.length - 1) return undefined;
+  return sortedSlugs[index + 1];
+}

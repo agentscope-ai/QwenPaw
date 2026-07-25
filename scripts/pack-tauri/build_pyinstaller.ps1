@@ -138,7 +138,7 @@ Write-Host "Project dependencies installed with full extras" -ForegroundColor Gr
 if (-not (Test-PythonImport "from acp import Agent")) {
     Write-Host "Fixing agent-client-protocol namespace..."
     Uninstall-PythonPackage "acp"
-    Install-PythonPackages -Packages @("agent-client-protocol")
+    Install-PythonPackages -Packages @("agent-client-protocol>=0.9.0,<0.11.0")
     Write-Host "agent-client-protocol installed" -ForegroundColor Green
 }
 
@@ -207,6 +207,12 @@ Write-Host "== Staging bundled Python runtime ==" -ForegroundColor Yellow
 & $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_python_runtime.py") `
     --dest (Join-Path $BINARIES_DIR "python-runtime")
 Assert-LastExit "Failed to stage bundled Python runtime"
+Write-Host ""
+
+Write-Host "== Staging bundled Node runtime ==" -ForegroundColor Yellow
+& $PYTHON_BIN (Join-Path $REPO_ROOT "scripts\pack-tauri\stage_node_runtime.py") `
+    --dest (Join-Path $BINARIES_DIR "node-runtime")
+Assert-LastExit "Failed to stage bundled Node runtime"
 Write-Host ""
 
 Write-Host "=========================================" -ForegroundColor Cyan

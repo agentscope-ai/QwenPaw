@@ -14,6 +14,14 @@ Covers:
 import json
 from unittest.mock import MagicMock
 
+from agentscope.message import (
+    TextBlock,
+    ToolCallBlock,
+    ToolCallState,
+    ToolResultBlock,
+    ToolResultState,
+)
+
 from qwenpaw.agents.utils.tool_message_utils import (
     _coerce_tool_inputs_to_json,
     _dedup_tool_blocks,
@@ -44,6 +52,27 @@ def _tool_use(tid, name="my_tool"):
 
 def _tool_result(tid):
     return {"type": "tool_result", "id": tid}
+
+
+def _tool_result_blocks(msg):
+    return [
+        block
+        for block in msg.content
+        if isinstance(block, ToolResultBlock)
+        or (isinstance(block, dict) and block.get("type") == "tool_result")
+    ]
+
+
+def _first_text(block):
+    output = getattr(block, "output", [])
+    first = output[0]
+    if isinstance(first, TextBlock):
+        return first.text
+    return first["text"]
+
+
+def _state_value(state):
+    return getattr(state, "value", state)
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +367,25 @@ class TestRepairEmptyToolInputs:
         result = _repair_empty_tool_inputs([msg])
         assert json.loads(result[0].content[0]["input"]) == {"key": "value"}
 
+    def test_recovers_raw_input_with_leading_whitespace_and_trailing_garbage(
+        self,
+    ):
+        msg = _msg(
+            [
+                {
+                    "type": "tool_use",
+                    "id": "id1",
+                    "name": "t",
+                    "input": {},
+                    "raw_input": '\n  {"path": "README.md"}trailing garbage',
+                },
+            ],
+        )
+        result = _repair_empty_tool_inputs([msg])
+        assert json.loads(result[0].content[0]["input"]) == {
+            "path": "README.md",
+        }
+
     def test_non_dict_raw_decode_does_not_repair(self):
         """raw_decode recovering a non-dict should not overwrite input."""
         msg = _msg(
@@ -412,6 +460,25 @@ class TestCoerceToolInputsRawDecode:
         assert len(result[0].content) == 1
         assert json.loads(result[0].content[0]["input"]) == {"key": "val"}
 
+    def test_object_with_leading_whitespace_and_trailing_garbage_recovered(
+        self,
+    ):
+        msg = _msg(
+            [
+                {
+                    "type": "tool_use",
+                    "id": "id1",
+                    "name": "t",
+                    "input": '\n  {"path": "README.md"}extra',
+                },
+            ],
+        )
+        result = _coerce_tool_inputs_to_json([msg])
+        assert len(result[0].content) == 1
+        assert json.loads(result[0].content[0]["input"]) == {
+            "path": "README.md",
+        }
+
     def test_completely_invalid_json_drops_block(self):
         msg = _msg(
             [
@@ -424,10 +491,46 @@ class TestCoerceToolInputsRawDecode:
             ],
         )
         result = _coerce_tool_inputs_to_json([msg])
-        assert len(result[0].content) == 0
+        assert result[0].content[0]["input"] == "{}"
+        assert result[0].content[0]["state"] == "finished"
+        results = _tool_result_blocks(result[0])
+        assert len(results) == 1
+        assert isinstance(results[0], ToolResultBlock)
+        assert results[0].id == "id1"
+        assert _state_value(results[0].state) == ToolResultState.ERROR.value
+        text = _first_text(results[0])
+        assert "Tool call `t` was not executed" in text
+        assert "valid JSON arguments" in text
+        assert "tool_call_id" not in text
+        assert "id1" not in text
+        assert "totally not json" not in text
 
-    def test_non_dict_recovered_value_drops_block(self):
-        """raw_decode recovering a non-dict (int, list, string) should drop."""
+    def test_pydantic_block_invalid_json_becomes_error_tool_result(self):
+        msg = _msg(
+            [
+                ToolCallBlock(
+                    type="tool_call",
+                    id="id1",
+                    name="t",
+                    input="not json",
+                ),
+            ],
+        )
+
+        result = _coerce_tool_inputs_to_json([msg])
+
+        call = result[0].content[0]
+        assert isinstance(call, ToolCallBlock)
+        assert call.input == "{}"
+        assert _state_value(call.state) == ToolCallState.FINISHED.value
+        results = _tool_result_blocks(result[0])
+        assert len(results) == 1
+        assert isinstance(results[0], ToolResultBlock)
+        assert results[0].id == "id1"
+        assert _state_value(results[0].state) == ToolResultState.ERROR.value
+
+    def test_non_dict_recovered_value_becomes_error_tool_result(self):
+        """raw_decode recovering a non-dict should not create a tool call."""
         for bad_input in ["42trailing", '"hello"garbage', "[1,2,3]extra"]:
             msg = _msg(
                 [
@@ -440,9 +543,11 @@ class TestCoerceToolInputsRawDecode:
                 ],
             )
             result = _coerce_tool_inputs_to_json([msg])
-            assert (
-                len(result[0].content) == 0
-            ), f"Expected block to be dropped for input: {bad_input!r}"
+            results = _tool_result_blocks(result[0])
+            assert len(results) == 1
+            text = _first_text(results[0])
+            assert "Tool call `t` was not executed" in text
+            assert bad_input not in text
 
 
 # ---------------------------------------------------------------------------
@@ -517,6 +622,70 @@ class TestSanitizeToolMessages:
             u, _ = extract_tool_ids(m)
             assert "id1" not in u
 
+    def test_malformed_tool_call_pair_becomes_error_tool_result(self):
+        msgs = [
+            _msg(
+                [
+                    {
+                        "type": "tool_call",
+                        "id": "call_bad_json",
+                        "name": "write_file",
+                        "input": (
+                            '{"file_path": "/tmp/out.py", '
+                            '"content": "unterminated'
+                        ),
+                    },
+                ],
+            ),
+            _msg([_tool_result("call_bad_json")]),
+        ]
+
+        result = _sanitize_tool_messages(msgs)
+
+        assert len(result) == 1
+        assert result[0].content[0]["input"] == "{}"
+        assert result[0].content[0]["state"] == "finished"
+        results = _tool_result_blocks(result[0])
+        assert len(results) == 1
+        assert results[0].id == "call_bad_json"
+        text = _first_text(results[0])
+        assert "Tool call `write_file` was not executed" in text
+        assert "tool_call_id" not in text
+        assert "call_bad_json" not in text
+        uses, results = extract_tool_ids(result[0])
+        assert uses == {"call_bad_json"}
+        assert results == {"call_bad_json"}
+
     def test_empty_messages_returns_empty(self):
         result = _sanitize_tool_messages([])
         assert result == []
+
+    def test_self_paired_message_kept_when_another_block_unpaired(self):
+        # An AgentScope 2.0 self-paired assistant message carries its own
+        # tool_use and matching tool_result (plus text). When an *unrelated*
+        # unpaired tool_use elsewhere triggers sanitation, the valid
+        # self-paired turn must NOT be dropped (previously it was silently
+        # removed, losing the text and leaving an unpaired tool_use).
+        self_paired = _msg(
+            [
+                {"type": "text", "text": "keep me"},
+                _tool_use("paired"),
+                _tool_result("paired"),
+            ],
+        )
+        msgs = [
+            _msg([_tool_use("orphan")]),  # unpaired -> triggers sanitation
+            self_paired,
+            _msg("regular message"),
+        ]
+
+        result = _sanitize_tool_messages(msgs)
+
+        assert self_paired in result, "self-paired message must be preserved"
+        # The unpaired orphan tool_use is still removed.
+        remaining_uses: set = set()
+        for m in result:
+            u, _ = extract_tool_ids(m)
+            remaining_uses |= u
+        assert "orphan" not in remaining_uses
+        assert "paired" in remaining_uses

@@ -40,6 +40,33 @@ def get_skill_cards(page: Page):
     return page.locator(SKILL_CARD_SELECTOR).all()
 
 
+# Post v2.0.0 the Skills toolbar exposes a single primary "Add Skill" button;
+# Create Skill / Load from Skill Pool / Upload via Zip / Upload via URL /
+# Browse Market are entries in its dropdown (AddSkillDropdown.tsx). These
+# helpers drive that menu.
+ADD_SKILL_BTN = 'button:has-text("Add Skill"), button:has-text("添加技能")'
+
+
+def open_add_skill_menu(page: Page):
+    """Click the 'Add Skill' toolbar button to open its dropdown menu."""
+    add_btn = page.locator(ADD_SKILL_BTN).first
+    expect(add_btn).to_be_visible(timeout=8000)
+    add_btn.click()
+    page.wait_for_timeout(600)
+
+
+def click_add_skill_menu_item(page: Page, texts):
+    """Open the Add Skill menu and click the item matching one of ``texts``."""
+    open_add_skill_menu(page)
+    selector = ", ".join(
+        f'.qwenpaw-dropdown-menu-item:has-text("{t}")' for t in texts
+    )
+    item = page.locator(selector).first
+    expect(item).to_be_visible(timeout=5000)
+    item.click()
+    page.wait_for_timeout(1000)
+
+
 # ============================================================================
 # SKILL-001: Page load + card info + search filter
 # ============================================================================
@@ -198,10 +225,20 @@ class TestSkillImportToggleDeleteBatch:
 
         # -- Step 2: Verify action buttons --
         log_test_step("2. Verify action buttons")
-        create_btn = page.locator('button:has-text("创建技能"), button:has-text("Create Skill"), button:has-text("Create")').first
-        expect(create_btn).to_be_visible(timeout=5000)
-        assert not create_btn.is_disabled(), "Create skill button should not be disabled"
-        logger.info("Create skill button is visible and enabled")
+        add_btn = page.locator(ADD_SKILL_BTN).first
+        expect(add_btn).to_be_visible(timeout=5000)
+        assert not add_btn.is_disabled(), "Add Skill button should not be disabled"
+        # Create Skill now lives inside the Add Skill dropdown; open it and
+        # assert the entry is present, then close the menu.
+        add_btn.click()
+        page.wait_for_timeout(600)
+        create_item = page.locator(
+            '.qwenpaw-dropdown-menu-item:has-text("Create Skill"), '
+            '.qwenpaw-dropdown-menu-item:has-text("创建技能")'
+        ).first
+        expect(create_item).to_be_visible(timeout=5000)
+        page.keyboard.press("Escape")
+        logger.info("Add Skill button + Create Skill menu item verified")
 
         # -- Step 3: Enable/disable toggle --
         log_test_step("3. Enable/disable toggle")
@@ -313,15 +350,10 @@ class TestSkillCRUDLifecycle:
             initial_count = len(skill_cards)
             logger.info(f"Initial skill count: {initial_count}")
 
-            # -- Step 3: Click create button to open Drawer --
+            # -- Step 3: Open Add Skill menu -> Create Skill to open Drawer --
             log_test_step("3. Click create skill button")
-            create_btn = page.locator('button:has-text("创建技能"), button:has-text("Create")').first
-            if not create_btn.is_visible():
-                # Fallback: locate via PlusOutlined icon
-                create_btn = page.locator('button .anticon-plus').first.locator('..')
-            expect(create_btn).to_be_visible(timeout=5000)
-            create_btn.click()
-            page.wait_for_timeout(1500)
+            click_add_skill_menu_item(page, ["Create Skill", "创建技能"])
+            page.wait_for_timeout(500)
 
             # -- Step 4: Verify Drawer opened --
             log_test_step("4. Verify Drawer opened")
@@ -909,16 +941,17 @@ class TestSkillUploadZip:
             log_test_step("1. Visit skills page")
             navigate_to_skills(page)
 
-            # -- Step 2: Verify "Upload zip" button exists --
-            log_test_step("2. Verify 'Upload zip' button exists")
-            upload_zip_btn = page.locator(
-                'button:has-text("通过zip上传"), '
-                'button:has-text("Upload Zip"), '
-                'button:has-text("zip上传"), '
-                'button:has-text("ZIP")'
+            # -- Step 2: Verify the 'Upload via Zip' menu entry exists --
+            log_test_step("2. Verify 'Upload via Zip' menu entry exists")
+            open_add_skill_menu(page)
+            upload_zip_item = page.locator(
+                '.qwenpaw-dropdown-menu-item:has-text("Upload via Zip"), '
+                '.qwenpaw-dropdown-menu-item:has-text("通过zip上传"), '
+                '.qwenpaw-dropdown-menu-item:has-text("zip上传")'
             ).first
-            expect(upload_zip_btn).to_be_visible(timeout=5000)
-            logger.info("'Upload zip' button is visible")
+            expect(upload_zip_item).to_be_visible(timeout=5000)
+            page.keyboard.press("Escape")
+            logger.info("'Upload via Zip' menu entry is visible")
 
             # -- Step 3: Record initial skill count --
             log_test_step("3. Record initial skill count")
@@ -949,16 +982,18 @@ This is a test skill uploaded via zip for E2E testing.
 
             logger.info(f"Temporary zip file created: {zip_path}")
 
-            # -- Step 5: Click button and upload zip --
-            log_test_step("5. Click button and upload zip")
-
-            # Use expect_file_chooser to intercept the file picker
-            with page.expect_file_chooser() as fc_info:
-                upload_zip_btn.click()
-
-            file_chooser = fc_info.value
-            file_chooser.set_files(zip_path)
-            logger.info(f"Uploaded via file picker: {zip_path}")
+            # -- Step 5: Upload the zip via the hidden file input --
+            log_test_step("5. Upload zip via the hidden file input")
+            # "Upload via Zip" triggers a hidden <input type="file"
+            # accept=".zip"> (HeaderActions.tsx). Setting files on it directly
+            # is more reliable than driving the native OS picker in headless CI.
+            zip_input = page.locator(
+                'input[type="file"][accept*="zip"]'
+            ).first
+            if zip_input.count() == 0:
+                zip_input = page.locator('input[type="file"]').first
+            zip_input.set_input_files(zip_path)
+            logger.info(f"Uploaded via hidden input: {zip_path}")
 
             # Wait for upload processing
             page.wait_for_timeout(5000)

@@ -12,6 +12,7 @@ Covers:
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -53,6 +54,14 @@ def test_safe_json_loads_recovers_trailing_garbage():
     # A common concurrent-write artefact: a complete object followed by
     # an unrelated tail.  ``raw_decode`` should pull out the first object.
     content = '{"k": "v"}garbage'
+
+    assert _safe_json_loads(content) == {"k": "v"}
+
+
+def test_safe_json_loads_recovers_leading_whitespace_and_trailing_garbage():
+    # Pretty-printed or hand-edited files may include whitespace before the
+    # recoverable object while still retaining unrelated trailing bytes.
+    content = '\n  {"k": "v"}garbage'
 
     assert _safe_json_loads(content) == {"k": "v"}
 
@@ -181,6 +190,57 @@ async def test_update_session_state_appends_to_existing(
 
     saved = json.loads(path.read_text("utf-8"))
     assert saved == {"agent": {"memory": {"x": "new"}, "other": 1}}
+
+
+@pytest.mark.asyncio
+async def test_update_session_state_serializes_across_instances(
+    tmp_path: Path,
+    monkeypatch,
+):
+    """Two session objects must not lose updates to the same file."""
+    first_session = SafeJSONSession(save_dir=str(tmp_path))
+    second_session = SafeJSONSession(save_dir=str(tmp_path))
+    first_write_started = asyncio.Event()
+    release_first_write = asyncio.Event()
+    original_write = session_mod.write_json_atomic_async
+
+    async def delayed_write(path, payload, **kwargs):
+        if payload == {"first": 1}:
+            first_write_started.set()
+            await release_first_write.wait()
+        await original_write(path, payload, **kwargs)
+
+    monkeypatch.setattr(
+        session_mod,
+        "write_json_atomic_async",
+        delayed_write,
+    )
+
+    first_update = asyncio.create_task(
+        first_session.update_session_state(
+            session_id="shared",
+            key="first",
+            value=1,
+            user_id="u",
+        ),
+    )
+    await first_write_started.wait()
+    second_update = asyncio.create_task(
+        second_session.update_session_state(
+            session_id="shared",
+            key="second",
+            value=2,
+            user_id="u",
+        ),
+    )
+    await asyncio.sleep(0.05)
+    release_first_write.set()
+    await asyncio.gather(first_update, second_update)
+
+    saved = json.loads(
+        (tmp_path / "u_shared.json").read_text(encoding="utf-8"),
+    )
+    assert saved == {"first": 1, "second": 2}
 
 
 @pytest.mark.asyncio

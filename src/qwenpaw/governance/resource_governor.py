@@ -27,6 +27,7 @@ from .policy import (
 )
 from .audit import AuditLog
 from ..constant import WORKING_DIR
+from ..utils.io_utils import get_sync_path_lock, run_sync_io
 
 from ..sandbox import (
     SandboxCapability,
@@ -37,6 +38,12 @@ from ..sandbox import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Module-level debounce: avoid spamming the auto-disable warning on every
+# tool-execution check.  0 = never warned; otherwise the epoch of the last
+# warning.
+_sandbox_admin_warned_at: float = 0.0
 
 
 class ResourceGovernor:
@@ -81,6 +88,7 @@ class ResourceGovernor:
         self._policy_dir = (
             self._governance_dir / f"{self.workspace_dir.name}_{ws_hash}"
         )
+        self._policy_path = self._policy_dir / "policy.yaml"
         self._policy: Optional[GovernancePolicy] = None
         self._sandbox_available: bool = False
         self._sandbox_capability: Optional[SandboxCapability] = None
@@ -102,14 +110,97 @@ class ResourceGovernor:
         """Probe result from start() (SandboxCapability)."""
         return self._sandbox_capability
 
+    @staticmethod
+    def _sandbox_globally_enabled() -> bool:
+        """Read the global ``security.sandbox_enabled`` switch (config.json).
+
+        Uses the mtime-cached :func:`load_config`, so this is cheap on the
+        hot path and automatically reflects Console updates (``save_config``
+        invalidates the cache). Defaults to False (sandbox off). On a config
+        read error it returns True (fail-safe): a glitch then routes the
+        command through the sandbox instead of running it unsandboxed.
+
+        On Windows, if ``sandbox_enabled`` is True but the process lacks
+        administrator privileges, the switch is treated as False for this
+        session and a warning is logged.  The config file is NOT modified
+        so the user's intent is preserved for future admin launches.
+        """
+        global _sandbox_admin_warned_at
+        try:
+            from ..config import load_config
+
+            config = load_config()
+            enabled = bool(config.security.sandbox_enabled)
+
+            # Runtime guard: if sandbox is enabled but we're on Windows
+            # without admin, treat as disabled for this session.
+            if enabled:
+                from ..utils.platform import is_windows_admin
+
+                if not is_windows_admin():
+                    import time as _time
+
+                    now = _time.monotonic()
+                    # Throttle: this method is called on every tool-execution
+                    # check.  Without a debounce interval the same warning
+                    # would be emitted hundreds of times per session.
+                    # 30 s keeps the user informed without flooding the log.
+                    if now - _sandbox_admin_warned_at > 30:
+                        logger.warning(
+                            "Windows sandbox inactive for this session: "
+                            "sandbox_enabled is true but the process lacks "
+                            "administrator privileges. To use the sandbox, "
+                            "restart QwenPaw as administrator.",
+                        )
+                        _sandbox_admin_warned_at = now
+                    return False
+
+            return enabled
+        except Exception:
+            logger.debug(
+                "ResourceGovernor: failed to read sandbox_enabled; "
+                "assuming enabled (fail-safe).",
+                exc_info=True,
+            )
+            return True
+
+    def _sandbox_usable(self) -> bool:
+        """Effective sandbox availability: platform support AND global switch.
+
+        When the operator turns the switch off, the sandbox is treated as
+        if the platform did not support it — ``SANDBOX_FALLBACK`` then
+        escalates to ASK rather than running the command unsandboxed.
+        """
+        return self._sandbox_available and self._sandbox_globally_enabled()
+
+    @property
+    def sandbox_usable(self) -> bool:
+        """Whether sandbox execution is supported and globally enabled."""
+        return self._sandbox_usable()
+
     def start(self) -> None:
         """Load policy and probe sandbox capabilities."""
-        self._policy_dir.mkdir(parents=True, exist_ok=True)
-        self._policy = load_governance_policy(
-            str(self._policy_dir),
-            str(self.workspace_dir),
-            str(self.coding_project_dir),
-        )
+        with get_sync_path_lock(self._policy_path):
+            self._policy_dir.mkdir(parents=True, exist_ok=True)
+            self._policy = load_governance_policy(
+                str(self._policy_dir),
+                str(self.workspace_dir),
+                str(self.coding_project_dir),
+            )
+
+            # Persist migrations/defaults while holding the same lock used by
+            # approval transactions in other governor instances.
+            try:
+                save_governance_policy(
+                    self._policy,
+                    str(self._policy_dir),
+                    str(self.workspace_dir),
+                    str(self.coding_project_dir),
+                )
+            except Exception:
+                logger.exception(
+                    "ResourceGovernor.start: failed to persist policy.yaml",
+                )
 
         self._sandbox_capability = probe_sandbox_support()
         self._sandbox_available = self._sandbox_capability.supported
@@ -121,29 +212,13 @@ class ResourceGovernor:
             )
 
     def stop(self) -> None:
-        """Persist policy (if modified) and close the audit log."""
-        if self._policy and self._policy.rules:
-            try:
-                save_governance_policy(
-                    self._policy,
-                    str(self._policy_dir),
-                    str(self.workspace_dir),
-                    str(self.coding_project_dir),
-                )
-            except Exception:
-                logger.exception(
-                    "ResourceGovernor.stop: failed to persist policy.yaml",
-                )
-        # Close the global AuditLog: triggers the deferred VACUUM and
-        # releases the SQLite handle. Without this, audit.db is only
-        # closed on interpreter exit (best-effort) which is fragile
-        # under supervised restarts and may leak WAL frames.
-        try:
-            self.audit_log.close()
-        except Exception:
-            logger.exception(
-                "ResourceGovernor.stop: failed to close AuditLog",
-            )
+        """Finish this governor without closing process-wide resources.
+
+        Policy mutation methods persist their transactions immediately.
+        Saving this instance's snapshot here could overwrite rules committed
+        by another request. The shared AuditLog is closed at process exit,
+        not when an individual request-scoped governor stops.
+        """
 
     # ------------------------------------------------------------------
     # Core interface 1: Policy evaluation
@@ -170,23 +245,32 @@ class ResourceGovernor:
         """
         decision = self.policy.evaluate(tc_spec)
 
-        # Early probe degradation: if sandbox is unavailable, escalate
-        # SANDBOX_FALLBACK to ASK
+        # Sandbox not usable (platform unsupported OR the global
+        # security.sandbox_enabled switch is off): a SANDBOX_FALLBACK cannot
+        # run inside a sandbox. Reaching this point means the command already
+        # cleared Phase 1 deep scan (CRITICAL → DENY), Phase 1.5 shell-danger
+        # keywords, and every builtin/user DENY/ASK rule — i.e. nothing
+        # flagged it. Rather than nag the user, run it unsandboxed (ALLOW).
+        # Only the sandbox isolation layer is dropped; Phase 0-2 protections
+        # stay fully in force. STRICT never reaches here (it returns ASK in
+        # evaluate() before producing SANDBOX_FALLBACK).
         if (
             decision.action is GovernanceAction.SANDBOX_FALLBACK
-            and not self._sandbox_available
+            and not self._sandbox_usable()
         ):
+            reason = (
+                "sandbox disabled by config"
+                if self._sandbox_available
+                else f"sandbox unavailable ({self._sandbox_capability.reason})"
+            )
             logger.info(
-                "ResourceGovernor: sandbox unavailable, escalating "
-                "SANDBOX_FALLBACK to ASK for tool '%s'",
+                "ResourceGovernor: %s, running '%s' unsandboxed (ALLOW)",
+                reason,
                 tc_spec.tool_name,
             )
             decision = GovernanceDecision(
-                action=GovernanceAction.ASK,
-                reason=(
-                    f"sandbox unavailable "
-                    f"({self._sandbox_capability.reason}), ask user"
-                ),
+                action=GovernanceAction.ALLOW,
+                reason=f"{reason}, running unsandboxed",
             )
 
         # compile sandbox config
@@ -234,6 +318,8 @@ class ResourceGovernor:
             decision = governor.assert_policy(tc_spec)
             governor.audit(tc_spec, decision)
         """
+        if self._policy is not None and self._policy.audit_level == "none":
+            return
         self.audit_log.record(
             str(self.workspace_dir),
             tc_spec,
@@ -364,14 +450,20 @@ class ResourceGovernor:
         Note: rules are only appended to user_rules; builtin_rules are
         immutable.
         """
-        self.policy.add_rule(rule)
-        if self._policy is not None:
-            save_governance_policy(
-                self._policy,
+        with get_sync_path_lock(self._policy_path):
+            policy = load_governance_policy(
                 str(self._policy_dir),
                 str(self.workspace_dir),
                 str(self.coding_project_dir),
             )
+            policy.add_rule(rule)
+            save_governance_policy(
+                policy,
+                str(self._policy_dir),
+                str(self.workspace_dir),
+                str(self.coding_project_dir),
+            )
+            self._policy = policy
 
     async def add_approved_rule(
         self,
@@ -411,7 +503,7 @@ class ResourceGovernor:
                 duration="session",
                 session_id=tc_spec.session_id,
             )
-            self.add_rule(rule)
+            await run_sync_io(self.add_rule, rule)
             logger.info(
                 "ResourceGovernor: added approved rule: %s",
                 rule.match,

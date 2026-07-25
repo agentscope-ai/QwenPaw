@@ -9,32 +9,38 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 
 class StopAction(str, Enum):
-    """Whether the agent should stop or continue."""
+    """Gate decisions for the agent loop.
 
-    STOP = "stop"
-    CONTINUE = "continue"
+    BYPASS: gate has no opinion, skip.
+    INTERRUPT_AND_CONTINUE: interrupt current pattern,
+        inject a prompt, then keep the loop going.
+    TERMINATE: end the agent loop immediately.
+    """
 
-    # Backward-compatible aliases
-    ALLOW = "stop"
-    BLOCK = "continue"
+    BYPASS = "bypass"
+    INTERRUPT_AND_CONTINUE = "interrupt_and_continue"
+    TERMINATE = "terminate"
 
 
 @dataclass
 class StopHandlerResult:
     """Return value from a stop handler / gate.
 
-    When ``action`` is CONTINUE, ``continuation_message``
-    is injected as the next user turn to keep the
-    agent running.
+    When ``action`` is INTERRUPT_AND_CONTINUE,
+    ``continuation_message`` is injected as the next
+    user turn to keep the agent running.
     """
 
-    action: StopAction = StopAction.STOP
+    action: StopAction = StopAction.TERMINATE
     continuation_message: str = ""
     reason: str = ""
+    reset_peers: bool = False
+    continuation_metadata: dict[str, Any] | None = None
+    final_message: Any = None
 
 
 @dataclass
@@ -44,7 +50,8 @@ class StopHandlerRegistration:
     ``scope`` isolates handlers by mode. When a handler
     with a non-"default" scope is active, handlers with
     ``scope="default"`` are skipped so that mode-specific
-    gates take precedence.
+    gates take precedence. ``is_active`` lets the owning
+    mode declare scope activity without exposing gate state.
     """
 
     plugin_id: str
@@ -52,17 +59,19 @@ class StopHandlerRegistration:
     priority: int = 100
     name: str = ""
     scope: str = ""
+    is_active: Callable[[], bool] | None = None
 
 
 class StopGate(ABC):
     """Abstract base class for all stop condition gates.
 
-    Lifecycle per evaluation:
-    1. check(ctx) is called
-    2. If returns StopHandlerResult(STOP) -> stop
-    3. If returns None -> call continuation_prompt()
-       to collect additional context for the
-       continuation message
+    Lifecycle per evaluation (driven by StopHandler):
+    1. check(ctx) returns action + reason + reset_peers
+    2. TERMINATE -> stop immediately
+    3. INTERRUPT_AND_CONTINUE -> handler calls
+       build_continuation() to get the message,
+       then injects it as a new user turn
+    4. BYPASS / None -> gate idle, no action
 
     Subclasses MUST implement:
     - name (property): unique gate identifier
@@ -70,8 +79,8 @@ class StopGate(ABC):
 
     Subclasses MAY override:
     - priority (property): evaluation order, default 100
-    - continuation_prompt(): additional text to inject
-      into continuation when not stopping
+    - build_continuation(): text to inject when
+      INTERRUPT_AND_CONTINUE is triggered
     """
 
     @property
@@ -92,19 +101,31 @@ class StopGate(ABC):
         """Evaluate one stop condition.
 
         Returns:
-            StopHandlerResult(STOP) -> agent stops.
-            StopHandlerResult(CONTINUE) -> loop active.
-            None -> gate idle / no opinion.
+            TERMINATE -> agent stops.
+            INTERRUPT_AND_CONTINUE -> handler calls
+                build_continuation() for the message.
+            BYPASS or None -> gate idle / no opinion.
         """
 
-    def continuation_prompt(self) -> str:
-        """Additional context for the continuation msg.
+    def build_continuation(self) -> str:
+        """Return the text to inject as a user turn.
 
-        Called only after check() returns None.
-        StopHandler collects all non-empty results
-        and prepends them to the base continuation.
+        Called by StopHandler when check() returns
+        INTERRUPT_AND_CONTINUE. Subclasses override
+        to provide gate-specific continuation prompts.
         """
         return ""
+
+    def reset_turn(self) -> None:
+        """Reset state for the current turn.
+
+        Stateful gates override this to clear internal
+        counters/history. Default implementation is a no-op
+        for stateless gates.
+        """
+
+    def reset_session(self) -> None:
+        """Remove state for the current conversation session."""
 
 
 __all__ = [

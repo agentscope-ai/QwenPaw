@@ -14,6 +14,7 @@ from qwenpaw.governance.policy import (
     DEFAULT_BUILTIN_RULES,
     DEFAULT_USER_RULES,
     GovernanceAction,
+    GovernanceDecision,
     GovernanceRule,
     ToolCallSpec,
     _create_default_policy,
@@ -47,6 +48,64 @@ def _make_governor(tmp_path) -> ResourceGovernor:
         str(tmp_path),
         governance_dir=str(tmp_path / "governance"),
     )
+
+
+def test_audit_close_waits_for_active_connection_user(tmp_path):
+    """Closing the singleton must share its connection lock."""
+    import threading
+
+    existing = AuditLog._instance
+    if existing is not None:
+        existing.close()
+    audit_log = AuditLog.get_instance(tmp_path)
+    close_finished = threading.Event()
+
+    def close_log():
+        audit_log.close()
+        close_finished.set()
+
+    audit_log._lock.acquire()
+    close_thread = threading.Thread(target=close_log)
+    close_thread.start()
+    try:
+        assert not close_finished.wait(timeout=0.05)
+    finally:
+        audit_log._lock.release()
+    close_thread.join(timeout=1)
+
+    assert close_finished.is_set()
+    audit_log.record(
+        str(tmp_path),
+        _tc("Bash", "git status"),
+        GovernanceDecision(
+            action=GovernanceAction.ALLOW,
+            reason="test",
+        ),
+    )
+
+
+def test_governor_stop_keeps_process_audit_log_open(tmp_path):
+    """Stopping one request governor must not close the shared audit log."""
+    existing = AuditLog._instance
+    if existing is not None:
+        existing.close()
+    first = _make_governor(tmp_path)
+    second = _make_governor(tmp_path)
+    audit_log = first.audit_log
+
+    first.stop()
+
+    assert second.audit_log is audit_log
+    audit_log.record(
+        str(tmp_path),
+        _tc("Bash", "git status"),
+        GovernanceDecision(
+            action=GovernanceAction.ALLOW,
+            reason="test",
+        ),
+    )
+    assert audit_log.count == 1
+    audit_log.close()
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +207,97 @@ class TestDefaultPolicyLoad:
             GovernanceAction.ALLOW
         )
 
+    def test_existing_policy_migrates_coding_project_dir_rule(self, tmp_path):
+        """Existing policy.yaml files from before the coding-dir default
+        should gain that rule on load instead of prompting for project writes.
+        """
+        ws = "/home/user/workspace"
+        cpd = "/home/user/coding"
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+        policy = _create_default_policy(
+            workspace_dir=ws,
+            coding_project_dir=cpd,
+        )
+        policy.user_rules = [
+            rule
+            for rule in policy.user_rules
+            if rule.reason != "Coding project dir"
+        ]
+        # Pre-migration files carry no applied_migrations marker.
+        policy.applied_migrations = []
+        save_governance_policy(policy, str(policy_dir), ws, cpd)
+
+        yaml_text = (policy_dir / "policy.yaml").read_text(encoding="utf-8")
+        assert "CODING_PROJECT_DIR" not in yaml_text
+        assert "applied_migrations" not in yaml_text
+
+        reloaded = load_governance_policy(str(policy_dir), ws, cpd)
+        assert (
+            sum(
+                1
+                for rule in reloaded.user_rules
+                if rule.reason == "Coding project dir"
+            )
+            == 1
+        )
+        assert reloaded.evaluate(_tc("Write", f"{cpd}/script.py")).action is (
+            GovernanceAction.ALLOW
+        )
+
+    def test_deleted_coding_project_dir_rule_stays_deleted(self, tmp_path):
+        """Once the migration marker is persisted, a user who deletes the
+        coding-dir ALLOW rule keeps it deleted across reloads.
+
+        The removal is proven behaviourally under STRICT (which has no
+        auto-allow fallback): with the ALLOW rule gone, a write to the
+        coding dir falls through to ASK instead of being silently allowed.
+        """
+        ws = "/home/user/workspace"
+        cpd = "/home/user/coding"
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+        policy = _create_default_policy(
+            workspace_dir=ws,
+            coding_project_dir=cpd,
+        )
+        # User deletes the rule from a policy saved by current code (which
+        # records the migration as applied).
+        policy.user_rules = [
+            rule
+            for rule in policy.user_rules
+            if rule.reason != "Coding project dir"
+        ]
+        save_governance_policy(policy, str(policy_dir), ws, cpd)
+
+        yaml_text = (policy_dir / "policy.yaml").read_text(encoding="utf-8")
+        assert "applied_migrations" in yaml_text
+
+        reloaded = load_governance_policy(str(policy_dir), ws, cpd)
+        assert not [
+            rule
+            for rule in reloaded.user_rules
+            if rule.reason == "Coding project dir"
+        ]
+        # Under STRICT the deleted ALLOW rule can no longer short-circuit
+        # the decision, so the write falls through to ASK.
+        reloaded.execution_level = "strict"
+        assert (
+            reloaded.evaluate(
+                _tc("Write", f"{cpd}/script.py"),
+            ).action
+            is GovernanceAction.ASK
+        )
+
+        # The marker round-trips, so it stays deleted on the next cycle too.
+        save_governance_policy(reloaded, str(policy_dir), ws, cpd)
+        again = load_governance_policy(str(policy_dir), ws, cpd)
+        assert not [
+            rule
+            for rule in again.user_rules
+            if rule.reason == "Coding project dir"
+        ]
+
     def test_coding_project_dir_roundtrip_portable(self, tmp_path):
         """save→reload keeps the CODING_PROJECT_DIR placeholder in YAML
         (distinct coding dir), so the policy stays portable across
@@ -184,6 +334,117 @@ class TestDefaultPolicyLoad:
         reloaded = load_governance_policy(str(policy_dir), ws, cpd)
         decision = reloaded.evaluate(_tc("Edit", f"{cpd}/app.py"))
         assert decision.action is GovernanceAction.ALLOW
+
+    def test_new_default_rule_auto_migrated(self, tmp_path):
+        """A newly added DEFAULT_USER_RULES entry is auto-merged
+        into an existing policy.yaml without a manual whitelist."""
+        from unittest.mock import patch
+
+        ws = "/home/user/workspace"
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+
+        policy = _create_default_policy(workspace_dir=ws)
+        save_governance_policy(policy, str(policy_dir), ws)
+
+        new_rule = GovernanceRule(
+            match="NewTool(*)",
+            action=GovernanceAction.ALLOW,
+            reason="New tool auto-test",
+        )
+        patched = list(DEFAULT_USER_RULES) + [new_rule]
+        with patch(
+            "qwenpaw.governance.policy.DEFAULT_USER_RULES",
+            patched,
+        ):
+            reloaded = load_governance_policy(str(policy_dir), ws)
+        assert any(r.match == "NewTool(*)" for r in reloaded.user_rules)
+
+    def test_deleted_new_default_rule_stays_deleted(self, tmp_path):
+        """Once a new default rule is migrated and then deleted by
+        the user, it must not be re-added on subsequent loads."""
+        from unittest.mock import patch
+
+        ws = "/home/user/workspace"
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+
+        new_rule = GovernanceRule(
+            match="NewTool(*)",
+            action=GovernanceAction.ALLOW,
+            reason="New tool auto-test",
+        )
+        patched = list(DEFAULT_USER_RULES) + [new_rule]
+
+        with patch(
+            "qwenpaw.governance.policy.DEFAULT_USER_RULES",
+            patched,
+        ):
+            p1 = load_governance_policy(str(policy_dir), ws)
+            assert any(r.match == "NewTool(*)" for r in p1.user_rules)
+            # User deletes the rule
+            p1.user_rules = [
+                r for r in p1.user_rules if r.match != "NewTool(*)"
+            ]
+            save_governance_policy(p1, str(policy_dir), ws)
+
+            p2 = load_governance_policy(str(policy_dir), ws)
+        assert not any(r.match == "NewTool(*)" for r in p2.user_rules)
+
+    def test_websearch_webfetch_auto_merged_and_persisted(self, tmp_path):
+        """A policy.yaml saved before WebSearch/WebFetch became default
+        rules gains both rules on load (in-memory + evaluate() allows),
+        and a subsequent save persists them back to the file.
+
+        Reproduces the upgrade path: an existing user has no
+        WebSearch/WebFetch rule on disk; after load the new tools must be
+        governed by an auto-merged ALLOW, and after save the on-disk file
+        must reflect that so the rules survive a restart.
+        """
+        ws = "/home/user/workspace"
+        policy_dir = tmp_path / "policy"
+        policy_dir.mkdir()
+
+        # Build a "pre-WebSearch" policy: defaults minus the two web rules,
+        # with no migration marker (as an old on-disk file would have).
+        policy = _create_default_policy(workspace_dir=ws)
+        policy.user_rules = [
+            r
+            for r in policy.user_rules
+            if r.match not in ("WebSearch(**)", "WebFetch(**)")
+        ]
+        policy.applied_migrations = []
+        save_governance_policy(policy, str(policy_dir), ws)
+
+        # Sanity: the on-disk file predates WebSearch/WebFetch.
+        yaml_text = (policy_dir / "policy.yaml").read_text(encoding="utf-8")
+        assert "WebSearch" not in yaml_text
+        assert "WebFetch" not in yaml_text
+
+        # 1) load → the missing default rules are auto-merged into memory.
+        reloaded = load_governance_policy(str(policy_dir), ws)
+        matches = {r.match for r in reloaded.user_rules}
+        assert "WebSearch(**)" in matches
+        assert "WebFetch(**)" in matches
+
+        # 2) The merged rules actually govern evaluation (not dead weight):
+        # both web tools resolve to ALLOW via user_rules.
+        for tool, target in (
+            ("WebSearch", "climate news"),
+            ("WebFetch", "https://example.com"),
+        ):
+            decision = reloaded.evaluate(_tc(tool, target))
+            assert decision.action is GovernanceAction.ALLOW, (
+                f"{tool} should be ALLOW after merge, got {decision.action} "
+                f"(source={decision.source})"
+            )
+            assert decision.source == "user_rules"
+
+        # 3) save → the merged rules are persisted to the on-disk file.
+        save_governance_policy(reloaded, str(policy_dir), ws)
+        saved_text = (policy_dir / "policy.yaml").read_text(encoding="utf-8")
+        assert "WebSearch(**)" in saved_text
+        assert "WebFetch(**)" in saved_text
 
     @pytest.mark.parametrize(
         "ws, cpd, label",
@@ -340,12 +601,35 @@ class TestAssertPolicySSHCommands:
         tc = _tc("Bash", "ls -la")
         decision = governor.assert_policy(tc)
         governor.audit(tc, decision)
-        # When sandbox is unavailable, SANDBOX_FALLBACK escalates to ASK
-        # So we just check it's not DENY or the SSH-related ASK
+        # Sandbox available -> SANDBOX_FALLBACK (runs in sandbox); sandbox
+        # unavailable -> ALLOW (runs unsandboxed, no prompt). Either way it
+        # must not be DENY or the SSH-related ASK.
         assert decision.action in (
             GovernanceAction.SANDBOX_FALLBACK,
-            GovernanceAction.ASK,
+            GovernanceAction.ALLOW,
         )
+
+    def test_audit_level_none_skips_persistence(self, governor):
+        """The explicit none level must not write to the audit database."""
+        governor.policy.audit_level = "none"
+        tc = _tc("Write", "/tmp/audit-level-none.txt")
+        decision = governor.assert_policy(tc)
+        before = governor.audit_log.count
+
+        governor.audit(tc, decision)
+
+        assert governor.audit_log.count == before
+
+    def test_audit_level_all_persists_decision(self, governor):
+        """The default all level continues to persist audit events."""
+        governor.policy.audit_level = "all"
+        tc = _tc("Write", "/tmp/audit-level-all.txt")
+        decision = governor.assert_policy(tc)
+        before = governor.audit_log.count
+
+        governor.audit(tc, decision)
+
+        assert governor.audit_log.count == before + 1
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +672,10 @@ class TestGovernancePolicyEvaluate:
         assert decision.action == GovernanceAction.ASK
 
     def test_sudo_deny(self, policy):
-        """Bash(sudo ...) should be DENY from builtin rules."""
+        """Bash(sudo ...) is DENY — caught by TOOL_CMD_PRIVILEGE_ESCALATION
+        (CRITICAL) in Phase 1 deep-security scanning. Users can disable
+        this detection rule in the frontend to fall back to the Phase 2
+        builtin ASK rule."""
         tc = _tc("Bash", "sudo apt-get install something")
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.DENY
@@ -433,35 +720,44 @@ class TestGovernancePolicyEvaluate:
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ALLOW
 
-    def test_grep_outside_workspace_ask(self, policy):
-        """Grep outside workspace with no rule hit falls through to ASK.
+    def test_grep_outside_workspace_allow(self, policy):
+        """Grep outside workspace with no rule hit + no finding is ALLOWed.
 
-        Fail-closed: nothing matched (no rule, no finding), so the user
-        must approve regardless of execution_level.
+        Finding-driven approval: the deep scan flagged nothing and no
+        builtin/user rule objected, so SMART (the default) allows the call
+        instead of prompting. Sensitive-path protection still fires via
+        Phase 1 for paths in ``sensitive_paths``.
         """
         tc = _tc("Grep", "/etc/")
         decision = policy.evaluate(tc)
-        assert decision.action == GovernanceAction.ASK
+        assert decision.action == GovernanceAction.ALLOW
 
-    def test_glob_outside_workspace_ask(self, policy):
-        """Glob outside workspace with no rule hit falls through to ASK."""
+    def test_glob_outside_workspace_allow(self, policy):
+        """Glob outside workspace with no rule hit + no finding is ALLOWed."""
         tc = _tc("Glob", "/var/log/")
         decision = policy.evaluate(tc)
-        assert decision.action == GovernanceAction.ASK
+        assert decision.action == GovernanceAction.ALLOW
 
-    def test_outside_workspace_always_asks(self, policy):
-        """No rule hit + no findings ASKs under every execution_level.
+    def test_outside_workspace_fallback_by_level(self, policy):
+        """No rule hit + no findings: STRICT asks, others allow.
 
-        Fail-closed design: an unmatched tool call always requires
-        approval, irrespective of the execution_level threshold.
+        Finding-driven approval: only STRICT requires approval for an
+        unmatched-but-clean call; SMART/AUTO/OFF allow it to avoid
+        flooding the user with low-value prompts.
         """
         import copy
 
         tc = _tc("Grep", "/etc/")
-        for level in ("strict", "smart", "auto", "off"):
+        expected = {
+            "strict": GovernanceAction.ASK,
+            "smart": GovernanceAction.ALLOW,
+            "auto": GovernanceAction.ALLOW,
+            "off": GovernanceAction.ALLOW,
+        }
+        for level, want in expected.items():
             p = copy.deepcopy(policy)
             p.execution_level = level
-            assert p.evaluate(tc).action == GovernanceAction.ASK, level
+            assert p.evaluate(tc).action == want, level
 
     def test_bash_no_match_fallback(self, policy):
         """Bash with no rule match should return SANDBOX_FALLBACK."""
@@ -522,7 +818,9 @@ class TestGovernancePolicyEvaluate:
 
 
 class TestAssertPolicySandboxEscalation:
-    """When sandbox is unavailable, SANDBOX_FALLBACK should escalate to ASK."""
+    """When sandbox is unavailable, a shell SANDBOX_FALLBACK runs unsandboxed
+    (ALLOW) instead of prompting — the command already cleared all danger
+    checks, and the operator has accepted running without the sandbox."""
 
     @pytest.fixture()
     def governor_no_sandbox(self, tmp_path):
@@ -540,13 +838,13 @@ class TestAssertPolicySandboxEscalation:
         AuditLog._instance = None
         shutil.rmtree(gov._policy_dir, ignore_errors=True)
 
-    def test_bash_echo_escalates_to_ask(self, governor_no_sandbox):
+    def test_bash_echo_allows_unsandboxed(self, governor_no_sandbox):
         """Bash(echo hello) — no rule match → SANDBOX_FALLBACK, but sandbox
-        unavailable → escalate to ASK."""
+        unavailable → run unsandboxed (ALLOW)."""
         tc = _tc("Bash", "echo hello")
         decision = governor_no_sandbox.assert_policy(tc)
         governor_no_sandbox.audit(tc, decision)
-        assert decision.action == GovernanceAction.ASK
+        assert decision.action == GovernanceAction.ALLOW
 
 
 # ---------------------------------------------------------------------------
@@ -943,6 +1241,87 @@ class TestAddApprovedRuleGeneralization:
         with pytest.raises(TypeError):
             await governor.add_approved_rule(_tc("Bash", "git status"))
 
+    async def test_concurrent_policy_writes_are_serialized(
+        self,
+        governor,
+        monkeypatch,
+    ):
+        """Concurrent approvals cannot overlap policy persistence."""
+        import asyncio
+        import threading
+        import time
+
+        from qwenpaw.governance import resource_governor as governor_module
+
+        active = 0
+        max_active = 0
+        guard = threading.Lock()
+
+        def delayed_save(*_args, **_kwargs):
+            nonlocal active, max_active
+            with guard:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.01)
+            with guard:
+                active -= 1
+
+        monkeypatch.setattr(
+            governor_module,
+            "save_governance_policy",
+            delayed_save,
+        )
+
+        results = await asyncio.gather(
+            governor.add_approved_rule(
+                _tc("Bash", "git status"),
+                generalized_target="git status",
+            ),
+            governor.add_approved_rule(
+                _tc("Bash", "git diff"),
+                generalized_target="git diff",
+            ),
+        )
+
+        assert results == [True, True]
+        assert max_active == 1
+
+    async def test_concurrent_governor_instances_keep_both_rules(
+        self,
+        tmp_path,
+    ):
+        """Policy transactions are shared across governor instances."""
+        import asyncio
+
+        first = _make_governor(tmp_path)
+        second = _make_governor(tmp_path)
+        first.start()
+        second.start()
+
+        results = await asyncio.gather(
+            first.add_approved_rule(
+                _tc("Bash", "git status"),
+                generalized_target="git status",
+            ),
+            second.add_approved_rule(
+                _tc("Bash", "git diff"),
+                generalized_target="git diff",
+            ),
+        )
+        first.stop()
+        second.stop()
+
+        persisted = load_governance_policy(
+            str(first._policy_dir),
+            str(first.workspace_dir),
+            str(first.coding_project_dir),
+        )
+        matches = {rule.match for rule in persisted.user_rules}
+
+        assert results == [True, True]
+        assert "Bash(git status)" in matches
+        assert "Bash(git diff)" in matches
+
 
 class TestGeneralizeTargetForApproval:
     """generalize_target_for_approval is the single entry point the
@@ -1023,3 +1402,515 @@ class TestGeneralizeTargetForApproval:
             "sandbox",
         )
         assert result == "echo $(date)"
+
+
+# ===========================================================================
+# TestDeepScanConfigMerge — verify _merge_config_rules bridges frontend
+# Security page rules into governance Phase 1.
+# ===========================================================================
+
+
+class TestDeepScanConfigMerge:
+    """Tests for GovernancePolicy._merge_config_rules().
+
+    Verifies that config.json security.tool_guard custom_rules,
+    disabled_rules, and shell_evasion_checks are merged into the
+    governance deep scan pipeline.
+    """
+
+    def _make_policy(self, tmp_path):
+        """Create a default policy for testing."""
+        policy = _create_default_policy(
+            str(tmp_path),
+            str(tmp_path),
+        )
+        policy.execution_level = "smart"
+        return policy
+
+    def test_deep_scan_merges_config_custom_rules(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A custom_rule from config.json should produce a finding in
+        governance Phase 1 deep scan."""
+        from unittest.mock import MagicMock
+
+        policy = self._make_policy(tmp_path)
+
+        # Mock load_config to return a config with a custom rule
+        mock_cfg = MagicMock()
+        mock_rule = MagicMock()
+        mock_rule.id = "CUSTOM_TEST_RULE"
+        mock_rule.tools = ["execute_shell_command"]
+        mock_rule.params = []
+        mock_rule.category = "command_injection"
+        mock_rule.severity = "HIGH"
+        mock_rule.patterns = [r"\btest_governance_bridge\b"]
+        mock_rule.exclude_patterns = []
+        mock_rule.description = "Test custom rule"
+        mock_rule.remediation = "Do not use test_governance_bridge"
+
+        mock_cfg.security.tool_guard.custom_rules = [mock_rule]
+        mock_cfg.security.tool_guard.disabled_rules = []
+        mock_cfg.security.tool_guard.shell_evasion_checks = {}
+
+        monkeypatch.setattr(
+            "qwenpaw.config.load_config",
+            lambda: mock_cfg,
+        )
+
+        tc = _tc("Bash", "echo test_governance_bridge")
+        findings = policy._deep_security_scan(tc, "shell")
+
+        # Should find at least one finding from our custom rule
+        rule_ids = [f.rule_id for f in findings]
+        assert "CUSTOM_TEST_RULE" in rule_ids
+
+    def test_deep_scan_disabled_rules_filter(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Rules listed in disabled_rules should not participate in
+        detection — neither policy.yaml rules nor config custom_rules."""
+        from unittest.mock import MagicMock
+        from qwenpaw.governance.policy import DetectionRuleConfig
+
+        policy = self._make_policy(tmp_path)
+
+        # Add a policy.yaml detection rule
+        yaml_rule = DetectionRuleConfig(
+            id="YAML_RULE_1",
+            tools=["execute_shell_command"],
+            patterns=[r"\byaml_pattern\b"],
+            severity="HIGH",
+            description="YAML rule",
+        )
+        policy.detection_rules = [yaml_rule]
+
+        # Mock config with disabled_rules that disables YAML_RULE_1
+        mock_cfg = MagicMock()
+        mock_cfg.security.tool_guard.custom_rules = []
+        mock_cfg.security.tool_guard.disabled_rules = ["YAML_RULE_1"]
+        mock_cfg.security.tool_guard.shell_evasion_checks = {}
+
+        monkeypatch.setattr(
+            "qwenpaw.config.load_config",
+            lambda: mock_cfg,
+        )
+
+        tc = _tc("Bash", "echo yaml_pattern")
+        findings = policy._deep_security_scan(tc, "shell")
+
+        # YAML_RULE_1 should be filtered out
+        rule_ids = [f.rule_id for f in findings]
+        assert "YAML_RULE_1" not in rule_ids
+
+    def test_deep_scan_config_shell_evasion_merge(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Shell evasion checks enabled in config.json should activate
+        in governance deep scan even if policy.yaml has them off."""
+        from unittest.mock import MagicMock
+
+        policy = self._make_policy(tmp_path)
+        # Policy has all evasion checks disabled
+        policy.shell_evasion_checks = {
+            "command_substitution": False,
+        }
+
+        # Config enables command_substitution
+        mock_cfg = MagicMock()
+        mock_cfg.security.tool_guard.custom_rules = []
+        mock_cfg.security.tool_guard.disabled_rules = []
+        mock_cfg.security.tool_guard.shell_evasion_checks = {
+            "command_substitution": True,
+        }
+
+        monkeypatch.setattr(
+            "qwenpaw.config.load_config",
+            lambda: mock_cfg,
+        )
+
+        # Command with $() substitution
+        tc = _tc("Bash", "echo $(whoami)")
+        findings = policy._deep_security_scan(tc, "shell")
+
+        # Should detect the command substitution
+        rule_ids = [f.rule_id for f in findings]
+        assert "SHELL_EVASION_COMMAND_SUBSTITUTION" in rule_ids
+
+    def test_deep_scan_config_load_failure_graceful(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """If load_config() raises, deep scan should still work using
+        policy.yaml rules only (graceful degradation)."""
+        from qwenpaw.governance.policy import DetectionRuleConfig
+
+        policy = self._make_policy(tmp_path)
+
+        # Add a policy.yaml rule that should still work
+        yaml_rule = DetectionRuleConfig(
+            id="YAML_FALLBACK_RULE",
+            tools=["execute_shell_command"],
+            patterns=[r"\bfallback_test\b"],
+            severity="MEDIUM",
+            description="Fallback rule",
+        )
+        policy.detection_rules = [yaml_rule]
+
+        # Make load_config raise
+        def _raise_config():
+            raise RuntimeError("config broken")
+
+        monkeypatch.setattr(
+            "qwenpaw.config.load_config",
+            _raise_config,
+        )
+
+        tc = _tc("Bash", "echo fallback_test")
+        findings = policy._deep_security_scan(tc, "shell")
+
+        # Should still detect via policy.yaml rule
+        rule_ids = [f.rule_id for f in findings]
+        assert "YAML_FALLBACK_RULE" in rule_ids
+
+
+# ===========================================================================
+# TestShellFindingDrivenApproval — shell commands with deep-scan findings
+# honor the execution-level severity threshold (Phase 3 fix).
+# ===========================================================================
+
+
+class TestShellFindingDrivenApproval:
+    """Phase 3 shell path: findings drive ASK instead of always falling to
+    SANDBOX_FALLBACK.
+
+    - HIGH/MEDIUM finding + SMART -> ASK
+    - INFO/LOW finding + SMART   -> SANDBOX_FALLBACK (sandbox is safety net)
+    - no finding + SMART         -> SANDBOX_FALLBACK
+    """
+
+    def _policy_with_shell_rule(self, severity: str):
+        """Build a SMART policy with one shell detection rule of *severity*."""
+        from qwenpaw.governance.policy import DetectionRuleConfig
+
+        policy = _create_default_policy(workspace_dir="/tmp/test-workspace")
+        policy.execution_level = "smart"
+        policy.detection_rules = [
+            DetectionRuleConfig(
+                id="SHELL_CUSTOM",
+                tools=["execute_shell_command"],
+                patterns=[r"\bmarker_token\b"],
+                severity=severity,
+                description="custom shell rule",
+            ),
+        ]
+        return policy
+
+    def test_high_finding_shell_smart_asks(self):
+        """HIGH finding on a shell command in SMART mode -> ASK."""
+        policy = self._policy_with_shell_rule("HIGH")
+        tc = _tc("Bash", "echo marker_token")
+        decision = policy.evaluate(tc)
+        assert decision.action is GovernanceAction.ASK
+
+    def test_low_finding_shell_smart_sandbox_fallback(self):
+        """INFO/LOW finding falls through to SANDBOX_FALLBACK."""
+        policy = self._policy_with_shell_rule("LOW")
+        tc = _tc("Bash", "echo marker_token")
+        decision = policy.evaluate(tc)
+        assert decision.action is GovernanceAction.SANDBOX_FALLBACK
+
+    def test_no_finding_shell_smart_sandbox_fallback(self):
+        """No finding -> SANDBOX_FALLBACK (unchanged behavior)."""
+        policy = self._policy_with_shell_rule("HIGH")
+        tc = _tc("Bash", "echo harmless")
+        decision = policy.evaluate(tc)
+        assert decision.action is GovernanceAction.SANDBOX_FALLBACK
+
+
+# ===========================================================================
+# TestRawParamsScanning — H4: verify detection against non-target params
+# (e.g. Write content) and empty-target scenarios.
+# ===========================================================================
+
+
+class TestRawParamsScanning:
+    """Verify detect_dangerous_patterns scans raw_params, respects
+    rule.params, and works even when target is empty."""
+
+    def test_write_content_match(self):
+        """Pattern in Write content field triggers a finding."""
+        from qwenpaw.governance.detectors import detect_dangerous_patterns
+        from unittest.mock import MagicMock
+
+        rule = MagicMock()
+        rule.id = "CONTENT_RULE"
+        rule.tools = ["write_file"]
+        rule.params = ["content"]  # scoped to content only
+        rule.category = "data_exfiltration"
+        rule.severity = "HIGH"
+        rule.patterns = [r"\bsecret_token\b"]
+        rule.exclude_patterns = []
+        rule.description = "Detects secret token in content"
+        rule.remediation = "Remove secret"
+
+        findings = detect_dangerous_patterns(
+            tool_name="Write",
+            target="/tmp/out.txt",
+            detection_rules=[rule],
+            raw_params={
+                "file_path": "/tmp/out.txt",
+                "content": "this has secret_token inside",
+            },
+        )
+        assert len(findings) == 1
+        assert findings[0].rule_id == "CONTENT_RULE"
+        assert findings[0].param_name == "content"
+
+    def test_rule_params_scoping_excludes_unrelated(self):
+        """Rule with params=["content"] must NOT match the file_path param."""
+        from qwenpaw.governance.detectors import detect_dangerous_patterns
+        from unittest.mock import MagicMock
+
+        rule = MagicMock()
+        rule.id = "SCOPED_RULE"
+        rule.tools = ["write_file"]
+        rule.params = ["content"]  # only content
+        rule.category = "command_injection"
+        rule.severity = "HIGH"
+        rule.patterns = [r"secret"]  # matches in path too if unchecked
+        rule.exclude_patterns = []
+        rule.description = "scoped"
+        rule.remediation = ""
+
+        findings = detect_dangerous_patterns(
+            tool_name="Write",
+            target="/tmp/secret_dir/file.txt",
+            detection_rules=[rule],
+            raw_params={
+                "file_path": "/tmp/secret_dir/file.txt",
+                "content": "harmless text",
+            },
+        )
+        # "secret" is in file_path but rule only scopes to content
+        assert len(findings) == 0
+
+    def test_empty_target_raw_params_still_detected(self):
+        """When target is empty, raw_params values are still scanned."""
+        from qwenpaw.governance.detectors import detect_dangerous_patterns
+        from unittest.mock import MagicMock
+
+        rule = MagicMock()
+        rule.id = "EMPTY_TARGET_RULE"
+        rule.tools = []
+        rule.params = []
+        rule.category = "command_injection"
+        rule.severity = "MEDIUM"
+        rule.patterns = [r"\bdanger\b"]
+        rule.exclude_patterns = []
+        rule.description = "danger detected"
+        rule.remediation = ""
+
+        findings = detect_dangerous_patterns(
+            tool_name="Write",
+            target="",
+            detection_rules=[rule],
+            raw_params={
+                "file_path": "/tmp/a.txt",
+                "content": "this is danger content",
+            },
+        )
+        assert len(findings) == 1
+        assert findings[0].rule_id == "EMPTY_TARGET_RULE"
+        assert findings[0].param_name == "content"
+
+    def test_shell_evasion_config_can_disable(self):
+        """Config setting a check to False overrides policy.yaml True."""
+        from unittest.mock import MagicMock
+
+        policy = _create_default_policy(workspace_dir="/tmp/test-workspace")
+        policy.execution_level = "smart"
+        # Policy has command_substitution enabled
+        policy.shell_evasion_checks = {
+            "command_substitution": True,
+        }
+
+        # Config DISABLES it
+        mock_cfg = MagicMock()
+        mock_cfg.security.tool_guard.custom_rules = []
+        mock_cfg.security.tool_guard.disabled_rules = []
+        mock_cfg.security.tool_guard.shell_evasion_checks = {
+            "command_substitution": False,
+        }
+
+        import qwenpaw.config
+
+        original = qwenpaw.config.load_config
+        qwenpaw.config.load_config = lambda: mock_cfg
+        try:
+            tc = _tc("Bash", "echo $(whoami)")
+            findings = policy._deep_security_scan(tc, "shell")
+            # Should NOT detect command substitution (config disabled it)
+            rule_ids = [f.rule_id for f in findings]
+            assert "SHELL_EVASION_COMMAND_SUBSTITUTION" not in rule_ids
+        finally:
+            qwenpaw.config.load_config = original
+
+
+# ---------------------------------------------------------------------------
+# Default detection rules: bridge, override, persistence, cache isolation
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultDetectionRules:
+    """Tests for the governance ↔ tool_guard detection-rule bridge."""
+
+    def test_bundled_rules_loaded_on_cold_start(self, tmp_path):
+        """Cold start (no policy.yaml) should include bundled rules."""
+        policy = _create_default_policy(workspace_dir=str(tmp_path))
+        ids = {r.id for r in policy.detection_rules}
+        assert "TOOL_CMD_DANGEROUS_RM" in ids
+        assert "TOOL_CMD_PRIVILEGE_ESCALATION" in ids
+
+    def test_bundled_rules_loaded_from_empty_policy_yaml(self, tmp_path):
+        """policy.yaml with no detection_rules still gets defaults."""
+        from qwenpaw.governance.policy import _get_default_detection_rules
+
+        policy = load_governance_policy(
+            str(tmp_path),
+            workspace_dir=str(tmp_path),
+        )
+        ids = {r.id for r in policy.detection_rules}
+        # Should contain bundled rules even though YAML had none
+        for default_rule in _get_default_detection_rules():
+            assert default_rule.id in ids
+
+    def test_policy_yaml_rule_overrides_default(self):
+        """A policy.yaml rule with same ID as a bundled rule should win."""
+        from qwenpaw.governance.policy import (
+            DetectionRuleConfig,
+            _merge_default_detection_rules,
+        )
+
+        user_rule = DetectionRuleConfig(
+            id="TOOL_CMD_DANGEROUS_RM",
+            tools=["execute_shell_command"],
+            patterns=[r"\bcustom_rm_pattern\b"],
+            severity="MEDIUM",
+            description="User-customized RM rule",
+        )
+        merged = _merge_default_detection_rules([user_rule])
+
+        # Find the merged rule with the overridden ID
+        rm_rules = [r for r in merged if r.id == "TOOL_CMD_DANGEROUS_RM"]
+        assert len(rm_rules) == 1
+        assert rm_rules[0].severity == "MEDIUM"
+        assert rm_rules[0].patterns == [r"\bcustom_rm_pattern\b"]
+
+        # Other defaults still present
+        ids = {r.id for r in merged}
+        assert "TOOL_CMD_PRIVILEGE_ESCALATION" in ids
+
+    def test_save_load_round_trip_excludes_defaults(self, tmp_path):
+        """save→load should NOT persist bundled rules to policy.yaml."""
+        from qwenpaw.governance.policy import (
+            DetectionRuleConfig,
+            _get_default_detection_rule_ids,
+        )
+
+        policy = _create_default_policy(workspace_dir=str(tmp_path))
+        # Add a user rule
+        user_rule = DetectionRuleConfig(
+            id="MY_CUSTOM_RULE",
+            tools=["execute_shell_command"],
+            patterns=[r"\bcustom\b"],
+            severity="HIGH",
+            description="User custom rule",
+        )
+        policy.detection_rules.append(user_rule)
+
+        save_governance_policy(policy, str(tmp_path), str(tmp_path))
+
+        # Read raw YAML and verify only user rule was persisted
+        import yaml as _yaml
+
+        raw = _yaml.safe_load(
+            (tmp_path / "policy.yaml").read_text(encoding="utf-8"),
+        )
+        persisted_ids = {r["id"] for r in (raw.get("detection_rules") or [])}
+        assert "MY_CUSTOM_RULE" in persisted_ids
+        # Bundled rules should NOT be in YAML
+        for bid in _get_default_detection_rule_ids():
+            assert (
+                bid not in persisted_ids
+            ), f"bundled rule {bid} should not be persisted"
+
+        # Reload — both user rule and defaults should be present
+        reloaded = load_governance_policy(
+            str(tmp_path),
+            workspace_dir=str(tmp_path),
+        )
+        ids = {r.id for r in reloaded.detection_rules}
+        assert "MY_CUSTOM_RULE" in ids
+        assert "TOOL_CMD_DANGEROUS_RM" in ids
+
+    def test_removed_default_rule_does_not_survive_upgrade(self, tmp_path):
+        """If a bundled rule is renamed/removed, it should disappear
+        after load instead of lingering as a fake user rule."""
+        from qwenpaw.governance.policy import (
+            _get_default_detection_rule_ids,
+        )
+
+        # Simulate: old version persisted nothing (no detection_rules).
+        # New version loads → defaults only, no leftover old IDs.
+        policy = _create_default_policy(workspace_dir=str(tmp_path))
+        save_governance_policy(policy, str(tmp_path), str(tmp_path))
+
+        reloaded = load_governance_policy(
+            str(tmp_path),
+            workspace_dir=str(tmp_path),
+        )
+        ids = {r.id for r in reloaded.detection_rules}
+        # Only current defaults — nothing extra
+        default_ids = _get_default_detection_rule_ids()
+        assert ids == default_ids
+
+    def test_cache_isolation_across_instances(self):
+        """Mutating rules from one call must not affect another."""
+        from qwenpaw.governance.policy import _get_default_detection_rules
+
+        rules_a = _get_default_detection_rules()
+        rules_b = _get_default_detection_rules()
+        # Mutate a
+        if rules_a:
+            rules_a[0].severity = "MUTATED"
+        # b should be unaffected
+        if rules_b:
+            assert rules_b[0].severity != "MUTATED"
+
+    def test_missing_yaml_graceful_degradation(self, monkeypatch):
+        """If the bundled YAML is missing, return empty list."""
+        import qwenpaw.governance.policy as pol
+
+        # Clear cache to force reload
+        monkeypatch.setattr(pol, "_DEFAULT_DETECTION_RULES_CACHE", None)
+
+        # Patch the import to return a non-existent path
+        fake_dir = Path("/nonexistent/path/rules")
+        monkeypatch.setattr(
+            "qwenpaw.security.tool_guard.guardians.rule_guardian."
+            "_DEFAULT_RULES_DIR",
+            fake_dir,
+        )
+        result = pol._get_default_detection_rules()
+        assert result == []
+
+        # Restore cache for other tests
+        monkeypatch.setattr(pol, "_DEFAULT_DETECTION_RULES_CACHE", None)

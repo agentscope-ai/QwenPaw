@@ -15,6 +15,8 @@ from __future__ import annotations
 import copy
 import logging
 import re
+import threading
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from fnmatch import fnmatch
@@ -25,6 +27,7 @@ import yaml
 
 from .tool_registry import ToolRegistry, DEFAULT_REGISTRY
 from ..sandbox import SandboxConfig
+from ..utils.io_utils import write_yaml_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -190,83 +193,74 @@ class GovernanceRule:
 # builtin_rules
 # ---------------------------------------------------------------------------
 
+# (match, reason) pairs for builtin ASK rules, grouped by concern. Expanded
+# into GovernanceRule objects below. All share action=ASK / grantee="*" /
+# duration="permanent" defaults, so only match+reason need to vary.
+_BUILTIN_ASK_SPECS: List[tuple[str, str]] = [
+    # ── Resource protection (any tool access requires confirmation) ──
+    ("*(**/.env*)", "Env file may contain secrets/credentials"),
+    ("*(**/.ssh/**)", "SSH credentials directory"),
+    ("*(**/*.pem)", "Private key file"),
+    ("*(**/*.key)", "Private key file"),
+    ("*(**/*.p12)", "PKCS#12 certificate bundle"),
+    ("*(**/*.pfx)", "PKCS#12 certificate bundle"),
+    ("*(**/.aws/**)", "AWS credentials directory"),
+    ("*(**/.gnupg/**)", "GPG keys directory"),
+    ("*(**/.kube/**)", "Kubernetes config directory"),
+    ("*(**/.netrc)", "Netrc login credentials file"),
+    ("*(**/.npmrc)", "npm auth token file"),
+    ("*(**/.pypirc)", "PyPI API token file"),
+    # ── LLM provider / AI coding-assistant configs (may hold API keys) ──
+    # Generic-name fallback (api_key*/apikey*) catches future providers
+    # whose key file is named accordingly; vendor dirs cover the known
+    # ones. Shell rc files and PowerShell profiles are included because
+    # users frequently `export`/`setx` API keys into them.
+    ("*(**/api_key*)", "API key file by generic name"),
+    ("*(**/apikey*)", "API key file by generic name"),
+    ("*(**/.anthropic/**)", "Anthropic CLI/SDK config may contain API key"),
+    ("*(**/.config/anthropic/**)", "Anthropic config may contain API key"),
+    ("*(**/.openai/**)", "OpenAI config may contain API key"),
+    ("*(**/.config/openai/**)", "OpenAI config (XDG) may contain API key"),
+    ("*(**/.codex/**)", "OpenAI Codex CLI config may contain API key"),
+    ("*(**/.gemini/**)", "Gemini CLI config may contain API key"),
+    ("*(**/.config/gemini/**)", "Gemini config (XDG) may contain API key"),
+    ("*(**/.claude/**)", "Claude config/memory may contain API key"),
+    ("*(**/.cursor/**)", "Cursor config may contain token"),
+    ("*(**/.copilot/**)", "GitHub Copilot config may contain token"),
+    ("*(**/.codeium/**)", "Codeium config may contain token"),
+    ("*(**/.opencode/**)", "OpenCode config may contain API key"),
+    # ── Shell rc / history (users often `export` API keys here) ──
+    ("*(**/.bashrc)", "Shell rc may export API keys"),
+    ("*(**/.zshrc)", "Shell rc may export API keys"),
+    ("*(**/.profile)", "Shell rc may export API keys"),
+    ("*(**/.bash_profile)", "Shell rc may export API keys"),
+    ("*(**/.bash_history)", "Shell history may contain typed secrets"),
+    ("*(**/.zsh_history)", "Shell history may contain typed secrets"),
+    # ── Windows (PowerShell profile + history may hold keys) ──
+    ("*(**/Microsoft.PowerShell_profile.ps1)", "PS profile may setx API keys"),
+    ("*(**/ConsoleHost_history.txt)", "PowerShell may contain typed secrets"),
+    ("Bash(sudo *)", "Privilege escalation, ASK"),
+    ("Bash(gh repo delete *)", "Repository deletion, ASK"),
+    ("Bash(gh api -X DELETE *)", "Destructive GitHub API calls, ASK"),
+    ("Bash(gh api --method DELETE *)", "Destructive GitHub API calls, ASK"),
+    ("Bash(gh api --method=DELETE *)", "Destructive GitHub API calls, ASK"),
+]
+
+# (match, reason) pairs for builtin DENY rules — hard walls, never allowed.
+# NOTE: these glob patterns are best-effort fast-path checks. The
+# authoritative shell danger detection is in
+# ``_check_shell_danger_keywords()`` below, which uses regex to catch
+# command variants that fnmatch cannot match.
+_BUILTIN_DENY_SPECS: List[tuple[str, str]] = [
+    ("Bash(rm * -rf *//*)", "Root filesystem deletion"),
+]
+
 DEFAULT_BUILTIN_RULES: List[GovernanceRule] = [
-    # ── Resource protection (any tool access requires user confirmation) ──
-    GovernanceRule(
-        match="*(**/.env*)",
-        action=GovernanceAction.ASK,
-        reason="Env file may contain secrets/credentials",
-    ),
-    GovernanceRule(
-        match="*(**/.ssh/**)",
-        action=GovernanceAction.ASK,
-        reason="SSH credentials directory",
-    ),
-    GovernanceRule(
-        match="*(**/*.pem)",
-        action=GovernanceAction.ASK,
-        reason="Private key file",
-    ),
-    GovernanceRule(
-        match="*(**/*.key)",
-        action=GovernanceAction.ASK,
-        reason="Private key file",
-    ),
-    GovernanceRule(
-        match="*(**/*.p12)",
-        action=GovernanceAction.ASK,
-        reason="PKCS#12 certificate bundle",
-    ),
-    GovernanceRule(
-        match="*(**/*.pfx)",
-        action=GovernanceAction.ASK,
-        reason="PKCS#12 certificate bundle",
-    ),
-    GovernanceRule(
-        match="*(**/.aws/**)",
-        action=GovernanceAction.ASK,
-        reason="AWS credentials directory",
-    ),
-    GovernanceRule(
-        match="*(**/.gnupg/**)",
-        action=GovernanceAction.ASK,
-        reason="GPG keys directory",
-    ),
-    GovernanceRule(
-        match="*(**/.kube/**)",
-        action=GovernanceAction.ASK,
-        reason="Kubernetes config directory",
-    ),
-    GovernanceRule(
-        match="*(**/.netrc)",
-        action=GovernanceAction.ASK,
-        reason="Netrc login credentials file",
-    ),
-    GovernanceRule(
-        match="*(**/.npmrc)",
-        action=GovernanceAction.ASK,
-        reason="npm auth token file",
-    ),
-    GovernanceRule(
-        match="*(**/.pypirc)",
-        action=GovernanceAction.ASK,
-        reason="PyPI API token file",
-    ),
-    # ── High-risk commands (hard wall, never allowed) ──
-    # NOTE: These glob patterns are best-effort fast-path checks.
-    # The authoritative shell danger detection is in
-    # ``_check_shell_danger_keywords()`` below, which uses regex to
-    # catch command variants that fnmatch cannot match.
-    GovernanceRule(
-        match="Bash(rm * -rf *//*)",
-        action=GovernanceAction.DENY,
-        reason="Root filesystem deletion",
-    ),
-    GovernanceRule(
-        match="Bash(sudo *)",
-        action=GovernanceAction.DENY,
-        reason="Privilege escalation prohibited",
-    ),
+    GovernanceRule(match=m, action=GovernanceAction.ASK, reason=r)
+    for m, r in _BUILTIN_ASK_SPECS
+] + [
+    GovernanceRule(match=m, action=GovernanceAction.DENY, reason=r)
+    for m, r in _BUILTIN_DENY_SPECS
 ]
 
 
@@ -282,17 +276,6 @@ _SHELL_DANGER_PATTERNS: list[tuple[re.Pattern[str], str]] = [
             r"\brm\b(?=[^;|&]*\s+-[a-zA-Z]*[rR])[^;|&]*\s+/(?:\s|$|\*)",
         ),
         "Recursive deletion targeting root filesystem",
-    ),
-    # sudo in any position: start of command, after pipe/semicolon,
-    # subshell, absolute path, env prefix, xargs, etc.
-    (
-        re.compile(
-            r"(?:^|[;&|`]|\$\()\s*(?:/usr/s?bin/|/bin/)?sudo\b"
-            r"|\bxargs\s+.*\bsudo\b"
-            r"|\bcommand\s+sudo\b"
-            r"|\benv\s+.*\bsudo\b",
-        ),
-        "Privilege escalation (sudo)",
     ),
     # Fork bomb patterns
     (
@@ -383,7 +366,9 @@ DEFAULT_SANDBOX_DENY_PATHS: List[str] = [
     # pip / PyPI API tokens
     "~/.pypirc",
     # Other common sensitive configs
-    "~/.config/gh",  # GitHub CLI
+    # NOTE: ~/.config/gh intentionally excluded — gh CLI needs to read its
+    # auth config (hosts.yml) for operations. The gh ALLOW rule + DENY for
+    # destructive subcommands provides the safety boundary instead.
     "~/.config/nix",  # Nix config
     "~/.netrc",  # generic login credentials
 ]
@@ -398,43 +383,12 @@ FILE_WRITE_TOOLS: frozenset[str] = frozenset({"Write", "Edit", "Append"})
 # Default user_rules (for cold start)
 # ---------------------------------------------------------------------------
 
-DEFAULT_USER_RULES: List[GovernanceRule] = [
-    # ── Internal tools (no side effects, always allowed) ──
-    GovernanceRule(
-        match="GetCurrentTime(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Read-only system tool",
-    ),
-    GovernanceRule(
-        match="GetTokenUsage(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Read-only usage query",
-    ),
-    GovernanceRule(
-        match="ListAgents(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Read-only agent list",
-    ),
-    GovernanceRule(
-        match="ChatWithAgent(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Inter-agent messaging",
-    ),
-    GovernanceRule(
-        match="SubmitToAgent(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Inter-agent task submission",
-    ),
-    GovernanceRule(
-        match="CheckAgentTask(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Read-only task status query",
-    ),
-    GovernanceRule(
-        match="DelegateExternalAgent(*)",
-        action=GovernanceAction.ALLOW,
-        reason="Inter-agent delegation",
-    ),
+# Path-level / environment rules kept here manually (cannot be expressed
+# by ``@tool_descriptor``). Tool-level ``ToolName(**)`` ALLOW/ASK/DENY
+# rules are generated from descriptor ``default_policy`` fields via
+# :func:`get_default_user_rules`.
+_PATH_LEVEL_USER_RULES: List[GovernanceRule] = [
+    # NOTE: Internal tools need no rule — Phase 0 short-circuits them.
     # ── File tools (operations within WORKSPACE_DIR, always allowed) ──
     GovernanceRule(
         match="Read(WORKSPACE_DIR/**)",
@@ -486,14 +440,7 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         action=GovernanceAction.ALLOW,
         reason="File send within workspace",
     ),
-    # ── Browser (treat as always allowed for now) ──
-    GovernanceRule(
-        match="Browser(**)",
-        action=GovernanceAction.ALLOW,
-        reason="Allow all browser access",
-    ),
     # ── /tmp ──
-    # Allow all tool access under /tmp without prompting.
     GovernanceRule(
         match="*(/tmp/**)",
         action=GovernanceAction.ALLOW,
@@ -505,7 +452,167 @@ DEFAULT_USER_RULES: List[GovernanceRule] = [
         action=GovernanceAction.ALLOW,
         reason="Coding project dir",
     ),
+    # ALLOW all other gh operations
+    GovernanceRule(
+        match="Bash(gh)",
+        action=GovernanceAction.ALLOW,
+        reason="GitHub CLI operations",
+    ),
+    GovernanceRule(
+        match="Bash(gh *)",
+        action=GovernanceAction.ALLOW,
+        reason="GitHub CLI operations",
+    ),
 ]
+
+
+_AUTO_DEFAULT_USER_RULES_CACHE: List[GovernanceRule] | None = None
+_AUTO_DEFAULT_USER_RULES_LOCK = threading.Lock()
+
+
+def _auto_default_user_rules() -> List[GovernanceRule]:
+    """Build tool-level rules from ``@tool_descriptor(default_policy=...)``.
+
+    Import of ``agents.tools`` is deferred so this stays safe when
+    ``policy`` is imported before tool modules.
+
+    Rule order follows ``get_builtin_tool_funcs()`` collection order
+    (``agents/tools/__init__.py`` import order). Current auto rules are
+    non-overlapping ``ToolName(**)`` ALLOW entries, so order does not
+    change Phase 2 first-match outcomes; keep that invariant when adding
+    ASK/DENY defaults.
+
+    Successful builds are cached so request paths do not rescan descriptors.
+    """
+    global _AUTO_DEFAULT_USER_RULES_CACHE
+    with _AUTO_DEFAULT_USER_RULES_LOCK:
+        if _AUTO_DEFAULT_USER_RULES_CACHE is not None:
+            return list(_AUTO_DEFAULT_USER_RULES_CACHE)
+
+        try:
+            from ..agents import tools as _agents_tools  # noqa: F401
+            from ..runtime.tool_registry import get_builtin_tool_funcs
+            from .tool_registry import snake_to_pascal
+
+            _ = _agents_tools
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to build auto default user rules from descriptors: %s",
+                exc,
+            )
+            return []
+
+        action_map = {
+            "allow": GovernanceAction.ALLOW,
+            "ask": GovernanceAction.ASK,
+            "deny": GovernanceAction.DENY,
+        }
+        rules: List[GovernanceRule] = []
+        for fn in get_builtin_tool_funcs():
+            desc = getattr(fn, "_tool_descriptor", None)
+            if desc is None:
+                continue
+            gov = getattr(desc, "governance", None)
+            if gov is None or not gov.default_policy:
+                continue
+            policy_key = gov.default_policy.strip().lower()
+            action = action_map.get(policy_key)
+            if action is None:
+                raise ValueError(
+                    f"Invalid default_policy {gov.default_policy!r} on "
+                    f"tool {desc.name!r}; expected allow|ask|deny",
+                )
+            pname = gov.policy_name or snake_to_pascal(desc.name)
+            rules.append(
+                GovernanceRule(
+                    match=f"{pname}(**)",
+                    action=action,
+                    reason=gov.policy_reason or f"Auto-registered: {pname}",
+                ),
+            )
+        _AUTO_DEFAULT_USER_RULES_CACHE = rules
+        return list(rules)
+
+
+def get_default_user_rules() -> List[GovernanceRule]:
+    """Path-level defaults + auto-generated tool-level descriptor rules.
+
+    Concatenation order (matters for Phase 2 first-match on ``user_rules``):
+
+    1. ``_PATH_LEVEL_USER_RULES`` — workspace / tmp / coding-project / gh
+    2. ``_auto_default_user_rules()`` — ``ToolName(**)`` from descriptors
+
+    Today tool-level ALLOW rules are supersets of the path-level ALLOW rules
+    for the same tools, so reordering relative to the historical interleaved
+    list is semantically equivalent. Do **not** add tool-level DENY/ASK
+    defaults that would need to lose to a more specific path ALLOW without
+    revisiting this order.
+
+    If tests (or callers) replace module-level ``DEFAULT_USER_RULES`` with a
+    plain ``list``, that override is returned as-is so migration tests can
+    inject synthetic default rules.
+    """
+    # Late lookup avoids binding the proxy before it exists; a patched plain
+    # list (``type is list``) wins over the auto-built defaults.
+    override = globals().get("DEFAULT_USER_RULES")
+    if type(override) is list:
+        return list(override)
+    return list(_PATH_LEVEL_USER_RULES) + _auto_default_user_rules()
+
+
+# Backward-compatible name used by tests and callers. Resolved lazily so
+# descriptor imports are available when the list is first read.
+class _DefaultUserRulesProxy(Sequence):
+    """Lazy :class:`~collections.abc.Sequence` over default user rules.
+
+    Does **not** subclass ``list``. Prefer
+    :func:`get_default_user_rules` / ``list(DEFAULT_USER_RULES)`` for
+    mutation or persistence. ``+`` materializes to a real ``list``.
+    """
+
+    def _rules(self) -> List[GovernanceRule]:
+        return get_default_user_rules()
+
+    def __iter__(self):
+        return iter(self._rules())
+
+    def __len__(self) -> int:
+        return len(self._rules())
+
+    def __getitem__(self, index):
+        return self._rules()[index]
+
+    def __repr__(self) -> str:
+        return repr(self._rules())
+
+    def __eq__(self, other: object) -> bool:
+        if other is self:
+            return True
+        # str/bytes are Sequences but must not compare element-wise.
+        if isinstance(other, (str, bytes)):
+            return False
+        if isinstance(other, (list, tuple, Sequence)):
+            return list(self._rules()) == list(other)
+        return NotImplemented
+
+    def __add__(self, other: object) -> List[GovernanceRule]:
+        if isinstance(other, (str, bytes)):
+            return NotImplemented
+        if isinstance(other, (list, tuple, Sequence)):
+            return list(self._rules()) + list(other)
+        return NotImplemented
+
+    def __radd__(self, other: object) -> List[GovernanceRule]:
+        if isinstance(other, (str, bytes)):
+            return NotImplemented
+        if isinstance(other, (list, tuple, Sequence)):
+            return list(other) + list(self._rules())
+        return NotImplemented
+
+
+DEFAULT_USER_RULES: List[
+    GovernanceRule
+] = _DefaultUserRulesProxy()  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -555,6 +662,11 @@ class GovernancePolicy:
     shell_evasion_checks: dict[str, bool] = field(default_factory=dict)
     detection_rules: List[DetectionRuleConfig] = field(default_factory=list)
 
+    # Default-rule migrations already applied to this policy (rule match
+    # strings). Once a migration is recorded here, the corresponding default
+    # user rule is never re-added on load — so deleting it stays deleted.
+    applied_migrations: List[str] = field(default_factory=list)
+
     # Internal reference to registry (defaults to module-level
     # DEFAULT_REGISTRY)
     _registry: ToolRegistry = field(
@@ -594,7 +706,8 @@ class GovernancePolicy:
             Phase 2: Policy rules first-match-wins
                      (builtin_rules + user_rules)
             Phase 3: Fallback + execution_level threshold
-                     shell → SANDBOX_FALLBACK, others → ASK
+                     shell: findings honored (MEDIUM+ -> ASK in SMART),
+                     else SANDBOX_FALLBACK; other tools -> fallback
 
         Returns: GovernanceDecision (with optional findings attached)
         """
@@ -656,8 +769,7 @@ class GovernancePolicy:
                 if action == GovernanceAction.ALLOW and is_strict:
                     return GovernanceDecision(
                         action=GovernanceAction.ASK,
-                        reason="STRICT mode: all tool calls "
-                        "require approval",
+                        reason="STRICT mode: all tool calls require approval",
                         findings=findings or None,
                         source="STRICT mode",
                     )
@@ -677,8 +789,7 @@ class GovernancePolicy:
                 if action == GovernanceAction.ALLOW and is_strict:
                     return GovernanceDecision(
                         action=GovernanceAction.ASK,
-                        reason="STRICT mode: all tool calls "
-                        "require approval",
+                        reason="STRICT mode: all tool calls require approval",
                         findings=findings or None,
                         source="STRICT mode",
                     )
@@ -695,10 +806,23 @@ class GovernancePolicy:
             if is_strict:
                 return GovernanceDecision(
                     action=GovernanceAction.ASK,
-                    reason="STRICT mode: all tool calls " "require approval",
+                    reason="STRICT mode: all tool calls require approval",
                     findings=findings or None,
                     source="STRICT mode",
                 )
+            # Finding-driven approval for shell: when the deep scan surfaced
+            # findings (e.g. a frontend custom rule matched the command),
+            # honor the execution-level severity threshold. MEDIUM+ findings
+            # in SMART, or any finding in AUTO/OFF, escalate to ASK so the
+            # user's own detection rules take effect for shell tools too.
+            # INFO/LOW findings (fallback returns ALLOW) fall through to the
+            # sandbox path below, where sandbox isolation is the safety net.
+            if findings:
+                fb = self._apply_execution_level_fallback(tc_spec, findings)
+                if fb.action is not GovernanceAction.ALLOW:
+                    return fb
+            # No findings (or only INFO/LOW): route to sandbox. When the
+            # sandbox is unusable, ResourceGovernor downgrades this to ALLOW.
             return GovernanceDecision(
                 action=GovernanceAction.SANDBOX_FALLBACK,
                 reason="sandbox fallback",
@@ -714,19 +838,31 @@ class GovernancePolicy:
     ) -> list[Any]:
         """Run deep security detectors (Phase 1).
 
+        Merges policy.yaml detection_rules/shell_evasion_checks with the
+        frontend Security page configuration (config.json →
+        security.tool_guard). Uses the mtime-cached load_config() so there
+        is negligible overhead on the hot path.  On config read failure the
+        scan falls back to policy.yaml-only rules (graceful degradation).
+
         Delegates to governance.detectors module.
         Returns a list of GuardFinding objects.
         """
         try:
             from .detectors import run_deep_scan
 
+            # Merge config.json custom_rules + shell_evasion_checks into
+            # the policy.yaml-sourced rules so frontend settings take
+            # effect in governance evaluation.
+            detection_rules, shell_evasion_checks = self._merge_config_rules()
+
             return run_deep_scan(
                 tool_name=tc_spec.tool_name,
                 target=tc_spec.target,
                 tool_type=tool_type,
                 sensitive_paths=self.sensitive_paths,
-                detection_rules=self.detection_rules,
-                shell_evasion_checks=self.shell_evasion_checks,
+                detection_rules=detection_rules,
+                shell_evasion_checks=shell_evasion_checks,
+                raw_params=tc_spec.raw_params,
             )
         except Exception as exc:
             logger.warning(
@@ -734,6 +870,54 @@ class GovernancePolicy:
                 exc,
             )
             return []
+
+    def _merge_config_rules(
+        self,
+    ) -> tuple[list[Any], dict[str, bool]]:
+        """Merge policy.yaml rules with config.json security.tool_guard.
+
+        Returns:
+            (merged_detection_rules, merged_shell_evasion_checks)
+
+        - custom_rules from config are appended to policy detection_rules.
+        - disabled_rules from config filter out rules by ID from both
+          policy.yaml and config custom_rules.
+        - shell_evasion_checks are OR-merged: enabled in either source
+          means enabled.
+        - On any config read error, returns the unmodified policy.yaml
+          values (graceful degradation).
+        """
+        try:
+            from ..config import load_config
+
+            cfg = load_config().security.tool_guard
+        except Exception as exc:
+            logger.warning(
+                "_merge_config_rules: config load failed: %s; "
+                "using policy.yaml rules only",
+                exc,
+            )
+            return list(self.detection_rules), dict(self.shell_evasion_checks)
+
+        disabled_ids = set(cfg.disabled_rules or [])
+
+        # Start with policy.yaml detection_rules, filtering disabled
+        merged_rules: list[Any] = [
+            r for r in self.detection_rules if r.id not in disabled_ids
+        ]
+
+        # Append config.json custom_rules (excluding disabled)
+        for cr in cfg.custom_rules or []:
+            if cr.id not in disabled_ids:
+                merged_rules.append(cr)
+
+        # Merge shell evasion checks: config values override policy.yaml
+        # defaults on overlapping keys (so the UI can turn checks OFF).
+        merged_evasion = dict(self.shell_evasion_checks)
+        for check_name, enabled in (cfg.shell_evasion_checks or {}).items():
+            merged_evasion[check_name] = enabled
+
+        return merged_rules, merged_evasion
 
     def _apply_execution_level_fallback(
         self,
@@ -749,7 +933,10 @@ class GovernancePolicy:
 
         No findings (nothing matched, nothing flagged):
             - STRICT: ASK (all tools require approval)
-            - OTHERS: ASK (no allow rule hit).
+            - SMART / AUTO: ALLOW (deep scan cleared it and no protective
+              rule objected — asking here only trains users to rubber-stamp
+              benign calls; finding-driven approval is restored)
+            - OFF: ALLOW (guard effectively disabled)
         Has findings:
             - STRICT: ASK (any finding triggers approval)
             - SMART: INFO/LOW → ALLOW; MEDIUM+ → ASK
@@ -765,9 +952,14 @@ class GovernancePolicy:
                     reason="STRICT mode: all tool calls require approval",
                     source="fallback",
                 )
+            # SMART / AUTO / OFF: the deep scan surfaced nothing and no
+            # builtin/user rule objected. Asking the user here produces a
+            # flood of low-value prompts, so allow the call (finding-driven
+            # approval). Sensitive-path / dangerous-command protection still
+            # lives in Phase 1/1.5 and the builtin ASK/DENY rules.
             return GovernanceDecision(
-                action=GovernanceAction.ASK,
-                reason=f"{level.upper()} mode: no allow rule hit.",
+                action=GovernanceAction.ALLOW,
+                reason=f"{level.upper()} mode: no findings, no rule hit.",
                 source="fallback",
             )
 
@@ -1014,9 +1206,24 @@ def load_governance_policy(
     if not isinstance(env_blacklist, list):
         env_blacklist = []
 
-    # ── Cold start: fill in missing default rules ──
+    # ── Applied default-rule migrations (absent in pre-migration files) ──
+    applied_migrations = _parse_applied_migrations(data)
+
+    # ── Cold start / migration: fill in missing default rules ──
     if not user_rules:
-        user_rules = copy.deepcopy(DEFAULT_USER_RULES)
+        user_rules = copy.deepcopy(get_default_user_rules())
+    else:
+        user_rules = _merge_missing_default_user_rules(
+            user_rules,
+            workspace_dir,
+            coding_project_dir,
+            applied_migrations=applied_migrations,
+        )
+    # Record all DEFAULT_USER_RULES as applied so the next save
+    # makes any user deletion of a default rule stick.
+    applied_migrations = sorted(
+        set(applied_migrations) | {r.match for r in get_default_user_rules()},
+    )
     if not env_blacklist:
         env_blacklist = list(DEFAULT_ENV_BLACKLIST)
 
@@ -1041,6 +1248,9 @@ def load_governance_policy(
     detection_rules = _parse_detection_rules(
         data.get("detection_rules", []),
     )
+    # Merge bundled defaults with any user-defined detection rules from
+    # policy.yaml.  User rules override defaults when they share an ID.
+    detection_rules = _merge_default_detection_rules(detection_rules)
 
     # ── Replace WORKSPACE_DIR / CODING_PROJECT_DIR with actual paths ──
     cpd = coding_project_dir or workspace_dir
@@ -1058,6 +1268,7 @@ def load_governance_policy(
         sensitive_paths=sensitive_paths,
         shell_evasion_checks=shell_evasion_checks,
         detection_rules=detection_rules,
+        applied_migrations=applied_migrations,
     )
 
 
@@ -1099,23 +1310,32 @@ def save_governance_policy(
     }
 
     # v2.0 fields (only write when non-empty to keep YAML clean)
+    if policy.applied_migrations:
+        data["applied_migrations"] = list(policy.applied_migrations)
     if policy.sensitive_paths:
         data["sensitive_paths"] = list(policy.sensitive_paths)
     if policy.shell_evasion_checks:
         data["shell_evasion_checks"] = dict(policy.shell_evasion_checks)
-    if policy.detection_rules:
+    # Only persist user-added/overridden detection rules. The bundled
+    # defaults from dangerous_shell_commands.yaml are always merged at
+    # load time, so writing them here would cause stale rules to survive
+    # after an upgrade removes or renames a bundled rule.
+    bundled_ids = _get_default_detection_rule_ids()
+    user_detection_rules = [
+        r for r in policy.detection_rules if r.id not in bundled_ids
+    ]
+    if user_detection_rules:
         data["detection_rules"] = [
-            _detection_rule_to_dict(r) for r in policy.detection_rules
+            _detection_rule_to_dict(r) for r in user_detection_rules
         ]
 
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(
-            data,
-            f,
-            default_flow_style=False,
-            allow_unicode=True,
-            sort_keys=False,
-        )
+    write_yaml_atomic(
+        path,
+        data,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1157,7 +1377,7 @@ def _create_default_policy(
 ) -> GovernancePolicy:
     """Create a policy with full default rules (cold start, v2.0)."""
     builtin_rules = copy.deepcopy(DEFAULT_BUILTIN_RULES)
-    user_rules = copy.deepcopy(DEFAULT_USER_RULES)
+    user_rules = copy.deepcopy(get_default_user_rules())
     if workspace_dir:
         cpd = coding_project_dir or workspace_dir
         _resolve_placeholders(builtin_rules, workspace_dir, cpd)
@@ -1170,7 +1390,61 @@ def _create_default_policy(
         execution_level="smart",
         sensitive_paths=list(_DEFAULT_SENSITIVE_PATHS),
         shell_evasion_checks=dict(_DEFAULT_SHELL_EVASION_CHECKS),
+        detection_rules=_get_default_detection_rules(),
+        applied_migrations=sorted(r.match for r in get_default_user_rules()),
     )
+
+
+def _parse_applied_migrations(data: dict[str, Any]) -> List[str]:
+    """Read the applied default-rule migration markers from policy YAML."""
+    applied = data.get("applied_migrations", [])
+    if not isinstance(applied, list):
+        return []
+    return [m for m in applied if isinstance(m, str)]
+
+
+def _merge_missing_default_user_rules(
+    user_rules: List[GovernanceRule],
+    workspace_dir: str = "",
+    coding_project_dir: str = "",
+    applied_migrations: List[str] | None = None,
+) -> List[GovernanceRule]:
+    """Append default user rules missing from a persisted policy.
+
+    A rule whose match is recorded in ``applied_migrations`` is never
+    re-added: the migration already ran once, so a missing rule means
+    the user deleted it on purpose.
+    """
+    applied = set(applied_migrations or [])
+    merged = list(user_rules)
+    for default_rule in get_default_user_rules():
+        if default_rule.match in applied:
+            continue
+        if _has_equivalent_rule(
+            merged,
+            default_rule,
+            workspace_dir,
+            coding_project_dir,
+        ):
+            continue
+        merged.append(copy.deepcopy(default_rule))
+    return merged
+
+
+def _has_equivalent_rule(
+    rules: List[GovernanceRule],
+    default_rule: GovernanceRule,
+    workspace_dir: str = "",
+    coding_project_dir: str = "",
+) -> bool:
+    """Return True when a persisted policy already has this default rule."""
+    candidates = {default_rule.match}
+    if workspace_dir:
+        resolved = copy.deepcopy(default_rule)
+        cpd = coding_project_dir or workspace_dir
+        _resolve_placeholders([resolved], workspace_dir, cpd)
+        candidates.add(resolved.match)
+    return any(rule.match in candidates for rule in rules)
 
 
 def _resolve_placeholders(
@@ -1282,6 +1556,90 @@ def _detection_rule_to_dict(rule: DetectionRuleConfig) -> dict[str, Any]:
     if rule.remediation:
         d["remediation"] = rule.remediation
     return d
+
+
+_DEFAULT_DETECTION_RULES_CACHE: List[DetectionRuleConfig] | None = None
+_DEFAULT_DETECTION_RULES_LOCK = threading.Lock()
+
+
+def _guard_rule_to_detection_config(guard_rule: Any) -> DetectionRuleConfig:
+    """Convert a ToolGuard ``GuardRule`` into
+    a governance ``DetectionRuleConfig``."""
+    return DetectionRuleConfig(
+        id=guard_rule.id,
+        tools=list(guard_rule.tools),
+        params=list(guard_rule.params),
+        category=str(guard_rule.category.value)
+        if hasattr(guard_rule.category, "value")
+        else str(guard_rule.category),
+        severity=str(guard_rule.severity.value)
+        if hasattr(guard_rule.severity, "value")
+        else str(guard_rule.severity),
+        patterns=list(guard_rule.patterns),
+        exclude_patterns=list(guard_rule.exclude_patterns),
+        description=guard_rule.description,
+        remediation=guard_rule.remediation,
+    )
+
+
+def _get_default_detection_rules() -> List[DetectionRuleConfig]:
+    """Load bundled detection rules via the ToolGuard rule loader.
+
+    Reuses ``load_rules_from_yaml`` from the ToolGuard subsystem to avoid
+    duplicating YAML I/O and validation logic.  The loaded ``GuardRule``
+    objects are converted into governance ``DetectionRuleConfig`` instances.
+
+    The result is cached (thread-safe) and returned as a deep copy so that
+    callers cannot mutate shared state.  On any failure an empty list is
+    returned (graceful degradation — Phase 2 builtin_rules still provide
+    baseline protection).
+    """
+    global _DEFAULT_DETECTION_RULES_CACHE  # noqa: PLW0603
+    with _DEFAULT_DETECTION_RULES_LOCK:
+        if _DEFAULT_DETECTION_RULES_CACHE is not None:
+            return copy.deepcopy(_DEFAULT_DETECTION_RULES_CACHE)
+
+        try:
+            from ..security.tool_guard.guardians.rule_guardian import (
+                load_rules_from_yaml,
+                _DEFAULT_RULES_DIR,
+            )
+
+            yaml_path = _DEFAULT_RULES_DIR / "dangerous_shell_commands.yaml"
+            guard_rules = load_rules_from_yaml(yaml_path)
+            rules = [_guard_rule_to_detection_config(r) for r in guard_rules]
+            _DEFAULT_DETECTION_RULES_CACHE = rules
+            return copy.deepcopy(rules)
+        except Exception as exc:
+            logger.warning(
+                "_get_default_detection_rules: failed to load: %s; "
+                "detection_rules will be empty",
+                exc,
+            )
+            _DEFAULT_DETECTION_RULES_CACHE = []
+            return []
+
+
+def _get_default_detection_rule_ids() -> frozenset[str]:
+    """Return the set of IDs that belong to bundled default rules."""
+    return frozenset(r.id for r in _get_default_detection_rules())
+
+
+def _merge_default_detection_rules(
+    user_rules: List[DetectionRuleConfig],
+) -> List[DetectionRuleConfig]:
+    """Merge bundled defaults with user-defined detection rules.
+
+    Bundled rules form the base.  If the user defines a rule with the
+    same ID in policy.yaml, the user version wins (override).  User
+    rules with new IDs are appended after the defaults.
+    """
+    base_rules = _get_default_detection_rules()
+    # Build ordered map: defaults first, then user overrides
+    rules_by_id: dict[str, DetectionRuleConfig] = {r.id: r for r in base_rules}
+    for r in user_rules:
+        rules_by_id[r.id] = r  # user version overrides default
+    return list(rules_by_id.values())
 
 
 def _parse_detection_rules(

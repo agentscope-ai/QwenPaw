@@ -34,6 +34,50 @@ def _is_tool_result(block: Any) -> bool:
     return _block_attr(block, "type") in _TOOL_RESULT_TYPES
 
 
+def _tool_call_json_error_text(block: Any) -> str:
+    """Build model-visible feedback for an invalid tool-call input."""
+    name = str(_block_attr(block, "name") or "unknown")
+    return (
+        f"Tool call `{name}` was not executed because its JSON "
+        "arguments were invalid or incomplete. Please retry with valid "
+        "JSON arguments, and split large payloads into smaller tool calls "
+        "if needed."
+    )
+
+
+def _mark_tool_call_as_failed(block: Any) -> None:
+    """Keep a failed tool_call in the request with safe empty input."""
+    if isinstance(block, dict):
+        block["input"] = "{}"
+        block["state"] = "finished"
+        return
+
+    from agentscope.message import ToolCallState
+
+    block.input = "{}"
+    block.state = ToolCallState.FINISHED
+
+
+def _tool_call_json_error_result(block: Any) -> Any | None:
+    """Build a synthetic error result for an invalid tool-call input."""
+    call_id = _block_attr(block, "id")
+    if not call_id:
+        return None
+
+    from agentscope.message import TextBlock, ToolResultBlock, ToolResultState
+
+    name = str(_block_attr(block, "name") or "unknown")
+    return ToolResultBlock(
+        type="tool_result",
+        id=str(call_id),
+        name=name,
+        output=[
+            TextBlock(type="text", text=_tool_call_json_error_text(block)),
+        ],
+        state=ToolResultState.ERROR,
+    )
+
+
 def extract_tool_ids(msg) -> tuple[set[str], set[str]]:
     """Return (tool_call_ids, tool_result_ids) found in a single message.
 
@@ -87,6 +131,17 @@ def _reorder_tool_results(msgs: list) -> list:
     result_msg_ids: set[int] = set()
     for msg in msgs:
         if isinstance(msg.content, list):
+            # Keep a message that carries its own tool_call in place (e.g. an
+            # AgentScope 2.0 self-paired assistant msg
+            # [text, tool_call, tool_result]); only standalone tool_result
+            # messages are movable. Skipping a self-carrying msg here would
+            # drop it, since its own tool_call can never re-insert it.
+            has_own_call = any(
+                _is_tool_call(block) and _block_attr(block, "id")
+                for block in msg.content
+            )
+            if has_own_call:
+                continue
             for block in msg.content:
                 if _is_tool_result(block) and _block_attr(block, "id"):
                     results_by_id.setdefault(
@@ -131,16 +186,24 @@ def _remove_unpaired_tool_messages(msgs: list) -> list:
 
     i = 0
     while i < len(msgs):
-        use_ids, _ = extract_tool_ids(msgs[i])
+        use_ids, own_results = extract_tool_ids(msgs[i])
         if not use_ids:
             i += 1
             continue
-        required = set(use_ids)
+        # A self-paired message satisfies (some of) its own tool_calls with the
+        # tool_results in the same message; only the remainder must be covered
+        # by following messages.
+        required = set(use_ids) - own_results
         j = i + 1
         result_indices: list[int] = []
         while j < len(msgs) and required:
-            _, r = extract_tool_ids(msgs[j])
+            uj, r = extract_tool_ids(msgs[j])
             if not r:
+                break
+            # A following message that also carries tool_calls (e.g. another
+            # self-paired turn) is not a result-provider for this one; stop
+            # rather than consuming it.
+            if uj:
                 break
             required -= r
             result_indices.append(j)
@@ -160,35 +223,58 @@ def _remove_unpaired_tool_messages(msgs: list) -> list:
     for idx, msg in enumerate(msgs):
         if idx in to_remove:
             continue
-        _, r = extract_tool_ids(msg)
-        if r and not r.issubset(surviving_use_ids):
+        u, r = extract_tool_ids(msg)
+        # A tool_result is paired if some surviving tool_call uses its id --
+        # including a tool_call in the same (self-paired) message.
+        if r and not r.issubset(surviving_use_ids | u):
             to_remove.add(idx)
 
     return [msg for idx, msg in enumerate(msgs) if idx not in to_remove]
 
 
 def _dedup_tool_blocks(msgs: list) -> list:
-    """Remove duplicate tool_use blocks (same ID) within a single message."""
+    """Remove duplicate tool_use/tool_result blocks sharing the same ID.
+
+    For both tool_call and tool_result blocks, if multiple blocks across
+    all messages share the same ID, only the first occurrence is kept.
+    Messages whose content becomes empty after dedup are dropped entirely.
+    """
     changed = False
     result: list = []
+    seen_call_ids: set[str] = set()
+    seen_result_ids: set[str] = set()
     for msg in msgs:
         if not isinstance(msg.content, list):
             result.append(msg)
             continue
-        seen_ids: set[str] = set()
         new_blocks: list = []
         deduped = False
         for block in msg.content:
-            if _is_tool_call(block) and _block_attr(block, "id"):
-                bid = _block_attr(block, "id")
-                if bid in seen_ids:
+            bid = _block_attr(block, "id")
+            if bid and _is_tool_call(block):
+                if bid in seen_call_ids:
+                    logger.debug(
+                        "Dropping duplicate tool_call block id=%s",
+                        bid,
+                    )
                     deduped = True
                     continue
-                seen_ids.add(bid)
+                seen_call_ids.add(bid)
+            elif bid and _is_tool_result(block):
+                if bid in seen_result_ids:
+                    logger.debug(
+                        "Dropping duplicate tool_result block id=%s",
+                        bid,
+                    )
+                    deduped = True
+                    continue
+                seen_result_ids.add(bid)
             new_blocks.append(block)
         if deduped:
-            msg.content = new_blocks
             changed = True
+            if not new_blocks:
+                continue
+            msg.content = new_blocks
         result.append(msg)
     return result if changed else msgs
 
@@ -300,7 +386,14 @@ def _repair_empty_tool_inputs(
                         try:
                             parsed = json.loads(raw_str)
                         except json.JSONDecodeError:
-                            parsed, _ = _json_decoder.raw_decode(raw_str)
+                            start = json.decoder.WHITESPACE.match(
+                                raw_str,
+                                0,
+                            ).end()
+                            parsed, _ = _json_decoder.raw_decode(
+                                raw_str,
+                                start,
+                            )
                         if isinstance(parsed, dict) and parsed:
                             # All agentscope 2.0 formatters expect
                             # ToolCallBlock.input to be a JSON string
@@ -340,7 +433,7 @@ def _repair_empty_tool_inputs(
     return result if changed else msgs
 
 
-# pylint: disable=too-many-branches
+# pylint: disable=too-many-branches,too-many-statements
 def _coerce_tool_inputs_to_json(msgs: list) -> list:
     """Ensure every tool_call block's ``input`` field is a valid JSON string.
 
@@ -355,18 +448,33 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
     * ``dict`` / ``list`` → ``json.dumps``.
     * Empty string ``""`` → ``"{}"`` (treat as no-args call).
     * Non-empty non-JSON string (e.g. truncated streaming artefact) →
-      **drop the block** so ``_remove_unpaired_tool_messages`` can clean up
-      the orphaned tool_result.  Replacing with ``{}`` would cause the tool
-      to be called with wrong/empty arguments, which is worse.
+      keep the call with safe empty input and append a synthetic error
+      ``tool_result`` so the next request sees a normal tool_call/tool_result
+      pair instead of retrying the bad arguments.
     """
+    malformed_tool_ids: set[str] = set()
+    kept_msgs: list = []
+
     for msg in msgs:
         if not isinstance(getattr(msg, "content", None), list):
+            kept_msgs.append(msg)
             continue
 
         new_blocks: list = []
         changed_this_msg = False
 
         for block in msg.content:
+            if (
+                _is_tool_result(block)
+                and _block_attr(
+                    block,
+                    "id",
+                )
+                in malformed_tool_ids
+            ):
+                changed_this_msg = True
+                continue
+
             if not _is_tool_call(block):
                 new_blocks.append(block)
                 continue
@@ -392,7 +500,14 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
                         # }trailing" json.loads raises "Extra data" but
                         # raw_decode can recover the leading valid object.
                         try:
-                            recovered, _ = _json_decoder.raw_decode(raw)
+                            start = json.decoder.WHITESPACE.match(
+                                raw,
+                                0,
+                            ).end()
+                            recovered, _ = _json_decoder.raw_decode(
+                                raw,
+                                start,
+                            )
                             if not isinstance(recovered, dict):
                                 raise json.JSONDecodeError(
                                     "recovered value is not a JSON object",
@@ -412,8 +527,8 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
                         except (json.JSONDecodeError, ValueError):
                             logger.warning(
                                 "tool_call input is not valid JSON; "
-                                "dropping block: id=%r, name=%r, "
-                                "input_preview=%s",
+                                "marking call failed with synthetic result: "
+                                "id=%r, name=%r, input_preview=%s",
                                 _block_attr(block, "id"),
                                 _block_attr(block, "name"),
                                 repr(raw[:120]),
@@ -426,8 +541,16 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
                 coerced_input = "{}"
 
             if drop_block:
+                block_id = _block_attr(block, "id")
+                if block_id:
+                    malformed_tool_ids.add(block_id)
+                _mark_tool_call_as_failed(block)
+                new_blocks.append(block)
+                error_result = _tool_call_json_error_result(block)
+                if error_result is not None:
+                    new_blocks.append(error_result)
                 changed_this_msg = True
-                continue  # omit from new_blocks
+                continue
 
             if coerced_input != raw:
                 if isinstance(block, dict):
@@ -440,8 +563,12 @@ def _coerce_tool_inputs_to_json(msgs: list) -> list:
 
         if changed_this_msg:
             msg.content = new_blocks
+            if not new_blocks:
+                continue
 
-    return msgs
+        kept_msgs.append(msg)
+
+    return kept_msgs if len(kept_msgs) != len(msgs) else msgs
 
 
 def _sanitize_tool_messages(msgs: list) -> list:

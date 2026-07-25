@@ -303,13 +303,21 @@ def _run_backend_server(log_level: str) -> None:
     port_file = str(WORKING_DIR / "desktop_port")
     port, reused_socket = get_stable_port(port_file, host)
 
+    # Import the app instance (instead of the import string) so the desktop
+    # shutdown endpoint can reach the uvicorn server via app.state.
+    from qwenpaw.app._app import app as fastapi_app
+
     config = uvicorn.Config(
-        "qwenpaw.app._app:app",
+        fastapi_app,
         host=host,
         port=0,
         reload=False,
         workers=1,
         log_level=normalized_log_level,
+        # Bound graceful shutdown so long-lived SSE connections (e.g.
+        # /console/push-messages) cannot stall the lifespan shutdown that
+        # flushes memory/index on exit.
+        timeout_graceful_shutdown=5,
     )
 
     if reused_socket:
@@ -321,8 +329,11 @@ def _run_backend_server(log_level: str) -> None:
         port = _socket_port(backend_socket)
         write_port_file(port_file, port)
         write_last_api(host, port)
+        server = uvicorn.Server(config)
+        # Exposed so /api/desktop/shutdown can trigger a graceful exit.
+        fastapi_app.state.uvicorn_server = server
         _emit_backend_ready(port)
-        uvicorn.Server(config).run(sockets=[backend_socket])
+        server.run(sockets=[backend_socket])
     except Exception:
         backend_socket.close()
         raise
@@ -358,6 +369,13 @@ def main() -> None:
             args=["--defaults", "--accept-security"],
             label="initialization",
         )
+
+    # On Windows, auto-disable sandbox when not running as admin so the
+    # desktop backend starts without a half-broken sandbox layer (mirrors
+    # the same guard in cli/app_cmd.py for `qwenpaw app`).
+    from qwenpaw.utils.platform import auto_disable_sandbox_on_windows
+
+    auto_disable_sandbox_on_windows()
 
     _run_backend_server(os.environ.get(LOG_LEVEL_ENV, "info"))
 

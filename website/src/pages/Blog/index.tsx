@@ -1,15 +1,28 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Eye } from "lucide-react";
 import { BLOG_POSTS } from "./blogData";
 import {
+  compareBlogPostsByDateDesc,
   formatBlogDate,
   parseBlogMarkdown,
   type ParsedBlogPost,
 } from "@/lib/parseBlogMarkdown";
+import {
+  fetchBlogViewCounts,
+  isBlogStatsConfigured,
+} from "@/lib/blogEngagement";
 
 type BlogListItem = ParsedBlogPost & { slug: string; cover?: string };
+
+function formatViewCount(n: number, locale: string): string {
+  try {
+    return new Intl.NumberFormat(locale, { notation: "compact" }).format(n);
+  } catch {
+    return String(n);
+  }
+}
 
 const DEVELOPER_DAY_COLLECTION_SLUG = "qwenpaw-developer-day-collection";
 
@@ -56,6 +69,7 @@ export default function Blog() {
   const isZh = i18n.resolvedLanguage === "zh";
   const locale = i18n.resolvedLanguage ?? "en";
   const [posts, setPosts] = useState<BlogListItem[]>([]);
+  const [viewCounts, setViewCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -72,19 +86,20 @@ export default function Blog() {
           ...parsed,
         };
       }),
-    ).then((results) => {
+    ).then(async (results) => {
       if (canceled) return;
       const valid: BlogListItem[] = [];
       for (const item of results) {
         if (item) valid.push(item);
       }
-      valid.sort((a, b) => {
-        const indexA = BLOG_POSTS.findIndex((entry) => entry.slug === a.slug);
-        const indexB = BLOG_POSTS.findIndex((entry) => entry.slug === b.slug);
-        return indexA - indexB;
-      });
+      valid.sort(compareBlogPostsByDateDesc);
       setPosts(valid);
       setLoading(false);
+
+      if (isBlogStatsConfigured() && valid.length > 0) {
+        const counts = await fetchBlogViewCounts(valid.map((p) => p.slug));
+        if (!canceled) setViewCounts(counts);
+      }
     });
 
     return () => {
@@ -142,7 +157,6 @@ export default function Blog() {
             {posts.map((post) => {
               const { slug, frontmatter, readMinutes, sessionCount, cover } =
                 post;
-              console.log("frontmatter.date", post);
               const dateLabel = formatBlogDate(frontmatter.date, locale);
               const metaSecondary =
                 sessionCount != null
@@ -166,6 +180,20 @@ export default function Blog() {
                         {metaPrimary}
                         <span className="mx-1.5">·</span>
                         {metaSecondary}
+                        {isBlogStatsConfigured() && (
+                          <>
+                            <span className="mx-1.5">·</span>
+                            <span className="inline-flex items-center gap-1">
+                              <Eye size={12} strokeWidth={1.75} aria-hidden />
+                              {t("blog.views", {
+                                count: formatViewCount(
+                                  viewCounts[slug] ?? 0,
+                                  locale,
+                                ),
+                              })}
+                            </span>
+                          </>
+                        )}
                       </p>
                       <h2 className="font-newsreader mt-1 text-[15px] font-semibold leading-snug text-(--color-text) group-hover:text-(--color-primary) sm:mt-1.5 sm:text-base md:text-lg">
                         {frontmatter.title}

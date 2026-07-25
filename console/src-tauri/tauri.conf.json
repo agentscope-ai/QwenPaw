@@ -18,7 +18,8 @@
         "minWidth": 960,
         "minHeight": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "dragDropEnabled": false
       }
     ],
     "security": {
@@ -39,7 +40,11 @@
       "../../scripts/pack/assets/icon.icns",
       "../../scripts/pack/assets/icon.ico"
     ],
-    "resources": ["binaries/qwenpaw-backend", "binaries/python-runtime"],
+    "resources": [
+      "binaries/qwenpaw-backend",
+      "binaries/python-runtime",
+      "binaries/node-runtime"
+    ],
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",
@@ -75,8 +80,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE0MkMxRjE4MUM4Njc0RjAKUldUd2RJWWNHQjhzcEhoZ2FWWkxVRXp0bFMyS1JEand6YXZURCs5YnlNcFlzRCtNalhRcjJwamMK",
       "endpoints": [
-        "https://download.qwenpaw.agentscope.io/metadata/qwenpaw-tauri-latest.json",
-        "https://github.com/agentscope-ai/QwenPaw/releases/latest/download/qwenpaw-tauri-latest.json"
+        "https://download.qwenpaw.agentscope.io/metadata/qwenpaw-tauri-latest.json"
       ],
       "windows": {
         "installMode": "passive"

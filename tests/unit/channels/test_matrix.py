@@ -26,6 +26,7 @@ from qwenpaw.schemas import (
     TextContent,
 )
 from qwenpaw.app.channels.matrix.channel import MatrixChannel
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 from qwenpaw.config.config import MatrixConfig
 
 
@@ -140,16 +141,93 @@ class TestMatrixChannelInit:
             group_disabled=False,
             access_control_dm=True,
             on_reply_sent=Mock(),
-            show_tool_details=False,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_details=False,
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
 
         assert channel.dm_disabled is True
         assert channel.group_disabled is False
-        assert channel._show_tool_details is False
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is False
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
+
+
+class TestMatrixChannelBoundedState:
+    """Bounded local state must not alter normal recent-room behavior."""
+
+    def test_room_history_evicts_least_recent_room(
+        self,
+        matrix_channel,
+        monkeypatch,
+    ):
+        from qwenpaw.app.channels.matrix import channel as matrix_module
+        from qwenpaw.app.channels.matrix.channel import HistoryEntry
+
+        monkeypatch.setattr(matrix_module, "ROOM_HISTORY_MAX_ROOMS", 2)
+        for room_id in ("!one", "!two", "!three"):
+            matrix_channel._record_history(
+                room_id,
+                HistoryEntry(sender="user", body=room_id),
+            )
+
+        assert list(matrix_channel._room_histories) == ["!two", "!three"]
+
+    def test_dm_cache_prunes_expired_and_oldest_entries(
+        self,
+        matrix_channel,
+        monkeypatch,
+    ):
+        from qwenpaw.app.channels.matrix import channel as matrix_module
+
+        monkeypatch.setattr(matrix_module, "DM_ROOM_CACHE_MAX_ENTRIES", 2)
+        matrix_channel._dm_room_cache.update(
+            {
+                "!old": {"members": [], "ts": 0},
+                "!two": {"members": [], "ts": 30_001},
+                "!three": {"members": [], "ts": 30_001},
+            },
+        )
+
+        matrix_channel._prune_dm_room_cache(
+            30_001,
+        )
+
+        assert list(matrix_channel._dm_room_cache) == ["!two", "!three"]
+
+    def test_verification_state_expires_and_cancel_clears_peer(
+        self,
+        matrix_channel,
+        monkeypatch,
+    ):
+        from qwenpaw.app.channels.matrix import channel as matrix_module
+
+        monkeypatch.setattr(matrix_module, "VERIFICATION_STATE_MAX_ENTRIES", 1)
+        matrix_channel._remember_verification_peer("old", "@old", "D1")
+        matrix_channel._remember_verification_peer("new", "@new", "D2")
+        matrix_channel._clear_verification_transaction("new")
+
+        assert "old" not in matrix_channel._verification_tx_peers
+        assert "new" not in matrix_channel._verification_tx_peers
+
+    async def test_failed_done_keeps_peer_for_retry(self, matrix_channel):
+        matrix_channel._remember_verification_peer("tx", "@user:hs", "D1")
+        client = MagicMock()
+        client.to_device = AsyncMock(side_effect=RuntimeError("network down"))
+        matrix_channel._client = client
+
+        event = MagicMock()
+        event.sender = "@user:hs"
+        event.source = {"content": {"transaction_id": "tx"}}
+
+        await matrix_channel._handle_unknown_key_verification_done(event)
+
+        assert "tx" in matrix_channel._verification_tx_peers
+        assert "tx" not in matrix_channel._sent_verification_done
 
 
 class TestMatrixChannelFromConfig:
@@ -176,14 +254,18 @@ class TestMatrixChannelFromConfig:
         channel = MatrixChannel.from_config(
             process=mock_process,
             config=matrix_config,
-            show_tool_details=False,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_details=False,
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
 
-        assert channel._show_tool_details is False
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is False
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
 
     def test_from_env_raises_not_implemented(self, mock_process):
         """Test that from_env creates a channel (uses env vars)."""
@@ -681,7 +763,7 @@ class TestMatrixChannelStartStop:
     ):
         """Test that start creates and configures AsyncClient."""
         with patch(
-            "qwenpaw.app.channels.matrix.channel.QwenPawMatrixClient",
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
             return_value=mock_async_client,
         ):
             await matrix_channel.start()
@@ -697,7 +779,7 @@ class TestMatrixChannelStartStop:
     ):
         """Test that start creates sync task."""
         with patch(
-            "qwenpaw.app.channels.matrix.channel.QwenPawMatrixClient",
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
             return_value=mock_async_client,
         ):
             await matrix_channel.start()
@@ -712,7 +794,7 @@ class TestMatrixChannelStartStop:
     ):
         """Test that stop cancels sync task."""
         with patch(
-            "qwenpaw.app.channels.matrix.channel.QwenPawMatrixClient",
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
             return_value=mock_async_client,
         ):
             await matrix_channel.start()
@@ -725,7 +807,7 @@ class TestMatrixChannelStartStop:
     async def test_stop_closes_client(self, matrix_channel, mock_async_client):
         """Test that stop closes the client."""
         with patch(
-            "qwenpaw.app.channels.matrix.channel.QwenPawMatrixClient",
+            "qwenpaw.app.channels.matrix.channel.AsyncClient",
             return_value=mock_async_client,
         ):
             await matrix_channel.start()

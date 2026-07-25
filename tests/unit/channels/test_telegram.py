@@ -32,6 +32,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+
 from qwenpaw.schemas import (
     TextContent,
     ImageContent,
@@ -88,12 +90,13 @@ def telegram_channel(
         http_proxy_auth="",
         bot_prefix="[TestBot] ",
         on_reply_sent=None,
-        show_tool_details=True,
         media_dir=str(tmp_path / "media"),
         workspace_dir=tmp_path / "workspace",
         show_typing=True,
-        filter_tool_messages=False,
-        filter_thinking=False,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=True,
+            show_tool_results=True,
+        ),
         dm_policy="open",
         group_policy="open",
         allow_from=None,
@@ -1839,3 +1842,137 @@ class TestTelegramProxyUrl:
 
             expected_proxy = "http://user:pass@proxy.example.com:8080"
             mock_builder.proxy.assert_called_once_with(expected_proxy)
+
+
+# =============================================================================
+# Polling reconnect / 409 conflict handling
+# =============================================================================
+
+
+class TestTelegramPollingReconnect:
+    """Cover conflict/network classification and reconnect backoff timing."""
+
+    def test_conflict_classification(self, telegram_channel):
+        """Conflict errors are detected by class name or message text."""
+        from qwenpaw.app.channels.telegram.channel import TelegramChannel
+
+        class Conflict(Exception):
+            pass
+
+        assert TelegramChannel._looks_like_polling_conflict(Conflict("x"))
+        assert TelegramChannel._looks_like_polling_conflict(
+            Exception(
+                "Conflict: terminated by other getUpdates request; "
+                "make sure that only one bot instance is running",
+            ),
+        )
+        assert not TelegramChannel._looks_like_polling_conflict(
+            Exception("some unrelated error"),
+        )
+
+    def test_network_classification(self, telegram_channel):
+        """Transport errors (OSError etc.) are treated as network errors."""
+        from qwenpaw.app.channels.telegram.channel import TelegramChannel
+
+        assert TelegramChannel._looks_like_network_error(OSError("boom"))
+        assert not TelegramChannel._looks_like_network_error(
+            Exception("logic error"),
+        )
+
+    def test_conflict_backoff_is_monotonic_and_capped(self, telegram_channel):
+        """Conflict delay escalates and never exceeds the safety cap."""
+        from qwenpaw.app.channels.telegram.channel import (
+            _POLLING_CONFLICT_RETRY_MAX_S,
+        )
+
+        delays = []
+        for expected_attempt in range(1, 8):
+            attempt, delay = telegram_channel._plan_polling_reconnect(
+                "conflict",
+            )
+            assert attempt == expected_attempt
+            assert delay <= _POLLING_CONFLICT_RETRY_MAX_S
+            delays.append(delay)
+
+        # Non-decreasing and eventually pinned to the cap.
+        assert delays == sorted(delays)
+        assert delays[0] < delays[-1]
+        assert delays[-1] == _POLLING_CONFLICT_RETRY_MAX_S
+
+    def test_conflict_cap_exceeds_read_timeout(self):
+        """Regression lock: worst-case wait must clear a lingering poll."""
+        from qwenpaw.app.channels.telegram.channel import (
+            _GET_UPDATES_READ_TIMEOUT_S,
+            _POLLING_CONFLICT_RETRY_MAX_S,
+        )
+
+        assert _POLLING_CONFLICT_RETRY_MAX_S >= _GET_UPDATES_READ_TIMEOUT_S + 1
+
+    def test_conflict_and_network_counters_are_mutually_reset(
+        self,
+        telegram_channel,
+    ):
+        """Switching reason resets the other counter (fresh backoff)."""
+        c_attempt1, _ = telegram_channel._plan_polling_reconnect("conflict")
+        assert c_attempt1 == 1
+        telegram_channel._plan_polling_reconnect("conflict")
+
+        n_attempt1, _ = telegram_channel._plan_polling_reconnect("network")
+        assert n_attempt1 == 1
+        assert telegram_channel._polling_conflict_count == 0
+
+        # Back to conflict: counter restarts from 1.
+        c_again, _ = telegram_channel._plan_polling_reconnect("conflict")
+        assert c_again == 1
+        assert telegram_channel._polling_network_error_count == 0
+
+    @pytest.mark.asyncio
+    async def test_request_reconnect_stops_updater_and_sets_event(
+        self,
+        telegram_channel,
+    ):
+        """Reconnect request stops the updater and wakes the watchdog."""
+        telegram_channel._pending_reconnect_reason = None
+        telegram_channel._reconnect_event.clear()
+
+        app = MagicMock()
+        app.updater = MagicMock()
+        app.updater.running = True
+        app.updater.stop = AsyncMock()
+
+        await telegram_channel._request_polling_reconnect(
+            app,
+            reason="conflict",
+            error=Exception("Conflict"),
+        )
+
+        app.updater.stop.assert_awaited_once()
+        assert telegram_channel._reconnect_event.is_set()
+        assert telegram_channel._pending_reconnect_reason == "conflict"
+
+    @pytest.mark.asyncio
+    async def test_teardown_swallows_errors_and_settles(
+        self,
+        telegram_channel,
+    ):
+        """Teardown shuts down the app and applies the settle delay."""
+        from qwenpaw.app.channels.telegram.channel import TelegramChannel
+
+        app = MagicMock()
+        app.updater = MagicMock()
+        app.updater.running = True
+        app.updater.stop = AsyncMock()
+        app.running = True
+        app.stop = AsyncMock()
+        app.shutdown = AsyncMock()
+
+        with patch(
+            "qwenpaw.app.channels.telegram.channel.asyncio.sleep",
+            new=AsyncMock(),
+        ) as mock_sleep:
+            await TelegramChannel._teardown_application(app)
+
+        app.updater.stop.assert_awaited_once()
+        app.stop.assert_awaited_once()
+        app.shutdown.assert_awaited_once()
+        mock_sleep.assert_awaited_once()

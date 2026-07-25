@@ -10,14 +10,26 @@ import logging
 import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from qwenpaw.utils.logging import (
     ColorFormatter,
     SuppressPathAccessLogFilter,
     add_project_file_handler,
+    sanitize_log_value,
     setup_logger,
     LOG_NAMESPACE,
+    _LOG_BACKUP_COUNT,
+    _LOG_MAX_BYTES,
     _LEVEL_MAP,
+    _parse_log_size,
+    _resolve_log_rotation_settings,
 )
+
+
+def test_sanitize_log_value_escapes_line_breaks() -> None:
+    """Untrusted values cannot inject additional log records."""
+    assert sanitize_log_value("first\r\nsecond") == "first\\r\\nsecond"
 
 
 class TestLevelMap:
@@ -229,6 +241,64 @@ class TestAddFileHandler:
             for handler in logger.handlers:
                 handler.close()
             logger.handlers = original_handlers
+
+    def test_uses_environment_rotation_limits(self, tmp_path, monkeypatch):
+        log_path = (tmp_path / "qwenpaw.log").resolve()
+        monkeypatch.setenv("QWENPAW_LOG_MAX_SIZE", "10MB")
+        monkeypatch.setenv("QWENPAW_LOG_MAX_BACKUPS", "5")
+        logger = logging.getLogger(LOG_NAMESPACE)
+        original_handlers = list(logger.handlers)
+        logger.handlers = []
+
+        try:
+            add_project_file_handler(log_path)
+            handler = next(
+                h
+                for h in logger.handlers
+                if getattr(h, "baseFilename", None) == str(log_path)
+            )
+            assert handler.maxBytes == 10 * 1024**2
+            assert handler.backupCount == 5
+        finally:
+            for handler in logger.handlers:
+                handler.close()
+            logger.handlers = original_handlers
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("1024", 1024),
+        ("512K", 512 * 1024),
+        ("10MB", 10 * 1024**2),
+        ("1GiB", 1024**3),
+    ],
+)
+def test_parse_log_size(value, expected):
+    assert _parse_log_size(value) == expected
+
+
+@pytest.mark.parametrize("value", ["", "0", "-1", "ten MB", "1PB"])
+def test_parse_log_size_rejects_invalid_values(value):
+    with pytest.raises(ValueError):
+        _parse_log_size(value)
+
+
+def test_invalid_rotation_environment_uses_defaults(monkeypatch):
+    monkeypatch.setenv("QWENPAW_LOG_MAX_SIZE", "unbounded")
+    monkeypatch.setenv("QWENPAW_LOG_MAX_BACKUPS", "-2")
+
+    assert _resolve_log_rotation_settings() == (
+        _LOG_MAX_BYTES,
+        _LOG_BACKUP_COUNT,
+    )
+
+
+def test_zero_log_backups_is_supported(monkeypatch):
+    monkeypatch.delenv("QWENPAW_LOG_MAX_SIZE", raising=False)
+    monkeypatch.setenv("QWENPAW_LOG_MAX_BACKUPS", "0")
+
+    assert _resolve_log_rotation_settings() == (_LOG_MAX_BYTES, 0)
 
 
 class TestLogConstants:

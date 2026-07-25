@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 import qwenpaw.agents.context as context_mod
+import qwenpaw.agents.context.scroll.manager as scroll_manager_mod
 from qwenpaw.agents.context import build_scroll_components
 from qwenpaw.config.config import LightContextConfig
 
@@ -45,6 +46,24 @@ def _notice_records(caplog) -> list[logging.LogRecord]:
         for r in caplog.records
         if r.levelno == logging.WARNING and "DEFAULT context strategy" in r.msg
     ]
+
+
+def test_removed_eviction_headline_settings_are_ignored():
+    config = LightContextConfig(
+        strategy="scroll",
+        scroll_config={
+            "summarize_unheadlined_evictions": True,
+            "summarize_eviction_timeout_seconds": 45,
+        },
+    )
+    assert not hasattr(
+        config.scroll_config,
+        "summarize_unheadlined_evictions",
+    )
+    assert not hasattr(
+        config.scroll_config,
+        "summarize_eviction_timeout_seconds",
+    )
 
 
 @pytest.mark.usefixtures("capture_qwenpaw_logs")
@@ -126,3 +145,21 @@ def test_no_notice_when_strategy_is_native(tmp_path: Path, caplog):
     assert components is None
     assert not (tmp_path / "history.db").exists()
     assert _notice_records(caplog) == []
+
+
+def test_wiring_failure_closes_history_store(tmp_path: Path, monkeypatch):
+    histories = []
+
+    def fail_manager(**kwargs):
+        histories.append(kwargs["history"])
+        raise RuntimeError("wiring failed")
+
+    monkeypatch.setattr(
+        scroll_manager_mod,
+        "ScrollContextManager",
+        fail_manager,
+    )
+
+    assert _build(tmp_path) is None
+    assert len(histories) == 1
+    assert histories[0].closed is True

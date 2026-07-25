@@ -11,6 +11,8 @@ export interface ChatSpec {
   meta?: Record<string, unknown>; // Additional metadata
   status?: ChatStatus; // Conversation status: idle or running
   pinned?: boolean; // Whether the chat is pinned to the top
+  archived_at?: string | null; // When the chat was archived (ISO 8601), null = active
+  archived?: boolean; // Computed: whether the chat is archived
 }
 
 export interface Message {
@@ -32,6 +34,15 @@ export interface ChatUpdateRequest {
 export interface ChatDeleteResponse {
   success: boolean;
   chat_id: string;
+}
+
+export interface BatchArchiveResult {
+  succeeded: string[];
+  failed: Array<{
+    chat_id: string;
+    reason: "not_found" | "in_progress";
+    message: string;
+  }>;
 }
 
 // Legacy Session type alias for backward compatibility

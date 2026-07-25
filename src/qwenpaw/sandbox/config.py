@@ -7,11 +7,13 @@ the current platform actually supports, and ships the factory that maps a
 ``SandboxConfig`` to a concrete backend.
 
 Backend layout (``create_sandbox`` dispatches to these by ``SandboxMode``):
-  - SEATBELT   → :mod:`qwenpaw.sandbox.macos_sandbox`      (MacOSSandbox)
-  - BUBBLEWRAP → :mod:`qwenpaw.sandbox.bubblewrap_sandbox` (BubblewrapSandbox)
-  - LANDLOCK   → :mod:`qwenpaw.sandbox.linux_sandbox`      (LinuxSandbox)
-  - WSL2       → :mod:`qwenpaw.sandbox.windows_sandbox`    (WindowsSandbox)
-  - NONE       → :mod:`qwenpaw.sandbox.local_sandbox`      (NoneSandbox)
+  - SEATBELT     → mod:`qwenpaw.sandbox.macos_sandbox`      (MacOSSandbox)
+  - BUBBLEWRAP   → mod:`qwenpaw.sandbox.bubblewrap_sandbox` (BubblewrapSandbox)
+  - LANDLOCK     → mod:`qwenpaw.sandbox.linux_sandbox`      (LinuxSandbox)
+  - APPCONTAINER → Windows sandbox, dispatched on ``allow_read_all``:
+      True  → windows_restricted_sandbox (WindowsRestrictedSandbox)
+      False → mod:`qwenpaw.sandbox.windows_sandbox`            (WindowsSandbox)
+  - NONE         → mod:`qwenpaw.sandbox.local_sandbox`      (NoneSandbox)
 
 Shared base class for all backends:
   - :class:`qwenpaw.sandbox.local_sandbox.LocalSandbox`
@@ -30,6 +32,7 @@ Typical usage:
 
 from __future__ import annotations
 
+import functools
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -43,7 +46,7 @@ class SandboxMode(str, Enum):
     SEATBELT = "seatbelt"  # macOS sandbox-exec
     BUBBLEWRAP = "bubblewrap"  # Linux bubblewrap (preferred)
     LANDLOCK = "landlock"  # Linux Landlock LSM (fallback)
-    WSL2 = "wsl2"  # Windows (future)
+    APPCONTAINER = "appcontainer"  # Windows AppContainer (native)
     NONE = "none"  # No isolation, direct execution
 
 
@@ -122,6 +125,14 @@ class SandboxConfig:
     """'inject' = append to current environment,
     'allowlist' = only pass declared variables."""
 
+    shell_executable: Optional[str] = None
+    """Shell to use for command execution inside the sandbox.
+    Supports: powershell.exe, pwsh.exe, cmd.exe, or a full path.
+    When None, the platform backend chooses its default:
+      - Windows AppContainer / Restricted: cmd.exe
+      - Linux / macOS: /bin/sh
+    Set via running.shell_command_executable or $SHELL."""
+
     # --- Platform passthrough (escape hatch) ---
     platform_hints: Dict[str, Any] = field(default_factory=dict)
     """Rarely used. Pass-through for platform-native parameters such as
@@ -155,9 +166,9 @@ class SandboxCapability:
     )
 
 
-def _probe_linux_landlock() -> (
+def _probe_linux_landlock() -> (  # pylint: disable=too-many-return-statements
     SandboxCapability
-):  # pylint: disable=too-many-return-statements
+):
     """Probe Linux Landlock support.
 
     Detection steps:
@@ -165,9 +176,9 @@ def _probe_linux_landlock() -> (
         2. /sys/kernel/security/lsm contains "landlock"
         3. Attempt landlock_create_ruleset syscall to detect ABI version
     """
-    import os
     import ctypes
     import ctypes.util
+    import os
 
     # Step 1: Check kernel version
     try:
@@ -256,8 +267,7 @@ def _probe_linux_landlock() -> (
                 supported=False,
                 mode=SandboxMode.NONE,
                 reason=(
-                    f"landlock_create_ruleset syscall failed, "
-                    f"errno={errno}"
+                    f"landlock_create_ruleset syscall failed, errno={errno}"
                 ),
             )
 
@@ -290,56 +300,72 @@ def _probe_macos_seatbelt() -> SandboxCapability:
     )
 
 
-def _probe_windows_wsl2() -> SandboxCapability:
-    """Probe Windows WSL2 + Landlock support.
+def _probe_windows_appcontainer() -> SandboxCapability:
+    """Probe Windows AppContainer support.
 
     Detection steps:
-        1. wsl.exe is available
-        2. A WSL2 distribution exists
-        3. python3 is available inside the WSL2 distribution
-        4. The WSL2 distribution kernel supports Landlock
+        1. sys.platform == "win32"
+        2. Windows 10+ (build 10240+)
+        3. icacls.exe is on PATH
+        4. CreateAppContainerProfile API is callable (via ctypes)
     """
+    import sys
+
+    if sys.platform != "win32":
+        return SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason="Not running on Windows",
+        )
+
+    # Check Windows version (need 10+)
     try:
-        from .windows_sandbox import (
-            check_wsl_landlock,
-            check_wsl_python3,
-            probe_wsl2_availability,
-        )
-    except ImportError as e:
+        ver = sys.getwindowsversion()
+        if ver.major < 10:
+            return SandboxCapability(
+                supported=False,
+                mode=SandboxMode.NONE,
+                reason=(
+                    f"Windows {ver.major}.{ver.minor} < 10.0; "
+                    f"AppContainer requires Windows 10+"
+                ),
+            )
+    except AttributeError:
         return SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,
-            reason=f"Failed to import windows_sandbox module: {e}",
-        )
-
-    available, distro, reason = probe_wsl2_availability()
-    if not available:
-        return SandboxCapability(
-            supported=False,
-            mode=SandboxMode.NONE,
-            reason=f"WSL2 unavailable: {reason}",
+            reason="Cannot determine Windows version",
         )
 
-    if not check_wsl_python3(distro):
+    # Check icacls.exe
+    if not shutil.which("icacls"):
         return SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,
-            reason=f"python3 not found in WSL2 distro '{distro}'",
+            reason="icacls.exe not found on PATH",
         )
 
-    supported, abi_version = check_wsl_landlock(distro)
-    if not supported:
+    # Check that AppContainer APIs are available (userenv.dll)
+    try:
+        import ctypes
+
+        userenv = ctypes.WinDLL("userenv.dll", use_last_error=True)
+        # Verify the function pointer exists
+        _ = userenv.CreateAppContainerProfile
+    except (OSError, AttributeError) as e:
         return SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,
-            reason=f"Landlock not supported in WSL2 distro '{distro}' kernel",
+            reason=f"AppContainer API not available: {e}",
         )
 
     return SandboxCapability(
         supported=True,
-        mode=SandboxMode.WSL2,
-        reason=f"WSL2 distro '{distro}' with Landlock ABI v{abi_version}",
-        landlock_abi_version=abi_version,
+        mode=SandboxMode.APPCONTAINER,
+        reason=(
+            f"Windows {ver.major}.{ver.minor} build {ver.build}; "
+            f"AppContainer available"
+        ),
     )
 
 
@@ -389,8 +415,7 @@ def _probe_linux_bubblewrap() -> SandboxCapability:
             supported=False,
             mode=SandboxMode.NONE,
             reason=(
-                f"bwrap probe failed (rc={result.returncode}): "
-                f"{stderr[:200]}"
+                f"bwrap probe failed (rc={result.returncode}): {stderr[:200]}"
             ),
         )
     except subprocess.TimeoutExpired:
@@ -407,6 +432,7 @@ def _probe_linux_bubblewrap() -> SandboxCapability:
         )
 
 
+@functools.lru_cache(maxsize=1)
 def probe_sandbox_support() -> SandboxCapability:
     """Probe current platform sandbox support at startup.
 
@@ -415,6 +441,11 @@ def probe_sandbox_support() -> SandboxCapability:
     the SANDBOX_FALLBACK path.
 
     On Linux the priority is: bubblewrap > Landlock > NONE.
+
+    The result is cached (``lru_cache(maxsize=1)``) because OS-level
+    sandbox capability does not change during the process lifetime.
+    The first call may block (e.g. ``subprocess.run`` with a timeout
+    on Linux); subsequent calls return instantly from cache.
     """
     import sys
 
@@ -426,17 +457,7 @@ def probe_sandbox_support() -> SandboxCapability:
             return cap
         return _probe_linux_landlock()
     elif sys.platform == "win32":
-        # Windows sandbox (WSL2 + Landlock) is currently disabled because the
-        # WSL2 delegation path is not production-ready. Re-enable by calling
-        # ``_probe_windows_wsl2()`` once the Windows sandbox path is ready.
-        return SandboxCapability(
-            supported=False,
-            mode=SandboxMode.NONE,
-            reason=(
-                "Windows sandbox temporarily disabled until "
-                "WSL2 path is ready"
-            ),
-        )
+        return _probe_windows_appcontainer()
     else:
         return SandboxCapability(
             supported=False,
@@ -464,13 +485,14 @@ def create_sandbox(config: SandboxConfig) -> Any:
     """Create a sandbox instance based on ``config.mode``.
 
     Supported modes:
-      - SEATBELT    → MacOSSandbox
-      - BUBBLEWRAP  → BubblewrapSandbox (Linux preferred)
-      - LANDLOCK    → LinuxSandbox (Linux fallback)
-      - NONE        → NoneSandbox
-      - WSL2        → WindowsSandbox (currently disabled at probe time;
-                     Re-enable in ``probe_sandbox_support`` when the
-                     Windows sandbox path is production-ready.)
+      - SEATBELT      → MacOSSandbox
+      - BUBBLEWRAP    → BubblewrapSandbox (Linux preferred)
+      - LANDLOCK      → LinuxSandbox (Linux fallback)
+      - APPCONTAINER  → Windows sandbox (Windows 10+ native). Dispatches on
+        ``allow_read_all``: True → WindowsRestrictedSandbox (WRITE_RESTRICTED
+        token, reads work automatically), False → WindowsSandbox
+        (AppContainer, explicit read allow-list).
+      - NONE          → NoneSandbox
     """
     if config.mode == SandboxMode.SEATBELT:
         from .macos_sandbox import MacOSSandbox
@@ -488,7 +510,11 @@ def create_sandbox(config: SandboxConfig) -> Any:
         from .linux_sandbox import LinuxSandbox
 
         return LinuxSandbox(config)
-    elif config.mode == SandboxMode.WSL2:
+    elif config.mode == SandboxMode.APPCONTAINER:
+        if config.allow_read_all:
+            from .windows_restricted_sandbox import WindowsRestrictedSandbox
+
+            return WindowsRestrictedSandbox(config)
         from .windows_sandbox import WindowsSandbox
 
         return WindowsSandbox(config)

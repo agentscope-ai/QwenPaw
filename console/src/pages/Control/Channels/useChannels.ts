@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import api from "../../../api";
+import type { ChannelSchema } from "../../../api/modules/channel";
 import { useAgentStore } from "../../../stores/agentStore";
 
 export function useChannels() {
@@ -8,6 +9,9 @@ export function useChannels() {
     Record<string, Record<string, unknown>>
   >({});
   const [channelTypes, setChannelTypes] = useState<string[]>([]);
+  const [channelSchemas, setChannelSchemas] = useState<
+    Record<string, ChannelSchema>
+  >({});
   const [loading, setLoading] = useState(true);
 
   const fetchChannels = useCallback(async () => {
@@ -24,6 +28,13 @@ export function useChannels() {
       console.error("❌ Failed to load channels:", error);
     } finally {
       setLoading(false);
+    }
+    // Fetch schemas separately so failures don't block core channel loading
+    try {
+      const schemas = await api.listChannelSchemas();
+      if (schemas) setChannelSchemas(schemas);
+    } catch {
+      // Plugin system may not be available; non-critical
     }
   }, []);
 
@@ -68,6 +79,7 @@ export function useChannels() {
   return {
     channels,
     channelTypes,
+    channelSchemas,
     orderedKeys,
     isBuiltin,
     loading,

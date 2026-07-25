@@ -180,20 +180,10 @@
   }
 }
 
-/* Message actions: hide by default on hover-capable devices, always visible on touch */
-@media (hover: hover) {
-  .chatMessagesArea :global {
-    [class*="bubble-footer"] {
-      opacity: 0;
-      transition: opacity 0.2s;
-    }
-
-    [class*="bubble-end"]:hover [class*="bubble-footer"],
-    [class*="bubble-start"]:hover [class*="bubble-footer"],
-    [class*="bubble-footer"]:hover,
-    [class*="bubble-footer"]:focus-within {
-      opacity: 1;
-    }
+/* Message actions: always visible (timestamps are useful at a glance). */
+.chatMessagesArea :global {
+  [class*="bubble-footer"] {
+    opacity: 1;
   }
 }
 

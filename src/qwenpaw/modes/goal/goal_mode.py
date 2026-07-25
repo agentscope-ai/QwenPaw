@@ -18,15 +18,16 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from agentscope.message import Msg, TextBlock
 
-from ..base import AgentMode
+from ..base import AgentMode, find_active_explicit_mode
 from ...app.agent_context import (
     get_current_session_id,
 )
-from ...loop.gates import GoalStatusRubric
-from ...loop.handler_registry import (
-    get_or_create_stop_handler,
+from ...loop.gates import (
+    GoalStatusRubric,
+    StopHandler,
+    StopHandlerRegistration,
 )
-from ...runtime.hooks import HookBase
+from ...runtime.hooks import HookBase, HookContext
 from ...runtime.slash_command_registry import (
     CommandSpec,
 )
@@ -88,7 +89,9 @@ class GoalMode(AgentMode):
 
     def __init__(self) -> None:
         self._sessions: dict[str, GoalSession] = {}
+        self._default_max_iterations = DEFAULT_MAX_ITERATIONS
         self._default_max_tokens = DEFAULT_MAX_TOKENS
+        self._handler: StopHandler | None = None
 
     @property
     def sessions(self) -> dict[str, GoalSession]:
@@ -100,11 +103,22 @@ class GoalMode(AgentMode):
         """Default token budget for new goals."""
         return self._default_max_tokens
 
-    def first_active_session(
+    def active_session(
         self,
     ) -> GoalSession | None:
-        """Return first active GoalSession or None."""
-        return self._first_active_session()
+        """Return active session for current context.
+
+        Uses get_current_session_id() ContextVar to
+        look up session. Returns None if no session or
+        session is inactive.
+        """
+        key = get_current_session_id()
+        if key is None:
+            return None
+        s = self._sessions.get(key)
+        if s is not None and s.active:
+            return s
+        return None
 
     def session_by_ctx_var(
         self,
@@ -119,6 +133,25 @@ class GoalMode(AgentMode):
         if key is None:
             return None
         return self._sessions.get(key)
+
+    def deactivate(self) -> None:
+        """Remove current session from _sessions.
+
+        Called after goal completion to prevent stale
+        sessions from blocking subsequent messages.
+        """
+        key = get_current_session_id()
+        if key is not None:
+            self._sessions.pop(key, None)
+
+    async def on_conversation_reset(
+        self,
+        ctx: HookContext,
+    ) -> None:
+        """Clear the current goal session on /new or /clear."""
+        self._sessions.pop(ctx.session_id, None)
+        if self._handler is not None:
+            self._handler.reset_session()
 
     # ---- AgentMode interface ----
 
@@ -187,11 +220,24 @@ class GoalMode(AgentMode):
         ]
 
     def setup(self, workspace: object) -> None:
-        """Register gates into universal handler."""
+        """Register gates into the goal-scoped handler."""
         super().setup(workspace)
 
-        handler = get_or_create_stop_handler(
-            workspace,
+        goal_config = workspace.config.running.loop.goal
+        self._default_max_iterations = goal_config.max_iterations
+        self._default_max_tokens = goal_config.max_tokens
+
+        handler = StopHandler()
+        self._handler = handler
+        workspace.plugins.stop_handlers.append(
+            StopHandlerRegistration(
+                plugin_id="__goal_mode__",
+                handler=handler,
+                priority=0,
+                name="goal-stop-handler",
+                scope="goal",
+                is_active=lambda: self.active_session() is not None,
+            ),
         )
         rubric = GoalStatusRubric(
             get_session_fn=self.session_by_ctx_var,
@@ -199,12 +245,14 @@ class GoalMode(AgentMode):
         doom_gate = create_doom_loop_gate(workspace)
         if doom_gate is not None:
             handler.register(doom_gate)
-        handler.register(GoalTurnGate(self))
+        handler.register(
+            GoalTurnGate(
+                self,
+                max_iterations=self._default_max_iterations,
+            ),
+        )
         handler.register(GoalBudgetGate(self))
         handler.register(RubricGate(self, rubric))
-        handler.set_continuation(
-            self._build_continuation,
-        )
 
         completion_gate = create_completion_gate(
             workspace,
@@ -216,7 +264,7 @@ class GoalMode(AgentMode):
 
     def is_active(self, ctx: Any) -> bool:
         """Goal mode is active when session live."""
-        return self._first_active_session() is not None
+        return self.active_session() is not None
 
     # ---- slash command handlers ----
 
@@ -246,11 +294,31 @@ class GoalMode(AgentMode):
                 role="system",
             )
 
+        conflict = find_active_explicit_mode(ctx)
+        if conflict is not None:
+            return Msg(
+                name="system",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"End the active {conflict} mode before "
+                            f"starting /goal."
+                        ),
+                    ),
+                ],
+                role="system",
+            )
+
         goal_text = args.strip()
         session_key = self._current_session_key(
             ctx,
         )
-        session = GoalSession(goal=goal_text)
+        session = GoalSession(
+            goal=goal_text,
+            max_iterations=self._default_max_iterations,
+            max_tokens=self._default_max_tokens,
+        )
         self._sessions[session_key] = session
 
         logger.info(
@@ -261,27 +329,6 @@ class GoalMode(AgentMode):
 
         rewrite_user_msg(ctx, goal_text)
         return None
-
-    def _build_continuation(
-        self,
-        ctx: Any,  # pylint: disable=unused-argument
-    ) -> str:
-        """Build continuation message."""
-        session = self._first_active_session()
-        if session is None:
-            return ""
-        remaining = max(
-            0,
-            session.max_tokens - session.tokens_used,
-        )
-        return CONTINUATION_PROMPT.format(
-            objective=session.goal,
-            iteration=session.iteration,
-            max_iterations=(session.max_iterations),
-            tokens_used=session.tokens_used,
-            token_budget=session.max_tokens,
-            remaining_tokens=remaining,
-        )
 
     # ---- prompt / session helpers ----
 
@@ -294,7 +341,7 @@ class GoalMode(AgentMode):
         First turn uses INITIAL_GOAL_PROMPT;
         subsequent turns use CONTINUATION_PROMPT.
         """
-        session = self._first_active_session()
+        session = self.active_session()
         if session is None:
             return ""
 
@@ -317,18 +364,6 @@ class GoalMode(AgentMode):
             token_budget=session.max_tokens,
             remaining_tokens=remaining,
         )
-
-    def _first_active_session(
-        self,
-    ) -> Optional[GoalSession]:
-        """Return active session via ContextVar."""
-        key = get_current_session_id()
-        if key is None:
-            return None
-        s = self._sessions.get(key)
-        if s is not None and s.active:
-            return s
-        return None
 
     @staticmethod
     def _current_session_key(

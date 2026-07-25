@@ -2,12 +2,21 @@
 
 import type { ModelSlotConfig } from "./provider";
 
+export type AgentStartupStatus =
+  | "disabled"
+  | "pending"
+  | "starting"
+  | "running"
+  | "failed";
+
 export interface AgentSummary {
   id: string;
   name: string;
   description: string;
   workspace_dir: string;
   enabled: boolean;
+  pinned?: boolean;
+  startup_status?: AgentStartupStatus;
   active_model?: ModelSlotConfig | null;
 }
 
@@ -47,7 +56,17 @@ export interface CreateAgentRequest {
   active_model?: ModelSlotConfig | null;
 }
 
+export interface CopyAgentRequest {
+  name?: string;
+  copy_agent_json?: true;
+  copy_md_files?: boolean;
+  copy_skills?: boolean;
+  copy_jobs?: boolean;
+}
+
 export interface AgentProfileRef {
   id: string;
   workspace_dir: string;
+  enabled?: boolean;
+  pinned?: boolean;
 }

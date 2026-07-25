@@ -107,6 +107,7 @@ def _save_prd(prd_path: Path, prd: dict) -> None:
 def _error_response(message: str) -> ToolChunk:
     return ToolChunk(
         state=ToolResultState.SUCCESS,
+        is_last=True,
         content=[
             TextBlock(
                 type="text",
@@ -138,6 +139,7 @@ def _ok_response(message: str, data: dict = None) -> ToolChunk:
         result["data"] = data
     return ToolChunk(
         state=ToolResultState.SUCCESS,
+        is_last=True,
         content=[
             TextBlock(
                 type="text",

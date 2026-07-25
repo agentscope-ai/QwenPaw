@@ -13,12 +13,13 @@ concurrent writes — already fixed upstream).
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from qwenpaw.app.crons.manager import CronManager
-from qwenpaw.app.crons.models import CronJobState
+from qwenpaw.app.crons.models import CronJobState, ScheduleSpec
 from tests.unit.app.conftest import (
     InMemoryJobRepository,
     make_cron_job_spec,
@@ -51,6 +52,36 @@ async def test_start_is_idempotent(manager: CronManager):
     await manager.start()  # second call must not raise or double-start
     assert manager._started is True
     await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_scheduled_dream_waits_for_random_delay(
+    repo: InMemoryJobRepository,
+):
+    workspace = MagicMock()
+    workspace.memory_manager.dream = AsyncMock()
+    mgr = CronManager(
+        repo=repo,
+        workspace=workspace,
+        channel_manager=AsyncMock(),
+        agent_id="test-agent",
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.crons.manager.random.randint",
+            return_value=42,
+        ) as randint_mock,
+        patch(
+            "qwenpaw.app.crons.manager.asyncio.sleep",
+            new_callable=AsyncMock,
+        ) as sleep_mock,
+    ):
+        await mgr._dream_callback()
+
+    randint_mock.assert_called_once_with(0, 60)
+    sleep_mock.assert_awaited_once_with(42)
+    workspace.memory_manager.dream.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -196,6 +227,33 @@ async def test_get_state_returns_default_for_unknown_job(manager: CronManager):
     state = manager.get_state("ghost")
     assert isinstance(state, CronJobState)
     assert state.last_status is None
+
+
+@pytest.mark.asyncio
+async def test_execute_once_records_last_run_in_job_timezone(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    spec = make_cron_job_spec(job_id="tz-job")
+    spec = spec.model_copy(
+        update={
+            "schedule": ScheduleSpec(
+                type="cron",
+                cron="0 3 * * *",
+                timezone="Asia/Shanghai",
+            ),
+        },
+    )
+    await repo.upsert_job(spec)
+    manager._executor.execute = AsyncMock(return_value={})
+
+    await manager._execute_once(spec, trigger="manual")
+
+    state = manager.get_state("tz-job")
+    history = await manager.get_history("tz-job")
+    assert state.last_run_at is not None
+    assert state.last_run_at.utcoffset() == timedelta(hours=8)
+    assert history[0].run_at == state.last_run_at
 
 
 # ---------------------------------------------------------------------------

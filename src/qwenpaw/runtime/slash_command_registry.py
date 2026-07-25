@@ -104,6 +104,38 @@ class SlashCommandRegistry:
     def names(self) -> list[str]:
         return sorted(self._by_name.keys())
 
+    def advertisable_commands(
+        self,
+        *,
+        exclude_categories: frozenset[str] | None = None,
+        exclude_names: frozenset[str] | None = None,
+    ) -> list[tuple[str, str]]:
+        """Return ``(name, help_text)`` pairs suitable for ACP broadcast.
+
+        Only commands with non-empty ``help_text`` are included.
+        Commands in *exclude_categories* or *exclude_names* are skipped.
+        Duplicates (aliases) are de-duplicated by spec identity.
+        """
+        if exclude_categories is None:
+            exclude_categories = frozenset()
+        if exclude_names is None:
+            exclude_names = frozenset()
+
+        seen_specs: set[int] = set()
+        result: list[tuple[str, str]] = []
+        for name, spec in self._by_name.items():
+            if id(spec) in seen_specs:
+                continue
+            if spec.category in exclude_categories:
+                continue
+            if name in exclude_names:
+                continue
+            if not spec.help_text:
+                continue
+            seen_specs.add(id(spec))
+            result.append((name, spec.help_text))
+        return result
+
     # ---------------------------------------------------------------- dispatch
     async def dispatch(
         self,

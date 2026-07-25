@@ -3,9 +3,10 @@
 
 import asyncio
 import json
+import logging
+import math
 import re
 import time
-from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
@@ -18,8 +19,12 @@ from ...config.utils import read_last_api
 from ...runtime.tool_registry import tool_descriptor
 from ...utils.http import trust_env_for_url
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_AGENT_API_BASE_URL = "http://127.0.0.1:8088"
 DEFAULT_AGENT_API_TIMEOUT = 30.0
+MAX_SPAWN_BATCH_SIZE = 10
+MAX_SPAWN_BATCH_CONCURRENCY = 3
 
 
 def resolve_agent_api_base_url(base_url: Optional[str] = None) -> str:
@@ -382,7 +387,10 @@ def format_background_submission_text(
             f"[SESSION: {session_id}]",
             "",
             "Task submitted successfully.",
-            "Check status with: check_agent_task(" f"task_id='{task_id}')",
+            "The subagent is working autonomously"
+            " \u2014 do NOT poll immediately.",
+            "Wait at least 30 seconds, then check with:",
+            f"  check_agent_task(task_id='{task_id}')",
         ],
     )
 
@@ -421,6 +429,11 @@ def format_background_status_text(
         started_at = result.get("started_at", "N/A")
         parts.append("Task is still running...")
         parts.append(f"Started at: {started_at}")
+        parts.append("")
+        parts.append(
+            "Do NOT poll again immediately."
+            " Wait at least 30 seconds before next check.",
+        )
     elif status == "pending":
         parts.append("Task is pending in queue...")
     elif status == "submitted":
@@ -430,7 +443,13 @@ def format_background_status_text(
     return "\n".join(parts)
 
 
-@tool_descriptor(async_execution=True)
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    policy_name="ListAgents",
+    ui_description="List configured agents from the local API",
+    ui_icon="🤖",
+)
 async def list_agents(
     base_url: Optional[str] = None,
 ) -> ToolChunk:
@@ -445,7 +464,17 @@ async def list_agents(
     return _tool_text_response(_json_text(result))
 
 
-@tool_descriptor(async_execution=True)
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    target_param="to_agent",
+    policy_name="ChatWithAgent",
+    ui_description=(
+        "Send a message to another configured agent and wait for "
+        "the response"
+    ),
+    ui_icon="💬",
+)
 async def chat_with_agent(
     to_agent: str,
     text: str,
@@ -529,7 +558,14 @@ async def chat_with_agent(
     )
 
 
-@tool_descriptor(async_execution=True)
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    target_param="to_agent",
+    policy_name="SubmitToAgent",
+    ui_description="Submit a background task to another configured agent",
+    ui_icon="📨",
+)
 async def submit_to_agent(
     to_agent: str,
     text: str,
@@ -613,7 +649,14 @@ async def submit_to_agent(
     )
 
 
-@tool_descriptor(async_execution=True)
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    target_param="task_id",
+    policy_name="CheckAgentTask",
+    ui_description="Check the status of a background agent task",
+    ui_icon="⏳",
+)
 async def check_agent_task(
     task_id: str,
 ) -> ToolChunk:
@@ -647,6 +690,43 @@ async def check_agent_task(
         to_agent=None,
         timeout=10,
     )
+    # Background fork workers: commit on success, mark failed otherwise.
+    if isinstance(result, dict) and result.get("status") == "finished":
+        task_result = result.get("result")
+        if isinstance(task_result, dict):
+            try:
+                from ..fork_project import (
+                    finalize_fork_for_task,
+                    mark_fork_failed_for_task,
+                )
+                from ...config.context import get_current_workspace_dir
+
+                ws = get_current_workspace_dir()
+                if task_result.get("status") == "completed":
+                    await asyncio.to_thread(
+                        finalize_fork_for_task,
+                        normalized_task_id,
+                        workspace_dir=ws,
+                    )
+                else:
+                    err = task_result.get("error") or {}
+                    reason = (
+                        err.get("message", "background task failed")
+                        if isinstance(err, dict)
+                        else "background task failed"
+                    )
+                    await asyncio.to_thread(
+                        mark_fork_failed_for_task,
+                        normalized_task_id,
+                        workspace_dir=ws,
+                        reason=str(reason),
+                    )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Fork finalize/fail on check_agent_task failed for %s",
+                    normalized_task_id,
+                    exc_info=True,
+                )
     return _tool_text_response(
         format_background_status_text(normalized_task_id, result),
     )
@@ -657,43 +737,345 @@ def _generate_subagent_session_id() -> str:
     return f"sub-{str(uuid4())[:8]}"
 
 
-@tool_descriptor(async_execution=True)
-async def spawn_subagent(
+def _json_safe_channel_meta(value: Any) -> Any:
+    """Keep channel routing metadata safe to include in an HTTP payload."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        safe: dict[str, Any] = {}
+        for key, raw_value in value.items():
+            safe_value = _json_safe_channel_meta(raw_value)
+            if safe_value is not None:
+                safe[str(key)] = safe_value
+        return safe
+    if isinstance(value, (list, tuple)):
+        safe_list = []
+        for raw_value in value:
+            safe_value = _json_safe_channel_meta(raw_value)
+            if safe_value is not None:
+                safe_list.append(safe_value)
+        return safe_list
+    return None
+
+
+def _build_spawn_request_context(current_agent_id: str) -> dict[str, Any]:
+    """Build approval routing metadata without changing child identity."""
+    from ...app.agent_context import (
+        get_current_approval_route,
+        get_current_channel,
+        get_current_root_session_id,
+        get_current_session_id,
+        get_current_user_id,
+    )
+
+    inherited = get_current_approval_route() or {}
+    context: dict[str, Any] = {
+        "root_session_id": (
+            inherited.get("root_session_id")
+            or get_current_root_session_id()
+            or get_current_session_id()
+            or ""
+        ),
+        "root_agent_id": current_agent_id,
+        "user_id": inherited.get("user_id") or get_current_user_id() or "",
+        "channel": inherited.get("channel") or get_current_channel() or "",
+        "_spawn_subagent": True,
+    }
+    safe_meta = _json_safe_channel_meta(inherited.get("channel_meta") or {})
+    if isinstance(safe_meta, dict) and safe_meta:
+        context["channel_meta"] = safe_meta
+    return context
+
+
+def _coerce_json_list(value: Any, field_name: str) -> Optional[list[Any]]:
+    """Coerce a tool arg to ``list``; accept JSON-array strings from LLMs.
+
+    Returns ``None`` when *value* is ``None``.  Raises ``ValueError`` for
+    non-list values (after optional JSON decode of strings).
+    """
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise ValueError(
+                f"'{field_name}' must be a list or a JSON array string",
+            )
+        try:
+            parsed = json.loads(text)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError(
+                f"'{field_name}' must be a list or a JSON array string",
+            ) from exc
+        if not isinstance(parsed, list):
+            raise ValueError(
+                f"'{field_name}' JSON value must be an array, "
+                f"got {type(parsed).__name__}",
+            )
+        return parsed
+    raise ValueError(
+        f"'{field_name}' must be a list or a JSON array string",
+    )
+
+
+def _normalize_str_list(
+    value: Any,
+    field_name: str,
+) -> Optional[list[str]]:
+    """Validate an optional list[str] tool argument.
+
+    Accepts a real ``list[str]`` or a JSON array string (common LLM
+    mis-serialization).  Returns ``None`` when *value* is ``None``.
+    Raises ``ValueError`` when the value is not a list of strings
+    (prevents ``list("abc")`` character-splitting on mistaken string
+    inputs that are not JSON arrays).
+    """
+    if value is None:
+        return None
+    coerced = _coerce_json_list(value, field_name)
+    assert coerced is not None
+    if not all(isinstance(item, str) for item in coerced):
+        raise ValueError(
+            f"'{field_name}' must be a list of strings or null",
+        )
+    return list(coerced)
+
+
+def _coerce_bool(
+    value: Any,
+    default: bool = False,
+    *,
+    field_name: str = "value",
+) -> bool:
+    """Parse a bool tool field; reject ambiguous truthiness.
+
+    ``bool("false")`` / ``bool("null")`` are ``True`` in Python — only
+    accept explicit bool / ``0|1`` / known true/false strings.  Anything
+    else raises ``ValueError`` (no ``bool(value)`` fallthrough).
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "1", "yes", "on"):
+            return True
+        if text in ("false", "0", "no", "off"):
+            return False
+    raise ValueError(
+        f"'{field_name}' must be a boolean "
+        f"(or 0/1 / true/false / yes/no / on/off)",
+    )
+
+
+def _coerce_timeout(
+    value: Any,
+    default: int = 600,
+    *,
+    field_name: str = "timeout",
+) -> int:
+    """Parse a timeout tool field to ``int`` seconds.
+
+    Accepts ``int`` / ``float`` / numeric strings (LLM mis-serialization).
+    Rejects bools, non-numeric values, and non-positive timeouts.
+    """
+    if value is None:
+        return default
+    # bool is an int subclass — do not treat True/False as 1/0 seconds.
+    if isinstance(value, bool):
+        raise ValueError(
+            f"'{field_name}' must be a positive number (seconds)",
+        )
+    if isinstance(value, (int, float)):
+        as_float = float(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise ValueError(
+                f"'{field_name}' must be a positive number (seconds)",
+            )
+        try:
+            as_float = float(text)
+        except ValueError as exc:
+            raise ValueError(
+                f"'{field_name}' must be a positive number (seconds)",
+            ) from exc
+    else:
+        raise ValueError(
+            f"'{field_name}' must be a positive number (seconds)",
+        )
+    if not math.isfinite(as_float):
+        raise ValueError(
+            f"'{field_name}' must be a positive number (seconds)",
+        )
+    # Truncation can turn (0, 1) into 0 — reject after int(), not before.
+    as_int = int(as_float)
+    if as_int <= 0:
+        raise ValueError(
+            f"'{field_name}' must be a positive number (seconds)",
+        )
+    return as_int
+
+
+def _normalize_batch(
+    value: Any,
+) -> Optional[list[Dict[str, Any]]]:
+    """Normalize ``batch`` to ``list[dict]`` or ``None``.
+
+    Accepts a real list or a JSON array string.  Structural checks
+    (non-empty, per-item ``task``) remain in :func:`_spawn_batch`.
+    """
+    if value is None:
+        return None
+    coerced = _coerce_json_list(value, "batch")
+    assert coerced is not None
+    return coerced  # type: ignore[return-value]
+
+
+def _build_subagent_request_context(
+    current_agent_id: str,
+    allowed_tools: Optional[list[str]] = None,
+    skills: Optional[list[str]] = None,
+    extra: Optional[dict] = None,
+) -> dict[str, Any]:
+    """Build request_context with approval routing + tool/skill filters."""
+    rc = _build_spawn_request_context(current_agent_id)
+    if extra:
+        rc.update(extra)
+    if allowed_tools is not None:
+        rc["subagent_allowed_tools"] = list(allowed_tools)
+    if skills is not None:
+        rc["subagent_skills"] = list(skills)
+    return rc
+
+
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    policy_name="SpawnSubagent",
+    ui_description="Spawn an ephemeral sub-task within the current workspace",
+    ui_icon="🔀",
+)
+async def spawn_subagent(  # pylint: disable=too-many-return-statements
     task: str,
-    fork: bool = False,
-    background: bool = False,
-    timeout: int = 600,
+    fork: bool | str | int = False,
+    background: bool | str | int = False,
+    timeout: int | float | str = 600,
+    allowed_tools: Optional[list[str] | str] = None,
+    skills: Optional[list[str] | str] = None,
+    batch: Optional[list[Dict[str, Any]] | str] = None,
 ) -> ToolChunk:
     """Spawn an ephemeral subagent within the CURRENT workspace.
 
-    The subagent runs as a one-shot task and cannot be resumed.
-    Results flow back as text summary; file changes (fork mode)
-    are isolated in a git branch.
+    The subagent starts a **fresh conversation context** — it does NOT
+    inherit the parent agent's dialogue history, accumulated state, or
+    in-progress tool calls.  It shares the same agent identity,
+    workspace, and (by default) the full set of available tools and
+    skills.  Use ``allowed_tools`` / ``skills`` to restrict what a
+    subagent can access.
 
-    Unlike ``chat_with_agent`` (which calls a *different* agent),
-    this tool targets the same agent identity and workspace.
+    Unlike ``chat_with_agent`` (which targets a *different* configured
+    agent), this tool creates a disposable one-shot worker under the
+    current agent's identity.
 
     Args:
-        task: Description of the sub-task to perform.
-        fork: If True, the subagent inherits parent session state.
-            If the project is a git repo, it also runs in an
-            isolated worktree. Works without coding mode (falls
-            back to workspace; no worktree if not a git repo).
-            If False (default), starts with a fresh empty session.
-        background: If True, submit as background task and return
-            immediately with a task_id. Use check_agent_task(task_id)
-            to poll status and retrieve the result.
+        task: Description of the sub-task.  This becomes the sole user
+            message in the subagent's conversation.  Always required by
+            the signature; pass an empty string when using ``batch``.
+        fork: Controls two independent features:
+            1. **Session state inheritance** — the subagent receives a
+               copy of the parent's persisted session state.
+            2. **Git worktree isolation** — if the project directory is
+               a git repository, the subagent works in a dedicated
+               worktree so its file changes cannot conflict with the
+               parent or other subagents.
+            When False (default), the subagent starts with an empty
+            session and works in the original project directory.
+            A JSON/string boolean (e.g. ``"false"``) is also accepted
+            for LLM mis-serialization; ambiguous values return ERROR.
+        background: If True, submit as a background task and return
+            immediately with a task_id.  The subagent typically runs for
+            **minutes, not seconds** — do NOT poll immediately.  Wait at
+            least 30 seconds before the first ``check_agent_task`` call,
+            and use 30-60 second intervals between subsequent polls.
+            Prefer ``background=False`` (foreground) when only spawning
+            a single subagent — it blocks until completion, eliminating
+            the need to poll entirely.  String booleans are accepted
+            like ``fork``; ambiguous values return ERROR.
         timeout: Foreground wait timeout in seconds (default 600).
+            Ignored when ``background=True``.  Numeric strings (e.g.
+            ``"600"``) are accepted for LLM mis-serialization; invalid
+            values return ERROR.  Ignored entirely in batch mode.
+        allowed_tools: Tool-name whitelist.  Only the listed tools are
+            available to the subagent.  ``None`` (default) inherits the
+            parent's full tool set.  An empty list denies all tools.
+            A JSON array string is also accepted (LLM mis-serialization).
+            Ignored in batch mode (use per-item ``allowed_tools``).
+        skills: Skill-name whitelist.  Only the listed SKILL.md files
+            are loaded for the subagent.  ``None`` (default) inherits
+            all skills resolved for this workspace.  A JSON array
+            string is also accepted.  Ignored in batch mode (use
+            per-item ``skills``).
+        batch: List of task specs for batch mode.  When provided,
+            ``task`` must be an empty string.  Each dict must contain a
+            ``task`` key; optional keys: ``fork``, ``timeout``,
+            ``allowed_tools``, ``skills`` (top-level ``fork`` /
+            ``timeout`` / ``allowed_tools`` / ``skills`` /
+            ``background`` are ignored in batch mode).
+            A JSON array string is also accepted so schema validation
+            does not reject common LLM stringification.  All subagents
+            run as background tasks.  Maximum length is
+            ``MAX_SPAWN_BATCH_SIZE`` (10); concurrent dispatches are
+            capped at ``MAX_SPAWN_BATCH_CONCURRENCY`` (3).
 
     Returns:
-        Foreground: subagent result text with [SESSION: <id>].
-        Background: [TASK_ID: <id>] + [SESSION: <id>].
+        Foreground (single): subagent result text with [SESSION: <id>].
+        Background (single): [TASK_ID: <id>] + [SESSION: <id>].
         Fork foreground: also [FORK_BRANCH: <branch>] if changes.
+        Batch: per-subagent [TASK_ID: ...] + [SESSION: ...].
     """
+    try:
+        batch = _normalize_batch(batch)
+    except ValueError as exc:
+        return _tool_text_response(f"ERROR: {exc}")
+
+    if batch is not None:
+        if task and task.strip():
+            return _tool_text_response(
+                "ERROR: 'task' and 'batch' are mutually exclusive. "
+                "Pass task='' with 'batch' for multiple subagents.",
+            )
+        # Top-level fork/background/timeout/allowed_tools/skills are
+        # ignored in batch mode — do not normalize/coerce them here or
+        # LLM placeholder strings would block dispatch.
+        return await _spawn_batch(batch)
+
     if not task or not task.strip():
         return _tool_text_response(
-            "ERROR: 'task' is required for spawn_subagent",
+            "ERROR: 'task' is required for spawn_subagent "
+            "(use task='' only with batch=...)",
         )
+
+    try:
+        allowed_tools = _normalize_str_list(
+            allowed_tools,
+            "allowed_tools",
+        )
+        skills = _normalize_str_list(skills, "skills")
+        fork = _coerce_bool(fork, default=False, field_name="fork")
+        background = _coerce_bool(
+            background,
+            default=False,
+            field_name="background",
+        )
+        timeout = _coerce_timeout(timeout, default=600, field_name="timeout")
+    except ValueError as exc:
+        return _tool_text_response(f"ERROR: {exc}")
 
     from ...app.agent_context import get_current_agent_id
 
@@ -712,8 +1094,15 @@ async def spawn_subagent(
             subagent_session_id=subagent_session_id,
             background=background,
             timeout=timeout,
+            allowed_tools=allowed_tools,
+            skills=skills,
         )
 
+    request_context = _build_subagent_request_context(
+        current_agent_id,
+        allowed_tools=allowed_tools,
+        skills=skills,
+    )
     request_payload = {
         "session_id": subagent_session_id,
         "input": [
@@ -722,7 +1111,7 @@ async def spawn_subagent(
                 "content": [{"type": "text", "text": task}],
             },
         ],
-        "request_context": {},
+        "request_context": request_context,
     }
 
     if background:
@@ -732,6 +1121,7 @@ async def spawn_subagent(
             request_payload,
             current_agent_id,
             int(DEFAULT_AGENT_API_TIMEOUT),
+            float(timeout),
         )
         return _tool_text_response(
             format_background_submission_text(
@@ -758,6 +1148,143 @@ async def spawn_subagent(
             session_id=subagent_session_id,
         ),
     )
+
+
+def _chunk_text(chunk: ToolChunk) -> str:
+    """Extract plain text from a ToolChunk, if present."""
+    if not chunk.content:
+        return ""
+    block = chunk.content[0]
+    text = getattr(block, "text", None)
+    return text if isinstance(text, str) else str(block)
+
+
+async def _spawn_batch(
+    specs: list[Dict[str, Any]],
+) -> ToolChunk:
+    """Dispatch multiple subagents in parallel as background tasks."""
+    if not isinstance(specs, list) or not specs:
+        return _tool_text_response(
+            "ERROR: 'batch' must be a non-empty list",
+        )
+    if len(specs) > MAX_SPAWN_BATCH_SIZE:
+        return _tool_text_response(
+            f"ERROR: batch size {len(specs)} exceeds "
+            f"maximum of {MAX_SPAWN_BATCH_SIZE}",
+        )
+    normalized: list[Dict[str, Any]] = []
+    for i, spec in enumerate(specs):
+        if (
+            not isinstance(spec, dict)
+            or not str(
+                spec.get("task", ""),
+            ).strip()
+        ):
+            return _tool_text_response(
+                f"ERROR: batch[{i}] must be a dict with a "
+                f"non-empty 'task' field",
+            )
+        try:
+            normalized.append(
+                {
+                    **spec,
+                    "allowed_tools": _normalize_str_list(
+                        spec.get("allowed_tools"),
+                        f"batch[{i}].allowed_tools",
+                    ),
+                    "skills": _normalize_str_list(
+                        spec.get("skills"),
+                        f"batch[{i}].skills",
+                    ),
+                    # Validate fork/timeout before any dispatch so a bad
+                    # value cannot partially spawn siblings (gather).
+                    "fork": _coerce_bool(
+                        spec.get("fork"),
+                        default=False,
+                        field_name=f"batch[{i}].fork",
+                    ),
+                    "timeout": _coerce_timeout(
+                        spec.get("timeout"),
+                        default=600,
+                        field_name=f"batch[{i}].timeout",
+                    ),
+                },
+            )
+        except ValueError as exc:
+            return _tool_text_response(f"ERROR: {exc}")
+
+    from ...app.agent_context import get_current_agent_id
+
+    current_agent_id = get_current_agent_id()
+    if not current_agent_id:
+        return _tool_text_response(
+            "ERROR: unable to resolve current agent ID",
+        )
+
+    sem = asyncio.Semaphore(MAX_SPAWN_BATCH_CONCURRENCY)
+
+    async def _dispatch_one(spec: Dict[str, Any]) -> str:
+        session_id = _generate_subagent_session_id()
+        task_text = spec["task"]
+        spec_fork = bool(spec["fork"])
+        spec_timeout = int(spec["timeout"])
+        spec_allowed = spec.get("allowed_tools")
+        spec_skills = spec.get("skills")
+
+        async with sem:
+            if spec_fork:
+                chunk = await _spawn_forked_subagent(
+                    task=task_text,
+                    current_agent_id=current_agent_id,
+                    subagent_session_id=session_id,
+                    background=True,
+                    timeout=spec_timeout,
+                    allowed_tools=spec_allowed,
+                    skills=spec_skills,
+                )
+                return _chunk_text(chunk)
+
+            rc = _build_subagent_request_context(
+                current_agent_id,
+                allowed_tools=spec_allowed,
+                skills=spec_skills,
+            )
+            payload = {
+                "session_id": session_id,
+                "input": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": task_text},
+                        ],
+                    },
+                ],
+                "request_context": rc,
+            }
+            result = await asyncio.to_thread(
+                submit_agent_chat_task,
+                None,
+                payload,
+                current_agent_id,
+                int(DEFAULT_AGENT_API_TIMEOUT),
+                float(spec_timeout),
+            )
+            return format_background_submission_text(result, session_id)
+
+    results = await asyncio.gather(
+        *[_dispatch_one(s) for s in normalized],
+        return_exceptions=True,
+    )
+
+    lines: list[str] = []
+    for i, r in enumerate(results):
+        prefix = f"[{i + 1}/{len(specs)}]"
+        if isinstance(r, Exception):
+            lines.append(f"{prefix} ERROR: {r}")
+        else:
+            lines.append(f"{prefix} {r}")
+
+    return _tool_text_response("\n\n".join(lines))
 
 
 async def _call_fork_api(
@@ -790,56 +1317,17 @@ async def _call_fork_api(
         return {"error": str(exc)}
 
 
-async def _maybe_cleanup_worktree(
-    worktree_path: str,
-    project_dir: str,
-) -> bool:
-    """Remove the worktree if it has no uncommitted changes.
-
-    Returns True if cleaned up, False if kept (has changes).
-    """
-    import subprocess as _subprocess
-
-    def _cleanup() -> bool:
-        try:
-            result = _subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=worktree_path,
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-            if result.returncode != 0 or result.stdout.strip():
-                return False
-            remove_result = _subprocess.run(
-                [
-                    "git",
-                    "worktree",
-                    "remove",
-                    "--force",
-                    worktree_path,
-                ],
-                cwd=project_dir,
-                capture_output=True,
-                timeout=30,
-                check=False,
-            )
-            return remove_result.returncode == 0
-        except Exception:  # noqa: BLE001
-            return False
-
-    return await asyncio.to_thread(_cleanup)
-
-
 async def _spawn_forked_subagent(
     task: str,
     current_agent_id: str,
     subagent_session_id: str,
     background: bool,
     timeout: int,
+    allowed_tools: Optional[list[str]] = None,
+    skills: Optional[list[str]] = None,
 ) -> ToolChunk:
     """Fork path: call /api/fork/agent then dispatch subagent."""
+    # pylint: disable=too-many-branches,too-many-statements
     from ...app.agent_context import (
         get_current_session_id,
         get_current_user_id,
@@ -869,9 +1357,55 @@ async def _spawn_forked_subagent(
     worktree_path = fork_result.get("worktree_path", "")
     worktree_branch = fork_result.get("worktree_branch", "")
 
-    request_context: dict = {}
+    from ..fork_project import (
+        FORK_WORKER_COMMIT_PROTOCOL,
+        bind_fork_task,
+        finalize_fork_worktree_or_fail,
+        get_active_fork_scope,
+        register_fork,
+    )
+    from ...config.context import get_current_workspace_dir
+
+    # Workers must commit; inject protocol even when the caller forgot.
+    worker_task = task
+    if worktree_path and FORK_WORKER_COMMIT_PROTOCOL not in task:
+        worker_task = f"{FORK_WORKER_COMMIT_PROTOCOL}\n\n{task}"
+
+    fork_extra: dict[str, Any] | None = None
+    fork_scope_id = ""
     if worktree_path:
-        request_context["fork_project_dir"] = worktree_path
+        # ``fork_project_dir`` is the spawn-level key; also set the ACP
+        # coding-project meta key so AgentBuilder / ContextVars rebind
+        # tools/cwd to the worktree.
+        from ..acp.meta import ACP_CODING_PROJECT_META_KEY
+
+        workspace_dir = get_current_workspace_dir()
+        registered = await asyncio.to_thread(
+            register_fork,
+            worktree_path,
+            worktree_branch,
+            session_id=fork_session_id,
+            workspace_dir=workspace_dir,
+        )
+        if not registered:
+            return _tool_text_response(
+                "ERROR: failed to register fork for merge verification "
+                f"(branch={worktree_branch or '?'}). Aborting spawn so "
+                "the merge gate cannot be bypassed.",
+            )
+        fork_scope_id = get_active_fork_scope(workspace_dir)
+        fork_extra = {
+            "fork_project_dir": worktree_path,
+            ACP_CODING_PROJECT_META_KEY: worktree_path,
+            "fork_worktree_branch": worktree_branch,
+            "fork_scope_id": fork_scope_id,
+        }
+    request_context = _build_subagent_request_context(
+        current_agent_id,
+        allowed_tools=allowed_tools,
+        skills=skills,
+        extra=fork_extra,
+    )
 
     request_payload: dict = {
         "session_id": fork_session_id,
@@ -880,7 +1414,7 @@ async def _spawn_forked_subagent(
         "input": [
             {
                 "role": "user",
-                "content": [{"type": "text", "text": task}],
+                "content": [{"type": "text", "text": worker_task}],
             },
         ],
         "request_context": request_context,
@@ -893,7 +1427,30 @@ async def _spawn_forked_subagent(
             request_payload,
             current_agent_id,
             int(DEFAULT_AGENT_API_TIMEOUT),
+            # Align console cancel with spawn timeout / fork watchdog.
+            float(timeout),
         )
+        task_id = result.get("task_id") if isinstance(result, dict) else None
+        if worktree_path and task_id:
+            await asyncio.to_thread(
+                bind_fork_task,
+                worktree_path,
+                worktree_branch,
+                str(task_id),
+                expected_scope=fork_scope_id or None,
+            )
+            # Poller fallback if the console completion hook is unavailable.
+            # finalize_fork_worktree is claim/idempotent so overlapping
+            # console-hook / check_agent_task paths are safe.
+            asyncio.create_task(
+                _watch_background_fork_finalize(
+                    str(task_id),
+                    worktree_path,
+                    worktree_branch,
+                    timeout=timeout,
+                    expected_scope=fork_scope_id or None,
+                ),
+            )
         submission_text = format_background_submission_text(
             result,
             fork_session_id,
@@ -914,32 +1471,29 @@ async def _spawn_forked_subagent(
         timeout,
     )
 
-    # Resolve project_dir for cleanup (coding_mode or workspace)
-    from ...config.config import load_agent_config
-
-    _project_dir = ""
-    if worktree_path:
-        try:
-            _cfg = load_agent_config(current_agent_id)
-            _cm = _cfg.coding_mode
-            if _cm and _cm.enabled and _cm.project_dir:
-                _project_dir = str(
-                    Path(_cm.project_dir).resolve(),
-                )
-            else:
-                _project_dir = str(
-                    Path(_cfg.workspace_dir).resolve(),
-                )
-        except Exception:  # noqa: BLE001
-            _project_dir = ""
-
-    cleaned = False
-    if worktree_path and _project_dir:
-        cleaned = await _maybe_cleanup_worktree(
+    # Only commit on a successful worker response (avoid half-baked commits).
+    finalize_ok = False
+    if worktree_path and response_data:
+        finalize_ok = await asyncio.to_thread(
+            finalize_fork_worktree_or_fail,
             worktree_path,
-            _project_dir,
+            worktree_branch,
+            message=f"fork worker {worktree_branch or fork_session_id}",
+            expected_scope=fork_scope_id or None,
+        )
+    elif worktree_path:
+        from ..fork_project import mark_fork_failed
+
+        await asyncio.to_thread(
+            mark_fork_failed,
+            worktree_path,
+            worktree_branch,
+            reason="No response from forked subagent",
+            expected_scope=fork_scope_id or None,
         )
 
+    # Do not auto-remove the worktree on the sync path: the controller
+    # needs [FORK_BRANCH:] to merge, and cleanup would hide that signal.
     if not response_data:
         return _tool_text_response(
             "(No response received from forked subagent)",
@@ -950,11 +1504,84 @@ async def _spawn_forked_subagent(
         session_id=fork_session_id,
     )
 
-    if not cleaned and worktree_path:
+    # Only advertise [FORK_BRANCH:] when finalize succeeded; a failed
+    # finalize is marked in the registry and must not look merge-ready.
+    if worktree_path and finalize_ok:
         result_text += (
             f"\n\n[FORK_BRANCH: {worktree_branch}]"
-            "\nThe forked worktree has changes. "
-            "Review and merge manually."
+            "\nForked worktree retained for merge; clean up after "
+            "`git merge` succeeds."
+        )
+    elif worktree_path:
+        result_text += (
+            f"\n\n[FORK_FINALIZE_FAILED: {worktree_branch}]"
+            "\nFork was marked failed; do not merge until re-run succeeds."
         )
 
     return _tool_text_response(result_text)
+
+
+async def _watch_background_fork_finalize(
+    task_id: str,
+    worktree_path: str,
+    worktree_branch: str,
+    *,
+    timeout: int = 600,
+    expected_scope: str | None = None,
+) -> None:
+    """Poll until the background task finishes or *timeout* elapses."""
+    from ..fork_project import (
+        finalize_fork_worktree_or_fail,
+        mark_fork_failed,
+    )
+
+    # Align with worker timeout (default 600s); console hook remains primary.
+    deadline = time.time() + max(30, int(timeout) + 30)
+    delay = 2.0
+    while time.time() < deadline:
+        await asyncio.sleep(delay)
+        delay = min(delay * 1.5, 30.0)
+        try:
+            status = await asyncio.to_thread(
+                get_agent_chat_task_status,
+                None,
+                task_id,
+                to_agent=None,
+                timeout=10,
+            )
+        except Exception:  # noqa: BLE001
+            continue
+        if status.get("status") != "finished":
+            continue
+        result = status.get("result") or {}
+        if result.get("status") == "completed":
+            await asyncio.to_thread(
+                finalize_fork_worktree_or_fail,
+                worktree_path,
+                worktree_branch,
+                message=f"fork worker {worktree_branch}",
+                expected_scope=expected_scope,
+            )
+        else:
+            err = result.get("error") or {}
+            reason = (
+                err.get("message", "background task failed")
+                if isinstance(err, dict)
+                else "background task failed"
+            )
+            await asyncio.to_thread(
+                mark_fork_failed,
+                worktree_path,
+                worktree_branch,
+                reason=str(reason),
+                expected_scope=expected_scope,
+            )
+        return
+
+    await asyncio.to_thread(
+        mark_fork_failed,
+        worktree_path,
+        worktree_branch,
+        reason="finalize watchdog timeout",
+        expected_scope=expected_scope,
+    )

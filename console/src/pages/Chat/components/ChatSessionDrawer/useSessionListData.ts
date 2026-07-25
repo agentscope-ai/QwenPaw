@@ -4,6 +4,7 @@ import type { IAgentScopeRuntimeWebUISession } from "@agentscope-ai/chat";
 import type { ChatStatus } from "../../../../api/types/chat";
 import { chatApi } from "../../../../api/modules/chat";
 import sessionApi from "../../sessionApi";
+import { useMessageQueueStore } from "../../../../stores/messageQueueStore";
 import {
   ContextMenu,
   useContextMenu,
@@ -11,6 +12,7 @@ import {
 } from "../../../../components/ContextMenu";
 import { getChannelLabel } from "../../../Control/Channels/components";
 import { syncSessionsGlobal } from "../../../../stores/sessionListStore";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 
 export { ContextMenu, useContextMenu, type ContextMenuItem, getChannelLabel };
 
@@ -33,7 +35,8 @@ function sessionsEqual(
       a.updatedAt !== b.updatedAt ||
       a.pinned !== b.pinned ||
       a.generating !== b.generating ||
-      a.status !== b.status
+      a.status !== b.status ||
+      a.archived !== b.archived
     ) {
       return false;
     }
@@ -53,6 +56,8 @@ export interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   status?: ChatStatus;
   generating?: boolean;
   pinned?: boolean;
+  archivedAt?: string | null;
+  archived?: boolean;
 }
 
 /** Resolve the real backend UUID from an extended session (id may be a local timestamp) */
@@ -99,6 +104,7 @@ export interface SessionListData {
   handleEditStart: (sessionId: string, currentName: string) => void;
   handleDelete: (sessionId: string) => void;
   handlePinToggle: (sessionId: string) => void;
+  handleArchiveToggle: (sessionId: string) => void;
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
@@ -123,6 +129,7 @@ export function useSessionListData(
   opts: UseSessionListDataOptions,
 ): SessionListData {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { active, currentSessionId, onSessionClick } = opts;
 
   const [loading, setLoading] = useState(true);
@@ -200,17 +207,19 @@ export function useSessionListData(
     };
   }, [active, setSessions]);
 
+  const resolvedSessions = useMemo(() => {
+    return sessions.filter((s) => {
+      const id = s.id ?? "";
+      return !(/^\d+-[a-z0-9]+$/.test(id) && !s.realId);
+    });
+  }, [sessions]);
+
   const sortedSessions = useMemo(() => {
-    return [...sessions]
-      .filter((s) => {
-        const id = s.id ?? "";
-        // Inline check: local timestamp format without realId = unresolved
-        return !(/^\d+-[a-z0-9]+$/.test(id) && !s.realId);
-      })
+    return [...resolvedSessions]
+      .filter((s) => !s.archived)
       .sort((a, b) => {
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
-        // ISO 8601 strings are lexicographically sortable — avoid new Date()
         const aTime = a.updatedAt ?? a.createdAt ?? "";
         const bTime = b.updatedAt ?? b.createdAt ?? "";
         if (!aTime && !bTime) return 0;
@@ -218,7 +227,7 @@ export function useSessionListData(
         if (!bTime) return -1;
         return bTime < aTime ? -1 : bTime > aTime ? 1 : 0;
       });
-  }, [sessions]);
+  }, [resolvedSessions]);
 
   const handleSessionClick = useCallback(
     (sessionId: string) => {
@@ -251,6 +260,15 @@ export function useSessionListData(
       if (backendId) await chatApi.deleteChat(backendId);
 
       localStorage.removeItem(`approval_level-${sessionId}`);
+
+      // Clear the message queue for the deleted session so stale items don't
+      // linger in storage or get sent after deletion. The queue may be keyed
+      // by the local id or the resolved backend id, so clear both. Also notify
+      // the chat page (when mounted) to abort any in-flight background send.
+      const mq = useMessageQueueStore.getState();
+      mq.clear(sessionId);
+      if (backendId && backendId !== sessionId) mq.clear(backendId);
+      sessionApi.onSessionRemoved?.(backendId ?? sessionId);
 
       // Fetch fresh session list after deletion
       const freshList =
@@ -322,6 +340,41 @@ export function useSessionListData(
     [sessions, refreshSessions],
   );
 
+  const handleArchiveToggle = useCallback(
+    async (sessionId: string) => {
+      const session = sessions.find((s) => s.id === sessionId);
+      const backendId = session ? getBackendId(session) : null;
+      if (!backendId) return;
+      const wasArchived = !!session?.archived;
+      try {
+        if (wasArchived) {
+          await chatApi.unarchiveChat(backendId);
+          message.success(
+            t("sessions.archive.unarchiveSuccess", "Chat unarchived"),
+          );
+        } else {
+          await chatApi.archiveChat(backendId);
+          message.success(t("sessions.archive.successHint"));
+        }
+        await refreshSessions();
+
+        if (!wasArchived && currentSessionId) {
+          const isCurrentSession =
+            sessionId === currentSessionId || backendId === currentSessionId;
+          if (isCurrentSession) {
+            window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
+          }
+        }
+      } catch (err) {
+        console.error("Failed to toggle archive status:", err);
+        message.error(
+          t("sessions.archive.failed", "Failed to update archive status"),
+        );
+      }
+    },
+    [sessions, currentSessionId, refreshSessions, message, t],
+  );
+
   const handleItemContextMenu = useCallback(
     (sessionId: string, event: React.MouseEvent) => {
       setContextMenuSessionId(sessionId);
@@ -352,6 +405,13 @@ export function useSessionListData(
           : t("chat.contextMenu.pin", "Pin"),
         onClick: () => handlePinToggle(contextMenuSessionId),
       },
+      {
+        key: "archive",
+        label: session?.archived
+          ? t("sessions.archive.unaction", "Unarchive")
+          : t("sessions.archive.action", "Archive"),
+        onClick: () => handleArchiveToggle(contextMenuSessionId),
+      },
       { key: "divider-1", label: "", divider: true },
       {
         key: "delete",
@@ -367,6 +427,7 @@ export function useSessionListData(
     handleSessionClick,
     handleEditStart,
     handlePinToggle,
+    handleArchiveToggle,
     handleDelete,
   ]);
 
@@ -381,6 +442,7 @@ export function useSessionListData(
     handleEditStart,
     handleDelete,
     handlePinToggle,
+    handleArchiveToggle,
     handleEditChange,
     handleEditSubmit,
     handleEditCancel,

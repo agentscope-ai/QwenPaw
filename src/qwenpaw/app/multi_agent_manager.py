@@ -8,14 +8,22 @@ including lazy loading, lifecycle management, and hot reloading.
 import asyncio
 import logging
 import time
-from typing import Dict, Set
+from typing import Callable, Dict, Set
 
 from qwenpaw.exceptions import (
     ConfigurationException,
 )
 
+from .agent_startup import (
+    AgentStartupStatus,
+)
 from .workspace import Workspace
+from ..constant import (
+    BUILTIN_QA_AGENT_ID,
+    CUSTOM_AGENT_STARTUP_CONCURRENCY,
+)
 from ..config.utils import load_config
+from ..utils.startup_display import AgentStartupDisplay
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +45,11 @@ class MultiAgentManager:
         self.agents: Dict[str, Workspace] = {}
         self._lock = asyncio.Lock()
         self._pending_starts: Dict[str, asyncio.Event] = {}
+        self._agent_startup_statuses: Dict[str, AgentStartupStatus] = {}
+        self._agent_startup_tasks: Dict[str, asyncio.Task[bool]] = {}
+        self._custom_startup_semaphore = asyncio.Semaphore(
+            CUSTOM_AGENT_STARTUP_CONCURRENCY,
+        )
         self._cleanup_tasks: Set[asyncio.Task] = set()
         logger.debug("MultiAgentManager initialized")
 
@@ -70,8 +83,11 @@ class MultiAgentManager:
         Raises:
             ConfigurationException: If agent ID not found in configuration
         """
+        await self._wait_for_scheduled_startup(agent_id)
+
         # Fast path: already loaded (no lock)
         if agent_id in self.agents:
+            self._agent_startup_statuses[agent_id] = AgentStartupStatus.RUNNING
             logger.debug(f"Returning cached agent: {agent_id}")
             return self.agents[agent_id]
 
@@ -103,6 +119,9 @@ class MultiAgentManager:
                 agent_ref = config.agents.profiles[agent_id]
                 event = asyncio.Event()
                 self._pending_starts[agent_id] = event
+                self._agent_startup_statuses[
+                    agent_id
+                ] = AgentStartupStatus.STARTING
                 should_start = True
 
         if not should_start:
@@ -118,13 +137,12 @@ class MultiAgentManager:
 
         # We are the starter — create outside the lock for parallelism
         t0 = time.perf_counter()
-        logger.debug(f"Creating new workspace: {agent_id}")
-        instance = self._create_workspace(
-            agent_id=agent_id,
-            workspace_dir=agent_ref.workspace_dir,
-        )
-
         try:
+            logger.debug(f"Creating new workspace: {agent_id}")
+            instance = self._create_workspace(
+                agent_id=agent_id,
+                workspace_dir=agent_ref.workspace_dir,
+            )
             await instance.start()
             instance.set_manager(self)
 
@@ -155,6 +173,16 @@ class MultiAgentManager:
             # This handles cancellation (CancelledError) and all other cases
             async with self._lock:
                 self._pending_starts.pop(agent_id, None)
+                if agent_id in self.agents:
+                    self._agent_startup_statuses[
+                        agent_id
+                    ] = AgentStartupStatus.RUNNING
+                elif self._agent_startup_statuses.get(agent_id) == (
+                    AgentStartupStatus.STARTING
+                ):
+                    self._agent_startup_statuses[
+                        agent_id
+                    ] = AgentStartupStatus.FAILED
             event.set()
 
     @staticmethod
@@ -315,6 +343,9 @@ class MultiAgentManager:
             instance = self.agents[agent_id]
             await instance.stop()
             del self.agents[agent_id]
+            self._agent_startup_statuses[
+                agent_id
+            ] = AgentStartupStatus.DISABLED
             logger.info(f"Agent stopped and removed: {agent_id}")
             return True
 
@@ -483,6 +514,7 @@ class MultiAgentManager:
             f"Stopping all agents ({len(self.agents)} running)...",
         )
 
+        await self.cancel_all_startup_tasks()
         await self.cancel_all_cleanup_tasks()
 
         async def _stop_one(agent_id: str, instance: Workspace):
@@ -520,6 +552,29 @@ class MultiAgentManager:
         """
         return agent_id in self.agents
 
+    def get_agent_startup_status(
+        self,
+        agent_id: str,
+        *,
+        enabled: bool = True,
+    ) -> AgentStartupStatus:
+        """Return the current process-local startup status for an agent."""
+        if not enabled:
+            return AgentStartupStatus.DISABLED
+        status = self._agent_startup_statuses.get(agent_id)
+        if status is not None:
+            return status
+        if agent_id in self.agents:
+            return AgentStartupStatus.RUNNING
+        return AgentStartupStatus.PENDING
+
+    def is_agent_startup_in_progress(self, agent_id: str) -> bool:
+        """Return whether an agent is queued or actively starting."""
+        return self._agent_startup_statuses.get(agent_id) in {
+            AgentStartupStatus.PENDING,
+            AgentStartupStatus.STARTING,
+        }
+
     async def preload_agent(self, agent_id: str) -> bool:
         """Preload an agent instance during startup.
 
@@ -537,15 +592,75 @@ class MultiAgentManager:
             logger.error(f"Failed to preload agent {agent_id}: {e}")
             return False
 
-    async def start_all_configured_agents(self) -> dict[str, bool]:
-        """Start all enabled agents defined in configuration concurrently.
+    async def _wait_for_scheduled_startup(self, agent_id: str) -> None:
+        """Join an existing queued startup instead of bypassing its limit."""
+        startup_task = self._agent_startup_tasks.get(agent_id)
+        if (
+            startup_task is None
+            or startup_task is asyncio.current_task()
+            or startup_task.done()
+        ):
+            return
+        if not await startup_task:
+            raise ConfigurationException(
+                config_key="agent",
+                message=f"Agent '{agent_id}' failed to initialize",
+            )
+
+    def schedule_agent_startup(self, agent_id: str) -> asyncio.Task[bool]:
+        """Queue one custom agent through the shared startup limit."""
+        existing_task = self._agent_startup_tasks.get(agent_id)
+        if existing_task is not None and not existing_task.done():
+            return existing_task
+
+        if agent_id in self.agents:
+            self._agent_startup_statuses[agent_id] = AgentStartupStatus.RUNNING
+        else:
+            self._agent_startup_statuses[agent_id] = AgentStartupStatus.PENDING
+
+        task = asyncio.create_task(
+            self._start_agent_with_limit(agent_id),
+            name=f"agent-startup:{agent_id}",
+        )
+        self._agent_startup_tasks[agent_id] = task
+
+        def discard(completed_task: asyncio.Task[bool]) -> None:
+            if self._agent_startup_tasks.get(agent_id) is completed_task:
+                self._agent_startup_tasks.pop(agent_id, None)
+
+        task.add_done_callback(discard)
+        return task
+
+    async def _start_agent_with_limit(self, agent_id: str) -> bool:
+        """Start one custom agent inside the process-wide startup bound."""
+        if agent_id in self.agents:
+            return True
+        async with self._custom_startup_semaphore:
+            return await self.preload_agent(agent_id)
+
+    async def cancel_all_startup_tasks(self) -> None:
+        """Cancel and await queued custom-agent startup tasks."""
+        tasks = list(self._agent_startup_tasks.values())
+        self._agent_startup_tasks.clear()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def start_all_configured_agents(
+        self,
+        on_core_ready: Callable[[dict[str, bool]], None] | None = None,
+        startup_display: AgentStartupDisplay | None = None,
+    ) -> dict[str, bool]:
+        """Start core agents, then custom agents with bounded concurrency.
 
         Only agents with enabled=True will be started.
         Disabled agents are skipped to save resources.
 
-        Agents are started truly in parallel: get_agent() only holds the
-        manager lock briefly for dict checks, releasing it during the slow
-        workspace initialization.
+        The default and built-in QA agents form the concurrent core phase.
+        Remaining custom agents start only after that phase and are bounded
+        by ``QWENPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY``.
 
         Returns:
             dict[str, bool]: Mapping of agent_id to success status
@@ -558,6 +673,19 @@ class MultiAgentManager:
             if getattr(ref, "enabled", True)
         }
         agent_ids = list(enabled_agents.keys())
+
+        async with self._lock:
+            for agent_id, ref in config.agents.profiles.items():
+                enabled = getattr(ref, "enabled", True)
+                if not enabled:
+                    status = AgentStartupStatus.DISABLED
+                elif agent_id in self.agents:
+                    status = AgentStartupStatus.RUNNING
+                elif agent_id in self._pending_starts:
+                    status = AgentStartupStatus.STARTING
+                else:
+                    status = AgentStartupStatus.PENDING
+                self._agent_startup_statuses[agent_id] = status
 
         if not agent_ids:
             logger.warning("No enabled agents configured in config")
@@ -584,11 +712,63 @@ class MultiAgentManager:
                 )
                 return (agent_id, False)
 
-        # Truly parallel: get_agent releases lock during workspace startup
-        results = await asyncio.gather(
-            *[start_single_agent(agent_id) for agent_id in agent_ids],
+        core_agent_ids = [
+            agent_id
+            for agent_id in ("default", BUILTIN_QA_AGENT_ID)
+            if agent_id in enabled_agents
+        ]
+        custom_agent_ids = [
+            agent_id
+            for agent_id in agent_ids
+            if agent_id not in core_agent_ids
+        ]
+
+        core_results = await asyncio.gather(
+            *(start_single_agent(agent_id) for agent_id in core_agent_ids),
             return_exceptions=False,
         )
+        core_result_map = dict(core_results)
+
+        if core_result_map.get("default") and on_core_ready is not None:
+            try:
+                on_core_ready(core_result_map)
+            except Exception:
+                logger.warning(
+                    "Core-agent ready callback failed",
+                    exc_info=True,
+                )
+
+        if core_result_map.get("default") is False:
+            custom_result_map = {
+                agent_id: agent_id in self.agents
+                for agent_id in custom_agent_ids
+            }
+            logger.error(
+                "Default agent failed to start; skipping %d custom agent(s)",
+                len(custom_agent_ids),
+            )
+            return {**core_result_map, **custom_result_map}
+
+        if startup_display is not None and custom_agent_ids:
+            startup_display.start_custom_agents(len(custom_agent_ids))
+
+        async def start_custom_agent(
+            agent_id: str,
+        ) -> tuple[str, bool]:
+            """Start one custom agent inside the concurrency bound."""
+            try:
+                success = await self.schedule_agent_startup(agent_id)
+                return (agent_id, success)
+            finally:
+                if startup_display is not None:
+                    startup_display.advance(agent_id)
+
+        custom_results = await asyncio.gather(
+            *(start_custom_agent(agent_id) for agent_id in custom_agent_ids),
+            return_exceptions=False,
+        )
+
+        results = [*core_results, *custom_results]
 
         # Build result mapping
         result_map = dict(results)

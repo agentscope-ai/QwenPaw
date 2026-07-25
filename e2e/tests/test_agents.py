@@ -572,14 +572,16 @@ class TestToggleAgent:
             # Step 4: Verify the post-disable state (do not refresh the page,
             # since refreshing may filter out disabled agents)
             log_test_step("4. Verify the post-disable state")
-            # Approach 1: check whether the Disabled tag appears on the current page
-            disabled_tag = page.locator(f'.qwenpaw-table-row:has-text("{agent_name}") .qwenpaw-tag:has-text("Disabled")')
-            # Approach 2: check the success toast
+            # Post-#6198 the "Disabled" state is an AgentStatusIndicator dot with
+            # data-status="disabled" (no text tag); also accept the success toast.
+            disabled_dot = page.locator(
+                f'.qwenpaw-table-row:has-text("{agent_name}") [data-status="disabled"]'
+            )
             success_msg = page.locator('.qwenpaw-message-success, .qwenpaw-notification-success')
-            tag_visible = disabled_tag.count() > 0 and disabled_tag.first.is_visible()
+            dot_visible = disabled_dot.count() > 0 and disabled_dot.first.is_visible()
             msg_visible = success_msg.count() > 0
-            assert tag_visible or msg_visible, \
-                "Agent should be disabled (Disabled tag or success message should appear)"
+            assert dot_visible or msg_visible, \
+                "Agent should be disabled (data-status='disabled' or success message should appear)"
             logger.info("Disabled state verified")
 
             # Step 5: Enable the agent (operate directly on the current page, no refresh)
@@ -589,10 +591,12 @@ class TestToggleAgent:
 
             # Step 6: Verify the post-enable state is restored
             log_test_step("6. Verify the post-enable state")
-            # The Disabled tag should disappear
-            disabled_tag_after = page.locator(f'.qwenpaw-table-row:has-text("{agent_name}") .qwenpaw-tag:has-text("Disabled")')
-            is_still_disabled = disabled_tag_after.count() > 0 and disabled_tag_after.first.is_visible()
-            assert not is_still_disabled, "Agent should be enabled (Disabled tag should disappear)"
+            # The disabled dot should disappear once re-enabled.
+            disabled_dot_after = page.locator(
+                f'.qwenpaw-table-row:has-text("{agent_name}") [data-status="disabled"]'
+            )
+            is_still_disabled = disabled_dot_after.count() > 0 and disabled_dot_after.first.is_visible()
+            assert not is_still_disabled, "Agent should be enabled (disabled dot should disappear)"
             logger.info("Enabled state verified")
 
             log_test_result(test_name, "PASS", f"Agent status toggle verified: {agent_name}")
@@ -812,37 +816,39 @@ class TestAgentDragReorder:
         navigate_to_agents(page)
 
         log_test_step("Find rows in the agent list")
-        agent_rows = page.locator("tr[data-row-key], .ant-table-row, [class*='agent-row'], tbody tr").all()
+        agent_rows = page.locator("tr[data-row-key]").all()
 
         if len(agent_rows) < 2:
             pytest.skip(f"Not enough agents ({len(agent_rows)}); cannot run drag test")
 
-        log_test_step(f"Found {len(agent_rows)} agent(s); preparing drag test")
+        # Post-#6198 the default agent is pinned at the top and its drag handle
+        # is disabled (aria-disabled="true"); only rows with an enabled
+        # MenuOutlined handle can be reordered.
+        draggable_rows = [
+            r for r in agent_rows
+            if r.locator(
+                "button:has(.anticon-menu):not([aria-disabled='true'])"
+            ).count() > 0
+        ]
+        if len(draggable_rows) < 2:
+            pytest.skip(
+                f"Need >=2 reorderable (non-default) agents; got {len(draggable_rows)}"
+            )
 
-        first_row = agent_rows[0]
-        second_row = agent_rows[1]
+        log_test_step(
+            f"Found {len(agent_rows)} agent(s), {len(draggable_rows)} reorderable"
+        )
+
+        first_row = draggable_rows[0]
+        second_row = draggable_rows[1]
 
         log_test_step("Capture agent order before drag")
-        before_order = []
-        for row in agent_rows[:3]:
-            row_key = row.get_attribute("data-row-key")
-            if row_key:
-                before_order.append(row_key)
-            else:
-                name_cell = row.locator("td").nth(1)
-                if name_cell.count() > 0:
-                    name_text = name_cell.inner_text()
-                    before_order.append(name_text.strip())
-
-        assert len(before_order) >= 2, "Could not read identifiers for at least 2 agents"
+        before_order = [r.get_attribute("data-row-key") for r in agent_rows]
+        assert len([k for k in before_order if k]) >= 2, "Could not read >=2 agent keys"
         logger.info(f"Order before drag: {before_order}")
 
-        log_test_step("Find the drag handle")
-        drag_handle = first_row.locator(".drag-handle, [class*='drag-handle'], .anticon-menu, svg[data-icon='menu']").first
-
-        if drag_handle.count() == 0:
-            drag_handle = first_row.locator("button[class*='drag'], [class*='sortable-handle']").first
-
+        log_test_step("Find the drag handle (enabled, non-default row)")
+        drag_handle = first_row.locator("button:has(.anticon-menu)").first
         if drag_handle.count() == 0:
             pytest.skip("Drag handle not found; this page may not support drag reordering")
 
@@ -866,17 +872,8 @@ class TestAgentDragReorder:
         time.sleep(2)
 
         log_test_step("Drag finished; verifying the new order")
-        refreshed_rows = page.locator("tr[data-row-key], .ant-table-row, [class*='agent-row'], tbody tr").all()
-        after_order = []
-        for row in refreshed_rows[:3]:
-            row_key = row.get_attribute("data-row-key")
-            if row_key:
-                after_order.append(row_key)
-            else:
-                name_cell = row.locator("td").nth(1)
-                if name_cell.count() > 0:
-                    name_text = name_cell.inner_text()
-                    after_order.append(name_text.strip())
+        refreshed_rows = page.locator("tr[data-row-key]").all()
+        after_order = [r.get_attribute("data-row-key") for r in refreshed_rows]
 
         logger.info(f"Order after drag: {after_order}")
         assert before_order != after_order, "Agent order did not change after drag; reorder did not take effect"
@@ -887,17 +884,8 @@ class TestAgentDragReorder:
         page.wait_for_load_state("domcontentloaded")
         time.sleep(2)
 
-        persisted_rows = page.locator("tr[data-row-key], .ant-table-row, [class*='agent-row'], tbody tr").all()
-        persisted_order = []
-        for row in persisted_rows[:3]:
-            row_key = row.get_attribute("data-row-key")
-            if row_key:
-                persisted_order.append(row_key)
-            else:
-                name_cell = row.locator("td").nth(1)
-                if name_cell.count() > 0:
-                    name_text = name_cell.inner_text()
-                    persisted_order.append(name_text.strip())
+        persisted_rows = page.locator("tr[data-row-key]").all()
+        persisted_order = [r.get_attribute("data-row-key") for r in persisted_rows]
 
         logger.info(f"Order after refresh: {persisted_order}")
         assert after_order == persisted_order, \

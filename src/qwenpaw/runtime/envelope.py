@@ -12,8 +12,10 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict
+from functools import wraps
+from typing import Any, AsyncGenerator, Callable, Dict
 
 from .message_convert import _media_type_to_block_type
 
@@ -22,6 +24,60 @@ logger = logging.getLogger(__name__)
 
 def _gen_msg_id() -> str:
     return "msg_" + uuid.uuid4().hex
+
+
+@dataclass(frozen=True)
+class _EventMetadataExcludedOutput:
+    """An output that must not inherit metadata from the current event."""
+
+    output: Any
+
+
+def _with_event_metadata(obj: Any, event: Any) -> Any:
+    """Return a real-time output carrying its source event metadata.
+
+    Envelope state objects are reused when a message is completed and later
+    embedded in ``AgentResponse.output``. Attach metadata to a shallow output
+    copy so event-scoped extension data cannot leak into those durable
+    objects. Empty metadata follows the exact legacy path.
+    """
+    event_metadata = getattr(event, "metadata", None)
+    if not isinstance(event_metadata, dict) or not event_metadata:
+        return obj
+
+    output_metadata = dict(event_metadata)
+    host_metadata = getattr(obj, "metadata", None)
+    if isinstance(host_metadata, dict):
+        # Host-owned metadata wins on conflicts with extension metadata.
+        output_metadata.update(host_metadata)
+
+    return obj.model_copy(
+        update={"metadata": output_metadata},
+        deep=False,
+    )
+
+
+_EventTranslator = Callable[[Any, Any], AsyncGenerator[Any, None]]
+
+
+def _propagate_event_metadata(
+    translator: _EventTranslator,
+) -> _EventTranslator:
+    """Decorate event outputs with metadata from their source event."""
+
+    @wraps(translator)
+    async def wrapped(
+        envelope: Any,
+        event: Any,
+    ) -> AsyncGenerator[Any, None]:
+        async for output in translator(envelope, event):
+            if isinstance(output, _EventMetadataExcludedOutput):
+                yield output.output
+                continue
+
+            yield _with_event_metadata(output, event)
+
+    return wrapped
 
 
 class Envelope:
@@ -70,6 +126,7 @@ class Envelope:
         self._seq_counter = 0
 
         self._error_text: str | None = None
+        self._error_code: str = "error"
         self._finalized = False
 
     # ------------------------------------------------------------------
@@ -134,13 +191,12 @@ class Envelope:
 
     # pylint: disable=too-many-return-statements
     # pylint: disable=too-many-branches,too-many-statements
+    @_propagate_event_metadata
     async def translate_event(  # noqa: C901, PLR0912, PLR0915
         self,
         event: Any,
     ) -> AsyncGenerator[Any, None]:
-        """Translate one agentscope ``EventType`` event
-        into 0..N envelope objects.
-        """
+        """Translate an AgentScope event into real-time Host objects."""
         from agentscope.event import EventType
         from ..schemas import (
             ContentType,
@@ -214,6 +270,18 @@ class Envelope:
 
         # === THINKING BLOCK ===
         elif evt_type == EventType.THINKING_BLOCK_START.value:
+            # A new reasoning block marks the start of a fresh ReAct
+            # iteration.  Finalize any accumulated (not-yet-rotated) text
+            # message first so it becomes its own ``output`` entry ordered
+            # *before* this reasoning block.  Without this, goal/loop
+            # iterations that emit reasoning + text with no intervening tool
+            # call keep merging every answer into the first message (whose
+            # position in ``output`` is fixed at first emit) while each later
+            # reasoning block is appended to the end — so the "Thinking"
+            # bubbles pile up below the answer instead of interleaving.
+            if self._should_finalize_text_message():
+                async for obj in self._finalize_text_message():
+                    yield _EventMetadataExcludedOutput(obj)
             block_id = event.block_id
             r_msg_id = _gen_msg_id()
             r_envelope = Message(
@@ -237,6 +305,12 @@ class Envelope:
             delta = getattr(event, "delta", "") or ""
             state = self._reasoning_blocks.get(block_id)
             if state is None:
+                # Same rotation as THINKING_BLOCK_START: a reasoning block
+                # arriving without a START event still signals a new
+                # iteration, so finalize the pending text message first.
+                if self._should_finalize_text_message():
+                    async for obj in self._finalize_text_message():
+                        yield _EventMetadataExcludedOutput(obj)
                 r_msg_id = _gen_msg_id()
                 r_envelope = Message(
                     id=r_msg_id,
@@ -294,7 +368,7 @@ class Envelope:
             # P0-5: finalize current text message if needed
             if self._should_finalize_text_message():
                 async for obj in self._finalize_text_message():
-                    yield obj
+                    yield _EventMetadataExcludedOutput(obj)
 
             call_id = event.tool_call_id
             msg_id = _gen_msg_id()
@@ -315,7 +389,7 @@ class Envelope:
                     name=event.tool_call_name,
                     arguments="",
                 ).model_dump(),
-                delta=False,
+                delta=True,
                 index=0,
             )
             stub_content.msg_id = msg_id
@@ -325,7 +399,7 @@ class Envelope:
 
             self._tool_calls[call_id] = {
                 "name": event.tool_call_name,
-                "args_json_acc": "",
+                "argument_fragments": [],
                 "message": plugin_call_message,
                 "output_text_acc": "",
                 "output_data_blocks": {},
@@ -336,16 +410,18 @@ class Envelope:
             state = self._tool_calls.get(call_id)
             if state is None:
                 return
-            state["args_json_acc"] += event.delta or ""
+            argument_delta = event.delta or ""
+            state["argument_fragments"].append(argument_delta)
 
             delta_content = DataContent(
                 type=ContentType.DATA,
+                # The frontend appends string fields from DATA deltas. Only
+                # send the incremental argument fragment here; repeating the
+                # call ID or name would concatenate those fields as well.
                 data=FunctionCall(
-                    call_id=call_id,
-                    name=state["name"],
-                    arguments=state["args_json_acc"],
-                ).model_dump(),
-                delta=False,
+                    arguments=argument_delta,
+                ).model_dump(exclude_none=True),
+                delta=True,
                 index=0,
             )
             delta_content.msg_id = state["message"].id
@@ -356,13 +432,14 @@ class Envelope:
             state = self._tool_calls.get(call_id)
             if state is None:
                 return
+            arguments = "".join(state.pop("argument_fragments", []))
 
             final_content = DataContent(
                 type=ContentType.DATA,
                 data=FunctionCall(
                     call_id=call_id,
                     name=state["name"],
-                    arguments=state["args_json_acc"],
+                    arguments=arguments,
                 ).model_dump(),
                 delta=False,
             )
@@ -378,7 +455,7 @@ class Envelope:
             if state is None:
                 state = {
                     "name": event.tool_call_name,
-                    "args_json_acc": "",
+                    "argument_fragments": [],
                     "output_text_acc": "",
                     "output_data_blocks": {},
                 }
@@ -736,8 +813,10 @@ class Envelope:
     async def error_envelope(
         self,
         error_text: str,
+        error_code: str = "error",
     ) -> AsyncGenerator[Any, None]:
         self._error_text = error_text
+        self._error_code = error_code
         async for obj in self._finalize_response():
             yield obj
 
@@ -756,19 +835,38 @@ class Envelope:
             yield obj
 
     async def _finalize_response(self) -> AsyncGenerator[Any, None]:
-        from ..schemas import RunStatus
+        from ..schemas import ContentType, RunStatus, TextContent
 
         if self._finalized:
             return
 
         if self._message_started:
-            self._completed_message.status = RunStatus.Completed
-            self._response.output.append(self._completed_message)
-            yield self._tag_seq(self._completed_message)
+            # Back-fill any partially accumulated text blocks that were
+            # not finalized (TEXT_BLOCK_END never fired, e.g. on cancel).
+            if not self._completed_message.content:
+                for state in self._text_blocks.values():
+                    text = state.get("text", "")
+                    if text:
+                        self._completed_message.content.append(
+                            TextContent(
+                                type=ContentType.TEXT,
+                                text=text,
+                                delta=False,
+                                index=state.get("index", 0),
+                            ),
+                        )
+
+            if self._completed_message.content:
+                self._completed_message.status = RunStatus.Completed
+                self._response.output.append(self._completed_message)
+                yield self._tag_seq(self._completed_message)
 
         if self._error_text:
             self._response.status = RunStatus.Failed
-            self._response.error = self._error_text
+            self._response.error = {
+                "code": self._error_code,
+                "message": self._error_text,
+            }
         else:
             self._response.status = RunStatus.Completed
         self._response.completed_at = datetime.now(timezone.utc).isoformat(
@@ -776,6 +874,55 @@ class Envelope:
         )
         yield self._tag_seq(self._response)
         self._finalized = True
+
+    # ------------------------------------------------------------------
+    # Partial content extraction (used by cancel-save)
+    # ------------------------------------------------------------------
+
+    def collect_partial_blocks(self) -> list[tuple[str, str]]:
+        """Return ``(block_type, content)`` tuples for streaming content
+        accumulated in this envelope that has **not** been finalized.
+
+        * ``("thinking", text)`` — from reasoning blocks whose envelope
+          status is still ``InProgress`` (i.e. the interrupted iteration).
+        * ``("text", text)`` — from text blocks (reset on every tool-call
+          start, so they belong to the current iteration only).
+
+        This is a public-API entry point so that callers (e.g.
+        ``Runtime._try_save_on_cancel``) do not need to reach into
+        private state.
+        """
+        from ..schemas import RunStatus
+
+        result: list[tuple[str, str]] = []
+
+        for state in self._reasoning_blocks.values():
+            env = state.get("envelope")
+            if env is not None and env.status == RunStatus.Completed:
+                continue
+            text = state.get("text", "")
+            if text:
+                result.append(("thinking", text))
+
+        for state in self._text_blocks.values():
+            text = state.get("text", "")
+            if text:
+                result.append(("text", text))
+
+        return result
+
+    def collect_tool_output(self) -> dict[str, str]:
+        """Return ``{call_id: accumulated_output}`` for tool calls that
+        received partial results before the stream was interrupted.
+
+        Only includes entries where ``output_text_acc`` is non-empty.
+        """
+        result: dict[str, str] = {}
+        for call_id, state in self._tool_calls.items():
+            output = state.get("output_text_acc", "")
+            if output:
+                result[call_id] = output
+        return result
 
     @property
     def response(self) -> Any:

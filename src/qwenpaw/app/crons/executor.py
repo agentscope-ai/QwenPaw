@@ -13,6 +13,7 @@ from ..inbox_trace_store import (
     read_session_messages,
 )
 from .models import CronJobSpec
+from ...security.tool_guard.execution_level import ToolExecutionLevel
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,8 @@ class CronExecutor:
         - task_type text: send fixed text to channel
         - task_type agent: ask agent with prompt, send reply to channel (
             stream_query + send_event)
+        - silent agent task: consume the full agent stream without channel
+            delivery, while preserving session and trace state
         """
         target_user_id = job.dispatch.target.user_id
         target_session_id = job.dispatch.target.session_id
@@ -98,6 +101,11 @@ class CronExecutor:
         )
         request_context["source"] = "cron"
         request_context["cron_job_id"] = job.id or ""
+        request_context["approval_level"] = (
+            ToolExecutionLevel.AUTO.value
+            if job.runtime.tool_safety
+            else ToolExecutionLevel.OFF.value
+        )
         req["request_context"] = request_context
 
         # Determine session_id based on share_session
@@ -152,12 +160,15 @@ class CronExecutor:
                 "dispatch_channel": job.dispatch.channel,
                 "target_user_id": target_user_id,
                 "target_session_id": target_session_id,
+                "silent": job.dispatch.silent,
             },
         )
 
         async def _run() -> None:
             nonlocal delivery_error
             async for event in self._workspace.stream_query(req):
+                if job.dispatch.silent:
+                    continue
                 try:
                     await self._channel_manager.send_event(
                         channel=target_channel,
@@ -191,10 +202,16 @@ class CronExecutor:
                 baseline_count=baseline_count,
             )
             await finalize_trace(run_id, status="success")
+            if job.dispatch.silent:
+                delivery_status = "suppressed"
+            elif delivery_error:
+                delivery_status = "failed"
+            else:
+                delivery_status = "success"
             return {
                 "task_type": "agent",
                 "run_id": run_id,
-                "delivery_status": "failed" if delivery_error else "success",
+                "delivery_status": delivery_status,
                 "delivery_error": delivery_error,
             }
         except asyncio.TimeoutError:

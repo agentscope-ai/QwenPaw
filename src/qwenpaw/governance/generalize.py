@@ -19,8 +19,15 @@ import logging
 from fnmatch import fnmatch
 from typing import Any, Optional
 
+from ..utils.model_response import (
+    consume_model_response,
+    extract_response_text,
+)
 from .tool_registry import DEFAULT_REGISTRY
 from .policy import _parse_match
+
+# Historical private name kept for existing callers/tests.
+_extract_response_text = extract_response_text
 
 logger = logging.getLogger(__name__)
 
@@ -161,46 +168,6 @@ def _is_safe_generalization(
     return True
 
 
-def _extract_response_text(response: Any) -> str:
-    """Pull text out of a ``ChatResponse``-like object or stream chunk.
-
-    ``agentscope.model.ChatResponse`` extends ``dict`` with
-    ``__getattr__ = dict.__getitem__``, so ``getattr(response, "text",
-    None)`` raises ``KeyError`` instead of returning ``None``; we use
-    ``dict.get`` for dicts and a try/except otherwise. Mirrors the
-    extraction in ``app/chats/title_generator.py``.
-    """
-    if response is None:
-        return ""
-    if isinstance(response, str):
-        return response
-
-    def _safe_attr(obj: Any, name: str) -> Any:
-        if isinstance(obj, dict):
-            return obj.get(name)
-        try:
-            return getattr(obj, name, None)
-        except (AttributeError, KeyError, TypeError):
-            return None
-
-    text = _safe_attr(response, "text")
-    if isinstance(text, str) and text:
-        return text
-    content = _safe_attr(response, "content")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        for item in content:
-            text_item = (
-                item.get("text")
-                if isinstance(item, dict)
-                else _safe_attr(item, "text")
-            )
-            if isinstance(text_item, str):
-                return text_item
-    return ""
-
-
 def _build_model(agent_id: Optional[str]) -> Any:
     """Build a fresh chat-model instance for *agent_id*.
 
@@ -237,15 +204,7 @@ async def _consume_model_text(
     family, where setting ``parameters.thinking_enable`` on the instance is
     masked or ignored.
     """
-    response = await model(messages, **call_kwargs)
-    if hasattr(response, "__aiter__"):
-        accumulated = ""
-        async for chunk in response:
-            text = _extract_response_text(chunk)
-            if text:
-                accumulated = text
-        return accumulated
-    return _extract_response_text(response)
+    return await consume_model_response(model, messages, **call_kwargs)
 
 
 def _extract_pattern(raw: str) -> str:

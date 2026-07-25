@@ -94,6 +94,14 @@ class QwenPawDriverApprovalGate:
                     "name": driver_label,
                     "input": context.extras,
                 },
+                **(
+                    {
+                        "channel_meta": ctx.get("channel_meta"),
+                        "_spawn_subagent": True,
+                    }
+                    if ctx.get("_spawn_subagent")
+                    else {}
+                ),
             },
         )
         decision = await svc.wait_for_approval(

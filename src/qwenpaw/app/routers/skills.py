@@ -365,6 +365,16 @@ _hub_install_runtime_tasks: dict[str, asyncio.Task] = {}
 _hub_install_cancel_events: dict[str, threading.Event] = {}
 _hub_install_lock = asyncio.Lock()
 
+_HUB_INSTALL_TASK_TTL_SECONDS = 10 * 60
+_HUB_INSTALL_TASK_MAX_HISTORY = 100
+_HUB_INSTALL_TERMINAL_STATUSES = frozenset(
+    {
+        HubInstallTaskStatus.COMPLETED,
+        HubInstallTaskStatus.FAILED,
+        HubInstallTaskStatus.CANCELLED,
+    },
+)
+
 _ALLOWED_ZIP_TYPES = {
     "application/zip",
     "application/x-zip-compressed",
@@ -461,17 +471,46 @@ async def _hub_task_set_status(
 
 async def _hub_task_get(task_id: str) -> HubInstallTask | None:
     async with _hub_install_lock:
+        _hub_task_cleanup_locked()
         return _hub_install_tasks.get(task_id)
 
 
-async def _hub_task_register_runtime(task_id: str, task: asyncio.Task) -> None:
-    async with _hub_install_lock:
-        _hub_install_runtime_tasks[task_id] = task
+def _hub_task_cleanup_locked(*, now: float | None = None) -> None:
+    """Remove expired/excess finished tasks while the registry lock is held."""
+    current_time = time.time() if now is None else now
+    finished = [
+        task
+        for task_id, task in _hub_install_tasks.items()
+        if task.status in _HUB_INSTALL_TERMINAL_STATUSES
+        and task_id not in _hub_install_runtime_tasks
+    ]
+
+    expired_ids = {
+        task.task_id
+        for task in finished
+        if current_time - task.updated_at > _HUB_INSTALL_TASK_TTL_SECONDS
+    }
+    retained = [task for task in finished if task.task_id not in expired_ids]
+    excess = max(0, len(retained) - _HUB_INSTALL_TASK_MAX_HISTORY)
+    if excess:
+        retained.sort(key=lambda task: (task.updated_at, task.created_at))
+        expired_ids.update(task.task_id for task in retained[:excess])
+
+    for expired_id in expired_ids:
+        _hub_install_tasks.pop(expired_id, None)
+        _hub_install_cancel_events.pop(expired_id, None)
 
 
-async def _hub_task_pop_runtime(task_id: str) -> asyncio.Task | None:
+async def _hub_task_finish_runtime(task_id: str) -> None:
     async with _hub_install_lock:
-        return _hub_install_runtime_tasks.pop(task_id, None)
+        _hub_install_runtime_tasks.pop(task_id, None)
+        _hub_install_cancel_events.pop(task_id, None)
+        task = _hub_install_tasks.get(task_id)
+        if task is not None and task.status in _HUB_INSTALL_TERMINAL_STATUSES:
+            # Retention starts when the worker actually stops, which can be
+            # later than the cancel endpoint's terminal response.
+            task.updated_at = time.time()
+        _hub_task_cleanup_locked()
 
 
 async def _read_validated_zip_upload(file: UploadFile) -> bytes:
@@ -552,6 +591,9 @@ async def _run_hub_install_task(
         if imported_skill_name:
             _cleanup_imported_skill(workspace_dir, imported_skill_name)
         await _hub_task_set_status(task_id, HubInstallTaskStatus.CANCELLED)
+    except asyncio.CancelledError:
+        await _hub_task_set_status(task_id, HubInstallTaskStatus.CANCELLED)
+        raise
     except SkillScanError as exc:
         await _hub_task_set_status(
             task_id,
@@ -585,7 +627,7 @@ async def _run_hub_install_task(
             error=f"Skill hub import failed: {exc}",
         )
     finally:
-        await _hub_task_pop_runtime(task_id)
+        await _hub_task_finish_runtime(task_id)
 
 
 def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
@@ -767,19 +809,19 @@ async def start_install_from_hub(
     )
     cancel_event = threading.Event()
     async with _hub_install_lock:
+        _hub_task_cleanup_locked()
         _hub_install_tasks[task.task_id] = task
         _hub_install_cancel_events[task.task_id] = cancel_event
-
-    runtime_task = asyncio.create_task(
-        _run_hub_install_task(
-            task_id=task.task_id,
-            workspace_dir=workspace_dir,
-            body=request_body,
-            cancel_event=cancel_event,
-        ),
-        name=f"skill-hub-install-{task.task_id}",
-    )
-    await _hub_task_register_runtime(task.task_id, runtime_task)
+        runtime_task = asyncio.create_task(
+            _run_hub_install_task(
+                task_id=task.task_id,
+                workspace_dir=workspace_dir,
+                body=request_body,
+                cancel_event=cancel_event,
+            ),
+            name=f"skill-hub-install-{task.task_id}",
+        )
+        _hub_install_runtime_tasks[task.task_id] = runtime_task
     return task
 
 
@@ -800,11 +842,7 @@ async def cancel_hub_install(task_id: str) -> dict[str, Any]:
                 status_code=404,
                 detail="install task not found",
             )
-        if task.status in (
-            HubInstallTaskStatus.COMPLETED,
-            HubInstallTaskStatus.FAILED,
-            HubInstallTaskStatus.CANCELLED,
-        ):
+        if task.status in _HUB_INSTALL_TERMINAL_STATUSES:
             return {"task_id": task_id, "status": task.status.value}
         cancel_event = _hub_install_cancel_events.get(task_id)
         if cancel_event is not None:
