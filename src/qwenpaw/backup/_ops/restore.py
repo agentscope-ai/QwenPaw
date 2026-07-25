@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Backup restore operations."""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,9 +8,11 @@ import copy
 import json
 import logging
 import shutil
+import sqlite3
 import zipfile
 from pathlib import Path
 
+from ...agents.context.scroll.history import validate_history_database
 from .._utils.constants import (
     PREFIX_CONFIG,
     PREFIX_SECRETS,
@@ -17,6 +20,7 @@ from .._utils.constants import (
     PREFIX_WORKSPACES,
     find_zip_path,
 )
+from .._utils.history_sqlite import configured_history_db_path
 from .._utils.meta import read_meta_from_zip
 from .._utils.safe_swap import (
     assert_directory_renamable,
@@ -294,7 +298,34 @@ def _stage_agents(
                 dst,
             )
         cleanup_stale_restore_artifacts(dst)
-        extract_to_tmp(zf, prefix, dst)
+        staged_workspace = extract_to_tmp(zf, prefix, dst)
+        try:
+            history_db = configured_history_db_path(staged_workspace)
+        except ValueError as exc:
+            discard_tmp(dst)
+            raise BackupValidationError(
+                "history_database_path_invalid",
+                f"Agent '{aid}' history database path is invalid: {exc}",
+                {
+                    "agent_id": aid,
+                    "error": str(exc),
+                },
+            ) from exc
+        if history_db.is_file():
+            try:
+                validate_history_database(history_db)
+            except (OSError, sqlite3.Error) as exc:
+                discard_tmp(dst)
+                raise BackupValidationError(
+                    "history_database_invalid",
+                    f"Agent '{aid}' history database failed restore "
+                    f"validation: {exc}",
+                    {
+                        "agent_id": aid,
+                        "path": str(history_db),
+                        "error": str(exc),
+                    },
+                ) from exc
         staged_dirs.append(dst)
         dst_map[aid] = dst
         if is_new:
