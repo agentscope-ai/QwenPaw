@@ -26,8 +26,7 @@ from qwenpaw.sandbox.config import (
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32",
     reason=(
-        "Linux sandbox tests require os.uname"
-        " which is unavailable on Windows"
+        "Linux sandbox tests require os.uname which is unavailable on Windows"
     ),
 )
 
@@ -38,6 +37,13 @@ pytestmark = pytest.mark.skipif(
 
 class TestProbeSandboxSupport:
     """Test probe_sandbox_support() for each platform."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_probe_cache(self):
+        """Clear lru_cache so each test starts fresh."""
+        probe_sandbox_support.cache_clear()
+        yield
+        probe_sandbox_support.cache_clear()
 
     @patch("sys.platform", "darwin")
     @patch("shutil.which", return_value="/usr/bin/sandbox-exec")
@@ -58,16 +64,17 @@ class TestProbeSandboxSupport:
         assert "4.0" in result.reason
 
     @patch("sys.platform", "win32")
-    @patch("qwenpaw.sandbox.config._probe_windows_wsl2")
-    def test_windows_disabled_returns_none(self, mock_probe):
-        # Windows sandbox is currently disabled at probe time.
-        # ``probe_sandbox_support`` should return ``mode=NONE`` directly
-        # without calling ``_probe_windows_wsl2``.
+    @patch("qwenpaw.sandbox.config._probe_windows_appcontainer")
+    def test_windows_calls_appcontainer_probe(self, mock_probe):
+        # Windows sandbox should delegate to _probe_windows_appcontainer.
+        mock_probe.return_value = SandboxCapability(
+            supported=False,
+            mode=SandboxMode.NONE,
+            reason="Not running on Windows",
+        )
         result = probe_sandbox_support()
+        mock_probe.assert_called_once()
         assert result.supported is False
-        assert result.mode == SandboxMode.NONE
-        assert "disabled" in result.reason.lower()
-        mock_probe.assert_not_called()
 
     @patch("sys.platform", "freebsd13")
     def test_unknown_platform_returns_unsupported(self):
@@ -337,15 +344,19 @@ class TestLinuxSandboxRuleCompilation:
 
 
 # ============================================================================
-# Governance: sandbox_available=False → SANDBOX_FALLBACK escalates to ASK
+# Governance: sandbox_available=False when the platform cannot sandbox
 # ============================================================================
 
 
 class TestGovernanceSandboxUnavailable:
-    """Test SANDBOX_FALLBACK escalates to ASK when sandbox unavailable."""
+    """Probe degradation: sandbox_available is False when unsupported.
+
+    (A shell SANDBOX_FALLBACK then runs unsandboxed via ALLOW in
+    ``assert_policy``; that behavior is covered in test_policy.py.)
+    """
 
     def test_sandbox_fallback_becomes_ask(self):
-        """When sandbox is unavailable, SANDBOX_FALLBACK should become ASK."""
+        """When the platform cannot sandbox, ``sandbox_available`` is False."""
         cap = SandboxCapability(
             supported=False,
             mode=SandboxMode.NONE,

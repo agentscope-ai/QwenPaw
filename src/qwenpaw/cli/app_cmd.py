@@ -8,11 +8,11 @@ import click
 import uvicorn
 
 from ..app.auth import is_auth_enabled
-from ..constant import LOG_LEVEL_ENV
 from ..config.utils import write_last_api
+from ..constant import LOG_LEVEL_ENV
 from ..utils.http import is_loopback_host
-from ..utils.logging import setup_logger, SuppressPathAccessLogFilter
-
+from ..utils.logging import SuppressPathAccessLogFilter, setup_logger
+from ..utils.platform import auto_disable_sandbox_on_windows
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +98,14 @@ def app_cmd(
     hide_access_paths: tuple[str, ...],
 ) -> None:
     """Run QwenPaw FastAPI app."""
+    # NOTE: the server intentionally runs UNPRIVILEGED. The Windows
+    # restricted-token sandbox no longer requires the whole server to be
+    # elevated (which PR #5931 forced via ShellExecuteW("runas"), breaking
+    # headless / VBS launchers with a surprise UAC prompt and a detached,
+    # un-closable window). If sandbox is enabled but the process is not
+    # admin, _auto_disable_sandbox_on_windows() below will flip the switch
+    # off before the server starts.
+
     # Handle deprecated --workers parameter
     if workers is not None:
         click.echo(
@@ -139,6 +147,10 @@ def app_cmd(
         )
 
     _warn_if_auth_off_non_loopback_bind(host, port)
+
+    # On Windows, auto-disable sandbox when not running as admin so the
+    # server starts without a half-broken sandbox layer.
+    auto_disable_sandbox_on_windows()
 
     uvicorn.run(
         "qwenpaw.app._app:app",

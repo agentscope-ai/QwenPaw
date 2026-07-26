@@ -9,13 +9,19 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
+from types import SimpleNamespace
 
 import pytest
 
-from qwenpaw.agents.acp.meta import ACP_CODING_PROJECT_META_KEY
+from qwenpaw.agents.acp.meta import (
+    ACP_APPROVAL_EXPIRES_AT_META_KEY,
+    ACP_CODING_PROJECT_META_KEY,
+)
 from qwenpaw.cli.tui.events import (
     BackendWarmed,
     Connected,
+    PermissionExpired,
     PermissionRequest,
     TextDelta,
     ThoughtDelta,
@@ -24,7 +30,7 @@ from qwenpaw.cli.tui.events import (
     TurnEnded,
     UserTurn,
 )
-from qwenpaw.cli.tui.transport.acp import AcpTransport
+from qwenpaw.cli.tui.transport.acp import AcpTransport, _TuiClient
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
 
@@ -127,6 +133,136 @@ async def test_permission_allow():
 
     text = "".join(e.text for e in events if isinstance(e, TextDelta))
     assert "[perm:allow]" in text
+
+
+@pytest.mark.asyncio
+async def test_permission_cancellation_emits_expired_event():
+    queue = asyncio.Queue()
+    client = _TuiClient(queue)
+    task = asyncio.create_task(
+        client.request_permission(
+            options=[],
+            session_id="sess-1",
+            tool_call=SimpleNamespace(
+                title="dangerous_tool",
+                kind="execute",
+                raw_input={"command": "rm -rf /tmp/nope"},
+            ),
+        ),
+    )
+
+    request = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(request, PermissionRequest)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    expired = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(expired, PermissionExpired)
+    assert expired.request_id == request.request_id
+    assert "no longer pending" in expired.message
+
+
+@pytest.mark.asyncio
+async def test_permission_timeout_cancellation_emits_timeout_message():
+    queue = asyncio.Queue()
+    client = _TuiClient(queue)
+    task = asyncio.create_task(
+        client.request_permission(
+            options=[],
+            session_id="sess-1",
+            tool_call=SimpleNamespace(
+                title="dangerous_tool",
+                kind="execute",
+                raw_input={"command": "rm -rf /tmp/nope"},
+            ),
+        ),
+    )
+
+    request = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(request, PermissionRequest)
+
+    task.cancel("timeout")
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    expired = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(expired, PermissionExpired)
+    assert expired.request_id == request.request_id
+    assert "timed out" in expired.message
+    assert "blocked" in expired.message
+
+
+@pytest.mark.asyncio
+async def test_permission_request_carries_expiry_metadata():
+    queue = asyncio.Queue()
+    client = _TuiClient(queue)
+    expires_at = time.time() + 300.0
+    task = asyncio.create_task(
+        client.request_permission(
+            options=[],
+            session_id="sess-1",
+            tool_call=SimpleNamespace(
+                title="dangerous_tool",
+                kind="execute",
+                raw_input={"command": "rm -rf /tmp/nope"},
+                field_meta={
+                    ACP_APPROVAL_EXPIRES_AT_META_KEY: expires_at,
+                },
+            ),
+        ),
+    )
+
+    request = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(request, PermissionRequest)
+    assert request.expires_at == expires_at
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_permission_expires_locally_at_deadline(monkeypatch):
+    """ACP has no agent→client cancel, so the client enforces the deadline
+    itself: past the advertised expiry the handler answers "cancelled" and
+    emits PermissionExpired so the overlay clears with an explanation.
+    """
+    monkeypatch.setattr(
+        "qwenpaw.cli.tui.transport.acp._PERMISSION_EXPIRY_GRACE_SECONDS",
+        10.0,
+    )
+    queue = asyncio.Queue()
+    client = _TuiClient(queue)
+    task = asyncio.create_task(
+        client.request_permission(
+            options=[],
+            session_id="sess-1",
+            tool_call=SimpleNamespace(
+                title="dangerous_tool",
+                kind="execute",
+                raw_input={"command": "rm -rf /tmp/nope"},
+                field_meta={
+                    ACP_APPROVAL_EXPIRES_AT_META_KEY: time.time() - 20.0,
+                },
+            ),
+        ),
+    )
+
+    request = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(request, PermissionRequest)
+
+    response = await asyncio.wait_for(task, timeout=0.5)
+    assert response.outcome.outcome == "cancelled"
+
+    expired = await asyncio.wait_for(queue.get(), timeout=1.0)
+    assert isinstance(expired, PermissionExpired)
+    assert expired.request_id == request.request_id
+    assert "timed out" in expired.message
+
+    # A late resolve after expiry must be a harmless no-op.
+    client.resolve(request.request_id, "allow_once")
 
 
 @pytest.mark.asyncio
@@ -238,8 +374,6 @@ async def test_load_session_replays_history():
 
 
 def test_session_agent_reads_meta():
-    from types import SimpleNamespace
-
     from qwenpaw.cli.tui.transport.acp import _session_agent
 
     # Agent id reported via the session response _meta.

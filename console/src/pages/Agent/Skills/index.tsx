@@ -1,6 +1,8 @@
 import { useTranslation } from "react-i18next";
-import { PlusOutlined } from "@ant-design/icons";
+import { useSearchParams } from "react-router-dom";
+import { ArrowLeftOutlined, PlusOutlined } from "@ant-design/icons";
 import { Button } from "@agentscope-ai/design";
+import { MarketPanel } from "../../Settings/Market/MarketPanel";
 import {
   SkillCard,
   SkillDrawer,
@@ -75,12 +77,39 @@ function SkillsPage() {
     cancelImport,
   } = useSkillsPage();
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const marketView = searchParams.get("view") === "market";
+
+  const openMarket = useCallback(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("view", "market");
+      return next;
+    });
+  }, [setSearchParams]);
+
+  const closeMarket = useCallback(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("view");
+      return next;
+    });
+  }, [setSearchParams]);
+
+  const handleMarketInstalled = useCallback(() => {
+    void refreshSkills();
+  }, [refreshSkills]);
+
   // Split skills into enabled and disabled groups
   const { enabledSkills, disabledSkills } = useMemo(() => {
     const enabled = visibleSkills.filter((skill) => skill.enabled);
     const disabled = visibleSkills.filter((skill) => !skill.enabled);
     return { enabledSkills: enabled, disabledSkills: disabled };
   }, [visibleSkills]);
+  const enabledSkillCount = useMemo(
+    () => sortedSkills.filter((skill) => skill.enabled).length,
+    [sortedSkills],
+  );
 
   // Shared renderer for SkillListItem (used by both enabled and disabled sections)
   const renderSkillListItem = useCallback(
@@ -110,6 +139,29 @@ function SkillsPage() {
     ],
   );
 
+  if (marketView) {
+    return (
+      <div className={styles.skillsPage}>
+        <PageHeader
+          items={[
+            { title: t("nav.agent") },
+            { title: t("skills.title") },
+            { title: t("nav.market") },
+          ]}
+          extra={
+            <Button icon={<ArrowLeftOutlined />} onClick={closeMarket}>
+              {t("common.back")}
+            </Button>
+          }
+        />
+        <MarketPanel
+          installTarget="workspace"
+          onInstalled={handleMarketInstalled}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className={styles.skillsPage}>
       <PageHeader
@@ -134,6 +186,7 @@ function SkillsPage() {
             onUploadClick={handleUploadClick}
             onImportHub={() => setImportModalOpen(true)}
             onCreate={handleCreate}
+            onBrowseMarket={openMarket}
             onFileChange={handleFileChange}
           />
         }
@@ -202,7 +255,7 @@ function SkillsPage() {
                 <span className={styles.panelDotGreen} />
                 {t("skills.enabledSkills")}
                 <span className={styles.panelCount}>
-                  {enabledSkills.length} {t("skills.active")}
+                  {enabledSkillCount} {t("skills.active")}
                 </span>
               </div>
 
@@ -275,7 +328,12 @@ function SkillsPage() {
             </div>
           )}
 
-          {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+          {hasMore && (
+            <div
+              ref={sentinelRef}
+              style={{ height: 1, minHeight: 1, flexShrink: 0 }}
+            />
+          )}
         </>
       )}
 

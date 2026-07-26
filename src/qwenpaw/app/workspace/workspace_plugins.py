@@ -24,6 +24,7 @@ from ...runtime.slash_command_registry import SlashCommandRegistry
 from ...runtime.tool_registry import ToolRegistry
 
 if TYPE_CHECKING:
+    from ...loop.gates import StopHandlerRegistration
     from ...modes.base import AgentMode
     from ...runtime.hooks import HookContext
 
@@ -39,6 +40,9 @@ class WorkspacePlugins:
     tool_registry: ToolRegistry = field(default_factory=ToolRegistry)
     prompt_manager: PromptManager = field(default_factory=PromptManager)
     modes: list["AgentMode"] = field(default_factory=list)
+    stop_handlers: list["StopHandlerRegistration"] = field(
+        default_factory=list,
+    )
 
     def register_mode(self, mode: "AgentMode", workspace: object) -> None:
         """Add ``mode`` and immediately run its ``setup(workspace)``.

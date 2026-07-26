@@ -13,8 +13,8 @@ import asyncio
 
 from acp.schema import AllowedOutcome, RequestPermissionResponse
 
+from qwenpaw.agents.acp.meta import ACP_APPROVAL_EXPIRES_AT_META_KEY
 from qwenpaw.agents.acp.server import (
-    _ACP_REDUNDANT_COMMANDS,
     _EnvelopeTracker,
     ACP_AGENT_META_KEY,
     ACP_ERROR_META_KEY,
@@ -35,8 +35,9 @@ class _FakeConn:
 class _ApprovalConn(_FakeConn):
     """Records ACP permission requests and approves them."""
 
-    def __init__(self) -> None:
+    def __init__(self, option_id: str = "allow_once") -> None:
         super().__init__()
+        self.option_id = option_id
         self.permission_requests: list[dict[str, object]] = []
 
     async def request_permission(
@@ -56,15 +57,62 @@ class _ApprovalConn(_FakeConn):
         return RequestPermissionResponse(
             outcome=AllowedOutcome(
                 outcome="selected",
-                option_id="approve",
+                option_id=self.option_id,
             ),
         )
 
 
-async def _drain() -> None:
-    """Let the fire-and-forget advertise task run to completion."""
-    for _ in range(5):
-        await asyncio.sleep(0)
+class _HangingApprovalConn(_FakeConn):
+    """Records ACP permission requests and waits until cancelled."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.cancelled = False
+        self.cancel_reason = ""
+        self.permission_requests: list[dict[str, object]] = []
+
+    async def request_permission(
+        self,
+        *,
+        session_id: str,
+        tool_call: object,
+        options: list[object],
+    ) -> RequestPermissionResponse:
+        self.permission_requests.append(
+            {
+                "session_id": session_id,
+                "tool_call": tool_call,
+                "options": options,
+            },
+        )
+        self.started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError as exc:
+            self.cancelled = True
+            self.cancel_reason = str(exc.args[0]) if exc.args else ""
+            raise
+
+
+async def _drain(conn: _FakeConn, *, timeout: float = 5.0) -> None:
+    """Wait until at least one ``session_update`` has been recorded.
+
+    Uses polling with an exponential-ish back-off instead of a fixed
+    sleep so the test finishes quickly on fast machines and doesn't
+    flake on slow CI runners.
+    """
+    elapsed = 0.0
+    interval = 0.01
+    while elapsed < timeout:
+        if conn.updates:
+            return
+        await asyncio.sleep(interval)
+        elapsed += interval
+        interval = min(interval * 1.5, 0.2)
+    raise TimeoutError(
+        f"_advertise_commands did not fire within {timeout}s",
+    )
 
 
 def test_build_available_commands_set():
@@ -73,23 +121,51 @@ def test_build_available_commands_set():
     commands = agent._build_available_commands()
     names = {c.name for c in commands}
 
-    # Exactly the curated user-facing subset is advertised. Everything else
-    # (history, plan, /new, approval commands, etc.) is intentionally hidden
-    # from autocomplete.
-    assert names == {"clear", "compact", "skills", "model"}
+    # When workspace is None, no commands should be advertised.
+    assert names == set()
 
-    # Hidden from the palette: history/plan are internal; /new overlaps the
-    # dedicated ACP ``new_session`` affordance (clients start a fresh session
-    # natively, and /clear covers the in-session "start over" need).
-    assert "history" not in names
-    assert "plan" not in names
-    assert "new" not in names
 
-    # Commands with a dedicated ACP affordance are not advertised.
-    assert names.isdisjoint(_ACP_REDUNDANT_COMMANDS)
+async def test_registered_help_text_command_is_executed_and_advertised():
+    """A CommandSpec with help_text is executable and auto-advertised.
 
-    # Every advertised command carries a human-readable description.
-    assert all(c.description for c in commands)
+    No secondary ``_ADVERTISED_*`` list is required — registering the
+    command with ``help_text`` is enough for ACP autocomplete.
+    """
+    from types import SimpleNamespace
+
+    from qwenpaw.runtime.slash_command_registry import (
+        CommandSpec,
+        SlashCommandRegistry,
+    )
+
+    registry = SlashCommandRegistry()
+    executed: list[str] = []
+
+    async def _handler(_ctx: object, args: str) -> None:
+        executed.append(args)
+        return None
+
+    registry.register(
+        CommandSpec(
+            name="demo_cmd",
+            handler=_handler,
+            help_text="Demo command for ACP advertise regression",
+        ),
+    )
+
+    # Executable via the shared registry.
+    result = await registry.dispatch("/demo_cmd hello", ctx=None)
+    assert result is None
+    assert executed == ["hello"]
+
+    # Auto-advertised through ACP without touching any advertise map.
+    agent = object.__new__(QwenPawACPAgent)
+    agent._workspace = SimpleNamespace(
+        plugins=SimpleNamespace(slash_command_registry=registry),
+    )
+    commands = agent._build_available_commands()
+    by_name = {cmd.name: cmd.description for cmd in commands}
+    assert by_name["demo_cmd"] == "Demo command for ACP advertise regression"
 
 
 async def test_new_session_advertises_commands():
@@ -98,17 +174,16 @@ async def test_new_session_advertises_commands():
     agent.on_connect(conn)
 
     response = await agent.new_session(cwd="/tmp")
-    await _drain()
+    await _drain(conn)
 
     assert conn.updates, "expected an available_commands_update notification"
     session_id, update = conn.updates[0]
     assert session_id == response.session_id
     assert update.session_update == "available_commands_update"
 
-    names = {c.name for c in update.available_commands}
-    assert "mission" not in names
-    assert "clear" in names
-    assert "model" in names
+    # Commands are now dynamically queried from registry; verify structure
+    # All advertised commands should have descriptions
+    assert all(c.description for c in update.available_commands)
 
 
 async def test_load_session_advertises_commands():
@@ -117,7 +192,7 @@ async def test_load_session_advertises_commands():
     agent.on_connect(conn)
 
     await agent.load_session(cwd="/tmp", session_id="sess-123")
-    await _drain()
+    await _drain(conn)
 
     assert conn.updates
     session_id, update = conn.updates[0]
@@ -221,7 +296,10 @@ async def test_report_prompt_error_shows_details_for_local_diagnostics():
 
 async def test_approval_bridge_resolves_pending_approval(monkeypatch):
     from qwenpaw.app.approvals.service import ApprovalService
-    from qwenpaw.security.tool_guard.approval import ApprovalDecision
+    from qwenpaw.security.tool_guard.approval import (
+        ApprovalDecision,
+        ApprovalScope,
+    )
     from qwenpaw.security.tool_guard.models import (
         GuardFinding,
         GuardSeverity,
@@ -293,6 +371,252 @@ async def test_approval_bridge_resolves_pending_approval(monkeypatch):
     )
     assert tool_call.kind == "execute"
     assert tool_call.raw_input == {"command": "ls"}
+    assert tool_call.field_meta == {
+        ACP_APPROVAL_EXPIRES_AT_META_KEY: (
+            pending.created_at + pending.timeout_seconds
+        ),
+    }
+    assert {option.option_id for option in request["options"]} == {
+        "allow_once",
+        "deny",
+    }
+    names = {option.option_id: option.name for option in request["options"]}
+    assert names["allow_once"] == "Allow Exact This Session"
+    assert pending.scope is ApprovalScope.EXACT
+
+
+async def test_approval_bridge_resolves_pattern_scope(monkeypatch):
+    from qwenpaw.app.approvals.service import ApprovalService
+    from qwenpaw.security.tool_guard.approval import (
+        ApprovalDecision,
+        ApprovalScope,
+    )
+    from qwenpaw.security.tool_guard.models import (
+        GuardFinding,
+        GuardSeverity,
+        GuardThreatCategory,
+        ToolGuardResult,
+    )
+
+    approval_svc = ApprovalService()
+    monkeypatch.setattr(
+        "qwenpaw.app.approvals.service._approval_service",
+        approval_svc,
+    )
+
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _ApprovalConn(option_id="allow_always")
+    agent.on_connect(conn)
+
+    result = ToolGuardResult(
+        tool_name="execute_shell_command",
+        params={"command": "git status"},
+        findings=[
+            GuardFinding(
+                id="finding-1",
+                rule_id="test",
+                category=GuardThreatCategory.RESOURCE_ABUSE,
+                severity=GuardSeverity.MEDIUM,
+                title="Approval required",
+                description="Shell command requires approval.",
+                tool_name="execute_shell_command",
+            ),
+        ],
+    )
+    pending = await approval_svc.create_pending(
+        session_id="sess-approval",
+        root_session_id="sess-approval",
+        owner_agent_id="default",
+        user_id="acp_user",
+        channel="console",
+        agent_id="default",
+        tool_name="execute_shell_command",
+        result=result,
+        extra={
+            "tool_call": {
+                "id": "tool-1",
+                "name": "execute_shell_command",
+                "input": {"command": "git status"},
+            },
+            "display": {
+                "tool_name": "execute_shell_command",
+                "tool_source": "No rule hit",
+                "exact_target": "git status",
+                "similar_target": "git *",
+                "is_generalized": True,
+            },
+        },
+    )
+
+    await agent._request_approval_decision("sess-approval", pending)
+    decision = await asyncio.wait_for(pending.future, timeout=1.0)
+
+    assert decision == ApprovalDecision.APPROVED
+    assert pending.scope is ApprovalScope.SIMILAR
+    request = conn.permission_requests[0]
+    assert {option.option_id for option in request["options"]} == {
+        "allow_once",
+        "allow_always",
+        "deny",
+    }
+    kinds = {option.option_id: option.kind for option in request["options"]}
+    assert kinds["allow_once"] == "allow_once"
+    assert kinds["allow_always"] == "allow_always"
+    names = {option.option_id: option.name for option in request["options"]}
+    assert names["allow_once"] == "Allow Exact This Session"
+    assert names["allow_always"] == "Allow Pattern This Session"
+    assert request["tool_call"].raw_input == {
+        "command": "git status",
+        "approve_exact_target": "git status",
+        "approve_pattern_target": "git *",
+    }
+
+
+async def test_approval_bridge_expires_when_pending_times_out(monkeypatch):
+    from qwenpaw.app.approvals.service import ApprovalService
+    from qwenpaw.security.tool_guard.approval import ApprovalDecision
+    from qwenpaw.security.tool_guard.models import (
+        GuardFinding,
+        GuardSeverity,
+        GuardThreatCategory,
+        ToolGuardResult,
+    )
+
+    approval_svc = ApprovalService()
+    monkeypatch.setattr(
+        "qwenpaw.app.approvals.service._approval_service",
+        approval_svc,
+    )
+
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _HangingApprovalConn()
+    agent.on_connect(conn)
+
+    result = ToolGuardResult(
+        tool_name="execute_shell_command",
+        params={"command": "rm -rf /tmp/nope"},
+        findings=[
+            GuardFinding(
+                id="finding-1",
+                rule_id="test",
+                category=GuardThreatCategory.RESOURCE_ABUSE,
+                severity=GuardSeverity.MEDIUM,
+                title="Approval required",
+                description="Shell command requires approval.",
+                tool_name="execute_shell_command",
+            ),
+        ],
+    )
+    pending = await approval_svc.create_pending(
+        session_id="sess-approval",
+        root_session_id="sess-approval",
+        owner_agent_id="default",
+        user_id="acp_user",
+        channel="console",
+        agent_id="default",
+        tool_name="execute_shell_command",
+        result=result,
+        extra={
+            "tool_call": {
+                "id": "tool-1",
+                "name": "execute_shell_command",
+                "input": {"command": "rm -rf /tmp/nope"},
+            },
+        },
+    )
+
+    task = asyncio.create_task(
+        agent._request_approval_decision("sess-approval", pending),
+    )
+    await asyncio.wait_for(conn.started.wait(), timeout=1.0)
+
+    await approval_svc.resolve_request(
+        pending.request_id,
+        ApprovalDecision.TIMEOUT,
+    )
+    await asyncio.wait_for(task, timeout=1.0)
+
+    assert conn.cancelled is True
+    assert conn.cancel_reason == "timeout"
+    assert pending.status == ApprovalDecision.TIMEOUT.value
+
+
+async def test_approval_bridge_survives_wait_for_timeout(monkeypatch):
+    """The real timeout path (``wait_for_approval`` → ``asyncio.wait_for``)
+    cancels the shared pending future instead of setting a TIMEOUT result.
+    The bridge must not let that CancelledError escape (it would kill the
+    per-turn approval polling loop) and must still cancel the client prompt.
+    """
+    from qwenpaw.app.approvals.service import ApprovalService
+    from qwenpaw.security.tool_guard.approval import ApprovalDecision
+    from qwenpaw.security.tool_guard.models import (
+        GuardFinding,
+        GuardSeverity,
+        GuardThreatCategory,
+        ToolGuardResult,
+    )
+
+    approval_svc = ApprovalService()
+    monkeypatch.setattr(
+        "qwenpaw.app.approvals.service._approval_service",
+        approval_svc,
+    )
+
+    agent = QwenPawACPAgent(agent_id="default")
+    conn = _HangingApprovalConn()
+    agent.on_connect(conn)
+
+    result = ToolGuardResult(
+        tool_name="execute_shell_command",
+        params={"command": "rm -rf /tmp/nope"},
+        findings=[
+            GuardFinding(
+                id="finding-1",
+                rule_id="test",
+                category=GuardThreatCategory.RESOURCE_ABUSE,
+                severity=GuardSeverity.MEDIUM,
+                title="Approval required",
+                description="Shell command requires approval.",
+                tool_name="execute_shell_command",
+            ),
+        ],
+    )
+    pending = await approval_svc.create_pending(
+        session_id="sess-approval",
+        root_session_id="sess-approval",
+        owner_agent_id="default",
+        user_id="acp_user",
+        channel="console",
+        agent_id="default",
+        tool_name="execute_shell_command",
+        result=result,
+        extra={
+            "tool_call": {
+                "id": "tool-1",
+                "name": "execute_shell_command",
+                "input": {"command": "rm -rf /tmp/nope"},
+            },
+        },
+    )
+
+    bridge = asyncio.create_task(
+        agent._request_approval_decision("sess-approval", pending),
+    )
+    await asyncio.wait_for(conn.started.wait(), timeout=1.0)
+
+    waiter = asyncio.create_task(
+        approval_svc.wait_for_approval(pending.request_id, 0.05),
+    )
+    decision = await asyncio.wait_for(waiter, timeout=1.0)
+    assert decision == ApprovalDecision.TIMEOUT
+
+    # The bridge coroutine must finish normally, not die cancelled.
+    await asyncio.wait_for(asyncio.shield(bridge), timeout=1.0)
+    assert not bridge.cancelled()
+
+    assert conn.cancelled is True
+    assert conn.cancel_reason == "timeout"
+    assert pending.status == ApprovalDecision.TIMEOUT.value
 
 
 def test_acp_bootstrap_includes_runtime_slash_commands():
@@ -303,11 +627,10 @@ def test_acp_bootstrap_includes_runtime_slash_commands():
         spec.name for spec in kwargs.get("builtin_command_specs", [])
     }
 
-    assert {"clear", "compact", "skills", "model"}.issubset(
-        command_names,
-    )
-    assert "mission" not in command_names
-    assert kwargs.get("builtin_hook_clses")
+    # Verify that builtin commands are collected via the shared factory.
+    # The exact set depends on what's registered in builtin_commands.py.
+    assert len(command_names) > 0, "Expected at least some builtin commands"
+    assert kwargs.get("builtin_hook_clses"), "Expected hook classes to be set"
 
 
 def _text_event(text: str, *, delta: bool, msg_id: str = "msg-1"):

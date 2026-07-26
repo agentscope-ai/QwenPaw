@@ -38,6 +38,7 @@ from ....config.config import QQConfig as QQChannelConfig
 from ....constant import WORKING_DIR
 from ....exceptions import ChannelError, QQApiError
 
+from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -657,10 +658,8 @@ class QQChannel(BaseChannel):
         bot_prefix: str = "",
         markdown_enabled: bool = True,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         media_dir: str = "",
         workspace_dir: Path | None = None,
         max_reconnect_attempts: int = 100,
@@ -671,10 +670,8 @@ class QQChannel(BaseChannel):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config,
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             access_control_dm=access_control_dm,
             access_control_group=access_control_group,
         )
@@ -815,10 +812,8 @@ class QQChannel(BaseChannel):
         process: ProcessHandler,
         config: QQChannelConfig,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "QQChannel":
         return cls(
@@ -829,10 +824,9 @@ class QQChannel(BaseChannel):
             bot_prefix=config.bot_prefix or "",
             markdown_enabled=getattr(config, "markdown_enabled", True),
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             media_dir=getattr(config, "media_dir", ""),
             workspace_dir=workspace_dir,
             max_reconnect_attempts=getattr(

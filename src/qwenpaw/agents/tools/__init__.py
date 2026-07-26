@@ -5,8 +5,10 @@ Every tool function decorated with ``@tool_descriptor`` is automatically
 collected into a global registry at import time.  Adding a new built-in
 tool requires only two things:
 
-1. Decorate the function with ``@tool_descriptor(...)`` in its module.
+1. Decorate the function with ``@tool_descriptor(...)`` (include
+   governance / UI / default_policy metadata as needed).
 2. Import the module here so that the decorator executes.
+   ``__all__`` is generated automatically from collected descriptors.
 
 :func:`discover_builtin_tool_funcs` returns all auto-collected built-in
 tools — no manual list maintenance or filesystem scanning required.
@@ -28,6 +30,7 @@ from .file_search import grep_search, glob_search
 from .shell import execute_shell_command
 from .send_file import send_file_to_user
 from .browser_control import browser_use
+from .web_search import web_search, web_fetch
 from .desktop_screenshot import desktop_screenshot
 from .view_media import view_image, view_video
 from .get_current_time import get_current_time, set_user_timezone
@@ -42,6 +45,7 @@ from .agent_management import (
 from .delegate_external_agent import delegate_external_agent
 from .make_skill_tools import materialize_skill
 from .ast_tool import ast_search
+from .run_tool_batch import run_tool_batch
 
 
 def discover_builtin_tool_funcs() -> list[Callable]:
@@ -57,29 +61,15 @@ def discover_builtin_tool_funcs() -> list[Callable]:
     return get_builtin_tool_funcs()
 
 
-__all__ = [
-    "discover_builtin_tool_funcs",
-    "execute_shell_command",
-    "read_file",
-    "write_file",
-    "edit_file",
-    "append_file",
-    "grep_search",
-    "glob_search",
-    "send_file_to_user",
-    "desktop_screenshot",
-    "view_image",
-    "view_video",
-    "browser_use",
-    "get_current_time",
-    "set_user_timezone",
-    "get_token_usage",
-    "delegate_external_agent",
-    "list_agents",
-    "chat_with_agent",
-    "submit_to_agent",
-    "check_agent_task",
-    "spawn_subagent",
-    "materialize_skill",
-    "ast_search",
-]
+def _build_all() -> list[str]:
+    """Build ``__all__`` from auto-collected ``@tool_descriptor`` tools."""
+    from ...runtime.tool_registry import get_builtin_tool_funcs
+
+    return ["discover_builtin_tool_funcs"] + [
+        fn.__name__ for fn in get_builtin_tool_funcs()
+    ]
+
+
+# Must stay below all side-effect imports above so every @tool_descriptor
+# has already appended to the global registry before __all__ is built.
+__all__ = _build_all()

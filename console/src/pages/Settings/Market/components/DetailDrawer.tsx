@@ -2,15 +2,11 @@ import { memo, useMemo } from "react";
 import { Button, Drawer } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { MarketResult } from "../../../../api/modules/market";
-import type { InstallTarget } from "../useMarketInstall";
 import { SkillIcon, sourceLabel } from "./SkillIcon";
-import { TargetToggle } from "./TargetToggle";
 import styles from "./DetailDrawer.module.less";
 
 interface DetailDrawerProps {
   item: MarketResult | null;
-  target: InstallTarget;
-  onTargetChange: (next: InstallTarget) => void;
   onInstall: () => void;
   onClose: () => void;
 }
@@ -36,8 +32,6 @@ function formatStatValue(key: string, value: string | number): string {
 
 export const DetailDrawer = memo(function DetailDrawer({
   item,
-  target,
-  onTargetChange,
   onInstall,
   onClose,
 }: DetailDrawerProps) {
@@ -84,9 +78,8 @@ export const DetailDrawer = memo(function DetailDrawer({
       footer={
         item ? (
           <div className={styles.drawerFooter}>
-            <TargetToggle target={target} onChange={onTargetChange} />
             <Button type="primary" onClick={onInstall}>
-              {t("market.install")}
+              {t("common.save")}
             </Button>
           </div>
         ) : null

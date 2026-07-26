@@ -44,6 +44,7 @@ class GPTImage2ToolPlugin:
             tool_func=tool.generate_image_gpt,
             description=("Generate images using OpenAI GPT Image 2"),
             icon="🎨",
+            tool_type="network",
         )
 
         api.register_tool(
@@ -54,6 +55,7 @@ class GPTImage2ToolPlugin:
                 "with OpenAI GPT Image 2"
             ),
             icon="🖼️",
+            tool_type="network",
         )
 
         logger.info("GPT Image 2 tool plugin registered")

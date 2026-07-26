@@ -159,6 +159,23 @@ class OpenRouterProvider(Provider):
                     getattr(row, "pricing", None),
                 )
                 is_free = OpenRouterProvider._is_free_model(pricing_dict)
+                # OpenRouter's /models reports each model's authoritative
+                # window. Writing it into max_input_length makes it win the
+                # context-window resolution outright (an explicit value
+                # beats the static catalog), so OpenRouter models never
+                # depend on hand-maintained catalog entries. Absent or
+                # invalid → field default, which resolves via the catalog
+                # as before.
+                window_kwargs: dict[str, int | bool] = {}
+                try:
+                    context_length = int(
+                        getattr(row, "context_length", 0) or 0,
+                    )
+                except (TypeError, ValueError):
+                    context_length = 0
+                if context_length >= 1000:  # ModelInfo's field lower bound
+                    window_kwargs["max_input_length"] = context_length
+                    window_kwargs["max_input_length_configured"] = True
 
                 if include_extended:
                     # Get architecture and pricing from the API response
@@ -190,12 +207,14 @@ class OpenRouterProvider(Provider):
                         input_modalities=input_modalities,
                         output_modalities=output_modalities,
                         pricing=pricing_dict,
+                        **window_kwargs,
                     )
                 else:
                     models[model_id] = ModelInfo(
                         id=model_id,
                         name=model_name,
                         is_free=is_free,
+                        **window_kwargs,
                     )
 
         return list(models.values())
@@ -375,6 +394,6 @@ class OpenRouterProvider(Provider):
             context_size=self._get_context_size(model_id),
             formatter=_CappingOpenAIFormatter(
                 max_bytes=self.max_inline_media_bytes,
-                relay_reasoning_content=self._get_preserve_thinking(model_id),
+                relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
         )

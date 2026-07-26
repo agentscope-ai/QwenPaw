@@ -45,15 +45,20 @@ class StopCommandHandler(BaseControlCommandHandler):
 
         logger.info(
             f"/stop command: current_session={context.session_id[:30]} "
-            f"target_session={target_session_id[:30]}",
+            f"target_session={target_session_id[:30]} "
+            f"user_id={context.user_id}",
         )
 
         workspace = context.workspace
         channel_id = context.channel.channel
 
+        # Scope the lookup to the requesting user so users sharing the same
+        # session_id (group members, or DM users whose conversation_id suffix
+        # collides) can only stop their own task.
         chat_id = await workspace.chat_manager.get_chat_id_by_session(
             target_session_id,
             channel_id,
+            user_id=context.user_id,
         )
 
         if chat_id is None:

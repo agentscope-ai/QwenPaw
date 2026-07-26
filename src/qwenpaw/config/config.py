@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import re
+import threading
 from pathlib import Path
 from typing import Optional, Union, Dict, List, Literal, Any, Set
 
@@ -35,8 +37,16 @@ from ..constant import (
     LLM_RATE_LIMIT_PAUSE,
     WORKING_DIR,
 )
+from ..utils.io_utils import write_json_atomic
+from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
+
+# A legacy field can be present in the root config and in several agent
+# profiles, all of which may be validated repeatedly during one process
+# lifetime.  The migration reminder is useful once, but repeating it for
+# every request obscures real warnings.
+_legacy_scroll_tool_cap_warned = False
 
 
 # ============================================================================
@@ -55,6 +65,7 @@ class ActiveModelsInfo(BaseModel):
     """Active models information for provider manager."""
 
     active_llm: ModelSlotConfig | None
+    effective_max_input_length: int | None = None
 
 
 class ACPAgentConfig(BaseModel):
@@ -109,6 +120,7 @@ def _get_default_acp_agents() -> Dict[str, ACPAgentConfig]:
 class ACPConfig(BaseModel):
     """ACP (Agent Communication Protocol) configuration."""
 
+    node_path: str = ""
     agents: Dict[str, ACPAgentConfig] = Field(
         default_factory=_get_default_acp_agents,
     )
@@ -198,8 +210,12 @@ class BaseChannelConfig(BaseModel):
 
     enabled: bool = False
     bot_prefix: str = ""
-    filter_tool_messages: bool = False
-    filter_thinking: bool = False
+    show_tool_calls: bool = True
+    show_tool_results: bool = True
+    # A value of 0 means unlimited (do not truncate).
+    tool_call_max_length: int = Field(default=200, ge=0)
+    tool_result_max_length: int = Field(default=500, ge=0)
+    show_thinking: bool = True
     dm_policy: Literal["open", "allowlist"] = "open"
     group_policy: Literal["open", "allowlist"] = "open"
     allow_from: List[str] = Field(default_factory=list)
@@ -370,6 +386,7 @@ class MatrixConfig(BaseChannelConfig):
     mention_pill_in_body: bool = False
     # When True, apply m.mentions + optional pill on outbound messages.
     outbound_structured_mentions: bool = True
+    streaming_enabled: bool = False
 
 
 class VoiceChannelConfig(BaseChannelConfig):
@@ -588,14 +605,6 @@ class AutoMemorySearchConfig(BaseModel):
         ),
     )
 
-    persist_to_context: bool = Field(
-        default=False,
-        description=(
-            "Whether to persist auto memory search tool_call/tool_result "
-            "messages into the conversation context"
-        ),
-    )
-
 
 class EmbeddingModelConfig(BaseModel):
     """Embedding model configuration."""
@@ -653,7 +662,6 @@ class ADBPGMemoryConfig(BaseModel):
         default_factory=lambda: AutoMemorySearchConfig(
             enabled=True,
             max_results=3,
-            persist_to_context=False,
         ),
     )
 
@@ -669,7 +677,14 @@ class ReMeLightMemoryConfig(BaseModel):
     )
     session_dir: str = Field(
         default="mem_session",
-        description="Subdirectory for persisted agent sessions",
+        description=(
+            "Subdirectory for ReMe source conversation logs used by "
+            "auto-memory"
+        ),
+    )
+    mem_session_dir: str = Field(
+        default="mem_agent",
+        description="Subdirectory for ReMe internal memory-agent sessions",
     )
     resource_dir: str = Field(
         default="resource",
@@ -683,14 +698,17 @@ class ReMeLightMemoryConfig(BaseModel):
         default="digest",
         description="Subdirectory for digest memory",
     )
-    enable_search_raw_log: bool = Field(
-        default=False,
-        description="Whether to enable raw log search",
-    )
-
     summarize_when_compact: bool = Field(
         default=True,
         description="Whether to enable memory summarization during compaction",
+    )
+
+    inbox_push_enabled: bool = Field(
+        default=True,
+        description=(
+            "Whether to push ReMe auto-memory, auto-dream, and "
+            "auto-resource job results to the inbox"
+        ),
     )
 
     auto_memory_interval: int | None = Field(
@@ -702,10 +720,20 @@ class ReMeLightMemoryConfig(BaseModel):
         "background task burden.",
     )
 
+    dream_cron_enabled: bool = Field(
+        default=True,
+        description=(
+            "Whether to enable the dream-based memory optimization job"
+        ),
+    )
+
     dream_cron: str = Field(
         default="0 23 * * *",
-        description="Cron expression for dream-based memory optimization job "
-        "(empty to disable)",
+        description=(
+            "Cron expression for dream-based memory optimization job "
+            "(use dream_cron_enabled to enable/disable). Scheduled runs "
+            "start after a random delay of 0 to 60 seconds."
+        ),
     )
 
     auto_memory_search_config: AutoMemorySearchConfig = Field(
@@ -714,15 +742,6 @@ class ReMeLightMemoryConfig(BaseModel):
 
     embedding_model_config: EmbeddingModelConfig = Field(
         default_factory=EmbeddingModelConfig,
-    )
-
-    rebuild_memory_index_on_start: bool = Field(
-        default=False,
-        description=(
-            "Whether to clear and rebuild the memory search index when the"
-            " agent starts. Set to False to skip re-indexing and only monitor"
-            " new file changes."
-        ),
     )
 
 
@@ -771,38 +790,43 @@ class ToolResultPruningConfig(BaseModel):
         default=2,
         ge=1,
         le=10,
-        description="Number of recent messages to use recent_max_bytes for",
+        description=(
+            "Number of recent tool-result-bearing messages to keep at the "
+            "recent preview byte limit. Scroll keeps all live previews at "
+            "this limit until pressure-driven pointer folding is required."
+        ),
     )
 
     pruning_old_msg_max_bytes: int = Field(
         default=3000,
         ge=100,
-        description=("Byte threshold for old messages in tool result pruning"),
+        description=(
+            "Older tool-result preview byte limit for non-Scroll context "
+            "strategies. Scroll does not use a fixed old-result size "
+            "threshold; it folds recoverable results only while the rebuilt "
+            "context remains under pressure."
+        ),
     )
 
     pruning_recent_msg_max_bytes: int = Field(
         default=50000,
         ge=1000,
         description=(
-            "Byte threshold for recent messages in tool result pruning"
-        ),
-    )
-
-    execution_layer_max_bytes: int = Field(
-        default=50000,
-        ge=1000,
-        description=(
-            "Hard byte cap applied at execution time before the tool "
-            "response is inserted into the agent context. Independent of "
-            "the tiered historical pruning thresholds."
+            "Byte threshold for tool result previews before they enter the "
+            "agent context and while they remain recent."
         ),
     )
 
     offload_retention_days: int = Field(
-        default=5,
+        default=30,
         ge=1,
-        le=10,
-        description="Number of days to retain tool result files",
+        le=365,
+        description=(
+            "Number of days to retain complete archived tool result files. "
+            "This lifetime is independent of Scroll history retention; after "
+            "expiry, history may still contain the bounded preview but not "
+            "the complete artifact."
+        ),
     )
 
     tool_results_cache: str = Field(
@@ -836,7 +860,7 @@ class ScrollContextConfig(BaseModel):
     Only consulted when ``LightContextConfig.strategy == "scroll"``. The
     durable history lives at ``{working_dir}/{db_filename}``; evicted turns
     fold into an in-context eviction index recallable from the sandboxed
-    ``execute_python`` REPL.
+    ``recall_history_python`` REPL.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -849,27 +873,20 @@ class ScrollContextConfig(BaseModel):
     tool_output_token_cap: int = Field(
         default=3000,
         ge=100,
+        exclude=True,
         description=(
-            "In-context cap for a single tool result; the full output is "
-            "written through to history and recalled by tool_call_id."
-        ),
-    )
-
-    pinned: int = Field(
-        default=1,
-        ge=0,
-        description=(
-            "Leading messages never evicted: the first user request (the "
-            "task). The first agent reply is intentionally NOT pinned — it "
-            "can be a huge multi-tool turn, and pinning it would make "
-            "/compact unable to reclaim it."
+            "Deprecated scroll-only tool result cap. Tool output sizing is "
+            "handled by tool_result_pruning_config. Excluded when saving so "
+            "legacy configurations migrate on their next write."
         ),
     )
 
     repl_timeout_s: int = Field(
         default=300,
         ge=1,
-        description="Per-call timeout for the execute_python REPL tool.",
+        description=(
+            "Per-call timeout for the recall_history_python REPL tool."
+        ),
     )
 
     history_retention_days: int = Field(
@@ -886,7 +903,7 @@ class ScrollContextConfig(BaseModel):
     allow_unsandboxed: bool = Field(
         default=False,
         description=(
-            "UNSAFE escape hatch. The execute_python recall REPL runs "
+            "UNSAFE escape hatch. The recall_history_python recall REPL runs "
             "model-authored Python and is only isolated by the sandbox; the "
             "sandbox config is injected by the governance layer. When that "
             "layer is degraded the tool fails closed and refuses to run. Set "
@@ -918,7 +935,7 @@ class LightContextConfig(BaseModel):
         description=(
             "Context management strategy. 'native' = AgentScope compression; "
             "'scroll' = retrieval-driven history.db + eviction index with a "
-            "sandboxed execute_python recall REPL (the default)."
+            "sandboxed recall_history_python recall REPL (the default)."
         ),
     )
 
@@ -946,6 +963,22 @@ class LightContextConfig(BaseModel):
     scroll_config: ScrollContextConfig = Field(
         default_factory=ScrollContextConfig,
     )
+
+    @model_validator(mode="after")
+    def warn_deprecated_scroll_tool_cap(self) -> "LightContextConfig":
+        """Warn once when the removed scroll-only tool cap is configured."""
+        global _legacy_scroll_tool_cap_warned
+        configured = (
+            "tool_output_token_cap" in self.scroll_config.model_fields_set
+        )
+        if configured and not _legacy_scroll_tool_cap_warned:
+            _legacy_scroll_tool_cap_warned = True
+            logger.warning(
+                "scroll_config.tool_output_token_cap is deprecated and "
+                "ignored; use tool_result_pruning_config."
+                "pruning_recent_msg_max_bytes instead (bytes, not tokens)",
+            )
+        return self
 
 
 class AutoTitleConfig(BaseModel):
@@ -1031,10 +1064,12 @@ class DoomLoopConfig(BaseModel):
                 ),
             ),
             DoomLoopStageConfig(
-                after=6,
+                after=4,
                 action="stop",
                 prompt=(
-                    "Doom loop: agent stuck after " "6 consecutive repetitions"
+                    "Doom loop: agent stuck "
+                    "after 4 consecutive "
+                    "repetitions"
                 ),
             ),
         ],
@@ -1104,6 +1139,98 @@ class RubricGateConfig(BaseModel):
     )
 
 
+class GateInstanceConfig(BaseModel):
+    """One built-in gate configured in a custom loop mode."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9_-]*$",
+    )
+    type: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9_]*$",
+    )
+    enabled: bool = True
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CustomLoopModeConfig(BaseModel):
+    """A saved custom loop mode made from built-in gates."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9_-]*$",
+    )
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=500)
+    slash_command: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9_-]*$",
+    )
+    enabled: bool = False
+    gates: List[GateInstanceConfig] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_display_name(cls, value: Any) -> Any:
+        """Strip display names before length and uniqueness validation."""
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @model_validator(mode="after")
+    def validate_pipeline(self) -> "CustomLoopModeConfig":
+        """Reject ambiguous or unsafe pipeline shapes."""
+        gate_ids = [gate.id for gate in self.gates]
+        if len(gate_ids) != len(set(gate_ids)):
+            raise ValueError("Gate instance IDs must be unique")
+
+        gate_types = [gate.type for gate in self.gates if gate.enabled]
+        if len(gate_types) != len(set(gate_types)):
+            raise ValueError("Gate types cannot be repeated")
+        from ..loop.catalog import get_gate_catalog
+
+        get_gate_catalog().validate_exclusive_groups(gate_types)
+        if self.enabled and not gate_types:
+            raise ValueError("Enabled custom modes require an enabled gate")
+        return self
+
+
+def normalize_custom_loop_mode_name(name: str) -> str:
+    """Return the canonical value used for custom mode name uniqueness."""
+    return name.strip().casefold()
+
+
+class GoalLoopModeConfig(BaseModel):
+    """Editable values for the fixed built-in Goal pipeline."""
+
+    max_iterations: int = Field(default=20, ge=1, le=500)
+    max_tokens: int = Field(default=300_000, ge=1)
+
+
+class MissionLoopModeConfig(BaseModel):
+    """Editable values for the fixed built-in Mission pipeline."""
+
+    max_iterations: int = Field(default=20, ge=1, le=100)
+    max_retries_per_story: int = Field(default=3, ge=0, le=10)
+    default_verification_instructions: str = Field(
+        default="",
+        max_length=4000,
+    )
+    default_verify_command: str = Field(default="", max_length=2000)
+
+
 class LoopConfig(BaseModel):
     """Loop engineering configuration."""
 
@@ -1119,6 +1246,148 @@ class LoopConfig(BaseModel):
         default_factory=RubricGateConfig,
         description="Completion check settings",
     )
+    goal: GoalLoopModeConfig = Field(
+        default_factory=GoalLoopModeConfig,
+        description="Fixed Goal mode gate values",
+    )
+    mission: MissionLoopModeConfig = Field(
+        default_factory=MissionLoopModeConfig,
+        description="Fixed Mission mode gate values",
+    )
+    custom_modes: List[CustomLoopModeConfig] = Field(
+        default_factory=list,
+        max_length=20,
+        description="User-defined loop modes built from built-in gates",
+    )
+
+    @model_validator(mode="after")
+    def validate_custom_modes(self) -> "LoopConfig":
+        """Keep custom mode identity and commands unambiguous."""
+        mode_ids = [mode.id for mode in self.custom_modes]
+        if len(mode_ids) != len(set(mode_ids)):
+            raise ValueError("Custom loop mode IDs must be unique")
+        commands = [mode.slash_command for mode in self.custom_modes]
+        if len(commands) != len(set(commands)):
+            raise ValueError("Custom loop slash commands must be unique")
+        names = [
+            normalize_custom_loop_mode_name(mode.name)
+            for mode in self.custom_modes
+        ]
+        if len(names) != len(set(names)):
+            raise ValueError("Custom loop mode names must be unique")
+
+        from ..loop.catalog import get_gate_catalog
+
+        catalog = get_gate_catalog()
+        for mode in self.custom_modes:
+            for gate in mode.gates:
+                catalog.validate_params(gate.type, gate.params)
+        return self
+
+
+def _sanitize_custom_loop_modes(
+    data: Dict[str, Any],
+    agent_id: str,
+) -> None:
+    """Skip invalid saved custom modes before profile validation.
+
+    Custom Loop Modes are optional extensions. One stale or malformed mode
+    must not make the entire Agent profile unavailable.
+    """
+    running = data.get("running")
+    if not isinstance(running, dict):
+        return
+    loop = running.get("loop")
+    if not isinstance(loop, dict):
+        return
+    raw_modes = loop.get("custom_modes")
+    if raw_modes is None:
+        return
+    if not isinstance(raw_modes, list):
+        logger.warning(
+            "Agent '%s' custom Loop Modes were ignored: expected a list",
+            sanitize_log_value(agent_id),
+        )
+        loop["custom_modes"] = []
+        return
+
+    from ..loop.catalog import get_gate_catalog
+
+    catalog = get_gate_catalog()
+    valid_modes: List[Dict[str, Any]] = []
+    mode_ids: Set[str] = set()
+    commands: Set[str] = set()
+    names: Set[str] = set()
+    for index, raw_mode in enumerate(raw_modes):
+        if len(valid_modes) >= 20:
+            logger.warning(
+                "Agent '%s' custom Loop Mode at index %d was skipped: "
+                "the maximum of 20 valid modes was reached",
+                sanitize_log_value(agent_id),
+                index,
+            )
+            continue
+        try:
+            mode = CustomLoopModeConfig.model_validate(raw_mode)
+            for gate in mode.gates:
+                catalog.validate_params(gate.type, gate.params)
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "Agent '%s' custom Loop Mode at index %d was skipped: %s",
+                sanitize_log_value(agent_id),
+                index,
+                sanitize_log_value(exc),
+            )
+            continue
+
+        normalized_name = normalize_custom_loop_mode_name(mode.name)
+        if (
+            mode.id in mode_ids
+            or mode.slash_command in commands
+            or normalized_name in names
+        ):
+            logger.warning(
+                "Agent '%s' duplicate custom Loop Mode '%s' was skipped",
+                sanitize_log_value(agent_id),
+                sanitize_log_value(mode.id),
+            )
+            continue
+        mode_ids.add(mode.id)
+        commands.add(mode.slash_command)
+        names.add(normalized_name)
+        valid_modes.append(mode.model_dump(exclude_none=True))
+
+    loop["custom_modes"] = valid_modes
+
+
+def _sanitize_loop_config(
+    data: Dict[str, Any],
+    agent_id: str,
+) -> None:
+    """Keep invalid optional Loop data from blocking Agent startup."""
+    running = data.get("running")
+    if not isinstance(running, dict) or "loop" not in running:
+        return
+    if not isinstance(running["loop"], dict):
+        logger.warning(
+            "Agent '%s' Loop configuration was invalid; using defaults",
+            sanitize_log_value(agent_id),
+        )
+        running["loop"] = LoopConfig().model_dump(exclude_none=True)
+        return
+
+    _sanitize_custom_loop_modes(data, agent_id)
+    try:
+        validated = LoopConfig.model_validate(running["loop"])
+    except (TypeError, ValueError) as exc:
+        logger.warning(
+            "Agent '%s' Loop configuration was invalid; using defaults: %s",
+            sanitize_log_value(agent_id),
+            sanitize_log_value(exc),
+        )
+        running["loop"] = LoopConfig().model_dump(exclude_none=True)
+        return
+    running["loop"] = validated.model_dump(exclude_none=True)
 
 
 class AgentsRunningConfig(BaseModel):
@@ -1344,6 +1613,10 @@ class AgentProfileRef(BaseModel):
     enabled: bool = Field(
         default=True,
         description="Whether agent is enabled (controls instance loading)",
+    )
+    pinned: bool = Field(
+        default=False,
+        description="Whether agent is pinned in agent selectors",
     )
 
 
@@ -1613,6 +1886,8 @@ class MCPClientConfig(BaseModel):
         if isinstance(raw_transport, str):
             normalized = raw_transport.strip().lower()
             transport_alias_map = {
+                "streamable_http": "streamable_http",
+                "streamable-http": "streamable_http",
                 "streamablehttp": "streamable_http",
                 "http": "streamable_http",
                 "stdio": "stdio",
@@ -1662,6 +1937,12 @@ class MCPConfig(BaseModel):
             ),
         },
     )
+    # One-shot migration watermark, persisted in agent.json.  Decoupled from
+    # DriverCard existence so that deleting a migrated client no longer lets
+    # startup migration resurrect it (#6130).  0 = not migrated; steps are
+    # defined by CURRENT_MCP_MIGRATION_VERSION in
+    # drivers.adapters.mcp_legacy_config.
+    migration_version: int = 0
 
 
 class BuiltinToolConfig(BaseModel):
@@ -1691,190 +1972,145 @@ class BuiltinToolConfig(BaseModel):
     )
 
 
-# pylint: disable=too-many-nested-blocks
-def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
-    """Return a fresh copy of the canonical built-in tool definitions.
+_BUILTIN_TOOLS_CACHE: Dict[str, BuiltinToolConfig] | None = None
+_BUILTIN_TOOLS_LOCK = threading.Lock()
 
-    This includes both hardcoded tools and dynamically registered tools
-    from plugins.
+
+def _reset_builtin_tools_cache_for_tests() -> None:
+    """Clear cached BuiltinToolConfig map (test helper only)."""
+    global _BUILTIN_TOOLS_CACHE
+    with _BUILTIN_TOOLS_LOCK:
+        _BUILTIN_TOOLS_CACHE = None
+
+
+def _copy_builtin_tools(
+    tools: Dict[str, BuiltinToolConfig],
+) -> Dict[str, BuiltinToolConfig]:
+    """Return a shallow dict of model copies so callers cannot mutate cache."""
+    return {name: cfg.model_copy() for name, cfg in tools.items()}
+
+
+def _add_plugin_tool_default(
+    tools: Dict[str, BuiltinToolConfig],
+    tool_name: str,
+    *,
+    description: str,
+    icon: str,
+) -> None:
+    """Insert a disabled-by-default plugin tool if *tool_name* is absent."""
+    if tool_name in tools:
+        return
+    tools[tool_name] = BuiltinToolConfig(
+        name=tool_name,
+        enabled=False,
+        description=description,
+        display_to_user=True,
+        async_execution=False,
+        icon=icon,
+    )
+
+
+def _merge_plugin_manifest_tools(
+    tools: Dict[str, BuiltinToolConfig],
+) -> None:
+    """Merge current plugin manifests into *tools* (disabled by default).
+
+    Mutates *tools* in place. Manifests are always read live so late-loaded
+    or unloaded plugins are reflected without process restart.
     """
-    tools = {
-        "execute_shell_command": BuiltinToolConfig(
-            name="execute_shell_command",
-            enabled=True,
-            description="Execute shell commands",
-            icon="💻",
-        ),
-        "read_file": BuiltinToolConfig(
-            name="read_file",
-            enabled=True,
-            description="Read file contents",
-            icon="📄",
-        ),
-        "write_file": BuiltinToolConfig(
-            name="write_file",
-            enabled=True,
-            description="Write content to file",
-            icon="✍️",
-        ),
-        "edit_file": BuiltinToolConfig(
-            name="edit_file",
-            enabled=True,
-            description="Edit file using find-and-replace",
-            icon="🖊️",
-        ),
-        "grep_search": BuiltinToolConfig(
-            name="grep_search",
-            enabled=True,
-            description="Search file contents by pattern",
-            icon="🔍",
-        ),
-        "glob_search": BuiltinToolConfig(
-            name="glob_search",
-            enabled=True,
-            description="Find files matching a glob pattern",
-            icon="📁",
-        ),
-        "browser_use": BuiltinToolConfig(
-            name="browser_use",
-            enabled=True,
-            description="Browser automation and web interaction",
-            icon="🌐",
-        ),
-        "desktop_screenshot": BuiltinToolConfig(
-            name="desktop_screenshot",
-            enabled=True,
-            description="Capture desktop screenshots",
-            icon="📸",
-        ),
-        "view_image": BuiltinToolConfig(
-            name="view_image",
-            enabled=True,
-            description="Load an image into LLM context for visual analysis",
-            display_to_user=False,
-            icon="🖼️",
-        ),
-        "view_video": BuiltinToolConfig(
-            name="view_video",
-            enabled=True,
-            description="Load a video into LLM context for visual analysis",
-            display_to_user=False,
-            icon="🎥",
-        ),
-        "send_file_to_user": BuiltinToolConfig(
-            name="send_file_to_user",
-            enabled=True,
-            description="Send files to user",
-            icon="📤",
-        ),
-        "get_current_time": BuiltinToolConfig(
-            name="get_current_time",
-            enabled=True,
-            description="Get current date and time",
-            icon="🕐",
-        ),
-        "set_user_timezone": BuiltinToolConfig(
-            name="set_user_timezone",
-            enabled=True,
-            description="Set user timezone",
-            icon="🌍",
-        ),
-        "get_token_usage": BuiltinToolConfig(
-            name="get_token_usage",
-            enabled=True,
-            description="Get llm token usage",
-            icon="📊",
-        ),
-        "delegate_external_agent": BuiltinToolConfig(
-            name="delegate_external_agent",
-            enabled=False,
-            description="Delegate work to an external ACP agent runner",
-            icon="📡",
-        ),
-        "list_agents": BuiltinToolConfig(
-            name="list_agents",
-            enabled=True,
-            description="List configured agents from the local API",
-            icon="🤖",
-        ),
-        "chat_with_agent": BuiltinToolConfig(
-            name="chat_with_agent",
-            enabled=True,
-            description=(
-                "Send a message to another configured agent and wait for "
-                "the response"
-            ),
-            icon="💬",
-        ),
-        "submit_to_agent": BuiltinToolConfig(
-            name="submit_to_agent",
-            enabled=True,
-            description="Submit a background task to another configured agent",
-            icon="📨",
-        ),
-        "check_agent_task": BuiltinToolConfig(
-            name="check_agent_task",
-            enabled=True,
-            description="Check the status of a background agent task",
-            icon="⏳",
-        ),
-        "spawn_subagent": BuiltinToolConfig(
-            name="spawn_subagent",
-            enabled=True,
-            description=(
-                "Spawn an ephemeral sub-task within the current " "workspace"
-            ),
-            icon="🔀",
-        ),
-    }
-
-    # Merge dynamically registered tools from plugins
     try:
         from ..plugins.registry import PluginRegistry
 
         registry = PluginRegistry()
-        # Access manifests via public method
         all_manifests = registry.get_all_plugin_manifests()
-        for plugin_id, manifest in all_manifests.items():
-            meta = manifest.get("meta", {})
-            # Support old format: meta.tool_name
-            if meta.get("tool_name"):
-                tool_name = meta["tool_name"]
-                if tool_name not in tools:
-                    tools[tool_name] = BuiltinToolConfig(
-                        name=tool_name,
-                        enabled=False,
-                        description=meta.get(
-                            "tool_description",
-                            f"Tool from plugin {plugin_id}",
-                        ),
-                        display_to_user=True,
-                        async_execution=False,
-                        icon=meta.get("tool_icon", "🔧"),
-                    )
-            # Support new format: meta.tools array
-            tools_list = meta.get("tools", [])
-            if isinstance(tools_list, list):
-                for tool_info in tools_list:
-                    if isinstance(tool_info, dict) and "name" in tool_info:
-                        tool_name = tool_info["name"]
-                        if tool_name not in tools:
-                            tools[tool_name] = BuiltinToolConfig(
-                                name=tool_name,
-                                enabled=False,
-                                description=tool_info.get(
-                                    "description",
-                                    f"Tool from plugin {plugin_id}",
-                                ),
-                                display_to_user=True,
-                                async_execution=False,
-                                icon=tool_info.get("icon", "🔧"),
-                            )
-    except Exception:
-        # Plugins not loaded yet, return hardcoded tools only
-        pass
+    except Exception as exc:
+        logger.debug("Plugin tool merge skipped: %s", exc)
+        return
 
-    return tools
+    for plugin_id, manifest in all_manifests.items():
+        meta = manifest.get("meta", {})
+        if meta.get("tool_name"):
+            _add_plugin_tool_default(
+                tools,
+                meta["tool_name"],
+                description=meta.get(
+                    "tool_description",
+                    f"Tool from plugin {plugin_id}",
+                ),
+                icon=meta.get("tool_icon", "🔧"),
+            )
+        tools_list = meta.get("tools", [])
+        if not isinstance(tools_list, list):
+            continue
+        for tool_info in tools_list:
+            if not isinstance(tool_info, dict) or "name" not in tool_info:
+                continue
+            _add_plugin_tool_default(
+                tools,
+                tool_info["name"],
+                description=tool_info.get(
+                    "description",
+                    f"Tool from plugin {plugin_id}",
+                ),
+                icon=tool_info.get("icon", "🔧"),
+            )
+
+
+def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
+    """Return built-in tool definitions from ``@tool_descriptor`` UI metadata.
+
+    Descriptor-derived configs are process-cached (stable). Plugin tools from
+    manifests are merged on every call (disabled by default) so late-loaded
+    plugins are not permanently omitted after startup warm-up.
+    Descriptor import failure fails closed (raises).
+    """
+    global _BUILTIN_TOOLS_CACHE
+    with _BUILTIN_TOOLS_LOCK:
+        if _BUILTIN_TOOLS_CACHE is None:
+            tools: Dict[str, BuiltinToolConfig] = {}
+            try:
+                # Side-effect import via importlib (not `from ..agents import
+                # tools`) so mypy --follow-imports=skip does not form a static
+                # cycle with agents.tools → delegate_external_agent → config.
+                importlib.import_module("qwenpaw.agents.tools")
+                from ..runtime.tool_registry import get_builtin_tool_funcs
+
+                for fn in get_builtin_tool_funcs():
+                    desc = getattr(fn, "_tool_descriptor", None)
+                    if desc is None:
+                        continue
+                    ui = getattr(desc, "ui", None)
+                    tools[desc.name] = BuiltinToolConfig(
+                        name=desc.name,
+                        enabled=desc.enabled_by_default,
+                        description=(
+                            (ui.description if ui and ui.description else "")
+                            or desc.description
+                            or ""
+                        ),
+                        display_to_user=(
+                            ui.display_to_user if ui is not None else True
+                        ),
+                        async_execution=desc.async_execution,
+                        icon=(ui.icon if ui and ui.icon else None),
+                    )
+            except Exception as exc:
+                logger.error(
+                    "Failed to build BuiltinToolConfig from tool "
+                    "descriptors: %s",
+                    exc,
+                    exc_info=True,
+                )
+                raise RuntimeError(
+                    "Failed to build built-in tool config from descriptors; "
+                    "refusing to persist an empty/incomplete ToolsConfig",
+                ) from exc
+
+            _BUILTIN_TOOLS_CACHE = tools
+
+        merged = _copy_builtin_tools(_BUILTIN_TOOLS_CACHE)
+        _merge_plugin_manifest_tools(merged)
+        return merged
 
 
 class ToolsConfig(BaseModel):
@@ -1991,7 +2227,16 @@ class ToolGuardConfig(BaseModel):
     enabled: bool = True
     guarded_tools: Optional[List[str]] = None
     denied_tools: List[str] = Field(default_factory=list)
-    auto_denied_rules: List[str] = Field(default_factory=list)
+    auto_denied_rules: List[str] = Field(
+        default_factory=lambda: ["SAFETY_CHECKS_DESTRUCTIVE_COMMAND"],
+        description=(
+            "Rule IDs that unconditionally deny matched tool calls. "
+            "Defaults to SAFETY_CHECKS_DESTRUCTIVE_COMMAND (catastrophic "
+            "wipes/mkfs/dd only). An empty list is treated as unset and "
+            "keeps that default (legacy configs). To disable auto-deny, "
+            "set env QWENPAW_TOOL_GUARD_AUTO_DENIED_RULES=none."
+        ),
+    )
     custom_rules: List[ToolGuardRuleConfig] = Field(default_factory=list)
     disabled_rules: List[str] = Field(default_factory=list)
     shell_evasion_checks: Dict[str, bool] = Field(
@@ -2055,6 +2300,17 @@ class SecurityConfig(BaseModel):
     skill_scanner: SkillScannerConfig = Field(
         default_factory=SkillScannerConfig,
     )
+    sandbox_enabled: bool = Field(
+        default=False,
+        description=(
+            "Global switch for governance sandbox execution. Defaults to "
+            "False (sandbox off). When True, shell tools with no matching "
+            "rule run inside the sandbox (no user prompt). When False, such "
+            "calls run directly without the sandbox (no prompt). Phase 0-2 "
+            "protections (secret-file / dangerous-command blocking) are "
+            "unaffected either way."
+        ),
+    )
     allow_no_auth_hosts: List[str] = Field(
         default_factory=lambda: ["127.0.0.1", "::1"],
         description=(
@@ -2064,6 +2320,34 @@ class SecurityConfig(BaseModel):
             "WARNING: Only add trusted IP addresses to this list."
         ),
     )
+    trusted_proxies: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Reverse proxy IP/CIDR list. X-Forwarded-For / X-Real-IP "
+            "headers are only trusted when the direct TCP peer matches "
+            "an entry in this list. Empty (default) = never trust proxy "
+            "headers. Example: ['127.0.0.1', '172.17.0.0/16']"
+        ),
+    )
+
+    @field_validator("trusted_proxies")
+    @classmethod
+    def _validate_trusted_proxies(cls, v: List[str]) -> List[str]:
+        import ipaddress as _ipaddress
+
+        _DENY = {"0.0.0.0/0", "::/0", "0.0.0.0", "::"}
+        cleaned = []
+        for entry in v:
+            entry = entry.strip()
+            if entry in _DENY:
+                raise ValueError(
+                    f"trusted_proxies must not contain"
+                    f" '{entry}' (equivalent to disabling"
+                    f" the security fix)",
+                )
+            net = _ipaddress.ip_network(entry, strict=False)
+            cleaned.append(str(net))
+        return cleaned
 
 
 class Config(BaseModel):
@@ -2240,6 +2524,31 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
     return migrated
 
 
+def migrate_channel_display_fields(channels: object) -> bool:
+    """Migrate legacy channel display settings in-place.
+
+    Only translates the legacy boolean flags into their replacements; the
+    remaining fields fall back to the model defaults, so channels without
+    legacy settings are left untouched (no spurious config rewrite).
+    """
+    if not isinstance(channels, dict):
+        return False
+    migrated = False
+    for channel_cfg in channels.values():
+        if not isinstance(channel_cfg, dict):
+            continue
+        legacy = channel_cfg.pop("filter_tool_messages", None)
+        if legacy is not None:
+            channel_cfg.setdefault("show_tool_calls", not bool(legacy))
+            channel_cfg.setdefault("show_tool_results", not bool(legacy))
+            migrated = True
+        legacy_thinking = channel_cfg.pop("filter_thinking", None)
+        if legacy_thinking is not None:
+            channel_cfg.setdefault("show_thinking", not bool(legacy_thinking))
+            migrated = True
+    return migrated
+
+
 def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     agent_id: str,
 ) -> AgentProfileConfig:
@@ -2300,59 +2609,51 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         with open(agent_config_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
-        # One-shot migration: rename legacy ``channels.weixin`` key to
-        # ``channels.wechat`` and rewrite the file on disk so future loads
-        # see the canonical key directly. This rewrite must happen BEFORE
-        # any in-memory normalization (e.g. ~/.copaw path rewriting) so we
-        # only persist the key rename, not unrelated runtime transforms.
+        # Match the existing migration behavior: migrate this workspace only
+        # when its agent configuration is loaded.
         channels = data.get("channels")
+        weixin_migrated = False
         if isinstance(channels, dict) and "weixin" in channels:
             legacy = channels.pop("weixin")
-            if "wechat" not in channels:
-                channels["wechat"] = legacy
-            try:
-                import uuid as _uuid
-                import shutil as _shutil
+            channels.setdefault("wechat", legacy)
+            weixin_migrated = True
 
-                backup_path = agent_config_path.with_suffix(
-                    f".{_uuid.uuid4().hex[:8]}.weixin-migrate.bak",
-                )
-                _shutil.copy2(agent_config_path, backup_path)
+        if isinstance(channels, dict):
+            display_migrated = migrate_channel_display_fields(channels)
+            access_control_migrated = _migrate_access_control_fields(
+                channels,
+                workspace_dir,
+            )
+        else:
+            display_migrated = False
+            access_control_migrated = False
+
+        if weixin_migrated or display_migrated or access_control_migrated:
+            try:
+                if weixin_migrated or display_migrated:
+                    import uuid as _uuid
+                    import shutil as _shutil
+
+                    migration_name = (
+                        "channel-display" if display_migrated else "weixin"
+                    )
+                    backup_path = agent_config_path.with_suffix(
+                        f".{_uuid.uuid4().hex[:8]}."
+                        f"{migration_name}-migrate.bak",
+                    )
+                    _shutil.copy2(agent_config_path, backup_path)
                 with open(
                     agent_config_path,
                     "w",
                     encoding="utf-8",
-                ) as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-                # Refresh mtime cache key after rewriting the file so the
-                # cached config still reflects the on-disk state.
+                ) as file:
+                    json.dump(data, file, ensure_ascii=False, indent=2)
                 try:
                     current_mtime = agent_config_path.stat().st_mtime
                 except OSError:
                     pass
             except OSError:
                 pass
-
-        # One-shot migration: convert legacy access control fields.
-        if isinstance(channels, dict):
-            _acl_migrated = _migrate_access_control_fields(
-                channels,
-                workspace_dir,
-            )
-            if _acl_migrated:
-                try:
-                    with open(
-                        agent_config_path,
-                        "w",
-                        encoding="utf-8",
-                    ) as f:
-                        json.dump(data, f, ensure_ascii=False, indent=2)
-                    try:
-                        current_mtime = agent_config_path.stat().st_mtime
-                    except OSError:
-                        pass
-                except OSError:
-                    pass
 
         # Normalize legacy ~/.copaw-bound paths to current WORKING_DIR.
         # This keeps QWENPAW_WORKING_DIR effective even if existing agent.json
@@ -2365,6 +2666,14 @@ def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
             data = _normalize_working_dir_bound_paths(data)
         except Exception:
             pass
+
+        # Pre-validate MCP clients: skip invalid ones so a
+        # single misconfigured MCP client does not prevent the
+        # entire agent from loading.
+        from .utils import sanitize_mcp_clients
+
+        sanitize_mcp_clients(data, agent_id)
+        _sanitize_loop_config(data, agent_id)
 
         agent_config = AgentProfileConfig(**data)
 
@@ -2403,22 +2712,13 @@ def save_agent_config(
 
     agent_ref = config.agents.profiles[agent_id]
     workspace_dir = Path(agent_ref.workspace_dir).expanduser()
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-
     agent_config_path = workspace_dir / "agent.json"
-
-    with open(agent_config_path, "w", encoding="utf-8") as f:
-        json.dump(
-            agent_config.model_dump(exclude_none=True),
-            f,
-            ensure_ascii=False,
-            indent=2,
-        )
-
-    # Invalidate cache after saving
     with _agent_config_lock:
-        if agent_id in _agent_config_cache:
-            del _agent_config_cache[agent_id]
+        write_json_atomic(
+            agent_config_path,
+            agent_config.model_dump(exclude_none=True),
+        )
+        _agent_config_cache.pop(agent_id, None)
 
 
 def migrate_legacy_config_to_multi_agent() -> bool:
@@ -2575,9 +2875,13 @@ def migrate_legacy_config_to_multi_agent() -> bool:
 def get_model_max_input_length(
     agent_config: "AgentProfileConfig",
 ) -> int:
-    """Return ``max_input_length`` from the active model's ``ModelInfo``.
+    """Return the active model's resolved context window.
 
-    Falls back to 128 * 1024 (131072) if model info is unavailable.
+    Delegates to ``Provider.get_context_size`` — the SAME resolution the
+    compaction trigger uses (explicit ``max_input_length`` > static
+    context-window catalog > 128k default) — so /history, usage%%, and
+    daemon status can never disagree with when compression actually fires.
+    Falls back to 128 * 1024 (131072) if the provider is unavailable.
     Accepts an already-loaded *agent_config* to avoid redundant file I/O
     on hot paths (pre_reasoning, compact_context, summarize, etc.).
     """
@@ -2597,9 +2901,7 @@ def get_model_max_input_length(
             manager = ProviderManager.get_instance()
             provider = manager.get_provider(model_slot.provider_id)
             if provider:
-                model_info = provider.get_model_info(model_slot.model)
-                if model_info is not None:
-                    return model_info.max_input_length
+                return provider.get_context_size(model_slot.model)
         except Exception:
             pass
     logger.debug(

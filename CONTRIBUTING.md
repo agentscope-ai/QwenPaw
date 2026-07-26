@@ -120,12 +120,8 @@ Channels are how QwenPaw talks to **DingTalk, Feishu, QQ, Discord, iMessage**, e
   - Set the class attribute `channel` to a unique channel key (e.g. `"telegram"`).
   - Implement the lifecycle and message handling (e.g. receive → `content_parts` → `process` → send response).
   - Use the manager’s queue and consumer loop if the channel is long-lived (default).
-- **Discovery:** Built-in channels are registered in `src/qwenpaw/app/channels/registry.py`. **Custom channels** are loaded from the working directory: place a module (e.g. `custom_channels/telegram.py` or a package `custom_channels/telegram/`) that defines a `BaseChannel` subclass with a `channel` attribute.
-- **CLI:** Users install/add channels with:
-  - `qwenpaw channels install <key>` — create a template or copy from `--path` / `--url`
-  - `qwenpaw channels add <key>` — install and add to config
-  - `qwenpaw channels remove <key>` — remove custom channel from `custom_channels/`
-  - `qwenpaw channels config` — interactive config
+- **Discovery:** Built-in channels are registered in `src/qwenpaw/app/channels/registry.py`. **Custom channels** are registered via the plugin system — create a plugin with `type: "channel"` and call `api.register_channel(...)` in your plugin's `register()` method. See the [Plugin System docs](website/public/docs/plugins.en.md) for a full example.
+- **CLI:** `qwenpaw channels config` — interactive config; `qwenpaw channels list` — view status.
 
 If you contribute a **new built-in channel**, add it to the registry and, if needed, a configurator so it appears in the Console and CLI. Document the new channel (auth, webhooks, etc.) in `website/public/docs/channels.*.md`.
 

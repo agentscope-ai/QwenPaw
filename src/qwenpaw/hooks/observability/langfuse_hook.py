@@ -38,7 +38,7 @@ class LangfuseTraceHook(LifecycleHook):
 
         from ...runtime.message_convert import _get_last_user_text
 
-        trace_id = str(uuid.uuid4())
+        trace_id = uuid.uuid4().hex
         metadata = {
             "session_id": ctx.session_id,
             "root_session_id": ctx.root_session_id,
@@ -60,7 +60,7 @@ class LangfuseTraceHook(LifecycleHook):
             await scope.__aenter__()
             ctx.extras[_LANGFUSE_SCOPE_KEY] = scope
         except Exception:
-            logger.debug("langfuse trace scope open failed", exc_info=True)
+            logger.warning("langfuse trace scope open failed", exc_info=True)
         return HookResult()
 
 

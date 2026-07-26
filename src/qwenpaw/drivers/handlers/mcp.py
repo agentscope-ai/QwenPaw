@@ -339,7 +339,7 @@ def _mcp_tool_to_capability(
         getattr(raw_tool, "description", getattr(tool, "description", ""))
         or "",
     )
-    if display_namespace != driver_name:
+    if display_namespace != driver_name and display_name:
         description = (
             f"{description}\n\n"
             f"MCP server display name: {display_name}. "
@@ -415,4 +415,4 @@ def _tool_namespace_from_display_name(
     fallback: str,
 ) -> str:
     namespace = _TOOL_NAME_SAFE_CHARS.sub("_", display_name.strip()).strip("_")
-    return namespace or fallback
+    return namespace or _sanitize_tool_name(fallback)

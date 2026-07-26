@@ -15,8 +15,8 @@ from openai import APIError
 from pydantic import Field
 
 from qwenpaw.providers.provider import ModelInfo, Provider
-from .capping_formatter import _CappingOpenAIFormatter
-from .capping_formatter import MAX_INLINE_MEDIA_BYTES
+
+from .capping_formatter import MAX_INLINE_MEDIA_BYTES, _CappingOpenAIFormatter
 
 if TYPE_CHECKING:
     from qwenpaw.providers.multimodal_prober import ProbeResult
@@ -32,6 +32,24 @@ CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
 TOKEN_PLAN_BASE_URL = (
     "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 )
+
+
+def _uses_max_completion_tokens(model_id: str) -> bool:
+    """Return whether an OpenAI model requires max_completion_tokens."""
+    model_name = model_id.strip().lower().rsplit("/", maxsplit=1)[-1]
+    return model_name.startswith("gpt-5") or (
+        len(model_name) > 1
+        and model_name[0] == "o"
+        and model_name[1].isdigit()
+    )
+
+
+def _token_limit_kwargs(model_id: str, limit: int) -> dict[str, int]:
+    """Build the model-specific output token limit argument."""
+    if _uses_max_completion_tokens(model_id):
+        return {"max_completion_tokens": limit}
+    return {"max_tokens": limit}
+
 
 if os.environ.get("LANGFUSE_SECRET_KEY") and importlib.util.find_spec(
     "langfuse",
@@ -103,12 +121,19 @@ class OpenAIProvider(Provider):
         try:
             await client.models.list(timeout=timeout)
             return True, ""
-        except APIError:
-            return False, f"API error when connecting to `{self.base_url}`"
-        except Exception:
+        except APIError as exc:
+            detail = str(exc) or getattr(exc, "message", "")
+            status = getattr(exc, "status_code", "unknown")
             return (
                 False,
-                f"Unknown exception when connecting to `{self.base_url}`",
+                f"API error when connecting to `{self.base_url}` "
+                f"(status={status}): {detail}",
+            )
+        except Exception as exc:
+            return (
+                False,
+                f"Unknown exception when connecting to `{self.base_url}`: "
+                f"{exc}",
             )
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
@@ -149,8 +174,8 @@ class OpenAIProvider(Provider):
                     },
                 ],
                 timeout=timeout,
-                max_tokens=20,
                 stream=True,
+                **_token_limit_kwargs(model_id, 20),
             )
             # consume the stream to ensure the model is actually responsive
             async for _ in res:
@@ -193,8 +218,16 @@ class OpenAIProvider(Provider):
             merged_headers["X-DashScope-Cdpl"] = dashscope_meta
 
         gen_kwargs = self.get_effective_generate_kwargs(model_id)
+        max_tokens = gen_kwargs.pop("max_tokens", None)
+        if _uses_max_completion_tokens(model_id):
+            if max_tokens is not None:
+                gen_kwargs.setdefault(
+                    "max_completion_tokens",
+                    max_tokens,
+                )
+            max_tokens = None
         parameters = OpenAIChatModel.Parameters(
-            max_tokens=gen_kwargs.pop("max_tokens", None),
+            max_tokens=max_tokens,
             temperature=gen_kwargs.pop("temperature", None),
             top_p=gen_kwargs.pop("top_p", None),
         )
@@ -206,10 +239,15 @@ class OpenAIProvider(Provider):
             stream=True,
             default_headers=merged_headers or None,
             extra_generate_kwargs=gen_kwargs or None,
+            output_token_param=(
+                "max_completion_tokens"
+                if _uses_max_completion_tokens(model_id)
+                else "max_tokens"
+            ),
             context_size=self._get_context_size(model_id),
             formatter=_CappingOpenAIFormatter(
                 max_bytes=self.max_inline_media_bytes,
-                relay_reasoning_content=self._get_preserve_thinking(model_id),
+                relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
         )
 
@@ -279,8 +317,8 @@ class OpenAIProvider(Provider):
             this class of silent failures.
         """
         from .multimodal_prober import (
-            _PROBE_IMAGE_B64,
             _IMAGE_PROBE_PROMPT,
+            _PROBE_IMAGE_B64,
             _is_media_keyword_error,
             evaluate_image_probe_answer,
         )
@@ -315,8 +353,8 @@ class OpenAIProvider(Provider):
                         ],
                     },
                 ],
-                max_tokens=200,
                 timeout=timeout,
+                **_token_limit_kwargs(model_id, 200),
             )
             answer = (res.choices[0].message.content or "").lower().strip()
             reasoning = ""
@@ -362,10 +400,7 @@ class OpenAIProvider(Provider):
         timeout: float = 30,
     ) -> tuple[bool, str]:
         """Probe video support with automatic format fallback."""
-        from .multimodal_prober import (
-            _PROBE_VIDEO_B64,
-            _PROBE_VIDEO_URL,
-        )
+        from .multimodal_prober import _PROBE_VIDEO_B64, _PROBE_VIDEO_URL
 
         logger.info(
             "Video probe start: model=%s url=%s",
@@ -436,8 +471,8 @@ class OpenAIProvider(Provider):
                         ],
                     },
                 ],
-                max_tokens=200,
                 timeout=req_timeout,
+                **_token_limit_kwargs(model_id, 200),
             )
             return self._evaluate_video_response(
                 res,
@@ -609,3 +644,68 @@ class KiloProvider(_FreeSuffixProviderMixin, OpenAIProvider):
     """Kilo Code provider with dynamic free model detection."""
 
     _FREE_SUFFIX = ":free"
+
+
+class GitHubModelsProvider(OpenAIProvider):
+    """GitHub Models provider.
+
+    GitHub Models exposes an OpenAI-compatible chat completions endpoint at
+    ``https://models.github.ai/inference``.  Unlike many OpenAI-compatible
+    providers it does **not** implement the ``/models`` listing endpoint, so
+    the generic ``OpenAIProvider.check_connection`` (which calls
+    ``client.models.list()``) receives a 404 response.  This override checks
+    connectivity by issuing a minimal chat completion request instead.
+    """
+
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
+        """Check connectivity via a tiny chat completion request."""
+        # Prefer a built-in model; fall back to a well-known GitHub Models id.
+        model_id = ""
+        for candidate in ("openai/gpt-4o-mini", "gpt-4o-mini"):
+            if any(m.id == candidate for m in self.models):
+                model_id = candidate
+                break
+        if not model_id:
+            model_id = (
+                self.models[0].id if self.models else "openai/gpt-4o-mini"
+            )
+
+        try:
+            client = self._client(timeout=timeout)
+            res = await client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "ping",
+                            },
+                        ],
+                    },
+                ],
+                timeout=timeout,
+                stream=True,
+                **_token_limit_kwargs(model_id, 5),
+            )
+            try:
+                async for _ in res:
+                    break
+            finally:
+                await res.response.aclose()
+            return True, ""
+        except APIError as exc:
+            detail = str(exc) or getattr(exc, "message", "")
+            status = getattr(exc, "status_code", "unknown")
+            return (
+                False,
+                f"API error when connecting to `{self.base_url}` "
+                f"(status={status}): {detail}",
+            )
+        except Exception as exc:
+            return (
+                False,
+                f"Unknown exception when connecting to `{self.base_url}`: "
+                f"{exc}",
+            )

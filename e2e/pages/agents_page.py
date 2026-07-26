@@ -53,16 +53,23 @@ class AgentsPage(BasePage):
     AGENT_WORKSPACE_CELL = 'td.qwenpaw-table-cell:nth-child(5)'
     AGENT_MODEL_CELL = 'td.qwenpaw-table-cell:nth-child(6)'
     AGENT_ACTIONS_CELL = 'td.qwenpaw-table-cell:nth-child(7)'
-    AGENT_STATUS = '.qwenpaw-tag'
+    # Post-#6198 the name cell shows an AgentStatusIndicator dot exposing a
+    # ``data-status`` attribute (disabled/pending/starting/running/failed)
+    # instead of a "Disabled" Tag.
+    AGENT_STATUS = '[data-status]'
 
     # Action buttons
     CREATE_AGENT_BTN = 'button:has-text("创建智能体"), button:has-text("Create Agent"), .qwenpaw-btn-primary'
-    # Inline action buttons in a table row (3 icon buttons: edit, toggle, delete)
-    # Locate via Ant Design icon class names (anticon-edit / anticon-delete), fallback to nth-child
-    EDIT_BTN = 'button:has(.anticon-edit), .qwenpaw-space-item:nth-child(1) button'
-    TOGGLE_BTN = '.qwenpaw-space-item:nth-child(2) button'
+    # Inline action buttons in a table row. Post-redesign (upstream #6198) the
+    # actions are 4 icon buttons in order: Pin | Edit | Toggle | Delete. Anchor
+    # on the icon (not Space position) so the added Pin button can't shift us:
+    #   Edit   = antd EditOutlined    -> .anticon-edit
+    #   Toggle = lucide Eye/EyeOff    -> svg.lucide-eye / svg.lucide-eye-off
+    #   Delete = antd DeleteOutlined  -> .anticon-delete (danger button)
+    EDIT_BTN = 'button:has(.anticon-edit)'
+    TOGGLE_BTN = 'button:has(svg.lucide-eye-off), button:has(svg.lucide-eye), .qwenpaw-space-item:nth-child(3) button'
     DELETE_BTN = 'button.qwenpaw-btn-dangerous, button:has(.anticon-delete)'
-    ENABLE_TOGGLE = '.qwenpaw-space-item:nth-child(2) button'
+    ENABLE_TOGGLE = 'button:has(svg.lucide-eye-off), button:has(svg.lucide-eye), .qwenpaw-space-item:nth-child(3) button'
     REFRESH_BTN = 'button:has(.anticon-reload), button:has(.spark-icon-spark-refresh-line)'
 
     # Create/edit form
@@ -134,11 +141,14 @@ class AgentsPage(BasePage):
             try:
                 name_cell = row.locator(self.AGENT_NAME_CELL).first
                 name_text = name_cell.inner_text() if name_cell.is_visible() else ""
-                # The name cell may contain a "Disabled" tag that needs to be stripped
-                status_tag = name_cell.locator(self.AGENT_STATUS).first
-                status = status_tag.inner_text().strip() if status_tag.is_visible() else ""
-                # Remove the status tag text from the raw name text
-                clean_name = name_text.replace(status, "").strip() if status else name_text.strip()
+                # Post-#6198 status is an AgentStatusIndicator dot exposing a
+                # ``data-status`` attribute (no visible text) — read the attribute.
+                status_dot = name_cell.locator(self.AGENT_STATUS).first
+                status = (
+                    (status_dot.get_attribute("data-status") or "").strip()
+                    if status_dot.count() > 0 else ""
+                )
+                clean_name = name_text.strip()
 
                 id_cell = row.locator(self.AGENT_ID_CELL).first
                 agent_id = id_cell.inner_text().strip() if id_cell.is_visible() else ""
@@ -367,7 +377,11 @@ class AgentsPage(BasePage):
 
     def toggle_agent_status(self, agent_name: str) -> "AgentsPage":
         """
-        Toggle the agent enabled status (clicks the second Actions button and confirms the Popconfirm).
+        Toggle the agent enabled status.
+
+        Clicks the Eye/EyeOff Toggle icon button and confirms the Popconfirm.
+        Post-#6198 the toggle is disabled while the agent is still starting
+        (startup_status pending/starting), so we wait for it to become enabled.
 
         Args:
             agent_name: Agent name.
@@ -377,6 +391,13 @@ class AgentsPage(BasePage):
         if agent_row:
             actions_cell = agent_row.locator(self.AGENT_ACTIONS_CELL).first
             toggle_btn = actions_cell.locator(self.TOGGLE_BTN).first
+            # Wait out the startup-readiness gate before clicking.
+            try:
+                expect(toggle_btn).to_be_enabled(timeout=20000)
+            except (AssertionError, TimeoutError, Exception):
+                logger.warning(
+                    "[toggle] toggle still disabled after 20s; clicking anyway"
+                )
             toggle_btn.click()
             self.wait(500)
             # The toggle action triggers a Popconfirm that must be confirmed
@@ -402,26 +423,23 @@ class AgentsPage(BasePage):
 
     def get_agent_status(self, agent_name: str) -> str:
         """
-        Return the agent status.
+        Return the agent's startup status.
 
-        Args:
-            agent_name: Agent name.
-
-        Returns:
-            Status text (e.g. "Disabled" or empty string when enabled).
+        Post-#6198 this is the AgentStatusIndicator ``data-status`` attribute
+        (e.g. "disabled" / "pending" / "starting" / "running" / "failed"),
+        or "" when the indicator is absent.
         """
         agent_row = self.find_agent_by_name(agent_name)
         if agent_row:
             name_cell = agent_row.locator(self.AGENT_NAME_CELL).first
-            status_tag = name_cell.locator(self.AGENT_STATUS).first
-            if status_tag.is_visible():
-                return status_tag.inner_text().strip()
+            status_dot = name_cell.locator(self.AGENT_STATUS).first
+            if status_dot.count() > 0:
+                return (status_dot.get_attribute("data-status") or "").strip()
         return ""
 
     def is_agent_enabled(self, agent_name: str) -> bool:
-        """Return whether the agent is enabled (no Disabled tag means enabled)."""
-        status = self.get_agent_status(agent_name)
-        return status == "" or "Enabled" in status or "active" in status.lower()
+        """Return whether the agent is enabled (data-status != "disabled")."""
+        return self.get_agent_status(agent_name) != "disabled"
 
     # ========== Agent file management ==========
 

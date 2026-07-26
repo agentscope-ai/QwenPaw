@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Literal, Optional, Union
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.events import (
     EVENT_JOB_MAX_INSTANCES,
@@ -38,6 +40,9 @@ HEARTBEAT_JOB_ID = "_heartbeat"
 DREAM_JOB_ID = "_dream"
 HEARTBEAT_MISFIRE_GRACE_SECONDS = 60
 DREAM_MISFIRE_GRACE_SECONDS = 600
+# Spread scheduled Auto-Dream calls across the minute after the configured
+# cron time so installations using the default schedule do not start at once.
+DREAM_JITTER_MAX_SECONDS = 60
 INTERNAL_JOB_IDS = frozenset({HEARTBEAT_JOB_ID, DREAM_JOB_ID})
 CRON_HISTORY_LIMIT = 50
 
@@ -462,7 +467,7 @@ class CronManager(ManagerBase):
         self._states[job.id] = st
 
         record = CronExecutionRecord(
-            run_at=datetime.now(timezone.utc),
+            run_at=self._now_in_job_timezone(job),
             status="skipped",
             error=error_msg,
             trigger="scheduled",
@@ -591,11 +596,27 @@ class CronManager(ManagerBase):
             job,
             trigger="scheduled",
         )
+
         # refresh next_run
         aps_job = self._scheduler.get_job(job_id)
         st = self._states.get(job_id, CronJobState())
         st.next_run_at = aps_job.next_run_time if aps_job else None
         self._states[job_id] = st
+
+    @staticmethod
+    def _now_in_job_timezone(job: CronJobSpec) -> datetime:
+        tz_name = job.schedule.timezone or "UTC"
+        try:
+            tz = ZoneInfo(tz_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            logger.warning(
+                "Invalid cron job timezone, using UTC: job_id=%s "
+                "timezone=%s",
+                job.id,
+                tz_name,
+            )
+            tz = timezone.utc
+        return datetime.now(tz)
 
     async def _heartbeat_callback(self) -> None:
         """Run one heartbeat (HEARTBEAT.md as query, optional dispatch)."""
@@ -619,8 +640,15 @@ class CronManager(ManagerBase):
             logger.exception("heartbeat run failed")
 
     async def _dream_callback(self) -> None:
-        """Run one dream-based memory optimization task."""
+        """Run one scheduled dream task after a random startup delay."""
         try:
+            delay_seconds = random.randint(0, DREAM_JITTER_MAX_SECONDS)
+            logger.info(
+                "Dream task for agent %s will start in %s seconds",
+                self._agent_id,
+                delay_seconds,
+            )
+            await asyncio.sleep(delay_seconds)
             await self._workspace.memory_manager.dream()
             logger.debug("Dream task executed successfully")
         except asyncio.CancelledError:
@@ -688,7 +716,7 @@ class CronManager(ManagerBase):
                 )
                 raise
             finally:
-                st.last_run_at = datetime.now(timezone.utc)
+                st.last_run_at = self._now_in_job_timezone(job)
                 self._states[job.id] = st
                 record = CronExecutionRecord(
                     run_at=st.last_run_at,

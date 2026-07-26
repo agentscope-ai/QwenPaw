@@ -23,14 +23,16 @@ You are the **orchestrator**, not the executor. Your ONLY job is:
 - Phase 2 (after user confirms): Dispatch workers, monitor them, verify results
 
 **What you MUST NOT do:**
+- Execute the task yourself — ALL work (including research,
+  search, writing, analysis) MUST be delegated to workers
 - Run implementation commands (npm, pip, cargo, make, python, node, etc.)
 - Create/edit project source files (*.py, *.ts, *.js, *.jsx, *.tsx, etc.)
 - Install dependencies
 - Run tests/linters yourself (workers do this)
-- Do ANY actual coding work
+- Do ANY actual coding or research work
 
-**If you catch yourself about to do implementation work — STOP immediately
-and dispatch a worker instead.**
+**If you catch yourself about to do the task directly — STOP
+immediately and dispatch a worker instead.**
 
 **Language rule**: Always communicate with the user in the same language as
 the original task description below.  Worker prompts should also be in that
@@ -273,10 +275,13 @@ independently.
 
 ### 0h. Non-software tasks
 
-For research, writing, analysis, etc.: stories can be research steps,
-draft sections, analysis phases.  `branchName` may be "".  Criteria
-should still be verifiable ("Section has ≥500 words", "All sources
-cited").
+For research, writing, analysis, information search, planning,
+etc.: stories can be research steps, draft sections, analysis
+phases.  `branchName` may be "".  Criteria should still be
+verifiable ("Section has ≥500 words", "All sources cited",
+"Covers at least 3 sources").  The controller MUST NOT execute
+these tasks directly — delegate to workers just like software
+tasks.
 
 ### 0i. Checklist before saving prd.json
 
@@ -429,7 +434,8 @@ verifier prompt.**
   report progress, go to Step 1 for the next priority batch.
 - **Some failed (FAIL/PARTIAL)** → retry the failures: compose a
   new worker prompt with the verifier's failure details, re-dispatch
-  worker → verifier.  Max 3 retries per story, then ask the user.
+  worker → verifier.  Max {max_retries_per_story} retries per story,
+  then ask the user.
 - **All stories in prd.json passed** → summarise and congratulate.
 
 **You MUST continue the loop — do NOT stop between batches.**
@@ -714,6 +720,7 @@ not sufficient.  Clean up after yourself.
   ```
 - **Files changed by the worker** (from progress.txt)
 - **Acceptance criteria** from the story
+- **Additional verification instructions**: {verification_instructions}
 - **Verify command**: {verify_commands}
 
 ## Verification Strategy
@@ -806,8 +813,11 @@ def build_verifier_prompt(
     *,
     loop_dir: str,
     verify_commands: str = "",
+    verification_instructions: str = "",
 ) -> str:
     """Render the verifier prompt template."""
+    if not verification_instructions:
+        verification_instructions = "(none specified)"
     if not verify_commands:
         verify_commands = "(none specified — rely on acceptance criteria)"
         verify_step = ""
@@ -816,6 +826,7 @@ def build_verifier_prompt(
 
     return VERIFIER_PROMPT_TEMPLATE.format(
         loop_dir=loop_dir,
+        verification_instructions=verification_instructions,
         verify_commands=verify_commands,
         verify_step=verify_step,
     )
@@ -832,6 +843,8 @@ def build_master_prompt(
     agent_id: str,
     max_iterations: int = 20,
     verify_commands: str = "",
+    verification_instructions: str = "",
+    max_retries_per_story: int = 3,
     prd_path: str = "",
     progress_path: str = "",
     git_context: dict | None = None,
@@ -859,6 +872,7 @@ def build_master_prompt(
     verifier_tpl = build_verifier_prompt(
         loop_dir=loop_dir,
         verify_commands=verify_commands,
+        verification_instructions=verification_instructions,
     )
 
     return MASTER_PROMPT.format(
@@ -866,6 +880,7 @@ def build_master_prompt(
         workspace_dir=workspace_dir,
         agent_id=agent_id,
         max_iterations=max_iterations,
+        max_retries_per_story=max_retries_per_story,
         verify_commands=verify_commands,
         worker_prompt_template=worker_tpl,
         verifier_prompt_template=verifier_tpl,

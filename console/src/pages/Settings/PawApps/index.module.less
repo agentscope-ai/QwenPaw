@@ -1,0 +1,65 @@
+.page {
+  padding: 24px;
+  height: 100%;
+  overflow: auto;
+}
+
+.container {
+  height: calc(100% - 60px);
+}
+
+.layout {
+  display: flex;
+  gap: 16px;
+  height: 100%;
+  min-height: 500px;
+}
+
+.appList {
+  width: 280px;
+  min-width: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.appCard {
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.appCard:hover {
+  border-color: #ff7f16;
+}
+
+.appCardActive {
+  border-color: #ff7f16;
+  background: rgba(255, 127, 22, 0.04);
+}
+
+.appContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--qwenpaw-color-border, #e8e8e8);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.appHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--qwenpaw-color-border, #e8e8e8);
+  background: var(--qwenpaw-color-bg-container, #fff);
+}
+
+.appIframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}

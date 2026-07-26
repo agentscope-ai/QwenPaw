@@ -10,7 +10,11 @@ import api, {
   type Message,
 } from "../../../api";
 import { toDisplayUrl } from "../utils";
-import { extractTurnUsageFromOutputMessages } from "../turnUsage";
+import {
+  extractTurnUsageFromOutputMessages,
+  extractLatestSnapshotFromCards,
+} from "../turnUsage";
+import { useTurnUsageStore } from "../turnUsageStore";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -24,6 +28,42 @@ const ROLE_USER = "user";
 const ROLE_ASSISTANT = "assistant";
 const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
 const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
+
+function hydrateTurnUsageFromMessages(
+  messages: IAgentScopeRuntimeWebUIMessage[],
+): void {
+  const snap = extractLatestSnapshotFromCards(messages);
+  const activeMax = useTurnUsageStore.getState().activeMaxInputLength;
+  if (snap?.context_usage && typeof activeMax === "number" && activeMax > 0) {
+    const estimatedTokens = snap.context_usage.estimated_tokens;
+    const updatedContext = {
+      estimated_tokens: estimatedTokens,
+      max_input_length: activeMax,
+      context_usage_ratio: Math.min((estimatedTokens / activeMax) * 100, 100),
+    };
+    // Keep the latest assistant card in sync with the store. Otherwise
+    // patchContextMaxInputLength early-returns on stale card.max and the
+    // ring stops updating after a config change + model switch.
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== ROLE_ASSISTANT) continue;
+      const card = (
+        msg.cards as
+          | Array<{ code?: string; data?: Record<string, unknown> }>
+          | undefined
+      )?.find((c) => c?.code === CARD_RESPONSE);
+      if (!card?.data?.context_usage) continue;
+      card.data.context_usage = updatedContext;
+      break;
+    }
+    useTurnUsageStore.getState().setSnapshot({
+      usage: snap.usage,
+      context_usage: updatedContext,
+    });
+    return;
+  }
+  useTurnUsageStore.getState().setSnapshot(snap);
+}
 
 // ---------------------------------------------------------------------------
 // Window globals
@@ -290,6 +330,8 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     createdAt: chat.created_at ?? null,
     updatedAt: chat.updated_at ?? null,
     pinned: chat.pinned ?? false,
+    archived: chat.archived ?? false,
+    archivedAt: chat.archived_at ?? null,
   }) as ExtendedSession;
 
 /** Returns true when id is a local session id (timestamp-random, not a backend UUID). */
@@ -479,16 +521,33 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private static readonly CONVERTED_CACHE_MAX = 10;
   private static readonly CONVERTED_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-  /** LRU cache: backendId → { session, timestamp } */
+  /** LRU cache: backendId → { session, timestamp, updatedAt } */
   private convertedSessionCache = new Map<
     string,
-    { session: ExtendedSession; timestamp: number }
+    { session: ExtendedSession; timestamp: number; updatedAt: string | null }
   >();
 
-  private getCachedConvertedSession(backendId: string): ExtendedSession | null {
+  private getCachedConvertedSession(
+    backendId: string,
+    currentUpdatedAt?: string | null,
+  ): ExtendedSession | null {
     const entry = this.convertedSessionCache.get(backendId);
     if (!entry) return null;
     if (Date.now() - entry.timestamp > SessionApi.CONVERTED_CACHE_TTL) {
+      this.convertedSessionCache.delete(backendId);
+      return null;
+    }
+    // Staleness check against the chat's backend updated_at: when a new
+    // message arrives from an external channel (e.g. DingTalk), the polled
+    // session list carries a newer updated_at than what we cached. The cached
+    // messages are therefore stale and must be dropped so callers re-fetch.
+    // Without this, switching away and back served stale cached messages and
+    // only a full page refresh (which recreates this singleton) showed the
+    // new message (issue #6131 follow-up).
+    if (
+      currentUpdatedAt &&
+      (!entry.updatedAt || currentUpdatedAt > entry.updatedAt)
+    ) {
       this.convertedSessionCache.delete(backendId);
       return null;
     }
@@ -501,6 +560,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private setCachedConvertedSession(
     backendId: string,
     session: ExtendedSession,
+    updatedAt: string | null,
   ): void {
     if (this.convertedSessionCache.size >= SessionApi.CONVERTED_CACHE_MAX) {
       // Evict oldest (first entry in Map iteration order)
@@ -510,6 +570,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.convertedSessionCache.set(backendId, {
       session,
       timestamp: Date.now(),
+      updatedAt,
     });
   }
 
@@ -692,6 +753,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     window.currentSessionId = sessionId;
     window.currentUserId = DEFAULT_USER_ID;
     window.currentChannel = DEFAULT_CHANNEL;
+    useTurnUsageStore.getState().setSnapshot(null);
     return {
       id: sessionId,
       name: DEFAULT_SESSION_NAME,
@@ -707,6 +769,16 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     window.currentSessionId = session.sessionId || "";
     window.currentUserId = session.userId || DEFAULT_USER_ID;
     window.currentChannel = session.channel || DEFAULT_CHANNEL;
+  }
+
+  /** Resets window identity globals to their defaults. Called on agent
+   *  switch: the globals are otherwise only rewritten when another session
+   *  loads, so a new agent would inherit the previous agent's session and
+   *  channel (possibly one that has since been deleted). */
+  resetWindowIdentity(): void {
+    window.currentSessionId = "";
+    window.currentUserId = DEFAULT_USER_ID;
+    window.currentChannel = DEFAULT_CHANNEL;
   }
 
   private findSession(id: string): ExtendedSession | undefined {
@@ -783,10 +855,32 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         channel: session.channel || DEFAULT_CHANNEL,
       };
     }
+    // Window globals can outlive the session they came from (they are only
+    // rewritten when another session loads), so trust them only when they
+    // still resolve to a session in the current list. After an agent switch
+    // the list is reloaded and a stale identity — including a channel that
+    // may no longer exist — fails this lookup and falls through to defaults.
+    const windowSessionId = window.currentSessionId || "";
+    const windowSession = windowSessionId
+      ? (this.sessionList.find(
+          (s) =>
+            (s as ExtendedSession).sessionId === windowSessionId ||
+            s.id === windowSessionId,
+        ) as ExtendedSession | undefined)
+      : undefined;
+    if (windowSession?.userId) {
+      return {
+        sessionId: windowSession.sessionId || "",
+        userId: windowSession.userId,
+        channel: windowSession.channel || DEFAULT_CHANNEL,
+      };
+    }
+    // A fresh local id is still safe to keep: blank chats are always
+    // created on the console channel.
     return {
-      sessionId: window.currentSessionId || "",
-      userId: window.currentUserId || DEFAULT_USER_ID,
-      channel: window.currentChannel || DEFAULT_CHANNEL,
+      sessionId: isLocalTimestamp(windowSessionId) ? windowSessionId : "",
+      userId: DEFAULT_USER_ID,
+      channel: DEFAULT_CHANNEL,
     };
   }
 
@@ -932,7 +1026,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     this.sessionListRequest = (async () => {
       try {
-        const chats = await api.listChats();
+        const chats = await api.listChats({ archived: false });
         return this.applyChatsToSessionList(chats);
       } finally {
         this.sessionListRequest = null;
@@ -994,12 +1088,16 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // Check LRU cache for non-generating sessions
     const isIdle = !listEntry?.generating;
     if (isIdle) {
-      const cached = this.getCachedConvertedSession(backendId);
+      const cached = this.getCachedConvertedSession(
+        backendId,
+        listEntry?.updatedAt,
+      );
       if (cached) {
         // Update mutable fields that may differ
         cached.id = displayId;
         if (listEntry?.name) cached.name = listEntry.name;
         this.updateWindowVariables(cached);
+        hydrateTurnUsageFromMessages(cached.messages ?? []);
         return cached;
       }
     }
@@ -1025,9 +1123,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 
     // Cache non-generating sessions
     if (!generating) {
-      this.setCachedConvertedSession(backendId, session);
+      this.setCachedConvertedSession(
+        backendId,
+        session,
+        listEntry?.updatedAt ?? null,
+      );
     }
 
+    hydrateTurnUsageFromMessages(session.messages ?? []);
     return session;
   }
 
@@ -1037,6 +1140,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   ): Promise<IAgentScopeRuntimeWebUISession> {
     // --- No session selected (library bug: createSession sets undefined) ---
     if (!sessionId || sessionId === "undefined" || sessionId === "null") {
+      useTurnUsageStore.getState().setSnapshot(null);
       return {
         id: sessionId || "",
         name: "",
@@ -1063,6 +1167,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           // If fetching with realId fails, return the local session without messages
           // This handles cases where the backend has an inconsistency
           this.updateWindowVariables(fromList);
+          hydrateTurnUsageFromMessages(fromList.messages ?? []);
           return fromList;
         }
       }
@@ -1083,12 +1188,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             );
           } catch {
             this.updateWindowVariables(resolved);
+            hydrateTurnUsageFromMessages(resolved.messages ?? []);
             return resolved;
           }
         }
       }
       if (fromList) {
         this.updateWindowVariables(fromList);
+        hydrateTurnUsageFromMessages(fromList.messages ?? []);
         return fromList;
       }
       return this.createEmptySession(sessionId);
@@ -1261,3 +1368,22 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
 }
 
 export default new SessionApi();
+
+// ---------------------------------------------------------------------------
+// Test-only exports (used by ./tests/testLargeSession.test.tsx — PR-F3 / #5479)
+// These helpers are pure data transforms with no side effects; exposing them
+// avoids reaching into internals via private reflection. Keep the surface tiny.
+// ---------------------------------------------------------------------------
+export const __test__ = {
+  convertMessages,
+  buildUserCard,
+  buildResponseCard,
+  toOutputMessage,
+  normalizeOutputMessageContent,
+  contentToRequestParts,
+  extractTextFromContent,
+  parseTimestamp,
+  isLocalTimestamp,
+  isGenerating,
+  resolveRealId,
+};

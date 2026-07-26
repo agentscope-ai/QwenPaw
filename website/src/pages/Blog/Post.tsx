@@ -6,15 +6,19 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
-import { ArrowLeft } from "lucide-react";
-import { BLOG_POSTS } from "./blogData";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { BLOG_POSTS, getNextBlogSlug, getPrevBlogSlug } from "./blogData";
 import {
+  compareBlogPostsByDateDesc,
   formatBlogDate,
   parseBlogMarkdown,
   type ParsedBlogPost,
 } from "@/lib/parseBlogMarkdown";
 import { MermaidBlock } from "@/components/MermaidBlock";
 import { ImageZoom } from "@/components/ImageZoom";
+import { trackBlogPostView } from "@/lib/analytics";
+import { BlogEngagement } from "@/components/BlogEngagement";
+import { BlogRelatedCard } from "@/components/BlogRelatedCard";
 
 /** Turn plain "Meeting link: https://…" lines into markdown links for session lists. */
 function linkifySessionUrls(body: string): string {
@@ -58,6 +62,11 @@ export default function BlogPost() {
   const isZh = i18n.resolvedLanguage === "zh";
   const locale = i18n.resolvedLanguage ?? "en";
   const [post, setPost] = useState<ParsedBlogPost | null>(null);
+  const [adjacentPost, setAdjacentPost] = useState<{
+    slug: string;
+    title: string;
+    direction: "next" | "prev";
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -82,8 +91,62 @@ export default function BlogPost() {
         setPost(null);
       } else {
         setPost(parsed);
+        trackBlogPostView({
+          slug,
+          title: parsed.frontmatter.title,
+          lang: isZh ? "zh" : "en",
+        });
       }
       setLoading(false);
+    });
+
+    return () => {
+      canceled = true;
+    };
+  }, [slug, isZh, isKnownSlug]);
+
+  useEffect(() => {
+    if (!slug || !isKnownSlug) {
+      setAdjacentPost(null);
+      return;
+    }
+
+    let canceled = false;
+    Promise.all(
+      BLOG_POSTS.map(async ({ slug: entrySlug }) => {
+        const parsed = await fetchBlogPost(entrySlug, isZh);
+        return parsed ? { slug: entrySlug, ...parsed } : null;
+      }),
+    ).then((results) => {
+      if (canceled) return;
+
+      const posts = results.filter(
+        (item): item is ParsedBlogPost & { slug: string } => item != null,
+      );
+      const sorted = [...posts].sort(compareBlogPostsByDateDesc);
+      const sortedSlugs = sorted.map((item) => item.slug);
+
+      const currentIndex = sortedSlugs.indexOf(slug);
+      const isLast = currentIndex === sortedSlugs.length - 1;
+      const adjacentSlug = isLast
+        ? getPrevBlogSlug(slug, sortedSlugs)
+        : getNextBlogSlug(slug, sortedSlugs);
+
+      if (!adjacentSlug) {
+        setAdjacentPost(null);
+        return;
+      }
+
+      const adjacent = sorted.find((item) => item.slug === adjacentSlug);
+      if (adjacent) {
+        setAdjacentPost({
+          slug: adjacentSlug,
+          title: adjacent.frontmatter.title,
+          direction: isLast ? "prev" : "next",
+        });
+      } else {
+        setAdjacentPost(null);
+      }
     });
 
     return () => {
@@ -179,7 +242,12 @@ export default function BlogPost() {
                 : t("blog.readTime", { minutes: readMinutes })}
             </span>
           </p>
+          {slug ? <BlogEngagement slug={slug} /> : null}
         </header>
+
+        {frontmatter.related ? (
+          <BlogRelatedCard related={frontmatter.related} />
+        ) : null}
 
         <div
           className={`docs-content blog-content${
@@ -234,14 +302,32 @@ export default function BlogPost() {
           </ReactMarkdown>
         </div>
 
-        <div className="mt-8 border-t border-[#DCC1B2] pt-5 sm:mt-10 sm:pt-6">
+        <nav
+          className="mt-8 flex items-start justify-end gap-4 border-t border-[#DCC1B2] pt-5 sm:mt-10 sm:justify-between sm:pt-6"
+          aria-label="Post navigation"
+        >
           <Link
             to="/blog"
-            className="text-sm font-medium text-(--color-primary)"
+            className="hidden shrink-0 items-center gap-1 text-sm font-medium text-(--color-primary) hover:underline sm:inline-flex"
           >
-            ← {t("blog.backToList")}
+            <ArrowLeft size={14} aria-hidden />
+            {t("blog.backToList")}
           </Link>
-        </div>
+          {adjacentPost && (
+            <Link
+              to={`/blog/${adjacentPost.slug}`}
+              className="inline-flex min-w-0 max-w-[min(100%,20rem)] items-center gap-1 text-sm font-medium text-(--color-primary) hover:underline sm:max-w-md"
+            >
+              {adjacentPost.direction === "prev" && (
+                <ArrowLeft size={14} className="shrink-0" aria-hidden />
+              )}
+              <span className="truncate">{adjacentPost.title}</span>
+              {adjacentPost.direction === "next" && (
+                <ArrowRight size={14} className="shrink-0" aria-hidden />
+              )}
+            </Link>
+          )}
+        </nav>
       </article>
     </BlogPostShell>
   );

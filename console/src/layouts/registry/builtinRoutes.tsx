@@ -34,7 +34,6 @@ const HeartbeatPage = lazyImportWithRetry("../../pages/Control/Heartbeat");
 const AgentConfigPage = lazyImportWithRetry("../../pages/Agent/Config");
 const SkillsPage = lazyImportWithRetry("../../pages/Agent/Skills");
 const SkillPoolPage = lazyImportWithRetry("../../pages/Settings/SkillPool");
-const MarketPage = lazyImportWithRetry("../../pages/Settings/Market");
 const ToolsPage = lazyImportWithRetry("../../pages/Agent/Tools");
 const WorkspacePage = lazyImportWithRetry("../../pages/Agent/Workspace");
 const MCPPage = lazyImportWithRetry("../../pages/Agent/MCP");
@@ -55,6 +54,7 @@ const BackupsPage = lazyImportWithRetry("../../pages/Settings/Backups");
 const PluginManagerPage = lazyImportWithRetry(
   "../../pages/Settings/PluginManager",
 );
+const AppCenterPage = lazyImportWithRetry("../../pages/AppCenter");
 
 /**
  * "/" lands here. Waits for useSyncCodingMode to populate the store before
@@ -90,7 +90,6 @@ export const BUILTIN_ROUTES: Route[] = [
   { id: "core.heartbeat", path: "/heartbeat", component: HeartbeatPage },
   { id: "core.skills", path: "/skills", component: SkillsPage },
   { id: "core.skill-pool", path: "/skill-pool", component: SkillPoolPage },
-  { id: "core.market", path: "/market", component: MarketPage },
   { id: "core.tools", path: "/tools", component: ToolsPage },
   { id: "core.mcp", path: "/mcp", component: MCPPage },
   { id: "core.acp", path: "/acp", component: ACPPage },
@@ -122,6 +121,14 @@ export const BUILTIN_ROUTES: Route[] = [
     id: "core.plugin-manager",
     path: "/plugin-manager",
     component: PluginManagerPage,
+  },
+  { id: "core.app-center", path: "/apps", component: AppCenterPage },
+  // Deep-link / refresh target: `/apps/<id>` also lands on the App Center,
+  // which opens the app inline (with the “← App Center” bar) from the URL.
+  {
+    id: "core.app-center.embed",
+    path: "/apps/:appId",
+    component: AppCenterPage,
   },
 ];
 

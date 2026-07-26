@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 
 from qwenpaw.constant import BUILTIN_QA_AGENT_ID
+from tests.integration.helpers import wait_for_agent_startup
 
 _AGENT_PROFILE_TOP_LEVEL_KEYS = (
     "channels",
@@ -68,6 +69,7 @@ def test_api_agents_list_create_get_delete(app_server) -> None:
     assert created.get("enabled") is True
     assert isinstance(created.get("workspace_dir"), str)
     assert created["workspace_dir"].strip()
+    assert wait_for_agent_startup(app_server, agent_id) == "running"
 
     try:
         get_resp = app_server.api_request("GET", f"/api/agents/{agent_id}")
@@ -125,6 +127,7 @@ def test_api_agents_update_and_readback(app_server) -> None:
         },
     )
     assert create_resp.status_code == 201, app_server.logs_tail()
+    assert wait_for_agent_startup(app_server, agent_id) == "running"
 
     try:
         get_before = app_server.api_request("GET", f"/api/agents/{agent_id}")
@@ -180,7 +183,19 @@ def test_api_agents_order_put_roundtrip(app_server) -> None:
     assert len(agents_before) >= 2, "need at least two agents for reorder test"
 
     baseline_ids = [item["id"] for item in agents_before]
-    reordered_ids = [baseline_ids[-1], *baseline_ids[:-1]]
+    regular_ids = [
+        item["id"]
+        for item in agents_before
+        if item["id"] != "default" and not item.get("pinned", False)
+    ]
+    if len(regular_ids) < 2:
+        pytest.skip("need at least two unpinned agents for reorder test")
+
+    first_regular = baseline_ids.index(regular_ids[0])
+    reordered_ids = list(baseline_ids)
+    reordered_ids[first_regular : first_regular + 2] = reversed(
+        reordered_ids[first_regular : first_regular + 2],
+    )
 
     try:
         put_resp = app_server.api_request(
@@ -243,6 +258,7 @@ def test_api_agent_patch_toggle_enabled_roundtrip(app_server) -> None:
         json={"id": agent_id, "name": "Toggle agent", "description": ""},
     )
     assert create_agent.status_code == 201, app_server.logs_tail()
+    assert wait_for_agent_startup(app_server, agent_id) == "running"
 
     try:
         off = app_server.api_request(
@@ -262,5 +278,6 @@ def test_api_agent_patch_toggle_enabled_roundtrip(app_server) -> None:
         assert on.status_code == 200, app_server.logs_tail()
         assert on.json().get("enabled") is True
         assert _enabled_from_list() is True
+        assert wait_for_agent_startup(app_server, agent_id) == "running"
     finally:
         app_server.api_request("DELETE", f"/api/agents/{agent_id}")

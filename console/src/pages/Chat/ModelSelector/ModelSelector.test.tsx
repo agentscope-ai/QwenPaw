@@ -67,7 +67,7 @@ const mockProvider = {
       generate_kwargs: {},
       max_tokens: 8192,
       max_input_length: 32768,
-      preserve_thinking: true,
+      relay_reasoning: true,
       thinking_enabled: null,
       thinking_budget: null,
       reasoning_effort: null,
@@ -81,7 +81,7 @@ const mockProvider = {
       generate_kwargs: {},
       max_tokens: 4096,
       max_input_length: 16384,
-      preserve_thinking: true,
+      relay_reasoning: true,
       thinking_enabled: null,
       thinking_budget: null,
       reasoning_effort: null,
@@ -172,6 +172,49 @@ describe("ModelSelector", () => {
       scope: "agent",
       agent_id: "default",
     });
+  });
+
+  it("publishes the backend-resolved context window after a model switch", async () => {
+    vi.mocked(providerApi.setActiveLlm).mockResolvedValue({
+      active_llm: {
+        provider_id: "openai",
+        model: "gpt-3.5-turbo",
+      },
+      effective_max_input_length: 65536,
+    });
+    const switched = vi.fn();
+    window.addEventListener("model-switched", switched);
+    const user = userEvent.setup();
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+
+    await user.click(screen.getAllByText("GPT-4")[0]);
+    await user.click(await screen.findByText("GPT-3.5 Turbo"));
+
+    await waitFor(() => expect(switched).toHaveBeenCalledOnce());
+    const event = switched.mock.calls[0][0] as CustomEvent;
+    expect(event.detail).toEqual({
+      maxInputLength: 65536,
+    });
+    window.removeEventListener("model-switched", switched);
+  });
+
+  it("publishes the backend-resolved context window after loading active models", async () => {
+    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
+      ...mockActiveModels,
+      effective_max_input_length: 262144,
+    });
+    const switched = vi.fn();
+    window.addEventListener("model-switched", switched);
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+
+    await waitFor(() => expect(switched).toHaveBeenCalledOnce());
+    const event = switched.mock.calls[0][0] as CustomEvent;
+    expect(event.detail).toEqual({
+      maxInputLength: 262144,
+    });
+    window.removeEventListener("model-switched", switched);
   });
 
   it("clicking the already active model does not call setActiveLlm", async () => {

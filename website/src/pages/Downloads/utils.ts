@@ -108,6 +108,21 @@ export function detectOS(): string | null {
   return null;
 }
 
+export function isRecommendedDesktopPlatform(
+  platform: string,
+  userOS: string | null,
+  availablePlatforms: string[],
+): boolean {
+  if (!userOS) return false;
+
+  const tauriPlatform = `${userOS}-tauri`;
+  if (availablePlatforms.includes(tauriPlatform)) {
+    return platform === tauriPlatform;
+  }
+
+  return platform === userOS;
+}
+
 export function formatPlatformKindLabel(kind: string): string {
   if (!kind) return "";
   return kind.charAt(0).toUpperCase() + kind.slice(1);

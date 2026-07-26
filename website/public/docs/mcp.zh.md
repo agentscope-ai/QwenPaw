@@ -280,6 +280,7 @@ QwenPaw 提供了一组开箱即用的内置工具，智能体可以直接调用
   - `case_sensitive`：是否区分大小写（默认 True）
   - `context_lines`：显示匹配行前后的上下文行数（默认 0，最大 5）
   - `include_pattern`：按文件名筛选，如 "\*.py"
+  - `show_file`：是否在每行输出文件名（默认 True）；设为 False 时多文件按文件分组，每文件仅展示一次文件名，文件组之间以 `---` 分隔
 - `glob_search`：支持递归模式如 `**/*.json`
 
 **命令执行**

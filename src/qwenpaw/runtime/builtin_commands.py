@@ -164,6 +164,8 @@ def _collect_daemon_specs() -> list[CommandSpec]:
 def _make_control_adapter(
     handler: Any,
     command_name: str,
+    *,
+    help_text: str = "",
 ) -> CommandSpec:
     """Wrap a :class:`BaseControlCommandHandler` as
     a :class:`CommandSpec`.
@@ -238,6 +240,7 @@ def _make_control_adapter(
         name=command_name,
         handler=_handler,
         category="control",
+        help_text=help_text,
     )
 
 
@@ -251,7 +254,9 @@ def _collect_control_specs() -> list[CommandSpec]:
         if name in seen_names:
             continue
         seen_names.add(name)
-        specs.append(_make_control_adapter(handler, name))
+        # Advertise from the handler's own definition site — no secondary map.
+        help_text = getattr(handler, "description", "") or ""
+        specs.append(_make_control_adapter(handler, name, help_text=help_text))
     return specs
 
 
@@ -275,6 +280,7 @@ _CONVERSATION_COMMANDS = frozenset(
         "system_prompt",
         "dream",
         "memorize",
+        "reme_status",
     },
 )
 
@@ -356,6 +362,7 @@ async def _save_agent_state(
     proxy.data = {"state": state.model_dump(mode="json")}
     if scroll_block is not None:
         proxy.data["scroll"] = scroll_block
+    proxy.data["mode_state"] = getattr(ctx, "mode_state", {})
     await session.save_session_state(
         session_id=ctx.session_id,
         user_id=user_id or ctx.session_id,
@@ -388,7 +395,11 @@ def _resolve_scroll_block(
     return existing
 
 
-def _make_conversation_adapter(name: str) -> CommandSpec:
+def _make_conversation_adapter(
+    name: str,
+    *,
+    help_text: str = "",
+) -> CommandSpec:
     """Wrap one conversation command via standalone CommandHandler.
 
     Loads AgentState directly from session — no agent instance required.
@@ -409,6 +420,9 @@ def _make_conversation_adapter(name: str) -> CommandSpec:
         if state is None:
             return None
         existing_scroll = payload.get("scroll")
+        mode_state = payload.get("mode_state")
+        if isinstance(mode_state, dict):
+            ctx.mode_state = dict(mode_state)
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
         ws_dir = str(getattr(workspace, "workspace_dir", "")) or None
@@ -476,12 +490,22 @@ def _make_conversation_adapter(name: str) -> CommandSpec:
         name=name,
         handler=_handler,
         category="conversation",
+        help_text=help_text,
     )
 
 
 def _collect_conversation_specs() -> list[CommandSpec]:
+    # Advertise from SYSTEM_COMMAND_DESCRIPTIONS — the curated subset defined
+    # next to SYSTEM_COMMANDS in command_handler.py. Commands absent from that
+    # dict keep help_text="" and are not shown in ACP autocomplete.
+    from ..agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
+
     return [
-        _make_conversation_adapter(n) for n in sorted(_CONVERSATION_COMMANDS)
+        _make_conversation_adapter(
+            n,
+            help_text=SYSTEM_COMMAND_DESCRIPTIONS.get(n, ""),
+        )
+        for n in sorted(_CONVERSATION_COMMANDS)
     ]
 
 

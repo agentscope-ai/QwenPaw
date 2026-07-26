@@ -11,22 +11,20 @@ import signal
 import subprocess
 import sys
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional
 
-from agentscope.message import TextBlock
+from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
-from agentscope.message import ToolResultState
 
-from ...constant import WORKING_DIR
 from ...config.context import (
     get_current_shell_command_executable,
     get_current_shell_command_timeout,
     get_current_workspace_dir,
 )
+from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
-
-
 from ...sandbox import ExecutionResult
 
 
@@ -363,19 +361,67 @@ def _execute_subprocess_sync(
                     pass
 
 
+# Extra seconds added to the tool-call deadline to accommodate first-time
+# sandbox creation (user provisioning, profile creation, firewall rules, ACLs).
+# Subsequent calls hit the cache and need no extension.
+_SANDBOX_SETUP_DEADLINE_EXTENSION = 180.0
+
+
 async def _execute_in_sandbox(
     cmd: str,
     sandbox_config: Any,
     timeout: float,
     cwd: str,
+    env: dict[str, str],
 ) -> ExecutionResult:
-    """Execute a shell command inside the sandbox and return raw result."""
+    """Execute a shell command inside the sandbox and return raw result.
+
+    On first invocation the sandbox setup (user creation, profile, ACLs,
+    firewall rules) can take 5-100+ seconds. To prevent the ToolCoordinator's
+    deadline from expiring during this one-time setup, we temporarily extend
+    the deadline by _SANDBOX_SETUP_DEADLINE_EXTENSION seconds. The extension
+    is only applied when the call context has a deadline set.
+    """
     from ...sandbox import create_sandbox
+    from ...tool_calls import get_call_context
 
-    sandbox_config.timeout_seconds = int(timeout)
+    # Sandbox backends rebuild their environment from os.environ. Carry over
+    # the PATH adjusted by the shell entrypoint unless policy set one itself.
+    sandbox_env = dict(sandbox_config.env_vars)
+    if not any(key.upper() == "PATH" for key in sandbox_env):
+        path_key = next(
+            (key for key in env if key.upper() == "PATH"),
+            "PATH",
+        )
+        sandbox_env[path_key] = env[path_key]
 
-    async with create_sandbox(sandbox_config) as sandbox:
-        result = await sandbox.execute(cmd, cwd=cwd)
+    effective_config = replace(
+        sandbox_config,
+        timeout_seconds=int(timeout),
+        env_vars=sandbox_env,
+    )
+
+    # Temporarily extend the tool-call deadline so that sandbox creation
+    # does not consume the user's command timeout budget.
+    ctx = get_call_context()
+    original_deadline = None
+    if ctx is not None and ctx.deadline is not None:
+        original_deadline = ctx.deadline
+        ctx.deadline += _SANDBOX_SETUP_DEADLINE_EXTENSION
+
+    try:
+        async with create_sandbox(effective_config) as sandbox:
+            # Restore the original deadline (plus only the command timeout)
+            # now that sandbox setup is complete.
+            if ctx is not None and original_deadline is not None:
+                now = asyncio.get_event_loop().time()
+                ctx.deadline = now + timeout
+            result = await sandbox.execute(cmd, cwd=cwd)
+    except BaseException:
+        # On failure, restore original deadline to avoid permanent extension
+        if ctx is not None and original_deadline is not None:
+            ctx.deadline = original_deadline
+        raise
 
     return result
 
@@ -447,7 +493,15 @@ def _is_dangerous_self_kill(cmd: str) -> bool:
 
 
 # pylint: disable=too-many-branches, too-many-statements
-@tool_descriptor(requires_sandbox=("shell_exec",), async_execution=True)
+@tool_descriptor(
+    requires_sandbox=("shell_exec",),
+    async_execution=True,
+    tool_type="shell",
+    target_param="command",
+    policy_name="Bash",
+    ui_description="Execute shell commands",
+    ui_icon="💻",
+)
 async def execute_shell_command(
     command: str,
     timeout: float = 60.0,
@@ -538,11 +592,19 @@ async def execute_shell_command(
     )
 
     if sandbox_config is not None:
+        # Create a copy with resolved shell and timeout to avoid mutating
+        # the shared config object (it may be reused across tool calls).
+        sandbox_config = replace(
+            sandbox_config,
+            shell_executable=shell_executable,
+            timeout_seconds=int(timeout),
+        )
         result = await _execute_in_sandbox(
             cmd,
             sandbox_config,
             timeout,
             str(working_dir),
+            env,
         )
         # Sandbox violation: command tried to access something not permitted
         if result.sandbox_violation:

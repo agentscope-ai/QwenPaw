@@ -21,13 +21,24 @@ on:
         required: false
         type: choice
         options:
-          - ""
+          - "auto"
           - beta
           - alpha
           - rc
           - dev
           - post
           - stable
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to create the duty issue for"
+        required: true
+        type: string
+      release_type:
+        description: "Override release type (empty = auto-detect from tag)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   issues: write
@@ -55,10 +66,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           CURRENT_TAG: >-
-            ${{ github.event_name == 'workflow_dispatch'
-                && github.event.inputs.tag
-                || github.event.release.tag_name }}
-          TYPE_OVERRIDE: ${{ github.event.inputs.release_type || '' }}
+            ${{ github.event_name == 'release'
+                && github.event.release.tag_name
+                || inputs.tag }}
+          TYPE_OVERRIDE: ${{ inputs.release_type || '' }}
         run: |
           python - << 'EOF'
           import os
@@ -71,6 +82,8 @@ jobs:
           repo = os.environ["REPO"]
           current_tag = os.environ["CURRENT_TAG"]
           type_override = os.environ.get("TYPE_OVERRIDE", "").strip()
+          if type_override == "auto":
+              type_override = ""
 
           # ── Classify release type ────────────────────────────────────────
           if type_override:
@@ -154,13 +167,10 @@ jobs:
           ASSIGNEES_JSON: ${{ steps.meta.outputs.assignees }}
           RELEASE_TYPE: ${{ steps.meta.outputs.release_type }}
           DUE_TIME: ${{ steps.due.outputs.due }}
-          INPUT_TAG: >-
-            ${{ github.event_name == 'workflow_dispatch'
-                && github.event.inputs.tag
-                || '' }}
+          INPUT_TAG: ${{ inputs.tag }}
         with:
           script: |
-            const isManual = context.eventName === 'workflow_dispatch';
+            const isManual = context.eventName !== 'release';
             let tag, releaseUrl;
 
             if (isManual) {
@@ -247,7 +257,7 @@ jobs:
             \`\`\`
 
             - [ ] Image pulled successfully
-            - [ ] Container starts, \`http://localhost:7860\` reachable
+            - [ ] Container starts, \`http://localhost:8088\` reachable
             - [ ] Model configured (API key + model saved without error)
             - [ ] Basic chat works (message sent, normal reply received)
 

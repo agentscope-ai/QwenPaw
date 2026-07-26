@@ -7,6 +7,8 @@ import json
 import logging
 import sqlite3
 import sys
+import threading
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,9 +26,11 @@ _BUSY_TIMEOUT_MS = 5000
 # tracebacks), drowning the real content: a self-pollution feedback loop. So
 # these rows stay durable + recallable by ``seq``, but are kept OUT of the FTS
 # index (and out of ``search`` — see ``MemorySpace``). Must match the recall
-# tool name in ``repl.py``; the legacy "execute_python" name is kept so rows
-# written before the rename stay excluded.
-_RECALL_TOOL_NAMES = ("recall_history_python", "execute_python")
+# tool names in ``repl.py`` and ``recall_tool.py``.
+_RECALL_TOOL_NAMES = (
+    "recall_history_python",
+    "recall_history",
+)
 
 # Columns of conversation_history, in INSERT order (minus the
 # autoincrement seq).
@@ -65,6 +69,11 @@ class HistoryStore:
     def __init__(self, db_path: str | Path) -> None:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        # Serializes the single connection across threads: ``compress`` writes
+        # from a worker thread (``asyncio.to_thread``, to spare the event loop)
+        # while ``on_save`` writes on the loop thread. Both share this
+        # connection, so every access takes ``self._lock``.
+        self._lock = threading.Lock()
         self.quarantined_to: Path | None = None
         # Durability health: flipped True the first time a write-through fails
         # (disk/SQLite error). The durability promise no longer holds while
@@ -84,7 +93,13 @@ class HistoryStore:
             self._open_and_init()
 
     def _open_and_init(self) -> None:
-        self._conn = sqlite3.connect(str(self._path))
+        # check_same_thread=False: used from both loop and worker threads;
+        # ``self._lock`` provides the serialization SQLite would get from
+        # same-thread affinity.
+        self._conn = sqlite3.connect(
+            str(self._path),
+            check_same_thread=False,
+        )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
@@ -162,11 +177,11 @@ class HistoryStore:
                 "CREATE INDEX IF NOT EXISTS ch_kind "
                 "ON conversation_history(kind)",
             )
-            # Idempotency net: a second append of the same logical event (a
-            # resume re-persisting its restored window, or the cap middleware
-            # racing the manager) collides here and is dropped by ON CONFLICT
-            # rather than duplicating a row. NULL dedup_key never conflicts, so
-            # un-keyed rows are simply never deduped.
+            # Idempotency net: a second append of the same logical event, such
+            # as a resume re-persisting its restored window, collides here and
+            # is dropped by ON CONFLICT rather than duplicating a row. NULL
+            # dedup_key never conflicts, so un-keyed rows are simply never
+            # deduped.
             self._conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_dedup "
                 "ON conversation_history(session_id, dedup_key)",
@@ -218,6 +233,31 @@ class HistoryStore:
 
     # --- write path ----------------------------------------------------
 
+    @staticmethod
+    def _insert_row(
+        session_id: str,
+        agent_id: str | None,
+        entry: LogEntry,
+        dedup_key: str | None,
+    ) -> tuple:
+        """Build the SQLite row shared by single and batched appends."""
+        return (
+            session_id,
+            agent_id,
+            entry.kind,
+            entry.role,
+            entry.name,
+            entry.content,
+            entry.tool_call_id,
+            _to_json(entry.tool_input),
+            entry.tool_state,
+            entry.headline,
+            _to_json(entry.blocks),
+            _to_json(entry.metadata or None),
+            entry.created_at or datetime.now(timezone.utc).isoformat(),
+            dedup_key,
+        )
+
     def append(
         self,
         *,
@@ -235,24 +275,9 @@ class HistoryStore:
         restored window can re-link bookkeeping without duplicating rows. A
         ``None`` key is never deduped.
         """
-        row = (
-            session_id,
-            agent_id,
-            entry.kind,
-            entry.role,
-            entry.name,
-            entry.content,
-            entry.tool_call_id,
-            _to_json(entry.tool_input),
-            entry.tool_state,
-            entry.headline,
-            _to_json(entry.blocks),
-            _to_json(entry.metadata or None),
-            entry.created_at or datetime.now(timezone.utc).isoformat(),
-            dedup_key,
-        )
+        row = self._insert_row(session_id, agent_id, entry, dedup_key)
         placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
-        with self._conn:
+        with self._lock, self._conn:
             cur = self._conn.execute(
                 f"INSERT INTO conversation_history "
                 f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders}) "
@@ -277,6 +302,51 @@ class HistoryStore:
                     (seq, entry.content or ""),
                 )
             return seq
+
+    def append_many(
+        self,
+        *,
+        session_id: str,
+        entries: Sequence[tuple[LogEntry, str | None]],
+        agent_id: str | None = None,
+    ) -> int:
+        """Append a group of events in one transaction.
+
+        Returns the number of newly inserted rows. Duplicate keys remain
+        no-ops and only newly inserted rows are added to FTS, matching
+        :meth:`append`. This is intended for backfills where committing every
+        individual row would turn SQLite fsync latency into startup latency.
+        """
+        if not entries:
+            return 0
+
+        placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
+        sql = (
+            f"INSERT INTO conversation_history "
+            f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders}) "
+            f"ON CONFLICT(session_id, dedup_key) DO NOTHING"
+        )
+        inserted = 0
+        with self._lock, self._conn:
+            for entry, dedup_key in entries:
+                row = self._insert_row(
+                    session_id,
+                    agent_id,
+                    entry,
+                    dedup_key,
+                )
+                cur = self._conn.execute(sql, row)
+                if cur.rowcount == 0:
+                    continue
+                inserted += 1
+                seq = int(cur.lastrowid or 0)
+                if self._fts and entry.name not in _RECALL_TOOL_NAMES:
+                    self._conn.execute(
+                        "INSERT INTO conversation_history_fts(rowid, content) "
+                        "VALUES (?, ?)",
+                        (seq, entry.content or ""),
+                    )
+        return inserted
 
     def update_entry(
         self,
@@ -303,7 +373,7 @@ class HistoryStore:
         # Recall-tool rows are never FTS-indexed (see ``_RECALL_TOOL_NAMES``),
         # so don't touch the index for them on update either.
         fts_sync = self._fts and name not in _RECALL_TOOL_NAMES
-        with self._conn:
+        with self._lock, self._conn:
             old_content = None
             if fts_sync:
                 r = self._conn.execute(
@@ -343,12 +413,55 @@ class HistoryStore:
     # --- read path -----------------------------------------------------
 
     def count(self, session_id: str) -> int:
-        cur = self._conn.execute(
-            "SELECT COUNT(*) AS n FROM conversation_history "
-            "WHERE session_id = ?",
-            (session_id,),
-        )
-        return int(cur.fetchone()["n"])
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT COUNT(*) AS n FROM conversation_history "
+                "WHERE session_id = ?",
+                (session_id,),
+            )
+            return int(cur.fetchone()["n"])
+
+    def existing_seqs(self, seqs: set[int]) -> set[int]:
+        """Return the subset of globally addressed history rows that exist."""
+        if not seqs:
+            return set()
+        ordered = sorted(int(seq) for seq in seqs)
+        placeholders = ", ".join("?" for _ in ordered)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT seq FROM conversation_history WHERE seq IN ("
+                + placeholders
+                + ")",
+                ordered,
+            ).fetchall()
+        return {int(row["seq"]) for row in rows}
+
+    def contents_by_seqs(self, seqs: set[int]) -> dict[int, str | None]:
+        """Return exact persisted content for globally addressed rows.
+
+        Summary evidence uses this after live tool results have been folded.
+        Querying exact primary keys, instead of a broad ``lo..hi`` range,
+        prevents interleaved rows from another agent or session entering the
+        evidence. Chunking also keeps the query below SQLite parameter limits
+        for unusually tool-heavy histories.
+        """
+        if not seqs:
+            return {}
+        ordered = sorted(int(seq) for seq in seqs)
+        found: dict[int, str | None] = {}
+        with self._lock:
+            for start in range(0, len(ordered), 500):
+                chunk = ordered[start : start + 500]
+                placeholders = ", ".join("?" for _ in chunk)
+                rows = self._conn.execute(
+                    "SELECT seq, content FROM conversation_history "
+                    f"WHERE seq IN ({placeholders})",
+                    chunk,
+                ).fetchall()
+                found.update(
+                    {int(row["seq"]): row["content"] for row in rows},
+                )
+        return found
 
     @staticmethod
     def _purge_where(
@@ -387,7 +500,7 @@ class HistoryStore:
         show before an operator commits a purge, so they never delete blindly.
         """
         where, params = self._purge_where(before, kinds)
-        with self._conn:
+        with self._lock, self._conn:
             row = self._conn.execute(
                 "SELECT COUNT(*) AS rows, "
                 "COALESCE(SUM(LENGTH(content)), 0) AS content_bytes "
@@ -424,7 +537,7 @@ class HistoryStore:
         but the file does not shrink on disk until a separate vacuum.
         """
         where, params = self._purge_where(before, kinds)
-        with self._conn:
+        with self._lock, self._conn:
             doomed = self._conn.execute(
                 "SELECT seq, content FROM conversation_history WHERE " + where,
                 params,
@@ -457,8 +570,9 @@ class HistoryStore:
         """
         # VACUUM cannot run inside an open transaction; sqlite3 in its default
         # isolation mode opens one implicitly on writes, so commit first.
-        self._conn.commit()
-        self._conn.execute("VACUUM")
+        with self._lock:
+            self._conn.commit()
+            self._conn.execute("VACUUM")
 
     def note_write_failure(self, exc: BaseException) -> None:
         """Record a write-through failure — durability is now degraded.
@@ -482,10 +596,11 @@ class HistoryStore:
 
     def close(self) -> None:
         self._closed = True
-        try:
-            self._conn.close()
-        except sqlite3.Error:
-            pass
+        with self._lock:
+            try:
+                self._conn.close()
+            except sqlite3.Error:
+                pass
 
     def __repr__(self) -> str:
         return f"<HistoryStore path={self._path}>"

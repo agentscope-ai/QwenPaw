@@ -4,9 +4,8 @@ import { useTranslation } from "react-i18next";
 import { loadSiteConfig, type SiteConfig, defaultConfig } from "@/config";
 import { SiteConfigProvider } from "@/config-context";
 import { SiteLayout } from "@/components/SiteLayout";
+import { GA_ID, loadGoogleAnalytics } from "@/lib/analytics";
 import "@/index.css";
-
-const GA_ID = "G-BEX1XSB9KE";
 
 // Lazy load page components for better performance
 const Home = lazy(() => import("@/pages/Home"));
@@ -15,69 +14,6 @@ const Blog = lazy(() => import("@/pages/Blog"));
 const BlogPost = lazy(() => import("@/pages/Blog/Post"));
 const ReleaseNotes = lazy(() => import("@/pages/ReleaseNotes"));
 const Downloads = lazy(() => import("@/pages/Downloads"));
-
-declare global {
-  interface Window {
-    dataLayer: unknown[];
-    gtag?: (...args: unknown[]) => void;
-  }
-}
-
-/**
- * Load Google Analytics script asynchronously
- * @param id - Google Analytics measurement ID
- */
-function loadGoogleAnalytics(id: string) {
-  // Skip if already loaded or in development
-  if (window.gtag || import.meta.env.DEV) {
-    if (import.meta.env.DEV) {
-      console.log("[GA] Skipped in development environment");
-    }
-    return;
-  }
-
-  console.log("[GA] Starting to load Google Analytics...");
-
-  // Initialize dataLayer
-  window.dataLayer = window.dataLayer || [];
-  function gtag(...args: unknown[]) {
-    window.dataLayer.push(args);
-  }
-  window.gtag = gtag;
-
-  // Configure GA
-  gtag("js", new Date());
-  gtag("config", id);
-
-  // Load GA script with timeout protection
-  const script = document.createElement("script");
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${id}`;
-  script.async = true;
-
-  let isLoaded = false;
-  const timeoutId = setTimeout(() => {
-    if (!isLoaded) {
-      console.warn("[GA] Load timeout - removing script");
-      script.remove();
-      delete window.gtag;
-    }
-  }, 6000);
-
-  script.onload = () => {
-    isLoaded = true;
-    clearTimeout(timeoutId);
-    console.log("[GA] Loaded successfully");
-  };
-
-  script.onerror = () => {
-    isLoaded = true;
-    clearTimeout(timeoutId);
-    console.warn("[GA] Failed to load (may be blocked)");
-    delete window.gtag;
-  };
-
-  document.head.appendChild(script);
-}
 
 /**
  * Initial loading fallback component

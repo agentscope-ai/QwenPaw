@@ -77,7 +77,11 @@ In your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`),
   "card_template_id": "",
   "card_template_key": "content",
   "robot_code": "",
-  "filter_tool_messages": false
+  "show_tool_calls": true,
+  "show_tool_results": true,
+  "show_thinking": true,
+  "tool_call_max_length": 200,
+  "tool_result_max_length": 500
 }
 ```
 
@@ -95,7 +99,7 @@ In your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`),
 
 > **Tips:**
 >
-> - Set `filter_tool_messages: true` if you want to hide tool execution details in the chat.
+> - Tool calls and results can be shown independently. Set a maximum length to `0` to disable truncation.
 > - AI Card mode: set `message_type` to `card`, then configure `card_template_id`; keep `card_template_key` consistent with your DingTalk template variable (default `content`).
 > - `robot_code` is recommended in group scenarios; if empty, QwenPaw falls back to `client_id`.
 
@@ -1312,6 +1316,178 @@ After configuration, start a call from your SIP phone or browser:
 
 ---
 
+## Azure Bot (Microsoft Bot Service)
+
+The Azure Bot channel is built on the [Bot Framework](https://dev.botframework.com/) Webhook protocol, connecting QwenPaw to **Microsoft Teams**, **Web Chat**, **DirectLine**, and any other channel supported by Azure Bot Service.
+
+Setup involves three phases: register an application in **Microsoft Entra ID** to obtain credentials, create an **Azure Bot** resource linked to that registration, then point the Messaging Endpoint at QwenPaw's Webhook and enable your target channel(s).
+
+> **Note**: Azure Bot is a **plugin channel**, not a built-in one. Before configuring it, search for and install the `azure-bot` plugin from the **Plugin Marketplace** in the QwenPaw Console. The channel appears in the Channels settings only after installation.
+
+### Step 1: Create an App Registration
+
+This step yields the three required credentials: `app_id`, `tenant_id`, and `app_password`.
+
+1. Open the [Azure Portal](https://portal.azure.com/), type `Microsoft Entra ID` in the top search bar, and click to enter.
+
+   ![Microsoft Entra ID](https://img.alicdn.com/imgextra/i3/O1CN01sFcUI11x1vdPfro5i_!!6000000006384-2-tps-1540-880.png)
+
+2. On the **Default Directory | Overview** page, click the **"+ Add"** button at the top and choose **"App registration"** from the dropdown.
+
+   ![App registration](https://img.alicdn.com/imgextra/i4/O1CN01Mlk83h1TmhbuJIWQe_!!6000000002425-2-tps-1531-838.png)
+
+3. Fill in the registration form:
+
+   - **Name**: Any name, e.g. `QwenPaw-Bot`
+   - **Supported account types**: Select the first option — **"Accounts in this organizational directory only"** (Single tenant)
+   - **Redirect URI**: Leave blank
+
+   Click **"Register"**.
+
+   ![Register](https://img.alicdn.com/imgextra/i2/O1CN01XKfBNU1VYcfLwQhXl_!!6000000002665-2-tps-1543-831.png)
+
+4. After registration, on the application Overview page, note the two IDs:
+
+   - **Application (client) ID** → `app_id`
+   - **Directory (tenant) ID** → `tenant_id`
+
+   ![Application ID and Directory ID](https://img.alicdn.com/imgextra/i2/O1CN01IoyGl71EK6e1jd9DQ_!!6000000000332-2-tps-1535-836.png)
+
+5. In the left menu, click **"Certificates & secrets"** → select the **"Client secrets"** tab → click **"New client secret"**.
+
+   Enter a description (e.g. `qwenpaw`), choose an expiry, and click **"Add"**.
+
+   ![New client secret](https://img.alicdn.com/imgextra/i3/O1CN01IfUrY727KNkaWwu8g_!!6000000007778-2-tps-1544-836.png)
+
+6. Once created, **immediately copy the "Value" column** → this is `app_password`.
+
+   > **Warning:** The Value is hidden permanently after you leave this page — save it now!
+
+   ![Copy client secret Value](https://img.alicdn.com/imgextra/i2/O1CN01KzpIc11aDcaFe0U0i_!!6000000003296-2-tps-1543-833.png)
+
+### Step 2: Create the Azure Bot Resource
+
+1. In the Azure Portal search bar, type `Azure Bot`, click the **Azure Bot** result, then click **"Create"**.
+
+   ![Azure Bot](https://img.alicdn.com/imgextra/i1/O1CN01u7ZxBm1PdlPrl6sKI_!!6000000001864-2-tps-1545-836.png)
+
+2. Fill in the details:
+
+   - **Bot handle**: Globally unique, e.g. `qwenpaw-bot`
+   - **Subscription**: Select your subscription
+   - **Resource group**: Select an existing group or create new
+   - **Pricing tier**: `F0 (Free)` is sufficient
+   - **Type of App**: **"Single Tenant"**
+   - **Creation type**: **"Use existing app registration"**
+   - **App ID**: Paste the `app_id` from Step 1
+   - **App tenant ID**: Paste the `tenant_id` from Step 1
+
+   ![Azure Bot create form](https://img.alicdn.com/imgextra/i4/O1CN01gly9dG1fIGgGQVTqq_!!6000000003983-2-tps-1535-829.png)
+
+3. Click **"Review + create"**, then **"Create"** after validation passes. When deployment completes, click **"Go to resource"**.
+
+   ![Review + create](https://img.alicdn.com/imgextra/i2/O1CN01LA5fDL1KzDtdLmH8c_!!6000000001234-2-tps-1544-834.png)
+
+### Step 3: Expose the Webhook Endpoint
+
+QwenPaw starts a standalone HTTP server (default port `3978`) to receive messages forwarded by Azure. Azure Bot Service requires this endpoint to be **publicly reachable over HTTPS**.
+
+**Option A: Fixed domain + reverse proxy (recommended for production)**
+
+If QwenPaw runs on a server with a public IP, set up Nginx with an SSL certificate. The Webhook URL will look like:
+
+```
+https://your-domain.com/api/messages
+```
+
+**Option B: Local development — ngrok tunnel**
+
+```bash
+ngrok http 3978
+```
+
+ngrok outputs a temporary public URL. Your Webhook URL becomes:
+
+```
+https://xxxx.ngrok-free.app/api/messages
+```
+
+> **Note:** The free tier of ngrok generates a new URL on each restart — remember to update the Messaging Endpoint in Azure. Use a fixed domain for production.
+
+### Step 4: Set the Messaging Endpoint
+
+1. Open the Azure Bot resource you just created, and click **"Configuration"** in the left menu.
+2. In the **Messaging endpoint** field, enter your public Webhook URL:
+
+   ```
+   https://<your-domain-or-ngrok>/api/messages
+   ```
+
+3. Click **"Apply"** to save.
+
+   ![Messaging endpoint](https://img.alicdn.com/imgextra/i2/O1CN01S6WH5O1dbqNUWATNo_!!6000000003755-2-tps-1544-839.png)
+
+### Step 5: Enable Channels (Optional)
+
+In the Azure Bot resource, click **"Channels"** in the left menu to see the full list of supported channels (Teams, Web Chat, Slack, etc.). Click the icon for the channel you want, follow the prompts to authorize, then click **"Apply"** to enable it.
+
+![Channels](https://img.alicdn.com/imgextra/i3/O1CN01cpH8jd1rS8bZYQpCE_!!6000000005629-2-tps-1533-839.png)
+
+### Step 6: Connect to QwenPaw
+
+Configure via the Console UI or by editing `agent.json` directly.
+
+**Method 1:** Configure in the Console
+
+Go to **Control → Channels**, click **Azure Bot**, and fill in:
+
+- **App ID**: Application (client) ID from Step 1
+- **App Password**: Client Secret Value from Step 1
+- **Tenant ID**: Directory (tenant) ID from Step 1
+
+![Console Azure Bot configuration](https://img.alicdn.com/imgextra/i1/O1CN01k7dvrw1rBBwztyPTz_!!6000000005592-2-tps-1549-880.png)
+
+**Method 2:** Edit `agent.json`
+
+Find `channels.azure_bot` in your agent's `agent.json` (e.g. `~/.qwenpaw/workspaces/default/agent.json`) and fill in:
+
+```json
+"azure_bot": {
+  "enabled": true,
+  "app_id": "Application (client) ID from Step 1",
+  "app_password": "Client Secret Value from Step 1",
+  "tenant_id": "Directory (tenant) ID from Step 1",
+  "http_port": 3978,
+  "share_session_in_group": false,
+  "require_mention": false
+}
+```
+
+The config reloads automatically when the service is running; otherwise run `qwenpaw app` to start.
+
+**Azure Bot-specific fields:**
+
+| Field                    | Type   | Default         | Description                                                                                              |
+| ------------------------ | ------ | --------------- | -------------------------------------------------------------------------------------------------------- |
+| `app_id`                 | string | `""` (required) | Microsoft Application (client) ID                                                                        |
+| `app_password`           | string | `""` (required) | Client Secret Value                                                                                      |
+| `tenant_id`              | string | `""` (required) | Azure AD Directory (tenant) ID — required for Single Tenant apps                                         |
+| `http_port`              | int    | `3978`          | Webhook listening port; must match the port in the Messaging Endpoint URL                                |
+| `http_host`              | string | `"0.0.0.0"`     | Webhook listening address; keep the default in most cases                                                |
+| `media_dir`              | string | `null`          | Directory for downloaded media files (defaults to the `media/` subdirectory of the workspace)            |
+| `share_session_in_group` | bool   | `false`         | If `true`, all group members share one session; if `false` (default), each member gets their own session |
+
+### Notes
+
+- **HTTPS required**: Azure Bot Service requires the Messaging Endpoint to use HTTPS. Use ngrok or an SSL-terminated reverse proxy for local development.
+- **Firewall**: Make sure your server's security group / firewall allows inbound traffic on `http_port` (default 3978), or expose only the reverse proxy on port 443.
+- **Group @mention**: In Teams group chats, setting `require_mention: true` is recommended to prevent the bot from responding to every group message; this does not affect direct messages.
+- **Multi-channel**: A single Azure Bot resource can simultaneously connect to Teams, Web Chat, DirectLine, and more — QwenPaw automatically routes replies to the correct channel.
+- **Session reference persistence**: QwenPaw stores per-user / per-group conversation references in `azure_bot_refs.json` in the workspace directory, enabling proactive outbound messages after restarts.
+- **Client secret expiry**: Azure AD client secrets have a maximum lifetime of 2 years. Regenerate and update `app_password` before expiry.
+
+---
+
 ## Slack
 
 ### Create the Slack App
@@ -1453,6 +1629,7 @@ Find `channels.slack` in your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces
 | XiaoYi     | xiaoyi     | ak, sk, agent_id; optional ws_url                                                                          |
 | Yuanbao    | yuanbao    | app_id, app_secret; optional api_domain, media_dir                                                         |
 | Voice      | voice      | twilio_account_sid, twilio_auth_token, phone_number, phone_number_sid; optional tts_provider, stt_provider |
+| Azure Bot  | azure_bot  | app_id, app_password, tenant_id; optional http_port, media_dir, share_session_in_group                     |
 
 All channels also support the common access control fields (`dm_policy`, `group_policy`, `allow_from`, `deny_message`, `require_mention`) documented in the common fields section below.
 
@@ -1462,17 +1639,20 @@ Field details and structure are in the tables above and [Config & working dir](.
 
 All channels support the following common fields:
 
-| Field                  | Type     | Default  | Description                                                               |
-| ---------------------- | -------- | -------- | ------------------------------------------------------------------------- |
-| `enabled`              | bool     | `false`  | Whether to enable this channel                                            |
-| `bot_prefix`           | string   | `""`     | Bot reply prefix (e.g., `[BOT]`)                                          |
-| `filter_tool_messages` | bool     | `false`  | Whether to filter tool call/output messages                               |
-| `filter_thinking`      | bool     | `false`  | Whether to filter thinking/reasoning content                              |
-| `dm_policy`            | string   | `"open"` | Direct message access policy: `"open"` (open) / `"allowlist"` (whitelist) |
-| `group_policy`         | string   | `"open"` | Group chat access policy: `"open"` (open) / `"allowlist"` (whitelist)     |
-| `allow_from`           | string[] | `[]`     | Whitelist (effective when policy is `"allowlist"`)                        |
-| `deny_message`         | string   | `""`     | Denial message when access is denied                                      |
-| `require_mention`      | bool     | `false`  | Whether @mention is required to respond                                   |
+| Field                    | Type     | Default  | Description                                                               |
+| ------------------------ | -------- | -------- | ------------------------------------------------------------------------- |
+| `enabled`                | bool     | `false`  | Whether to enable this channel                                            |
+| `bot_prefix`             | string   | `""`     | Bot reply prefix (e.g., `[BOT]`)                                          |
+| `show_tool_calls`        | bool     | `true`   | Whether to show tool call information                                     |
+| `show_tool_results`      | bool     | `true`   | Whether to show tool result text; result media is always sent             |
+| `tool_call_max_length`   | int      | `200`    | Tool call preview length; `0` means unlimited                             |
+| `tool_result_max_length` | int      | `500`    | Tool result preview length; `0` means unlimited                           |
+| `show_thinking`          | bool     | `true`   | Whether to show thinking/reasoning content                                |
+| `dm_policy`              | string   | `"open"` | Direct message access policy: `"open"` (open) / `"allowlist"` (whitelist) |
+| `group_policy`           | string   | `"open"` | Group chat access policy: `"open"` (open) / `"allowlist"` (whitelist)     |
+| `allow_from`             | string[] | `[]`     | Whitelist (effective when policy is `"allowlist"`)                        |
+| `deny_message`           | string   | `""`     | Denial message when access is denied                                      |
+| `require_mention`        | bool     | `false`  | Whether @mention is required to respond                                   |
 
 ### Multi-modal message support
 
@@ -1497,6 +1677,7 @@ done). **✗** = not supported (not possible on this channel).
 | XiaoYi     | ✓         | ✓          | ✗          | ✗          | ✓         | ✓         | 🚧         | 🚧         | 🚧         | 🚧        |
 | Yuanbao    | ✓         | ✓          | ✗          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 | Voice      | ✗         | ✗          | ✗          | ✓          | ✗         | ✗         | ✗          | ✗          | ✓          | ✗         |
+| Azure Bot  | ✓         | ✓          | ✓          | ✓          | ✓         | ✓         | ✓          | ✓          | ✓          | ✓         |
 
 Notes:
 
@@ -1519,6 +1700,7 @@ Notes:
 - **XiaoYi**: Supports receiving text, images (JPEG/PNG/BMP/WEBP), and files (PDF/DOC/DOCX/PPT/PPTX/XLS/XLSX/TXT); video and audio are not supported by the platform.
 - **Yuanbao**: Supports receiving text, images, and audio; sending supports text, images, video, audio, and files (via COS CDN upload); the platform does not forward video messages to bots.
 - **Voice**: Phone call interaction via Twilio ConversationRelay. Receives audio (speech) and sends audio (TTS). All communication is voice-based; text/image/video/file are not supported over phone calls.
+- **Azure Bot**: Supports receiving and sending text, image, video, audio, and file. Outbound attachments are sent via the Bot Framework Upload API; the per-file size limit is **180 KB** — files exceeding this limit are replaced with an error notification.
 
 ### Changing config via HTTP
 
@@ -1538,14 +1720,14 @@ To add a new platform (e.g. WeCom, Slack), implement a subclass of **BaseChannel
 
 ### Data flow and queue
 
-- **ChannelManager** keeps one queue per channel that uses it. When a message arrives, the channel calls **`self._enqueue(payload)`** (injected by the manager at startup); the manager’s consumer loop then calls **`channel.consume_one(payload)`**.
-- The base class implements a **default `consume_one`**: turn payload into `AgentRequest`, run `_process`, call `send_message_content` for each completed message, and `_on_consume_error` on failure. Most channels only need to implement “incoming → request” and “response → outgoing”; they do not override `consume_one`.
+- **ChannelManager** keeps one queue per channel that uses it. When a message arrives, the channel calls **`self._enqueue(payload)`** (injected by the manager at startup); the manager's consumer loop then calls **`channel.consume_one(payload)`**.
+- The base class implements a **default `consume_one`**: turn payload into `AgentRequest`, run `_process`, call `send_message_content` for each completed message, and `_on_consume_error` on failure. Most channels only need to implement "incoming → request" and "response → outgoing"; they do not override `consume_one`.
 
 ### Subclass must implement
 
 | Method                                                  | Purpose                                                                                                                                                            |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `build_agent_request_from_native(self, native_payload)` | Convert the channel’s native message to `AgentRequest` (using runtime `Message` / `TextContent` / `ImageContent` etc.) and set `request.channel_meta` for sending. |
+| `build_agent_request_from_native(self, native_payload)` | Convert the channel's native message to `AgentRequest` (using runtime `Message` / `TextContent` / `ImageContent` etc.) and set `request.channel_meta` for sending. |
 | `from_env` / `from_config`                              | Build instance from environment or config.                                                                                                                         |
 | `async start()` / `async stop()`                        | Lifecycle (connect, subscribe, cleanup).                                                                                                                           |
 | `async send(self, to_handle, text, meta=None)`          | Send one text (and optional attachments).                                                                                                                          |
@@ -1565,20 +1747,32 @@ For text-only channels using the manager queue, you do not need to implement `co
 # my_channel.py
 from agentscope_runtime.engine.schemas.agent_schemas import TextContent, ContentType
 from qwenpaw.app.channels.base import BaseChannel
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 from qwenpaw.app.channels.schema import ChannelType
 
 class MyChannel(BaseChannel):
     channel: ChannelType = "my_channel"
 
-    def __init__(self, process, enabled=True, bot_prefix="", **kwargs):
-        super().__init__(process, on_reply_sent=kwargs.get("on_reply_sent"))
+    def __init__(self, process, enabled=True, bot_prefix="",
+                 display_config=None, **kwargs):
+        super().__init__(
+            process,
+            on_reply_sent=kwargs.get("on_reply_sent"),
+            display_config=display_config,
+        )
         self.enabled = enabled
         self.bot_prefix = bot_prefix
 
     @classmethod
-    def from_config(cls, process, config, on_reply_sent=None, show_tool_details=True):
-        return cls(process=process, enabled=getattr(config, "enabled", True),
-                   bot_prefix=getattr(config, "bot_prefix", ""), on_reply_sent=on_reply_sent)
+    def from_config(cls, process, config, on_reply_sent=None,
+                    display_config=None, **kwargs):
+        return cls(
+            process=process,
+            enabled=getattr(config, "enabled", True),
+            bot_prefix=getattr(config, "bot_prefix", ""),
+            on_reply_sent=on_reply_sent,
+            display_config=display_config or ChannelDisplayConfig.from_config(config),
+        )
 
     @classmethod
     def from_env(cls, process, on_reply_sent=None):
@@ -1663,97 +1857,39 @@ def build_agent_request_from_native(self, native_payload):
     return request
 ```
 
-### Custom channel directory and CLI
+### Adding custom channels via plugins
 
-- **Directory**: Channels under the working dir at `custom_channels/` (default `~/.qwenpaw/custom_channels/`) are loaded at runtime. The manager scans `.py` files and packages (subdirs with `__init__.py`), loads `BaseChannel` subclasses, and registers them by the class’s `channel` attribute.
-- **Install**: `qwenpaw channels install <key>` creates a template `<key>.py` in `custom_channels/` for you to edit, or use `--path <local path>` / `--url <URL>` to copy a channel module from disk or the web. `qwenpaw channels add <key>` does the same and also adds a default entry to config (with optional `--path`/`--url`).
-- **Remove**: `qwenpaw channels remove <key>` deletes that channel’s module from `custom_channels/` (custom channels only; built-ins cannot be removed). By default it also removes the key from `channels` in `config.json`; use `--keep-config` to leave config unchanged.
-- **Config**: `ChannelConfig` uses `extra="allow"`, so any channel key can appear under `channels` in `config.json`. Use `qwenpaw channels config` for interactive setup or edit config by hand.
+Custom channels are now registered through the **plugin system**. See the
+[Plugin System — Example 10: Register a Custom Channel](./plugins#example-10-register-a-custom-channel) for a
+complete tutorial.
 
-### HTTP route registration
+To add a custom channel:
 
-For channels that require webhook callbacks (e.g., WeChat, Slack, LINE), you can register custom HTTP routes by exporting a `register_app_routes` callable in your module — no changes to QwenPaw's core source required.
+1. Create a plugin with `type: "channel"` in `plugin.json`
+2. Implement a `BaseChannel` subclass with a unique `channel` class attribute
+3. Call `api.register_channel(...)` in your plugin's `register()` method
+4. Install with `qwenpaw plugin install <path>`
 
-At startup, QwenPaw scans modules in `custom_channels/` for a `register_app_routes` export. If found, it is called with the FastAPI `app` instance, allowing the channel to register any routes it needs.
+Plugin channels appear in the Console UI alongside built-in channels, with
+full support for enable/disable, config fields, and access control.
 
-**Route prefix behavior**:
+For channels that need webhook HTTP endpoints, use `api.register_http_router()`
+in the same plugin to mount routes under `/api`.
 
-| Prefix      | Behavior                                   |
-| ----------- | ------------------------------------------ |
-| `/api/`     | Silent registration                        |
-| Other paths | Prints a warning at startup (non-blocking) |
-
-**Interface — `register_app_routes(app)`**
-
-- **Parameter**: `app` — FastAPI application instance
-- **Returns**: None
-- **Scope**: Register routes, middleware, or startup/shutdown events
-- **Error isolation**: A single channel's registration failure does not affect other channels
-
-**Minimal example — Echo channel**:
-
-```
-<workspace>/
-└── custom_channels/
-    └── my_echo/
-        └── __init__.py
-```
-
-```python
-# custom_channels/my_echo/__init__.py
-from qwenpaw.app.channels.base import BaseChannel
-
-class MyEchoChannel(BaseChannel):
-    """A minimal channel that echoes messages back."""
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
-    async def _listen(self):
-        pass  # Receive messages via HTTP callback
-
-    async def _send(self, target, content, **kwargs):
-        self.logger.info(f"Would send to {target}: {content}")
-
-
-def register_app_routes(app):
-    """Register HTTP routes for this channel."""
-
-    @app.post("/api/my-echo/callback")
-    async def echo_callback(request):
-        """Webhook entry point."""
-        body = await request.json()
-
-        from qwenpaw.app.channels.base import TextContent
-        channel = MyEchoChannel()
-        channel.enqueue_user_message(
-            user_id=body.get("user_id", "anonymous"),
-            session_id=body.get("session_id", "default"),
-            content=[TextContent(type="text", text=body.get("text", ""))],
-        )
-
-        return {"status": "ok"}
-```
-
-```json
-{
-  "channels": {
-    "my_echo": {
-      "enabled": true
-    }
-  }
-}
-```
-
-Test after startup:
-
-```bash
-curl -X POST http://localhost:8088/api/my-echo/callback \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": "test", "session_id": "test", "text": "Hello!"}'
-```
-
-**Real-world example**: WeChat ClawBot integration ([PR #2140](https://github.com/agentscope-ai/QwenPaw/pull/2140), [Issue #2043](https://github.com/agentscope-ai/QwenPaw/issues/2043)) uses this mechanism to register the `/api/wechat/callback` route with Tencent's official SDK for message delivery.
+> **Migration from `custom_channels/`**: The legacy `custom_channels/`
+> directory and `qwenpaw channels install/add/remove` CLI commands have been
+> removed. If you have existing custom channels under `custom_channels/`,
+> migrate them to the plugin system:
+>
+> 1. Create a plugin directory with `plugin.json` (set `"type": "channel"`)
+> 2. Move your `BaseChannel` subclass into the plugin directory
+> 3. Create a `plugin.py` that calls `api.register_channel(...)` with your
+>    channel class and `config_fields`
+> 4. If your channel used `register_app_routes(app)`, replace it with
+>    `api.register_http_router(router, prefix="/your-channel")` using a
+>    FastAPI `APIRouter`
+> 5. Install the plugin: `qwenpaw plugin install <path>`
+> 6. Remove the old module from `custom_channels/`
 
 ---
 

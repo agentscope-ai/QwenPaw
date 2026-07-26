@@ -17,9 +17,9 @@ from typing import Any, Callable, Optional
 
 from .base import (
     StopAction,
-    StopGate,
     StopHandlerResult,
 )
+from .loop_gate import LoopGate
 
 logger = logging.getLogger(__name__)
 
@@ -151,27 +151,42 @@ class SubAgentRubric(RubricStrategy):
         )
 
 
-class StandaloneRubricGate(StopGate):
-    """Re-prompt on text-only responses.
+@dataclass
+class _QualitativeRubricState:
+    """Per-session qualitative evaluation count."""
+
+    evaluations: int = 0
+
+
+class QualitativeRubricGate(LoopGate):
+    """Apply a qualitative rubric to text-only responses.
 
     Prevents premature stop when the LLM outputs text
     without any tool calls.  Counts interventions per
     request cycle; stops re-prompting after
-    ``max_interventions``.
+    ``max_evaluations``.
     """
 
     def __init__(
         self,
-        prompt: str = "",
-        max_interventions: int = 1,
+        rubric: str = "",
+        max_evaluations: int = 1,
     ) -> None:
-        self._prompt = prompt
-        self._max = max_interventions
-        self._count = 0
+        super().__init__()
+        self._rubric = rubric
+        self._max_evaluations = max_evaluations
+
+    def _ensure_state(self) -> _QualitativeRubricState:
+        """Return current session state, creating it when needed."""
+        state = self._state()
+        if state is None:
+            state = _QualitativeRubricState()
+            self.activate(state)
+        return state
 
     @property
     def name(self) -> str:
-        return "standalone_rubric"
+        return "qualitative-rubric"
 
     @property
     def priority(self) -> int:
@@ -180,36 +195,49 @@ class StandaloneRubricGate(StopGate):
     async def check(
         self,
         ctx: Any,
-    ) -> Optional[StopHandlerResult]:
-        """Return CONTINUE up to max_interventions.
+    ) -> StopHandlerResult:
+        """Intervene up to the configured evaluation limit.
 
         Only triggers on text-only responses
         (no tool calls).
         """
+        _bypass = StopHandlerResult(
+            action=StopAction.BYPASS,
+        )
         if isinstance(ctx, dict) and ctx.get(
             "has_tool_calls",
         ):
-            return None
+            return _bypass
 
-        if self._count >= self._max:
-            self._count = 0
-            return None
+        state = self._ensure_state()
+        if state.evaluations >= self._max_evaluations:
+            return _bypass
 
-        self._count += 1
+        state.evaluations += 1
         logger.debug(
-            "StandaloneRubricGate: intervene %d/%d",
-            self._count,
-            self._max,
+            "QualitativeRubricGate: evaluate %d/%d",
+            state.evaluations,
+            self._max_evaluations,
         )
         return StopHandlerResult(
-            action=StopAction.CONTINUE,
-            continuation_message=self._prompt,
-            reason="text-only response re-prompt",
+            action=StopAction.INTERRUPT_AND_CONTINUE,
+            reason="qualitative rubric requested revision",
+            reset_peers=True,
         )
+
+    def build_continuation(self) -> str:
+        """Return the re-prompt text."""
+        return self._rubric
+
+    def reset_turn(self) -> None:
+        """Reset evaluation counter for a new turn."""
+        state = self._state()
+        if state is not None:
+            state.evaluations = 0
 
 
 __all__ = [
-    "StandaloneRubricGate",
+    "QualitativeRubricGate",
     "DefaultRubric",
     "GoalStatusRubric",
     "RubricEvaluation",

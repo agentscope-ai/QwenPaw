@@ -20,7 +20,7 @@
     "test:coverage": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --coverage"
   },
   "dependencies": {
-    "@agentscope-ai/chat": "^1.1.71",
+    "@agentscope-ai/chat": "1.1.72-beta.1783494781362",
     "@agentscope-ai/design": "^1.0.14",
     "@agentscope-ai/icons": "^1.0.67",
     "@ant-design/icons": "^5.0.1",

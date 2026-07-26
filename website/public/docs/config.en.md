@@ -100,13 +100,15 @@ You can customize paths and behavior via environment variables:
 
 **Other configuration:**
 
-| Variable                             | Default         | Description                                                                 |
-| ------------------------------------ | --------------- | --------------------------------------------------------------------------- |
-| `QWENPAW_LOG_LEVEL`                  | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)             |
-| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`        | Character threshold to trigger memory compaction                            |
-| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`             | Number of recent messages to keep after compaction                          |
-| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window size) |
-| `QWENPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_ | Console frontend static files path                                          |
+| Variable                             | Default         | Description                                                                  |
+| ------------------------------------ | --------------- | ---------------------------------------------------------------------------- |
+| `QWENPAW_LOG_LEVEL`                  | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)              |
+| `QWENPAW_LOG_MAX_SIZE`               | `5MiB`          | Maximum active log size; accepts bytes or suffixes such as `10MB` and `1GiB` |
+| `QWENPAW_LOG_MAX_BACKUPS`            | `3`             | Number of rotated log backups to retain; `0` disables backups                |
+| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`        | Character threshold to trigger memory compaction                             |
+| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`             | Number of recent messages to keep after compaction                           |
+| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)  |
+| `QWENPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_ | Console frontend static files path                                           |
 
 **Security & Authentication:**
 
@@ -117,13 +119,6 @@ You can customize paths and behavior via environment variables:
 | `QWENPAW_AUTH_PASSWORD`      | -       | Admin password for auto-registration (optional)    |
 | `QWENPAW_TOOL_GUARD_ENABLED` | `true`  | Whether to enable tool guard                       |
 | `QWENPAW_SKILL_SCAN_MODE`    | `warn`  | Skill scanning mode (`block` / `warn` / `off`)     |
-
-**Memory & Retrieval:**
-
-| Variable               | Default | Description                                                     |
-| ---------------------- | ------- | --------------------------------------------------------------- |
-| `FTS_ENABLED`          | `true`  | Whether to enable BM25 full-text search                         |
-| `MEMORY_STORE_BACKEND` | `auto`  | Memory storage backend (`auto` / `local` / `chroma` / `sqlite`) |
 
 Example — use a different working dir for this shell:
 
@@ -411,50 +406,71 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **Light Tool Result Pruning (`light_context_config.tool_result_pruning_config` object):**
 
-| Field                          | Type | Default | Description                                      |
-| ------------------------------ | ---- | ------- | ------------------------------------------------ |
-| `enabled`                      | bool | `true`  | Whether to enable tool result pruning            |
-| `pruning_recent_n`             | int  | `2`     | Number of recent messages using higher threshold |
-| `pruning_old_msg_max_bytes`    | int  | `3000`  | Byte threshold for older tool results            |
-| `pruning_recent_msg_max_bytes` | int  | `50000` | Byte threshold for recent tool results           |
-| `offload_retention_days`       | int  | `5`     | Number of days to retain tool result files       |
+| Field                          | Type | Default | Description                                                                                                 |
+| ------------------------------ | ---- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `enabled`                      | bool | `true`  | Whether to enable tool result pruning                                                                       |
+| `pruning_recent_n`             | int  | `2`     | Number of recent tool-result-bearing messages kept at the recent preview threshold before scroll compaction |
+| `pruning_old_msg_max_bytes`    | int  | `3000`  | Compact preview byte threshold for tool results retained in live context after scroll compaction            |
+| `pruning_recent_msg_max_bytes` | int  | `50000` | Recent/execution preview byte threshold for tool results before and shortly after entering context          |
+| `offload_retention_days`       | int  | `5`     | Number of days to retain tool result files                                                                  |
 
 **ReMeLight Memory Configuration (`reme_light_memory_config` object):**
 
-| Field                           | Type        | Default        | Description                                                                           |
-| ------------------------------- | ----------- | -------------- | ------------------------------------------------------------------------------------- |
-| `summarize_when_compact`        | bool        | `true`         | Whether to enable memory summarization during compaction                              |
-| `auto_memory_interval`          | int \| null | `1`            | Auto memory every N user queries. `1` runs after every user message; null disables it |
-| `dream_cron`                    | string      | `"0 23 * * *"` | Cron expression for dream-based memory optimization (empty to disable)                |
-| `rebuild_memory_index_on_start` | bool        | `false`        | Whether to rebuild memory search index on startup                                     |
-| `recursive_file_watcher`        | bool        | `false`        | Whether to watch memory directory recursively                                         |
-| `auto_memory_search_config`     | object      | _(see below)_  | Auto memory search configuration                                                      |
-| `embedding_model_config`        | object      | _(see below)_  | Embedding model configuration                                                         |
+| Field                       | Type        | Default          | Description                                                                                                                                                                      |
+| --------------------------- | ----------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `metadata_dir`              | string      | `"mem_metadata"` | Subdirectory for ReMe persistent state                                                                                                                                           |
+| `session_dir`               | string      | `"mem_session"`  | Subdirectory for ReMe source conversation logs used by auto-memory                                                                                                               |
+| `mem_session_dir`           | string      | `"mem_agent"`    | Subdirectory for ReMe internal memory-agent sessions                                                                                                                             |
+| `resource_dir`              | string      | `"resource"`     | Subdirectory for external assets                                                                                                                                                 |
+| `daily_dir`                 | string      | `"memory"`       | Subdirectory for daily memory                                                                                                                                                    |
+| `digest_dir`                | string      | `"digest"`       | Subdirectory for digest memory                                                                                                                                                   |
+| `summarize_when_compact`    | bool        | `true`           | Whether to enable memory summarization during compaction                                                                                                                         |
+| `inbox_push_enabled`        | bool        | `true`           | Whether to push auto-memory, auto-dream, and auto-resource job results to the inbox                                                                                              |
+| `auto_memory_interval`      | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                                                                                 |
+| `dream_cron_enabled`        | bool        | `true`           | Whether to enable the scheduled dream-based memory optimization job                                                                                                              |
+| `dream_cron`                | string      | `"0 23 * * *"`   | Valid 5-field cron expression for dream-based memory optimization (required when enabled); scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls |
+| `auto_memory_search_config` | object      | _(see below)_    | Auto memory search configuration                                                                                                                                                 |
+| `embedding_model_config`    | object      | _(see below)_    | Embedding model configuration                                                                                                                                                    |
+
+> `rebuild_memory_index_on_start` is no longer supported. Rebuild an index only when needed from the Console or the
+> maintenance API described in [Rebuilding the Memory Search Index](./memory#rebuilding-the-memory-search-index).
 
 **Auto Memory Search Configuration (`reme_light_memory_config.auto_memory_search_config` object):**
 
-| Field         | Type  | Default | Description                                              |
-| ------------- | ----- | ------- | -------------------------------------------------------- |
-| `enabled`     | bool  | `false` | Whether to auto search memory on every conversation turn |
-| `max_results` | int   | `1`     | Maximum results for auto memory search                   |
-| `timeout`     | float | `10.0`  | Timeout in seconds for auto memory search                |
+| Field         | Type | Default | Description                                              |
+| ------------- | ---- | ------- | -------------------------------------------------------- |
+| `enabled`     | bool | `false` | Whether to auto search memory on every conversation turn |
+| `max_results` | int  | `2`     | Maximum results for auto memory search                   |
 
 **Embedding Configuration (`reme_light_memory_config.embedding_model_config` object):**
 
-| Field              | Type   | Default    | Description                                             |
-| ------------------ | ------ | ---------- | ------------------------------------------------------- |
-| `backend`          | string | `"openai"` | Embedding backend type (e.g., `"openai"`)               |
-| `api_key`          | string | `""`       | API key for the embedding provider                      |
-| `base_url`         | string | `""`       | Custom API URL (optional)                               |
-| `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`) |
-| `dimensions`       | int    | `1024`     | Embedding vector dimensions                             |
-| `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                       |
-| `use_dimensions`   | bool   | `false`    | Whether to use custom dimensions                        |
-| `max_cache_size`   | int    | `3000`     | Maximum cache size                                      |
-| `max_input_length` | int    | `8192`     | Maximum input length for embeddings                     |
-| `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                 |
+| Field              | Type   | Default    | Description                                                                                    |
+| ------------------ | ------ | ---------- | ---------------------------------------------------------------------------------------------- |
+| `backend`          | string | `"openai"` | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`      |
+| `api_key`          | string | `""`       | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends         |
+| `base_url`         | string | `""`       | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host |
+| `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`)                                        |
+| `dimensions`       | int    | `1024`     | Embedding vector dimensions                                                                    |
+| `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                                                              |
+| `use_dimensions`   | bool   | `false`    | Whether to use custom dimensions                                                               |
+| `max_cache_size`   | int    | `10000`    | Maximum cache size                                                                             |
+| `max_input_length` | int    | `8192`     | Maximum input length for embeddings                                                            |
+| `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                                                        |
 
-These settings can also be changed in the Console under **Agent → Runtime Config**. Changes apply to new LLM requests after saving; restarting the service is not required.
+Vector retrieval is enabled only when the selected backend has the minimum runnable configuration. These conditions are aligned with AgentScope credential requirements:
+
+| Backend                                         | Enable condition                              | Credential mapping              |
+| ----------------------------------------------- | --------------------------------------------- | ------------------------------- |
+| `openai` / `dashscope` / `dashscope_multimodal` | Both `model_name` and `api_key` are non-empty | `api_key`; optional `base_url`  |
+| `gemini`                                        | Both `model_name` and `api_key` are non-empty | `api_key`                       |
+| `ollama`                                        | `model_name` is non-empty                     | optional `host` from `base_url` |
+
+When the enable condition is not met, ReMe still keeps keyword indexes and wikilink graph indexes, but the embedding vector index is disabled.
+
+These settings can also be changed in the Console under **Agent → Runtime Config**. Fields read directly from
+`agent.json`, such as auto-memory cadence and auto-search limits, apply to later turns after saving. Embedded ReMe
+component settings, such as directories and embedding configuration, require restarting the agent process so the ReMe
+application is constructed with the new configuration.
 
 ---
 
@@ -672,17 +688,11 @@ Memory files are stored in the agent workspace:
 
 ### Embedding Configuration
 
-Memory search relies on vector embeddings for semantic retrieval. Configuration priority: **config file > env var > default**.
+Memory search relies on vector embeddings for semantic retrieval.
 
-Recommended to configure in `agent.json` under `running.reme_light_memory_config.embedding_model_config`, which supports more parameters (e.g., `use_dimensions`). Environment variables serve as fallback only:
+Configure embeddings in `agent.json` under `running.reme_light_memory_config.embedding_model_config`, which supports backend selection and parameters such as `use_dimensions`:
 
-| Variable (Fallback)    | Description                       | Default |
-| ---------------------- | --------------------------------- | ------- |
-| `EMBEDDING_API_KEY`    | API key for the embedding service | ``      |
-| `EMBEDDING_BASE_URL`   | Embedding service URL             | ``      |
-| `EMBEDDING_MODEL_NAME` | Embedding model name              | ``      |
-
-> `api_key`, `model_name`, and `base_url` must all be non-empty to enable vector search in hybrid retrieval. See [Memory](./memory#embedding-configuration-optional) for full configuration details.
+> The vector-search enable condition is aligned with AgentScope credential requirements: OpenAI-compatible and Gemini backends require `model_name` plus `api_key`; Ollama only requires `model_name`. `base_url` is optional for OpenAI-compatible endpoints and is used as Ollama `host` when set. See [Memory](./memory#embedding-configuration-optional) for full configuration details.
 
 ---
 

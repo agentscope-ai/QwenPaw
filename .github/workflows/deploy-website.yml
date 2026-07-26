@@ -45,6 +45,8 @@ jobs:
         working-directory: website
         env:
           VITE_BASE_PATH: "/"
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: pnpm run build
 
       - name: Generate contributors_data.json

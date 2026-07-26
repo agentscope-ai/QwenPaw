@@ -125,6 +125,39 @@ def test_search_default_is_this_agent_cross_session(ms: MemorySpace):
     assert "tanks of another agent" not in contents
 
 
+def test_search_uses_seq_as_stable_bm25_tie_breaker(tmp_path: Path):
+    h = HistoryStore(tmp_path / "history.db")
+    expected_seqs = []
+    for index in range(3):
+        expected_seqs.append(
+            h.append(
+                session_id="archive",
+                agent_id="ag1",
+                dedup_key=f"equal-{index}",
+                entry=LogEntry(
+                    kind="model_turn",
+                    role="assistant",
+                    content="identical ranking text",
+                ),
+            ),
+        )
+    h.close()
+    space = MemorySpace(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        first = space.search("identical ranking", k=3)
+        second = space.search("identical ranking", k=3)
+    finally:
+        space.close()
+
+    assert [row["seq"] for row in first] == expected_seqs
+    assert [row["seq"] for row in second] == expected_seqs
+
+
 def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
     """The recall tool's own source/output must not surface as search hits, or
     a query matches the agent's earlier queries (self-pollution)."""
@@ -140,8 +173,7 @@ def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
         ),
     )
     # The agent's own recall call (its Python source) and its printed output —
-    # both carry the searched keywords and both must be excluded. The output
-    # row uses the legacy "execute_python" name to also cover pre-rename rows.
+    # both carry the searched keywords and both must be excluded.
     h.append(
         session_id="s1",
         agent_id="ag1",
@@ -160,7 +192,7 @@ def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
         entry=LogEntry(
             kind="tool_result",
             role="assistant",
-            name="execute_python",  # legacy name, still excluded
+            name="recall_history",
             content="stdout: searching for car service ...",
             tool_call_id="t1",
         ),
@@ -175,6 +207,129 @@ def test_search_excludes_recall_tool_own_turns(tmp_path: Path):
         hits = space.search("car service")
         contents = [r["content"] for r in hits]
         assert contents == ["the car needs service after 10000 miles"]
+    finally:
+        space.close()
+
+
+def test_search_excludes_the_active_turn(tmp_path: Path):
+    """The current request and its in-progress reply must not surface as
+    hits: they are already in the live window, and a second recall round
+    would otherwise top-k-match the previous round's quoted findings
+    (echo loop). Earlier turns of the SAME session stay searchable."""
+    h = HistoryStore(tmp_path / "history.db")
+    rows = [
+        ("old_u", "context_msg", "user", "tanks question from earlier"),
+        ("old_a", "model_turn", "assistant", "tanks were parked at base"),
+        # The ACTIVE turn: the latest user request + the reply being written.
+        ("cur_u", "context_msg", "user", "tanks question retried"),
+        ("cur_a", "model_turn", "assistant", "tanks quote from last recall"),
+    ]
+    for key, kind, role, content in rows:
+        h.append(
+            session_id="s1",
+            agent_id="ag1",
+            dedup_key=key,
+            entry=LogEntry(kind=kind, role=role, content=content),
+        )
+    h.append(  # another session is untouched by the exclusion
+        session_id="s2",
+        agent_id="ag1",
+        dedup_key="other",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="tanks moved in another session",
+        ),
+    )
+    h.close()
+    space = MemorySpace(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="s1",
+        agent_id="ag1",
+    )
+    try:
+        expected = {
+            "tanks question from earlier",
+            "tanks were parked at base",
+            "tanks moved in another session",
+        }
+        assert {r["content"] for r in space.search("tanks", k=10)} == expected
+        # The LIKE fallback applies the same exclusion.
+        like = space._search_like("tanks", [("agent_id", "ag1")], None, 10)
+        got = {r["content"] for r in like if r["kind"] != "_notice"}
+        assert got == expected
+    finally:
+        space.close()
+
+
+def test_active_turn_floor_is_computed_once_per_instance(
+    ms: MemorySpace,
+    monkeypatch,
+):
+    """The MAX(seq) scan behind the active-turn exclusion is memoized: a
+    single search consults the floor twice (FTS path + LIKE fallback) and the
+    read-only history can't change under the instance, so it must run at most
+    once — the cost that accrues on large histories in the recall subprocess.
+    """
+    calls = {"n": 0}
+    real = ms._compute_active_turn_floor
+
+    def counting():
+        calls["n"] += 1
+        return real()
+
+    monkeypatch.setattr(ms, "_compute_active_turn_floor", counting)
+
+    # Consult it across every path that would otherwise re-query.
+    ms.search("tanks", k=5)
+    ms._search_like("tanks", [("agent_id", "ag1")], None, 5)
+    ms._active_turn_floor()
+
+    assert calls["n"] == 1
+
+
+def test_active_turn_floor_ignores_continuation_stubs(tmp_path: Path):
+    """A loop-continuation stub row (user-role, tagged) must not move the
+    active-turn floor: the floor anchors on the REAL request that started
+    the turn, so the whole still-live extended turn stays excluded from
+    search instead of leaking back in as echo."""
+    h = HistoryStore(tmp_path / "history.db")
+    rows = [
+        ("old", "model_turn", "assistant", "tanks parked at base", None),
+        ("req", "context_msg", "user", "tanks question", None),
+        ("a1", "model_turn", "assistant", "tanks quote from recall", None),
+        (
+            "stub",
+            "context_msg",
+            "user",
+            "Continue working on the task.",
+            {"qwenpaw_tag": "loop_continuation"},
+        ),
+        ("a2", "model_turn", "assistant", "tanks continued reply", None),
+    ]
+    for key, kind, role, content, metadata in rows:
+        h.append(
+            session_id="s1",
+            agent_id="ag1",
+            dedup_key=key,
+            entry=LogEntry(
+                kind=kind,
+                role=role,
+                content=content,
+                metadata=metadata or {},
+            ),
+        )
+    h.close()
+    space = MemorySpace(
+        history_db_path=str(tmp_path / "history.db"),
+        session_id="s1",
+        agent_id="ag1",
+    )
+    try:
+        # Floor = the real request's seq (NOT the stub's): everything from
+        # the request onward is active-turn and excluded from search.
+        hits = {r["content"] for r in space.search("tanks", k=10)}
+        assert hits == {"tanks parked at base"}
     finally:
         space.close()
 
@@ -454,3 +609,310 @@ def test_recall_values_with_sql_metacharacters_are_bound(tmp_path: Path):
         ]
     finally:
         space.close()
+
+
+# -- saved tool-output search -----------------------------------------------
+
+
+def _saved_tool_notice(path: Path, *, quoted: bool = False) -> str:
+    rendered_path = f'"{path}"' if quoted else str(path)
+    return (
+        "[tool output truncated]\n"
+        "If more content is needed, call `read_file` with "
+        f"file_path={rendered_path} start_line=1 to read more."
+    )
+
+
+def test_saved_tool_paths_accept_quoted_and_legacy_paths_with_spaces(
+    tmp_path: Path,
+):
+    artifact_dir = tmp_path / "tool results with spaces"
+    artifact_dir.mkdir()
+    quoted_file = artifact_dir / "quoted result.txt"
+    quoted_file.write_text("quoted\n", encoding="utf-8")
+    legacy_file = artifact_dir / "legacy result.txt"
+    legacy_file.write_text("legacy\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        paths = space._saved_tool_paths(
+            _saved_tool_notice(quoted_file, quoted=True)
+            + "\n"
+            + _saved_tool_notice(legacy_file),
+        )
+    finally:
+        space.close()
+
+    assert paths == [quoted_file.resolve(), legacy_file.resolve()]
+
+
+def test_saved_tool_paths_prefer_structured_artifact_metadata(tmp_path: Path):
+    artifact = tmp_path / "metadata-only-result.txt"
+    artifact.write_text("structured artifact\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        paths = space._saved_tool_paths(
+            "preview without a legacy path notice",
+            {
+                "qwenpaw_truncation": {
+                    "0": {
+                        "file_path": str(artifact),
+                    },
+                },
+            },
+        )
+    finally:
+        space.close()
+
+    assert paths == [artifact.resolve()]
+
+
+def test_saved_tool_search_checks_each_multiblock_artifact(tmp_path: Path):
+    decoy_file = tmp_path / "first-block.txt"
+    decoy_file.write_text("nothing relevant\n", encoding="utf-8")
+    target_file = tmp_path / "second-block.txt"
+    target_file.write_text("the deepneedle is here\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="multi-block-result",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content=(
+                _saved_tool_notice(decoy_file)
+                + "\n\n"
+                + _saved_tool_notice(target_file)
+            ),
+            tool_call_id="multi-block-call",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        rows = space.search("deepneedle", k=1)
+    finally:
+        space.close()
+
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "tool_result"
+    assert f"file_path={target_file}" in rows[0]["content"]
+    assert "deepneedle" in rows[0]["content"]
+
+
+def test_recall_tool_annotates_each_multiblock_artifact(tmp_path: Path):
+    first_file = tmp_path / "first-block.txt"
+    first_file.write_text("first block\n", encoding="utf-8")
+    second_file = tmp_path / "second-block.txt"
+    second_file.write_text("second block\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="multi-block-result",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content=(
+                _saved_tool_notice(first_file)
+                + "\n\n"
+                + _saved_tool_notice(second_file)
+            ),
+            tool_call_id="multi-block-call",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        rows = space.recall_tool("multi-block-call")
+    finally:
+        space.close()
+
+    artifacts = [
+        row["content"] for row in rows if row["kind"] == "_saved_tool_output"
+    ]
+    assert artifacts == [
+        "Full saved tool output is available at "
+        f"file_path={str(first_file)!r} start_line=1.",
+        "Full saved tool output is available at "
+        f"file_path={str(second_file)!r} start_line=1.",
+    ]
+
+
+def test_recall_tool_returns_preview_when_artifact_expired(tmp_path: Path):
+    artifact = tmp_path / "expired-result.txt"
+    artifact.write_text("complete output\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="expired-result",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content="bounded preview",
+            tool_call_id="expired-call",
+            metadata={
+                "qwenpaw_truncation": {
+                    "0": {
+                        "file_path": str(artifact),
+                        "start_line": 1,
+                    },
+                },
+            },
+        ),
+    )
+    history.close()
+    artifact.unlink()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        rows = space.recall_tool("expired-call")
+    finally:
+        space.close()
+
+    assert rows[0]["kind"] == "_saved_tool_output_unavailable"
+    assert "ARTIFACT_UNAVAILABLE" in rows[0]["content"]
+    assert rows[1]["kind"] == "tool_result"
+    assert rows[1]["content"] == "bounded preview"
+
+
+def test_saved_tool_search_pages_past_first_200_candidates(tmp_path: Path):
+    target_file = tmp_path / "target.txt"
+    target_file.write_text("the deepneedle is here\n", encoding="utf-8")
+    decoy_file = tmp_path / "decoy.txt"
+    decoy_file.write_text("nothing relevant\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="oldest-target",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content=_saved_tool_notice(target_file),
+            tool_call_id="target-call",
+        ),
+    )
+    for index in range(200):
+        history.append(
+            session_id="archive",
+            agent_id="ag1",
+            dedup_key=f"newer-decoy-{index}",
+            entry=LogEntry(
+                kind="tool_result",
+                role="assistant",
+                content=_saved_tool_notice(decoy_file),
+                tool_call_id=f"decoy-{index}",
+            ),
+        )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+
+    try:
+        rows = space.search("deepneedle", k=1)
+    finally:
+        space.close()
+
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "tool_result"
+    assert "tool_call_id=target-call" in rows[0]["content"]
+    assert "deepneedle" in rows[0]["content"]
+
+
+def test_saved_tool_file_search_streams_without_read_text(
+    tmp_path: Path,
+    monkeypatch,
+):
+    artifact = tmp_path / "large.txt"
+    artifact.write_text(
+        "before\nneedle match\nafter\n",
+        encoding="utf-8",
+    )
+
+    def fail_read_text(*args, **kwargs):
+        raise AssertionError("saved artifact search must stream")
+
+    monkeypatch.setattr(Path, "read_text", fail_read_text)
+
+    matches = MemorySpace._file_line_matches(artifact, ["needle"])
+
+    assert matches == [
+        {
+            "line": 2,
+            "excerpt": "1: before\n2: needle match\n3: after",
+        },
+    ]
+
+
+def test_attach_saved_tool_preserves_preview_when_scan_budget_exhausts(
+    tmp_path: Path,
+):
+    artifact = tmp_path / "large.txt"
+    artifact.write_text("x" * 100 + " needle\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+        saved_tool_scan_max_bytes=32,
+    )
+
+    try:
+        rows = space._attach_saved_tool_file_matches(
+            [
+                {
+                    "seq": 1,
+                    "kind": "tool_result",
+                    "role": "assistant",
+                    "name": "read_file",
+                    "content": (
+                        "bounded preview retained in history\n"
+                        + _saved_tool_notice(artifact)
+                    ),
+                },
+            ],
+            "needle",
+        )
+    finally:
+        space.close()
+
+    notices = [row for row in rows if row["kind"] == "_notice"]
+    assert len(notices) == 1
+    assert "Results are partial" in notices[0]["content"]
+    previews = [row for row in rows if row["kind"] == "tool_result"]
+    assert len(previews) == 1
+    assert "bounded preview retained in history" in previews[0]["content"]

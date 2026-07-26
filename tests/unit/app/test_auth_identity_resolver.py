@@ -184,7 +184,11 @@ class _FakeConfig:
 
 def _build_client(monkeypatch) -> TestClient:
     monkeypatch.setattr(auth_mod, "is_auth_enabled", lambda: True)
-    monkeypatch.setattr(auth_mod, "_get_config_cached", lambda: _FakeConfig())
+    monkeypatch.setattr(
+        auth_mod,
+        "_get_config_cached",
+        lambda: (_FakeConfig(), []),
+    )
 
     async def whoami(request):
         return JSONResponse(
@@ -265,7 +269,11 @@ def _make_request(path="/api/console/chat", method="POST") -> _Req:
 
 def test_skip_auth_enforced_when_resolver_present(monkeypatch):
     monkeypatch.setattr(auth_mod, "is_auth_enabled", lambda: True)
-    monkeypatch.setattr(auth_mod, "_get_config_cached", lambda: _FakeConfig())
+    monkeypatch.setattr(
+        auth_mod,
+        "_get_config_cached",
+        lambda: (_FakeConfig(), []),
+    )
 
     async def r(_request):
         return None
@@ -276,13 +284,21 @@ def test_skip_auth_enforced_when_resolver_present(monkeypatch):
 
 def test_skip_auth_fails_closed_when_no_resolver(monkeypatch):
     monkeypatch.setattr(auth_mod, "is_auth_enabled", lambda: True)
-    monkeypatch.setattr(auth_mod, "_get_config_cached", lambda: _FakeConfig())
+    monkeypatch.setattr(
+        auth_mod,
+        "_get_config_cached",
+        lambda: (_FakeConfig(), []),
+    )
     assert auth_mod.AuthMiddleware._should_skip_auth(_make_request()) is False
 
 
 def test_skip_auth_public_path_always_skipped(monkeypatch):
     monkeypatch.setattr(auth_mod, "is_auth_enabled", lambda: True)
-    monkeypatch.setattr(auth_mod, "_get_config_cached", lambda: _FakeConfig())
+    monkeypatch.setattr(
+        auth_mod,
+        "_get_config_cached",
+        lambda: (_FakeConfig(), []),
+    )
 
     async def r(_request):
         return None

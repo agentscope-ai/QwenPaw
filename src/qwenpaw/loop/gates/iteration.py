@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """IterationGate — universal iteration limiter.
 
-Tracks per-session iteration count.  Returns STOP when
+Tracks per-session iteration count.  Returns TERMINATE when
 ``max_iterations`` is reached.
 """
 from __future__ import annotations
@@ -55,11 +55,13 @@ class IterationGate(LoopGate):
     async def check(
         self,
         ctx: Any,  # pylint: disable=unused-argument
-    ) -> Optional[StopHandlerResult]:
+    ) -> StopHandlerResult:
         """Check iteration limit."""
         state: Optional[_IterState] = self._state()
         if state is None:
-            return None
+            return StopHandlerResult(
+                action=StopAction.BYPASS,
+            )
 
         state.iteration += 1
         logger.debug(
@@ -71,12 +73,22 @@ class IterationGate(LoopGate):
         if state.iteration >= state.max_iterations:
             self.deactivate()
             return StopHandlerResult(
-                action=StopAction.STOP,
+                action=StopAction.TERMINATE,
                 reason=(
                     f"Max iterations " f"({state.max_iterations}) reached"
                 ),
             )
-        return None
+        return StopHandlerResult(
+            action=StopAction.BYPASS,
+        )
+
+    def reset_turn(self) -> None:
+        """Prepare a fresh iteration counter for the current turn."""
+        state = self._state()
+        if state is None:
+            self.activate()
+            return
+        state.iteration = 0
 
 
 __all__ = ["IterationGate"]

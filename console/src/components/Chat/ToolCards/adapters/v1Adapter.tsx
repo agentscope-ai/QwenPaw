@@ -22,20 +22,28 @@ import GenericToolCard from "../cards/GenericToolCard";
 // Helpers
 // ---------------------------------------------------------------------------
 
+const STREAM_INPUT_PREVIEW_CHARS = 4 * 1024;
 const ERROR_STATUSES = new Set(["failed", "rejected", "canceled"]);
+const TOOL_ERROR_STATES = new Set(["error", "interrupted", "denied"]);
 
 /**
  * Derive the tool execution status from V1 message data.
  *
- * No result item (content[1]) → tool hasn't produced output yet → "calling".
- * Message-level status on tool_call messages reflects *delivery*, not execution,
- * so we only consult it when a result item exists.
+ * Checks the tool-execution-layer `state` (nested inside resultItem.data)
+ * first — it reflects the real outcome of the tool call. Falls back to
+ * message-level `status` for delivery state.
  */
 function deriveToolStatus(
   resultItem: Record<string, unknown> | undefined,
   data: Record<string, unknown>,
 ): ToolCallStatus {
   if (!resultItem) return "calling";
+
+  const resultData = (resultItem?.data ?? {}) as Record<string, unknown>;
+  const toolState = resultData.state as string;
+  if (toolState && TOOL_ERROR_STATES.has(toolState)) {
+    return "error";
+  }
 
   const rawStatus =
     (data.status as string) || (resultItem.status as string) || "";
@@ -89,13 +97,22 @@ function parseV1Props(v1Props: Record<string, unknown>): {
   // Extract arguments (may be a JSON string or an object)
   let params: Record<string, unknown> = {};
   const rawArgs = callData.arguments;
-  if (typeof rawArgs === "string") {
+  const isInputStreaming = callItem?.delta === true;
+  const inputProgress =
+    isInputStreaming && typeof rawArgs === "string"
+      ? {
+          characterCount: rawArgs.length,
+          preview: rawArgs.slice(-STREAM_INPUT_PREVIEW_CHARS),
+          truncated: rawArgs.length > STREAM_INPUT_PREVIEW_CHARS,
+        }
+      : undefined;
+  if (!isInputStreaming && typeof rawArgs === "string") {
     try {
       params = JSON.parse(rawArgs);
     } catch {
       params = {};
     }
-  } else if (rawArgs && typeof rawArgs === "object") {
+  } else if (!isInputStreaming && rawArgs && typeof rawArgs === "object") {
     params = rawArgs as Record<string, unknown>;
   }
 
@@ -118,6 +135,7 @@ function parseV1Props(v1Props: Record<string, unknown>): {
     name: toolName,
     serverLabel: (callData.server_label as string) || undefined,
     params,
+    inputProgress,
     result: result ?? undefined,
     status,
   };

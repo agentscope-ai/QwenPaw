@@ -290,6 +290,7 @@
     "backup": "Backup e Restauracao",
     "cli": "CLI",
     "plugins": "Sistema de Plugins",
+    "pluginsMigration": "Guia de Migracao de Plugins",
     "architecture": "Arquitetura",
     "faq": "FAQ",
     "apiTutorial": "API RESTful",

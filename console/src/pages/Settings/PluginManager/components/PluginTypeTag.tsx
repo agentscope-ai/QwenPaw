@@ -6,7 +6,9 @@ import {
   Zap,
   Terminal,
   LayoutDashboard,
+  AppWindow,
 } from "lucide-react";
+import { SparkWifiLine } from "@agentscope-ai/icons";
 import type { PluginType } from "@/api/modules/plugin";
 
 const PLUGIN_TYPE_CONFIG: Record<
@@ -37,6 +39,16 @@ const PLUGIN_TYPE_CONFIG: Record<
     label: "Frontend",
     color: "green",
     icon: <LayoutDashboard size={11} />,
+  },
+  app: {
+    label: "App",
+    color: "geekblue",
+    icon: <AppWindow size={11} />,
+  },
+  channel: {
+    label: "Channel",
+    color: "default",
+    icon: <SparkWifiLine size={11} />,
   },
   general: {
     label: "General",

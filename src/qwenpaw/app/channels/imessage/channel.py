@@ -26,6 +26,7 @@ from ....constant import DEFAULT_MEDIA_DIR
 from ..utils import file_url_to_local_path
 from ....agents.utils.file_handling import download_file_from_url
 
+from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -50,10 +51,8 @@ class IMessageChannel(BaseChannel):
         workspace_dir: Path | None = None,
         max_decoded_size: int = 10 * 1024 * 1024,  # 10MB default
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         dm_policy: str = "open",
         group_policy: str = "open",
         allow_from: Optional[list] = None,
@@ -68,10 +67,8 @@ class IMessageChannel(BaseChannel):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config,
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             dm_policy=dm_policy,
             group_policy=group_policy,
             allow_from=allow_from,
@@ -149,10 +146,8 @@ class IMessageChannel(BaseChannel):
         process: ProcessHandler,
         config: IMessageChannelConfig,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
         no_text_debounce: bool = True,
-        filter_thinking: bool = False,
         workspace_dir: Path | None = None,
     ) -> "IMessageChannel":
         return cls(
@@ -165,10 +160,9 @@ class IMessageChannel(BaseChannel):
             workspace_dir=workspace_dir,
             max_decoded_size=config.max_decoded_size,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
             no_text_debounce=no_text_debounce,
-            filter_thinking=filter_thinking,
             dm_policy=config.dm_policy,
             group_policy=config.group_policy,
             allow_from=config.allow_from,

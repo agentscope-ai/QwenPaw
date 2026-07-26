@@ -26,6 +26,7 @@ export interface CronJobDispatch {
   channel?: string;
   target: CronJobTarget;
   mode?: "stream" | "final";
+  silent?: boolean;
   meta?: Record<string, unknown>;
 }
 
@@ -33,6 +34,7 @@ export interface CronJobRuntime {
   max_concurrency?: number;
   timeout_seconds?: number;
   misfire_grace_seconds?: number;
+  tool_safety?: boolean;
 }
 
 export interface CronJobRequest {

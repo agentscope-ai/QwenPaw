@@ -1,15 +1,35 @@
 ---
 title: "QwenPaw 开发者日会合集"
-date: 2026-06-30
+date: 2026-07-17
 author: QwenPaw Team
-tags: [QwenPaw, 日会合集]
+tags: [开发者日会, 会议纪要, 会议录屏]
 cover: /blog/qwenpaw-developer-day-collection-cover.png
 excerpt: "QwenPaw团队召开开发者日会，为每一位 QwenPaw 开发者与爱好者提供一份兼具理论深度与落地价值的完整技术交流档案。"
 ---
 
-最近更新 2026 年 6 月 30 日
+最近更新 2026 年 7 月 17 日
 
 ---
+
+**07-17 QwenPaw 开发者日会：AgentScope-Java 2.0 正式版详解 & AgentScope-Go 预透**
+
+会议链接：https://shanji.dingtalk.com/app/transcribes/76327569643336373839363436365f323034353035363233375f39
+
+**07-14 QwenPaw 开发者日会：QwenPaw 2.0 WorkSpace & Sandbox 模块详解**
+
+会议链接：https://shanji.dingtalk.com/app/transcribes/76327569643336343833393033335f323034353035363233375f30
+
+**07-09 QwenPaw 开发者日会：AgentScope 2.0 最新更新详解（Agent Team/Agent Service、多租户RAG、长期记忆、实时语音、工具中间件和WebUI）**
+
+会议链接：https://shanji.dingtalk.com/app/transcribes/76327569643335383731333935325f323034353035363233375f30
+
+**07-07 QwenPaw 开发者日会：QwenPaw 2.0 插件迁移指南**
+
+会议链接：https://shanji.dingtalk.com/app/transcribes/76327569643335353433393536335f323034353035363233375f30
+
+**07-02 QwenPaw 开发者日会：QwenPaw 2.0 Runtime 模块详解**
+
+会议链接：https://shanji.dingtalk.com/app/transcribes/76327569643334393537303636305f323034353035363233375f30
 
 **06-30 QwenPaw 开发者日会：QwenPaw 2.0 Driver 模块详解**
 

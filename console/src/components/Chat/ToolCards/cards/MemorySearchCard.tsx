@@ -33,8 +33,17 @@ const MemorySearchCard: React.FC<MemorySearchCardProps> = ({
     : t("tool.memorySearchDefault");
   const title = meta ? `${baseTitle} · ${meta}` : baseTitle;
 
-  // Use the raw result string for formatMemorySearch — it expects JSON to parse.
-  // Fall back to stringifyResult if result is not a string.
+  if (content.status === "error") {
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<BulbOutlined />}
+        title={title}
+      />
+    );
+  }
+
   const rawResult =
     typeof content.result === "string"
       ? content.result

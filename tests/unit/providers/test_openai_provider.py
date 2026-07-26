@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
 from types import SimpleNamespace
+
+from agentscope.model import OpenAIChatModel
 
 import qwenpaw.providers.openai_provider as openai_provider_module
 from qwenpaw.providers.openai_provider import OpenAIProvider
@@ -51,7 +54,9 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
     ok, msg = await provider.check_connection(timeout=1)
 
     assert ok is False
-    assert msg == f"API error when connecting to `{provider.base_url}`"
+    assert msg.startswith(
+        f"API error when connecting to `{provider.base_url}`",
+    )
 
 
 async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
@@ -124,6 +129,120 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     assert captured[0]["timeout"] == 4
     assert captured[0]["max_tokens"] == 20
     assert captured[0]["stream"] is True
+
+
+async def test_check_gpt5_model_uses_max_completion_tokens(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    captured: list[dict] = []
+
+    class FakeStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            captured.append(kwargs)
+            return FakeStream()
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions()),
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    ok, msg = await provider.check_model_connection("gpt-5.2", timeout=4)
+
+    assert ok is True
+    assert msg == ""
+    assert captured[0]["max_completion_tokens"] == 20
+    assert "max_tokens" not in captured[0]
+
+
+def test_token_limit_kwargs_handles_reasoning_model_ids() -> None:
+    assert openai_provider_module._token_limit_kwargs(
+        "openai/gpt-5-mini",
+        200,
+    ) == {"max_completion_tokens": 200}
+    assert openai_provider_module._token_limit_kwargs(
+        "o3",
+        200,
+    ) == {"max_completion_tokens": 200}
+    assert openai_provider_module._token_limit_kwargs(
+        "openai/o4-mini",
+        200,
+    ) == {"max_completion_tokens": 200}
+    assert openai_provider_module._token_limit_kwargs(
+        "openai/gpt-4o-mini",
+        200,
+    ) == {"max_tokens": 200}
+
+
+async def test_summary_limit_uses_reasoning_model_parameter(
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+
+    async def fake_call_api(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(OpenAIChatModel, "_call_api", fake_call_api)
+    model = _make_provider().get_chat_model_instance("gpt-5.2")
+
+    result = await model._call_api(
+        "gpt-5.2",
+        [],
+        max_tokens=256,
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert captured["max_completion_tokens"] == 256
+    assert "max_tokens" not in captured
+
+
+def test_get_gpt5_model_maps_configured_max_tokens() -> None:
+    provider = _make_provider()
+    provider.generate_kwargs = {"max_tokens": 4096}
+
+    model = provider.get_chat_model_instance("gpt-5.2")
+
+    assert model.parameters.max_tokens is None
+    assert model._extra_generate_kwargs == {
+        "max_completion_tokens": 4096,
+    }
+
+
+def test_get_o_series_model_maps_configured_max_tokens() -> None:
+    provider = _make_provider()
+    provider.generate_kwargs = {"max_tokens": 4096}
+
+    model = provider.get_chat_model_instance("o3")
+
+    assert model.parameters.max_tokens is None
+    assert model._extra_generate_kwargs == {
+        "max_completion_tokens": 4096,
+    }
+
+
+def test_get_gpt5_model_preserves_explicit_max_completion_tokens() -> None:
+    provider = _make_provider()
+    provider.generate_kwargs = {
+        "max_tokens": 4096,
+        "max_completion_tokens": 2048,
+    }
+
+    model = provider.get_chat_model_instance("gpt-5-mini")
+
+    assert model.parameters.max_tokens is None
+    assert model._extra_generate_kwargs == {
+        "max_completion_tokens": 2048,
+    }
 
 
 async def test_check_model_connection_api_error_returns_false(

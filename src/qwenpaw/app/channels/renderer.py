@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, List, Union
 
 from qwenpaw.schemas import (
@@ -35,16 +35,92 @@ _OutgoingPart = Union[
 
 
 @dataclass
+class ChannelDisplayConfig:
+    """Display settings shared by channel rendering and streaming."""
+
+    show_tool_details: bool = True
+    show_thinking: bool = True
+    show_tool_calls: bool = True
+    show_tool_results: bool = True
+    # A value of 0 means unlimited (do not truncate).
+    tool_call_max_length: int = 200
+    tool_result_max_length: int = 500
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Any,
+        *,
+        show_tool_details: bool = True,
+    ) -> "ChannelDisplayConfig":
+        """Build display settings from channel and global configuration."""
+        if isinstance(config, dict):
+
+            def read(key: str, default: Any) -> Any:
+                return config.get(key, default)
+
+        else:
+
+            def read(key: str, default: Any) -> Any:
+                return getattr(config, key, default)
+
+        def read_bool(key: str, default: bool) -> bool:
+            value = read(key, default)
+            if isinstance(value, bool):
+                return value
+            if value in (0, 1):
+                return bool(value)
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if normalized in {"true", "1", "yes", "on"}:
+                    return True
+                if normalized in {"false", "0", "no", "off"}:
+                    return False
+            return default
+
+        def read_length(key: str, default: int) -> int:
+            value = read(key, default)
+            if isinstance(value, bool):
+                return default
+            try:
+                return max(0, int(value))
+            except (TypeError, ValueError):
+                return default
+
+        return cls(
+            show_tool_details=show_tool_details,
+            show_thinking=read_bool("show_thinking", True),
+            show_tool_calls=read_bool("show_tool_calls", True),
+            show_tool_results=read_bool("show_tool_results", True),
+            tool_call_max_length=read_length("tool_call_max_length", 200),
+            tool_result_max_length=read_length(
+                "tool_result_max_length",
+                500,
+            ),
+        )
+
+
+@dataclass
 class RenderStyle:
     """Channel capabilities for rendering (no hardcoded markdown/emoji)."""
 
-    show_tool_details: bool = True
+    display_config: ChannelDisplayConfig = field(
+        default_factory=ChannelDisplayConfig,
+    )
     supports_markdown: bool = True
     supports_code_fence: bool = True
     use_emoji: bool = True
-    filter_tool_messages: bool = False
-    filter_thinking: bool = False
+    # Builtin tools with display_to_user=False (e.g. view_image/view_video).
+    # Their media output is withheld from users when tool results are hidden.
     internal_tools: frozenset = frozenset()
+
+
+def _truncate_tool_text(value: Any, limit: int) -> str:
+    """Return a tool preview; zero means unlimited."""
+    text = str(value or "")
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return text[:limit] + "..."
 
 
 def _fmt_tool_call(
@@ -93,7 +169,10 @@ class MessageRenderer:
         content = getattr(message, "content", None) or []
         s = self.style
 
-        if s.filter_thinking and msg_type == MessageType.REASONING:
+        if (
+            not s.display_config.show_thinking
+            and msg_type == MessageType.REASONING
+        ):
             return []
 
         logger.debug(
@@ -109,13 +188,17 @@ class MessageRenderer:
                     continue
                 data = getattr(c, "data", None) or {}
                 name = data.get("name") or "tool"
-                if s.show_tool_details:
-                    args = data.get("arguments") or "{}"
-                    args_preview = (
-                        args[:200] + "..." if len(args) > 200 else args
+                if not s.display_config.show_tool_calls:
+                    continue
+                args = data.get("arguments") or "{}"
+                args_preview = (
+                    "..."
+                    if not s.display_config.show_tool_details
+                    else _truncate_tool_text(
+                        args,
+                        s.display_config.tool_call_max_length,
                     )
-                else:
-                    args_preview = "..."
+                )
                 text = _fmt_tool_call(name, args_preview, s)
                 out.append(TextContent(text=text))
             return out
@@ -176,7 +259,7 @@ class MessageRenderer:
                                 ),
                             )
                 if btype == "thinking" and b.get("thinking"):
-                    if not s.filter_thinking:
+                    if s.display_config.show_thinking:
                         result.append(TextContent(text=b["thinking"]))
             return result
 
@@ -191,73 +274,102 @@ class MessageRenderer:
 
                 try:
                     output = json.loads(output)
-                except json.JSONDecodeError:
+                except (json.JSONDecodeError, TypeError):
                     pass
 
                 if isinstance(output, list):
                     block_parts = _blocks_to_parts(output)
-                    if s.show_tool_details:
-                        out.append(
-                            TextContent(
-                                text=_fmt_tool_output_label(name, s),
-                            ),
+                    media_types = (
+                        ContentType.IMAGE,
+                        ContentType.AUDIO,
+                        ContentType.VIDEO,
+                        ContentType.FILE,
+                    )
+                    # Internal tools (e.g. view_image/view_video) load media
+                    # into the LLM context, not for the user. Withhold their
+                    # media when tool results are hidden.
+                    media_parts = (
+                        []
+                        if (
+                            not s.display_config.show_tool_results
+                            and name in s.internal_tools
                         )
-                        out.extend(block_parts)
-                    else:
-                        media_types = (
-                            ContentType.IMAGE,
-                            ContentType.AUDIO,
-                            ContentType.VIDEO,
-                            ContentType.FILE,
-                        )
-                        # Internal tools (e.g. view_image/view_video) produce
-                        # media for the LLM, not the user — skip.
-                        media_parts = (
-                            []
-                            if name in s.internal_tools
-                            else [
-                                p
-                                for p in block_parts
-                                if getattr(p, "type", None) in media_types
-                            ]
-                        )
-                        out.extend(media_parts)
-                        if not media_parts:
+                        else [
+                            p
+                            for p in block_parts
+                            if getattr(p, "type", None) in media_types
+                        ]
+                    )
+                    out.extend(media_parts)
+                    if s.display_config.show_tool_results:
+                        if not s.display_config.show_tool_details:
                             out.append(
                                 TextContent(
                                     text=_fmt_tool_output_label(name, s)
                                     + _fmt_code_block("...", s),
                                 ),
                             )
+                        else:
+                            out.append(
+                                TextContent(
+                                    text=_fmt_tool_output_label(name, s),
+                                ),
+                            )
+                            text = "\n".join(
+                                getattr(p, "text", "")
+                                for p in block_parts
+                                if getattr(p, "type", None) == ContentType.TEXT
+                                and getattr(p, "text", "")
+                            )
+                            if text:
+                                result_limit = (
+                                    s.display_config.tool_result_max_length
+                                )
+                                out.append(
+                                    TextContent(
+                                        text=_truncate_tool_text(
+                                            text,
+                                            result_limit,
+                                        ),
+                                    ),
+                                )
                     continue
 
                 if isinstance(output, str):
-                    preview = (
-                        (output[:500] + "..." if len(output) > 500 else output)
-                        if s.show_tool_details
-                        else "..."
-                    )
-                    out.append(
-                        TextContent(
-                            text=_fmt_tool_output_label(name, s)
-                            + _fmt_code_block(preview, s),
-                        ),
-                    )
+                    if s.display_config.show_tool_results:
+                        preview = (
+                            "..."
+                            if not s.display_config.show_tool_details
+                            else _truncate_tool_text(
+                                output,
+                                s.display_config.tool_result_max_length,
+                            )
+                        )
+                        out.append(
+                            TextContent(
+                                text=_fmt_tool_output_label(name, s)
+                                + _fmt_code_block(preview, s),
+                            ),
+                        )
                     continue
 
                 if output is not None:
                     raw = str(output)
-                    preview = (
-                        (raw[:500] + "..." if len(raw) > 500 else raw)
-                        if s.show_tool_details
-                        else "..."
-                    )
-                    out.append(
-                        TextContent(
-                            text=_fmt_tool_output_label(name, s)
-                            + _fmt_code_block(preview, s),
-                        ),
-                    )
+                    if s.display_config.show_tool_results:
+                        preview = (
+                            "..."
+                            if not s.display_config.show_tool_details
+                            else _truncate_tool_text(
+                                raw,
+                                s.display_config.tool_result_max_length,
+                            )
+                        )
+                        out.append(
+                            TextContent(
+                                text=_fmt_tool_output_label(name, s)
+                                + _fmt_code_block(preview, s),
+                            ),
+                        )
             return out
 
         if msg_type in (
@@ -265,10 +377,8 @@ class MessageRenderer:
             MessageType.PLUGIN_CALL,
             MessageType.MCP_TOOL_CALL,
         ):
-            if s.filter_tool_messages:
-                return []
             parts = _parts_for_tool_call(content)
-            if not parts:
+            if not parts and s.display_config.show_tool_calls:
                 parts = [TextContent(text=f"[{msg_type}]")]
             return parts
 
@@ -277,42 +387,13 @@ class MessageRenderer:
             MessageType.PLUGIN_CALL_OUTPUT,
             MessageType.MCP_TOOL_CALL_OUTPUT,
         ):
-            if s.filter_tool_messages:
-                media_types = (
-                    ContentType.IMAGE,
-                    ContentType.AUDIO,
-                    ContentType.VIDEO,
-                    ContentType.FILE,
-                )
-                media_parts = []
-                for c in content:
-                    if getattr(c, "type", None) != ContentType.DATA:
-                        continue
-                    data = getattr(c, "data", None) or {}
-                    name = data.get("name") or "tool"
-                    if name in s.internal_tools:
-                        continue
-                    output = data.get("output", "")
-                    try:
-                        output = json.loads(output)
-                    except json.JSONDecodeError:
-                        pass
-                    if isinstance(output, list):
-                        block_parts = _blocks_to_parts(output)
-                        media_parts.extend(
-                            [
-                                p
-                                for p in block_parts
-                                if getattr(p, "type", None) in media_types
-                            ],
-                        )
-                return media_parts
             parts = _parts_for_tool_output(content)
-            if not parts:
+            if not parts and s.display_config.show_tool_results:
                 parts = [TextContent(text=f"[{msg_type}]")]
             return parts
 
         result: List[_OutgoingPart] = []
+        suppressed_tool_data = False
         for c in content:
             ctype = getattr(c, "type", None)
             if ctype == ContentType.TEXT and getattr(c, "text", None):
@@ -350,23 +431,35 @@ class MessageRenderer:
                     if name is not None and (
                         output is not None or args is not None
                     ):
-                        if not s.show_tool_details:
-                            preview = "..."
-                        elif output is not None:
-                            preview = str(output)[:500] + (
-                                "..." if len(str(output)) > 500 else ""
+                        is_call = args is not None and output is None
+                        allowed = (
+                            s.display_config.show_tool_calls
+                            if is_call
+                            else s.display_config.show_tool_results
+                        )
+                        if not allowed:
+                            suppressed_tool_data = True
+                            continue
+                        preview_limit = (
+                            s.display_config.tool_result_max_length
+                            if output is not None
+                            else s.display_config.tool_call_max_length
+                        )
+                        preview = (
+                            "..."
+                            if not s.display_config.show_tool_details
+                            else _truncate_tool_text(
+                                output if output is not None else args,
+                                preview_limit,
                             )
-                        else:
-                            preview = str(args)[:200] + (
-                                "..." if len(str(args)) > 200 else ""
-                            )
+                        )
                         result.append(
                             TextContent(
                                 text=_fmt_tool_output_label(name, s)
                                 + _fmt_code_block(preview, s),
                             ),
                         )
-        if not result and msg_type:
+        if not result and msg_type and not suppressed_tool_data:
             result = [TextContent(text=f"[Message type: {msg_type}]")]
         return result
 

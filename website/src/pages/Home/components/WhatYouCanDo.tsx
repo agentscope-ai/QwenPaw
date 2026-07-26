@@ -15,28 +15,28 @@ const CATEGORY_CONFIG: Array<{
     background:
       "https://img.alicdn.com/imgextra/i4/O1CN01tdSfuK1X2DrN462ga_!!6000000002865-2-tps-1578-946.png",
     preview:
-      "https://img.alicdn.com/imgextra/i1/O1CN013g8G931yNk65n8mZX_!!6000000006567-2-tps-1362-852.png",
+      "https://img.alicdn.com/imgextra/i2/O1CN01Be9DH21wKQ0fqNLSo_!!6000000006289-2-tps-1362-894.png",
   },
   {
     key: "creative",
     background:
       "https://img.alicdn.com/imgextra/i3/O1CN010T7jhC1LptQKwxNGm_!!6000000001349-2-tps-2114-1180.png",
     preview:
-      "https://img.alicdn.com/imgextra/i4/O1CN01XDvtE31elkXhE59ID_!!6000000003912-2-tps-1362-852.png",
+      "https://img.alicdn.com/imgextra/i3/O1CN013OF19c1j2vsqbmynl_!!6000000004491-2-tps-1362-894.png",
   },
   {
     key: "productivity",
     background:
       "https://img.alicdn.com/imgextra/i3/O1CN01SVXYZd1a2Af7uEY94_!!6000000003271-2-tps-1874-1046.png",
     preview:
-      "https://img.alicdn.com/imgextra/i3/O1CN01iuV2s61WutWawD5l9_!!6000000002849-2-tps-1362-852.png",
+      "https://img.alicdn.com/imgextra/i3/O1CN01Q0dF3W1FqudE7Rcop_!!6000000000539-2-tps-1362-894.png",
   },
   {
     key: "research",
     background:
       "https://img.alicdn.com/imgextra/i3/O1CN01oybwPf1vKaWII7bmm_!!6000000006154-2-tps-1962-1096.png",
     preview:
-      "https://img.alicdn.com/imgextra/i2/O1CN01fOt59G233eo5KBepG_!!6000000007200-2-tps-1362-852.png",
+      "https://img.alicdn.com/imgextra/i2/O1CN01GNAC861QnfbKZIFK2_!!6000000002021-2-tps-1362-894.png",
   },
 ];
 

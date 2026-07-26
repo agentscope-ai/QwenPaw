@@ -8,10 +8,6 @@ Core architecture:
     ├── RubricGate    — rubric-based evaluation (GoalMode)
     ├── IterationGate — iteration limit (universal)
     └── BudgetGate    — token budget (GoalMode)
-
-ReactGates:
-    register_react_gates — always-on Gate registration
-    for ReAct default mode.
 """
 
 from .gates import (
@@ -26,7 +22,6 @@ from .gates import (
     StopHandlerRegistration,
     StopHandlerResult,
 )
-from .react_gates import register_react_gates, resolve_max_iterations
 
 __all__ = [
     "DoomLoopGate",
@@ -39,6 +34,4 @@ __all__ = [
     "StopHandler",
     "StopHandlerRegistration",
     "StopHandlerResult",
-    "register_react_gates",
-    "resolve_max_iterations",
 ]

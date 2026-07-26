@@ -12,6 +12,7 @@ The plugin system supports the following extension capabilities:
 - **Command Plugins**: Register custom `/command` magic commands
 - **HTTP API Plugins**: Expose custom REST endpoints under `/api` via a FastAPI `APIRouter`
 - **Frontend Extension Plugins**: Browser-side JS plugins that share the host's React / Ant Design runtime and declaratively extend the UI via `window.QwenPaw.*` API — register sidebar menus, page routes, UI slots, chat customizations, and more without modifying host code
+- **Channel Plugins**: Register custom messaging channels (e.g. Slack, LINE)
 
 ## Plugin Management
 
@@ -133,6 +134,7 @@ my-plugin/
 | `provider` | Registers a custom LLM provider / model endpoint.                      |
 | `hook`     | Runs code during application startup or shutdown (app lifespan level). |
 | `command`  | Registers one or more `/slash` control commands.                       |
+| `channel`  | Registers a custom messaging channel.                                  |
 | `frontend` | Ships a frontend JS bundle loaded dynamically by the UI.               |
 | `general`  | Fallback for plugins that combine multiple capabilities or don't fit.  |
 
@@ -1416,6 +1418,272 @@ plugin = ThinkingLogPlugin()
 - Full source: `plugins/middleware-demo/thinking-log-middleware/thinking_log_plugin.py`
 
 ---
+
+### Example 10: Register a Custom Channel
+
+Channel plugins let you add new messaging platforms to QwenPaw. The channel
+appears in the Console UI alongside built-in channels (DingTalk, Telegram,
+etc.) and can be configured, enabled, and disabled the same way.
+
+#### 1. Create Plugin Directory
+
+```bash
+mkdir sample-channel-plugin && cd sample-channel-plugin
+```
+
+#### 2. Create plugin.json
+
+```json
+{
+  "id": "sample-channel",
+  "name": "Sample Channel",
+  "version": "1.0.0",
+  "type": "channel",
+  "description": "Sample messaging channel integration for QwenPaw",
+  "author": "Your Name",
+  "entry": {
+    "backend": "plugin.py"
+  },
+  "dependencies": ["sample-sdk>=1.0.0"],
+  "qwenpaw_version": {
+    "min": "1.1.5",
+    "max": "2.1.0"
+  }
+}
+```
+
+#### 3. Create channel.py — BaseChannel subclass
+
+Your channel class must implement the `BaseChannel` contract. The key
+methods are:
+
+- **`from_config(cls, process, config, ...)`** — classmethod that creates
+  an instance from saved configuration. This is how `ChannelManager`
+  instantiates your channel at startup.
+- **`start()` / `stop()`** — lifecycle hooks called when the channel is
+  enabled/disabled.
+- **`send(to_handle, text, meta)`** — send a message to a user/session.
+
+```python
+# -*- coding: utf-8 -*-
+"""Sample channel implementation."""
+
+import logging
+from pathlib import Path
+from typing import Optional
+
+from qwenpaw.app.channels.base import (
+    BaseChannel,
+    OnReplySent,
+    ProcessHandler,
+)
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+
+logger = logging.getLogger(__name__)
+
+
+class SampleChannel(BaseChannel):
+    """Sample messaging channel."""
+
+    channel = "sample"  # unique key, must match config key
+
+    def __init__(
+        self,
+        process: ProcessHandler,
+        enabled: bool = True,
+        bot_token: str = "",
+        signing_secret: str = "",
+        bot_prefix: str = "",
+        on_reply_sent: OnReplySent = None,
+        display_config: ChannelDisplayConfig | None = None,
+        **kwargs,
+    ):
+        super().__init__(
+            process,
+            on_reply_sent=on_reply_sent,
+            display_config=display_config,
+        )
+        self.enabled = enabled
+        self.bot_prefix = bot_prefix
+        self.bot_token = bot_token
+        self.signing_secret = signing_secret
+
+    @classmethod
+    def from_config(
+        cls,
+        process: ProcessHandler,
+        config,
+        on_reply_sent: OnReplySent = None,
+        display_config: ChannelDisplayConfig | None = None,
+        workspace_dir: Optional[Path] = None,
+    ) -> "SampleChannel":
+        """Create from config.
+
+        Note: for plugin channels, ``config`` is a
+        ``types.SimpleNamespace`` object (not a dict). Use
+        ``getattr(config, "field", default)`` to read fields safely.
+        """
+        return cls(
+            process=process,
+            enabled=getattr(config, "enabled", False),
+            bot_token=getattr(config, "bot_token", ""),
+            signing_secret=getattr(config, "signing_secret", ""),
+            bot_prefix=getattr(config, "bot_prefix", ""),
+            on_reply_sent=on_reply_sent,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
+        )
+
+    async def start(self):
+        """Start the sample event listener."""
+        logger.info("Sample channel starting (token=%s...)", self.bot_token[:8])
+        # Start your platform's API client here
+
+    async def stop(self):
+        """Stop the sample event listener."""
+        logger.info("Sample channel stopping")
+
+    async def send(self, to_handle: str, text: str, meta=None):
+        """Send a message to a sample user or channel."""
+        logger.info("Sending to sample %s: %s", to_handle, text[:50])
+        # Use sample-sdk to post messages
+```
+
+> **Important: `config` parameter type** — For plugin channels, the
+> `config` passed to `from_config()` is a `types.SimpleNamespace` object
+> (not a dict or Pydantic model). The framework merges
+> `BaseChannelConfig` defaults with the user's saved config before
+> passing it. Always use `getattr(config, "field", default)` to read
+> fields safely.
+
+#### 4. Create plugin.py — Plugin entry point
+
+```python
+# -*- coding: utf-8 -*-
+"""Sample Channel Plugin Entry Point."""
+
+import logging
+from qwenpaw.plugins.api import PluginApi
+
+logger = logging.getLogger(__name__)
+
+
+class SampleChannelPlugin:
+    """Sample Channel Plugin."""
+
+    def register(self, api: PluginApi):
+        """Register the sample channel."""
+        from .channel import SampleChannel
+
+        api.register_channel(
+            channel_class=SampleChannel,
+            label="Sample",
+            description="Sample messaging channel integration",
+            icon="https://example.com/sample-icon.png",  # optional card icon (http/https only)
+            doc_url={  # optional doc link, plain string or localized dict (http/https only)
+                "zh": "https://example.com/docs?lang=zh",
+                "en": "https://example.com/docs?lang=en",
+            },
+            config_fields=[
+                {
+                    "name": "bot_token",
+                    "label": "Bot Token",
+                    "type": "password",
+                    "required": True,
+                    "placeholder": "your-bot-token-here",
+                    "help": "Bot access token",
+                },
+                {
+                    "name": "signing_secret",
+                    "label": "Signing Secret",
+                    "type": "password",
+                    "required": True,
+                    "help": "Signing secret for request verification",
+                },
+                {
+                    "name": "streaming_enabled",
+                    "label": {
+                        "zh-CN": "流式输出",
+                        "en-US": "Streaming Output",
+                    },
+                    "type": "switch",
+                    "required": False,
+                    "default": False,
+                },
+            ],
+        )
+        logger.info("✓ Sample channel registered")
+
+
+plugin = SampleChannelPlugin()
+```
+
+#### 5. Install and Use
+
+```bash
+qwenpaw plugin install sample-channel-plugin
+qwenpaw app
+```
+
+After starting, go to **Control → Channels** in the Console. The sample
+channel card will appear alongside built-in channels. Click it to fill in
+credentials and enable it.
+
+#### 6. Adding Webhook Endpoints (Optional)
+
+If your channel needs to receive HTTP callbacks (e.g. your platform's
+events API), register a FastAPI router in the same plugin:
+
+```python
+from fastapi import APIRouter
+
+def register(self, api: PluginApi):
+    from .channel import SampleChannel
+
+    api.register_channel(channel_class=SampleChannel, ...)
+
+    # Mount webhook endpoint at /api/sample/events
+    router = APIRouter()
+
+    @router.post("/events")
+    async def sample_events(request):
+        body = await request.json()
+        # Handle event verification and messages
+        return {"ok": True}
+
+    api.register_http_router(router, prefix="/sample", tags=["sample"])
+```
+
+**Key points:**
+
+- The `channel_class` must be a `BaseChannel` subclass with a `channel`
+  class attribute (the unique key).
+- **You must implement `from_config`** — this is how `ChannelManager`
+  creates your channel at startup. The `config` parameter is a
+  `SimpleNamespace`, not a dict.
+- `config_fields` defines the form fields shown in the Console settings
+  drawer. Supported types: `text`, `password`, `number`, `switch`, `select`.
+- The `label`, `help`, and `placeholder` of each field accept either a
+  plain string or a localized dict. Dict keys support **both long codes
+  (e.g. `zh-CN`, `en-US`) and short codes (e.g. `zh`, `en`), which can be
+  mixed freely**. The value is resolved with fallback in order (exact locale
+  → short code → short-code prefix match → English → Chinese → first
+  non-empty value) so a missing locale never renders blank.
+- `icon` (optional) is a custom icon URL for the channel card. Only
+  `http`/`https` URLs are supported; other values are ignored and fall back
+  to the default icon.
+- `doc_url` (optional) is a documentation link for the channel. It can be a
+  plain string or a localized dict (e.g. `{"zh": "...", "en": "..."}`, same
+  long/short code rules as `label`). Only `http`/`https` URLs are supported;
+  the Console shows a "Doc" button in the settings drawer header that opens
+  the link for the current language, and hides it when the value is invalid
+  or missing.
+- Plugin channels share the same enable/disable, access control, and
+  `bot_prefix` features as built-in channels.
+- If a plugin channel key conflicts with a built-in key, the built-in
+  takes precedence and the plugin channel is skipped with a warning.
+- For webhook-based channels, combine `register_channel` with
+  `register_http_router` in the same plugin.
 
 ## Dependency Management
 

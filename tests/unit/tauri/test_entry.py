@@ -135,3 +135,33 @@ def test_socket_port_returns_bound_port():
         sock.bind(("127.0.0.1", 0))
 
         assert entry._socket_port(sock) == sock.getsockname()[1]
+
+
+def test_main_supports_frozen_entry_without_package_context(
+    monkeypatch,
+    tmp_path,
+):
+    config_path = tmp_path / "config.json"
+    config_path.write_text("{}", encoding="utf-8")
+    calls = []
+
+    monkeypatch.setattr(entry, "__package__", None)
+    monkeypatch.setattr(entry, "__spec__", None)
+    monkeypatch.setattr(entry, "__name__", "__main__")
+    monkeypatch.setattr(entry, "_is_frozen_desktop", lambda: False)
+    monkeypatch.setattr(entry, "_ensure_utf8_stdio", lambda: None)
+    monkeypatch.setattr(entry, "_install_subprocess_guard", lambda: None)
+    monkeypatch.setattr(entry, "_install_desktop_runtime", lambda: None)
+    monkeypatch.setattr(entry, "install_sidecar_logging", lambda path: None)
+    monkeypatch.setattr(entry, "_install_certifi_env", lambda: None)
+    monkeypatch.setattr(entry, "_run_backend_server", calls.append)
+    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path)
+    monkeypatch.setattr(
+        "qwenpaw.utils.platform.auto_disable_sandbox_on_windows",
+        lambda: calls.append("sandbox-check"),
+    )
+    monkeypatch.delenv("QWENPAW_LOG_LEVEL", raising=False)
+
+    entry.main()
+
+    assert calls == ["sandbox-check", "info"]
