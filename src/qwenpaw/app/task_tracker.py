@@ -53,17 +53,19 @@ class _RunState:
 def _buffer_append(state: _RunState, sse: str) -> None:
     """Append *sse* to the replay buffer, evicting oldest on overflow.
 
-    Caller must hold the tracker lock. Sets ``truncated`` once any
+    Caller must hold the tracker lock. Sizes are accounted in encoded
+    UTF-8 bytes (``len(str)`` counts code points and undercounts
+    multi-byte content such as CJK text). Sets ``truncated`` once any
     event has been evicted so reconnects can signal the client.
     """
     state.buffer.append(sse)
-    state.buffer_bytes += len(sse)
+    state.buffer_bytes += len(sse.encode("utf-8"))
     while state.buffer and (
         len(state.buffer) > MAX_BUFFER_EVENTS
         or state.buffer_bytes > MAX_BUFFER_BYTES
     ):
         evicted = state.buffer.popleft()
-        state.buffer_bytes -= len(evicted)
+        state.buffer_bytes -= len(evicted.encode("utf-8"))
         state.truncated = True
 
 

@@ -293,7 +293,9 @@ async def test_buffer_append_evicts_by_event_count(monkeypatch):
 
     assert list(state.buffer) == ["data: 2\n\n", "data: 3\n\n"]
     assert state.truncated is True
-    assert state.buffer_bytes == sum(len(e) for e in state.buffer)
+    assert state.buffer_bytes == sum(
+        len(e.encode("utf-8")) for e in state.buffer
+    )
 
 
 @pytest.mark.asyncio
@@ -314,6 +316,32 @@ async def test_buffer_append_evicts_by_bytes(monkeypatch):
 
     assert len(state.buffer) == 2
     assert state.truncated is True
+
+
+@pytest.mark.asyncio
+async def test_buffer_bytes_accounts_utf8_not_code_points(monkeypatch):
+    # Each CJK char is 3 bytes in UTF-8; code-point counting would
+    # undercount by 3x and never trigger the eviction below.
+    cjk_event = f"data: {'测' * 10}\n\n"
+    encoded_len = len(cjk_event.encode("utf-8"))
+    assert encoded_len > len(cjk_event)
+
+    monkeypatch.setattr(
+        task_tracker_mod,
+        "MAX_BUFFER_BYTES",
+        encoded_len,
+    )
+    state = task_tracker_mod._RunState(task=asyncio.Future())
+
+    task_tracker_mod._buffer_append(state, cjk_event)
+    assert state.truncated is False
+    assert state.buffer_bytes == encoded_len
+
+    task_tracker_mod._buffer_append(state, cjk_event)
+
+    assert len(state.buffer) == 1
+    assert state.truncated is True
+    assert state.buffer_bytes == encoded_len
 
 
 @pytest.mark.asyncio
