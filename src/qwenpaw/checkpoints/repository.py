@@ -424,7 +424,7 @@ class CheckpointRepository:
             )
         try:
             resolved_parent = target.parent.resolve(strict=False)
-        except OSError as exc:
+        except (OSError, RuntimeError) as exc:
             raise CheckpointError(
                 f"Failed to resolve workspace path {rel}: {exc}",
             ) from exc
