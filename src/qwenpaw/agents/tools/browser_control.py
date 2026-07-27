@@ -1708,6 +1708,20 @@ async def _action_start(
     executable_path: str = "",
 ) -> ToolChunk:
     _validate_executable_path(executable_path)
+    if cdp_port and private_mode:
+        return _tool_response(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": (
+                        "private_mode=true conflicts with cdp_port; "
+                        "drop one of them."
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
     # Check browser state based on mode
     if _USE_SYNC_PLAYWRIGHT:
         browser_exists = (
@@ -1779,7 +1793,10 @@ async def _action_start(
     started_playwright = None
     cleanup_errors: list[str] = []
     try:
-        if not _USE_SYNC_PLAYWRIGHT and not bool(private_mode):
+        if not _USE_SYNC_PLAYWRIGHT and _should_use_managed_cdp(
+            private_mode,
+            cdp_port,
+        ):
             await _start_managed_cdp_browser(
                 state,
                 cdp_port=cdp_port,
