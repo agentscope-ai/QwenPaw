@@ -26,36 +26,32 @@ export function PluginsSection({ pluginsIndex }: PluginsSectionProps) {
       description={t("downloads.pluginsDesc")}
       className="mb-12"
     >
-      {kinds.map((kind, index) => {
-        const files = getFilesForPluginPlatform(pluginsIndex, kind);
-        if (files.length === 0) return null;
+      <PlatformGrid>
+        {kinds.flatMap((kind) => {
+          const files = getFilesForPluginPlatform(pluginsIndex, kind);
+          if (files.length === 0) return [];
 
-        const latestByPluginId = latestFileIdByPluginId(files);
-        const kindLabel = formatPlatformKindLabel(kind);
+          const latestByPluginId = latestFileIdByPluginId(files);
+          const kindLabel = formatPlatformKindLabel(kind);
 
-        return (
-          <div key={kind} className={index > 0 ? "mt-6" : undefined}>
-            <PlatformGrid>
-              {groupFilesByPluginId(files).map(({ pluginId, versions }) => {
-                const latestStableId = latestByPluginId.get(pluginId) ?? null;
-                return (
-                  <DownloadCard
-                    key={pluginId}
-                    versions={orderVersionsWithDefault(
-                      versions,
-                      latestStableId ?? undefined,
-                    )}
-                    latestStableFileId={latestStableId}
-                    icon={Puzzle}
-                    kindLabel={kindLabel}
-                    downloadLabelKey="downloads.downloadZip"
-                  />
-                );
-              })}
-            </PlatformGrid>
-          </div>
-        );
-      })}
+          return groupFilesByPluginId(files).map(({ pluginId, versions }) => {
+            const latestStableId = latestByPluginId.get(pluginId) ?? null;
+            return (
+              <DownloadCard
+                key={`${kind}-${pluginId}`}
+                versions={orderVersionsWithDefault(
+                  versions,
+                  latestStableId ?? undefined,
+                )}
+                latestStableFileId={latestStableId}
+                icon={Puzzle}
+                kindLabel={kindLabel}
+                downloadLabelKey="downloads.downloadZip"
+              />
+            );
+          });
+        })}
+      </PlatformGrid>
     </ProductSection>
   );
 }
