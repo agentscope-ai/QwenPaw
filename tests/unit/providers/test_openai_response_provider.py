@@ -2,10 +2,14 @@
 # pylint: disable=protected-access
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 
+import httpx
 from agentscope.model import OpenAIResponseModel
+from openai import BadRequestError
 
+from qwenpaw.providers.multimodal_prober import _PROBE_VIDEO_URL
 from qwenpaw.providers.openai_response_provider import (
     OpenAIResponseProvider,
     _extract_reasoning_text,
@@ -41,6 +45,17 @@ def _fake_response(text: str) -> SimpleNamespace:
     )
 
 
+def _bad_request(message: str) -> BadRequestError:
+    return BadRequestError(
+        message=message,
+        response=httpx.Response(
+            status_code=400,
+            request=httpx.Request("POST", "http://x"),
+        ),
+        body=None,
+    )
+
+
 # ------ _extract_response_text ----------------------------
 
 
@@ -54,9 +69,6 @@ def test_extract_response_text_prefers_output_text_attr() -> None:
     use it instead of manual traversal."""
     res = SimpleNamespace(output_text="aggregated text")
     assert _extract_response_text(res) == "aggregated text"
-
-
-# ------ _is_incomplete_due_to_tokens ---------------------
 
 
 def test_extract_reasoning_text() -> None:
@@ -115,20 +127,10 @@ async def test_image_probe_400_returns_not_supported(
     monkeypatch,
 ) -> None:
     """A 400 from responses.create means image not supported."""
-    import httpx
-    from openai import BadRequestError
-
     provider = _make_provider()
 
     async def fake_create(**_kwargs):
-        raise BadRequestError(
-            message="image not supported",
-            response=httpx.Response(
-                status_code=400,
-                request=httpx.Request("POST", "http://x"),
-            ),
-            body=None,
-        )
+        raise _bad_request("image not supported")
 
     mock_client = SimpleNamespace(
         responses=SimpleNamespace(create=fake_create),
@@ -187,8 +189,6 @@ async def test_video_probe_uses_responses_api(
 ) -> None:
     """Ensure video probe calls responses.create with
     input_video."""
-    import time
-
     captured: dict = {}
 
     async def fake_create(**kwargs):
@@ -228,22 +228,10 @@ async def test_video_probe_400_returns_none(
 ) -> None:
     """A 400 means this video format was rejected; return
     None so the caller tries the next format."""
-    import time
-
-    import httpx
-    from openai import BadRequestError
-
     provider = _make_provider()
 
     async def fake_create(**_kwargs):
-        raise BadRequestError(
-            message="video too short",
-            response=httpx.Response(
-                status_code=400,
-                request=httpx.Request("POST", "http://x"),
-            ),
-            body=None,
-        )
+        raise _bad_request("video too short")
 
     mock_client = SimpleNamespace(
         responses=SimpleNamespace(create=fake_create),
@@ -266,13 +254,9 @@ async def test_video_probe_400_returns_none(
 async def test_video_probe_no_color_match(
     monkeypatch,
 ) -> None:
-    """Model returns non-blue answer → not supported."""
-    import time
+    """Model returns non-blue answer -> not supported."""
 
-    captured: dict = {}
-
-    async def fake_create(**kwargs):
-        captured.update(kwargs)
+    async def fake_create(**_kwargs):
         return _fake_response("I cannot see any video")
 
     provider = _make_provider()
@@ -302,11 +286,6 @@ async def test_video_probe_http_fallback_accepts_any(
 ) -> None:
     """When using the HTTP probe URL, any non-empty answer
     is accepted as evidence of video support."""
-    import time
-
-    from qwenpaw.providers.multimodal_prober import (
-        _PROBE_VIDEO_URL,
-    )
 
     async def fake_create(**_kwargs):
         return _fake_response("something unrelated")
@@ -339,8 +318,6 @@ async def test_video_probe_reasoning_fallback(
 ) -> None:
     """When answer is empty but reasoning mentions 'blue',
     the evaluator still detects support."""
-    import time
-
     provider = _make_provider()
 
     async def fake_create(**_kwargs):
