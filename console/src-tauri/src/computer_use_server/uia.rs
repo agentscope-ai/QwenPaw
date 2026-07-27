@@ -114,20 +114,6 @@ fn truncate_document_text(text: String) -> String {
     bounded
 }
 
-/// Read the selected text of an element, when it exposes a selection.
-fn element_selected_text(element: &IUIAutomationElement) -> Option<String> {
-    let pattern =
-        unsafe { element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) }
-            .ok()?;
-    let ranges = unsafe { pattern.GetSelection() }.ok()?;
-    let range = unsafe { ranges.GetElement(0) }.ok()?;
-    let text = unsafe { range.GetText(DOC_TEXT_MAX) }.ok()?.to_string();
-    if text.is_empty() {
-        return None;
-    }
-    Some(truncate_document_text(text))
-}
-
 pub(super) fn collect_accessibility(
     window: &WindowInfo,
 ) -> Result<(String, Value, HashMap<String, IUIAutomationElement>), String> {
@@ -199,9 +185,6 @@ pub(super) fn collect_accessibility(
         accessibility.insert("focused_element".to_string(), json!(line));
         if let Some(text) = element_text(element) {
             accessibility.insert("document_text".to_string(), json!(text));
-        }
-        if let Some(text) = element_selected_text(element) {
-            accessibility.insert("selected_text".to_string(), json!(text));
         }
     }
     accessibility.insert("elements".to_string(), json!(descriptions));

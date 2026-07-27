@@ -460,12 +460,6 @@ fn collect_accessibility(
                 json!(truncate_document_text(text)),
             );
         }
-        if let Some(text) = ax_string(element, "AXSelectedText") {
-            accessibility.insert(
-                "selected_text".to_string(),
-                json!(truncate_document_text(text)),
-            );
-        }
     }
     accessibility.insert("elements".to_string(), json!(descriptions));
     Ok((revision, Value::Object(accessibility), elements))

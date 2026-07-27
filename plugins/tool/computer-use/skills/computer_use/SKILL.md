@@ -46,7 +46,6 @@ most common questions without reading the whole listing:
   Use it to verify what you typed actually landed. It is capped in length and
   ends with a truncation marker when longer, so never treat it as the complete
   document.
-- `accessibility.selected_text` is the text currently selected, when any.
 
 `accessibility.elements` is a listing with one control per line:
 
