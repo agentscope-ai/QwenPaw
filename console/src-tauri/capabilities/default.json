@@ -17,6 +17,7 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "open-external-link",
+    "open-workspace",
     "tray"
   ]
 }

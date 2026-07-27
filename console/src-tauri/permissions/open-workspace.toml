@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "open-workspace"
+description = "Allows the frontend to open an agent workspace in the system file manager."
+commands.allow = ["open_workspace_directory"]

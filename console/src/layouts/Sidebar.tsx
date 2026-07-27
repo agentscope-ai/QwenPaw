@@ -14,6 +14,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../hooks/useAppMessage";
 import AgentSelector from "../components/AgentSelector";
+import WorkspaceOpenButton from "../components/WorkspaceOpenButton";
 import {
   SparkChatTabFill,
   SparkExitFullscreenLine,
@@ -689,6 +690,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       )}
 
       <div className={styles.collapseToggleContainer}>
+        <WorkspaceOpenButton className={styles.collapseToggle} />
         {!collapsed && (
           <Popover
             open={settingsOpen}
