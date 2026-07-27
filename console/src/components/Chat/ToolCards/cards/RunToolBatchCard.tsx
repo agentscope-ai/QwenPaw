@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { NodeIndexOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
@@ -337,60 +337,72 @@ export interface RunToolBatchCardProps {
   isStreaming?: boolean;
 }
 
-const RunToolBatchCard: React.FC<RunToolBatchCardProps> = ({
-  content,
-  isStreaming,
-}) => {
-  const { t } = useTranslation();
-  const params = content.params || {};
-  const workflowLabel = getWorkflowLabel(params);
-  const actionCount = getActionCount(params);
-  const mediaItems = extractMediaFromBlocks(content.result);
-  const outputText = getOutputText(content.result, mediaItems);
-  const shouldShowOutput = Boolean(outputText.trim());
-  const outputBlockProps: Partial<DefaultBlockProps> =
-    outputText.length > LARGE_OUTPUT_THRESHOLD ? { copyTitle: outputText } : {};
+const RunToolBatchCard: React.FC<RunToolBatchCardProps> = React.memo(
+  ({ content, isStreaming }) => {
+    const { t } = useTranslation();
+    const params = content.params || {};
+    const workflowLabel = getWorkflowLabel(params);
+    const actionCount = getActionCount(params);
+    // Media extraction and output stripping walk the entire result tree and
+    // run several whole-text regexes — memoize so streaming re-renders of
+    // the parent message don't repeat the full scan.
+    const mediaItems = useMemo(
+      () => extractMediaFromBlocks(content.result),
+      [content.result],
+    );
+    const outputText = useMemo(
+      () => getOutputText(content.result, mediaItems),
+      [content.result, mediaItems],
+    );
+    const shouldShowOutput = Boolean(outputText.trim());
+    const outputBlockProps: Partial<DefaultBlockProps> =
+      outputText.length > LARGE_OUTPUT_THRESHOLD
+        ? { copyTitle: outputText }
+        : {};
 
-  const title = t("tool.runToolBatch", { workflow: workflowLabel });
-  const inlineResult =
-    content.status === "calling"
-      ? actionCount > 0
-        ? t("tool.runToolBatchProgress", { count: actionCount })
-        : t("tool.runToolBatchRunning")
-      : null;
+    const title = t("tool.runToolBatch", { workflow: workflowLabel });
+    const inlineResult =
+      content.status === "calling"
+        ? actionCount > 0
+          ? t("tool.runToolBatchProgress", { count: actionCount })
+          : t("tool.runToolBatchRunning")
+        : null;
 
-  return (
-    <ToolCardShell
-      content={content}
-      isStreaming={isStreaming}
-      icon={<NodeIndexOutlined />}
-      title={title}
-      inlineResult={inlineResult}
-    >
-      {content.status === "calling" && (
-        <DefaultBlock
-          title="Workflow"
-          content={t("tool.runToolBatchRunning")}
-        />
-      )}
-      {actionCount > 0 && (
-        <DefaultBlock
-          title="Steps"
-          content={t("tool.runToolBatchStepCount", { count: actionCount })}
-        />
-      )}
-      {mediaItems.map((media) => (
-        <MediaPreview key={`${media.name}:${media.url}`} media={media} />
-      ))}
-      {shouldShowOutput && (
-        <DefaultBlock
-          title="Output"
-          content={outputText}
-          {...outputBlockProps}
-        />
-      )}
-    </ToolCardShell>
-  );
-};
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<NodeIndexOutlined />}
+        title={title}
+        inlineResult={inlineResult}
+      >
+        {content.status === "calling" && (
+          <DefaultBlock
+            title="Workflow"
+            content={t("tool.runToolBatchRunning")}
+          />
+        )}
+        {actionCount > 0 && (
+          <DefaultBlock
+            title="Steps"
+            content={t("tool.runToolBatchStepCount", { count: actionCount })}
+          />
+        )}
+        {mediaItems.map((media) => (
+          <MediaPreview key={`${media.name}:${media.url}`} media={media} />
+        ))}
+        {shouldShowOutput && (
+          <DefaultBlock
+            title="Output"
+            content={outputText}
+            {...outputBlockProps}
+          />
+        )}
+      </ToolCardShell>
+    );
+  },
+);
+
+RunToolBatchCard.displayName = "RunToolBatchCard";
 
 export default RunToolBatchCard;

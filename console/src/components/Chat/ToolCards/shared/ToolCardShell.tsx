@@ -3,9 +3,14 @@
  *
  * Renders the compact `<details>/<summary>` layout used by ChatV2 tool
  * blocks: icon + label on a single line, expandable body underneath.
+ *
+ * The body is mounted lazily: `<details>` only hides content visually,
+ * so without this gate every collapsed card would still parse, highlight
+ * and fetch its full body on page load. Children mount on first expand
+ * and stay mounted afterwards to preserve their internal state.
  */
 
-import React from "react";
+import React, { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ToolCallContent } from "./types";
 import DefaultBlock from "./DefaultBlock";
@@ -39,6 +44,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
   children,
 }) => {
   const { t } = useTranslation();
+  const [hasOpened, setHasOpened] = useState(false);
   const isLoading = content.status === "calling" && isStreaming;
   const isError = content.status === "error";
   const inputProgress = content.inputProgress;
@@ -46,8 +52,16 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     ? `${inputProgress.truncated ? "…\n" : ""}${inputProgress.preview}`
     : "";
 
+  const handleToggle = useCallback(
+    (e: React.SyntheticEvent<HTMLDetailsElement>) => {
+      if (e.currentTarget.open) setHasOpened(true);
+    },
+    [],
+  );
+
   return (
     <details
+      onToggle={handleToggle}
       className={`${styles.toolCallCompact} ${
         isLoading ? styles.toolCallCompactLoading : ""
       } ${isError ? styles.toolCallCompactError : ""}`}
@@ -82,28 +96,29 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
           </span>
         )}
       </summary>
-      {isError ? (
-        <>
-          <DefaultBlock
-            title="Input"
-            content={JSON.stringify(content.params, null, 2)}
-          />
-          <DefaultBlock
-            title="Error"
-            content={stringifyResult(content.result)}
-          />
-        </>
-      ) : (
-        <>
-          {isLoading && inputPreview && (
+      {hasOpened &&
+        (isError ? (
+          <>
             <DefaultBlock
-              title={t("tool.rawInputPreview")}
-              content={inputPreview}
+              title="Input"
+              content={JSON.stringify(content.params, null, 2)}
             />
-          )}
-          {children}
-        </>
-      )}
+            <DefaultBlock
+              title="Error"
+              content={stringifyResult(content.result)}
+            />
+          </>
+        ) : (
+          <>
+            {isLoading && inputPreview && (
+              <DefaultBlock
+                title={t("tool.rawInputPreview")}
+                content={inputPreview}
+              />
+            )}
+            {children}
+          </>
+        ))}
     </details>
   );
 };

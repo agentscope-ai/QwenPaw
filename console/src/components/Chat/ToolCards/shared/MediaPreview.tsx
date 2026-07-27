@@ -34,6 +34,38 @@ async function fetchPreviewError(
   }
 }
 
+/** In-flight/successful HEAD probes keyed by URL, so many previews of the
+ *  same file (or re-renders) trigger at most one network request. Failed
+ *  probes are evicted — the file may become available later. */
+const probeCache = new Map<string, Promise<{ status: number; code: string }>>();
+
+/** Probe the preview URL with a cheap HEAD request (no body download).
+ *  Servers that reject HEAD (405/501) are treated as accessible; other
+ *  failures fall back to a GET to recover the error detail code. */
+function probePreviewUrl(
+  url: string,
+): Promise<{ status: number; code: string }> {
+  const cached = probeCache.get(url);
+  if (cached) return cached;
+  const probe = (async () => {
+    try {
+      const res = await fetch(url, { method: "HEAD" });
+      if (res.ok || res.status === 405 || res.status === 501) {
+        return { status: 200, code: "" };
+      }
+    } catch {
+      return { status: 0, code: "NETWORK_ERROR" };
+    }
+    // HEAD has no body — re-fetch with GET to get the detail code.
+    return fetchPreviewError(url);
+  })().then((result) => {
+    if (result.status !== 200) probeCache.delete(url);
+    return result;
+  });
+  probeCache.set(url, probe);
+  return probe;
+}
+
 const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
@@ -67,11 +99,11 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
     setError(null);
   }, [media.url]);
 
-  // For "file" type there is no native onError — proactively HEAD-check the URL
+  // For "file" type there is no native onError — proactively probe the URL
   useEffect(() => {
     if (media.type !== "file" || !media.url) return;
     let cancelled = false;
-    fetchPreviewError(media.url).then((result) => {
+    probePreviewUrl(media.url).then((result) => {
       if (!cancelled && result.status !== 200) {
         resolveError(result);
       }
@@ -102,6 +134,8 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
           <div className={styles.toolCallImage}>
             <Image
               src={media.url}
+              loading="lazy"
+              decoding="async"
               style={{ width: "100%", objectFit: "contain" }}
               preview={{ transitionName: "" }}
               onError={handleMediaError}

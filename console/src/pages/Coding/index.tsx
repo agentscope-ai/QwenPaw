@@ -12,6 +12,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
+// Configure Monaco to load from the local bundle instead of the CDN so the
+// Coding page works offline (issue #6261). Side-effect import, must run
+// before any Monaco editor mounts (TabbedEditor below).
+import "../../monacoSetup";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { Badge, Tooltip } from "antd";
 import {

@@ -137,12 +137,25 @@ export default defineConfig(({ mode }) => {
             ) {
               return "react-vendor";
             }
-            // Ant Design + AgentScope design system (merged to avoid circular deps)
+            // Monaco editor — only reachable from the lazy Coding page;
+            // keep it out of the entry/ui chunks.
+            if (
+              id.includes("node_modules/monaco-editor/") ||
+              id.includes("node_modules/@monaco-editor/")
+            ) {
+              return "monaco-vendor";
+            }
+            // AgentScope UI SDK (chat/design/markdown). Split from antd so
+            // the entry chunk stays smaller; the dependency is one-way
+            // (@agentscope-ai → antd), so no circular chunk imports arise.
+            if (id.includes("node_modules/@agentscope-ai/")) {
+              return "agentscope-vendor";
+            }
+            // Ant Design (icons included — merged to avoid circular deps)
             if (
               id.includes("node_modules/antd/") ||
               id.includes("node_modules/antd-style/") ||
-              id.includes("node_modules/@ant-design/") ||
-              id.includes("node_modules/@agentscope-ai/")
+              id.includes("node_modules/@ant-design/")
             ) {
               return "ui-vendor";
             }
