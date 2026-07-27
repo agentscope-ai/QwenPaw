@@ -663,13 +663,17 @@
     "sessionTrend": "Xu hướng phiên",
     "tokenTrend": "Xu hướng token",
     "llmAndToolTrend": "Xu hướng LLM & công cụ",
+    "llmAndToolTrendTooltip": "Xu hướng lời gọi API LLM toàn cục so với ý định dùng công cụ của agent hiện tại",
     "sessionsByChannel": "Phiên theo kênh",
     "messagesByChannel": "Tin nhắn theo kênh",
+    "allAgents": "Tất cả agent",
     "currentAgent": "Agent hiện tại",
-    "currentAgentTokens": "Token của agent hiện tại",
-    "currentAgentPromptTokensTooltip": "Tổng token đầu vào của agent hiện tại trên các phiên trong khoảng thời gian đã chọn",
-    "currentAgentCompletionTokensTooltip": "Tổng token đầu ra của agent hiện tại trên các phiên trong khoảng thời gian đã chọn",
-    "currentAgentLlmCallsTooltip": "Số lần sử dụng LLM theo lượt đã ghi nhận của agent hiện tại trong khoảng thời gian đã chọn"
+    "currentAgentLlmCalls": "Lượt đã ghi nhận",
+    "currentAgentTokenTrend": "Xu hướng token của agent hiện tại",
+    "currentAgentTokenTrendTooltip": "Token đầu vào/đầu ra từ metadata theo lượt trong phiên của agent hiện tại",
+    "currentAgentPromptTokensTooltip": "Tổng token đầu vào của agent hiện tại trên các phiên trong khoảng thời gian đã chọn (cần metadata sử dụng theo lượt; phiên cũ có thể hiển thị 0)",
+    "currentAgentCompletionTokensTooltip": "Tổng token đầu ra của agent hiện tại trên các phiên trong khoảng thời gian đã chọn (cần metadata sử dụng theo lượt; phiên cũ có thể hiển thị 0)",
+    "currentAgentLlmCallsTooltip": "Số lượt trợ lý có metadata sử dụng đã ghi nhận của agent hiện tại (không phải số lời gọi API thô; phiên cũ có thể hiển thị 0)"
   },
   "modelSelector": {
     "placeholder": "Chọn mô hình",

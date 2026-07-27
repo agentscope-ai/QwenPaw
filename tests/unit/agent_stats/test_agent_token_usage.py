@@ -180,6 +180,60 @@ class TestProcessSessionFileAgentTokens:
         )
         assert result[2:] == (0, 0, 0)
 
+    def test_invalid_usage_tokens_do_not_wipe_session_stats(self):
+        daily_stats = {"2026-07-23": _empty_daily("2026-07-23")}
+        session_data = {
+            "agent": {
+                "state": {
+                    "context": [
+                        {
+                            "role": "assistant",
+                            "created_at": "2026-07-23T10:00:00Z",
+                            "content": [{"type": "text", "text": "bad"}],
+                            "metadata": {
+                                TURN_USAGE_META_KEY: {
+                                    "usage": {
+                                        "prompt_tokens": "abc",
+                                        "completion_tokens": 10,
+                                    },
+                                },
+                            },
+                        },
+                        _assistant_with_usage(
+                            created_at="2026-07-23T10:01:00Z",
+                            prompt_tokens=20,
+                            completion_tokens=5,
+                        ),
+                    ],
+                },
+            },
+        }
+
+        (
+            _tool_calls,
+            has_messages,
+            agent_prompt,
+            agent_completion,
+            agent_llm_calls,
+        ) = _process_session_file(
+            session_data,
+            "2026-07-23",
+            "2026-07-23",
+            daily_stats,
+            {},
+            "console",
+            "sess-invalid",
+            {},
+        )
+
+        assert has_messages is True
+        assert daily_stats["2026-07-23"]["assistant_messages"] == 2
+        assert agent_prompt == 20
+        assert agent_completion == 5
+        assert agent_llm_calls == 1
+        assert daily_stats["2026-07-23"]["agent_prompt_tokens"] == 20
+        assert daily_stats["2026-07-23"]["agent_completion_tokens"] == 5
+
     def test_accumulates_agent_tokens_per_day(self):
         daily_stats = {
             "2026-07-23": _empty_daily("2026-07-23"),

@@ -341,17 +341,10 @@ function AgentStatsPage() {
 
             {hasData ? (
               <>
+                <div className={styles.sectionTitle}>
+                  {t("agentStats.allAgents")}
+                </div>
                 <div className={styles.summaryCards}>
-                  <SummaryCard
-                    value={data.total_active_sessions}
-                    label={t("agentStats.totalSessions")}
-                    tooltip={t("agentStats.totalSessionsTooltip")}
-                  />
-                  <SummaryCard
-                    value={data.total_messages}
-                    label={t("agentStats.totalMessages")}
-                    tooltip={t("agentStats.totalMessagesTooltip")}
-                  />
                   <SummaryCard
                     value={data.total_prompt_tokens}
                     label={t("agentStats.promptTokens")}
@@ -366,11 +359,6 @@ function AgentStatsPage() {
                     value={data.total_llm_calls}
                     label={t("agentStats.llmCalls")}
                     tooltip={t("agentStats.llmCallsTooltip")}
-                  />
-                  <SummaryCard
-                    value={data.total_tool_calls}
-                    label={t("agentStats.toolCalls")}
-                    tooltip={t("agentStats.toolCallsTooltip")}
                   />
                 </div>
 
@@ -412,13 +400,20 @@ function AgentStatsPage() {
                   </Card>
                 </div>
 
-                <div className={styles.sectionTitle}>
+                <div className={styles.currentAgentSectionTitle}>
                   {t("agentStats.currentAgent")}
                 </div>
-                <div className={styles.sectionTitle}>
-                  {t("agentStats.currentAgentTokens")}
-                </div>
                 <div className={styles.summaryCards}>
+                  <SummaryCard
+                    value={data.total_active_sessions}
+                    label={t("agentStats.totalSessions")}
+                    tooltip={t("agentStats.totalSessionsTooltip")}
+                  />
+                  <SummaryCard
+                    value={data.total_messages}
+                    label={t("agentStats.totalMessages")}
+                    tooltip={t("agentStats.totalMessagesTooltip")}
+                  />
                   <SummaryCard
                     value={data.agent_prompt_tokens}
                     label={t("agentStats.promptTokens")}
@@ -433,8 +428,13 @@ function AgentStatsPage() {
                   />
                   <SummaryCard
                     value={data.agent_llm_calls}
-                    label={t("agentStats.llmCalls")}
+                    label={t("agentStats.currentAgentLlmCalls")}
                     tooltip={t("agentStats.currentAgentLlmCallsTooltip")}
+                  />
+                  <SummaryCard
+                    value={data.total_tool_calls}
+                    label={t("agentStats.toolCalls")}
+                    tooltip={t("agentStats.toolCallsTooltip")}
                   />
                 </div>
 
@@ -479,11 +479,11 @@ function AgentStatsPage() {
                     className={styles.chartCard}
                     title={
                       <Tooltip
-                        title={t("agentStats.tokenTrendTooltip")}
+                        title={t("agentStats.currentAgentTokenTrendTooltip")}
                         placement="bottom"
                       >
                         <span className={styles.chartTitle}>
-                          {t("agentStats.tokenTrend")}
+                          {t("agentStats.currentAgentTokenTrend")}
                         </span>
                       </Tooltip>
                     }

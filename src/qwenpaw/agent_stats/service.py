@@ -96,12 +96,9 @@ def _should_skip_by_content_range(
     last_date = timestamps[-1]
 
     if last_date < start_date_str or first_date > end_date_str:
-        range_msg = (
-            "Skipping session by content range [%s, %s] "
-            "outside target [%s, %s]"
-        )
         logger.debug(
-            range_msg,
+            "Skipping session by content range [%s, %s] "
+            "outside target [%s, %s]",
             first_date,
             last_date,
             start_date_str,
@@ -123,8 +120,11 @@ def _extract_turn_usage_tokens(msg_data: dict) -> tuple[int, int] | None:
     usage = turn_meta.get("usage")
     if not isinstance(usage, dict):
         return None
-    pt = int(usage.get("prompt_tokens", 0) or 0)
-    ct = int(usage.get("completion_tokens", 0) or 0)
+    try:
+        pt = int(usage.get("prompt_tokens", 0) or 0)
+        ct = int(usage.get("completion_tokens", 0) or 0)
+    except (TypeError, ValueError):
+        return None
     if pt <= 0 and ct <= 0:
         return None
     return pt, ct
