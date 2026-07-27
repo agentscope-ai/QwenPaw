@@ -22,6 +22,9 @@ import pytest
 from agentscope.message import Msg, TextBlock
 from agentscope.state import AgentState
 
+from qwenpaw.agents.context.scroll.continuation_summary import (
+    ContinuationSummary,
+)
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
 from qwenpaw.agents.react_agent import QwenPawAgent
@@ -133,6 +136,46 @@ def test_resume_continues_appending_new_turns(store):
     agent2.state.context.append(_assistant("step three", headline="h3"))
     mgr2.on_save(agent2, None)
     assert store.count("s1") == 4  # only the new turn landed
+
+
+def test_resume_removes_summary_whose_history_was_purged(store):
+    state = AgentState()
+    old_user = _user("expired task")
+    old_user.created_at = "2000-01-01T00:00:00+00:00"
+    old_reply = _assistant("expired outcome")
+    old_reply.created_at = "2000-01-01T00:00:01+00:00"
+    live = _user("current request")
+    state.context.extend([old_user, old_reply, live])
+    mgr1 = ScrollContextManager(
+        history=store,
+        session_id="s1",
+        agent_id="ag1",
+    )
+    agent1 = AgentShim(mgr1, state)
+    mgr1._persist_new(agent1)
+    mgr1._continuation_summary = ContinuationSummary(
+        covered_seq=(1, 2),
+        active_task="Expired task",
+        status="in_progress",
+    )
+    mgr1._rebuild_context(agent1, [live])
+    snapshot = json.loads(json.dumps(QwenPawAgent.state_dict(agent1)))
+
+    assert store.purge(before="2001-01-01T00:00:00+00:00") == 2
+
+    mgr2 = ScrollContextManager(
+        history=store,
+        session_id="s1",
+        agent_id="ag1",
+    )
+    agent2 = AgentShim(mgr2)
+    QwenPawAgent.load_state_dict(agent2, snapshot, strict=True)
+
+    assert mgr2.describe_summary() == ""
+    rendered = agent2.state.context[0].get_text_content()
+    assert "Expired task" not in rendered
+    assert "sequence range 1–2" not in rendered
+    assert agent2.state.context[-1].get_text_content() == "current request"
 
 
 def test_resume_without_scroll_block_is_tolerated(store):

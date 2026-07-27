@@ -197,16 +197,6 @@ def build_scroll_components(
             offloader=(
                 offloader if getattr(sc, "offload_dialog", False) else None
             ),
-            summarize_unheadlined=getattr(
-                sc,
-                "summarize_unheadlined_evictions",
-                True,
-            ),
-            summarize_timeout_s=getattr(
-                sc,
-                "summarize_eviction_timeout_seconds",
-                20,
-            ),
             recall_loop_guard=recall_loop_guard,
         )
         tool = make_recall_history_python(

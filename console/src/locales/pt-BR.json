@@ -2772,6 +2772,8 @@
     "createSuccess": "Colheita criada com sucesso",
     "emptyApprovals": "Nenhuma aprovação pendente",
     "emptyPush": "Nenhuma mensagem push",
+    "wobbleEnable": "Ativar notificação de aprovação por vibração",
+    "wobbleDisable": "Desativar notificação de aprovação por vibração",
     "emptyHarvests": "Ainda não há colheitas",
     "statusReadyToHarvest": "Pronto para colher",
     "statusGrowing": "Em crescimento",

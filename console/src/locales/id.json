@@ -1164,6 +1164,8 @@
     "createSuccess": "Panen berhasil dibuat",
     "emptyApprovals": "Tidak ada persetujuan yang tertunda",
     "emptyPush": "Tidak ada pesan push",
+    "wobbleEnable": "Aktifkan notifikasi getar persetujuan",
+    "wobbleDisable": "Nonaktifkan notifikasi getar persetujuan",
     "emptyHarvests": "Belum ada panen",
     "statusReadyToHarvest": "Siap Dipanen",
     "statusGrowing": "Sedang Tumbuh",

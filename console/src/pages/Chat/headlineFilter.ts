@@ -1,20 +1,25 @@
-const HEADLINE_START_RE = /<!--\s*[⟦〚]/;
-const HEADLINE_CLOSE_RE = /[⟧〛]\s*-->/;
+const LEGACY_HEADLINE_START_RE = /<!--\s*[⟦〚]/;
+const PLAIN_HEADLINE_START_RE = /^[ \t]*[⟦〚]/m;
+const LEGACY_HEADLINE_CLOSE_RE = /[⟧〛]\s*-->/;
+const PLAIN_HEADLINE_CLOSE_RE = /[⟧〛]/;
 const HEADLINE_LINE_RE =
   /^[ \t]*(?:<!--)?[ \t]*[⟦〚][ \t]*(.+?)[ \t]*[⟧〛][ \t]*(?:-->)?[ \t]*$/gm;
+const TRAILING_HEADLINE_RE = /(?:<!--[ \t]*[⟦〚]|(?:^|\n)[ \t]*[⟦〚])[^\r\n]*$/;
 
 export type HeadlineStreamFilterState = {
   pending: string;
   suppressing: boolean;
+  legacyComment: boolean;
 };
 
 export function createHeadlineFilterState(): HeadlineStreamFilterState {
-  return { pending: "", suppressing: false };
+  return { pending: "", suppressing: false, legacyComment: false };
 }
 
 export function stripScrollHeadlines(text: string): string {
   return text
     .replace(HEADLINE_LINE_RE, "")
+    .replace(TRAILING_HEADLINE_RE, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -60,6 +65,31 @@ function findPotentialHeadlineStart(text: string): number {
     : -1;
 }
 
+type HeadlineStart = {
+  index: number;
+  length: number;
+  legacyComment: boolean;
+};
+
+function findHeadlineStart(text: string): HeadlineStart | null {
+  const legacy = LEGACY_HEADLINE_START_RE.exec(text);
+  const plain = PLAIN_HEADLINE_START_RE.exec(text);
+
+  if (!legacy && !plain) return null;
+  if (legacy && (!plain || legacy.index <= plain.index)) {
+    return {
+      index: legacy.index,
+      length: legacy[0].length,
+      legacyComment: true,
+    };
+  }
+  return {
+    index: plain!.index,
+    length: plain![0].length,
+    legacyComment: false,
+  };
+}
+
 function isPossibleHeadlineClosePrefix(value: string): boolean {
   if (!value || !"⟧〛".includes(value[0])) return false;
   const suffix = value.slice(1);
@@ -89,22 +119,28 @@ export function filterHeadlineDelta(
 
   while (text) {
     if (state.suppressing) {
-      const close = HEADLINE_CLOSE_RE.exec(text);
+      const close = (
+        state.legacyComment ? LEGACY_HEADLINE_CLOSE_RE : PLAIN_HEADLINE_CLOSE_RE
+      ).exec(text);
       if (!close) {
-        const potentialClose = findPotentialHeadlineClose(text);
-        state.pending = potentialClose >= 0 ? text.slice(potentialClose) : "";
+        if (state.legacyComment) {
+          const potentialClose = findPotentialHeadlineClose(text);
+          state.pending = potentialClose >= 0 ? text.slice(potentialClose) : "";
+        }
         return out;
       }
       text = text.slice(close.index + close[0].length);
       state.suppressing = false;
+      state.legacyComment = false;
       continue;
     }
 
-    const start = HEADLINE_START_RE.exec(text);
+    const start = findHeadlineStart(text);
     if (start) {
       out += text.slice(0, start.index);
-      text = text.slice(start.index + start[0].length);
+      text = text.slice(start.index + start.length);
       state.suppressing = true;
+      state.legacyComment = start.legacyComment;
       continue;
     }
 
@@ -125,5 +161,6 @@ export function flushHeadlineFilter(state: HeadlineStreamFilterState): string {
   const trailing = state.suppressing ? "" : state.pending;
   state.pending = "";
   state.suppressing = false;
+  state.legacyComment = false;
   return trailing;
 }

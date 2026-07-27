@@ -433,6 +433,64 @@
   margin-top: 4px;
 }
 
+// ─── Inbox wobble animation (new pending approvals) ──────────────────────────
+@keyframes inboxWobble {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(3deg);
+  }
+  40% {
+    transform: rotate(-3deg);
+  }
+  60% {
+    transform: rotate(2.5deg);
+  }
+  80% {
+    transform: rotate(-2.5deg);
+  }
+}
+
+// Larger wobble for collapsed sidebar (small 40×40 icon button)
+@keyframes inboxWobbleLarge {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20% {
+    transform: rotate(8deg);
+  }
+  40% {
+    transform: rotate(-8deg);
+  }
+  60% {
+    transform: rotate(6deg);
+  }
+  80% {
+    transform: rotate(-6deg);
+  }
+}
+
+.inboxShake {
+  animation: inboxWobble 0.6s ease-in-out infinite;
+  transform-origin: center center;
+  // Show a persistent hover-like background so the "rectangle" rotates
+  // together with the content.
+  background-color: rgba(0, 0, 0, 0.06) !important;
+
+  // Pause immediately on hover as a visual safety net (JS handler
+  // will permanently remove the class on the next React render).
+  &:hover {
+    animation-play-state: paused;
+  }
+}
+
+:global(.dark-mode) .inboxShake {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
 /* Collapse Toggle Button */
 .collapseToggleContainer {
   flex-shrink: 0;
@@ -671,6 +729,10 @@
   &:hover {
     background: rgba(0, 0, 0, 0.06);
     color: rgba(0, 0, 0, 0.88);
+  }
+
+  &.inboxShake {
+    animation-name: inboxWobbleLarge;
   }
 }
 

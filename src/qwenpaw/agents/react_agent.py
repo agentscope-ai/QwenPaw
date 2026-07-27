@@ -18,11 +18,13 @@ from typing import Any, Literal, Optional, TYPE_CHECKING
 
 from agentscope.agent import Agent, ReActConfig
 from agentscope.event import (
+    ModelCallEndEvent,
     TextBlockDeltaEvent,
     TextBlockEndEvent,
     TextBlockStartEvent,
 )
-from agentscope.message import Msg, TextBlock
+from agentscope.message import HintBlock, Msg, TextBlock
+from agentscope.model import FinishedReason
 from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
@@ -169,6 +171,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
     async def compress_context(
         self,
         context_config: Any = None,
+        instructions: HintBlock | None = None,
     ) -> None:
         """Delegate to the context manager, else native compression.
 
@@ -196,7 +199,16 @@ class QwenPawAgent(CodingModeMixin, Agent):
             pass
 
         if self._context_manager is not None:
-            await self._context_manager.compress(self, context_config)
+            if instructions is None:
+                # Preserve compatibility with third-party managers that
+                # implemented the original two-argument protocol.
+                await self._context_manager.compress(self, context_config)
+            else:
+                await self._context_manager.compress(
+                    self,
+                    context_config,
+                    instructions=instructions,
+                )
             return
         try:
             lcc = self._agent_config.running.light_context_config
@@ -204,7 +216,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 return
         except Exception:
             pass
-        await super().compress_context(context_config)
+        await super().compress_context(
+            context_config,
+            instructions=instructions,
+        )
 
     def _save_to_context(self, blocks: Any, usage: Any = None) -> None:
         """Append blocks, then let the context manager write them through."""
@@ -264,6 +279,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 and hasattr(cm, "load_state")
             ):
                 cm.load_state(scroll)
+                if hasattr(cm, "reconcile_loaded_context"):
+                    cm.reconcile_loaded_context(self)
             return
 
         # --- 1.x legacy format: migrate ``memory`` → ``state`` ---
@@ -495,8 +512,34 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         # ── Model call with passive retry on media error ──
         final_msg: Msg | None = None
+        context_manager = self._context_manager
+        pending_seen_ids: set[str] = set()
+        if context_manager is not None and hasattr(
+            context_manager,
+            "model_input_tool_result_ids",
+        ):
+            pending_seen_ids = context_manager.model_input_tool_result_ids(
+                self,
+            )
+
+        def acknowledge_seen_results(evt: Any) -> None:
+            """Acknowledge inputs only after a completed model request."""
+            if (
+                isinstance(evt, ModelCallEndEvent)
+                and evt.finished_reason != FinishedReason.INTERRUPTED
+                and context_manager is not None
+                and hasattr(
+                    context_manager,
+                    "acknowledge_model_input_tool_results",
+                )
+            ):
+                context_manager.acknowledge_model_input_tool_results(
+                    pending_seen_ids,
+                )
+
         try:
             async for evt in super()._reasoning(tool_choice=tool_choice):
+                acknowledge_seen_results(evt)
                 if isinstance(evt, Msg):
                     final_msg = evt
                 else:
@@ -526,6 +569,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 async for evt in super()._reasoning(
                     tool_choice=tool_choice,
                 ):
+                    acknowledge_seen_results(evt)
                     if isinstance(evt, Msg):
                         final_msg = evt
                     else:

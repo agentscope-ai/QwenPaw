@@ -415,6 +415,7 @@ class ConsoleChannel(BaseChannel):
             send_meta.setdefault("bot_prefix", self.bot_prefix)
             last_response = None
             event_count = 0
+            headline_stream_states: dict[str, Any] = {}
 
             async for event in self._process(request):
                 event_count += 1
@@ -440,7 +441,27 @@ class ConsoleChannel(BaseChannel):
                         for message in event_output:
                             event.output.append(message)
 
-                data = self._serialize_event_for_sse(event)
+                if obj == "message" and status == RunStatus.Completed:
+                    msg_id = str(
+                        getattr(event, "msg_id", "")
+                        or getattr(event, "id", "")
+                        or "",
+                    )
+                    for pending_data in self._flush_headline_stream_states(
+                        headline_stream_states,
+                        msg_id=msg_id,
+                    ):
+                        yield f"data: {pending_data}\n\n"
+                elif obj == "response" and status == RunStatus.Completed:
+                    for pending_data in self._flush_headline_stream_states(
+                        headline_stream_states,
+                    ):
+                        yield f"data: {pending_data}\n\n"
+
+                data = self._serialize_event_for_sse(
+                    event,
+                    headline_stream_states,
+                )
                 yield f"data: {data}\n\n"
 
                 if obj == "message" and status == RunStatus.Completed:
@@ -449,6 +470,11 @@ class ConsoleChannel(BaseChannel):
 
                 elif obj == "response":
                     last_response = event
+
+            for pending_data in self._flush_headline_stream_states(
+                headline_stream_states,
+            ):
+                yield f"data: {pending_data}\n\n"
 
             err_msg = self._get_response_error_message(last_response)
             if err_msg:

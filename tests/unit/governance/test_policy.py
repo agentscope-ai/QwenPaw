@@ -671,14 +671,14 @@ class TestGovernancePolicyEvaluate:
         decision = policy.evaluate(tc)
         assert decision.action == GovernanceAction.ASK
 
-    def test_sudo_ask(self, policy):
-        """Bash(sudo ...) is ASK from builtin rules (privilege escalation
-        gated on user approval). Note ``sudo rm -rf /`` is still DENY —
-        that is caught earlier by the Phase 1.5 rm-root regex, not this
-        builtin rule."""
+    def test_sudo_deny(self, policy):
+        """Bash(sudo ...) is DENY — caught by TOOL_CMD_PRIVILEGE_ESCALATION
+        (CRITICAL) in Phase 1 deep-security scanning. Users can disable
+        this detection rule in the frontend to fall back to the Phase 2
+        builtin ASK rule."""
         tc = _tc("Bash", "sudo apt-get install something")
         decision = policy.evaluate(tc)
-        assert decision.action == GovernanceAction.ASK
+        assert decision.action == GovernanceAction.DENY
 
     def test_internal_tool_allow(self, policy):
         """Internal tools should be ALLOW from user_rules."""
@@ -1762,3 +1762,155 @@ class TestRawParamsScanning:
             assert "SHELL_EVASION_COMMAND_SUBSTITUTION" not in rule_ids
         finally:
             qwenpaw.config.load_config = original
+
+
+# ---------------------------------------------------------------------------
+# Default detection rules: bridge, override, persistence, cache isolation
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultDetectionRules:
+    """Tests for the governance ↔ tool_guard detection-rule bridge."""
+
+    def test_bundled_rules_loaded_on_cold_start(self, tmp_path):
+        """Cold start (no policy.yaml) should include bundled rules."""
+        policy = _create_default_policy(workspace_dir=str(tmp_path))
+        ids = {r.id for r in policy.detection_rules}
+        assert "TOOL_CMD_DANGEROUS_RM" in ids
+        assert "TOOL_CMD_PRIVILEGE_ESCALATION" in ids
+
+    def test_bundled_rules_loaded_from_empty_policy_yaml(self, tmp_path):
+        """policy.yaml with no detection_rules still gets defaults."""
+        from qwenpaw.governance.policy import _get_default_detection_rules
+
+        policy = load_governance_policy(
+            str(tmp_path),
+            workspace_dir=str(tmp_path),
+        )
+        ids = {r.id for r in policy.detection_rules}
+        # Should contain bundled rules even though YAML had none
+        for default_rule in _get_default_detection_rules():
+            assert default_rule.id in ids
+
+    def test_policy_yaml_rule_overrides_default(self):
+        """A policy.yaml rule with same ID as a bundled rule should win."""
+        from qwenpaw.governance.policy import (
+            DetectionRuleConfig,
+            _merge_default_detection_rules,
+        )
+
+        user_rule = DetectionRuleConfig(
+            id="TOOL_CMD_DANGEROUS_RM",
+            tools=["execute_shell_command"],
+            patterns=[r"\bcustom_rm_pattern\b"],
+            severity="MEDIUM",
+            description="User-customized RM rule",
+        )
+        merged = _merge_default_detection_rules([user_rule])
+
+        # Find the merged rule with the overridden ID
+        rm_rules = [r for r in merged if r.id == "TOOL_CMD_DANGEROUS_RM"]
+        assert len(rm_rules) == 1
+        assert rm_rules[0].severity == "MEDIUM"
+        assert rm_rules[0].patterns == [r"\bcustom_rm_pattern\b"]
+
+        # Other defaults still present
+        ids = {r.id for r in merged}
+        assert "TOOL_CMD_PRIVILEGE_ESCALATION" in ids
+
+    def test_save_load_round_trip_excludes_defaults(self, tmp_path):
+        """save→load should NOT persist bundled rules to policy.yaml."""
+        from qwenpaw.governance.policy import (
+            DetectionRuleConfig,
+            _get_default_detection_rule_ids,
+        )
+
+        policy = _create_default_policy(workspace_dir=str(tmp_path))
+        # Add a user rule
+        user_rule = DetectionRuleConfig(
+            id="MY_CUSTOM_RULE",
+            tools=["execute_shell_command"],
+            patterns=[r"\bcustom\b"],
+            severity="HIGH",
+            description="User custom rule",
+        )
+        policy.detection_rules.append(user_rule)
+
+        save_governance_policy(policy, str(tmp_path), str(tmp_path))
+
+        # Read raw YAML and verify only user rule was persisted
+        import yaml as _yaml
+
+        raw = _yaml.safe_load(
+            (tmp_path / "policy.yaml").read_text(encoding="utf-8"),
+        )
+        persisted_ids = {r["id"] for r in (raw.get("detection_rules") or [])}
+        assert "MY_CUSTOM_RULE" in persisted_ids
+        # Bundled rules should NOT be in YAML
+        for bid in _get_default_detection_rule_ids():
+            assert (
+                bid not in persisted_ids
+            ), f"bundled rule {bid} should not be persisted"
+
+        # Reload — both user rule and defaults should be present
+        reloaded = load_governance_policy(
+            str(tmp_path),
+            workspace_dir=str(tmp_path),
+        )
+        ids = {r.id for r in reloaded.detection_rules}
+        assert "MY_CUSTOM_RULE" in ids
+        assert "TOOL_CMD_DANGEROUS_RM" in ids
+
+    def test_removed_default_rule_does_not_survive_upgrade(self, tmp_path):
+        """If a bundled rule is renamed/removed, it should disappear
+        after load instead of lingering as a fake user rule."""
+        from qwenpaw.governance.policy import (
+            _get_default_detection_rule_ids,
+        )
+
+        # Simulate: old version persisted nothing (no detection_rules).
+        # New version loads → defaults only, no leftover old IDs.
+        policy = _create_default_policy(workspace_dir=str(tmp_path))
+        save_governance_policy(policy, str(tmp_path), str(tmp_path))
+
+        reloaded = load_governance_policy(
+            str(tmp_path),
+            workspace_dir=str(tmp_path),
+        )
+        ids = {r.id for r in reloaded.detection_rules}
+        # Only current defaults — nothing extra
+        default_ids = _get_default_detection_rule_ids()
+        assert ids == default_ids
+
+    def test_cache_isolation_across_instances(self):
+        """Mutating rules from one call must not affect another."""
+        from qwenpaw.governance.policy import _get_default_detection_rules
+
+        rules_a = _get_default_detection_rules()
+        rules_b = _get_default_detection_rules()
+        # Mutate a
+        if rules_a:
+            rules_a[0].severity = "MUTATED"
+        # b should be unaffected
+        if rules_b:
+            assert rules_b[0].severity != "MUTATED"
+
+    def test_missing_yaml_graceful_degradation(self, monkeypatch):
+        """If the bundled YAML is missing, return empty list."""
+        import qwenpaw.governance.policy as pol
+
+        # Clear cache to force reload
+        monkeypatch.setattr(pol, "_DEFAULT_DETECTION_RULES_CACHE", None)
+
+        # Patch the import to return a non-existent path
+        fake_dir = Path("/nonexistent/path/rules")
+        monkeypatch.setattr(
+            "qwenpaw.security.tool_guard.guardians.rule_guardian."
+            "_DEFAULT_RULES_DIR",
+            fake_dir,
+        )
+        result = pol._get_default_detection_rules()
+        assert result == []
+
+        # Restore cache for other tests
+        monkeypatch.setattr(pol, "_DEFAULT_DETECTION_RULES_CACHE", None)

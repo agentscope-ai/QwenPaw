@@ -9,7 +9,7 @@ import {
   Badge,
   Popover,
 } from "antd";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../hooks/useAppMessage";
@@ -36,6 +36,7 @@ import { useCodingMode } from "../stores/codingModeStore";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
 import { buildSessionPath, getSessionIdFromPath } from "../utils/sessionRoute";
 import sessionApi from "../pages/Chat/sessionApi";
+import { useInboxWobble } from "../hooks/useInboxWobble";
 import styles from "./index.module.less";
 import { useTheme } from "../contexts/ThemeContext";
 import { useMenuItems, useRoutes } from "../plugins/registry/hooks";
@@ -130,7 +131,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(isMobileSidebarViewport);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(isMobileSidebarViewport);
-  const [hasInboxUnread, setHasInboxUnread] = useState(false);
+  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
+  const [hasPendingApprovals, setHasPendingApprovals] = useState(false);
+  const [shakeInbox, setShakeInbox] = useState(false);
+  const [wobbleEnabled] = useInboxWobble();
+  const currentApprovalIdsRef = useRef<Set<string>>(new Set());
+  const seenApprovalIdsRef = useRef<Set<string>>(new Set());
 
   // Sidebar mode: "simple" (only core items) or "full" (everything)
   const { mode: sidebarMode } = useSidebarModeStore();
@@ -208,9 +214,17 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           api.getPushMessages(),
         ]);
         const hasUnreadEvents = (inboxRes?.events?.length || 0) > 0;
-        const hasPendingApprovals =
-          (pushRes?.pending_approvals?.length || 0) > 0;
-        setHasInboxUnread(hasUnreadEvents || hasPendingApprovals);
+        const approvals = pushRes?.pending_approvals || [];
+        const currentIds = new Set(
+          approvals.map((a: { request_id: string }) => a.request_id),
+        );
+        currentApprovalIdsRef.current = currentIds;
+        const hasNewApprovals =
+          currentIds.size > 0 &&
+          [...currentIds].some((id) => !seenApprovalIdsRef.current.has(id));
+        setShakeInbox(hasNewApprovals);
+        setHasUnreadMessages(hasUnreadEvents);
+        setHasPendingApprovals(currentIds.size > 0);
       } catch {
         // Keep previous state when polling fails.
       }
@@ -249,23 +263,65 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     };
   }, []);
 
+  // ── Inbox badge dot & wobble ─────────────────────────────────────────────
+  const hasInboxUnread = hasUnreadMessages || hasPendingApprovals;
+  const inboxDotColor = hasPendingApprovals
+    ? "#e04848"
+    : "rgba(255, 157, 77, 1)";
+  const effectiveShake = shakeInbox && wobbleEnabled;
+
   // ── Adapter: convert MenuItem trees to antd, with inbox badge decoration.
+
+  /** Mark current approvals as "seen" so the wobble stops. */
+  const handleInboxHover = useCallback(() => {
+    seenApprovalIdsRef.current = new Set(currentApprovalIdsRef.current);
+    setShakeInbox(false);
+  }, []);
+
+  /**
+   * Bridge hover events from the antd Menu `<li>` to our handler.
+   * addEventListener de-duplicates the same function reference, so re-calling
+   * on the same element is harmless; old detached elements are GC'd naturally.
+   */
+  const inboxLiRefCallback = useCallback(
+    (node: HTMLSpanElement | null) => {
+      const li = node?.closest("li");
+      if (!li) return;
+      li.addEventListener("mouseenter", handleInboxHover);
+    },
+    [handleInboxHover],
+  );
 
   /** Wrap the inbox label with the unread-Badge while keeping all other labels intact. */
   const decorateLabel = (item: MenuItem, label: ReactNode): ReactNode => {
     if (item.id !== "core.inbox" || label == null) return label;
     return (
-      <Badge dot={hasInboxUnread} color="rgba(255, 157, 77, 1)" offset={[5, 7]}>
-        <span>{label}</span>
-      </Badge>
+      <span ref={inboxLiRefCallback}>
+        <Badge dot={hasInboxUnread} color={inboxDotColor} offset={[5, 7]}>
+          <span>{label}</span>
+        </Badge>
+      </span>
     );
   };
 
+  const getItemClassName = (item: MenuItem) => {
+    if (item.id === "core.inbox" && effectiveShake) {
+      return styles.inboxShake;
+    }
+    return undefined;
+  };
+
   const agentMenuItems = useMemo(
-    () => toAntdItems(agentMenu, { collapsed, decorateLabel }),
-    // hasInboxUnread closure inside decorateLabel — listed as dep explicitly.
+    () =>
+      toAntdItems(agentMenu, { collapsed, decorateLabel, getItemClassName }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [agentMenu, collapsed, hasInboxUnread],
+    [
+      agentMenu,
+      collapsed,
+      hasUnreadMessages,
+      hasPendingApprovals,
+      effectiveShake,
+    ],
   );
 
   const settingsMenuItems = useMemo(
@@ -300,7 +356,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
               width: 6,
               height: 6,
               borderRadius: "50%",
-              background: "rgba(255, 157, 77, 1)",
+              background: inboxDotColor,
             }}
           />
         )}
@@ -316,7 +372,15 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         ? { ...entry, icon: decorateInboxIcon(entry.icon) }
         : entry,
     );
-  }, [agentMenu, settingsMenu, routes, chatPath, t, hasInboxUnread]);
+  }, [
+    agentMenu,
+    settingsMenu,
+    routes,
+    chatPath,
+    t,
+    hasInboxUnread,
+    inboxDotColor,
+  ]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -459,11 +523,18 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                 <button
                   className={`${styles.collapsedNavItem} ${
                     isActive ? styles.collapsedNavItemActive : ""
+                  }${
+                    item.key === "core.inbox" && effectiveShake
+                      ? ` ${styles.inboxShake}`
+                      : ""
                   }`}
                   onClick={() =>
                     item.href
                       ? window.open(item.href, "_blank", "noopener,noreferrer")
                       : navigate(item.path)
+                  }
+                  onMouseEnter={
+                    item.key === "core.inbox" ? handleInboxHover : undefined
                   }
                 >
                   {item.icon}
@@ -489,7 +560,10 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                     key={entry.key}
                     className={`${styles.simpleNavItem} ${
                       isActive ? styles.simpleNavItemActive : ""
+                    }${
+                      isInbox && effectiveShake ? ` ${styles.inboxShake}` : ""
                     }`}
+                    onMouseEnter={isInbox ? handleInboxHover : undefined}
                     onClick={() =>
                       entry.href
                         ? window.open(
@@ -517,7 +591,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                               width: 6,
                               height: 6,
                               borderRadius: "50%",
-                              background: "rgba(255, 157, 77, 1)",
+                              background: inboxDotColor,
                             }}
                           />
                         )}
