@@ -111,7 +111,7 @@ import {
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
-import { filterReplayPayload, sdkHeartbeatPayload } from "./replayRecovery";
+import { sdkRateLimitErrorPayload } from "./replayRecovery";
 import {
   getSessionIdFromPath,
   buildBasePath,
@@ -1198,7 +1198,6 @@ export default function ChatPage() {
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
   );
-  const streamTruncatedRef = useRef(false);
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
   const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
   const queueSessionIdRef = useRef(queueSessionId);
@@ -2329,8 +2328,6 @@ export default function ChatPage() {
       }
 
       headlineStreamFilterRef.current = createHeadlineFilterState();
-      streamTruncatedRef.current = false;
-
       const response = await fetch(getApiUrl("/console/chat"), {
         method: "POST",
         headers,
@@ -2851,15 +2848,6 @@ export default function ChatPage() {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
           markLoopModeRunning();
 
-          const replayFiltered = filterReplayPayload(
-            payload,
-            streamTruncatedRef.current,
-          );
-          streamTruncatedRef.current = replayFiltered.streamTruncated;
-          if (replayFiltered.payload !== payload) {
-            return replayFiltered.payload;
-          }
-
           const completesResponse = payloadCompletesResponse(payload);
 
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
@@ -2890,16 +2878,12 @@ export default function ChatPage() {
             }
           }
 
-          if (payload.type === "turn_usage") {
-            return sdkHeartbeatPayload();
-          }
-
           if (payload.type === "rate_limited") {
             const alts =
               (payload.alternatives as typeof rateLimitAlternatives) || [];
             setRateLimitAlternatives(alts);
             message.warning(t("chat.rateLimitHit"));
-            return sdkHeartbeatPayload();
+            return sdkRateLimitErrorPayload(payload, t("chat.rateLimitHit"));
           }
 
           if (payloadRequestsHistoryClear(payload)) {
@@ -2932,7 +2916,6 @@ export default function ChatPage() {
 
           const reconnectIdentity = sessionApi.getSessionIdentity();
           headlineStreamFilterRef.current = createHeadlineFilterState();
-          streamTruncatedRef.current = false;
           const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
             headers,

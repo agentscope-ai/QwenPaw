@@ -1,22 +1,13 @@
-import { isReplayTruncatedPayload } from "./utils";
-
-export function sdkHeartbeatPayload() {
-  return {
-    object: "message",
-    type: "heartbeat",
-  };
-}
-
-export function filterReplayPayload(
+export function shouldForwardReplayPayload(
   payload: Record<string, unknown>,
   streamTruncated: boolean,
 ): {
-  payload: Record<string, unknown>;
+  forward: boolean;
   streamTruncated: boolean;
 } {
-  if (isReplayTruncatedPayload(payload)) {
+  if (payload.type === "replay_truncated") {
     return {
-      payload: sdkHeartbeatPayload(),
+      forward: false,
       streamTruncated: true,
     };
   }
@@ -24,17 +15,29 @@ export function filterReplayPayload(
   const completesResponse =
     payload.object === "response" && payload.status === "completed";
   if (streamTruncated && !completesResponse) {
-    if (payload.type !== "rate_limited" && !payload.error) {
-      return {
-        payload: sdkHeartbeatPayload(),
-        streamTruncated: true,
-      };
-    }
-    return { payload, streamTruncated: false };
+    const terminalError =
+      payload.type === "rate_limited" || Boolean(payload.error);
+    return {
+      forward: terminalError,
+      streamTruncated: !terminalError,
+    };
   }
 
   return {
-    payload,
+    forward: payload.type !== "turn_usage",
     streamTruncated: completesResponse ? false : streamTruncated,
+  };
+}
+
+export function sdkRateLimitErrorPayload(
+  payload: Record<string, unknown>,
+  fallbackMessage: string,
+) {
+  const error = payload.error;
+  return {
+    type: "error",
+    code: "rate_limited",
+    message:
+      typeof error === "string" && error.trim() ? error : fallbackMessage,
   };
 }

@@ -4,6 +4,7 @@ import type {
   IAgentScopeRuntimeWebUIMessage,
 } from "@agentscope-ai/chat";
 import { useTurnUsageStore } from "./turnUsageStore";
+import { shouldForwardReplayPayload } from "./replayRecovery";
 
 export const TURN_USAGE_META_KEY = "qwenpaw_turn_usage";
 
@@ -277,43 +278,38 @@ export function patchContextMaxInputLength(
   }
 }
 
-function parseSseDataLines(buffer: string): {
-  events: string[];
+function splitSseBlocks(buffer: string): {
+  blocks: string[];
   rest: string;
 } {
-  const events: string[] = [];
-  let rest = buffer;
-  for (;;) {
-    const sep = rest.indexOf("\n\n");
-    if (sep < 0) break;
-    const block = rest.slice(0, sep);
-    rest = rest.slice(sep + 2);
-    for (const line of block.split("\n")) {
-      if (line.startsWith("data: ")) {
-        events.push(line.slice(6));
-      }
-    }
+  const blocks: string[] = [];
+  const separator = /\r?\n\r?\n/g;
+  let start = 0;
+  let match = separator.exec(buffer);
+  while (match) {
+    blocks.push(buffer.slice(start, match.index));
+    start = separator.lastIndex;
+    match = separator.exec(buffer);
   }
-  return { events, rest };
+  return { blocks, rest: buffer.slice(start) };
 }
 
-function snapshotFromSsePayload(raw: string): TurnUsageSnapshot | null {
-  // Fast path: skip the (second) JSON.parse for the vast majority of SSE
-  // events — only `type: "turn_usage"` payloads are relevant here.
-  if (!raw.includes("turn_usage")) return null;
-  try {
-    return parseTurnUsageSsePayload(JSON.parse(raw) as Record<string, unknown>);
-  } catch {
-    return null;
+function readSseData(block: string): string | null {
+  const dataLines: string[] = [];
+  for (const line of block.split(/\r?\n/)) {
+    if (!line.startsWith("data:")) continue;
+    const value = line.slice(5);
+    dataLines.push(value.startsWith(" ") ? value.slice(1) : value);
   }
+  return dataLines.length > 0 ? dataLines.join("\n") : null;
 }
 
 /**
- * Observe the SSE body and patch usage when the stream finishes.
+ * Filter private SSE control frames before the chat SDK reads the body.
  *
- * Trailing `turn_usage` SSE arrives after Completed response. The chat SDK
- * may drop it via isStillActive (session id drift after realId URL resolve),
- * so we capture it here and patch after the SDK has finished reading.
+ * Trailing `turn_usage` is captured here and patched after the SDK finishes.
+ * On replay truncation, intermediate events are dropped until a canonical
+ * completed response or terminal error arrives.
  */
 export function wrapChatResponseUsageStream(
   response: Response,
@@ -322,27 +318,55 @@ export function wrapChatResponseUsageStream(
   if (!response.body) return response;
 
   const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
   let buffer = "";
   let pendingUsage: TurnUsageSnapshot | null = null;
+  let streamTruncated = false;
+
+  const processBlock = (
+    block: string,
+    controller: TransformStreamDefaultController<Uint8Array>,
+  ) => {
+    const raw = readSseData(block);
+    if (raw === null) {
+      controller.enqueue(encoder.encode(`${block}\n\n`));
+      return;
+    }
+
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      controller.enqueue(encoder.encode(`${block}\n\n`));
+      return;
+    }
+
+    if (payload.type === "turn_usage") {
+      const snapshot = parseTurnUsageSsePayload(payload);
+      if (snapshot) pendingUsage = snapshot;
+    }
+
+    const replayDecision = shouldForwardReplayPayload(payload, streamTruncated);
+    streamTruncated = replayDecision.streamTruncated;
+    if (replayDecision.forward) {
+      controller.enqueue(encoder.encode(`${block}\n\n`));
+    }
+  };
 
   const transformed = response.body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
-        controller.enqueue(chunk);
         buffer += decoder.decode(chunk, { stream: true });
-        const parsed = parseSseDataLines(buffer);
+        const parsed = splitSseBlocks(buffer);
         buffer = parsed.rest;
-        for (const raw of parsed.events) {
-          const snap = snapshotFromSsePayload(raw);
-          if (snap) pendingUsage = snap;
+        for (const block of parsed.blocks) {
+          processBlock(block, controller);
         }
       },
-      flush() {
+      flush(controller) {
         buffer += decoder.decode();
-        const parsed = parseSseDataLines(`${buffer}\n\n`);
-        for (const raw of parsed.events) {
-          const snap = snapshotFromSsePayload(raw);
-          if (snap) pendingUsage = snap;
+        if (buffer.trim()) {
+          processBlock(buffer, controller);
         }
         if (pendingUsage) {
           useTurnUsageStore.getState().setSnapshot(pendingUsage);
@@ -352,10 +376,13 @@ export function wrapChatResponseUsageStream(
     }),
   );
 
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+
   return new Response(transformed, {
     status: response.status,
     statusText: response.statusText,
-    headers: response.headers,
+    headers,
   });
 }
 
