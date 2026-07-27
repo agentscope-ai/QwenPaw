@@ -23,6 +23,12 @@ from qwenpaw.security.tool_guard.approval import ApprovalDecision
 class ComputerUseApprovalCoordinator:
     """The plugin-side adapter for native-originated App approval events."""
 
+    def __init__(self) -> None:
+        # Armed for one action after the user resolves an approval prompt, so
+        # the native recency guard does not misread that click as the user
+        # taking over the machine. Consumed by the next input action.
+        self.intervention_bypass_pending = False
+
     async def decide(self, message: Mapping[str, Any]) -> dict[str, Any]:
         """Resolve one reverse approval request without widening its scope."""
         request = self._app_request(message)
@@ -44,6 +50,9 @@ class ComputerUseApprovalCoordinator:
             )
         except Exception:  # noqa: BLE001 - approval failures deny by default
             decision = ApprovalDecision.DENIED
+        # The user just interacted with QwenPaw to answer this prompt; exempt
+        # the next action once so it is not rejected as recent human input.
+        self.intervention_bypass_pending = True
         allowed = decision == ApprovalDecision.APPROVED
         store.record_session(request, allowed=allowed)
         return {"allowed": allowed, "source": "session"}

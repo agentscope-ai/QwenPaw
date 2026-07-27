@@ -348,3 +348,29 @@ async def test_note_new_windows_ignores_probe_failure(
     await _note_new_windows(client, payload)
 
     assert "hint" not in payload
+
+
+@pytest.mark.asyncio
+async def test_post_approval_exemption_rides_the_next_input_action() -> None:
+    """After an approval, exactly one input action carries after_approval."""
+    transport = _FakeTransport()
+    client = ComputerUseClient("session-a", lambda: transport)
+    set_current_computer_use_turn_id("turn-1")
+    try:
+        client._approvals.intervention_bypass_pending = True
+
+        # A non-input method must neither consume nor forward the exemption.
+        await client.execute("list_windows", {})
+        assert "after_approval" not in transport.messages[-1]["params"]
+        assert client._approvals.intervention_bypass_pending is True
+
+        # The first input action carries the flag and clears the exemption.
+        await client.execute("type_text", {"window_id": "1", "text": "x"})
+        assert transport.messages[-1]["params"]["after_approval"] is True
+        assert client._approvals.intervention_bypass_pending is False
+
+        # A later input action does not carry it again.
+        await client.execute("type_text", {"window_id": "1", "text": "y"})
+        assert "after_approval" not in transport.messages[-1]["params"]
+    finally:
+        set_current_computer_use_turn_id(None)

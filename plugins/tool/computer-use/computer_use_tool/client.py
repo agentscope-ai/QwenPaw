@@ -29,6 +29,19 @@ _DEFAULT_DEADLINE_MS = 10000
 # the idempotent acquire a few times to cover that cold-start window.
 _ACQUIRE_ATTEMPTS = 5
 _ACQUIRE_RETRY_DELAY_SECONDS = 0.5
+# Native methods that synthesize input and therefore pass through the native
+# recency guard; only these consume a pending post-approval exemption.
+_INPUT_METHODS = frozenset(
+    {
+        "click",
+        "scroll",
+        "drag",
+        "press_key",
+        "type_text",
+        "invoke_element",
+        "set_value",
+    }
+)
 TransportFactory = Callable[[], ComputerUseTransport]
 
 
@@ -66,6 +79,13 @@ class ComputerUseClient:
                 "turn_unavailable",
                 "Computer Use is unavailable outside an active agent turn.",
             )
+        if (
+            method in _INPUT_METHODS
+            and self._approvals.intervention_bypass_pending
+        ):
+            # Carry the one-shot post-approval exemption to the native guard.
+            params = {**params, "after_approval": True}
+            self._approvals.intervention_bypass_pending = False
         async with self._lock:
             if self._turn_id and self._turn_id != turn_id:
                 await self._end_turn(transport, self._turn_id)

@@ -48,6 +48,25 @@ const ANY_INPUT_EVENT_TYPE: u32 = 0xFFFF_FFFF;
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGEventSourceSecondsSinceLastEventType(state_id: u32, event_type: u32) -> f64;
+    fn CGSessionCopyCurrentDictionary() -> CFDictionaryRef;
+}
+
+/// Read the current login-session dictionary and report the lock flag.
+/// Returns `None` when the session dictionary is unavailable (for example
+/// no active GUI session), which callers treat as "not known to be locked".
+fn session_screen_is_locked() -> Option<bool> {
+    unsafe {
+        let dict_ref = CGSessionCopyCurrentDictionary();
+        if dict_ref.is_null() {
+            return None;
+        }
+        let dict: CFDictionary<CFString, CFType> =
+            CFDictionary::wrap_under_create_rule(dict_ref);
+        let key = CFString::from_static_string("CGSSessionScreenIsLocked");
+        let value = dict.find(&key)?;
+        let number = value.downcast::<CFNumber>()?;
+        Some(number.to_i64().unwrap_or(0) != 0)
+    }
 }
 
 /// Native accessibility element handle for the shared snapshot store.
@@ -362,9 +381,31 @@ fn accessibility_element<'a>(
     ))
 }
 
+thread_local! {
+    // One-shot exemption armed by the host right after the user resolves an
+    // approval prompt, so the following action does not misread that click
+    // as the person taking over the machine.
+    static INTERVENTION_BYPASS_ONCE: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+/// Arm or clear the one-shot recency-guard exemption for this connection.
+pub(super) fn set_intervention_bypass_once(value: bool) {
+    INTERVENTION_BYPASS_ONCE.with(|cell| cell.set(value));
+}
+
+/// Report whether the login session is currently locked. A locked session
+/// must not receive synthesized input.
+pub(super) fn desktop_locked() -> bool {
+    session_screen_is_locked().unwrap_or(false)
+}
+
 /// Reject an action if a person used the keyboard or mouse within the grace
 /// window, so automated input never races a human.
 fn reject_recent_user_intervention() -> Result<(), (&'static str, String)> {
+    if INTERVENTION_BYPASS_ONCE.with(|cell| cell.replace(false)) {
+        return Ok(());
+    }
     let idle_seconds = unsafe {
         CGEventSourceSecondsSinceLastEventType(
             EVENT_SOURCE_STATE_COMBINED_SESSION,
@@ -687,6 +728,42 @@ fn keycode_for(key: &str) -> Option<u16> {
         "7" => 26,
         "8" => 28,
         "9" => 25,
+        "f1" => 122,
+        "f2" => 120,
+        "f3" => 99,
+        "f4" => 118,
+        "f5" => 96,
+        "f6" => 97,
+        "f7" => 98,
+        "f8" => 100,
+        "f9" => 101,
+        "f10" => 109,
+        "f11" => 103,
+        "f12" => 111,
+        "f13" => 105,
+        "f14" => 107,
+        "f15" => 113,
+        "f16" => 106,
+        "f17" => 64,
+        "f18" => 79,
+        "f19" => 80,
+        "f20" => 90,
+        "numpad0" => 82,
+        "numpad1" => 83,
+        "numpad2" => 84,
+        "numpad3" => 85,
+        "numpad4" => 86,
+        "numpad5" => 87,
+        "numpad6" => 88,
+        "numpad7" => 89,
+        "numpad8" => 91,
+        "numpad9" => 92,
+        "decimal" => 65,
+        "multiply" => 67,
+        "add" => 69,
+        "subtract" => 78,
+        "divide" => 75,
+        "insert" | "ins" | "help" => 114,
         _ => return None,
     })
 }

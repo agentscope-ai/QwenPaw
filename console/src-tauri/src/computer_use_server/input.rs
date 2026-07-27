@@ -6,6 +6,9 @@ use std::thread;
 use std::time::Duration;
 use windows::Win32::Foundation::{HWND, POINT};
 use windows::Win32::System::SystemInformation::GetTickCount;
+use windows::Win32::System::StationsAndDesktops::{
+    CloseDesktop, OpenInputDesktop, DESKTOP_CONTROL_FLAGS, DESKTOP_READOBJECTS,
+};
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     mouse_event, GetLastInputInfo, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD,
@@ -154,26 +157,68 @@ fn virtual_key(value: &str) -> Result<VIRTUAL_KEY, (&'static str, String)> {
         "CTRL" | "CONTROL" => 0x11,
         "ALT" => 0x12,
         "SHIFT" => 0x10,
+        "WIN" | "SUPER" | "META" | "LWIN" => 0x5b,
+        "RWIN" => 0x5c,
         "ENTER" | "RETURN" => 0x0d,
         "TAB" => 0x09,
         "ESC" | "ESCAPE" => 0x1b,
         "SPACE" => 0x20,
         "BACKSPACE" => 0x08,
         "DELETE" | "DEL" => 0x2e,
+        "INSERT" | "INS" => 0x2d,
         "UP" => 0x26,
         "DOWN" => 0x28,
         "LEFT" => 0x25,
         "RIGHT" => 0x27,
         "HOME" => 0x24,
         "END" => 0x23,
-        "PAGEUP" => 0x21,
-        "PAGEDOWN" => 0x22,
+        "PAGEUP" | "PGUP" => 0x21,
+        "PAGEDOWN" | "PGDN" => 0x22,
+        "CAPSLOCK" => 0x14,
+        "NUMLOCK" => 0x90,
+        "SCROLLLOCK" => 0x91,
+        "PRINTSCREEN" | "PRTSC" => 0x2c,
+        "PAUSE" | "BREAK" => 0x13,
+        "APPS" | "MENU" | "CONTEXTMENU" => 0x5d,
+        "MULTIPLY" => 0x6a,
+        "ADD" => 0x6b,
+        "SUBTRACT" => 0x6d,
+        "DECIMAL" => 0x6e,
+        "DIVIDE" => 0x6f,
+        // Function keys F1-F24 map to VK 0x70-0x87.
+        _ if is_function_key(&name) => function_key_code(&name),
+        // Numeric keypad digits NUMPAD0-NUMPAD9 map to VK 0x60-0x69.
+        _ if is_numpad_digit(&name) => 0x60 + (name.as_bytes()[6] - b'0') as u16,
         _ if name.len() == 1 && name.as_bytes()[0].is_ascii_alphanumeric() => {
             name.as_bytes()[0] as u16
         }
         _ => return Err(("invalid_request", format!("Unsupported key: {value}."))),
     };
     Ok(VIRTUAL_KEY(code))
+}
+
+fn is_function_key(name: &str) -> bool {
+    function_key_number(name).is_some()
+}
+
+fn function_key_number(name: &str) -> Option<u16> {
+    let digits = name.strip_prefix('F')?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let number: u16 = digits.parse().ok()?;
+    (1..=24).contains(&number).then_some(number)
+}
+
+fn function_key_code(name: &str) -> u16 {
+    // Safe because callers gate on `is_function_key`, which validates 1..=24.
+    0x70 + function_key_number(name).unwrap_or(1) - 1
+}
+
+fn is_numpad_digit(name: &str) -> bool {
+    name.len() == 7
+        && name.starts_with("NUMPAD")
+        && name.as_bytes()[6].is_ascii_digit()
 }
 
 fn unicode_input(
@@ -390,7 +435,23 @@ fn alt_tap_and_set_foreground(hwnd: HWND) -> bool {
     try_set_foreground(hwnd)
 }
 
+thread_local! {
+    // One-shot exemption for the recency guard. The desktop host sets this
+    // right after the user resolves an approval prompt in QwenPaw, so the
+    // very next action does not misread that click as the user taking over.
+    static INTERVENTION_BYPASS_ONCE: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+/// Arm or clear the one-shot recency-guard exemption for this connection.
+pub(super) fn set_intervention_bypass_once(value: bool) {
+    INTERVENTION_BYPASS_ONCE.with(|cell| cell.set(value));
+}
+
 pub(super) fn reject_recent_user_intervention() -> Result<(), (&'static str, String)> {
+    if INTERVENTION_BYPASS_ONCE.with(|cell| cell.replace(false)) {
+        return Ok(());
+    }
     let mut input = LASTINPUTINFO {
         cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
         ..Default::default()
@@ -407,6 +468,25 @@ pub(super) fn reject_recent_user_intervention() -> Result<(), (&'static str, Str
     Ok(())
 }
 
+/// Report whether the interactive workstation is currently locked.
+///
+/// When the session is locked the input desktop switches to the secure
+/// Winlogon desktop, which a normal user-session process cannot open;
+/// `OpenInputDesktop` then fails, which we treat as "locked". A successful
+/// open (the ordinary Default desktop) means the session is usable.
+pub(super) fn desktop_locked() -> bool {
+    unsafe {
+        match OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_READOBJECTS) {
+            Ok(desktop) => {
+                let _ = CloseDesktop(desktop);
+                false
+            }
+            Err(_) => true,
+        }
+    }
+}
+
+
 fn integer_param(params: &Map<String, Value>, name: &str) -> Result<i32, (&'static str, String)> {
     params
         .get(name)
@@ -414,3 +494,43 @@ fn integer_param(params: &Map<String, Value>, name: &str) -> Result<i32, (&'stat
         .and_then(|value| i32::try_from(value).ok())
         .ok_or(("invalid_request", format!("{name} is required.")))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn function_and_keypad_keys_map_to_expected_codes() {
+        assert_eq!(virtual_key("F1").unwrap(), VIRTUAL_KEY(0x70));
+        assert_eq!(virtual_key("f12").unwrap(), VIRTUAL_KEY(0x7b));
+        assert_eq!(virtual_key("F24").unwrap(), VIRTUAL_KEY(0x87));
+        assert_eq!(virtual_key("NUMPAD0").unwrap(), VIRTUAL_KEY(0x60));
+        assert_eq!(virtual_key("numpad9").unwrap(), VIRTUAL_KEY(0x69));
+        assert_eq!(virtual_key("INSERT").unwrap(), VIRTUAL_KEY(0x2d));
+        assert_eq!(virtual_key("WIN").unwrap(), VIRTUAL_KEY(0x5b));
+    }
+
+    #[test]
+    fn common_named_and_alphanumeric_keys_still_map() {
+        assert_eq!(virtual_key("CTRL").unwrap(), VIRTUAL_KEY(0x11));
+        assert_eq!(virtual_key("enter").unwrap(), VIRTUAL_KEY(0x0d));
+        assert_eq!(virtual_key("A").unwrap(), VIRTUAL_KEY(b'A' as u16));
+        assert_eq!(virtual_key("7").unwrap(), VIRTUAL_KEY(b'7' as u16));
+    }
+
+    #[test]
+    fn unknown_or_out_of_range_keys_are_rejected() {
+        assert!(virtual_key("F25").is_err());
+        assert!(virtual_key("F0").is_err());
+        assert!(virtual_key("NUMPAD").is_err());
+        assert!(virtual_key("HYPERKEY").is_err());
+    }
+
+    #[test]
+    fn chords_parse_up_to_four_keys() {
+        assert!(parse_key_sequence("CTRL+SHIFT+F5").is_ok());
+        assert!(parse_key_sequence("A+B+C+D+E").is_err());
+        assert!(parse_key_sequence("").is_err());
+    }
+}
+
