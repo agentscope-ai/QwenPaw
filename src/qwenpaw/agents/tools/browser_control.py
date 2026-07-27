@@ -12,6 +12,7 @@ wait_for, pdf, close. Uses refs from snapshot for ref-based actions.
 import asyncio
 import atexit
 from collections.abc import Iterable
+import contextlib
 from concurrent import futures
 import json
 import logging
