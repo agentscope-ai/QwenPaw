@@ -72,6 +72,61 @@ def _without_screenshot_urls(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     return {**payload, "screenshots": sanitized}
 
 
+def _element_line(element: Mapping[str, Any]) -> str:
+    """Render one accessibility element as a single compact line.
+
+    Only the model reads these elements, so the JSON scaffolding around
+    them is pure overhead. Windows reports pixel ``bounds`` and macOS
+    reports a control ``value`` instead, so the locator part is chosen from
+    whichever the platform actually provided rather than assumed.
+    """
+    parts = [
+        str(element.get("id") or "?"),
+        str(element.get("control_type_name") or element.get("role") or "?"),
+        f'"{element.get("name") or ""}"',
+    ]
+    bounds = element.get("bounds")
+    value = element.get("value")
+    if isinstance(bounds, (list, tuple)) and len(bounds) == 4:
+        try:
+            left, top, right, bottom = (int(edge) for edge in bounds)
+        except (TypeError, ValueError):
+            pass
+        else:
+            parts.append(f"@{(left + right) // 2},{(top + bottom) // 2}")
+    elif isinstance(value, str) and value:
+        parts.append(f'={value}')
+    # Both states stay visible: an offscreen entry may become reachable
+    # after scrolling, and a disabled control tells the model not to try.
+    if element.get("enabled") is False:
+        parts.append("[disabled]")
+    if element.get("offscreen") is True:
+        parts.append("[offscreen]")
+    return " ".join(parts)
+
+
+def _with_compact_elements(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Replace the accessibility element objects with one line each."""
+    accessibility = payload.get("accessibility")
+    if not isinstance(accessibility, Mapping):
+        return payload
+    elements = accessibility.get("elements")
+    if not isinstance(elements, list):
+        return payload
+    lines = [
+        _element_line(element)
+        for element in elements
+        if isinstance(element, Mapping)
+    ]
+    compact = {
+        key: value
+        for key, value in accessibility.items()
+        if key != "elements"
+    }
+    compact["elements"] = "\n".join(lines)
+    return {**payload, "accessibility": compact}
+
+
 def _response(payload: Mapping[str, Any], *, include_images: bool = False) -> ToolResponse:
     content: list[Any] = []
     if include_images:
@@ -86,7 +141,9 @@ def _response(payload: Mapping[str, Any], *, include_images: bool = False) -> To
         TextBlock(
             type="text",
             text=json.dumps(
-                _without_screenshot_urls(payload), ensure_ascii=False, indent=2
+                _with_compact_elements(_without_screenshot_urls(payload)),
+                ensure_ascii=False,
+                separators=(",", ":"),
             ),
         ),
     )

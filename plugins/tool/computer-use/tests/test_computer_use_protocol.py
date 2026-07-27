@@ -15,9 +15,11 @@ import computer_use_tool.dispatch as dispatch_module
 from computer_use_tool.client import ComputerUseClient
 from computer_use_tool.dispatch import (
     _dialog_hint,
+    _element_line,
     _native_request,
     _note_new_windows,
     _response,
+    _with_compact_elements,
 )
 from computer_use_tool.transport.base import ComputerUseTransport, ReverseRequestHandler
 from qwenpaw.app.computer_use import (
@@ -399,3 +401,128 @@ async def test_post_approval_exemption_rides_the_next_input_action() -> None:
         assert "after_approval" not in transport.messages[-1]["params"]
     finally:
         set_current_computer_use_turn_id(None)
+
+
+def test_element_line_uses_bounds_centre_on_windows() -> None:
+    """Windows elements expose pixel bounds, rendered as a centre point."""
+    line = _element_line(
+        {
+            "id": "uia-1",
+            "control_type_name": "Edit",
+            "name": "text editor",
+            "bounds": [100, 200, 300, 400],
+            "enabled": True,
+            "offscreen": False,
+        }
+    )
+    assert line == 'uia-1 Edit "text editor" @200,300'
+
+
+def test_element_line_uses_value_on_macos() -> None:
+    """macOS elements carry a value instead of bounds."""
+    line = _element_line(
+        {
+            "id": "ax-2",
+            "role": "AXTextArea",
+            "control_type_name": "Edit",
+            "name": "note",
+            "value": "hello",
+        }
+    )
+    assert line == 'ax-2 Edit "note" =hello'
+
+
+def test_element_line_keeps_disabled_and_offscreen_visible() -> None:
+    """Both states stay in the listing: they inform the next decision."""
+    line = _element_line(
+        {
+            "id": "uia-9",
+            "control_type_name": "Button",
+            "name": "Save",
+            "bounds": [0, 0, 10, 10],
+            "enabled": False,
+            "offscreen": True,
+        }
+    )
+    assert line == 'uia-9 Button "Save" @5,5 [disabled] [offscreen]'
+
+
+def test_compact_elements_preserves_protocol_fields() -> None:
+    """Only the element listing changes; binding fields stay untouched."""
+    payload = {
+        "ok": True,
+        "action": "observe_window",
+        "snapshot_id": "snapshot-1",
+        "accessibility_revision": "accessibility-1",
+        "geometry_revision": "geometry-1",
+        "window": {"id": "42", "title": "Editor"},
+        "accessibility": {
+            "available": True,
+            "revision": "accessibility-1",
+            "elements": [
+                {
+                    "id": "uia-0",
+                    "control_type_name": "Window",
+                    "name": "Editor",
+                    "bounds": [0, 0, 100, 100],
+                },
+                {
+                    "id": "uia-1",
+                    "control_type_name": "Button",
+                    "name": "OK",
+                    "bounds": [10, 10, 30, 30],
+                },
+            ],
+        },
+    }
+    result = _with_compact_elements(payload)
+
+    assert result["snapshot_id"] == "snapshot-1"
+    assert result["accessibility_revision"] == "accessibility-1"
+    assert result["geometry_revision"] == "geometry-1"
+    assert result["window"] == {"id": "42", "title": "Editor"}
+    assert result["accessibility"]["available"] is True
+    assert result["accessibility"]["revision"] == "accessibility-1"
+    assert result["accessibility"]["elements"] == (
+        'uia-0 Window "Editor" @50,50\nuia-1 Button "OK" @20,20'
+    )
+    # The original payload must not be mutated.
+    assert isinstance(payload["accessibility"]["elements"], list)
+
+
+def test_compact_elements_ignores_payloads_without_accessibility() -> None:
+    """Input actions return no accessibility block and pass through."""
+    payload = {"ok": True, "action": "click", "applied": True}
+    assert _with_compact_elements(payload) == payload
+
+
+def test_response_text_is_compact_and_carries_summary_fields() -> None:
+    """The model-facing text drops indentation and keeps summary fields."""
+    payload = {
+        "ok": True,
+        "action": "observe_window",
+        "accessibility": {
+            "available": True,
+            "revision": "accessibility-1",
+            "focused_element": 'uia-1 Edit "text editor" @200,300',
+            "document_text": "hello world",
+            "elements": [
+                {
+                    "id": "uia-1",
+                    "control_type_name": "Edit",
+                    "name": "text editor",
+                    "bounds": [100, 200, 300, 400],
+                }
+            ],
+        },
+    }
+    text = _response(payload).content[-1].text
+
+    assert "\n  " not in text
+    decoded = json.loads(text)
+    accessibility = decoded["accessibility"]
+    assert accessibility["focused_element"] == (
+        'uia-1 Edit "text editor" @200,300'
+    )
+    assert accessibility["document_text"] == "hello world"
+    assert accessibility["elements"] == 'uia-1 Edit "text editor" @200,300'
