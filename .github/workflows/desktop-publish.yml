@@ -1,0 +1,179 @@
+# Reusable "publish" half of the desktop release: take the desktop artifacts
+# produced by desktop-build.yml (same run) and publish them.
+#
+# Called by release.yml during the gated publish phase. Performs two things:
+#   - upload-release: attach the installers to the (draft) GitHub Release by tag
+#     (this is safe to run on a fork, where it targets the fork's own release).
+#   - upload-oss: push the VERSIONED files + metadata to the download OSS
+#     bucket. The `latest` files, updater manifest and index are promoted
+#     separately AFTER the release is published — see desktop-promote.yml.
+#     Skipped when dry_run=true so fork verification never touches the shared
+#     production bucket.
+
+name: Desktop Publish (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Target (draft) release tag to attach assets to"
+        type: string
+        required: true
+      ref:
+        description: "Git ref/SHA to checkout for the packaging scripts"
+        type: string
+        required: false
+        default: ""
+      dry_run:
+        description: "Skip the production OSS upload (fork verification)"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Attach installers to the (draft) GitHub Release ────────────────────────
+  upload-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Attach desktop installers to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          mv QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe . 2>/dev/null || true
+          mv QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip . 2>/dev/null || true
+          mv tauri-updater-meta-macos/QwenPaw-Tauri-*-macOS.app.tar.gz . 2>/dev/null || true
+          files=(QwenPaw-Tauri-*-Windows-setup.exe QwenPaw-Tauri-*-macOS.zip QwenPaw-Tauri-*-macOS.app.tar.gz)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No desktop installers found to attach to the release"
+            exit 1
+          fi
+          echo "Attaching to draft release ${{ inputs.tag }}: ${files[*]}"
+          gh release upload "${{ inputs.tag }}" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+
+  # ── Publish files + updater metadata to OSS (skipped on dry_run) ───────────
+  upload-oss:
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    env:
+      OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
+      OSS_PUBLIC_BASE_URL: ${{ vars.OSS_PUBLIC_BASE_URL || 'https://download.qwenpaw.agentscope.io/files/apps/desktop' }}
+    steps:
+      - name: Checkout (for scripts)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
+
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Install ossutil
+        run: |
+          wget https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil-v1.7.18-linux-amd64.zip
+          unzip ossutil-v1.7.18-linux-amd64.zip
+          chmod +x ossutil-v1.7.18-linux-amd64/ossutil64
+          sudo mv ossutil-v1.7.18-linux-amd64/ossutil64 /usr/local/bin/ossutil
+          ossutil --version
+
+      - name: Configure ossutil
+        run: |
+          ossutil config -e ${{ secrets.OSS_ENDPOINT }} \
+            -i ${{ secrets.OSS_ACCESS_KEY_ID }} \
+            -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
+            -L CH
+
+      - name: Process and upload Tauri artifacts (versioned only)
+        # Only versioned files are uploaded here. The `latest` files, updater
+        # manifest and index are promoted AFTER the release is published — see
+        # desktop-promote.yml — so the auto-updater is never pointed at a version
+        # whose release/PyPI/Docker publish might still fail.
+        if: hashFiles('QwenPaw-Desktop-Tauri-*/*') != ''
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          upload_versioned() {
+            local dirs="$1"
+            local pattern="$2"
+            local platform="$3"
+            local versioned_name="$4"
+            local metadata="$5"
+
+            local artifact
+            artifact=$(find ${dirs} -name "${pattern}" 2>/dev/null | head -1 || true)
+            if [ -z "${artifact}" ]; then
+              echo "No ${platform} Tauri artifact found, skipping"
+              return 0
+            fi
+
+            echo "Processing ${platform} Tauri artifact: ${artifact}"
+            python scripts/pack/generate_oss_metadata.py \
+              --file "${artifact}" \
+              --product desktop \
+              --platform "${platform}" \
+              --version "${VERSION}" \
+              --output "${metadata}"
+
+            ossutil cp "${artifact}" \
+              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${versioned_name}" \
+              --acl public-read \
+              --force
+            ossutil cp "${metadata}" \
+              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${versioned_name}.json" \
+              --acl public-read \
+              --force
+          }
+
+          upload_versioned \
+            "QwenPaw-Desktop-Tauri-Windows-*" \
+            "QwenPaw-Tauri-*-Windows-setup.exe" \
+            "win-tauri" \
+            "QwenPaw-Tauri-${VERSION}-Windows-setup.exe" \
+            "win-tauri-metadata.json"
+
+          upload_versioned \
+            "QwenPaw-Desktop-Tauri-macOS-*" \
+            "QwenPaw-Tauri-*-macOS.zip" \
+            "mac-tauri" \
+            "QwenPaw-Tauri-${VERSION}-macOS.zip" \
+            "mac-tauri-metadata.json"
+
+      - name: Upload Tauri macOS updater archive to OSS
+        # The .zip is for first-install; the auto-updater pulls .app.tar.gz.
+        if: hashFiles('tauri-updater-meta-macos/*.app.tar.gz') != ''
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          APP_TAR_GZ=$(find tauri-updater-meta-macos -name "QwenPaw-Tauri-*-macOS.app.tar.gz" | head -1)
+          if [ -z "$APP_TAR_GZ" ]; then
+            echo "No macOS .app.tar.gz found, skipping"
+            exit 0
+          fi
+          ossutil cp "$APP_TAR_GZ" \
+            "oss://${OSS_BUCKET}/files/apps/desktop/mac-tauri/QwenPaw-Tauri-${VERSION}-macOS.app.tar.gz" \
+            --acl public-read \
+            --force
+
+      # NOTE: the `latest` files, the updater manifest
+      # (qwenpaw-tauri-latest.json) and the index are intentionally NOT uploaded
+      # here. They are promoted only AFTER the release is flipped to published —
+      # see desktop-promote.yml — so existing users' auto-updater is never
+      # pointed at a version whose release might still fail to publish.

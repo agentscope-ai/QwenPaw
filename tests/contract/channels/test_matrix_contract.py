@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 from tests.contract.channels import ChannelContractTest
 
@@ -36,6 +37,8 @@ class TestMatrixChannelContract(ChannelContractTest):
             homeserver="https://matrix.example.com",
             access_token="test_token_12345",
             enabled=True,
-            show_tool_details=False,
-            filter_tool_messages=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )

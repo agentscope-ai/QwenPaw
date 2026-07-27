@@ -4,55 +4,24 @@ compatibility.
 
 Windows filenames cannot contain: \\ / : * ? " < > |
 """
-import asyncio
 import os
 import re
-import json
 import logging
 import shutil
-import tempfile
 
+from pathlib import Path
 from typing import Union, Sequence
 
-import aiofiles
 from qwenpaw.exceptions import ConfigurationException
 from ...exceptions import AgentStateError
+from ...utils.io_utils import (
+    get_path_lock,
+    run_sync_io,
+    write_json_atomic_async,
+)
 from ...utils.json_utils import safe_json_loads as _safe_json_loads
 
 logger = logging.getLogger(__name__)
-
-
-def _atomic_write_json(path: str, payload: dict) -> None:
-    """Atomically write JSON to *path* (tmp → os.replace).
-
-    This prevents session corruption on crash/power-loss mid-write.
-    """
-    parent = os.path.dirname(path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    tmp_path: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=parent or None,
-            prefix=f".{os.path.basename(path)}.",
-            suffix=".tmp",
-            delete=False,
-            encoding="utf-8",
-            newline="\n",
-        ) as f:
-            tmp_path = f.name
-            f.write(json.dumps(payload, ensure_ascii=False))
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, path)
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
-
 
 # Characters forbidden in Windows filenames
 _UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|]')
@@ -79,6 +48,15 @@ _CANONICAL_WECHAT_SAFE_PREFIX = "wechat--"
 # user data for manual recovery; the archive directory is excluded from
 # regular session scans because callers list ``*.json`` non-recursively.
 _WEIXIN_LEGACY_ARCHIVE_DIR = ".weixin-legacy"
+
+
+def _read_session_json(path: str) -> dict:
+    """Read and parse one session snapshot in a worker thread."""
+    content = Path(path).read_text(
+        encoding="utf-8",
+        errors="surrogatepass",
+    )
+    return _safe_json_loads(content, path)
 
 
 def migrate_legacy_weixin_session_files(save_dir: str) -> None:
@@ -200,15 +178,6 @@ class SafeJSONSession:
                 The directory to save the session state.
         """
         self.save_dir = save_dir
-        self._write_locks: dict[str, asyncio.Lock] = {}
-
-    def _get_write_lock(self, path: str) -> asyncio.Lock:
-        """Per-path lock to serialize read-modify-write cycles."""
-        lock = self._write_locks.get(path)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._write_locks[path] = lock
-        return lock
 
     def _get_save_path(
         self,
@@ -290,16 +259,17 @@ class SafeJSONSession:
             name: state_module.state_dict()
             for name, state_module in state_modules_mapping.items()
         }
-        session_save_path = self._get_save_path(
+        session_save_path = await run_sync_io(
+            self._get_save_path,
             session_id,
-            user_id=user_id,
-            channel=channel,
+            user_id,
+            channel,
         )
-        async with self._get_write_lock(session_save_path):
-            await asyncio.to_thread(
-                _atomic_write_json,
+        async with get_path_lock(session_save_path):
+            await write_json_atomic_async(
                 session_save_path,
                 state_dicts,
+                indent=None,
             )
 
         logger.info(
@@ -316,21 +286,20 @@ class SafeJSONSession:
         **state_modules_mapping,
     ) -> None:
         """Load state modules from a JSON file using async I/O."""
-        session_save_path = self._get_save_path(
+        session_save_path = await run_sync_io(
+            self._get_save_path,
             session_id,
-            user_id=user_id,
-            channel=channel,
+            user_id,
+            channel,
         )
-        if os.path.exists(session_save_path):
-            async with aiofiles.open(
+        try:
+            states = await run_sync_io(
+                _read_session_json,
                 session_save_path,
-                "r",
-                encoding="utf-8",
-                errors="surrogatepass",
-            ) as f:
-                content = await f.read()
-                states = _safe_json_loads(content, session_save_path)
-
+            )
+        except FileNotFoundError:
+            states = None
+        if states is not None:
             for name, state_module in state_modules_mapping.items():
                 if name in states:
                     state_module.load_state_dict(states[name])
@@ -363,10 +332,11 @@ class SafeJSONSession:
         channel: str = "",
         create_if_not_exist: bool = True,
     ) -> None:
-        session_save_path = self._get_save_path(
+        session_save_path = await run_sync_io(
+            self._get_save_path,
             session_id,
-            user_id=user_id,
-            channel=channel,
+            user_id,
+            channel,
         )
 
         path = key.split(".") if isinstance(key, str) else list(key)
@@ -376,20 +346,13 @@ class SafeJSONSession:
                 message="key path is empty",
             )
 
-        async with self._get_write_lock(session_save_path):
-            if os.path.exists(session_save_path):
-                async with aiofiles.open(
+        async with get_path_lock(session_save_path):
+            try:
+                states = await run_sync_io(
+                    _read_session_json,
                     session_save_path,
-                    "r",
-                    encoding="utf-8",
-                    errors="surrogatepass",
-                ) as f:
-                    content = await f.read()
-                    states = _safe_json_loads(
-                        content,
-                        session_save_path,
-                    )
-            else:
+                )
+            except FileNotFoundError as exc:
                 if not create_if_not_exist:
                     raise AgentStateError(
                         session_id=session_id,
@@ -397,7 +360,7 @@ class SafeJSONSession:
                             f"Session file {session_save_path}"
                             f" does not exist"
                         ),
-                    )
+                    ) from exc
                 states = {}
 
             cur = states
@@ -408,10 +371,10 @@ class SafeJSONSession:
 
             cur[path[-1]] = value
 
-            await asyncio.to_thread(
-                _atomic_write_json,
+            await write_json_atomic_async(
                 session_save_path,
                 states,
+                indent=None,
             )
 
         logger.info(
@@ -446,21 +409,20 @@ class SafeJSONSession:
                 empty dict if the file does not exist and
                 `allow_not_exist=True`.
         """
-        session_save_path = self._get_save_path(
+        session_save_path = await run_sync_io(
+            self._get_save_path,
             session_id,
-            user_id=user_id,
-            channel=channel,
+            user_id,
+            channel,
         )
-        if os.path.exists(session_save_path):
-            async with aiofiles.open(
+        try:
+            states = await run_sync_io(
+                _read_session_json,
                 session_save_path,
-                "r",
-                encoding="utf-8",
-                errors="surrogatepass",
-            ) as file:
-                content = await file.read()
-                states = _safe_json_loads(content, session_save_path)
-
+            )
+        except FileNotFoundError:
+            states = None
+        if states is not None:
             logger.info(
                 "Get session state dict from %s successfully.",
                 session_save_path,

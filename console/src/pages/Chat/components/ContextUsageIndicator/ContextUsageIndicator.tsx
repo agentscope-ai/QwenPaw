@@ -1,14 +1,11 @@
 import React from "react";
-import { Popover, Progress } from "antd";
+import { Button, Popover, Progress, Space } from "antd";
 import { useTranslation } from "react-i18next";
 import { formatCompact } from "../../../../utils/formatNumber";
-import {
-  readTurnUsageFromResponseCardData,
-  type ContextUsage,
-  type TurnUsage,
-} from "../../turnUsage";
+import { useTurnUsageStore } from "../../turnUsageStore";
+import type { ContextUsage, TurnUsage } from "../../turnUsage";
 
-const RING_SIZE = 18;
+const RING_SIZE = 20;
 const RING_STROKE = 3;
 const RING_R = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRC = 2 * Math.PI * RING_R;
@@ -54,9 +51,13 @@ function UsageRing({ ratio }: { ratio: number }) {
 function PopoverBody({
   usage,
   context,
+  onCompact,
+  onNew,
 }: {
   usage: TurnUsage | null;
   context: ContextUsage | null;
+  onCompact: () => void;
+  onNew: () => void;
 }) {
   const { t } = useTranslation();
   const ratio = context
@@ -112,32 +113,56 @@ function PopoverBody({
           />
         </>
       )}
+      <div
+        style={{
+          marginTop: 12,
+          paddingTop: 12,
+          borderTop: "1px solid rgba(0,0,0,0.06)",
+        }}
+      >
+        <div style={{ fontSize: 12, opacity: 0.65, marginBottom: 8 }}>
+          {t("chat.turnUsagePopover.manageContext")}
+        </div>
+        <Space size={8}>
+          <Button size="small" onClick={onCompact}>
+            {t("chat.turnUsagePopover.compact")}
+          </Button>
+          <Button size="small" onClick={onNew}>
+            {t("chat.turnUsagePopover.new")}
+          </Button>
+        </Space>
+      </div>
     </div>
   );
 }
 
-const TurnUsageAction: React.FC<{
-  data: { data?: Record<string, unknown> };
-}> = ({ data }) => {
+const ContextUsageIndicator: React.FC<{
+  onCompact: () => void;
+  onNew: () => void;
+}> = ({ onCompact, onNew }) => {
   const { t } = useTranslation();
-  const snapshot = readTurnUsageFromResponseCardData(data?.data ?? null);
-  if (!snapshot || (!snapshot.usage && !snapshot.context_usage)) {
+  const snapshot = useTurnUsageStore((s) => s.snapshot);
+
+  if (!snapshot?.context_usage) {
     return null;
   }
 
-  const ratio = snapshot.context_usage
-    ? Math.max(
-        0,
-        Math.min(Number(snapshot.context_usage.context_usage_ratio) || 0, 100),
-      )
-    : 0;
+  const ratio = Math.max(
+    0,
+    Math.min(Number(snapshot.context_usage.context_usage_ratio) || 0, 100),
+  );
 
   return (
     <Popover
       trigger={["hover", "click"]}
       mouseEnterDelay={0.15}
       content={
-        <PopoverBody usage={snapshot.usage} context={snapshot.context_usage} />
+        <PopoverBody
+          usage={snapshot.usage}
+          context={snapshot.context_usage}
+          onCompact={onCompact}
+          onNew={onNew}
+        />
       }
     >
       <span
@@ -148,20 +173,16 @@ const TurnUsageAction: React.FC<{
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          cursor: "default",
+          cursor: "pointer",
           color: "inherit",
           opacity: 0.65,
-          padding: "0 2px",
+          padding: "0 4px",
         }}
       >
-        {snapshot.context_usage ? (
-          <UsageRing ratio={ratio} />
-        ) : (
-          <span style={{ fontSize: 12, fontWeight: 600 }}>tok</span>
-        )}
+        <UsageRing ratio={ratio} />
       </span>
     </Popover>
   );
 };
 
-export default TurnUsageAction;
+export default ContextUsageIndicator;

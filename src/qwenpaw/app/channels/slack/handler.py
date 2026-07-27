@@ -43,6 +43,8 @@ from qwenpaw.schemas import (
 from .constants import (
     SLACK_DEDUP_MAX_ENTRIES,
     SLACK_DEDUP_WINDOW_SECONDS,
+    SLACK_USER_NAME_CACHE_MAX_ENTRIES,
+    SLACK_USER_NAME_CACHE_TTL_S,
 )
 from .utils import (
     build_dedup_key,
@@ -98,7 +100,10 @@ class SlackEventHandler:
         self._dedup_lock = asyncio.Lock()
         self._dedup_map: OrderedDict[str, float] = OrderedDict()
         self._http_session: Optional[aiohttp.ClientSession] = None
-        self._user_name_cache: Dict[str, str] = {}
+        self._user_name_cache: OrderedDict[
+            str,
+            tuple[str, float],
+        ] = OrderedDict()
 
     # ── Registration ──
 
@@ -519,8 +524,14 @@ class SlackEventHandler:
         Falls back to the user ID when the API call fails or the user
         is not found.  Results are cached per user_id.
         """
-        if user_id in self._user_name_cache:
-            return self._user_name_cache[user_id]
+        cached = self._user_name_cache.get(user_id)
+        if (
+            cached
+            and time.monotonic() - cached[1] < SLACK_USER_NAME_CACHE_TTL_S
+        ):
+            self._user_name_cache.move_to_end(user_id)
+            return cached[0]
+        self._user_name_cache.pop(user_id, None)
         try:
             resp = await with_retry(
                 client.users_info,
@@ -532,23 +543,30 @@ class SlackEventHandler:
                 if isinstance(profile, dict):
                     display = profile.get("display_name")
                     if display:
-                        self._user_name_cache[user_id] = display
+                        self._cache_user_name(user_id, display)
                         return display
                     real = profile.get("real_name")
                     if real:
-                        self._user_name_cache[user_id] = real
+                        self._cache_user_name(user_id, real)
                         return real
                 name = info.get("real_name") or info.get("name")
                 if name:
-                    self._user_name_cache[user_id] = name
+                    self._cache_user_name(user_id, name)
                     return name
         except Exception:
             logger.debug(
                 "slack handler: users_info failed for %s",
                 user_id,
             )
-        self._user_name_cache[user_id] = ""
+        self._cache_user_name(user_id, "")
         return ""
+
+    def _cache_user_name(self, user_id: str, name: str) -> None:
+        """Cache a profile lookup with bounded, expiring LRU retention."""
+        self._user_name_cache[user_id] = (name, time.monotonic())
+        self._user_name_cache.move_to_end(user_id)
+        while len(self._user_name_cache) > SLACK_USER_NAME_CACHE_MAX_ENTRIES:
+            self._user_name_cache.popitem(last=False)
 
     async def handle_slash_command(self, command: dict) -> None:
         slash_name = (command.get("command") or "").lstrip("/")

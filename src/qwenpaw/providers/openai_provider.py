@@ -239,6 +239,11 @@ class OpenAIProvider(Provider):
             stream=True,
             default_headers=merged_headers or None,
             extra_generate_kwargs=gen_kwargs or None,
+            output_token_param=(
+                "max_completion_tokens"
+                if _uses_max_completion_tokens(model_id)
+                else "max_tokens"
+            ),
             context_size=self._get_context_size(model_id),
             formatter=_CappingOpenAIFormatter(
                 max_bytes=self.max_inline_media_bytes,

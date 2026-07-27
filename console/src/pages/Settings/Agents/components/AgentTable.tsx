@@ -13,7 +13,12 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { EditOutlined, DeleteOutlined, RobotOutlined } from "@ant-design/icons";
+import {
+  EditOutlined,
+  DeleteOutlined,
+  RobotOutlined,
+  CopyOutlined,
+} from "@ant-design/icons";
 import { EyeOff, Eye, Pin, PinOff } from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
@@ -28,6 +33,7 @@ interface AgentTableProps {
   loading: boolean;
   reordering: boolean;
   onEdit: (agent: AgentSummary) => void;
+  onCopy: (agent: AgentSummary) => void;
   onDelete: (agentId: string) => void;
   onToggle: (agentId: string, currentEnabled: boolean) => void;
   onPin: (agentId: string, currentPinned: boolean) => void;
@@ -39,6 +45,7 @@ export function AgentTable({
   loading,
   reordering,
   onEdit,
+  onCopy,
   onDelete,
   onToggle,
   onPin,
@@ -200,6 +207,18 @@ export function AgentTable({
                 record.id === "default"
                   ? t("agent.defaultNotEditable")
                   : undefined
+              }
+            />
+            <Button
+              type="text"
+              size="middle"
+              icon={<CopyOutlined />}
+              onClick={() => onCopy(record)}
+              style={iconStyle}
+              title={
+                record.id === "default"
+                  ? t("agent.copyDefaultTooltip")
+                  : t("agent.copyTooltip")
               }
             />
             <Popconfirm

@@ -81,6 +81,8 @@ export interface BaseUrlOption {
 export interface ProviderConfigRequest {
   api_key?: string;
   base_url?: string;
+  /** New display name. Only applied to custom providers. */
+  name?: string;
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
   custom_headers?: Record<string, string>;

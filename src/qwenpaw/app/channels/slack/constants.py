@@ -15,6 +15,10 @@ SLACK_DEDUP_WINDOW_SECONDS: int = 300
 # Maximum number of entries in the deduplication cache
 SLACK_DEDUP_MAX_ENTRIES: int = 10000
 
+# User profiles change occasionally, and a channel can run for months.
+SLACK_USER_NAME_CACHE_MAX_ENTRIES: int = 10000
+SLACK_USER_NAME_CACHE_TTL_S: float = 6 * 60 * 60
+
 # ── SSRF Protection ──
 
 # Whitelist of allowed domains for file downloads/uploads

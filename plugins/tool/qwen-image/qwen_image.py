@@ -46,6 +46,7 @@ class QwenImageToolPlugin:
                 "Generate images from text prompts " "using Qwen-Image"
             ),
             icon="🖼️",
+            tool_type="network",
         )
 
         api.register_tool(
@@ -53,6 +54,7 @@ class QwenImageToolPlugin:
             tool_func=tool.edit_image_qwen,
             description="Edit or fuse images using Qwen-Image",
             icon="✏️",
+            tool_type="network",
         )
 
         logger.info("Qwen-Image tool plugin registered")

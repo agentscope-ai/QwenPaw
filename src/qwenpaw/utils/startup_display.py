@@ -46,6 +46,7 @@ class AgentStartupDisplay:
         self._progress = self._create_progress()
         self._task_id: TaskID | None = None
         self._phase = "Starting core agents"
+        self._failed = False
         self._elapsed_seconds: float | None = None
         self._redirected_handlers: list[
             tuple[logging.StreamHandler, object]
@@ -73,6 +74,7 @@ class AgentStartupDisplay:
 
     def mark_core_ready(self, elapsed_seconds: float) -> None:
         """Show that core agents are ready while custom agents continue."""
+        self._failed = False
         self._phase = "Core agents ready"
         self._elapsed_seconds = elapsed_seconds
         self._refresh()
@@ -106,8 +108,15 @@ class AgentStartupDisplay:
         self._phase = "Finalizing services"
         self._refresh()
 
+    def mark_failed(self, status: str) -> None:
+        """Keep an explicit core startup failure visible."""
+        self._phase = status
+        self._failed = True
+        self._refresh()
+
     def complete(self, elapsed_seconds: float) -> None:
         """Keep a ready panel live, or print one for non-TTY output."""
+        self._failed = False
         self._phase = "Ready"
         self._elapsed_seconds = elapsed_seconds
         if self._live is None:
@@ -148,9 +157,14 @@ class AgentStartupDisplay:
                 self._elapsed_seconds,
                 status=self._phase,
                 ready=self._phase == "Ready",
+                failed=self._failed,
             ),
         ]
-        if self._task_id is not None and self._phase != "Ready":
+        if (
+            self._task_id is not None
+            and self._phase != "Ready"
+            and not self._failed
+        ):
             renderables.append(self._progress)
         return Group(*renderables)
 
@@ -229,10 +243,11 @@ def _build_startup_panel(
     *,
     status: str,
     ready: bool,
+    failed: bool = False,
 ) -> Panel:
     """Build a startup status panel shared by Live and final output."""
-    status_color = "green" if ready else "yellow"
-    marker = "✓" if ready else "•"
+    status_color = "red" if failed else "green" if ready else "yellow"
+    marker = "×" if failed else "✓" if ready else "•"
     tree = Tree(
         f"[bold {status_color}]{marker}[/bold {status_color}] "
         f"[bold]QwenPaw[/bold]",
