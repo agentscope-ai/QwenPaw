@@ -229,6 +229,39 @@ async def unarchive_chat(
 # ----- Existing CRUD endpoints -----
 
 
+@router.get("/{chat_id}/status", response_model=dict)
+async def get_chat_status(
+    chat_id: str,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+):
+    """Get only the run status of a chat, without loading its history.
+
+    Lightweight alternative to ``GET /chats/{chat_id}`` for pollers that
+    just need idle/running: the full endpoint deserializes the entire
+    session state, which is expensive for large conversations.
+
+    Args:
+        chat_id: Chat UUID
+        mgr: Chat manager dependency
+        workspace: Workspace dependency (for task tracker)
+
+    Returns:
+        dict with ``id`` and ``status`` (``idle`` or ``running``)
+
+    Raises:
+        HTTPException: If chat not found (404)
+    """
+    chat_spec = await mgr.get_chat(chat_id)
+    if not chat_spec:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chat not found: {chat_id}",
+        )
+    status = await workspace.task_tracker.get_status(chat_id)
+    return {"id": chat_id, "status": status}
+
+
 @router.get("/{chat_id}", response_model=ChatHistory)
 async def get_chat(
     chat_id: str,

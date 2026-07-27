@@ -182,7 +182,7 @@ async function waitForChatIdle(
         headers["X-Agent-Id"] = agentId;
       }
       const res = await fetch(
-        getApiUrl(`/chats/${encodeURIComponent(chatIdForStatus)}`),
+        getApiUrl(`/chats/${encodeURIComponent(chatIdForStatus)}/status`),
         { headers, signal },
       );
       if (!res.ok) return true; // 404 / error → treat as idle
