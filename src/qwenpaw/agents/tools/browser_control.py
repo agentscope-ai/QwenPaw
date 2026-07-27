@@ -1651,14 +1651,24 @@ async def _ensure_browser(
             state["browser_process"] = None
             state["launch_mode"] = "playwright"
         else:
-            try:
-                await _start_managed_cdp_browser(
-                    state,
-                    ensure_pages=True,
-                    browser_args=state.get("_browser_args", ""),
-                    executable_path=state.get("_executable_path", ""),
-                )
-            except Exception:
+            if state.get("_expose_cdp"):
+                try:
+                    await _start_managed_cdp_browser(
+                        state,
+                        cdp_port=state.get("_cdp_port", 0),
+                        ensure_pages=True,
+                        browser_args=state.get("_browser_args", ""),
+                        executable_path=state.get("_executable_path", ""),
+                    )
+                except Exception:
+                    await _action_start(
+                        state,
+                        headed=not state["headless"],
+                        private_mode=True,
+                        browser_args=state.get("_browser_args", ""),
+                        executable_path=state.get("_executable_path", ""),
+                    )
+            else:
                 await _action_start(
                     state,
                     headed=not state["headless"],
@@ -1901,6 +1911,8 @@ async def _action_start(
         _start_idle_watchdog(state)
         await _configure_download_behavior(state)
         # Store launch config for _ensure_browser fallback restarts
+        state["_expose_cdp"] = _should_use_managed_cdp(private_mode, cdp_port)
+        state["_cdp_port"] = cdp_port
         state["_browser_args"] = browser_args
         state["_executable_path"] = executable_path
         msg = (
