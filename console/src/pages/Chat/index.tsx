@@ -2876,6 +2876,14 @@ export default function ChatPage() {
             return null;
           }
 
+          // Backend capped the reconnect replay buffer: early events of
+          // the in-progress turn were evicted. Drop the marker so the SDK
+          // doesn't render an unknown event — the full turn is reloaded
+          // from history once generation completes.
+          if (payload.type === "replay_truncated") {
+            return null;
+          }
+
           if (payload.type === "rate_limited") {
             const alts =
               (payload.alternatives as typeof rateLimitAlternatives) || [];

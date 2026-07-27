@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import weakref
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Callable, Coroutine, Optional
@@ -19,6 +20,22 @@ logger = logging.getLogger(__name__)
 
 _SENTINEL = None
 
+# Replay buffer limits per run. Without them the buffer grows without
+# bound for long runs with huge tool outputs, and every reconnect
+# replays the whole history — causing sustained frontend CPU load.
+# When exceeded, oldest events are evicted and reconnecting clients
+# receive a ``replay_truncated`` marker first.
+MAX_BUFFER_EVENTS = 2000
+MAX_BUFFER_BYTES = 8 * 1024 * 1024
+
+TRUNCATED_MARKER_SSE = f"data: {json.dumps({'type': 'replay_truncated'})}\n\n"
+
+# Emit an SSE comment frame when no event arrives for this long, so
+# proxies between remote clients and the server do not drop the idle
+# connection (each drop triggers a reconnect + full buffer replay).
+HEARTBEAT_INTERVAL_SECONDS = 15.0
+HEARTBEAT_SSE = ": keep-alive\n\n"
+
 
 @dataclass
 class _RunState:
@@ -26,9 +43,28 @@ class _RunState:
 
     task: asyncio.Future
     queues: list[asyncio.Queue] = field(default_factory=list)
-    buffer: list[str] = field(default_factory=list)
+    buffer: deque[str] = field(default_factory=deque)
+    buffer_bytes: int = 0
+    truncated: bool = False
     start_time: Optional[datetime] = None
     finish_time: Optional[datetime] = None
+
+
+def _buffer_append(state: _RunState, sse: str) -> None:
+    """Append *sse* to the replay buffer, evicting oldest on overflow.
+
+    Caller must hold the tracker lock. Sets ``truncated`` once any
+    event has been evicted so reconnects can signal the client.
+    """
+    state.buffer.append(sse)
+    state.buffer_bytes += len(sse)
+    while state.buffer and (
+        len(state.buffer) > MAX_BUFFER_EVENTS
+        or state.buffer_bytes > MAX_BUFFER_BYTES
+    ):
+        evicted = state.buffer.popleft()
+        state.buffer_bytes -= len(evicted)
+        state.truncated = True
 
 
 class TaskTracker:
@@ -136,6 +172,8 @@ class TaskTracker:
             if state is None or state.task.done():
                 return None
             q: asyncio.Queue = asyncio.Queue()
+            if state.truncated:
+                q.put_nowait(TRUNCATED_MARKER_SSE)
             for sse in state.buffer:
                 q.put_nowait(sse)
             state.queues.append(q)
@@ -203,6 +241,8 @@ class TaskTracker:
             state = self._runs.get(run_key)
             if state is not None and not state.task.done():
                 q: asyncio.Queue = asyncio.Queue()
+                if state.truncated:
+                    q.put_nowait(TRUNCATED_MARKER_SSE)
                 for sse in state.buffer:
                     q.put_nowait(sse)
                 state.queues.append(q)
@@ -212,7 +252,6 @@ class TaskTracker:
             run = _RunState(
                 task=asyncio.Future(),  # placeholder, replaced below
                 queues=[my_queue],
-                buffer=[],
             )
             self._runs[run_key] = run
 
@@ -234,7 +273,7 @@ class TaskTracker:
                         if tracker is None:
                             return
                         async with tracker.lock:
-                            run.buffer.append(sse)
+                            _buffer_append(run, sse)
                             for q in run.queues:
                                 q.put_nowait(sse)
                 except asyncio.CancelledError:
@@ -248,7 +287,7 @@ class TaskTracker:
                     tracker = tracker_ref()
                     if tracker is not None:
                         async with tracker.lock:
-                            run.buffer.append(err_sse)
+                            _buffer_append(run, err_sse)
                             for q in run.queues:
                                 q.put_nowait(err_sse)
                 finally:
@@ -277,13 +316,30 @@ class TaskTracker:
     ) -> AsyncGenerator[str, None]:
         """Yield SSE strings from *queue* until the sentinel ``None``.
 
+        Emits a comment heartbeat frame when the queue stays empty for
+        ``HEARTBEAT_INTERVAL_SECONDS`` so idle connections survive
+        proxies on remote access paths.
+
         Always detaches *queue* from *run_key* when this stream ends or is
         closed (including client disconnect), so reconnects do not leak queues.
         """
         try:
             while True:
                 try:
-                    event = await queue.get()
+                    try:
+                        # Fast path: avoid the per-call Task/timer overhead
+                        # of wait_for while the stream is busy; only arm
+                        # the heartbeat timeout when the queue is empty.
+                        event = queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        try:
+                            event = await asyncio.wait_for(
+                                queue.get(),
+                                timeout=HEARTBEAT_INTERVAL_SECONDS,
+                            )
+                        except asyncio.TimeoutError:
+                            yield HEARTBEAT_SSE
+                            continue
                     if event is _SENTINEL:
                         break
                     yield event

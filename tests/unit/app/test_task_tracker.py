@@ -9,6 +9,8 @@ Covers:
 - request_stop() cancels and reports running state
 - detach_subscriber() removes queues and is idempotent
 - stream_from_queue() yields events and detaches on consumer exit
+- stream_from_queue() emits heartbeat frames while the queue is idle
+- replay buffer eviction by count/bytes and truncated-marker replay
 - wait_all_done() returns True when idle, False on timeout
 - global status counters update via run lifecycle
 """
@@ -20,6 +22,7 @@ import json
 
 import pytest
 
+from qwenpaw.app import task_tracker as task_tracker_mod
 from qwenpaw.app.task_tracker import TaskTracker
 
 
@@ -273,6 +276,175 @@ async def test_stream_from_queue_yields_until_sentinel_and_detaches():
     assert collected == events
     # After streaming, run is cleaned up, so detach should be a no-op.
     assert await tracker.get_status("run-stream") == "idle"
+
+
+# ---------------------------------------------------------------------------
+# Replay buffer limits + truncated marker
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_buffer_append_evicts_by_event_count(monkeypatch):
+    monkeypatch.setattr(task_tracker_mod, "MAX_BUFFER_EVENTS", 2)
+    state = task_tracker_mod._RunState(task=asyncio.Future())
+
+    for ev in ["data: 1\n\n", "data: 2\n\n", "data: 3\n\n"]:
+        task_tracker_mod._buffer_append(state, ev)
+
+    assert list(state.buffer) == ["data: 2\n\n", "data: 3\n\n"]
+    assert state.truncated is True
+    assert state.buffer_bytes == sum(len(e) for e in state.buffer)
+
+
+@pytest.mark.asyncio
+async def test_buffer_append_evicts_by_bytes(monkeypatch):
+    small = "data: a\n\n"
+    monkeypatch.setattr(
+        task_tracker_mod,
+        "MAX_BUFFER_BYTES",
+        len(small) * 2,
+    )
+    state = task_tracker_mod._RunState(task=asyncio.Future())
+
+    task_tracker_mod._buffer_append(state, small)
+    assert state.truncated is False
+
+    task_tracker_mod._buffer_append(state, small)
+    task_tracker_mod._buffer_append(state, small)
+
+    assert len(state.buffer) == 2
+    assert state.truncated is True
+
+
+@pytest.mark.asyncio
+async def test_attach_replays_truncated_marker_then_tail(monkeypatch):
+    monkeypatch.setattr(task_tracker_mod, "MAX_BUFFER_EVENTS", 2)
+    tracker = TaskTracker()
+    produced = asyncio.Event()
+    release = asyncio.Event()
+
+    async def gated(_payload):
+        yield "data: 1\n\n"
+        yield "data: 2\n\n"
+        yield "data: 3\n\n"
+        produced.set()
+        await release.wait()
+
+    await tracker.attach_or_start(
+        "run-trunc",
+        payload=None,
+        stream_fn=gated,
+    )
+    await asyncio.wait_for(produced.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    queue = await tracker.attach("run-trunc")
+    assert queue is not None
+
+    replayed = await _drain(queue, 3)
+    assert replayed == [
+        task_tracker_mod.TRUNCATED_MARKER_SSE,
+        "data: 2\n\n",
+        "data: 3\n\n",
+    ]
+
+    release.set()
+    await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_attach_or_start_replays_truncated_marker(monkeypatch):
+    monkeypatch.setattr(task_tracker_mod, "MAX_BUFFER_EVENTS", 1)
+    tracker = TaskTracker()
+    produced = asyncio.Event()
+    release = asyncio.Event()
+
+    async def gated(_payload):
+        yield "data: old\n\n"
+        yield "data: new\n\n"
+        produced.set()
+        await release.wait()
+
+    await tracker.attach_or_start(
+        "run-trunc-2",
+        payload=None,
+        stream_fn=gated,
+    )
+    await asyncio.wait_for(produced.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    queue, is_new = await tracker.attach_or_start(
+        "run-trunc-2",
+        payload=None,
+        stream_fn=_make_stream([]),  # must NOT be invoked
+    )
+    assert is_new is False
+
+    replayed = await _drain(queue, 2)
+    assert replayed == [
+        task_tracker_mod.TRUNCATED_MARKER_SSE,
+        "data: new\n\n",
+    ]
+
+    release.set()
+    await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_no_truncated_marker_when_buffer_within_limits():
+    tracker = TaskTracker()
+    produced = asyncio.Event()
+    release = asyncio.Event()
+
+    async def gated(_payload):
+        yield "data: only\n\n"
+        produced.set()
+        await release.wait()
+
+    await tracker.attach_or_start(
+        "run-no-trunc",
+        payload=None,
+        stream_fn=gated,
+    )
+    await asyncio.wait_for(produced.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    queue = await tracker.attach("run-no-trunc")
+    assert queue is not None
+
+    first = await asyncio.wait_for(queue.get(), timeout=1)
+    assert first == "data: only\n\n"
+
+    release.set()
+    await asyncio.sleep(0.05)
+
+
+# ---------------------------------------------------------------------------
+# stream_from_queue: heartbeat while idle
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stream_from_queue_emits_heartbeat_when_idle(monkeypatch):
+    monkeypatch.setattr(
+        task_tracker_mod,
+        "HEARTBEAT_INTERVAL_SECONDS",
+        0.05,
+    )
+    tracker = TaskTracker()
+    queue: asyncio.Queue = asyncio.Queue()
+
+    agen = tracker.stream_from_queue(queue, "run-hb")
+    first = await asyncio.wait_for(agen.__anext__(), timeout=1)
+    assert first == task_tracker_mod.HEARTBEAT_SSE
+
+    queue.put_nowait("data: x\n\n")
+    second = await asyncio.wait_for(agen.__anext__(), timeout=1)
+    assert second == "data: x\n\n"
+
+    queue.put_nowait(None)
+    with pytest.raises(StopAsyncIteration):
+        await asyncio.wait_for(agen.__anext__(), timeout=1)
 
 
 # ---------------------------------------------------------------------------
