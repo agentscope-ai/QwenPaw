@@ -134,7 +134,7 @@ def test_every_catalog_extra_exists_and_channels_all_is_complete():
 
     full = Requirement(extras["full"][0])
     assert full.name == "qwenpaw"
-    assert "channels-all" in full.extras
+    assert set(full.extras) == {"local", "whisper"}
 
 
 def test_available_channel_keys_do_not_load_builtin_registry():
