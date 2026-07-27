@@ -28,9 +28,9 @@
     "titleleft": "Your Personal",
     "titleright": "AI assistant",
     "slogan": "Works for you, grows with you",
-    "sub": "{{version}}: QwenPaw custom Agent OS, Loop Engineering, Scroll Context, ReMe v0.4,",
+    "sub": "v2.0.0: QwenPaw custom Agent OS, Loop Engineering, Scroll Context, ReMe v0.4,",
     "sub1": "and TUI — all upgraded, all yours.",
-    "releaseNote": "QwenPaw {{version}} is released",
+    "releaseNote": "QwenPaw v2.0.0 is released",
     "cta": "Read the docs",
     "quickStart": "Quick Start",
     "quickTry": "Try Now"
