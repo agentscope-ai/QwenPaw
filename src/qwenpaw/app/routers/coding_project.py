@@ -323,6 +323,66 @@ class ImportLocalRequest(BaseModel):
     name: str | None = None  # override destination folder name
 
 
+# All values MUST be lowercase (matching uses case-insensitive compare).
+_SENSITIVE_SUBDIRS: frozenset[str] = frozenset(
+    {
+        ".ssh",
+        ".aws",
+        ".gnupg",
+        ".kube",
+        ".docker",
+        ".config/gcloud",
+        ".config/nix",
+        ".netrc",
+    },
+)
+
+
+def _validate_import_source(source: Path) -> None:
+    """Reject source paths outside home or inside sensitive dirs.
+
+    Raises HTTPException(403) when:
+    - *source* is not under the user's home directory.
+    - *source* equals the home directory itself.
+    - *source* is (or is inside) a known sensitive subdirectory
+      such as ``~/.ssh`` or ``~/.aws``.
+    - *source* is an ancestor of a known sensitive subdirectory
+      (e.g. ``~/.config`` which contains ``gcloud``).
+    """
+    home = Path.home().resolve()
+    if not source.is_relative_to(home):
+        raise HTTPException(
+            status_code=403,
+            detail=(f"Source must be under home directory: {home}"),
+        )
+
+    if source == home:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot import the entire home directory",
+        )
+
+    rel_lower = str(source.relative_to(home)).lower()
+
+    for sens in _SENSITIVE_SUBDIRS:
+        if rel_lower == sens or rel_lower.startswith(
+            f"{sens}/",
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Importing sensitive directory " f"not allowed: {source}"
+                ),
+            )
+        if sens.startswith(f"{rel_lower}/"):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Directory contains sensitive " f"subdirectory: {sens}"
+                ),
+            )
+
+
 @router.post(
     "/import-local",
     summary="Copy a local directory into coding projects",
@@ -350,6 +410,8 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
             detail=f"Not a directory: {source}",
         )
 
+    _validate_import_source(source)
+
     dest_name = body.name.strip() if body.name else source.name
     base = _projects_base(workspace.workspace_dir)
     dest = safe_project_dest(base, dest_name)
@@ -374,6 +436,7 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
         shutil.copytree(
             str(source),
             str(dest),
+            symlinks=True,
             ignore=ignore,
             dirs_exist_ok=True,
         )
