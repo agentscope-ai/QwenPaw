@@ -5132,14 +5132,13 @@ async def browser_use(  # pylint: disable=R0911,R0912
             When True with action=start, launch a visible browser window
             (non-headless). User can see the real browser. Default False.
         cdp_port (int):
-            When > 0 with action=start, use the specified CDP port. When 0,
-            QwenPaw chooses a free local port automatically for managed CDP.
+            When > 0 with action=start, launch the browser with a local CDP
+            port so other local tools can attach. When 0 (default), no
+            debugging port is opened and no port is chosen automatically.
         private_mode (bool):
-            When True with action=start, force direct Playwright management
-            instead of managed CDP. Use this when the user explicitly does not
-            want the browser to be connectable by other local tools/workspaces
-            via CDP. Default False. By default, QwenPaw prefers managed CDP for
-            both headless and headed starts.
+            Deprecated and now the default behavior: the browser is managed
+            directly by Playwright over a pipe with no debugging port.
+            Passing private_mode=true together with cdp_port is rejected.
         browser_args (str):
             Extra Chromium launch arguments, e.g. "--incognito" or
             "--proxy-server=http://127.0.0.1:7890". Multiple args separated by

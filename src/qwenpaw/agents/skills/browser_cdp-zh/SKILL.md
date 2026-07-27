@@ -1,6 +1,6 @@
 ---
 name: browser_cdp
-description: "当用户明确希望连接到已运行的 Chrome 浏览器、扫描本地 CDP 端口、显式指定 `cdp_port`，或让多个 agent / 工具共享同一个浏览器时，使用本 skill。当前 browser_use 默认已使用 managed CDP 启动浏览器；如果用户不希望暴露浏览器历史、Cookies 等敏感信息，推荐改用 `private_mode=true` 的隐私模式。"
+description: "当用户明确希望连接到已运行的 Chrome 浏览器、扫描本地 CDP 端口、显式指定 `cdp_port`，或让多个 agent / 工具共享同一个浏览器时，使用本 skill。browser_use 默认不开放调试端口；仅当用户明确希望其他本地工具附加时才显式传入 `cdp_port`。"
 metadata:
   builtin_skill_version: "1.2"
   qwenpaw:
