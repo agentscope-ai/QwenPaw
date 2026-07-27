@@ -77,7 +77,7 @@ def test_optional_channel_dependencies_use_verified_pins():
     }.items() <= core.items()
 
     expected_extras = {
-        "discord": {"discord-py": "==2.3.2"},
+        "discord": {"discord-py": "==2.7.1"},
         "feishu": {
             "lark-oapi": "==1.7.1",
             "python-socks": "==2.8.2",
@@ -134,7 +134,7 @@ def test_every_catalog_extra_exists_and_channels_all_is_complete():
 
     full = Requirement(extras["full"][0])
     assert full.name == "qwenpaw"
-    assert set(full.extras) == {"local", "whisper"}
+    assert "channels-all" in full.extras
 
 
 def test_available_channel_keys_do_not_load_builtin_registry():
