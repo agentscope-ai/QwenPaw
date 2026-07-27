@@ -32,7 +32,7 @@ from ...config.config import (
 from ...config.utils import load_config, save_config
 from ...agents.utils import copy_workspace_md_files, normalize_agent_language
 from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
-from ...harnesses.registry import get_provider
+from ...harnesses.registry import ProviderCatalogItem, get_provider
 from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
@@ -136,6 +136,22 @@ _COPYABLE_MD_FILES = (
     "HEARTBEAT.md",
     "BOOTSTRAP.md",
 )
+
+
+def _get_available_third_party_provider(
+    backend: str,
+) -> ProviderCatalogItem:
+    """Resolve an available third-party backend for API mutations."""
+    try:
+        provider = get_provider(backend)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if provider.coming_soon:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{provider.name} is not available yet",
+        )
+    return provider
 
 
 def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
@@ -263,13 +279,15 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     description = profile_desc
 
             active_model = agent_config.active_model
-            backend_capabilities = (
-                {"workspace_ui": True}
-                if agent_config.backend == "qwenpaw"
-                else get_provider(
-                    agent_config.backend,
-                ).capabilities.model_dump()
-            )
+            if agent_config.backend == "qwenpaw":
+                backend_capabilities = {"workspace_ui": True}
+            else:
+                try:
+                    backend_capabilities = get_provider(
+                        agent_config.backend,
+                    ).capabilities.model_dump()
+                except ValueError:
+                    backend_capabilities = {}
 
             agents.append(
                 AgentSummary(
@@ -419,7 +437,7 @@ async def update_backend_settings(
             status_code=409,
             detail="QwenPaw models use the native model configuration",
         )
-    provider = get_provider(agent_config.backend)
+    provider = _get_available_third_party_provider(agent_config.backend)
     settings = dict(agent_config.backend_settings)
     values = body.model_dump()
     if provider.capabilities.model_selection:
@@ -471,6 +489,9 @@ async def create_agent(
     (validated for URL-safe characters, length, reserved words, and
     uniqueness).  Otherwise a random short UUID is generated.
     """
+    if request.backend != "qwenpaw":
+        _get_available_third_party_provider(request.backend)
+
     config = load_config()
     existing_ids = set(config.agents.profiles.keys())
 

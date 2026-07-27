@@ -154,6 +154,43 @@ def test_list_agents_falls_back_to_id_when_load_fails(client, fake_config):
     assert names == {"Default", "Bot"}
 
 
+def test_list_agents_preserves_unknown_backend(client, fake_config):
+    agent_cfg_default = AgentProfileConfig(
+        id="default",
+        name="Default",
+        workspace_dir="/tmp/ws/default",
+    )
+    agent_cfg_bot = AgentProfileConfig(
+        id="bot",
+        name="Configured Bot",
+        workspace_dir="/tmp/ws/bot",
+        backend="missing",
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            side_effect=lambda agent_id: {
+                "default": agent_cfg_default,
+                "bot": agent_cfg_bot,
+            }[agent_id],
+        ),
+    ):
+        response = client.get("/api/agents")
+
+    assert response.status_code == 200
+    bot = next(
+        item for item in response.json()["agents"] if item["id"] == "bot"
+    )
+    assert bot["name"] == "Configured Bot"
+    assert bot["backend"] == "missing"
+    assert bot["backend_capabilities"] == {}
+
+
 # ---------------------------------------------------------------------------
 # GET /agents/{id}
 # ---------------------------------------------------------------------------
@@ -234,6 +271,28 @@ def test_get_agent_returns_404_for_app_base_exception(client):
         response = client.get("/api/agents/ghost")
 
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST /agents
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("backend", "expected_status"),
+    [("missing", 400), ("claude", 409)],
+)
+def test_create_agent_rejects_unavailable_backend(
+    client,
+    backend,
+    expected_status,
+):
+    response = client.post(
+        "/api/agents",
+        json={"name": "Invalid Agent", "backend": backend},
+    )
+
+    assert response.status_code == expected_status
 
 
 # ---------------------------------------------------------------------------
