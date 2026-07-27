@@ -689,23 +689,24 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       )}
 
       <div className={styles.collapseToggleContainer}>
-        {!collapsed && (
-          <Popover
-            open={settingsOpen}
-            onOpenChange={setSettingsOpen}
-            placement="topRight"
-            trigger="click"
-            content={
-              <SidebarSettingsPanel onClose={() => setSettingsOpen(false)} />
-            }
-          >
-            <Button
-              type="text"
-              icon={<SparkSettingLine size={18} />}
-              className={styles.collapseToggle}
-            />
-          </Popover>
-        )}
+        {/* Gear stays visible in collapsed state too — otherwise users
+            (especially on mobile, where the sidebar starts collapsed)
+            cannot discover how to restore full mode. */}
+        <Popover
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          placement={collapsed ? "rightBottom" : "topRight"}
+          trigger="click"
+          content={
+            <SidebarSettingsPanel onClose={() => setSettingsOpen(false)} />
+          }
+        >
+          <Button
+            type="text"
+            icon={<SparkSettingLine size={18} />}
+            className={styles.collapseToggle}
+          />
+        </Popover>
         <Button
           type="text"
           icon={
