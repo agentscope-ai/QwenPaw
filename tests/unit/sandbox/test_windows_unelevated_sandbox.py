@@ -30,9 +30,9 @@ from qwenpaw.sandbox.windows_elevated_sandbox import (
     _make_random_cap_sid_string,
     _random_password,
     _remaining_budget,
+    _remove_acl_with_verify_sync_local,
     _run_icacls_sync_local,
     _sandboxes_dir,
-    _verify_acl_removed_sync_local,
 )
 from qwenpaw.sandbox.windows_unelevated_sandbox import _WC
 
@@ -1166,7 +1166,7 @@ class TestShutdownBudget:
             wrs._SHUTDOWN_ACL_DEADLINE = old_deadline
 
     def test_verify_acl_removed_returns_false_when_budget_exhausted(self):
-        """_verify_acl_removed_sync_local returns False on expiry."""
+        """_remove_acl_with_verify_sync_local returns False on expiry."""
         import time
 
         import qwenpaw.sandbox.windows_elevated_sandbox as wrs
@@ -1177,7 +1177,10 @@ class TestShutdownBudget:
             time.sleep(0.01)
             # Path must exist for the check to proceed
             with patch("os.path.exists", return_value=True):
-                result = _verify_acl_removed_sync_local("C:\\fake", "S-1-2-3")
+                result = _remove_acl_with_verify_sync_local(
+                    "C:\\fake",
+                    "S-1-2-3",
+                )
             assert result is False
         finally:
             wrs._SHUTDOWN_ACL_DEADLINE = old_deadline
