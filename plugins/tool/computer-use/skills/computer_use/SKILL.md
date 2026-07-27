@@ -36,12 +36,41 @@ Start menu, or search UI as an application identifier. After launch, call
 - `accessibility_revision` and `accessibility.elements` identify the UI
   Automation frame when the application exposes one.
 
-Each entry in `accessibility.elements` carries a readable `control_type_name`
-(for example `Edit`, `Button`, `ComboBox`, `MenuItem`) alongside its `id`,
-`name`, and `bounds`. Read this list first: it is the reliable way to locate a
-control. Prefer acting on these elements over blind keyboard navigation. The
-screenshot is delivered as a separate image attachment for visual context; the
-actionable structure lives in `accessibility.elements`.
+Start with the summary fields when they are present, because they answer the
+most common questions without reading the whole listing:
+
+- `accessibility.focused_element` is the control that currently holds keyboard
+  focus, as a single line. Check it before typing to confirm the caret is where
+  you expect.
+- `accessibility.document_text` is the text of that focused editor or document.
+  Use it to verify what you typed actually landed. It is capped in length and
+  ends with a truncation marker when longer, so never treat it as the complete
+  document.
+- `accessibility.selected_text` is the text currently selected, when any.
+
+`accessibility.elements` is a listing with one control per line:
+
+```
+uia-12 Edit "File name:" @980,1290
+uia-18 Button "Save" @1662,1290
+uia-31 ListItem "All files (*.*)" @1355,832 [offscreen]
+```
+
+Each line is `element_id`, `control_type_name` (for example `Edit`, `Button`,
+`ComboBox`, `MenuItem`), the control's `name` in quotes, and a locator. On
+Windows the locator is `@x,y`, the centre point of the control, which can be
+passed straight to a coordinate action. On macOS it is `=value`, the control's
+current value, because that platform reports values rather than pixel bounds.
+
+Two optional markers may follow. `[disabled]` means the control is present but
+cannot be acted on right now, so choose another route instead of retrying it.
+`[offscreen]` means the control exists outside the visible area; scroll it into
+view before acting on it.
+
+Read this listing when you need to locate a specific control. Prefer acting on
+these elements over blind keyboard navigation. The screenshot is delivered as a
+separate image attachment for visual context; the actionable structure lives in
+`accessibility.elements`.
 
 Refresh the state after navigation, an action that can alter layout or focus,
 an error about stale state, or any user interruption. Do not retry an old

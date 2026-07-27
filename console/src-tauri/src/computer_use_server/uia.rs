@@ -7,12 +7,17 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationInvokePattern,
-    IUIAutomationValuePattern, TreeScope_Subtree, UIA_InvokePatternId,
-    UIA_ValuePatternId,
+    IUIAutomationTextPattern, IUIAutomationValuePattern, TreeScope_Subtree,
+    UIA_InvokePatternId, UIA_TextPatternId, UIA_ValuePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
 use super::{next_id, reject_recent_user_intervention, ServerState, WindowInfo};
+
+/// Upper bound on the document text handed back with an observation. A
+/// large document would otherwise dominate the model's context, and the
+/// leading portion is what identifies the current state.
+const DOC_TEXT_MAX: i32 = 4000;
 
 /// Map a UI Automation control-type identifier to a human-readable role
 /// name so callers can recognise actionable controls (for example an
@@ -64,6 +69,65 @@ fn control_type_name(control_type: i32) -> &'static str {
     }
 }
 
+/// Render one element the same way the tool adapter renders the listing, so
+/// a summary line and a listing line are directly comparable.
+fn element_line(element_id: &str, control_type_name: &str, name: &str) -> String {
+    format!("{element_id} {control_type_name} \"{name}\"")
+}
+
+/// Read the text of an editable or document element.
+///
+/// Rich documents expose TextPattern, while plain edit controls (Notepad's
+/// editor among them) only expose ValuePattern, so both are attempted.
+/// Returns `None` when the element carries no readable text.
+fn element_text(element: &IUIAutomationElement) -> Option<String> {
+    if let Ok(pattern) =
+        unsafe { element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) }
+    {
+        if let Ok(range) = unsafe { pattern.DocumentRange() } {
+            if let Ok(text) = unsafe { range.GetText(DOC_TEXT_MAX) } {
+                let text = text.to_string();
+                if !text.is_empty() {
+                    return Some(text);
+                }
+            }
+        }
+    }
+    let pattern =
+        unsafe { element.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) }
+            .ok()?;
+    let value = unsafe { pattern.CurrentValue() }.ok()?.to_string();
+    if value.is_empty() {
+        return None;
+    }
+    Some(truncate_document_text(value))
+}
+
+/// Bound the text by character count, flagging that more remains.
+fn truncate_document_text(text: String) -> String {
+    let limit = DOC_TEXT_MAX as usize;
+    if text.chars().count() <= limit {
+        return text;
+    }
+    let mut bounded: String = text.chars().take(limit).collect();
+    bounded.push_str("… (truncated)");
+    bounded
+}
+
+/// Read the selected text of an element, when it exposes a selection.
+fn element_selected_text(element: &IUIAutomationElement) -> Option<String> {
+    let pattern =
+        unsafe { element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) }
+            .ok()?;
+    let ranges = unsafe { pattern.GetSelection() }.ok()?;
+    let range = unsafe { ranges.GetElement(0) }.ok()?;
+    let text = unsafe { range.GetText(DOC_TEXT_MAX) }.ok()?.to_string();
+    if text.is_empty() {
+        return None;
+    }
+    Some(truncate_document_text(text))
+}
+
 pub(super) fn collect_accessibility(
     window: &WindowInfo,
 ) -> Result<(String, Value, HashMap<String, IUIAutomationElement>), String> {
@@ -83,6 +147,9 @@ pub(super) fn collect_accessibility(
     let revision = next_id("accessibility");
     let mut elements = HashMap::new();
     let mut descriptions = Vec::new();
+    // The focused element is picked out of this window's own subtree, so it
+    // can never describe another application's UI.
+    let mut focused: Option<(String, IUIAutomationElement)> = None;
     for index in 0..count {
         let element = match unsafe { items.GetElement(index) } {
             Ok(element) => element,
@@ -101,6 +168,16 @@ pub(super) fn collect_accessibility(
         let element_id = format!("uia-{index}");
         let control_type =
             unsafe { element.CurrentControlType() }.map(|value| value.0).unwrap_or_default();
+        if focused.is_none()
+            && unsafe { element.CurrentHasKeyboardFocus() }
+                .map(|value| value.as_bool())
+                .unwrap_or(false)
+        {
+            focused = Some((
+                element_line(&element_id, control_type_name(control_type), &name),
+                element.clone(),
+            ));
+        }
         descriptions.push(json!({
             "id": element_id,
             "name": name,
@@ -113,15 +190,22 @@ pub(super) fn collect_accessibility(
         }));
         elements.insert(element_id, element);
     }
-    Ok((
-        revision.clone(),
-        json!({
-            "available": true,
-            "revision": revision,
-            "elements": descriptions,
-        }),
-        elements,
-    ))
+    // Summary fields are best-effort: a missing one is simply omitted so an
+    // observation never fails because a control withheld its text.
+    let mut accessibility = serde_json::Map::new();
+    accessibility.insert("available".to_string(), json!(true));
+    accessibility.insert("revision".to_string(), json!(revision));
+    if let Some((line, element)) = focused.as_ref() {
+        accessibility.insert("focused_element".to_string(), json!(line));
+        if let Some(text) = element_text(element) {
+            accessibility.insert("document_text".to_string(), json!(text));
+        }
+        if let Some(text) = element_selected_text(element) {
+            accessibility.insert("selected_text".to_string(), json!(text));
+        }
+    }
+    accessibility.insert("elements".to_string(), json!(descriptions));
+    Ok((revision, Value::Object(accessibility), elements))
 }
 
 pub(super) fn invoke_element(
@@ -220,4 +304,45 @@ fn accessibility_element<'a>(
         ));
     }
     Ok(element)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn short_document_text_is_returned_unchanged() {
+        let text = "hello world".to_string();
+        assert_eq!(truncate_document_text(text.clone()), text);
+    }
+
+    #[test]
+    fn long_document_text_is_bounded_and_flagged() {
+        let text: String = "x".repeat(DOC_TEXT_MAX as usize + 500);
+        let bounded = truncate_document_text(text);
+        assert!(bounded.ends_with("… (truncated)"));
+        assert_eq!(
+            bounded.chars().filter(|value| *value == 'x').count(),
+            DOC_TEXT_MAX as usize
+        );
+    }
+
+    #[test]
+    fn truncation_counts_characters_not_bytes() {
+        // Multi-byte text must not be cut mid-character.
+        let text: String = "字".repeat(DOC_TEXT_MAX as usize + 10);
+        let bounded = truncate_document_text(text);
+        assert_eq!(
+            bounded.chars().filter(|value| *value == '字').count(),
+            DOC_TEXT_MAX as usize
+        );
+    }
+
+    #[test]
+    fn element_line_matches_the_listing_format() {
+        assert_eq!(
+            element_line("uia-1", "Edit", "text editor"),
+            "uia-1 Edit \"text editor\""
+        );
+    }
 }

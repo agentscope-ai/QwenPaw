@@ -34,6 +34,11 @@ use super::{
     SCREENSHOT_MAX_EDGE, USER_INTERVENTION_GRACE_MS,
 };
 
+/// Upper bound on the document text handed back with an observation. A
+/// large document would otherwise dominate the model's context, and the
+/// leading portion is what identifies the current state.
+const DOC_TEXT_MAX: usize = 4000;
+
 // Private ApplicationServices API mapping an accessibility window element to
 // its CoreGraphics window id. It is the reliable way to match a CGWindowID
 // (the id carried by the shared protocol) to the app's AX window subtree.
@@ -438,16 +443,54 @@ fn collect_accessibility(
     let revision = next_id("accessibility");
     let mut elements = HashMap::new();
     let mut descriptions = Vec::new();
-    walk_accessibility(&root, 0, &mut elements, &mut descriptions);
-    Ok((
-        revision.clone(),
-        json!({
-            "available": true,
-            "revision": revision,
-            "elements": descriptions,
-        }),
-        elements,
-    ))
+    // The focused element is picked out of this window's own subtree, so it
+    // can never describe another application's UI.
+    let mut focused: Option<(String, AXUIElement)> = None;
+    walk_accessibility(&root, 0, &mut elements, &mut descriptions, &mut focused);
+    // Summary fields are best-effort: a missing one is simply omitted so an
+    // observation never fails because a control withheld its text.
+    let mut accessibility = serde_json::Map::new();
+    accessibility.insert("available".to_string(), json!(true));
+    accessibility.insert("revision".to_string(), json!(revision));
+    if let Some((line, element)) = focused.as_ref() {
+        accessibility.insert("focused_element".to_string(), json!(line));
+        if let Some(text) = ax_string(element, "AXValue") {
+            accessibility.insert(
+                "document_text".to_string(),
+                json!(truncate_document_text(text)),
+            );
+        }
+        if let Some(text) = ax_string(element, "AXSelectedText") {
+            accessibility.insert(
+                "selected_text".to_string(),
+                json!(truncate_document_text(text)),
+            );
+        }
+    }
+    accessibility.insert("elements".to_string(), json!(descriptions));
+    Ok((revision, Value::Object(accessibility), elements))
+}
+
+/// Read a string-valued accessibility attribute, if the element exposes one.
+fn ax_string(element: &AXUIElement, attribute: &'static str) -> Option<String> {
+    let value: CFType = element
+        .attribute(&AXAttribute::new(&CFString::from_static_string(attribute)))
+        .ok()?;
+    let text = value.downcast::<CFString>()?.to_string();
+    if text.is_empty() {
+        return None;
+    }
+    Some(text)
+}
+
+/// Bound the text by character count, flagging that more remains.
+fn truncate_document_text(text: String) -> String {
+    if text.chars().count() <= DOC_TEXT_MAX {
+        return text;
+    }
+    let mut bounded: String = text.chars().take(DOC_TEXT_MAX).collect();
+    bounded.push_str("… (truncated)");
+    bounded
 }
 
 fn find_ax_window(app: &AXUIElement, target: u32) -> Option<AXUIElement> {
@@ -467,6 +510,7 @@ fn walk_accessibility(
     depth: usize,
     elements: &mut HashMap<String, AxElement>,
     descriptions: &mut Vec<Value>,
+    focused: &mut Option<(String, AXUIElement)>,
 ) {
     if depth > 40 || descriptions.len() >= 300 {
         return;
@@ -486,12 +530,24 @@ fn walk_accessibility(
         .unwrap_or_default();
     if !role.is_empty() && (!title.is_empty() || !value.is_empty()) {
         let element_id = format!("ax-{}", descriptions.len());
+        let control_type_name = role_to_control_type_name(&role);
+        if focused.is_none()
+            && element
+                .attribute(&AXAttribute::focused())
+                .map(bool::from)
+                .unwrap_or(false)
+        {
+            *focused = Some((
+                format!("{element_id} {control_type_name} \"{title}\""),
+                element.clone(),
+            ));
+        }
         descriptions.push(json!({
             "id": element_id,
             "name": title,
             "value": value,
             "role": role,
-            "control_type_name": role_to_control_type_name(&role),
+            "control_type_name": control_type_name,
         }));
         elements.insert(
             element_id,
@@ -502,7 +558,7 @@ fn walk_accessibility(
     }
     if let Ok(children) = element.attribute(&AXAttribute::children()) {
         for child in children.iter() {
-            walk_accessibility(&child, depth + 1, elements, descriptions);
+            walk_accessibility(&child, depth + 1, elements, descriptions, focused);
         }
     }
 }
