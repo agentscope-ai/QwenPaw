@@ -57,6 +57,7 @@
         "languages": [
           "English",
           "SimpChinese",
+          "TradChinese",
           "Indonesian",
           "Japanese",
           "Russian",
@@ -66,6 +67,7 @@
         "customLanguageFiles": {
           "English": "nsis-languages/English.nsh",
           "SimpChinese": "nsis-languages/SimpChinese.nsh",
+          "TradChinese": "nsis-languages/TradChinese.nsh",
           "Indonesian": "nsis-languages/Indonesian.nsh",
           "Japanese": "nsis-languages/Japanese.nsh",
           "Russian": "nsis-languages/Russian.nsh",
