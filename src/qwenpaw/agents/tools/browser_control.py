@@ -1807,6 +1807,11 @@ async def _action_start(
     started_playwright = None
     cleanup_errors: list[str] = []
     try:
+        # Record the exposure decision before launching, so that a failed
+        # start cannot leave a previous start's decision behind for
+        # _ensure_browser to replay (_reset_browser_state keeps "_" keys).
+        state["_expose_cdp"] = _should_use_managed_cdp(private_mode, cdp_port)
+        state["_cdp_port"] = cdp_port
         if not _USE_SYNC_PLAYWRIGHT and _should_use_managed_cdp(
             private_mode,
             cdp_port,
@@ -1917,8 +1922,6 @@ async def _action_start(
         _start_idle_watchdog(state)
         await _configure_download_behavior(state)
         # Store launch config for _ensure_browser fallback restarts
-        state["_expose_cdp"] = _should_use_managed_cdp(private_mode, cdp_port)
-        state["_cdp_port"] = cdp_port
         state["_browser_args"] = browser_args
         state["_executable_path"] = executable_path
         msg = (
