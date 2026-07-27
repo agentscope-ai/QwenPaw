@@ -175,6 +175,7 @@
     "inputPlaceholder": "\"↑↓\" untuk navigasi pesan · \"/\" untuk perintah cepat (\"/approve\" atau \"/deny\" saat approval)",
     "longTextUploadPrompt": "Harap baca file prompt yang diunggah dan jawab berdasarkan isinya.",
     "emptyOutputError": "Asisten mengembalikan respons kosong.",
+    "showLargeResponse": "Tampilkan respons besar",
     "commands": {
       "clear": {
         "description": "Bersihkan konteks percakapan"

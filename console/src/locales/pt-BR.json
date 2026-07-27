@@ -2277,6 +2277,7 @@
     "inputPlaceholder": "\"↑↓\" for message navigation · \"/\" for quick commands (\"/approve\" or \"/deny\" during approvals)",
     "longTextUploadPrompt": "Please read the uploaded prompt file and answer it.",
     "emptyOutputError": "O assistente retornou uma resposta vazia.",
+    "showLargeResponse": "Mostrar resposta grande",
     "commands": {
       "clear": {
         "description": "Limpar the conversation context"

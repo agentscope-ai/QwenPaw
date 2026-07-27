@@ -46,9 +46,7 @@ describe("HostResponseCard", () => {
     const data = {
       output: [{ content: [{ type: "text", text: "large" }] }],
     } as any;
-    const { rerender } = renderWithProviders(
-      <HostResponseCard data={data} />,
-    );
+    const { rerender } = renderWithProviders(<HostResponseCard data={data} />);
     expect(screen.getByTestId("chat-card-mock")).toBeInTheDocument();
 
     rerender(

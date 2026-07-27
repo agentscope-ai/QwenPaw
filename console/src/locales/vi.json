@@ -179,6 +179,7 @@
     "inputPlaceholder": "\"↑↓\" điều hướng tin nhắn · \"/\" lệnh nhanh (\"/approve\" hoặc \"/deny\" khi phê duyệt)",
     "longTextUploadPrompt": "Vui lòng đọc tệp prompt đã tải lên và trả lời dựa trên nội dung đó.",
     "emptyOutputError": "Trợ lý đã trả về phản hồi trống.",
+    "showLargeResponse": "Hiển thị phản hồi lớn",
     "commands": {
       "clear": {
         "description": "Xóa ngữ cảnh cuộc trò chuyện"

@@ -106,12 +106,12 @@ import {
   normalizeContentUrls,
   extractUserMessageText,
   extractTextFromMessage,
-  isReplayTruncatedPayload,
   setTextareaValue,
   formatMessageTime,
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
+import { filterReplayPayload, sdkHeartbeatPayload } from "./replayRecovery";
 import {
   getSessionIdFromPath,
   buildBasePath,
@@ -2851,20 +2851,16 @@ export default function ChatPage() {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
           markLoopModeRunning();
 
-          if (isReplayTruncatedPayload(payload)) {
-            streamTruncatedRef.current = true;
-            return null;
+          const replayFiltered = filterReplayPayload(
+            payload,
+            streamTruncatedRef.current,
+          );
+          streamTruncatedRef.current = replayFiltered.streamTruncated;
+          if (replayFiltered.payload !== payload) {
+            return replayFiltered.payload;
           }
 
           const completesResponse = payloadCompletesResponse(payload);
-          if (streamTruncatedRef.current && !completesResponse) {
-            if (payload.type !== "rate_limited" && !payload.error) {
-              return null;
-            }
-            streamTruncatedRef.current = false;
-          } else if (completesResponse) {
-            streamTruncatedRef.current = false;
-          }
 
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
@@ -2895,7 +2891,7 @@ export default function ChatPage() {
           }
 
           if (payload.type === "turn_usage") {
-            return null;
+            return sdkHeartbeatPayload();
           }
 
           if (payload.type === "rate_limited") {
@@ -2903,7 +2899,7 @@ export default function ChatPage() {
               (payload.alternatives as typeof rateLimitAlternatives) || [];
             setRateLimitAlternatives(alts);
             message.warning(t("chat.rateLimitHit"));
-            return null;
+            return sdkHeartbeatPayload();
           }
 
           if (payloadRequestsHistoryClear(payload)) {

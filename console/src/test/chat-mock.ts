@@ -24,4 +24,5 @@ export const useChatAnywhereSessionsState = vi.fn(() => ({
 }));
 export const ChatAnywhereSessionsContext = React.createContext(null);
 export const ChatAnywhereInputContext = React.createContext(null);
+export const uuid = vi.fn(() => "uuid");
 export default AgentScopeRuntimeWebUI;

@@ -2034,6 +2034,7 @@
     "inputPlaceholder": "\"↑↓\"でメッセージ移動 · \"/\"でクイックコマンド（承認時は\"/approve\"または\"/deny\"）",
     "longTextUploadPrompt": "アップロードされたプロンプトファイルを読み、その内容に基づいて回答してください。",
     "emptyOutputError": "アシスタントが空のレスポンスを返しました。",
+    "showLargeResponse": "大きなレスポンスを表示",
     "commands": {
       "clear": {
         "description": "会話のコンテキストをクリア"

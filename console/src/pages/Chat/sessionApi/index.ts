@@ -447,8 +447,7 @@ function chunkOutputMessages(
       current.length > 0 &&
       (current.length + unit.length > MAX_OUTPUTS_PER_RESPONSE_CARD ||
         contentBlocks + unitBlocks > MAX_CONTENT_BLOCKS_PER_RESPONSE_CARD ||
-        payloadChars + unitPayloadChars >
-          MAX_PAYLOAD_CHARS_PER_RESPONSE_CARD);
+        payloadChars + unitPayloadChars > MAX_PAYLOAD_CHARS_PER_RESPONSE_CARD);
     if (exceedsLimit) flush();
     current.push(...unit);
     contentBlocks += unitBlocks;

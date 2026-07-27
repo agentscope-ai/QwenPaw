@@ -210,9 +210,7 @@ describe("convertMessages — giant turn splitting", () => {
         id: "giant-text",
         role: "assistant",
         type: "message",
-        content: [
-          { type: "text", text: "x".repeat(MAX_PAYLOAD_CHARS + 1) },
-        ],
+        content: [{ type: "text", text: "x".repeat(MAX_PAYLOAD_CHARS + 1) }],
       },
     ]);
 
