@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from ..agent_context import get_agent_for_request, get_coding_dir
 from ..utils import safe_project_dest
 from ...constant import CODING_PROJECT_SUBDIR
+from ...governance.policy import DEFAULT_SANDBOX_DENY_PATHS
 from ...utils.command_runner import run_command_async, start_command_async
 
 logger = logging.getLogger(__name__)
@@ -323,18 +324,9 @@ class ImportLocalRequest(BaseModel):
     name: str | None = None  # override destination folder name
 
 
-# All values MUST be lowercase (matching uses case-insensitive compare).
+# Derived from governance policy; .lower() for case-insensitive match.
 _SENSITIVE_SUBDIRS: frozenset[str] = frozenset(
-    {
-        ".ssh",
-        ".aws",
-        ".gnupg",
-        ".kube",
-        ".docker",
-        ".config/gcloud",
-        ".config/nix",
-        ".netrc",
-    },
+    p.removeprefix("~/").lower() for p in DEFAULT_SANDBOX_DENY_PATHS
 )
 
 
