@@ -120,7 +120,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         super().__init__(working_dir=working_dir, agent_id=agent_id)
         self._reme: "ReMe | None" = None
         self._reindex_lock = asyncio.Lock()
-        self._reranker_config_cache: RerankerConfig | None = None
+        # Reranker config is not cached here; load_agent_config() already
+        # provides mtime-based caching, so every call reads fresh data.
         logger.info(
             "ReMeLightMemoryManager init: agent_id=%s working_dir=%s",
             agent_id,
@@ -447,25 +448,31 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         )
         if results:
             # Rerank (only reorders results, answer is rebuilt below)
+            reranker_did_reorder = False
             if reranker_config and len(results) > 1:
                 try:
+                    before = list(results)
                     await self._rerank_search_results(
                         query,
                         response,
                         reranker_config,
                     )
                     results = response.metadata["results"]
+                    reranker_did_reorder = results != before
                 except Exception:
                     logger.warning(
                         "[rerank] failed, using original order",
                         exc_info=True,
                     )
-            # Cap to max_results and rebuild answer when order/count changed
+            # Cap to max_results
             truncated = len(results) > cap
             if truncated:
                 results = results[:cap]
                 response.metadata["results"] = results
-            if reranker_config or truncated:
+            # Rebuild answer only when order or count actually changed,
+            # preserving the original ReMe answer (including link expansions)
+            # when neither changed.
+            if reranker_did_reorder or truncated:
                 response.answer = self._rebuild_search_answer(results)
 
         answer = str(response.answer or "").strip()
@@ -497,13 +504,21 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not new_order or len(new_order) != len(results):
             return
 
+        # Validate that the response is a permutation of 0..n-1
+        # (duplicate indices would silently drop results)
+        if set(new_order) != set(range(len(results))):
+            logger.warning(
+                "[rerank] API returned invalid indices (not a permutation): "
+                "%s for %d results — using original order",
+                new_order,
+                len(results),
+            )
+            return
+
         reordered: list[dict] = []
         for idx in new_order:
             if 0 <= idx < len(results):
                 reordered.append(results[idx])
-
-        if len(reordered) != len(results):
-            return
 
         response.metadata["results"] = reordered
         logger.info(
@@ -530,29 +545,23 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         return "\n".join(answer_lines)
 
     def _get_reranker_config(self) -> RerankerConfig | None:
-        """Return cached reranker config, or None if not enabled.
+        """Return the reranker config, or None if not enabled.
 
-        Config is cached on first access and refreshed when the agent
-        config is reloaded (via `_refresh_config_cache`).
+        Config is read fresh on every call — ``load_agent_config()``
+        already provides its own mtime-based caching, so an additional
+        layer here would risk stale values (the user may change the
+        API key, base URL, model, or disable reranking without restarting
+        the agent process).
         """
-        if self._reranker_config_cache is not None:
-            return self._reranker_config_cache
-
         try:
             agent_cfg = load_agent_config(self.agent_id)
             cfg = agent_cfg.running.reme_light_memory_config.reranker_config
             if cfg and cfg.enabled and cfg.model_name:
-                self._reranker_config_cache = cfg
                 return cfg
         except Exception:
             logger.warning("[rerank] failed to load config", exc_info=True)
 
-        self._reranker_config_cache = None
         return None
-
-    def _refresh_config_cache(self) -> None:
-        """Invalidate cached reranker config (call after config reload)."""
-        self._reranker_config_cache = None
 
     async def _call_reranker_api(  # pylint: disable=too-many-return-statements
         self,
