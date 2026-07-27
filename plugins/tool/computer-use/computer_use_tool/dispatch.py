@@ -174,7 +174,7 @@ def _point_params(
     enabled_by_default=True,
     async_execution=True,
     description="Control approved desktop applications through the native Computer Use runtime.",
-    requires_skills=("computer-use",),
+    requires_skills=("computer_use",),
 )
 async def computer_use(
     action: str,

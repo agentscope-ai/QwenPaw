@@ -16,7 +16,7 @@ from the host (a named pipe on Windows, a Unix domain socket on macOS).
 computer-use/
 |- plugin.py                    Plugin registration
 |- computer_use_tool/           Protocol adapter and approval bridge
-|- skills/computer-use/         Tool operating guidance
+|- skills/computer_use/         Tool operating guidance
 `- tests/                       Adapter contract tests
 ```
 

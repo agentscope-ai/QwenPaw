@@ -1,5 +1,5 @@
 ---
-name: computer-use
+name: computer_use
 description: "Read before using computer_use. Work through approved Apps and observed windows; UI Automation and visual coordinates are separate target channels."
 metadata:
   builtin_skill_version: "5.1"
