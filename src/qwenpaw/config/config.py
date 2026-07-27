@@ -299,6 +299,8 @@ class OneBotConfig(BaseChannelConfig):
     ws_port: int = 6199
     access_token: str = ""
     share_session_in_group: bool = False
+    media_base64: bool = False
+    media_base64_max_bytes: int = Field(default=10 * 1024 * 1024, ge=0)
 
 
 class TelegramConfig(BaseChannelConfig):

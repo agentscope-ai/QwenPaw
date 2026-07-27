@@ -14,11 +14,15 @@ Message flow:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
+import re
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
+from urllib.parse import unquote, urlparse
 
 import aiohttp
 from aiohttp import web
@@ -46,6 +50,128 @@ logger = logging.getLogger(__name__)
 
 # Hard cap on concurrently-tracked event handlers (flood protection).
 _EVENT_TASK_HARD_CAP = 500
+_DEFAULT_MEDIA_BASE64_MAX_BYTES = 10 * 1024 * 1024
+_CODE_FENCE_RE = re.compile(r"(```[\s\S]*?```|~~~[\s\S]*?~~~)")
+_MARKDOWN_LINK_RE = re.compile(
+    r"\[(?P<label>[^\]\n]+)\]\((?P<url>https?://[^\s)]+)\)",
+)
+_WRAPPED_URL_RE = re.compile(
+    r"(?P<mark>\*\*|__|`)(?P<url>https?://[^\s<>()\[\]{}\"']+?)(?P=mark)",
+)
+_URL_WITH_TRAILING_MARKUP_RE = re.compile(r"https?://[^\s<>()\[\]{}\"']+")
+
+
+def _strip_url_trailing_markup(match: re.Match[str]) -> str:
+    """Remove Markdown markers that are glued to the end of a URL."""
+    url = match.group(0)
+    changed = True
+    while changed:
+        changed = False
+        for suffix in ("**", "__", "`"):
+            if url.endswith(suffix):
+                url = url[: -len(suffix)]
+                changed = True
+    return url
+
+
+def _clean_onebot_plain_text(text: str) -> str:
+    """Clean link formatting for OneBot/QQ plain-text delivery.
+
+    OneBot text segments are rendered by QQ as plain text. Keep links as bare
+    URLs so the client can auto-link them without changing non-link markup.
+    """
+    if not text:
+        return text
+
+    protected: list[str] = []
+
+    def _protect(match: re.Match[str]) -> str:
+        protected.append(match.group(0))
+        return f"\u0000QWENPAW_ONEBOT_CODE_{len(protected) - 1}\u0000"
+
+    cleaned = _CODE_FENCE_RE.sub(_protect, text)
+    cleaned = _MARKDOWN_LINK_RE.sub(
+        lambda m: f"{m.group('label')}: {m.group('url')}",
+        cleaned,
+    )
+    cleaned = _WRAPPED_URL_RE.sub(lambda m: m.group("url"), cleaned)
+    cleaned = _URL_WITH_TRAILING_MARKUP_RE.sub(
+        _strip_url_trailing_markup,
+        cleaned,
+    )
+
+    for index, block in enumerate(protected):
+        cleaned = cleaned.replace(
+            f"\u0000QWENPAW_ONEBOT_CODE_{index}\u0000",
+            block,
+        )
+    return cleaned.strip()
+
+
+def _local_path_from_media_ref(ref: str) -> Path | None:
+    """Resolve a local filesystem path from a media reference if possible."""
+    if not ref:
+        return None
+
+    parsed = urlparse(ref)
+    if parsed.scheme == "file":
+        path_text = unquote(parsed.path or "")
+        if os.name == "nt" and re.match(r"^/[A-Za-z]:/", path_text):
+            path_text = path_text[1:]
+        path = Path(path_text)
+    elif parsed.scheme:
+        return None
+    else:
+        path = Path(ref).expanduser()
+
+    try:
+        if path.is_file():
+            return path
+    except OSError:
+        return None
+    return None
+
+
+def _local_media_base64_ref(
+    ref: str,
+    path: Path,
+    media_base64_max_bytes: int,
+) -> str:
+    """Convert a local OneBot media file to base64 when safe."""
+    try:
+        size = path.stat().st_size
+        if media_base64_max_bytes and size > media_base64_max_bytes:
+            logger.warning(
+                "onebot: local media file %s is %s bytes, exceeds "
+                "media_base64_max_bytes=%s; sending path instead",
+                path,
+                size,
+                media_base64_max_bytes,
+            )
+            return ref
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
+    except OSError:
+        logger.warning("onebot: failed to read local media file %s", path)
+        return ref
+    return "base64://" + data
+
+
+def _onebot_media_file_ref(
+    ref: str,
+    *,
+    media_base64: bool = False,
+    media_base64_max_bytes: int = _DEFAULT_MEDIA_BASE64_MAX_BYTES,
+) -> str:
+    """Normalize media references for OneBot clients."""
+    if not ref or ref.startswith("base64://"):
+        return ref
+    if ref.startswith("data:") and ";base64," in ref:
+        return "base64://" + ref.split(";base64,", 1)[1]
+
+    path = _local_path_from_media_ref(ref) if media_base64 else None
+    if path is None:
+        return ref
+    return _local_media_base64_ref(ref, path, media_base64_max_bytes)
 
 
 class OneBotChannel(BaseChannel):
@@ -77,6 +203,8 @@ class OneBotChannel(BaseChannel):
         share_session_in_group: bool = False,
         access_control_dm: bool = False,
         access_control_group: bool = False,
+        media_base64: bool = False,
+        media_base64_max_bytes: int = _DEFAULT_MEDIA_BASE64_MAX_BYTES,
     ):
         super().__init__(
             process,
@@ -97,6 +225,8 @@ class OneBotChannel(BaseChannel):
         self._ws_port = ws_port
         self._access_token = access_token
         self._share_session_in_group = share_session_in_group
+        self._media_base64 = media_base64
+        self._media_base64_max_bytes = media_base64_max_bytes
 
         # WebSocket server state
         self._app: Optional[web.Application] = None
@@ -148,6 +278,13 @@ class OneBotChannel(BaseChannel):
             share_session_in_group=(
                 os.getenv("ONEBOT_SHARE_SESSION_IN_GROUP", "0") == "1"
             ),
+            media_base64=(os.getenv("ONEBOT_MEDIA_BASE64", "0") == "1"),
+            media_base64_max_bytes=int(
+                os.getenv(
+                    "ONEBOT_MEDIA_BASE64_MAX_BYTES",
+                    str(_DEFAULT_MEDIA_BASE64_MAX_BYTES),
+                ),
+            ),
         )
 
     @classmethod
@@ -185,6 +322,14 @@ class OneBotChannel(BaseChannel):
             ),
             access_control_group=bool(
                 getattr(config, "access_control_group", False),
+            ),
+            media_base64=bool(getattr(config, "media_base64", False)),
+            media_base64_max_bytes=int(
+                getattr(
+                    config,
+                    "media_base64_max_bytes",
+                    _DEFAULT_MEDIA_BASE64_MAX_BYTES,
+                ),
             ),
         )
 
@@ -767,6 +912,10 @@ class OneBotChannel(BaseChannel):
             "group:",
         )
 
+        text = _clean_onebot_plain_text(text)
+        if not text.strip():
+            return
+
         for chunk in split_text(text):
             segments = [{"type": "text", "data": {"text": chunk}}]
             if is_group:
@@ -781,6 +930,43 @@ class OneBotChannel(BaseChannel):
                     "send_private_msg",
                     {"user_id": int(uid), "message": segments},
                 )
+
+    async def send_content_parts(
+        self,
+        to_handle: str,
+        parts: List[OutgoingContentPart],
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Send text and media without BaseChannel media fallback text."""
+        if not self.enabled:
+            return
+
+        text_parts: List[str] = []
+        media_parts: List[OutgoingContentPart] = []
+        for part in parts:
+            part_type = getattr(part, "type", None)
+            if part_type == ContentType.TEXT and getattr(part, "text", None):
+                text_parts.append(part.text or "")
+            elif part_type == ContentType.REFUSAL and getattr(
+                part,
+                "refusal",
+                None,
+            ):
+                text_parts.append(part.refusal or "")
+            elif part_type in (
+                ContentType.IMAGE,
+                ContentType.VIDEO,
+                ContentType.AUDIO,
+                ContentType.FILE,
+            ):
+                media_parts.append(part)
+
+        body = "\n".join(text_parts).strip() if text_parts else ""
+        if body:
+            await self.send(to_handle, body, meta)
+
+        for media_part in media_parts:
+            await self.send_media(to_handle, media_part, meta)
 
     async def send_media(
         self,
@@ -799,16 +985,31 @@ class OneBotChannel(BaseChannel):
             url = getattr(part, "image_url", "")
             if not url:
                 return
+            url = _onebot_media_file_ref(
+                str(url),
+                media_base64=self._media_base64,
+                media_base64_max_bytes=self._media_base64_max_bytes,
+            )
             segments = [{"type": "image", "data": {"file": url}}]
         elif t == ContentType.AUDIO:
             url = getattr(part, "data", "")
             if not url:
                 return
+            url = _onebot_media_file_ref(
+                str(url),
+                media_base64=self._media_base64,
+                media_base64_max_bytes=self._media_base64_max_bytes,
+            )
             segments = [{"type": "record", "data": {"file": url}}]
         elif t == ContentType.VIDEO:
             url = getattr(part, "video_url", "")
             if not url:
                 return
+            url = _onebot_media_file_ref(
+                str(url),
+                media_base64=self._media_base64,
+                media_base64_max_bytes=self._media_base64_max_bytes,
+            )
             segments = [{"type": "video", "data": {"file": url}}]
         elif t == ContentType.FILE:
             url = getattr(part, "file_url", "") or getattr(
