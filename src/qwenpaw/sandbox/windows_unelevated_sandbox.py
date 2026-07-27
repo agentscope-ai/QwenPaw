@@ -1267,93 +1267,6 @@ def _remove_ace_by_sid_api(  # pylint: disable=too-many-branches
         kernel32.LocalFree(target_psid)
 
 
-def _verify_acl_removed_sync(path: str, sid: str) -> bool:
-    """Verifies that a SID no longer appears in a path's DACL.
-
-    Uses Win32 API to enumerate the DACL and check for the SID,
-    avoiding reliance on icacls output parsing.
-
-    Args:
-        path: Filesystem path to check.
-        sid: SID string to look for in the DACL.
-
-    Returns:
-        True if the SID is absent from the path's explicit ACEs
-        (or the path does not exist).
-    """
-    if not os.path.exists(path):
-        return True
-
-    advapi32 = _get_advapi32()
-    kernel32 = _get_kernel32()
-
-    try:
-        target_psid = _string_to_sid(sid)
-    except OSError:
-        return False
-
-    try:
-        p_sd = ctypes.c_void_p()
-        p_dacl = ctypes.c_void_p()
-        rc = advapi32.GetNamedSecurityInfoW(
-            ctypes.c_wchar_p(path),
-            _WC.SE_FILE_OBJECT,
-            _WC.DACL_SECURITY_INFORMATION,
-            None,
-            None,
-            ctypes.byref(p_dacl),
-            None,
-            ctypes.byref(p_sd),
-        )
-        if rc != 0:
-            return False
-
-        try:
-
-            class _ACL_SIZE_INFORMATION(ctypes.Structure):
-                _fields_ = [
-                    ("AceCount", ctypes.wintypes.DWORD),
-                    ("AclBytesInUse", ctypes.wintypes.DWORD),
-                    ("AclBytesFree", ctypes.wintypes.DWORD),
-                ]
-
-            acl_info = _ACL_SIZE_INFORMATION()
-            ok = advapi32.GetAclInformation(
-                p_dacl,
-                ctypes.byref(acl_info),
-                ctypes.sizeof(acl_info),
-                2,  # AclSizeInformation
-            )
-            if not ok:
-                return False
-
-            for i in range(acl_info.AceCount):
-                ace_ptr = ctypes.c_void_p()
-                if not advapi32.GetAce(p_dacl, i, ctypes.byref(ace_ptr)):
-                    continue
-                if ace_ptr.value is None:
-                    continue
-                ace_type = ctypes.cast(
-                    ace_ptr,
-                    ctypes.POINTER(ctypes.c_ubyte),
-                )[0]
-                if ace_type > 1:
-                    continue
-                sid_ptr = ctypes.c_void_p(ace_ptr.value + 8)
-                if advapi32.IsValidSid(sid_ptr) and advapi32.EqualSid(
-                    sid_ptr,
-                    target_psid,
-                ):
-                    return False  # SID still present
-
-            return True  # SID not found
-        finally:
-            if p_sd:
-                kernel32.LocalFree(p_sd)
-    finally:
-        kernel32.LocalFree(target_psid)
-
-
 def _remove_acl_with_verify_sync(
     path: str,
     sid: str,
@@ -1398,8 +1311,13 @@ def _remove_acl_with_verify_sync(
             return False
 
         if _remove_ace_by_sid_api(path, sid):
-            if _verify_acl_removed_sync(path, sid):
-                return True
+            # _remove_ace_by_sid_api returns True when it has either
+            # successfully deleted matching ACEs and written back the DACL,
+            # or enumerated the entire DACL and found no matching ACEs.
+            # Both cases mean the SID is not present in the current DACL,
+            # so we can trust this result directly without a separate
+            # verification pass that could fail transiently during atexit.
+            return True
 
         # Brief pause before retry (handles transient sharing violations)
         if attempt < max_attempts and _budget_ok():
@@ -1800,15 +1718,15 @@ def _create_process_as_user(
 
 
 @dataclass
-class _UnelevatedAclEntry:
-    """Tracks one ACL entry applied by an unelevated sandbox instance."""
+class _AclEntry:
+    """Tracks one ACL entry applied by a sandbox instance."""
 
     path: str
-    access_mode: str  # "allow_write" | "deny_write"
-    sid_type: str  # always "cap"
+    access_mode: str
+    sid_type: str
 
 
-_unelevated_state_dir = (
+_qwenpaw_state_dir = (
     Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / ".qwenpaw"
 )
 
@@ -1826,7 +1744,7 @@ def _sandbox_file_lock(sandbox_name: str):
     The lock is held only during initialization (acquire-or-create) and
     released immediately after metadata is written.
     """
-    lock_dir = _unelevated_state_dir / "unelevated_sandboxes"
+    lock_dir = _qwenpaw_state_dir / "unelevated_sandboxes"
     lock_dir.mkdir(parents=True, exist_ok=True)
     lock_path = lock_dir / f"{sandbox_name}.lock"
 
@@ -1883,14 +1801,14 @@ def _compute_unelevated_fingerprint(config: SandboxConfig) -> str:
 
 def _unelevated_sandboxes_dir() -> Path:
     """Directory for per-instance unelevated sandbox metadata."""
-    return _unelevated_state_dir / "unelevated_sandboxes"
+    return _qwenpaw_state_dir / "unelevated_sandboxes"
 
 
 def _save_unelevated_metadata(
     sandbox_name: str,
     cap_sid: str,
     config_fingerprint: str,
-    acl_entries: List[_UnelevatedAclEntry],
+    acl_entries: List[_AclEntry],
 ) -> Path:
     """Persists per-instance metadata for cleanup and reuse.
 
@@ -2005,7 +1923,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         self._sandbox_name: Optional[str] = None
         self._config_fingerprint: Optional[str] = None
         self._metadata_path: Optional[Path] = None
-        self._acl_entries: List[_UnelevatedAclEntry] = []
+        self._acl_entries: List[_AclEntry] = []
         self._initialized = False
 
     async def __aenter__(self):
@@ -2098,7 +2016,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
                     kernel32.CloseHandle(h_base)
 
                 self._acl_entries = [
-                    _UnelevatedAclEntry(
+                    _AclEntry(
                         e["path"],
                         e["access_mode"],
                         e["sid_type"],
@@ -2150,7 +2068,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
             )
         else:
             self._acl_entries.append(
-                _UnelevatedAclEntry(workspace, "allow_write", "cap"),
+                _AclEntry(workspace, "allow_write", "cap"),
             )
 
         self._apply_mount_acls(workspace)
@@ -2175,7 +2093,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
                 continue
             if _add_write_allow_ace(mount_path, self._cap_psid):
                 self._acl_entries.append(
-                    _UnelevatedAclEntry(mount_path, "allow_write", "cap"),
+                    _AclEntry(mount_path, "allow_write", "cap"),
                 )
             else:
                 logger.warning("Failed to set ACE on mount: %s", mount_path)
@@ -2331,7 +2249,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
 
 def _migrate_legacy_state_file() -> None:
     """One-time migration: clean up the legacy single state file."""
-    legacy_file = _unelevated_state_dir / "unelevated_sandbox_state.json"
+    legacy_file = _qwenpaw_state_dir / "unelevated_sandbox_state.json"
     if not legacy_file.exists():
         return
     try:

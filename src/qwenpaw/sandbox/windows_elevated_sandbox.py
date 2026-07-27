@@ -25,7 +25,6 @@ import random
 import struct
 import subprocess
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -36,6 +35,7 @@ from .windows_unelevated_sandbox import (
     _STARTUPINFOW,
     _WC,
     WindowsSandboxBase,
+    _AclEntry,
     _build_explicit_access,
     _build_shell_command_line,
     _copy_sid_from_ptr,
@@ -50,8 +50,12 @@ from .windows_unelevated_sandbox import (
     _is_pid_alive,
     _make_env_block,
     _make_random_cap_sid_string,
+    _qwenpaw_state_dir,
     _read_pipe,
+    _remove_acl_with_verify_sync,
+    _sandbox_file_lock,
     _set_default_dacl,
+    _set_path_ace,
     _sid_to_string,
     _string_to_sid,
 )
@@ -1022,85 +1026,15 @@ def _ensure_privileges() -> None:
         kernel32.CloseHandle(h_process_token)
 
 
-def _set_path_ace(
+def _set_path_ace_elevated(
     path: str,
     psid: ctypes.c_void_p,
     access_mask: int,
     access_mode: int,
 ) -> bool:
-    """Sets a single inheritable ACE on a filesystem path's DACL.
-
-    Args:
-        path: Filesystem path.
-        psid: Pointer to the trustee SID.
-        access_mask: Access rights bitmask.
-        access_mode: ``SET_ACCESS``, ``GRANT_ACCESS``, or
-            ``DENY_ACCESS``.
-
-    Returns:
-        True if the ACE was set successfully.
-    """
+    """Sets a single inheritable ACE after enabling admin privileges."""
     _ensure_privileges()
-    advapi32 = _get_advapi32()
-    kernel32 = _get_kernel32()
-
-    p_sd = ctypes.c_void_p()
-    p_dacl = ctypes.c_void_p()
-    code = advapi32.GetNamedSecurityInfoW(
-        ctypes.c_wchar_p(path),
-        _WC.SE_FILE_OBJECT,
-        _WC.DACL_SECURITY_INFORMATION,
-        None,
-        None,
-        ctypes.byref(p_dacl),
-        None,
-        ctypes.byref(p_sd),
-    )
-    if code != 0:
-        logger.warning("GetNamedSecurityInfoW failed for %s: %d", path, code)
-        return False
-
-    entry = _build_explicit_access(
-        psid,
-        access_mask,
-        access_mode,
-        _WC.CONTAINER_INHERIT_ACE | _WC.OBJECT_INHERIT_ACE,
-    )
-
-    p_new_dacl = ctypes.c_void_p()
-    code2 = advapi32.SetEntriesInAclW(
-        1,
-        ctypes.byref(entry),
-        p_dacl,
-        ctypes.byref(p_new_dacl),
-    )
-    if code2 != 0:
-        if p_sd:
-            kernel32.LocalFree(p_sd)
-        logger.warning("SetEntriesInAclW failed for %s: %d", path, code2)
-        return False
-
-    code3 = advapi32.SetNamedSecurityInfoW(
-        ctypes.c_wchar_p(path),
-        _WC.SE_FILE_OBJECT,
-        _WC.DACL_SECURITY_INFORMATION,
-        None,
-        None,
-        p_new_dacl,
-        None,
-    )
-
-    ok = code3 == 0
-
-    if p_new_dacl:
-        kernel32.LocalFree(p_new_dacl)
-    if p_sd:
-        kernel32.LocalFree(p_sd)
-
-    if not ok:
-        logger.warning("SetNamedSecurityInfoW failed for %s: %d", path, code3)
-
-    return ok
+    return _set_path_ace(path, psid, access_mask, access_mode, inherit=True)
 
 
 _ACL_READ_EXECUTE = _WC.FILE_GENERIC_READ | _WC.FILE_GENERIC_EXECUTE
@@ -1117,15 +1051,20 @@ _ACL_DENY_ALL = _ACL_FULL_ACCESS | _WC.GENERIC_ALL
 
 
 def _add_allow_ace(path: str, psid: ctypes.c_void_p) -> bool:
-    return _set_path_ace(path, psid, _ACL_FULL_ACCESS, _WC.SET_ACCESS)
+    return _set_path_ace_elevated(path, psid, _ACL_FULL_ACCESS, _WC.SET_ACCESS)
 
 
 def _add_allow_read_ace(path: str, psid: ctypes.c_void_p) -> bool:
-    return _set_path_ace(path, psid, _ACL_READ_EXECUTE, _WC.SET_ACCESS)
+    return _set_path_ace_elevated(
+        path,
+        psid,
+        _ACL_READ_EXECUTE,
+        _WC.SET_ACCESS,
+    )
 
 
 def _add_deny_all_ace(path: str, psid: ctypes.c_void_p) -> bool:
-    return _set_path_ace(path, psid, _ACL_DENY_ALL, _WC.DENY_ACCESS)
+    return _set_path_ace_elevated(path, psid, _ACL_DENY_ALL, _WC.DENY_ACCESS)
 
 
 def _allow_null_device(psid: ctypes.c_void_p) -> None:
@@ -1248,36 +1187,6 @@ def _ensure_python_dir_group_acl() -> None:
     _python_dir_acl_granted = True
 
 
-def _remove_python_dir_acl_marker() -> None:
-    global _python_dir_acl_granted
-
-    python_dir = _get_python_install_dir()
-    if not python_dir:
-        _python_dir_acl_granted = False
-        return
-
-    marker_path = os.path.join(python_dir, ".qwenpaw_acl_granted")
-    if os.path.exists(marker_path):
-        try:
-            os.remove(marker_path)
-            logger.debug("Removed ACL marker: %s", marker_path)
-        except OSError as e:
-            logger.warning(
-                "Failed to remove ACL marker %s: %s",
-                marker_path,
-                e,
-            )
-
-    _python_dir_acl_granted = False
-
-
-@dataclass
-class _AclEntry:
-    path: str
-    access_mode: str
-    sid_type: str
-
-
 def _apply_all_acls(
     config: SandboxConfig,
     cap_sid_string: str,
@@ -1327,9 +1236,6 @@ def _apply_all_acls(
         _grant_workspace_and_mounts(psid, "cap")
 
         _ensure_python_dir_group_acl()
-        python_dir = _get_python_install_dir()
-        if python_dir and os.path.isdir(python_dir):
-            entries.append(_AclEntry(python_dir, "allow_read", "group"))
 
         user_psid = _string_to_sid(user_sid_string)
         try:
@@ -1813,15 +1719,10 @@ class _SandboxInstance:
             self.h_user_token = None
 
 
-_sandbox_state_dir = (
-    Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / ".qwenpaw"
-)
-
-
 def _find_reusable_sandbox(
     sandbox_name: str,
 ) -> Optional[_SandboxInstance]:
-    sb_dir = _sandboxes_dir(_sandbox_state_dir)
+    sb_dir = _sandboxes_dir(_qwenpaw_state_dir)
     meta_file = sb_dir / f"{sandbox_name}.json"
     if not meta_file.exists():
         return None
@@ -1864,6 +1765,7 @@ def _restore_from_metadata(
                     username,
                 )
 
+        password_was_reset = False
         if password:
             try:
                 h_user_token = _logon_user(username, password)
@@ -1874,7 +1776,41 @@ def _restore_from_metadata(
             password = _random_password()
             if not _ensure_local_user(username, password):
                 return None
-            h_user_token = _logon_user(username, password)
+            try:
+                h_user_token = _logon_user(username, password)
+            except OSError as e:
+                # If logon still fails after password reset, grant batch
+                # logon right (may have been lost) and retry once.
+                logger.debug(
+                    "LogonUserW failed after password reset for %s: %s; "
+                    "re-granting SeBatchLogonRight and retrying",
+                    username,
+                    e,
+                )
+                try:
+                    _grant_batch_logon_right(username)
+                except OSError:
+                    pass
+                h_user_token = _logon_user(username, password)
+            password_was_reset = True
+
+        # Always update owner_pid so that shutdown_cleanup in other
+        # processes knows this sandbox is actively in use.  Also persist
+        # the new password when it was reset, so subsequent startups
+        # don't encounter stale credentials (error 1326).
+        try:
+            meta["owner_pid"] = os.getpid()
+            if password_was_reset:
+                meta["encrypted_password"] = _dpapi_encrypt(password)
+            meta_file.write_text(
+                json.dumps(meta, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            logger.debug(
+                "Failed to persist updated metadata for %s",
+                username,
+            )
 
         user_sid = meta.get("user_sid", "")
         if user_sid:
@@ -1970,7 +1906,7 @@ def _create_new_sandbox(
 
     h_token = _create_restricted_token(h_user_token, [cap_sid])
 
-    sb_dir = _sandboxes_dir(_sandbox_state_dir)
+    sb_dir = _sandboxes_dir(_qwenpaw_state_dir)
     sb_dir.mkdir(parents=True, exist_ok=True)
     meta_path = sb_dir / f"{sandbox_id}.json"
     encrypted_password = None
@@ -2024,24 +1960,28 @@ def _create_new_sandbox(
     )
 
 
-async def _acquire_sandbox(config: SandboxConfig) -> _SandboxInstance:
+def _acquire_sandbox_sync(config: SandboxConfig) -> _SandboxInstance:
+    """Synchronous sandbox acquisition, protected by a cross-process lock.
+
+    The file lock serializes concurrent callers using the same sandbox
+    name (derived from the config fingerprint), preventing the race
+    where multiple processes reset the user password simultaneously and
+    invalidate each other's credentials.
+    """
     fingerprint = _compute_config_fingerprint(config)
     sandbox_name = f"qwenpaw_{fingerprint[:12]}"
 
-    existing = await asyncio.to_thread(
-        _find_reusable_sandbox,
-        sandbox_name,
-    )
-    if existing is not None:
-        logger.debug("Reusing sandbox %s from disk", existing.sandbox_id)
-        return existing
+    with _sandbox_file_lock(sandbox_name):
+        existing = _find_reusable_sandbox(sandbox_name)
+        if existing is not None:
+            logger.debug("Reusing sandbox %s from disk", existing.sandbox_id)
+            return existing
 
-    inst = await asyncio.to_thread(
-        _create_new_sandbox,
-        config,
-        fingerprint,
-    )
-    return inst
+        return _create_new_sandbox(config, fingerprint)
+
+
+async def _acquire_sandbox(config: SandboxConfig) -> _SandboxInstance:
+    return await asyncio.to_thread(_acquire_sandbox_sync, config)
 
 
 async def _release_sandbox(instance: _SandboxInstance) -> None:
@@ -2308,7 +2248,7 @@ def _remove_profile_dir_sync(username: str) -> bool:
 
 
 _SHUTDOWN_ACL_DEADLINE: float = 0.0
-_SHUTDOWN_ACL_TIMEOUT_PER_SANDBOX: float = 10.0
+_SHUTDOWN_ACL_TIMEOUT_PER_SANDBOX: float = 20.0
 
 
 def _remaining_budget() -> float:
@@ -2343,32 +2283,7 @@ def _run_icacls_sync_local(
     return result is not None and result.returncode == 0
 
 
-def _verify_acl_removed_sync_local(
-    path: str,
-    sid: str,
-    timeout: Optional[float] = None,
-) -> bool:
-    if not os.path.exists(path):
-        return True
-    if timeout is None:
-        timeout = min(180.0, _remaining_budget())
-    if timeout <= 0:
-        return False
-    result = _run_cmd_sync(
-        ["icacls", path],
-        timeout=int(timeout),
-    )
-    if result is None:
-        return False
-    output = result.stdout.decode("utf-8", errors="replace")
-    if sid in output:
-        return False
-    if sid.upper() in output.upper():
-        return False
-    return True
-
-
-def _remove_acl_with_verify_sync_local(
+def _remove_acl_with_verify_sync_local(  # pylint: disable=unused-argument
     path: str,
     sid: str,
     *,
@@ -2376,14 +2291,15 @@ def _remove_acl_with_verify_sync_local(
 ) -> bool:
     """Budget-aware ACL removal for elevated sandbox shutdown cleanup.
 
-    Uses the same multi-strategy approach as the shared
-    ``_remove_acl_with_verify_sync``, but respects the module-level
-    shutdown deadline.
+    Delegates to the shared ``_remove_acl_with_verify_sync`` (Win32 API
+    DACL manipulation) which handles both fabricated capability SIDs and
+    real account SIDs.  On failure, falls back to ``icacls /reset`` as a
+    last resort for paths with corrupted inherited ACLs.
 
     Args:
         path: Filesystem path to clean.
         sid: SID string to remove from the DACL.
-        reset_only: If True, only use the reset+remove strategy.
+        reset_only: Unused (kept for API compatibility).
 
     Returns:
         True if the SID was successfully removed.
@@ -2391,65 +2307,27 @@ def _remove_acl_with_verify_sync_local(
     if not os.path.exists(path):
         return True
 
-    strategies = [
-        lambda: _run_icacls_sync_local([path, "/remove", f"*{sid}"]),
-        lambda: _run_icacls_sync_local(
-            [path, "/remove", f"*{sid}", "/T", "/C"],
-        ),
-        lambda: (
-            _run_icacls_sync_local([path, "/remove:g", f"*{sid}", "/T", "/C"]),
-            _run_icacls_sync_local([path, "/remove:d", f"*{sid}", "/T", "/C"]),
-        ),
-        lambda: (
-            _run_icacls_sync_local([path, "/inheritance:e"]),
-            _run_icacls_sync_local([path, "/remove", f"*{sid}", "/T", "/C"]),
-        ),
-        lambda: (
-            _run_icacls_sync_local([path, "/inheritance:d"]),
-            _run_icacls_sync_local([path, "/remove", f"*{sid}", "/T", "/C"]),
-        ),
-        lambda: (
-            _run_icacls_sync_local([path, "/reset"]),
-            _run_icacls_sync_local([path, "/remove", f"*{sid}", "/T", "/C"]),
-        ),
-    ]
+    if _SHUTDOWN_ACL_DEADLINE and time.monotonic() > _SHUTDOWN_ACL_DEADLINE:
+        logger.warning(
+            "ACL cleanup timeout reached; skipping removal for %s "
+            "(will retry on next admin startup)",
+            path,
+        )
+        return False
 
-    if reset_only:
-        strategies = [strategies[-1]]
+    deadline = _SHUTDOWN_ACL_DEADLINE if _SHUTDOWN_ACL_DEADLINE else 0.0
+    if _remove_acl_with_verify_sync(path, sid, deadline=deadline):
+        return True
 
-    for attempt, strategy in enumerate(strategies, 1):
-        if (
-            _SHUTDOWN_ACL_DEADLINE
-            and time.monotonic() > _SHUTDOWN_ACL_DEADLINE
-        ):
-            logger.warning(
-                "ACL cleanup timeout reached; skipping remaining ACL "
-                "removal for %s (will retry on next admin startup)",
-                path,
-            )
-            return False
-
-        strategy()
-
-        if attempt > 1:
-            remaining = _remaining_budget()
-            if remaining <= 0:
-                logger.warning(
-                    "ACL cleanup budget exhausted between strategies; "
-                    "skipping remaining attempts for %s",
-                    path,
-                )
-                return False
-            time.sleep(min(1.0, remaining))
-
-        if _verify_acl_removed_sync_local(path, sid):
-            return True
+    # Last-resort fallback: reset DACL inheritance and retry removal.
+    _run_icacls_sync_local([path, "/reset"])
+    if _remove_acl_with_verify_sync(path, sid, deadline=deadline):
+        return True
 
     logger.warning(
-        "ACL for SID %s could NOT be removed from %s after %d attempts",
+        "ACL for SID %s could NOT be removed from %s after all attempts",
         sid,
         path,
-        len(strategies),
     )
     return False
 
@@ -2469,7 +2347,7 @@ def shutdown_cleanup() -> None:
     if not is_windows_admin():
         return
 
-    sb_dir = _sandboxes_dir(_sandbox_state_dir)
+    sb_dir = _sandboxes_dir(_qwenpaw_state_dir)
     if not sb_dir.exists() or not list(sb_dir.glob("*.json")):
         return
 
@@ -2505,8 +2383,6 @@ def shutdown_cleanup() -> None:
             )
             _cleanup_from_metadata(meta, meta_file)
 
-    _remove_python_dir_acl_marker()
-
     if sb_dir.exists() and not list(sb_dir.glob("*.json")):
         try:
             sb_dir.rmdir()
@@ -2540,7 +2416,10 @@ def _remove_acls_from_metadata(
         elif sid_type == "user":
             sid = user_sid
         else:
-            sid = cap_sid or user_sid
+            # Unknown sid_type (e.g. legacy "group" entries) — skip.
+            # QwenpawUsers group ACL on python_dir is permanent and
+            # intentionally not cleaned up.
+            continue
 
         if sid:
             use_reset_only = os.path.normpath(entry_path) == _workspace_default
