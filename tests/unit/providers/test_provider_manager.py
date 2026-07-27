@@ -131,6 +131,22 @@ def test_builtin_zhipu_providers_registered(isolated_secret_dir) -> None:
         assert len(model_ids) == len(set(model_ids))
 
 
+def test_builtin_atlascloud_provider_registered(isolated_secret_dir) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("atlascloud")
+
+    assert provider is not None
+    assert isinstance(provider, OpenAIProvider)
+    assert provider.base_url == "https://api.atlascloud.ai/v1"
+    assert provider.freeze_url is True
+    assert provider.support_model_discovery is True
+    assert [model.id for model in provider.models] == [
+        "deepseek-ai/deepseek-v4-pro",
+        "deepseek-ai/deepseek-v4-flash",
+        "qwen/qwen3.5-flash",
+    ]
+
+
 async def test_add_custom_provider_and_reload_from_storage(
     isolated_secret_dir,
 ) -> None:
