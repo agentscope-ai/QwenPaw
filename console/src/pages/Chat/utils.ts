@@ -189,6 +189,22 @@ export function toDisplayUrl(url: string | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
+// SSE stream payload utilities
+// ---------------------------------------------------------------------------
+
+/** True for the backend marker signalling a truncated reconnect replay.
+ * The marker must be dropped before the chat SDK renders the payload;
+ * the full turn is reloaded from history once generation completes.
+ */
+export function isReplayTruncatedPayload(payload: unknown): boolean {
+  return (
+    !!payload &&
+    typeof payload === "object" &&
+    (payload as Record<string, unknown>).type === "replay_truncated"
+  );
+}
+
+// ---------------------------------------------------------------------------
 // DOM utilities
 // ---------------------------------------------------------------------------
 

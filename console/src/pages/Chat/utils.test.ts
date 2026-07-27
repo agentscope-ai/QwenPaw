@@ -6,6 +6,7 @@ import {
   toStoredName,
   normalizeContentUrls,
   toDisplayUrl,
+  isReplayTruncatedPayload,
 } from "./utils";
 import type { CopyableResponse } from "./utils";
 
@@ -241,5 +242,29 @@ describe("toDisplayUrl", () => {
     expect(toDisplayUrl("file:///uploads/img.png")).toBe(
       "http://localhost:8000/uploads/img.png",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isReplayTruncatedPayload
+// ---------------------------------------------------------------------------
+
+describe("isReplayTruncatedPayload", () => {
+  it("detects the backend replay_truncated marker", () => {
+    expect(isReplayTruncatedPayload({ type: "replay_truncated" })).toBe(true);
+  });
+
+  it("ignores regular stream payloads", () => {
+    expect(isReplayTruncatedPayload({ type: "turn_usage" })).toBe(false);
+    expect(isReplayTruncatedPayload({ type: "message", output: [] })).toBe(
+      false,
+    );
+  });
+
+  it("is safe for non-object payloads", () => {
+    expect(isReplayTruncatedPayload(null)).toBe(false);
+    expect(isReplayTruncatedPayload(undefined)).toBe(false);
+    expect(isReplayTruncatedPayload("replay_truncated")).toBe(false);
+    expect(isReplayTruncatedPayload(42)).toBe(false);
   });
 });

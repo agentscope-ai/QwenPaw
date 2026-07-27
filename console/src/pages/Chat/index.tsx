@@ -106,6 +106,7 @@ import {
   normalizeContentUrls,
   extractUserMessageText,
   extractTextFromMessage,
+  isReplayTruncatedPayload,
   setTextareaValue,
   formatMessageTime,
   type CopyableResponse,
@@ -2880,7 +2881,7 @@ export default function ChatPage() {
           // the in-progress turn were evicted. Drop the marker so the SDK
           // doesn't render an unknown event — the full turn is reloaded
           // from history once generation completes.
-          if (payload.type === "replay_truncated") {
+          if (isReplayTruncatedPayload(payload)) {
             return null;
           }
 
