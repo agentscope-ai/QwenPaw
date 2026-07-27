@@ -1718,6 +1718,7 @@ async def _action_start(
     executable_path: str = "",
 ) -> ToolChunk:
     _validate_executable_path(executable_path)
+    _reject_debug_surface_args(browser_args)
     if cdp_port and private_mode:
         return _tool_response(
             json.dumps(
