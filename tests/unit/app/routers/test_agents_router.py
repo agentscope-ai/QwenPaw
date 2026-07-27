@@ -581,6 +581,8 @@ def test_copy_agent_defaults_reset_channels_and_schedules_startup(
 
     init_mock.assert_called_once()
     assert init_mock.call_args.kwargs["apply_md_templates"] is True
+    assert init_mock.call_args.kwargs["create_skills_dir"] is False
+    assert init_mock.call_args.kwargs["create_jobs_file"] is False
     manager_mock.schedule_agent_startup.assert_called_once_with("copied1")
     assert "copied1" in fake_config.agents.profiles
 
@@ -650,6 +652,8 @@ def test_copy_agent_copies_skills_and_jobs_when_requested(
     assert not (new_ws / "chats.json").exists()
     init_mock.assert_called_once()
     assert init_mock.call_args.kwargs["apply_md_templates"] is False
+    assert init_mock.call_args.kwargs["create_skills_dir"] is True
+    assert init_mock.call_args.kwargs["create_jobs_file"] is True
     manager_mock.schedule_agent_startup.assert_called_once_with("copied2")
 
 
@@ -787,3 +791,91 @@ def test_initialize_agent_workspace_applies_md_templates_by_default(
     assert (workspace / "HEARTBEAT.md").is_file()
     assert (workspace / "sessions").is_dir()
     assert (workspace / "jobs.json").is_file()
+
+
+@pytest.mark.parametrize(
+    ("copy_skills", "copy_jobs", "agent_id"),
+    [
+        (False, False, "copied4"),
+        (True, True, "copied5"),
+    ],
+)
+def test_copy_agent_optional_assets_match_request_flags(
+    client,
+    fake_config,
+    manager_mock,
+    tmp_path,
+    monkeypatch,
+    copy_skills,
+    copy_jobs,
+    agent_id,
+):
+    source_ws = tmp_path / "source"
+    _seed_source_workspace(source_ws)
+    fake_config.agents.profiles["bot"].workspace_dir = str(source_ws)
+    fake_config.agents.language = "en"
+
+    source_cfg = AgentProfileConfig(
+        id="bot",
+        name="Bot",
+        workspace_dir=str(source_ws),
+        language="en",
+    )
+
+    working_dir = tmp_path / "working"
+    working_dir.mkdir()
+    monkeypatch.setattr(
+        "qwenpaw.app.routers.agents.WORKING_DIR",
+        working_dir,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.config.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=source_cfg,
+        ),
+        patch("qwenpaw.app.routers.agents.save_config"),
+        patch("qwenpaw.app.routers.agents.save_agent_config"),
+        patch(
+            "qwenpaw.app.routers.agents._generate_unique_id",
+            return_value=agent_id,
+        ),
+    ):
+        response = client.post(
+            "/api/agents/bot/copy",
+            json={
+                "copy_skills": copy_skills,
+                "copy_jobs": copy_jobs,
+            },
+        )
+
+    assert response.status_code == 201
+    new_ws = Path(response.json()["workspace_dir"])
+    assert (new_ws / "sessions").is_dir()
+    assert (new_ws / "memory").is_dir()
+    assert (new_ws / "chats.json").is_file()
+    assert "from-source" in (new_ws / "AGENTS.md").read_text(
+        encoding="utf-8",
+    )
+
+    if copy_skills:
+        assert (new_ws / "skills" / "demo" / "SKILL.md").is_file()
+        assert (new_ws / "skill.json").is_file()
+    else:
+        assert not (new_ws / "skills").exists()
+        assert not (new_ws / "skill.json").exists()
+
+    if copy_jobs:
+        assert '"j1"' in (new_ws / "jobs.json").read_text(encoding="utf-8")
+    else:
+        assert not (new_ws / "jobs.json").exists()
+
+    manager_mock.schedule_agent_startup.assert_called_once_with(agent_id)

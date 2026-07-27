@@ -526,8 +526,7 @@ def _copy_selected_workspace_files(
         src_skills = get_workspace_skills_dir(source_workspace)
         dst_skills = get_workspace_skills_dir(workspace_dir)
         if src_skills.is_dir():
-            # Destination skills/ is created empty by
-            # _initialize_agent_workspace, so dirs_exist_ok is required.
+            # Dest may already exist when create_skills_dir scaffolding ran.
             shutil.copytree(src_skills, dst_skills, dirs_exist_ok=True)
         src_manifest = source_workspace / "skill.json"
         if src_manifest.is_file():
@@ -594,6 +593,8 @@ async def copy_agent(
         skill_names=[],
         language=language,
         apply_md_templates=request.copy_md_files,
+        create_skills_dir=request.copy_skills,
+        create_jobs_file=request.copy_jobs,
     )
     _copy_selected_workspace_files(
         request=request,
@@ -896,13 +897,16 @@ def _initialize_agent_workspace(
     language: str | None = None,
     *,
     apply_md_templates: bool = True,
+    create_skills_dir: bool = True,
+    create_jobs_file: bool = True,
 ) -> None:
     """Initialize agent workspace with only explicitly requested skills."""
     from ...config import load_config as load_global_config
 
     (workspace_dir / "sessions").mkdir(exist_ok=True)
     (workspace_dir / "memory").mkdir(exist_ok=True)
-    get_workspace_skills_dir(workspace_dir).mkdir(exist_ok=True)
+    if create_skills_dir:
+        get_workspace_skills_dir(workspace_dir).mkdir(exist_ok=True)
 
     config = load_global_config()
     if not language:
@@ -917,15 +921,16 @@ def _initialize_agent_workspace(
         _ensure_heartbeat_file(workspace_dir, language)
     _install_initial_skills(workspace_dir, skill_names)
 
-    jobs_file = workspace_dir / "jobs.json"
-    if not jobs_file.exists():
-        with open(jobs_file, "w", encoding="utf-8") as file:
-            json.dump(
-                {"version": 1, "jobs": []},
-                file,
-                ensure_ascii=False,
-                indent=2,
-            )
+    if create_jobs_file:
+        jobs_file = workspace_dir / "jobs.json"
+        if not jobs_file.exists():
+            with open(jobs_file, "w", encoding="utf-8") as file:
+                json.dump(
+                    {"version": 1, "jobs": []},
+                    file,
+                    ensure_ascii=False,
+                    indent=2,
+                )
 
     chats_file = workspace_dir / "chats.json"
     if not chats_file.exists():
