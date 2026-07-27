@@ -664,7 +664,12 @@
     "tokenTrend": "Xu hướng token",
     "llmAndToolTrend": "Xu hướng LLM & công cụ",
     "sessionsByChannel": "Phiên theo kênh",
-    "messagesByChannel": "Tin nhắn theo kênh"
+    "messagesByChannel": "Tin nhắn theo kênh",
+    "currentAgent": "Agent hiện tại",
+    "currentAgentTokens": "Token của agent hiện tại",
+    "currentAgentPromptTokensTooltip": "Tổng token đầu vào của agent hiện tại trên các phiên trong khoảng thời gian đã chọn",
+    "currentAgentCompletionTokensTooltip": "Tổng token đầu ra của agent hiện tại trên các phiên trong khoảng thời gian đã chọn",
+    "currentAgentLlmCallsTooltip": "Số lần sử dụng LLM theo lượt đã ghi nhận của agent hiện tại trong khoảng thời gian đã chọn"
   },
   "modelSelector": {
     "placeholder": "Chọn mô hình",

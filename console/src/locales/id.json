@@ -1390,6 +1390,11 @@
     "llmAndToolTrendTooltip": "Tren perbandingan panggilan LLM vs intent penggunaan alat",
     "sessionsByChannelTooltip": "Distribusi sesi berdasarkan saluran pesan; sesi tanpa saluran dikelompokkan di bawah Konsol",
     "messagesByChannelTooltip": "Distribusi total pesan berdasarkan saluran pesan",
+    "currentAgent": "Agen Saat Ini",
+    "currentAgentTokens": "Penggunaan Token Agen Saat Ini",
+    "currentAgentPromptTokensTooltip": "Token prompt yang digunakan agen saat ini di seluruh sesinya pada periode yang dipilih",
+    "currentAgentCompletionTokensTooltip": "Token completion yang dihasilkan agen saat ini di seluruh sesinya pada periode yang dipilih",
+    "currentAgentLlmCallsTooltip": "Jumlah penggunaan LLM per giliran yang tercatat untuk agen saat ini pada periode yang dipilih",
     "loadFailed": "Gagal memuat statistik",
     "noData": "Tidak ada data statistik pada periode yang dipilih",
     "retry": "Coba Lagi"

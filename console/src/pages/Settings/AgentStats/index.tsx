@@ -28,6 +28,8 @@ type ChartDataItem = {
   completionTokens: number;
   llmCalls: number;
   toolCalls: number;
+  agentPromptTokens: number;
+  agentCompletionTokens: number;
 };
 
 interface ColumnSeries {
@@ -159,6 +161,8 @@ function AgentStatsPage() {
       completionTokens: d.completion_tokens,
       llmCalls: d.llm_calls,
       toolCalls: d.tool_calls,
+      agentPromptTokens: d.agent_prompt_tokens ?? 0,
+      agentCompletionTokens: d.agent_completion_tokens ?? 0,
     }));
   }, [data?.by_date]);
 
@@ -209,6 +213,28 @@ function AgentStatsPage() {
         [
           { key: "promptTokens", label: t("agentStats.promptTokens") },
           { key: "completionTokens", label: t("agentStats.completionTokens") },
+        ],
+        ["#8b5cf6", "#10b981"],
+        isDarkMode,
+        crossesYear,
+        {
+          yAxisFormatter: formatCompact,
+          tooltipFormatter: formatCompact,
+        },
+      ),
+    [chartData, t, isDarkMode, crossesYear],
+  );
+
+  const agentTokenColumnConfig = useMemo(
+    () =>
+      getColumnConfig(
+        chartData,
+        [
+          { key: "agentPromptTokens", label: t("agentStats.promptTokens") },
+          {
+            key: "agentCompletionTokens",
+            label: t("agentStats.completionTokens"),
+          },
         ],
         ["#8b5cf6", "#10b981"],
         isDarkMode,
@@ -353,6 +379,70 @@ function AgentStatsPage() {
                     className={styles.chartCard}
                     title={
                       <Tooltip
+                        title={t("agentStats.tokenTrendTooltip")}
+                        placement="bottom"
+                      >
+                        <span className={styles.chartTitle}>
+                          {t("agentStats.tokenTrend")}
+                        </span>
+                      </Tooltip>
+                    }
+                  >
+                    <div className={styles.chartContainerShort}>
+                      <Column {...tokenColumnConfig} />
+                    </div>
+                  </Card>
+
+                  <Card
+                    className={styles.chartCard}
+                    title={
+                      <Tooltip
+                        title={t("agentStats.llmAndToolTrendTooltip")}
+                        placement="bottom"
+                      >
+                        <span className={styles.chartTitle}>
+                          {t("agentStats.llmAndToolTrend")}
+                        </span>
+                      </Tooltip>
+                    }
+                  >
+                    <div className={styles.chartContainerShort}>
+                      <Column {...llmToolColumnConfig} />
+                    </div>
+                  </Card>
+                </div>
+
+                <div className={styles.sectionTitle}>
+                  {t("agentStats.currentAgent")}
+                </div>
+                <div className={styles.sectionTitle}>
+                  {t("agentStats.currentAgentTokens")}
+                </div>
+                <div className={styles.summaryCards}>
+                  <SummaryCard
+                    value={data.agent_prompt_tokens}
+                    label={t("agentStats.promptTokens")}
+                    tooltip={t("agentStats.currentAgentPromptTokensTooltip")}
+                  />
+                  <SummaryCard
+                    value={data.agent_completion_tokens}
+                    label={t("agentStats.completionTokens")}
+                    tooltip={t(
+                      "agentStats.currentAgentCompletionTokensTooltip",
+                    )}
+                  />
+                  <SummaryCard
+                    value={data.agent_llm_calls}
+                    label={t("agentStats.llmCalls")}
+                    tooltip={t("agentStats.currentAgentLlmCallsTooltip")}
+                  />
+                </div>
+
+                <div className={styles.trendRow}>
+                  <Card
+                    className={styles.chartCard}
+                    title={
+                      <Tooltip
                         title={t("agentStats.messageTrendTooltip")}
                         placement="bottom"
                       >
@@ -399,25 +489,7 @@ function AgentStatsPage() {
                     }
                   >
                     <div className={styles.chartContainerShort}>
-                      <Column {...tokenColumnConfig} />
-                    </div>
-                  </Card>
-
-                  <Card
-                    className={styles.chartCard}
-                    title={
-                      <Tooltip
-                        title={t("agentStats.llmAndToolTrendTooltip")}
-                        placement="bottom"
-                      >
-                        <span className={styles.chartTitle}>
-                          {t("agentStats.llmAndToolTrend")}
-                        </span>
-                      </Tooltip>
-                    }
-                  >
-                    <div className={styles.chartContainerShort}>
-                      <Column {...llmToolColumnConfig} />
+                      <Column {...agentTokenColumnConfig} />
                     </div>
                   </Card>
                 </div>

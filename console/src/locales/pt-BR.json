@@ -1412,6 +1412,11 @@
     "llmAndToolTrendTooltip": "Trend comparing LLM calls vs tool-use intents",
     "sessionsByChannelTooltip": "Distribution of sessions by messaging channel; sessions without a channel are grouped under Console",
     "messagesByChannelTooltip": "Distribution of total messages by messaging channel",
+    "currentAgent": "Agente atual",
+    "currentAgentTokens": "Uso de tokens do agente atual",
+    "currentAgentPromptTokensTooltip": "Tokens de prompt usados pelo agente atual em suas sessoes no periodo selecionado",
+    "currentAgentCompletionTokensTooltip": "Tokens de completion gerados pelo agente atual em suas sessoes no periodo selecionado",
+    "currentAgentLlmCallsTooltip": "Numero de usos de LLM por turno registrados para o agente atual no periodo selecionado",
     "loadFailed": "Falhou to load statistics",
     "noData": "No statistics data in the selected period",
     "retry": "Tentar novamente"

@@ -1163,6 +1163,11 @@
     "llmAndToolTrendTooltip": "LLM 呼び出し回数とツール意図の比較推移",
     "sessionsByChannelTooltip": "メッセージチャンネル別のセッション分布。チャンネルに属さないセッションはデフォルトで Console にグループ化されます",
     "messagesByChannelTooltip": "メッセージチャンネル別のメッセージ総数分布",
+    "currentAgent": "現在のエージェント",
+    "currentAgentTokens": "現在のエージェントの Token 使用量",
+    "currentAgentPromptTokensTooltip": "選択期間における現在のエージェントの各セッション合計プロンプト Token",
+    "currentAgentCompletionTokensTooltip": "選択期間における現在のエージェントの各セッション合計完了 Token",
+    "currentAgentLlmCallsTooltip": "選択期間における現在のエージェントの記録済みターン LLM 使用回数",
     "loadFailed": "統計データの読み込みに失敗しました",
     "noData": "選択期間に統計データがありません",
     "retry": "再試行"

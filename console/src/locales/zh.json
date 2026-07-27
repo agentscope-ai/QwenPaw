@@ -1415,6 +1415,11 @@
     "llmAndToolTrendTooltip": "LLM 调用次数与工具调用次数的对比趋势",
     "sessionsByChannelTooltip": "按消息渠道分布的会话数量占比，未关联渠道的会话默认归为 Console",
     "messagesByChannelTooltip": "按消息渠道分布的消息总数占比",
+    "currentAgent": "当前智能体",
+    "currentAgentTokens": "当前智能体 Token 消耗",
+    "currentAgentPromptTokensTooltip": "所选时间段内，当前智能体各会话累计的输入 Token",
+    "currentAgentCompletionTokensTooltip": "所选时间段内，当前智能体各会话累计的输出 Token",
+    "currentAgentLlmCallsTooltip": "所选时间段内，当前智能体已记录的轮次 LLM 用量次数",
     "loadFailed": "加载统计数据失败",
     "noData": "所选时间段内暂无统计数据",
     "retry": "重试"
