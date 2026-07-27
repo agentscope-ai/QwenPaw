@@ -35,7 +35,7 @@ from ...utils.io_utils import (
     read_json,
     write_json_atomic_async,
 )
-from ..base import HarnessAdapter
+from ..base import HarnessAdapter, HarnessOperationNotSupportedError
 from ..capabilities import HarnessRuntimeCapabilities
 from ..events import (
     HarnessAttachment,
@@ -146,7 +146,7 @@ class QoderAdapter(HarnessAdapter):
 
     async def logout(self) -> None:
         """Explain the provider-owned logout limitation."""
-        raise RuntimeError(
+        raise HarnessOperationNotSupportedError(
             "Qoder CLI does not expose a non-interactive logout command.",
         )
 

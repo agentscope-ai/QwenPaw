@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..agent_context import get_agent_for_request
+from ...harnesses.base import HarnessOperationNotSupportedError
 from ...harnesses.registry import get_provider
 
 router = APIRouter(prefix="/harnesses", tags=["harnesses"])
@@ -157,7 +158,16 @@ async def post_harness_logout(
         provider_id,
         body.settings,
     )
-    await adapter.logout()
+    try:
+        await adapter.logout()
+    except HarnessOperationNotSupportedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "logout_not_supported",
+                "message": str(exc),
+            },
+        ) from exc
     return {"ok": True}
 
 

@@ -19,8 +19,8 @@ const { mockCopyText, mockMessage, mockProvider } = vi.hoisted(() => ({
     installed: true,
     authenticated: true,
     account: { type: "chatgpt", email: "person@example.com" },
-    runtime_path: "/Applications/ChatGPT.app/Contents/Resources/codex",
-    runtime_source: "chatgpt-app",
+    runtime_path: "/opt/qwenpaw/site-packages/codex_cli_bin/bin/codex",
+    runtime_source: "python-sdk",
     error: null,
     capabilities: {
       authentication: true,
@@ -147,7 +147,7 @@ describe("AgentBackendFields", () => {
       screen.getByText("agent.backend.toolAllowlistSupported"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("/Applications/ChatGPT.app/Contents/Resources/codex"),
+      screen.getByText("/opt/qwenpaw/site-packages/codex_cli_bin/bin/codex"),
     ).toHaveProperty("tagName", "CODE");
     expect(
       screen.queryByText("agent.backend.binaryHelp"),
@@ -157,7 +157,7 @@ describe("AgentBackendFields", () => {
 
     await waitFor(() =>
       expect(mockCopyText).toHaveBeenCalledWith(
-        "/Applications/ChatGPT.app/Contents/Resources/codex",
+        "/opt/qwenpaw/site-packages/codex_cli_bin/bin/codex",
       ),
     );
     expect(mockMessage.success).toHaveBeenCalledWith("common.copied");
@@ -237,7 +237,7 @@ describe("AgentBackendFields", () => {
         providerId === "qoder"
           ? "/opt/qoder/qodercli"
           : mockProvider.runtime_path,
-      runtime_source: providerId === "qoder" ? "python-sdk" : "chatgpt-app",
+      runtime_source: "python-sdk",
     }));
     vi.mocked(harnessApi.login).mockResolvedValue({
       type: "external",
@@ -324,7 +324,7 @@ describe("AgentBackendFields", () => {
         providerId === "qoder"
           ? "/opt/qoder/qodercli"
           : mockProvider.runtime_path,
-      runtime_source: providerId === "qoder" ? "python-sdk" : "chatgpt-app",
+      runtime_source: "python-sdk",
     }));
     renderWithProviders(<BackendForm />);
     fireEvent.click(screen.getByText("agent.backend.thirdPartyTitle"));

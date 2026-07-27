@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Locate Codex executables, including ChatGPT editor extensions."""
+"""Locate standalone Codex CLI executables."""
 
 from __future__ import annotations
 
+import importlib
 import os
 import shutil
 import sys
@@ -20,15 +21,14 @@ class CodexBinaryResolution:
     source: str
 
 
-def default_extension_roots(home: Path | None = None) -> tuple[Path, ...]:
-    """Return known editor extension roots on every supported platform."""
-    user_home = home or Path.home()
-    return (
-        user_home / ".vscode" / "extensions",
-        user_home / ".vscode-insiders" / "extensions",
-        user_home / ".cursor" / "extensions",
-        user_home / ".vscode-oss" / "extensions",
-    )
+def bundled_cli_candidate() -> Path | None:
+    """Return the CLI runtime distributed by the official Python SDK."""
+    try:
+        module = importlib.import_module("codex_cli_bin")
+        bundled_codex_path = module.bundled_codex_path
+        return Path(bundled_codex_path())
+    except (AttributeError, ImportError, FileNotFoundError):
+        return None
 
 
 def default_install_candidates(
@@ -59,45 +59,21 @@ def default_install_candidates(
                 "standalone",
             ),
         )
-    candidates: list[tuple[Path, str]] = [
-        (user_home / ".local" / "bin" / "codex", "standalone"),
-    ]
-    if platform_value == "darwin":
-        candidates.extend(
-            [
-                (
-                    Path(
-                        "/Applications/ChatGPT.app/Contents/"
-                        "Resources/codex",
-                    ),
-                    "chatgpt-app",
-                ),
-                (
-                    user_home
-                    / "Applications"
-                    / "ChatGPT.app"
-                    / "Contents"
-                    / "Resources"
-                    / "codex",
-                    "chatgpt-app",
-                ),
-            ],
-        )
-    return tuple(candidates)
+    return ((user_home / ".local" / "bin" / "codex", "standalone"),)
 
 
 def resolve_codex_binary(
     binary: str | None = None,
     *,
-    extension_roots: Iterable[Path] | None = None,
+    sdk_candidate: Path | None = None,
     install_candidates: Iterable[tuple[Path, str]] | None = None,
     platform_name: str | None = None,
     environ: Mapping[str, str] | None = None,
 ) -> Path | None:
-    """Resolve a configured, PATH, or ChatGPT-extension Codex binary."""
+    """Resolve a configured, PATH, or standalone Codex CLI binary."""
     resolution = resolve_codex_binary_info(
         binary,
-        extension_roots=extension_roots,
+        sdk_candidate=sdk_candidate,
         install_candidates=install_candidates,
         platform_name=platform_name,
         environ=environ,
@@ -108,7 +84,7 @@ def resolve_codex_binary(
 def resolve_codex_binary_info(
     binary: str | None = None,
     *,
-    extension_roots: Iterable[Path] | None = None,
+    sdk_candidate: Path | None = None,
     install_candidates: Iterable[tuple[Path, str]] | None = None,
     platform_name: str | None = None,
     environ: Mapping[str, str] | None = None,
@@ -117,7 +93,7 @@ def resolve_codex_binary_info(
     environment = environ if environ is not None else os.environ
     configured = binary
     if configured:
-        resolved = _resolve_configured(configured)
+        resolved = _resolve_configured(configured, platform_name=platform_name)
         if resolved is not None or configured != "codex":
             return (
                 CodexBinaryResolution(resolved, "configured")
@@ -127,7 +103,10 @@ def resolve_codex_binary_info(
 
     environment_binary = environment.get("CODEX_BINARY")
     if environment_binary:
-        resolved = _resolve_configured(environment_binary)
+        resolved = _resolve_configured(
+            environment_binary,
+            platform_name=platform_name,
+        )
         if resolved is not None or environment_binary != "codex":
             return (
                 CodexBinaryResolution(resolved, "environment")
@@ -135,9 +114,20 @@ def resolve_codex_binary_info(
                 else None
             )
 
+    bundled = sdk_candidate
+    if bundled is None:
+        bundled = bundled_cli_candidate()
+    if bundled is not None and _is_executable(
+        bundled,
+        platform_name=platform_name,
+    ):
+        return CodexBinaryResolution(bundled.resolve(), "python-sdk")
+
     on_path = shutil.which("codex")
     if on_path:
-        return CodexBinaryResolution(Path(on_path).resolve(), "path")
+        resolved = Path(on_path).resolve()
+        if not _is_embedded_runtime(resolved):
+            return CodexBinaryResolution(resolved, "path")
 
     candidates = (
         install_candidates
@@ -148,38 +138,31 @@ def resolve_codex_binary_info(
         )
     )
     for path, source in candidates:
-        if _is_executable(path, platform_name=platform_name):
-            return CodexBinaryResolution(path.resolve(), source)
-
-    roots = (
-        extension_roots
-        if extension_roots is not None
-        else default_extension_roots()
-    )
-    extension_candidates: list[Path] = []
-    for root in roots:
-        if not root.is_dir():
-            continue
-        for name in ("codex", "codex.exe"):
-            extension_candidates.extend(
-                path
-                for path in root.glob(
-                    f"openai.chatgpt-*/bin/*/{name}",
-                )
-                if _is_executable(path, platform_name=platform_name)
-            )
-    if not extension_candidates:
-        return None
-    path = max(extension_candidates, key=_candidate_timestamp).resolve()
-    return CodexBinaryResolution(path, "editor-extension")
+        resolved = path.resolve()
+        if _is_executable(
+            path,
+            platform_name=platform_name,
+        ) and not _is_embedded_runtime(resolved):
+            return CodexBinaryResolution(resolved, source)
+    return None
 
 
-def _resolve_configured(binary: str) -> Path | None:
+def _resolve_configured(
+    binary: str,
+    *,
+    platform_name: str | None = None,
+) -> Path | None:
     path = Path(binary).expanduser()
     if path.is_absolute() or path.parent != Path("."):
-        return path.resolve() if _is_executable(path) else None
-    resolved = shutil.which(binary)
-    return Path(resolved).resolve() if resolved else None
+        resolved = path.resolve()
+        if not _is_executable(path, platform_name=platform_name):
+            return None
+        return None if _is_embedded_runtime(resolved) else resolved
+    on_path = shutil.which(binary)
+    if not on_path:
+        return None
+    path = Path(on_path).resolve()
+    return None if _is_embedded_runtime(path) else path
 
 
 def _is_executable(
@@ -195,16 +178,17 @@ def _is_executable(
     )
 
 
-def _candidate_timestamp(path: Path) -> int:
-    try:
-        return path.stat().st_mtime_ns
-    except OSError:
-        return 0
+def _is_embedded_runtime(path: Path) -> bool:
+    """Return whether a path belongs to an app or editor extension."""
+    parts = path.parts
+    if any(part.startswith("openai.chatgpt-") for part in parts):
+        return True
+    return any(part.endswith(".app") for part in parts)
 
 
 __all__ = [
     "CodexBinaryResolution",
-    "default_extension_roots",
+    "bundled_cli_candidate",
     "default_install_candidates",
     "resolve_codex_binary",
     "resolve_codex_binary_info",

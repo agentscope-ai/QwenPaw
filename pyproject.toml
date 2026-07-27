@@ -68,7 +68,6 @@ dependencies = [
     # wheels for all three OSes.
     "ast-grep-cli>=0.20",
     "html2text>=2024.2.26",
-    "qoder-agent-sdk>=1.0.9,<2",
 ]
 
 [project.urls]
@@ -119,6 +118,7 @@ test = [
     "pytest-timeout>=2.3.0",
     "pytest-xdist>=3.5.0",
     "hypothesis>=6.0.0",
+    "qoder-agent-sdk>=1.0.9,<2",
 ]
 dev = [
     "pre-commit>=4.2.0",
@@ -129,8 +129,14 @@ local = [
 whisper = [
     "openai-whisper>=20231117",
 ]
+codex = [
+    "openai-codex>=0.144.4,<1",
+]
+qoder = [
+    "qoder-agent-sdk>=1.0.9,<2",
+]
 full = [
-    "qwenpaw[local,whisper]",
+    "qwenpaw[local,whisper,codex,qoder]",
 ]
 sip = [
     "pyVoIP>=1.6.0",

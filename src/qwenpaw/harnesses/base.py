@@ -20,6 +20,10 @@ from .events import (
 )
 
 
+class HarnessOperationNotSupportedError(RuntimeError):
+    """Raised when a provider cannot perform a requested operation."""
+
+
 class HarnessAdapter(ABC):
     """Provider adapter used by the workspace harness runtime."""
 
@@ -99,4 +103,60 @@ class HarnessAdapter(ABC):
         """Release provider processes and other resources."""
 
 
-__all__ = ["HarnessAdapter"]
+class MissingDependencyAdapter(HarnessAdapter):
+    """Report an optional provider dependency without breaking startup."""
+
+    def __init__(self, provider_id: str, provider_name: str) -> None:
+        self._provider_id = provider_id
+        self._provider_name = provider_name
+        self._message = (
+            f"Install qwenpaw[{provider_id}] to enable {provider_name}."
+        )
+
+    async def status(self) -> HarnessProvider:
+        """Return an unavailable status with an actionable install hint."""
+        return HarnessProvider(
+            id=self._provider_id,
+            name=self._provider_name,
+            available=False,
+            installed=False,
+            error=self._message,
+        )
+
+    async def start_login(self, device_code: bool = False) -> dict[str, Any]:
+        """Reject login until the provider dependency is installed."""
+        del device_code
+        raise RuntimeError(self._message)
+
+    async def logout(self) -> None:
+        """Reject logout until the provider dependency is installed."""
+        raise RuntimeError(self._message)
+
+    def run_turn(
+        self,
+        *,
+        session_id: str,
+        prompt: str,
+        cwd: Path,
+        settings: dict[str, Any],
+        attachments: list[HarnessAttachment] | None = None,
+    ) -> AsyncIterator[HarnessEvent]:
+        """Reject turns until the provider dependency is installed."""
+        del session_id, prompt, cwd, settings, attachments
+
+        async def unavailable_events() -> AsyncIterator[HarnessEvent]:
+            if self._message:
+                raise RuntimeError(self._message)
+            yield HarnessEvent(kind=HarnessEventKind.ERROR)
+
+        return unavailable_events()
+
+    async def stop(self) -> None:
+        """Release no resources for an unavailable provider."""
+
+
+__all__ = [
+    "HarnessAdapter",
+    "HarnessOperationNotSupportedError",
+    "MissingDependencyAdapter",
+]

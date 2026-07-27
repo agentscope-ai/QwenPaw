@@ -7,14 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .base import HarnessAdapter
+from .base import HarnessAdapter, MissingDependencyAdapter
 from .codex.adapter import CodexAdapter
 from .events import (
     HarnessApprovalPreset,
     HarnessCapabilities,
     HarnessCommand,
 )
-from .qoder.adapter import QoderAdapter
 
 
 @dataclass(frozen=True)
@@ -215,6 +214,12 @@ def create_adapter(
         return CodexAdapter(state_dir=state_dir, binary=binary)
     if provider_id == "qoder":
         binary = str((settings or {}).get("binary") or "").strip() or None
+        try:
+            from .qoder.adapter import QoderAdapter
+        except ModuleNotFoundError as exc:
+            if exc.name != "qoder_agent_sdk":
+                raise
+            return MissingDependencyAdapter("qoder", "Qoder")
         return QoderAdapter(state_dir=state_dir, binary=binary)
     raise ValueError(f"Unsupported third-party agent backend: {provider_id}")
 

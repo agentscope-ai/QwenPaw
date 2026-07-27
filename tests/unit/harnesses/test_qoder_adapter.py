@@ -27,6 +27,7 @@ from qwenpaw.harnesses.events import (
     HarnessAttachmentKind,
     HarnessEventKind,
 )
+from qwenpaw.harnesses.base import HarnessOperationNotSupportedError
 from qwenpaw.harnesses.capabilities import (
     HarnessMCPServerDefinition,
     HarnessRuntimeCapabilities,
@@ -187,6 +188,19 @@ def test_registry_exposes_qoder_capabilities(tmp_path: Path) -> None:
     ]
     assert isinstance(adapter, QoderAdapter)
     assert adapter._binary == "/custom/qodercli"
+
+
+@pytest.mark.asyncio
+async def test_qoder_logout_reports_unsupported_operation(
+    tmp_path: Path,
+) -> None:
+    adapter = QoderAdapter(tmp_path)
+
+    with pytest.raises(
+        HarnessOperationNotSupportedError,
+        match="does not expose a non-interactive logout command",
+    ):
+        await adapter.logout()
 
 
 @pytest.mark.asyncio

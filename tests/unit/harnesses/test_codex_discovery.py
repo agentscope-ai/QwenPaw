@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Tests for discovering Codex inside the ChatGPT editor extension."""
+"""Tests for discovering standalone Codex CLI installations."""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from qwenpaw.harnesses.codex import discovery
 from qwenpaw.harnesses.codex.discovery import (
     default_install_candidates,
     resolve_codex_binary,
@@ -22,10 +23,26 @@ def _executable(path: Path) -> Path:
     return path
 
 
+def test_reads_official_sdk_bundled_cli_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    binary = tmp_path / "sdk" / "codex"
+    module = SimpleNamespace(bundled_codex_path=lambda: binary)
+    monkeypatch.setattr(
+        discovery.importlib,
+        "import_module",
+        lambda name: module,
+    )
+
+    assert discovery.bundled_cli_candidate() == binary
+
+
 def test_resolves_explicit_binary(tmp_path: Path) -> None:
     binary = _executable(tmp_path / "custom" / "codex")
+    bundled = _executable(tmp_path / "sdk" / "codex")
 
-    assert resolve_codex_binary(str(binary), extension_roots=[]) == binary
+    assert resolve_codex_binary(str(binary), sdk_candidate=bundled) == binary
 
 
 def test_resolves_qwenpaw_environment_binary(
@@ -37,8 +54,8 @@ def test_resolves_qwenpaw_environment_binary(
     monkeypatch.setenv("CODEX_BINARY", str(binary))
 
     resolution = resolve_codex_binary_info(
+        sdk_candidate=tmp_path / "missing",
         install_candidates=[],
-        extension_roots=[],
     )
 
     assert resolution is not None
@@ -46,78 +63,46 @@ def test_resolves_qwenpaw_environment_binary(
     assert resolution.source == "environment"
 
 
-def test_discovers_chatgpt_extension_binary(
+def test_prefers_python_sdk_bundled_cli(tmp_path: Path) -> None:
+    binary = _executable(tmp_path / "sdk" / "codex")
+
+    resolution = resolve_codex_binary_info(
+        environ={},
+        sdk_candidate=binary,
+        install_candidates=[],
+    )
+
+    assert resolution is not None
+    assert resolution.path == binary
+    assert resolution.source == "python-sdk"
+
+
+def test_rejects_chatgpt_extension_binary_from_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("PATH", "")
     binary = _executable(
         tmp_path
+        / "extensions"
         / "openai.chatgpt-26.707.1-darwin-arm64"
         / "bin"
         / "macos-aarch64"
         / "codex",
     )
+    monkeypatch.setenv("PATH", str(binary.parent))
 
-    resolved = resolve_codex_binary(
+    resolution = resolve_codex_binary_info(
         "codex",
-        extension_roots=[tmp_path],
+        sdk_candidate=tmp_path / "missing",
         install_candidates=[],
     )
 
-    assert resolved == binary
+    assert resolution is None
 
 
-def test_prefers_newest_chatgpt_extension_binary(
+def test_rejects_explicit_chatgpt_app_binary(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("PATH", "")
-    older = _executable(
-        tmp_path / "openai.chatgpt-1" / "bin" / "linux-x64" / "codex",
-    )
-    newer = _executable(
-        tmp_path / "openai.chatgpt-2" / "bin" / "linux-x64" / "codex",
-    )
-    os.utime(older, ns=(10_000_000_000, 10_000_000_000))
-    os.utime(newer, ns=(20_000_000_000, 20_000_000_000))
-
-    resolved = resolve_codex_binary(
-        "codex",
-        extension_roots=[tmp_path],
-        install_candidates=[],
-    )
-
-    assert resolved == newer
-
-
-def test_discovers_windows_extension_binary(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("PATH", "")
-    binary = _executable(
-        tmp_path
-        / "openai.chatgpt-26.707.1-win32-x64"
-        / "bin"
-        / "windows-x86_64"
-        / "codex.exe",
-    )
-
-    resolved = resolve_codex_binary(
-        "codex",
-        extension_roots=[tmp_path],
-        install_candidates=[],
-    )
-
-    assert resolved == binary
-
-
-def test_discovers_macos_chatgpt_app_binary(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("PATH", "")
     binary = _executable(
         tmp_path
         / "Applications"
@@ -126,23 +111,50 @@ def test_discovers_macos_chatgpt_app_binary(
         / "Resources"
         / "codex",
     )
+
+    resolution = resolve_codex_binary_info(str(binary))
+
+    assert resolution is None
+
+
+def test_falls_back_from_path_extension_to_standalone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    extension_binary = _executable(
+        tmp_path
+        / "extensions"
+        / "openai.chatgpt-26.707.1-win32-x64"
+        / "bin"
+        / "linux-x64"
+        / "codex",
+    )
+    standalone = _executable(tmp_path / ".local" / "bin" / "codex")
+    monkeypatch.setenv("PATH", str(extension_binary.parent))
+
+    resolution = resolve_codex_binary_info(
+        "codex",
+        sdk_candidate=tmp_path / "missing",
+        install_candidates=[(standalone, "standalone")],
+    )
+
+    assert resolution is not None
+    assert resolution.path == standalone
+    assert resolution.source == "standalone"
+
+
+def test_macos_candidates_only_include_standalone_cli(
+    tmp_path: Path,
+) -> None:
     candidates = default_install_candidates(
         tmp_path,
         platform_name="darwin",
         environ={},
     )
-    assert (binary, "chatgpt-app") in candidates
 
-    resolution = resolve_codex_binary_info(
-        install_candidates=[(binary, "chatgpt-app")],
-        extension_roots=[],
-        platform_name="darwin",
-        environ={},
+    assert candidates == (
+        (tmp_path / ".local" / "bin" / "codex", "standalone"),
     )
-
-    assert resolution is not None
-    assert resolution.path == binary
-    assert resolution.source == "chatgpt-app"
 
 
 def test_discovers_windows_standalone_binary(
@@ -164,8 +176,8 @@ def test_discovers_windows_standalone_binary(
     )
 
     resolution = resolve_codex_binary_info(
+        sdk_candidate=tmp_path / "missing.exe",
         install_candidates=candidates,
-        extension_roots=[],
         platform_name="win32",
         environ=environment,
     )
@@ -188,8 +200,8 @@ def test_discovers_linux_standalone_binary(
     )
 
     resolution = resolve_codex_binary_info(
+        sdk_candidate=tmp_path / "missing",
         install_candidates=candidates,
-        extension_roots=[],
         platform_name="linux",
         environ={},
     )
@@ -208,8 +220,8 @@ def test_invalid_manual_binary_does_not_fall_back(
 
     resolution = resolve_codex_binary_info(
         str(tmp_path / "missing" / "codex"),
+        sdk_candidate=tmp_path / "missing-sdk" / "codex",
         install_candidates=[(fallback, "standalone")],
-        extension_roots=[],
     )
 
     assert resolution is None
