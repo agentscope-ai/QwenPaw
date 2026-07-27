@@ -1587,7 +1587,51 @@
       "submitted": "Dikirim"
     },
     "execute": "Jalankan {{tool}}",
-    "executeDefault": "Jalankan alat"
+    "executeDefault": "Jalankan alat",
+    "askUserQuestion": {
+      "title": "Tanya",
+      "options": {
+        "other": "Lainnya",
+        "otherPlaceholder": "Harap jelaskan…",
+        "enterAnswer": "Masukkan jawaban Anda…",
+        "supplementaryHint": "Tambahan (opsional)",
+        "supplementaryPlaceholder": "Konteks tambahan untuk jawaban yang dipilih…"
+      },
+      "actions": {
+        "back": "Kembali",
+        "next": "Berikutnya",
+        "submit": "Kirim"
+      },
+      "status": {
+        "error": "Kesalahan",
+        "timeout": "Waktu habis",
+        "cancelled": "Dibatalkan",
+        "interrupted": "Terhenti",
+        "completed": "Selesai",
+        "loading": "Menunggu jawaban…",
+        "pending": "Tertunda"
+      },
+      "fallback": {
+        "copyRaw": "Salin data mentah",
+        "copied": "Disalin",
+        "copyFailed": "Gagal menyalin",
+        "unanswered": "Tanpa jawaban",
+        "questionFallback": "Pertanyaan {{index}}",
+        "noQuestions": "Tidak dapat mengurai data pertanyaan",
+        "questionParseFailedHint": "Tidak dapat mengurai data pertanyaan; berikut pertanyaan untuk dijawab di chat:",
+        "questionParseFailed": "Tidak dapat mengurai data pertanyaan",
+        "hint": "Silakan ketik jawaban Anda langsung di chat",
+        "errorDetail": "Detail kesalahan: {{error}}",
+        "noErrorDetail": "Tidak ada informasi detail kesalahan",
+        "resultParseFailed": "Hasil kuesioner tidak dapat diurai. Menampilkan data mentah sebagai gantinya.",
+        "renderFailed": "Gagal merender kartu kuesioner. Menampilkan data mentah sebagai gantinya."
+      },
+      "messages": {
+        "noSession": "Tidak dapat mengidentifikasi sesi saat ini. Harap segarkan dan coba lagi.",
+        "questionnaireExpired": "Kuesioner ini sudah tidak aktif (kedaluwarsa atau dibatalkan). Harap tunggu agen mengirim ulang.",
+        "submitFailed": "Pengiriman gagal: {{message}}"
+      }
+    }
   },
   "models": {
     "llmConfiguration": "Konfigurasi LLM",

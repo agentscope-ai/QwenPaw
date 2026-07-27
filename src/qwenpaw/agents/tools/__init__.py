@@ -19,6 +19,7 @@ register them. The literal names still appear in
 ``security/tool_guard`` guardians for backward compatibility with
 pre-existing allowlists.
 """
+
 from __future__ import annotations
 
 from typing import Callable
@@ -45,6 +46,7 @@ from .agent_management import (
 from .delegate_external_agent import delegate_external_agent
 from .make_skill_tools import materialize_skill
 from .ast_tool import ast_search
+from .ask_user_question import ask_user_question
 from .run_tool_batch import run_tool_batch
 
 

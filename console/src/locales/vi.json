@@ -1515,7 +1515,51 @@
     "updateMemory": "Cập nhật bộ nhớ",
     "deleteMemory": "Xóa bộ nhớ",
     "inputProgress": "Đã nhận {{count}} ký tự",
-    "rawInputPreview": "Đầu vào thô trực tiếp (4.096 ký tự cuối)"
+    "rawInputPreview": "Đầu vào thô trực tiếp (4.096 ký tự cuối)",
+    "askUserQuestion": {
+      "title": "Hỏi",
+      "options": {
+        "other": "Khác",
+        "otherPlaceholder": "Vui lòng nêu rõ lý do…",
+        "enterAnswer": "Nhập câu trả lời của bạn…",
+        "supplementaryHint": "Bổ sung (tùy chọn)",
+        "supplementaryPlaceholder": "Ngữ cảnh bổ sung cho các câu trả lời đã chọn…"
+      },
+      "actions": {
+        "back": "Quay lại",
+        "next": "Tiếp theo",
+        "submit": "Gửi"
+      },
+      "status": {
+        "error": "Lỗi",
+        "timeout": "Đã hết thời gian",
+        "cancelled": "Đã hủy",
+        "interrupted": "Đã dừng",
+        "completed": "Đã hoàn thành",
+        "loading": "Đang chờ câu trả lời…",
+        "pending": "Đang chờ"
+      },
+      "fallback": {
+        "copyRaw": "Sao chép dữ liệu thô",
+        "copied": "Đã sao chép",
+        "copyFailed": "Sao chép thất bại",
+        "unanswered": "Chưa trả lời",
+        "questionFallback": "Câu hỏi {{index}}",
+        "noQuestions": "Không thể phân tích dữ liệu câu hỏi",
+        "questionParseFailedHint": "Không thể phân tích dữ liệu câu hỏi; dưới đây là các câu hỏi cần trả lời trong chat:",
+        "questionParseFailed": "Không thể phân tích dữ liệu câu hỏi",
+        "hint": "Vui lòng nhập câu trả lời của bạn trực tiếp trong chat",
+        "errorDetail": "Chi tiết lỗi: {{error}}",
+        "noErrorDetail": "Không có thông tin chi tiết về lỗi",
+        "resultParseFailed": "Không thể phân tích kết quả khảo sát. Đang hiển thị dữ liệu thô.",
+        "renderFailed": "Không thể hiển thị thẻ khảo sát. Đang hiển thị dữ liệu thô."
+      },
+      "messages": {
+        "noSession": "Không thể xác định phiên hiện tại. Vui lòng làm mới và thử lại.",
+        "questionnaireExpired": "Khảo sát này không còn hoạt động (đã hết thời gian hoặc bị hủy). Vui lòng đợi agent phát hành lại.",
+        "submitFailed": "Gửi thất bại: {{message}}"
+      }
+    }
   },
   "sessions": {
     "title": "Phiên làm việc",

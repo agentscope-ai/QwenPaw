@@ -2982,7 +2982,51 @@
       "submitted": "送信済み"
     },
     "execute": "{{tool}} を実行",
-    "executeDefault": "ツールを実行"
+    "executeDefault": "ツールを実行",
+    "askUserQuestion": {
+      "title": "質問",
+      "options": {
+        "other": "その他",
+        "otherPlaceholder": "具体的な理由を記入してください…",
+        "enterAnswer": "回答を入力してください…",
+        "supplementaryHint": "補足（任意）",
+        "supplementaryPlaceholder": "選択した回答の補足情報…"
+      },
+      "actions": {
+        "back": "戻る",
+        "next": "次へ",
+        "submit": "送信"
+      },
+      "status": {
+        "error": "エラー",
+        "timeout": "タイムアウト",
+        "cancelled": "キャンセル済み",
+        "interrupted": "中断",
+        "completed": "完了",
+        "loading": "回答待ち…",
+        "pending": "保留中"
+      },
+      "fallback": {
+        "copyRaw": "生データをコピー",
+        "copied": "コピーしました",
+        "copyFailed": "コピー失敗",
+        "unanswered": "未回答",
+        "questionFallback": "質問 {{index}}",
+        "noQuestions": "質問データを解析できません",
+        "questionParseFailedHint": "質問データを解析できませんでした。チャットで回答してください：",
+        "questionParseFailed": "質問データを解析できません",
+        "hint": "チャットに直接回答を入力してください",
+        "errorDetail": "エラー詳細：{{error}}",
+        "noErrorDetail": "詳細なエラー情報はありません",
+        "resultParseFailed": "アンケートの結果を解析できませんでした。生データを表示します。",
+        "renderFailed": "アンケートカードのレンダリングに失敗しました。生データを表示します。"
+      },
+      "messages": {
+        "noSession": "現在のセッションを識別できません。更新して再試行してください。",
+        "questionnaireExpired": "このアンケートは無効です（タイムアウトまたはキャンセル済み）。エージェントが再発行するのを待ってください。",
+        "submitFailed": "送信失敗：{{message}}"
+      }
+    }
   },
   "loop": {
     "gotoSettings": "エージェント Loop 設定",

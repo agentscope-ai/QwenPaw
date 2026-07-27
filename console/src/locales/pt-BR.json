@@ -3037,7 +3037,51 @@
       "submitted": "Enviado"
     },
     "execute": "Executar {{tool}}",
-    "executeDefault": "Executar ferramenta"
+    "executeDefault": "Executar ferramenta",
+    "askUserQuestion": {
+      "title": "Perguntar",
+      "options": {
+        "other": "Outro",
+        "otherPlaceholder": "Por favor, detalhe…",
+        "enterAnswer": "Digite sua resposta…",
+        "supplementaryHint": "Complemento (opcional)",
+        "supplementaryPlaceholder": "Contexto adicional para as respostas escolhidas…"
+      },
+      "actions": {
+        "back": "Voltar",
+        "next": "Próximo",
+        "submit": "Enviar"
+      },
+      "status": {
+        "error": "Erro",
+        "timeout": "Tempo esgotado",
+        "cancelled": "Cancelado",
+        "interrupted": "Interrompido",
+        "completed": "Concluído",
+        "loading": "Aguardando resposta…",
+        "pending": "Pendente"
+      },
+      "fallback": {
+        "copyRaw": "Copiar dados brutos",
+        "copied": "Copiado",
+        "copyFailed": "Falha ao copiar",
+        "unanswered": "Sem resposta",
+        "questionFallback": "Pergunta {{index}}",
+        "noQuestions": "Não foi possível analisar os dados das perguntas",
+        "questionParseFailedHint": "Não foi possível analisar os dados das perguntas; aqui estão as perguntas para responder no chat:",
+        "questionParseFailed": "Não foi possível analisar os dados das perguntas",
+        "hint": "Por favor, digite sua resposta diretamente no chat",
+        "errorDetail": "Detalhes do erro: {{error}}",
+        "noErrorDetail": "Nenhuma informação detalhada do erro foi fornecida",
+        "resultParseFailed": "Não foi possível analisar o resultado do questionário. Mostrando os dados brutos.",
+        "renderFailed": "Falha ao renderizar o cartão do questionário. Mostrando os dados brutos."
+      },
+      "messages": {
+        "noSession": "Não foi possível identificar a sessão atual. Atualize e tente novamente.",
+        "questionnaireExpired": "Este questionário não está mais ativo (expirado ou cancelado). Aguarde o agente reenviá-lo.",
+        "submitFailed": "Falha no envio: {{message}}"
+      }
+    }
   },
   "loop": {
     "gotoSettings": "Configurações de Loop do Agente",

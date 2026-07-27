@@ -3148,7 +3148,51 @@
       "submitted": "已提交"
     },
     "execute": "执行 {{tool}}",
-    "executeDefault": "执行 工具"
+    "executeDefault": "执行 工具",
+    "askUserQuestion": {
+      "title": "询问",
+      "options": {
+        "other": "其他",
+        "otherPlaceholder": "请说明具体原因……",
+        "enterAnswer": "请输入你的答案……",
+        "supplementaryHint": "补充说明（可选）",
+        "supplementaryPlaceholder": "对所选答案的补充说明……"
+      },
+      "actions": {
+        "back": "上一步",
+        "next": "下一步",
+        "submit": "提交"
+      },
+      "status": {
+        "error": "出错",
+        "timeout": "已超时",
+        "cancelled": "已取消",
+        "interrupted": "已终止",
+        "completed": "已完成",
+        "loading": "等待回答…",
+        "pending": "待处理"
+      },
+      "fallback": {
+        "copyRaw": "复制原始数据",
+        "copied": "已复制",
+        "copyFailed": "复制失败",
+        "unanswered": "未回答",
+        "questionFallback": "问题 {{index}}",
+        "noQuestions": "无法解析问题数据",
+        "questionParseFailedHint": "无法解析问题数据，请在聊天中回答以下问题：",
+        "questionParseFailed": "无法解析问题数据",
+        "hint": "请直接在聊天中输入你的回答",
+        "errorDetail": "错误详情：{{error}}",
+        "noErrorDetail": "暂无详细错误信息",
+        "resultParseFailed": "问卷结果无法解析，已切换为显示原始数据。",
+        "renderFailed": "问卷组件渲染失败，已切换为显示原始数据。"
+      },
+      "messages": {
+        "noSession": "无法识别当前会话，请刷新后重试。",
+        "questionnaireExpired": "该问卷已失效（超时或已取消）。请等待智能体重新发布问卷。",
+        "submitFailed": "提交失败：{{message}}"
+      }
+    }
   },
   "preview": {
     "error": {

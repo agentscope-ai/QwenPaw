@@ -3129,7 +3129,51 @@
       "submitted": "Submitted"
     },
     "execute": "Run {{tool}}",
-    "executeDefault": "Run tool"
+    "executeDefault": "Run tool",
+    "askUserQuestion": {
+      "title": "Ask",
+      "options": {
+        "other": "Other",
+        "otherPlaceholder": "Please elaborate…",
+        "enterAnswer": "Please enter your answer…",
+        "supplementaryHint": "Supplementary (optional)",
+        "supplementaryPlaceholder": "Additional context for the chosen answers…"
+      },
+      "actions": {
+        "back": "Back",
+        "next": "Next",
+        "submit": "Submit"
+      },
+      "status": {
+        "error": "Error",
+        "timeout": "Timed out",
+        "cancelled": "Cancelled",
+        "interrupted": "Interrupted",
+        "completed": "Completed",
+        "loading": "Waiting for answer…",
+        "pending": "Pending"
+      },
+      "fallback": {
+        "copyRaw": "Copy raw data",
+        "copied": "Copied",
+        "copyFailed": "Copy failed",
+        "unanswered": "Unanswered",
+        "questionFallback": "Question {{index}}",
+        "noQuestions": "Could not parse the question data",
+        "questionParseFailedHint": "Could not parse the question data; here are the questions to answer in chat:",
+        "questionParseFailed": "Could not parse the question data",
+        "hint": "Please type your answer directly in chat",
+        "errorDetail": "Error detail: {{error}}",
+        "noErrorDetail": "No detailed error information provided",
+        "resultParseFailed": "The questionnaire result could not be parsed. Showing raw data instead.",
+        "renderFailed": "The questionnaire card failed to render. Showing raw data instead."
+      },
+      "messages": {
+        "noSession": "Cannot identify the current session. Please refresh and retry.",
+        "questionnaireExpired": "This questionnaire is no longer active (timed out or cancelled). Please wait for the agent to re-issue it.",
+        "submitFailed": "Submit failed: {{message}}"
+      }
+    }
   },
   "preview": {
     "error": {

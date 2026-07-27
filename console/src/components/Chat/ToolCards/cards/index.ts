@@ -40,6 +40,7 @@ export { default as MaterializeSkillCard } from "./MaterializeSkillCard";
 export { default as ShellCard } from "./ShellCard";
 export { default as RunToolBatchCard } from "./RunToolBatchCard";
 export { default as GenericToolCard } from "./GenericToolCard";
+export { AskUserQuestionCard } from "./AskUserQuestionCard";
 
 // ── Re-import for registry ────────────────────────────────────────────
 import ReadFileCard from "./ReadFileCard";
@@ -64,6 +65,7 @@ import CheckAgentTaskCard from "./CheckAgentTaskCard";
 import DelegateExternalAgentCard from "./DelegateExternalAgentCard";
 import MaterializeSkillCard from "./MaterializeSkillCard";
 import ShellCard from "./ShellCard";
+import { AskUserQuestionCard } from "./AskUserQuestionCard";
 import RunToolBatchCard from "./RunToolBatchCard";
 
 // ── Common props type ─────────────────────────────────────────────────
@@ -134,6 +136,8 @@ export const BUILTIN_CARD_REGISTRY: Record<string, BuiltinCardComponent> = {
   terminal: ShellCard,
   run_command: ShellCard,
 
+  // AskUserQuestion
+  ask_user_question: AskUserQuestionCard,
   // Workflow
   run_tool_batch: RunToolBatchCard,
 };
