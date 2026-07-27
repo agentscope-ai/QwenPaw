@@ -29,10 +29,11 @@ class CronExecutor:
         """Execute one job once.
 
         - task_type text: send fixed text to channel
-        - task_type agent: ask agent with prompt, send reply to channel (
-            stream_query + send_event)
-        - final delivery: consume the stream, then send only the last
-            completed message
+        - task_type agent + mode stream (default): ask agent with prompt,
+            forward every event to channel in real time
+            (stream_query + send_event)
+        - task_type agent + mode final: consume the full stream, then
+            deliver only the last completed message event
         - silent agent task: consume the full agent stream without channel
             delivery, while preserving session and trace state
         """
