@@ -14,6 +14,7 @@ import {
   Tag,
   Spin,
   Select,
+  Tooltip,
 } from "antd";
 import {
   BulbOutlined,
@@ -21,7 +22,7 @@ import {
   DownOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
-import { PackageOpen, Bell } from "lucide-react";
+import { PackageOpen, Bell, BellRing } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
@@ -29,6 +30,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { externalLinkMarkdownComponents } from "@/components/Markdown/externalLinkComponents";
 import { ApprovalCard as GlobalApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
+import { useInboxWobble } from "../../hooks/useInboxWobble";
 import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
@@ -93,6 +95,7 @@ export default function InboxPage() {
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [batchMode, setBatchMode] = useState(false);
   const agents = useAgentStore((state) => state.agents);
+  const [wobbleEnabled, toggleWobble] = useInboxWobble();
   const { approvals: pendingApprovals, setApprovals } = useApprovalContext();
   const {
     summary,
@@ -513,6 +516,23 @@ export default function InboxPage() {
           onChange={(key) => setActiveTab(key as TabKey)}
           items={tabItems}
           className={styles.inboxTabs}
+          tabBarExtraContent={
+            <Tooltip
+              title={t(
+                wobbleEnabled ? "inbox.wobbleDisable" : "inbox.wobbleEnable",
+              )}
+            >
+              <Button
+                type="text"
+                size="small"
+                icon={<BellRing size={16} />}
+                onClick={toggleWobble}
+                className={
+                  wobbleEnabled ? styles.wobbleToggleActive : undefined
+                }
+              />
+            </Tooltip>
+          }
         />
       </div>
       <Modal

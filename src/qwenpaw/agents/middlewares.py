@@ -234,6 +234,12 @@ class MemoryMiddleware(MiddlewareBase):
         kwargs = await agent._prepare_model_input()
         estimated_tokens = await agent.model.count_tokens(**kwargs)
         threshold = cfg.trigger_ratio * agent.model.context_size
+        context_manager = getattr(agent, "_context_manager", None)
+        predicate = getattr(context_manager, "should_compress", None)
+        if callable(predicate):
+            return bool(predicate(estimated_tokens, threshold))
+        # Native AgentScope compacts at the exact threshold. Custom context
+        # managers can expose ``should_compress`` when their boundary differs.
         return estimated_tokens >= threshold
 
     @staticmethod

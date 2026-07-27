@@ -792,6 +792,9 @@ class BaseChannel(ABC):
 
         # Fire-and-forget flush
         flush_meta["last_ts"] = now
+        from qwenpaw.agents.context.scroll.serialize import strip_headline
+
+        display_text = strip_headline(streaming_buffers[stream_type]) or ""
         flush_meta["task"] = asyncio.create_task(
             self._safe_streaming_delta(
                 request,
@@ -799,7 +802,7 @@ class BaseChannel(ABC):
                 event,
                 send_meta,
                 stream_type,
-                streaming_buffers[stream_type],
+                display_text,
             ),
         )
         return True
@@ -853,6 +856,9 @@ class BaseChannel(ABC):
 
             buf = streaming_buffers.pop(stream_type, "")
             accumulated = self._extract_text_from_event(event) or buf
+            from qwenpaw.agents.context.scroll.serialize import strip_headline
+
+            accumulated = strip_headline(accumulated) or ""
             await self.on_streaming_end(
                 request,
                 to_handle,
@@ -913,15 +919,35 @@ class BaseChannel(ABC):
         process_iterator = None
         msg_id_to_stream_type: Dict[str, str] = {}
         streaming_buffers: Dict[str, str] = {}
+        headline_stream_states: dict[str, Any] = {}
         try:
             process_iterator = self._process(request)
             async for event in process_iterator:
-                data = self._serialize_event_for_sse(event)
-
-                yield f"data: {data}\n\n"
-
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)
+                if obj == "message" and status == RunStatus.Completed:
+                    msg_id = str(
+                        getattr(event, "msg_id", "")
+                        or getattr(event, "id", "")
+                        or "",
+                    )
+                    for pending_data in self._flush_headline_stream_states(
+                        headline_stream_states,
+                        msg_id=msg_id,
+                    ):
+                        yield f"data: {pending_data}\n\n"
+                elif obj == "response" and status == RunStatus.Completed:
+                    for pending_data in self._flush_headline_stream_states(
+                        headline_stream_states,
+                    ):
+                        yield f"data: {pending_data}\n\n"
+
+                data = self._serialize_event_for_sse(
+                    event,
+                    headline_stream_states,
+                )
+
+                yield f"data: {data}\n\n"
 
                 # --- streaming path ---
                 handled_by_streaming = False
@@ -957,6 +983,11 @@ class BaseChannel(ABC):
                 elif obj == "response":
                     last_response = event
                     await self.on_event_response(request, event)
+
+            for pending_data in self._flush_headline_stream_states(
+                headline_stream_states,
+            ):
+                yield f"data: {pending_data}\n\n"
 
             err_msg = self._get_response_error_message(last_response)
             if err_msg:
@@ -1037,7 +1068,11 @@ class BaseChannel(ABC):
         return value
 
     @staticmethod
-    def _strip_event_headlines(event: Any, fallback: str) -> str:
+    def _strip_event_headlines(
+        event: Any,
+        fallback: str,
+        headline_stream_states: dict[str, Any] | None = None,
+    ) -> str:
         """Drop scroll headlines (``<!-- ⟦ … ⟧ -->``) from an SSE payload.
 
         Channels strip headlines via ``MessageRenderer``, but this raw-event
@@ -1047,12 +1082,43 @@ class BaseChannel(ABC):
         the headline verbatim (those go through separate paths). A no-op on any
         text block that holds no headline, so user/tool text is untouched.
         """
-        from qwenpaw.agents.context.scroll.serialize import strip_headline
+        from qwenpaw.agents.context.scroll.serialize import (
+            HeadlineDeltaState,
+            strip_headline,
+            strip_headline_delta,
+        )
 
         try:
             payload = event.model_dump(mode="json")
         except Exception:  # noqa: BLE001 - fall back to the unstripped data
             return fallback
+
+        # A content delta may split the protocol line over several events.
+        # Track that state inside the current SSE request rather than on the
+        # shared channel instance, where concurrent sessions could interfere.
+        if (
+            headline_stream_states is not None
+            and getattr(event, "object", None) == "content"
+            and getattr(event, "delta", False)
+        ):
+            msg_id = str(getattr(event, "msg_id", "") or "")
+            index = int(getattr(event, "index", 0) or 0)
+            stream_key = f"{msg_id}:{index}"
+            raw_text = getattr(event, "text", "") or ""
+            state = headline_stream_states.get(
+                stream_key,
+                HeadlineDeltaState(),
+            )
+            clean_text, state = strip_headline_delta(
+                raw_text,
+                state=state,
+            )
+            if isinstance(payload, dict) and "text" in payload:
+                payload["text"] = clean_text
+            if state.suppressing or state.pending:
+                headline_stream_states[stream_key] = state
+            else:
+                headline_stream_states.pop(stream_key, None)
 
         def walk(node: Any) -> Any:
             if isinstance(node, str):
@@ -1068,7 +1134,11 @@ class BaseChannel(ABC):
         payload = walk(payload)
         return json.dumps(payload, ensure_ascii=False, default=str)
 
-    def _serialize_event_for_sse(self, event: Any) -> str:
+    def _serialize_event_for_sse(
+        self,
+        event: Any,
+        headline_stream_states: dict[str, Any] | None = None,
+    ) -> str:
         try:
             if hasattr(event, "model_dump_json"):
                 data = event.model_dump_json()
@@ -1080,8 +1150,23 @@ class BaseChannel(ABC):
             # Headlines reach the UI only through this raw-event path; rewrite
             # to strip them, but only when a fence marker is actually present
             # so the common (headline-free) event pays nothing.
-            if hasattr(event, "model_dump") and ("⟦" in data or "〚" in data):
-                data = self._strip_event_headlines(event, data)
+            is_tracked_delta = (
+                headline_stream_states is not None
+                and getattr(event, "object", None) == "content"
+                and getattr(event, "delta", False)
+            )
+            should_strip = (
+                "⟦" in data
+                or "〚" in data
+                or bool(headline_stream_states)
+                or is_tracked_delta
+            )
+            if hasattr(event, "model_dump") and should_strip:
+                data = self._strip_event_headlines(
+                    event,
+                    data,
+                    headline_stream_states,
+                )
 
             return self._sanitize_surrogate_text(data)
 
@@ -1111,6 +1196,46 @@ class BaseChannel(ABC):
                     },
                     ensure_ascii=True,
                 )
+
+    @staticmethod
+    def _flush_headline_stream_states(
+        headline_stream_states: dict[str, Any],
+        *,
+        msg_id: str | None = None,
+    ) -> list[str]:
+        """Finalize buffered marker prefixes as ordinary content deltas."""
+        from qwenpaw.agents.context.scroll.serialize import (
+            flush_headline_delta,
+        )
+
+        flushed: list[str] = []
+        for stream_key, state in list(headline_stream_states.items()):
+            stream_msg_id, separator, raw_index = stream_key.rpartition(":")
+            if not separator:
+                stream_msg_id, raw_index = stream_key, "0"
+            if msg_id is not None and stream_msg_id != msg_id:
+                continue
+            headline_stream_states.pop(stream_key, None)
+            text = flush_headline_delta(state)
+            if not text:
+                continue
+            try:
+                index = int(raw_index)
+            except ValueError:
+                index = 0
+            flushed.append(
+                json.dumps(
+                    {
+                        "object": "content",
+                        "delta": True,
+                        "msg_id": stream_msg_id,
+                        "index": index,
+                        "text": text,
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        return flushed
 
     @classmethod
     def from_env(

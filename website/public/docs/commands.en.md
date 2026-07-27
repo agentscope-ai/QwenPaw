@@ -8,23 +8,23 @@ Magic commands are special instructions prefixed with `/` that let you **directl
 
 Commands for controlling conversation context.
 
-| Command    | Wait   | Compressed Summary | Long-term Memory   | Response Content              |
-| ---------- | ------ | ------------------ | ------------------ | ----------------------------- |
-| `/compact` | ⏳ Yes | 📦 Generate new    | ✅ Background save | ✅ Compact complete + Summary |
-| `/new`     | ⚡ No  | 🗑️ Clear           | ✅ Background save | ✅ New conversation prompt    |
-| `/clear`   | ⚡ No  | 🗑️ Clear           | ❌ No save         | ✅ History cleared prompt     |
+| Command    | Wait   | Continuation State  | Long-term Memory   | Response Content           |
+| ---------- | ------ | ------------------- | ------------------ | -------------------------- |
+| `/compact` | ⏳ Yes | 📦 Update as needed | ✅ Background save | ✅ Compaction result       |
+| `/new`     | ⚡ No  | 🗑️ Clear            | ✅ Background save | ✅ New conversation prompt |
+| `/clear`   | ⚡ No  | 🗑️ Clear            | ❌ No save         | ✅ History cleared prompt  |
 
 ---
 
 ### /compact - Compress Current Conversation
 
-Manually trigger conversation compaction, condensing all current messages into a summary (**requires waiting**), while saving to long-term memory in the background.
+Manually trigger context compaction (**requires waiting**). Under Scroll, eligible older turns are archived while the configured recent tail and active turn remain live. If turns are archived, the continuation summary is updated. Long-term-memory saving can also run in the background when enabled.
 
 ```
 /compact
 ```
 
-Optionally, add an extra instruction to guide what the summary should keep or remove:
+Optionally, add a one-shot instruction to guide which supported information the continuation summary should prioritize:
 
 ```
 /compact keep requirements, decisions, and pending tasks; remove debug logs and tool-call details
@@ -35,13 +35,12 @@ Optionally, add an extra instruction to guide what the summary should keep or re
 ```
 **Compact Complete!**
 
-- Messages compacted: 12
-**Compressed Summary:**
-User requested help building a user authentication system, login endpoint implementation completed...
-- Summary task started in background
+- Messages archived: 12
+- Continuation summary: available via `/compact_str`
+- Older turns remain recoverable through Scroll history
 ```
 
-> 💡 Unlike auto-compaction, `/compact` compresses **all** current messages, not just the portion exceeding the threshold.
+> 💡 `/compact` requests compaction immediately, but still protects the configured recent tail and active turn.
 > 💡 The extra instruction only applies to this manual `/compact` run. Auto-compaction behavior is unchanged.
 
 ---
@@ -182,7 +181,7 @@ Write me a Python function that implements quicksort
 
 ### /compact_str - View Compressed Summary
 
-Display the current compressed summary content.
+Display the current continuation summary under Scroll. This is the compact task state used for continuity, not the full archived transcript or the internal retrieval index. Native compatibility mode continues to show its compressed summary.
 
 ```
 /compact_str
@@ -191,18 +190,24 @@ Display the current compressed summary content.
 **Example response (when summary exists):**
 
 ```
-**Compressed Summary**
+**Continuation Summary**
 
-User requested help building a user authentication system, login endpoint implementation completed...
+## Active Task
+Build a user authentication system.
+Status: in_progress
+
+## Current State
+- Login endpoint implementation completed.
 ```
 
 **Example response (when no summary):**
 
 ```
-**No Compressed Summary**
+**No Continuation Summary**
 
-- No summary has been generated yet
-- Use /compact or wait for auto-compaction
+- Scroll has not generated a continuation summary yet
+- Use `/compact` or wait for auto-compaction
+- Archived turns remain recoverable through Scroll history
 ```
 
 ---
