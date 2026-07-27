@@ -411,8 +411,7 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
     def _copy() -> Path:
         import shutil
 
-        base.mkdir(parents=True, exist_ok=True)
-        ignore = shutil.ignore_patterns(
+        _pattern_ignore = shutil.ignore_patterns(
             "node_modules",
             ".next",
             "dist",
@@ -425,11 +424,24 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
             ".mypy_cache",
             ".tox",
         )
+
+        def _ignore(directory, contents):
+            """Skip build artifacts and all symlinks.
+
+            Symlinks are dropped to prevent a malicious link
+            (e.g. ``leak -> ~/.ssh/id_rsa``) from smuggling
+            sensitive content into the copied project.
+            """
+            ignored = _pattern_ignore(directory, contents)
+            d = Path(directory)
+            ignored |= {c for c in contents if (d / c).is_symlink()}
+            return ignored
+
+        base.mkdir(parents=True, exist_ok=True)
         shutil.copytree(
             str(source),
             str(dest),
-            symlinks=True,
-            ignore=ignore,
+            ignore=_ignore,
             dirs_exist_ok=True,
         )
         return dest
