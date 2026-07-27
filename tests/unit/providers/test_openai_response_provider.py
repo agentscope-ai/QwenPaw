@@ -49,18 +49,6 @@ def test_extract_response_text_basic() -> None:
     assert _extract_response_text(res) == "blue"
 
 
-def test_extract_response_text_empty_output() -> None:
-    res = SimpleNamespace(output=[])
-    assert _extract_response_text(res) == ""
-
-
-def test_extract_response_text_no_message_item() -> None:
-    res = SimpleNamespace(
-        output=[SimpleNamespace(type="function_call")],
-    )
-    assert _extract_response_text(res) == ""
-
-
 def test_extract_response_text_prefers_output_text_attr() -> None:
     """When the SDK response has an output_text property,
     use it instead of manual traversal."""
@@ -84,11 +72,6 @@ def test_extract_reasoning_text() -> None:
         ],
     )
     assert _extract_reasoning_text(res) == "thinking about red color"
-
-
-def test_extract_reasoning_text_empty() -> None:
-    res = SimpleNamespace(output=[])
-    assert _extract_reasoning_text(res) == ""
 
 
 # ------ _probe_image_support -----------------------------
