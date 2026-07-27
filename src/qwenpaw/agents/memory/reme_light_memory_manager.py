@@ -515,10 +515,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             )
             return
 
-        reordered: list[dict] = []
-        for idx in new_order:
-            if 0 <= idx < len(results):
-                reordered.append(results[idx])
+        # All indices are validated as a permutation of 0..n-1 above,
+        # so no bounds check is needed here.
+        reordered = [results[idx] for idx in new_order]
 
         response.metadata["results"] = reordered
         logger.info(

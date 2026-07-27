@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access,unused-argument
 """Unit tests for ReMe memory reranker (over-fetch + rerank + cap).
 
 Tests cover:
@@ -15,6 +16,7 @@ Tests cover:
 import types
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
 import qwenpaw.agents.memory.reme_light_memory_manager as mgr
@@ -128,7 +130,6 @@ async def test_rerank_timeout_fallback(manager):
     manager._get_reranker_config = MagicMock(
         return_value=_make_config(),
     )
-    import httpx
 
     async def raise_timeout(query, docs, c):
         raise httpx.TimeoutException("timeout")
@@ -152,7 +153,6 @@ async def test_rerank_http_error_fallback(manager):
     manager._get_reranker_config = MagicMock(
         return_value=_make_config(candidate_multiplier=2),
     )
-    import httpx
 
     async def raise_http(query, docs, c):
         raise httpx.RequestError("boom", request=None)
@@ -252,6 +252,8 @@ async def test_no_base_url_skip(manager):
     # Answer should be preserved (not rebuilt) because order didn't change
     # and no truncation occurred
     assert resp.answer == original_answer
+
+
 # ── no base_url + truncation: answer rebuilt ──
 
 
