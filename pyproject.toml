@@ -108,7 +108,7 @@ copaw = "qwenpaw.cli.main:cli"
 
 [project.optional-dependencies]
 channel-discord = [
-    "discord-py==2.7.1",
+    "discord-py==2.3.2",
 ]
 channel-feishu = [
     "lark-oapi==1.7.1",
@@ -152,7 +152,7 @@ channel-yuanbao = [
     "protobuf==7.35.1",
 ]
 channels-all = [
-    "discord-py==2.7.1",
+    "discord-py==2.3.2",
     "lark-oapi==1.7.1",
     "python-socks==2.8.2",
     "websockets==15.0.1",

@@ -77,7 +77,7 @@ def test_optional_channel_dependencies_use_verified_pins():
     }.items() <= core.items()
 
     expected_extras = {
-        "discord": {"discord-py": "==2.7.1"},
+        "discord": {"discord-py": "==2.3.2"},
         "feishu": {
             "lark-oapi": "==1.7.1",
             "python-socks": "==2.8.2",
