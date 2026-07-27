@@ -1,6 +1,6 @@
 ---
 name: browser_visible
-description: "当用户需要控制 browser_use 的浏览器启动方式时，使用本 skill。当前 browser_use 默认使用 managed CDP 启动本地 Chrome/Chromium；`headed` 控制是否显示窗口，`private_mode` 控制是否禁用 CDP、改走 Playwright，`browser_args` 传入额外的 Chromium 启动参数，`executable_path` 指定自定义浏览器可执行文件路径。"
+description: "当用户需要控制 browser_use 的浏览器启动方式时，使用本 skill。browser_use 默认由 Playwright 通过管道直接管理、不开放调试端口（需让其他本地工具附加时显式传 `cdp_port`）；`headed` 控制是否显示窗口，`private_mode` 保留用于兼容、不再改变默认行为，`browser_args` 传入额外的 Chromium 启动参数，`executable_path` 指定自定义浏览器可执行文件路径。"
 metadata:
   builtin_skill_version: "1.3"
   qwenpaw:
@@ -10,10 +10,11 @@ metadata:
 
 # 浏览器启动模式
 
-`browser_use.start` 只有两种启动方式：
+`browser_use.start` 的启动方式：
 
-- 默认：managed CDP
-- `private_mode=true`：Playwright 直接管理
+- 默认：Playwright 直接管理，不开放调试端口
+- `cdp_port=N`：managed CDP，开放本地调试端口供其他本地工具附加（详见 browser_cdp skill）
+- `private_mode=true`：与默认相同，保留用于兼容
 
 参数含义：
 
@@ -90,7 +91,7 @@ metadata:
 
 ## 注意
 
-- 默认就是 managed CDP
+- 默认由 Playwright 直接管理，不开放调试端口
 - 启动方式完全由调用参数决定
 - managed CDP 依赖本机存在 Chrome / Chromium / Edge
 - `private_mode=true` 不等于绝对不可检测，只是改为 Playwright 管理

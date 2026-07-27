@@ -1,6 +1,6 @@
 ---
 name: browser_visible
-description: "Use this skill when the user needs to control the browser launch mode for browser_use. By default, browser_use launches the local Chrome/Chromium using managed CDP; `headed` controls whether the window is visible, and `private_mode` controls whether CDP is disabled in favor of Playwright."
+description: "Use this skill when the user needs to control the browser launch mode for browser_use. By default browser_use is managed by Playwright over a pipe and opens no debugging port (pass an explicit `cdp_port` to let another local tool attach); `headed` controls whether the window is visible, and `private_mode` is kept for backward compatibility and no longer changes the default."
 metadata:
   builtin_skill_version: "1.2"
   qwenpaw:
@@ -10,10 +10,11 @@ metadata:
 
 # Browser Launch Modes
 
-`browser_use.start` has only two launch modes:
+`browser_use.start` launch modes:
 
-- Default: managed CDP
-- `private_mode=true`: Playwright-managed
+- Default: Playwright-managed, no debugging port
+- `cdp_port=N`: managed CDP, opens a local debugging port so other local tools can attach (see the browser_cdp skill)
+- `private_mode=true`: same as the default, kept for backward compatibility
 
 Parameter meanings:
 
@@ -56,7 +57,7 @@ Otherwise, just set `headed=true` as needed.
 
 ## Notes
 
-- The default is managed CDP
+- The default is Playwright-managed with no debugging port
 - The launch mode is entirely determined by the call parameters
 - Managed CDP requires Chrome / Chromium / Edge to be installed locally
 - `private_mode=true` does not mean absolutely undetectable — it simply switches to Playwright management
