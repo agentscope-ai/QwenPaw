@@ -1,0 +1,262 @@
+# Reusable "promote" step of the desktop release — runs ONLY after the release
+# has been flipped to published (called by release.yml's post-finalize job).
+#
+# It promotes the already-uploaded versioned OSS files to `latest`, generates
+# and uploads the Tauri auto-update manifest (qwenpaw-tauri-latest.json), and
+# refreshes the desktop + main index. Splitting this out of desktop-publish.yml
+# ensures existing users' auto-updater is never pointed at a version whose
+# release/PyPI/Docker publish might still have failed.
+#
+# Skipped entirely when dry_run=true (fork verification never touches prod OSS).
+
+name: Desktop Promote (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Published release tag (for updater manifest notes)"
+        type: string
+        required: true
+      ref:
+        description: "Git ref/SHA to checkout for the packaging scripts"
+        type: string
+        required: false
+        default: ""
+      dry_run:
+        description: "Skip promotion entirely (fork verification)"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  promote-oss:
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    env:
+      OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
+      OSS_PUBLIC_BASE_URL: ${{ vars.OSS_PUBLIC_BASE_URL || 'https://download.qwenpaw.agentscope.io/files/apps/desktop' }}
+    steps:
+      - name: Checkout (for scripts)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
+
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Install ossutil
+        run: |
+          wget https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil-v1.7.18-linux-amd64.zip
+          unzip ossutil-v1.7.18-linux-amd64.zip
+          chmod +x ossutil-v1.7.18-linux-amd64/ossutil64
+          sudo mv ossutil-v1.7.18-linux-amd64/ossutil64 /usr/local/bin/ossutil
+          ossutil --version
+
+      - name: Configure ossutil
+        run: |
+          ossutil config -e ${{ secrets.OSS_ENDPOINT }} \
+            -i ${{ secrets.OSS_ACCESS_KEY_ID }} \
+            -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
+            -L CH
+
+      - name: Promote versioned files to latest
+        if: hashFiles('QwenPaw-Desktop-Tauri-*/*') != ''
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          promote_latest() {
+            local dirs="$1"
+            local pattern="$2"
+            local platform="$3"
+            local versioned_name="$4"
+            local latest_name="$5"
+
+            local artifact
+            artifact=$(find ${dirs} -name "${pattern}" 2>/dev/null | head -1 || true)
+            if [ -z "${artifact}" ]; then
+              echo "No ${platform} artifact; skipping latest promotion"
+              return 0
+            fi
+
+            echo "Promoting ${platform} ${versioned_name} -> ${latest_name}"
+            ossutil cp \
+              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${versioned_name}" \
+              "oss://${OSS_BUCKET}/files/apps/desktop/${platform}/${latest_name}" \
+              --acl public-read \
+              --force
+            ossutil cp \
+              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${versioned_name}.json" \
+              "oss://${OSS_BUCKET}/metadata/apps/desktop/${platform}/${latest_name}.json" \
+              --acl public-read \
+              --force
+          }
+
+          promote_latest \
+            "QwenPaw-Desktop-Tauri-Windows-*" \
+            "QwenPaw-Tauri-*-Windows-setup.exe" \
+            "win-tauri" \
+            "QwenPaw-Tauri-${VERSION}-Windows-setup.exe" \
+            "QwenPaw-Tauri-latest-Windows-setup.exe"
+
+          promote_latest \
+            "QwenPaw-Desktop-Tauri-macOS-*" \
+            "QwenPaw-Tauri-*-macOS.zip" \
+            "mac-tauri" \
+            "QwenPaw-Tauri-${VERSION}-macOS.zip" \
+            "QwenPaw-Tauri-latest-macOS.zip"
+
+      - name: Link artifacts into updater-meta dirs for manifest generation
+        if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
+        run: |
+          # The manifest generator expects the artifact binary alongside the
+          # sidecar JSON.  After artifact splitting the exe lives in a separate
+          # artifact directory, so we symlink it into the meta directory.
+          for f in QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe; do
+            [ -f "$f" ] && ln -sf "../$f" tauri-updater-meta-windows/ 2>/dev/null || true
+          done
+
+      - name: Generate and upload OSS updater manifest
+        # The Tauri auto-updater uses OSS only; GitHub Releases only carry
+        # first-install artifacts.
+        if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          RELEASE_BODY="$(gh release view "${{ inputs.tag }}" --json body -q .body --repo "$GITHUB_REPOSITORY" 2>/dev/null || true)"
+          OSS_BASE="${OSS_PUBLIC_BASE_URL%/}"
+          metadata_args=()
+          for f in tauri-updater-meta-windows/tauri-windows-*-updater.json \
+                   tauri-updater-meta-macos/tauri-darwin-*-updater.json; do
+            [ -f "$f" ] && metadata_args+=(--metadata "$f")
+          done
+          if [ ${#metadata_args[@]} -eq 0 ]; then
+            echo "No Tauri updater sidecars found, skipping OSS manifest"
+            exit 0
+          fi
+          NOTES="${RELEASE_BODY:-QwenPaw Desktop ${VERSION}}"
+          python scripts/pack-tauri/generate_update_manifest.py manifest \
+            --version "$VERSION" \
+            --base-url "$OSS_BASE" \
+            --target-base "windows-x86_64=${OSS_BASE}/win-tauri" \
+            --target-base "darwin-aarch64=${OSS_BASE}/mac-tauri" \
+            "${metadata_args[@]}" \
+            --notes "$NOTES" \
+            --output qwenpaw-tauri-latest-oss.json
+          ossutil cp qwenpaw-tauri-latest-oss.json \
+            "oss://${OSS_BUCKET}/metadata/qwenpaw-tauri-latest.json" \
+            --acl public-read \
+            --force
+
+      - name: Update desktop index
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Download existing desktop/index.json if exists
+          ossutil cp "oss://${OSS_BUCKET}/metadata/apps/desktop/index.json" \
+            desktop-index.json 2>/dev/null || cat > desktop-index.json << 'EOF'
+          {
+            "product": "desktop",
+            "updated_at": "",
+            "platforms": {},
+            "files": {}
+          }
+          EOF
+
+          merge_tauri_metadata() {
+            local metadata="$1"
+            local dirs="$2"
+            local pattern="$3"
+            local platform="$4"
+            local artifact
+            artifact=$(find ${dirs} -name "${pattern}" 2>/dev/null | head -1 || true)
+            if [ -z "${artifact}" ]; then
+              return 0
+            fi
+            python scripts/pack/generate_oss_metadata.py \
+              --file "${artifact}" \
+              --product desktop \
+              --platform "${platform}" \
+              --version "$VERSION" \
+              --output "${metadata}" \
+              --merge-index desktop-index.json \
+              --output-index desktop-index.json
+          }
+
+          merge_tauri_metadata \
+            "win-tauri-metadata.json" \
+            "QwenPaw-Desktop-Tauri-Windows-*" \
+            "QwenPaw-Tauri-*-Windows-setup.exe" \
+            "win-tauri"
+          merge_tauri_metadata \
+            "mac-tauri-metadata.json" \
+            "QwenPaw-Desktop-Tauri-macOS-*" \
+            "QwenPaw-Tauri-*-macOS.zip" \
+            "mac-tauri"
+
+          # Upload updated desktop/index.json
+          ossutil cp desktop-index.json \
+            "oss://${OSS_BUCKET}/metadata/apps/desktop/index.json" \
+            --acl public-read \
+            --force
+
+          echo "✓ Desktop index updated"
+
+      - name: Update main index
+        run: |
+          # Download main index if exists
+          ossutil cp "oss://${OSS_BUCKET}/metadata/index.json" \
+            main-index.json 2>/dev/null || cat > main-index.json << 'EOF'
+          {
+            "version": "1.0",
+            "updated_at": "",
+            "products": {}
+          }
+          EOF
+
+          # Ensure desktop product is in main index
+          python3 << 'PYTHON'
+          import json
+          from datetime import datetime, timezone
+
+          with open("main-index.json", "r") as f:
+              index = json.load(f)
+
+          index["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+          if "desktop" not in index["products"]:
+              index["products"]["desktop"] = {
+                  "name": {
+                      "zh-CN": "桌面客户端",
+                      "en-US": "Desktop Client"
+                  },
+                  "index_url": "/metadata/apps/desktop/index.json"
+              }
+
+          with open("main-index.json", "w") as f:
+              json.dump(index, f, indent=2, ensure_ascii=False)
+          PYTHON
+
+          # Upload main index
+          ossutil cp main-index.json \
+            "oss://${OSS_BUCKET}/metadata/index.json" \
+            --acl public-read \
+            --force
+
+          echo "✓ Main index updated"

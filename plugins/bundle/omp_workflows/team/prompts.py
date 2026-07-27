@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..shared.role_prompts import (
+    fork_merge_instructions,
     format_batch_item,
     format_spawn_call,
     tools_literal,
@@ -136,9 +137,14 @@ Execute:
      ...repeat for each worker...
    ])
 3. Poll each worker with check_agent_task (wait >= 30s between polls).
-4. After all complete, read {ctx.loop_dir}/results/ files and summarize.
-5. Write the summary to {ctx.loop_dir}/handoffs/exec-summary.md.
-6. Update {ctx.loop_dir}/state.json: set current_phase="verify"."""
+4. Integrate forked worker results:
+{fork_merge_instructions()}
+5. After successful merges, update {ctx.loop_dir}/state.json:
+   set forks_integrated=true.
+6. Read {ctx.loop_dir}/results/ files and summarize.
+7. Write the summary to {ctx.loop_dir}/handoffs/exec-summary.md.
+8. Update {ctx.loop_dir}/state.json: set current_phase="verify".
+   The gate rejects verify/completed until forks_integrated=true."""
 
 
 def _verify(ctx: TeamPromptCtx) -> str:

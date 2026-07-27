@@ -593,6 +593,7 @@ async def copy_agent(
         workspace_dir,
         skill_names=[],
         language=language,
+        apply_md_templates=request.copy_md_files,
     )
     _copy_selected_workspace_files(
         request=request,
@@ -893,6 +894,8 @@ def _initialize_agent_workspace(
     skill_names: list[str] | None = None,
     md_template_id: str | None = None,
     language: str | None = None,
+    *,
+    apply_md_templates: bool = True,
 ) -> None:
     """Initialize agent workspace with only explicitly requested skills."""
     from ...config import load_config as load_global_config
@@ -905,12 +908,13 @@ def _initialize_agent_workspace(
     if not language:
         language = config.agents.language or "zh"
 
-    _apply_workspace_md_templates(
-        workspace_dir,
-        language,
-        md_template_id=md_template_id,
-    )
-    _ensure_heartbeat_file(workspace_dir, language)
+    if apply_md_templates:
+        _apply_workspace_md_templates(
+            workspace_dir,
+            language,
+            md_template_id=md_template_id,
+        )
+        _ensure_heartbeat_file(workspace_dir, language)
     _install_initial_skills(workspace_dir, skill_names)
 
     jobs_file = workspace_dir / "jobs.json"

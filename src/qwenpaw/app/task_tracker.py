@@ -180,9 +180,14 @@ class TaskTracker:
                 "[STOP] Calling task.cancel() for run_key=%s",
                 run_key,
             )
-            state.task.cancel()
+            task = state.task
+            task.cancel()
             logger.debug("[STOP] task.cancel() called for run_key=%s", run_key)
-            return True
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        return True
 
     async def attach_or_start(
         self,

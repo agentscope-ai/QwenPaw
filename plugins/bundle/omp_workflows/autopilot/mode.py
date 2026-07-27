@@ -25,8 +25,9 @@ _HELP = (
     "**Autopilot** — full lifecycle pipeline\n\n"
     "Usage: `/autopilot [--skip-qa] [--skip-validation] <task>`\n\n"
     "Phases: expansion -> planning -> execution "
-    "-> qa -> validation -> cleanup\n"
-    "Phase 4 uses 3 parallel reviewers (architect + security + code)."
+    "-> qa -> validation -> cleanup -> completed\n"
+    "Validation uses 3 parallel reviewers "
+    "(architect + security + code)."
 )
 
 

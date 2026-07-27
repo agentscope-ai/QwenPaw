@@ -8,23 +8,23 @@
 
 控制对话上下文的命令。
 
-| 命令       | 需要等待 | 压缩摘要      | 长期记忆    | 返回内容             |
-| ---------- | -------- | ------------- | ----------- | -------------------- |
-| `/compact` | ⏳ 是    | 📦 生成新摘要 | ✅ 后台保存 | ✅ 压缩完成 + 新摘要 |
-| `/new`     | ⚡ 否    | 🗑️ 清空       | ✅ 后台保存 | ✅ 新对话开始提示    |
-| `/clear`   | ⚡ 否    | 🗑️ 清空       | ❌ 不保存   | ✅ 历史清空提示      |
+| 命令       | 需要等待 | Continuation State | 长期记忆    | 返回内容          |
+| ---------- | -------- | ------------------ | ----------- | ----------------- |
+| `/compact` | ⏳ 是    | 📦 按需更新        | ✅ 后台保存 | ✅ 本次压缩结果   |
+| `/new`     | ⚡ 否    | 🗑️ 清空            | ✅ 后台保存 | ✅ 新对话开始提示 |
+| `/clear`   | ⚡ 否    | 🗑️ 清空            | ❌ 不保存   | ✅ 历史清空提示   |
 
 ---
 
 ### /compact - 压缩当前对话
 
-手动触发对话压缩，将当前对话消息浓缩成摘要（**需要等待**），同时后台保存到长期记忆。
+手动触发上下文压缩（**需要等待**）。在 Scroll 下，符合条件的较早轮次会被归档，同时近期尾部和活动轮次仍保留在 live context 中。发生归档时会更新 continuation summary；启用长期记忆后，还可以在后台执行相应的保存任务。
 
 ```
 /compact
 ```
 
-也可以额外补一句说明，指导摘要保留或删除哪些信息：
+也可以补充一条仅对本次压缩有效的说明，指导 continuation summary 优先保留哪些有证据支持的信息：
 
 ```
 /compact 保留需求、决策和待办，去掉调试日志和工具调用细节
@@ -35,13 +35,12 @@
 ```
 **Compact Complete!**
 
-- Messages compacted: 12
-**Compressed Summary:**
-用户请求帮助构建用户认证系统，已完成登录接口的实现...
-- Summary task started in background
+- Messages archived: 12
+- Continuation summary: available via `/compact_str`
+- Older turns remain recoverable through Scroll history
 ```
 
-> 💡 与自动压缩不同，`/compact` 会压缩**所有**当前消息，而不是只压缩超出阈值的部分。
+> 💡 `/compact` 会立即请求压缩，但仍会保护配置指定的近期尾部和活动轮次。
 > 💡 额外说明只作用于这一次手动 `/compact`，不会改变自动压缩行为。
 
 ---
@@ -182,7 +181,7 @@
 
 ### /compact_str - 查看压缩摘要
 
-显示当前的压缩摘要内容。
+在 Scroll 下显示当前 continuation summary。它是用于延续任务的紧凑状态，不是完整归档原文或内部检索索引。Native 兼容模式仍显示其 compressed summary。
 
 ```
 /compact_str
@@ -191,18 +190,24 @@
 **返回示例（有摘要时）：**
 
 ```
-**Compressed Summary**
+**Continuation Summary**
 
-用户请求帮助构建用户认证系统，已完成登录接口的实现...
+## Active Task
+构建用户认证系统。
+Status: in_progress
+
+## Current State
+- 登录接口已经完成。
 ```
 
 **返回示例（无摘要时）：**
 
 ```
-**No Compressed Summary**
+**No Continuation Summary**
 
-- No summary has been generated yet
-- Use /compact or wait for auto-compaction
+- Scroll has not generated a continuation summary yet
+- Use `/compact` or wait for auto-compaction
+- Archived turns remain recoverable through Scroll history
 ```
 
 ---

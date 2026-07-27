@@ -2691,7 +2691,11 @@
     "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
-    "marketDeveloper": "Developer"
+    "marketDeveloper": "Developer",
+    "marketSortLabel": "Sort plugins",
+    "marketSortDownloads": "Most downloaded",
+    "marketSortUpdated": "Recently updated",
+    "marketSortFavorites": "Most favorited"
   },
   "inbox": {
     "title": "Ежедневный AI-сбор",
@@ -2728,6 +2732,8 @@
     "createSuccess": "Сбор успешно создан",
     "emptyApprovals": "Нет ожидающих подтверждений",
     "emptyPush": "Нет push-сообщений",
+    "wobbleEnable": "Включить уведомление о подтверждении",
+    "wobbleDisable": "Отключить уведомление о подтверждении",
     "emptyHarvests": "Сборов пока нет",
     "statusReadyToHarvest": "Готово к сбору",
     "statusGrowing": "Растёт",
@@ -2934,6 +2940,8 @@
       "status": "Статус"
     },
     "loading": "Загрузка...",
+    "inputProgress": "Получено символов: {{count}}",
+    "rawInputPreview": "Необработанный ввод в реальном времени (последние 4 096 символов)",
     "browserAction": {
       "startHeaded": "Запустить браузер (с интерфейсом)",
       "start": "Запустить браузер",

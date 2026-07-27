@@ -995,7 +995,11 @@
     "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
-    "marketDeveloper": "Developer"
+    "marketDeveloper": "Developer",
+    "marketSortLabel": "Sort plugins",
+    "marketSortDownloads": "Most downloaded",
+    "marketSortUpdated": "Recently updated",
+    "marketSortFavorites": "Most favorited"
   },
   "debug": {
     "title": "Debug",
@@ -1160,6 +1164,8 @@
     "createSuccess": "Panen berhasil dibuat",
     "emptyApprovals": "Tidak ada persetujuan yang tertunda",
     "emptyPush": "Tidak ada pesan push",
+    "wobbleEnable": "Aktifkan notifikasi getar persetujuan",
+    "wobbleDisable": "Nonaktifkan notifikasi getar persetujuan",
     "emptyHarvests": "Belum ada panen",
     "statusReadyToHarvest": "Siap Dipanen",
     "statusGrowing": "Sedang Tumbuh",
@@ -1524,6 +1530,8 @@
       "status": "Status"
     },
     "loading": "Memuat...",
+    "inputProgress": "{{count}} karakter diterima",
+    "rawInputPreview": "Input mentah langsung (4.096 karakter terakhir)",
     "browserAction": {
       "startHeaded": "Mulai browser (dengan tampilan)",
       "start": "Mulai browser",

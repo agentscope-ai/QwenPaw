@@ -217,10 +217,17 @@ class ACPPermissionAdapter:
         )
 
         command = str(self._command(tool_call) or "")
-        if is_command_destructive(command):
+        # Pass ACP session cwd so relative rm targets (e.g. ``../``) resolve
+        # against the same root as path-boundary checks.
+        if is_command_destructive(command, cwd=self.cwd):
             return True
 
         for path_value in self._paths(tool_call):
-            if is_path_outside_boundary(path_value, self.cwd):
+            # self.cwd is resolve()'d in __init__ — skip re-resolving it.
+            if is_path_outside_boundary(
+                path_value,
+                self.cwd,
+                cwd_is_resolved=True,
+            ):
                 return True
         return False

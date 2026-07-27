@@ -24,6 +24,7 @@ from qwenpaw.exceptions import AppBaseException
 from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.routers.agents import (
     CopyAgentRequest,
+    _initialize_agent_workspace,
     copy_agent,
     router as agents_router,
 )
@@ -579,6 +580,7 @@ def test_copy_agent_defaults_reset_channels_and_schedules_startup(
     assert not (new_ws / "chats.json").exists()
 
     init_mock.assert_called_once()
+    assert init_mock.call_args.kwargs["apply_md_templates"] is True
     manager_mock.schedule_agent_startup.assert_called_once_with("copied1")
     assert "copied1" in fake_config.agents.profiles
 
@@ -620,7 +622,9 @@ def test_copy_agent_copies_skills_and_jobs_when_requested(
         ),
         patch("qwenpaw.app.routers.agents.save_config"),
         patch("qwenpaw.app.routers.agents.save_agent_config"),
-        patch("qwenpaw.app.routers.agents._initialize_agent_workspace"),
+        patch(
+            "qwenpaw.app.routers.agents._initialize_agent_workspace",
+        ) as init_mock,
         patch(
             "qwenpaw.app.routers.agents._generate_unique_id",
             return_value="copied2",
@@ -644,6 +648,8 @@ def test_copy_agent_copies_skills_and_jobs_when_requested(
     assert not (new_ws / "AGENTS.md").exists()
     assert not (new_ws / "sessions").exists()
     assert not (new_ws / "chats.json").exists()
+    init_mock.assert_called_once()
+    assert init_mock.call_args.kwargs["apply_md_templates"] is False
     manager_mock.schedule_agent_startup.assert_called_once_with("copied2")
 
 
@@ -725,3 +731,59 @@ async def test_copy_agent_skips_startup_without_http_request(
     assert result.id == "copied3"
     get_manager.assert_not_called()
     manager_mock.schedule_agent_startup.assert_not_called()
+
+
+def test_initialize_agent_workspace_skips_md_templates_when_disabled(
+    tmp_path,
+    fake_config,
+):
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    fake_config.agents.language = "en"
+
+    with patch(
+        "qwenpaw.config.load_config",
+        return_value=fake_config,
+    ):
+        _initialize_agent_workspace(
+            workspace,
+            skill_names=[],
+            language="en",
+            apply_md_templates=False,
+        )
+
+    assert (workspace / "sessions").is_dir()
+    assert (workspace / "memory").is_dir()
+    assert (workspace / "skills").is_dir()
+    assert (workspace / "jobs.json").is_file()
+    assert (workspace / "chats.json").is_file()
+    assert not (workspace / "AGENTS.md").exists()
+    assert not (workspace / "SOUL.md").exists()
+    assert not (workspace / "PROFILE.md").exists()
+    assert not (workspace / "HEARTBEAT.md").exists()
+    assert not (workspace / "BOOTSTRAP.md").exists()
+    assert not (workspace / "MEMORY.md").exists()
+
+
+def test_initialize_agent_workspace_applies_md_templates_by_default(
+    tmp_path,
+    fake_config,
+):
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    fake_config.agents.language = "en"
+
+    with patch(
+        "qwenpaw.config.load_config",
+        return_value=fake_config,
+    ):
+        _initialize_agent_workspace(
+            workspace,
+            skill_names=[],
+            language="en",
+        )
+
+    assert (workspace / "AGENTS.md").is_file()
+    assert (workspace / "HEARTBEAT.md").is_file()
+    assert (workspace / "sessions").is_dir()
+    assert (workspace / "jobs.json").is_file()

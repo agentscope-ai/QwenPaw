@@ -2676,7 +2676,11 @@
     "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
-    "marketDeveloper": "Developer"
+    "marketDeveloper": "Developer",
+    "marketSortLabel": "Sort plugins",
+    "marketSortDownloads": "Most downloaded",
+    "marketSortUpdated": "Recently updated",
+    "marketSortFavorites": "Most favorited"
   },
   "inbox": {
     "title": "受信トレイ",
@@ -2713,6 +2717,8 @@
     "createSuccess": "Harvest を作成しました",
     "emptyApprovals": "保留中の承認はありません",
     "emptyPush": "通知はありません",
+    "wobbleEnable": "承認の揺れ通知を有効にする",
+    "wobbleDisable": "承認の揺れ通知を無効にする",
     "emptyHarvests": "Harvest はまだありません",
     "statusReadyToHarvest": "実行可能",
     "statusGrowing": "実行中",
@@ -2919,6 +2925,8 @@
       "status": "ステータス"
     },
     "loading": "読み込み中...",
+    "inputProgress": "{{count}} 文字を受信",
+    "rawInputPreview": "リアルタイムの未加工入力（末尾 4,096 文字）",
     "browserAction": {
       "startHeaded": "ブラウザを起動（表示あり）",
       "start": "ブラウザを起動",

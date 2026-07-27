@@ -72,7 +72,7 @@ def _claim_tool_ownership(tool_name: str, plugin_id: str) -> None:
 
 
 def release_tool_ownership_for_plugin(plugin_id: str) -> None:
-    """Drop ownership records for tools registered by *plugin_id*."""
+    """Drop ownership records and governance identities for *plugin_id*."""
     with _TOOL_PLUGIN_OWNERS_LOCK:
         stale = [
             name
@@ -82,11 +82,34 @@ def release_tool_ownership_for_plugin(plugin_id: str) -> None:
         for name in stale:
             del _TOOL_PLUGIN_OWNERS[name]
 
+    from ..governance.tool_registry import DEFAULT_REGISTRY
+
+    removed = DEFAULT_REGISTRY.unregister_owner(plugin_id)
+    if removed:
+        logger.info(
+            "Unregistered governance tools for plugin '%s': %s",
+            plugin_id,
+            ", ".join(removed),
+        )
+
+
+def _release_tool_registration(tool_name: str, plugin_id: str) -> None:
+    """Roll back ownership + governance for one tool owned by *plugin_id*."""
+    with _TOOL_PLUGIN_OWNERS_LOCK:
+        if _TOOL_PLUGIN_OWNERS.get(tool_name) == plugin_id:
+            del _TOOL_PLUGIN_OWNERS[tool_name]
+
+    from ..governance.tool_registry import DEFAULT_REGISTRY
+
+    if DEFAULT_REGISTRY.get_owner(tool_name) == plugin_id:
+        DEFAULT_REGISTRY.unregister_python_tool(tool_name)
+
 
 def _register_to_governance(
     tool_name: str,
     tool_type: str = "network",
     target_param: str = "",
+    owner: str = "",
 ) -> None:
     """Register a plugin tool into the governance whitelist.
 
@@ -103,7 +126,16 @@ def _register_to_governance(
         python_name=tool_name,
         tool_type=tool_type,
         target_param=target_param,
+        owner=owner,
     )
+
+
+def _tool_func_matches_name(tool_func: Callable, tool_name: str) -> bool:
+    """Return True when *tool_func* is bound to *tool_name*."""
+    if getattr(tool_func, "__name__", None) == tool_name:
+        return True
+    desc = getattr(tool_func, "_tool_descriptor", None)
+    return getattr(desc, "name", None) == tool_name
 
 
 def _bridge_to_runtime(
@@ -113,7 +145,11 @@ def _bridge_to_runtime(
     description: str,
     registry,
 ) -> None:
-    """Attach ToolDescriptor and inject into runtime ToolRegistries."""
+    """Attach ToolDescriptor and inject into runtime ToolRegistries.
+
+    Replaces any existing descriptor / bootstrap entry for *tool_name*
+    so hot-reload does not keep a stale callable.
+    """
     import inspect
 
     from ..runtime.tool_registry import ToolDescriptor
@@ -147,9 +183,11 @@ def _bridge_to_runtime(
             "tool_registry",
             None,
         )
-        if tr is None or tool_name in tr:
+        if tr is None:
             continue
         try:
+            if tool_name in tr and hasattr(tr, "unregister"):
+                tr.unregister(tool_name)
             tr.register(desc)
             logger.info(
                 "Injected '%s' into workspace '%s' ToolRegistry",
@@ -162,8 +200,57 @@ def _bridge_to_runtime(
     bk = getattr(wm, "_bootstrap_kwargs", None)
     if bk is not None:
         funcs = bk.setdefault("builtin_tool_funcs", [])
-        if tool_func not in funcs:
+        if isinstance(funcs, list):
+            funcs[:] = [
+                fn
+                for fn in funcs
+                if not _tool_func_matches_name(fn, tool_name)
+            ]
             funcs.append(tool_func)
+
+
+def _unbridge_from_runtime(
+    tool_name: str,
+    tool_func: Callable | None,
+    registry,
+) -> None:
+    """Undo :func:`_bridge_to_runtime` for failed expose or plugin unload."""
+    if registry is None:
+        return
+    wm = registry.get_workspace_manager()
+    if wm is None:
+        return
+
+    for ws in getattr(wm, "agents", {}).values():
+        tr = getattr(
+            getattr(ws, "plugins", None),
+            "tool_registry",
+            None,
+        )
+        if tr is None:
+            continue
+        try:
+            if hasattr(tr, "unregister"):
+                tr.unregister(tool_name)
+            elif tool_name in tr:
+                # Fallback for registries without unregister().
+                # pylint: disable-next=protected-access
+                tr._descs.pop(tool_name, None)
+        except (AttributeError, TypeError, KeyError):
+            pass
+
+    bk = getattr(wm, "_bootstrap_kwargs", None)
+    if bk is not None:
+        funcs = bk.get("builtin_tool_funcs")
+        if isinstance(funcs, list):
+            if tool_func is not None:
+                while tool_func in funcs:
+                    funcs.remove(tool_func)
+            funcs[:] = [
+                fn
+                for fn in funcs
+                if not _tool_func_matches_name(fn, tool_name)
+            ]
 
 
 def _write_tool_config(
@@ -725,14 +812,23 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             # Ownership + governance first: fail closed before exposing
             # the tool in toolkit/UI/runtime (avoids #6114-style
             # visible-but-denied, and cross-plugin name collisions).
+            # Any mid-flight failure must roll back claimed ownership /
+            # governance so other plugins can reuse the name.
+            claimed = False
+            tools_module = None
+            appended_to_all = False
             try:
                 _claim_tool_ownership(tool_name, self.plugin_id)
+                claimed = True
                 _register_to_governance(
                     tool_name,
                     tool_type=tool_type,
                     target_param=target_param,
+                    owner=self.plugin_id,
                 )
             except Exception as exc:
+                if claimed:
+                    _release_tool_registration(tool_name, self.plugin_id)
                 logger.error(
                     f"Failed to register tool '{tool_name}' into "
                     f"governance (not exposing tool): {exc}",
@@ -746,6 +842,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 setattr(tools_module, tool_name, tool_func)
                 if tool_name not in tools_module.__all__:
                     tools_module.__all__.append(tool_name)
+                    appended_to_all = True
                 logger.info(
                     f"Registered tool function '{tool_name}' "
                     f"to tools module",
@@ -766,9 +863,27 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 )
 
             except Exception as exc:
+                if tools_module is not None:
+                    if hasattr(tools_module, tool_name):
+                        delattr(tools_module, tool_name)
+                    if appended_to_all and tool_name in tools_module.__all__:
+                        tools_module.__all__.remove(tool_name)
+                try:
+                    _unbridge_from_runtime(
+                        tool_name,
+                        tool_func,
+                        self._registry,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug(
+                        "Runtime unbridge failed for '%s'",
+                        tool_name,
+                        exc_info=True,
+                    )
+                _release_tool_registration(tool_name, self.plugin_id)
                 logger.error(
                     f"Failed to register tool '{tool_name}' after "
-                    f"governance sync: {exc}",
+                    f"governance sync (rolled back): {exc}",
                     exc_info=True,
                 )
 
@@ -846,39 +961,40 @@ class PluginApi:  # pylint: disable=too-many-public-methods
     ) -> None:
         """Register a plugin-contributed AgentMode.
 
-        The mode is instantiated and registered into every workspace
-        on startup, and into newly created workspaces via a
-        workspace_created hook. Runtime lifecycle callbacks receive
-        the current ``HookContext``.
+        A **fresh instance** is created for each workspace on startup
+        and for every newly created workspace.  Stateful modes (gates,
+        stop handlers) must not share a single instance across
+        workspaces — ``setup()`` binds a gate to that workspace's
+        stop-handler list.
 
         Args:
             mode_cls: An ``AgentMode`` subclass with a unique
                 ``name`` class attribute.
         """
-        mode_instance = mode_cls()
+        mode_name = getattr(mode_cls, "name", None) or mode_cls.__name__
 
         def _register_mode():
-            self._register_mode_to_all_workspaces(mode_instance)
+            self._register_mode_cls_to_all_workspaces(mode_cls)
 
         def _on_workspace_created(workspace_info: dict):
-            self._register_mode_to_workspace(
-                mode_instance,
+            self._register_mode_cls_to_workspace(
+                mode_cls,
                 workspace_info,
             )
 
         self.register_startup_hook(
-            hook_name=(f"mode_{self.plugin_id}_{mode_instance.name}"),
+            hook_name=(f"mode_{self.plugin_id}_{mode_name}"),
             callback=_register_mode,
             priority=70,
         )
         self.register_workspace_created_hook(
-            hook_name=(f"mode_ws_{self.plugin_id}_{mode_instance.name}"),
+            hook_name=(f"mode_ws_{self.plugin_id}_{mode_name}"),
             callback=_on_workspace_created,
             priority=70,
         )
         logger.info(
             f"Plugin '{self.plugin_id}' scheduled mode "
-            f"'{mode_instance.name}' for registration",
+            f"'{mode_name}' for registration",
         )
 
     def register_runtime_hook(
@@ -1102,27 +1218,27 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 f"Slash cmd already registered: {exc}",
             )
 
-    def _register_mode_to_all_workspaces(self, mode):
-        """Register an AgentMode to all workspaces."""
+    def _register_mode_cls_to_all_workspaces(self, mode_cls: Type) -> None:
+        """Instantiate and register *mode_cls* on every workspace."""
         for ws in self._get_all_workspaces():
             try:
-                ws.plugins.register_mode(mode, ws)
+                ws.plugins.register_mode(mode_cls(), ws)
             except ValueError as exc:
                 logger.debug(
                     f"Mode already registered: {exc}",
                 )
 
-    def _register_mode_to_workspace(
+    def _register_mode_cls_to_workspace(
         self,
-        mode,
+        mode_cls: Type,
         workspace_info: dict,
-    ):
-        """Register an AgentMode to a specific workspace."""
+    ) -> None:
+        """Instantiate and register *mode_cls* on one workspace."""
         ws = self._get_workspace_from_info(workspace_info)
         if ws is None:
             return
         try:
-            ws.plugins.register_mode(mode, ws)
+            ws.plugins.register_mode(mode_cls(), ws)
         except ValueError as exc:
             logger.debug(
                 f"Mode already registered: {exc}",

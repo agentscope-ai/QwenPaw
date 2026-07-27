@@ -37,7 +37,7 @@ from ..constant import (
     LLM_RATE_LIMIT_PAUSE,
     WORKING_DIR,
 )
-from ..utils.atomic_io import write_json_atomic
+from ..utils.io_utils import write_json_atomic
 from ..utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
@@ -921,31 +921,6 @@ class ScrollContextConfig(BaseModel):
             "opt-in for external consumers (analytics, backup). When on, "
             "dialog is written on every eviction AND on /clear, /new, "
             "/compact; when off, scroll never writes dialog anywhere."
-        ),
-    )
-
-    summarize_unheadlined_evictions: bool = Field(
-        default=True,
-        description=(
-            "When an evicted span carries NO model headline, generate a "
-            "one-line summary of it (via the active model) to use as its "
-            "eviction-index entry instead of a bare ``(no milestone)`` line. "
-            "Keeps the index readable for legacy 1.x conversations (whose "
-            "turns predate headlines) and for tool-heavy spans the model "
-            "never headlined. The full turns stay recallable either way; "
-            "this only affects the descriptive label. Best-effort — a "
-            "model/timeout failure falls back to ``(no milestone)`` and never "
-            "blocks eviction. Costs one extra model call per such eviction."
-        ),
-    )
-
-    summarize_eviction_timeout_seconds: int = Field(
-        default=20,
-        ge=1,
-        description=(
-            "Per-eviction timeout for the un-headlined-span summary call "
-            "above. On timeout the span keeps a ``(no milestone)`` label; "
-            "eviction itself is never delayed beyond this."
         ),
     )
 
@@ -2252,7 +2227,16 @@ class ToolGuardConfig(BaseModel):
     enabled: bool = True
     guarded_tools: Optional[List[str]] = None
     denied_tools: List[str] = Field(default_factory=list)
-    auto_denied_rules: List[str] = Field(default_factory=list)
+    auto_denied_rules: List[str] = Field(
+        default_factory=lambda: ["SAFETY_CHECKS_DESTRUCTIVE_COMMAND"],
+        description=(
+            "Rule IDs that unconditionally deny matched tool calls. "
+            "Defaults to SAFETY_CHECKS_DESTRUCTIVE_COMMAND (catastrophic "
+            "wipes/mkfs/dd only). An empty list is treated as unset and "
+            "keeps that default (legacy configs). To disable auto-deny, "
+            "set env QWENPAW_TOOL_GUARD_AUTO_DENIED_RULES=none."
+        ),
+    )
     custom_rules: List[ToolGuardRuleConfig] = Field(default_factory=list)
     disabled_rules: List[str] = Field(default_factory=list)
     shell_evasion_checks: Dict[str, bool] = Field(

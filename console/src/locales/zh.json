@@ -221,6 +221,8 @@
     "createSuccess": "Harvest 创建成功",
     "emptyApprovals": "暂无待审批项",
     "emptyPush": "暂无推送消息",
+    "wobbleEnable": "开启审批震动提醒",
+    "wobbleDisable": "关闭审批震动提醒",
     "emptyHarvests": "暂无 Harvest 任务",
     "statusReadyToHarvest": "可立即收获",
     "statusGrowing": "生成中",
@@ -2915,6 +2917,10 @@
     "marketDetails": "详情",
     "marketDownloads": "下载量",
     "marketDeveloper": "开发者",
+    "marketSortLabel": "插件排序",
+    "marketSortDownloads": "下载量最多",
+    "marketSortUpdated": "最近更新",
+    "marketSortFavorites": "收藏量最多",
     "compatWarningTitle": "兼容性警告",
     "compatWarningContent": "该插件标注适配 QwenPaw {{labels}}，而您当前的 QwenPaw 版本为 {{version}}。安装后可能出现错误，是否确认继续？",
     "compatWarningConfirm": "仍然安装"
@@ -3070,6 +3076,10 @@
     "materializeSkillDefault": "创建 技能",
     "shell": "执行 {{command}}",
     "shellDefault": "执行 命令",
+    "runToolBatch": "运行工作流 {{workflow}}",
+    "runToolBatchRunning": "正在运行预存工作流",
+    "runToolBatchProgress": "共 {{count}} 步",
+    "runToolBatchStepCount": "总步骤数：{{count}}",
     "formatTable": {
       "file": "文件",
       "lineNumber": "行号",
@@ -3081,6 +3091,8 @@
       "status": "状态"
     },
     "loading": "处理中...",
+    "inputProgress": "已接收 {{count}} 个字符",
+    "rawInputPreview": "实时原始参数（最后 4096 个字符）",
     "browserAction": {
       "startHeaded": "启动浏览器(有界面)",
       "start": "启动浏览器",

@@ -270,6 +270,18 @@ class Envelope:
 
         # === THINKING BLOCK ===
         elif evt_type == EventType.THINKING_BLOCK_START.value:
+            # A new reasoning block marks the start of a fresh ReAct
+            # iteration.  Finalize any accumulated (not-yet-rotated) text
+            # message first so it becomes its own ``output`` entry ordered
+            # *before* this reasoning block.  Without this, goal/loop
+            # iterations that emit reasoning + text with no intervening tool
+            # call keep merging every answer into the first message (whose
+            # position in ``output`` is fixed at first emit) while each later
+            # reasoning block is appended to the end — so the "Thinking"
+            # bubbles pile up below the answer instead of interleaving.
+            if self._should_finalize_text_message():
+                async for obj in self._finalize_text_message():
+                    yield _EventMetadataExcludedOutput(obj)
             block_id = event.block_id
             r_msg_id = _gen_msg_id()
             r_envelope = Message(
@@ -293,6 +305,12 @@ class Envelope:
             delta = getattr(event, "delta", "") or ""
             state = self._reasoning_blocks.get(block_id)
             if state is None:
+                # Same rotation as THINKING_BLOCK_START: a reasoning block
+                # arriving without a START event still signals a new
+                # iteration, so finalize the pending text message first.
+                if self._should_finalize_text_message():
+                    async for obj in self._finalize_text_message():
+                        yield _EventMetadataExcludedOutput(obj)
                 r_msg_id = _gen_msg_id()
                 r_envelope = Message(
                     id=r_msg_id,
@@ -371,7 +389,7 @@ class Envelope:
                     name=event.tool_call_name,
                     arguments="",
                 ).model_dump(),
-                delta=False,
+                delta=True,
                 index=0,
             )
             stub_content.msg_id = msg_id
@@ -381,7 +399,7 @@ class Envelope:
 
             self._tool_calls[call_id] = {
                 "name": event.tool_call_name,
-                "args_json_acc": "",
+                "argument_fragments": [],
                 "message": plugin_call_message,
                 "output_text_acc": "",
                 "output_data_blocks": {},
@@ -392,16 +410,18 @@ class Envelope:
             state = self._tool_calls.get(call_id)
             if state is None:
                 return
-            state["args_json_acc"] += event.delta or ""
+            argument_delta = event.delta or ""
+            state["argument_fragments"].append(argument_delta)
 
             delta_content = DataContent(
                 type=ContentType.DATA,
+                # The frontend appends string fields from DATA deltas. Only
+                # send the incremental argument fragment here; repeating the
+                # call ID or name would concatenate those fields as well.
                 data=FunctionCall(
-                    call_id=call_id,
-                    name=state["name"],
-                    arguments=state["args_json_acc"],
-                ).model_dump(),
-                delta=False,
+                    arguments=argument_delta,
+                ).model_dump(exclude_none=True),
+                delta=True,
                 index=0,
             )
             delta_content.msg_id = state["message"].id
@@ -412,13 +432,14 @@ class Envelope:
             state = self._tool_calls.get(call_id)
             if state is None:
                 return
+            arguments = "".join(state.pop("argument_fragments", []))
 
             final_content = DataContent(
                 type=ContentType.DATA,
                 data=FunctionCall(
                     call_id=call_id,
                     name=state["name"],
-                    arguments=state["args_json_acc"],
+                    arguments=arguments,
                 ).model_dump(),
                 delta=False,
             )
@@ -434,7 +455,7 @@ class Envelope:
             if state is None:
                 state = {
                     "name": event.tool_call_name,
-                    "args_json_acc": "",
+                    "argument_fragments": [],
                     "output_text_acc": "",
                     "output_data_blocks": {},
                 }

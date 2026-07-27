@@ -2731,7 +2731,11 @@
     "marketSearchResult": "Found {{count}} plugins matching \"{{keyword}}\"",
     "marketDetails": "Details",
     "marketDownloads": "Downloads",
-    "marketDeveloper": "Developer"
+    "marketDeveloper": "Developer",
+    "marketSortLabel": "Sort plugins",
+    "marketSortDownloads": "Most downloaded",
+    "marketSortUpdated": "Recently updated",
+    "marketSortFavorites": "Most favorited"
   },
   "inbox": {
     "title": "Colheita diária de IA",
@@ -2768,6 +2772,8 @@
     "createSuccess": "Colheita criada com sucesso",
     "emptyApprovals": "Nenhuma aprovação pendente",
     "emptyPush": "Nenhuma mensagem push",
+    "wobbleEnable": "Ativar notificação de aprovação por vibração",
+    "wobbleDisable": "Desativar notificação de aprovação por vibração",
     "emptyHarvests": "Ainda não há colheitas",
     "statusReadyToHarvest": "Pronto para colher",
     "statusGrowing": "Em crescimento",
@@ -2974,6 +2980,8 @@
       "status": "Status"
     },
     "loading": "Carregando...",
+    "inputProgress": "{{count}} caracteres recebidos",
+    "rawInputPreview": "Entrada bruta em tempo real (últimos 4.096 caracteres)",
     "browserAction": {
       "startHeaded": "Iniciar navegador (com interface)",
       "start": "Iniciar navegador",

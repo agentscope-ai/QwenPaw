@@ -550,75 +550,83 @@ class _GeminiChatModelCompat:
                 tool_choice=None,
                 **config_kwargs,
             ):
-                # Translate the neutral ``disable_thinking`` flag
-                if config_kwargs.pop("disable_thinking", False):
-                    self.parameters.thinking_enable = False
+                disable_thinking = bool(
+                    config_kwargs.pop("disable_thinking", False),
+                )
+                config_kwargs = (
+                    # pylint: disable-next=protected-access
+                    GeminiProvider._adapt_generate_kwargs_for_gemini(
+                        config_kwargs,
+                    )
+                )
                 merged = {**self._qp_extra_config_kwargs, **config_kwargs}
-                if self._qp_default_headers:
-                    from datetime import datetime
+                effective_thinking_enable = (
+                    False
+                    if disable_thinking
+                    else bool(self.parameters.thinking_enable)
+                )
 
+                from datetime import datetime
+
+                if self._qp_default_headers:
                     client = genai.Client(
                         api_key=self.credential.api_key.get_secret_value(),
                         http_options=genai_types.HttpOptions(
                             headers=self._qp_default_headers,
                         ),
                     )
-
-                    formatted = await self.formatter.format(messages)
-                    config: dict[str, Any] = {**merged}
-                    if self.parameters.max_tokens is not None:
-                        config[
-                            "max_output_tokens"
-                        ] = self.parameters.max_tokens
-                    if self.parameters.temperature is not None:
-                        config["temperature"] = self.parameters.temperature
-                    if self.parameters.top_p is not None:
-                        config["top_p"] = self.parameters.top_p
-                    if self.parameters.thinking_enable:
-                        config["thinking_config"] = {
-                            "include_thoughts": True,
-                            "thinking_budget": (
-                                self.parameters.thinking_budget or 1024
-                            ),
-                        }
-
-                    fmt_tools, fmt_tc = self._format_tools(
-                        tools,
-                        tool_choice,
+                else:
+                    client = genai.Client(
+                        api_key=self.credential.api_key.get_secret_value(),
+                        **self.client_kwargs,
                     )
-                    if fmt_tools is not None:
-                        config["tools"] = fmt_tools
-                    if fmt_tc is not None:
-                        config["tool_config"] = fmt_tc
 
-                    call_kwargs = {
-                        "model": model_name,
-                        "contents": formatted,
-                        "config": config,
-                    }
-                    start = datetime.now()
-                    if self.stream:
-                        response = (
-                            await client.aio.models.generate_content_stream(
-                                **call_kwargs,
-                            )
-                        )
-                        return self._parse_stream_response(
-                            start,
-                            response,
-                            client,
-                        )
-                    response = await client.aio.models.generate_content(
-                        **call_kwargs,
+                formatted = await self.formatter.format(messages)
+                config: dict[str, Any] = {**merged}
+                if self.parameters.max_tokens is not None:
+                    config.setdefault(
+                        "max_output_tokens",
+                        self.parameters.max_tokens,
                     )
-                    return self._parse_completion_response(start, response)
+                if self.parameters.temperature is not None:
+                    config["temperature"] = self.parameters.temperature
+                if self.parameters.top_p is not None:
+                    config["top_p"] = self.parameters.top_p
+                config["thinking_config"] = {
+                    "include_thoughts": effective_thinking_enable,
+                    "thinking_budget": (
+                        self.parameters.thinking_budget or 1024
+                        if effective_thinking_enable
+                        else 0
+                    ),
+                }
 
-                return await super()._call_api(
-                    model_name,
-                    messages,
+                fmt_tools, fmt_tc = self._format_tools(
                     tools,
                     tool_choice,
-                    **merged,
                 )
+                if fmt_tools is not None:
+                    config["tools"] = fmt_tools
+                if fmt_tc is not None:
+                    config["tool_config"] = fmt_tc
+
+                call_kwargs = {
+                    "model": model_name,
+                    "contents": formatted,
+                    "config": config,
+                }
+                start = datetime.now()
+                if self.stream:
+                    stream_method = client.aio.models.generate_content_stream
+                    response = await stream_method(**call_kwargs)
+                    return self._parse_stream_response(
+                        start,
+                        response,
+                        client,
+                    )
+                response = await client.aio.models.generate_content(
+                    **call_kwargs,
+                )
+                return self._parse_completion_response(start, response)
 
         return _Compat(**kwargs)
