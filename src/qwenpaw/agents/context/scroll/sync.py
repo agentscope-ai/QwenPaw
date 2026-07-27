@@ -172,6 +172,7 @@ class ChatRegistry:
 
     mapping: dict[str, str] = field(default_factory=dict)
     error: str | None = None
+    has_registered_chats: bool = False
 
     @property
     def available(self) -> bool:
@@ -524,7 +525,15 @@ def _load_chat_session_id_map(
             len(ambiguous),
             path,
         )
-    return ChatRegistry(mapping=mapping)
+    return ChatRegistry(
+        mapping=mapping,
+        has_registered_chats=any(
+            isinstance(chat, dict)
+            and isinstance(chat.get("session_id"), str)
+            and bool(chat["session_id"])
+            for chat in chats
+        ),
+    )
 
 
 def _report_orphan(
@@ -579,8 +588,21 @@ def sync_sessions_to_history(
     files_meta: dict = manifest["files"]
     session_files = list(_iter_session_files(sessions_path))
     registry = _load_chat_session_id_map(chats_path)
-    if not registry.available:
-        report.registry_error = registry.error
+    registry_error = registry.error
+    if (
+        registry.available
+        and session_files
+        and not registry.has_registered_chats
+    ):
+        registry_error = f"chat registry {chats_path} has no registered chats"
+        logger.error(
+            "session-sync: found %d legacy session file(s), but %s; "
+            "migration was not performed and source files were left untouched",
+            len(session_files),
+            registry_error,
+        )
+    if registry_error:
+        report.registry_error = registry_error
         report.files.extend(
             FileResult(filename=rel_name, blocked=True)
             for _path, rel_name in session_files

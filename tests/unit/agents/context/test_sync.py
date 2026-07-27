@@ -416,7 +416,7 @@ def test_ambiguous_chat_filename_is_reported_as_orphan(
     assert store.count("a?b") == 0
 
 
-def test_unregistered_sessions_emit_one_aggregate_warning(
+def test_empty_registry_blocks_legacy_sessions_explicitly(
     store,
     tmp_path: Path,
     caplog,
@@ -431,28 +431,29 @@ def test_unregistered_sessions_emit_one_aggregate_warning(
     _write_session_1x(sessions, "legacy-orphan.json", _sample_msgs())
     chats = _write_chats(tmp_path / "chats.json", [])
 
-    with caplog.at_level(logging.WARNING, logger=sync_mod.logger.name):
+    with caplog.at_level(logging.ERROR, logger=sync_mod.logger.name):
         report = sync_sessions_to_history(
             history=store,
             sessions_dir=sessions,
             chats_path=chats,
         )
 
-    assert report.orphaned_files == 2
+    assert report.registry_error
+    assert report.orphaned_files == 0
     assert report.synced_files == 0
     assert report.rows_inserted == 0
-    assert "2 orphaned" in report.summary()
+    assert "migration blocked" in report.summary()
+    assert "2 session file(s) left untouched" in report.summary()
+    assert all(result.blocked for result in report.files)
     assert store.count("internal-agent-state-id") == 0
     assert not (sessions / MANIFEST_NAME).exists()
-    orphan_warnings = [
+    blocked_errors = [
         record
         for record in caplog.records
-        if "orphaned session file(s)" in record.getMessage()
+        if "migration was not performed" in record.getMessage()
     ]
-    assert len(orphan_warnings) == 1
-    assert (
-        "skipped 2 orphaned session file(s)" in orphan_warnings[0].getMessage()
-    )
+    assert len(blocked_errors) == 1
+    assert "found 2 legacy session file(s)" in blocked_errors[0].getMessage()
 
 
 def test_sync_is_idempotent_via_manifest(store, tmp_path: Path):
@@ -950,3 +951,34 @@ def test_first_run_emits_console_notice_then_stays_quiet(
     with caplog.at_level(logging.WARNING, logger=sync_mod.logger.name):
         sync_all_scroll_agents()
     assert not [r for r in caplog.records if "first run" in r.getMessage()]
+
+
+@pytest.mark.usefixtures("capture_qwenpaw_logs")
+def test_startup_blocks_auto_created_empty_chat_registry(
+    monkeypatch,
+    caplog,
+    tmp_path: Path,
+):
+    """Startup creates an empty chats.json before history migration runs."""
+    workspace = tmp_path / "ws"
+    _write_session_1x(
+        workspace / "sessions",
+        "legacy.json",
+        _sample_msgs(),
+    )
+    _write_chats(workspace / "chats.json", [])
+    _stub_config_loaders(monkeypatch, workspace)
+
+    with caplog.at_level(logging.ERROR, logger=sync_mod.logger.name):
+        sync_all_scroll_agents()
+
+    assert not (workspace / "sessions" / MANIFEST_NAME).exists()
+    assert any(
+        "has no registered chats" in record.getMessage()
+        for record in caplog.records
+    )
+    history = HistoryStore(workspace / "history.db")
+    try:
+        assert history.count("sync:legacy") == 0
+    finally:
+        history.close()
