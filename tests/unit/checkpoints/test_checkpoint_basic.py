@@ -19,7 +19,11 @@ from qwenpaw.runtime.commands.control.checkpoint_handler import (
     CheckpointCommandHandler,
 )
 from qwenpaw.checkpoints.service import CheckpointService
-from qwenpaw.checkpoints.policy import session_file_path, session_key
+from qwenpaw.checkpoints.policy import (
+    ref_session_key,
+    session_file_path,
+    session_key,
+)
 from qwenpaw.checkpoints.models import CheckpointError
 from qwenpaw.checkpoints.runtime import RUNTIME
 from qwenpaw.checkpoints.repository import CheckpointRepository
@@ -65,10 +69,15 @@ async def _run(workspace: _Workspace, raw: str) -> str:
     return await CheckpointCommandHandler().handle(_context(workspace, raw))
 
 
-def _write_session(workspace_dir: Path, text: str) -> Path:
+def _write_session(
+    workspace_dir: Path,
+    text: str,
+    *,
+    session_id: str = SESSION_ID,
+) -> Path:
     path = session_file_path(
         workspace_dir,
-        session_id=SESSION_ID,
+        session_id=session_id,
         user_id=USER_ID,
         channel=CHANNEL,
     )
@@ -396,6 +405,80 @@ async def test_gc_requires_confirmation_and_compacts_auto_checkpoints(
     assert any(
         entry.kind == "snap" and entry.name == "keep-me" for entry in after
     )
+
+
+@pytest.mark.asyncio
+async def test_workspace_gc_applies_keep_count_per_session(
+    tmp_path: Path,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    session_ids = ("session-a", "session-b")
+    expected_keys = {
+        session_key(
+            channel=CHANNEL,
+            user_id=USER_ID,
+            session_id=session_id,
+        )
+        for session_id in session_ids
+    }
+    for session_id in session_ids:
+        for index in range(3):
+            query = f"{session_id}-{index}"
+            _write_session(
+                tmp_path,
+                query,
+                session_id=session_id,
+            )
+            await engine.make_auto_checkpoint(
+                session_id=session_id,
+                user_id=USER_ID,
+                channel=CHANNEL,
+                query=query,
+            )
+
+    retained = await engine.gc(
+        session_id="console",
+        user_id="console",
+        channel="console",
+        all_sessions=True,
+        dry_run=True,
+        keep_count=2,
+        keep_days=0,
+    )
+    retained_by_session = {
+        key: [ref for ref in retained.kept_refs if ref_session_key(ref) == key]
+        for key in expected_keys
+    }
+    deleted_by_session = {
+        key: [
+            ref for ref in retained.deleted_refs if ref_session_key(ref) == key
+        ]
+        for key in expected_keys
+    }
+
+    assert {key: len(refs) for key, refs in retained_by_session.items()} == {
+        key: 2 for key in expected_keys
+    }
+    assert {key: len(refs) for key, refs in deleted_by_session.items()} == {
+        key: 1 for key in expected_keys
+    }
+
+    compacted = await engine.gc(
+        session_id="console",
+        user_id="console",
+        channel="console",
+        all_sessions=True,
+        compact=True,
+        dry_run=True,
+    )
+    assert {
+        key: sum(ref_session_key(ref) == key for ref in compacted.kept_refs)
+        for key in expected_keys
+    } == {key: 1 for key in expected_keys}
+    assert {
+        key: sum(ref_session_key(ref) == key for ref in compacted.deleted_refs)
+        for key in expected_keys
+    } == {key: 2 for key in expected_keys}
 
 
 @pytest.mark.asyncio

@@ -869,6 +869,28 @@ class CheckpointService:
                     pre_restore_days,
                 )
 
+    @staticmethod
+    def _kept_auto_refs_by_session(
+        records: list[_RefRecord],
+        keep_count: int,
+    ) -> set[str]:
+        """Return newest auto refs under a separate quota per session."""
+        records_by_session: dict[str, list[_RefRecord]] = {}
+        for record in records:
+            record_key = ref_session_key(record.ref)
+            # Malformed refs must not share one accidental global quota.
+            group_key = record_key or record.ref
+            records_by_session.setdefault(group_key, []).append(record)
+
+        kept: set[str] = set()
+        for session_records in records_by_session.values():
+            session_records.sort(
+                key=lambda record: record.timestamp_ms,
+                reverse=True,
+            )
+            kept.update(record.ref for record in session_records[:keep_count])
+        return kept
+
     def _gc_sync(
         self,
         session_id: str,
@@ -922,8 +944,14 @@ class CheckpointService:
             if record.ref.startswith("refs/auto/")
             and (all_sessions or ref_session_key(record.ref) == key)
         ]
-        auto_records.sort(key=lambda record: record.timestamp_ms, reverse=True)
-        kept_auto = {record.ref for record in auto_records[:resolved_count]}
+        kept_auto = (
+            set()
+            if compact
+            else self._kept_auto_refs_by_session(
+                auto_records,
+                resolved_count,
+            )
+        )
         delete_refs: list[str] = []
         keep_refs: list[str] = []
         for record in auto_records:

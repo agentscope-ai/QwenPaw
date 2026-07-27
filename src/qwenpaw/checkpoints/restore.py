@@ -270,7 +270,7 @@ class RestoreService:
                 description,
                 None,
             )
-            self.repository.restore_paths(
+            self.repository.restore_internal_paths(
                 {conversation_path: prepared.conversation_blob},
             )
             if include_files:
@@ -291,7 +291,8 @@ class RestoreService:
                 self._rollback_restore_transaction_sync(
                     original=exc,
                     pre_commit=pre_snapshot.commit,
-                    paths={conversation_path, *prepared.touched},
+                    conversation_path=conversation_path,
+                    file_paths=set(prepared.touched),
                     include_memory=(
                         memory is not None and memory.mutation_started
                     ),
@@ -306,14 +307,22 @@ class RestoreService:
         *,
         original: BaseException,
         pre_commit: str,
-        paths: set[str],
+        conversation_path: str,
+        file_paths: set[str],
         include_memory: bool,
         session_key_str: str,
         previous_head: str | None,
         memory: "MemoryRestorer | None",
     ) -> None:
         try:
-            self.repository.restore_tree_paths(pre_commit, paths)
+            conversation = self.repository.read_blob(
+                pre_commit,
+                conversation_path,
+            )
+            self.repository.restore_internal_paths(
+                {conversation_path: conversation},
+            )
+            self.repository.restore_tree_paths(pre_commit, file_paths)
             if include_memory and memory is not None:
                 memory.restore_sync(pre_commit)
             if previous_head is None:

@@ -9,6 +9,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..utils.io_utils import read_json, write_json_atomic, write_text_atomic
@@ -26,6 +27,24 @@ _INDEX_CONTENT_POLICY = "byte-preserving"
 _BYTE_PRESERVING_ATTRIBUTES = (
     "* -text -eol -filter -ident -working-tree-encoding\n"
 )
+_REGULAR_TREE_MODES = {"100644": 0o644, "100755": 0o755}
+_SYMLINK_TREE_MODE = "120000"
+_RESTORABLE_TREE_MODES = frozenset(
+    {*_REGULAR_TREE_MODES, _SYMLINK_TREE_MODE},
+)
+_REPARSE_POINT_ATTRIBUTE = getattr(
+    stat,
+    "FILE_ATTRIBUTE_REPARSE_POINT",
+    0x400,
+)
+
+
+@dataclass(frozen=True)
+class _TreeEntry:
+    """One restorable Git tree entry with its filesystem semantics."""
+
+    mode: str
+    content: bytes
 
 
 class CheckpointRepository:
@@ -346,10 +365,14 @@ class CheckpointRepository:
         )
         return any(item == "blob" for item in output.split("\0") if item)
 
-    def tree_blob_paths(self, commit: str, paths: set[str]) -> set[str]:
-        """Return the requested paths that are blobs, using one Git call."""
+    def _tree_entries(
+        self,
+        commit: str,
+        paths: set[str],
+    ) -> dict[str, _TreeEntry]:
+        """Return requested tree entries without discarding Git modes."""
         if not paths:
-            return set()
+            return {}
         output = self.run_git(
             "ls-tree",
             "-z",
@@ -357,13 +380,28 @@ class CheckpointRepository:
             "--",
             *sorted(paths),
         )
-        blobs: set[str] = set()
+        entries: dict[str, _TreeEntry] = {}
         for item in output.split("\0"):
+            if not item:
+                continue
             header, separator, path = item.partition("\t")
             fields = header.split()
-            if separator and len(fields) >= 2 and fields[1] == "blob":
-                blobs.add(path)
-        return blobs
+            if not separator or not path or len(fields) != 3:
+                raise CheckpointError(
+                    "Checkpoint contains malformed Git tree entry "
+                    f"in {commit[:12]}",
+                )
+            mode, object_type, _object_id = fields
+            if object_type != "blob" or mode not in _RESTORABLE_TREE_MODES:
+                raise CheckpointError(
+                    "Checkpoint contains unsupported Git tree entry "
+                    f"{path}: mode={mode}, type={object_type}",
+                )
+            entries[path] = _TreeEntry(
+                mode=mode,
+                content=self.read_blob(commit, path),
+            )
+        return entries
 
     def list_tree_paths(self, commit: str, *prefixes: str) -> list[str]:
         """List blob paths below one or more checkpoint tree prefixes."""
@@ -378,29 +416,166 @@ class CheckpointRepository:
         return sorted({line for line in output.splitlines() if line})
 
     def workspace_path(self, rel: str) -> Path:
+        """Return a lexical target after validating its real parent chain."""
         target = Path(os.path.abspath(self.workspace_dir / rel))
         if not target.is_relative_to(self.workspace_dir):
             raise CheckpointError(
                 f"Refusing to write outside workspace: {rel}",
             )
-        parent = target.parent
-        while parent != self.workspace_dir:
-            if parent.is_symlink():
+        try:
+            resolved_parent = target.parent.resolve(strict=False)
+        except OSError as exc:
+            raise CheckpointError(
+                f"Failed to resolve workspace path {rel}: {exc}",
+            ) from exc
+        if not resolved_parent.is_relative_to(self.workspace_dir):
+            raise CheckpointError(
+                f"Refusing to write outside workspace: {rel}",
+            )
+        current = self.workspace_dir
+        for component in target.relative_to(self.workspace_dir).parts[:-1]:
+            current /= component
+            try:
+                current_stat = os.lstat(current)
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
                 raise CheckpointError(
-                    f"Refusing to follow workspace symlink for path: {rel}",
+                    f"Failed to inspect workspace path {rel}: {exc}",
+                ) from exc
+            if self._is_reparse_stat(current_stat):
+                raise CheckpointError(
+                    "Refusing to follow workspace symlink or reparse point "
+                    f"for path: {rel}",
                 )
-            parent = parent.parent
+            if not stat.S_ISDIR(current_stat.st_mode):
+                raise CheckpointError(
+                    f"Workspace parent is not a directory for path: {rel}",
+                )
         return target
+
+    @staticmethod
+    def _is_reparse_stat(path_stat: os.stat_result) -> bool:
+        attributes = getattr(path_stat, "st_file_attributes", 0)
+        return stat.S_ISLNK(path_stat.st_mode) or bool(
+            attributes & _REPARSE_POINT_ATTRIBUTE,
+        )
+
+    @staticmethod
+    def _path_identity(path_stat: os.stat_result) -> tuple[int, int, int]:
+        return (
+            path_stat.st_dev,
+            path_stat.st_ino,
+            getattr(path_stat, "st_file_attributes", 0),
+        )
+
+    def _prepare_workspace_target(
+        self,
+        rel: str,
+    ) -> tuple[Path, tuple[int, int, int]]:
+        """Create and validate a target parent, returning its identity."""
+        target = self.workspace_path(rel)
+        current = self.workspace_dir
+        for component in target.relative_to(self.workspace_dir).parts[:-1]:
+            current /= component
+            try:
+                current.mkdir()
+            except FileExistsError:
+                pass
+            target = self.workspace_path(rel)
+        try:
+            parent_stat = os.lstat(target.parent)
+        except OSError as exc:
+            raise CheckpointError(
+                f"Failed to inspect workspace parent for {rel}: {exc}",
+            ) from exc
+        if self._is_reparse_stat(parent_stat) or not stat.S_ISDIR(
+            parent_stat.st_mode,
+        ):
+            raise CheckpointError(
+                f"Unsafe workspace parent for path: {rel}",
+            )
+        return target, self._path_identity(parent_stat)
+
+    def _verify_workspace_parent(
+        self,
+        rel: str,
+        expected_identity: tuple[int, int, int],
+    ) -> Path:
+        """Revalidate containment and parent identity before publication."""
+        target = self.workspace_path(rel)
+        try:
+            parent_stat = os.lstat(target.parent)
+        except OSError as exc:
+            raise CheckpointError(
+                f"Failed to revalidate workspace parent for {rel}: {exc}",
+            ) from exc
+        if (
+            self._is_reparse_stat(parent_stat)
+            or self._path_identity(parent_stat) != expected_identity
+        ):
+            raise CheckpointError(
+                f"Workspace parent changed while restoring path: {rel}",
+            )
+        return target
+
+    def _remove_tree_without_reparse(
+        self,
+        target: Path,
+        expected_identity: tuple[int, int, int],
+    ) -> None:
+        """Remove a real directory tree without traversing reparse points."""
+        target_stat = os.lstat(target)
+        if (
+            self._is_reparse_stat(target_stat)
+            or self._path_identity(target_stat) != expected_identity
+        ):
+            raise CheckpointError(
+                f"Directory changed while deleting path: {target}",
+            )
+        with os.scandir(target) as entries:
+            for entry in entries:
+                entry_path = Path(entry.path)
+                entry_stat = entry.stat(follow_symlinks=False)
+                if self._is_reparse_stat(entry_stat):
+                    if stat.S_ISDIR(entry_stat.st_mode):
+                        os.rmdir(entry_path)
+                    else:
+                        entry_path.unlink()
+                elif stat.S_ISDIR(entry_stat.st_mode):
+                    self._remove_tree_without_reparse(
+                        entry_path,
+                        self._path_identity(entry_stat),
+                    )
+                else:
+                    entry_path.unlink()
+        os.rmdir(target)
 
     def delete_workspace_path(self, rel: str) -> bool:
         target = self.workspace_path(rel)
         try:
-            if target.is_dir() and not target.is_symlink():
-                shutil.rmtree(target)
+            target_stat = os.lstat(target)
+        except FileNotFoundError:
+            return False
+        except OSError as exc:
+            raise CheckpointError(
+                f"Failed to inspect file {rel}: {exc}",
+            ) from exc
+        try:
+            if self._is_reparse_stat(target_stat):
+                if stat.S_ISDIR(target_stat.st_mode):
+                    os.rmdir(target)
+                else:
+                    target.unlink()
                 return True
-            if target.exists() or target.is_symlink():
-                target.unlink()
+            if stat.S_ISDIR(target_stat.st_mode):
+                self._remove_tree_without_reparse(
+                    target,
+                    self._path_identity(target_stat),
+                )
                 return True
+            target.unlink()
+            return True
         except OSError as exc:
             raise CheckpointError(
                 f"Failed to delete file {rel}: {exc}",
@@ -411,21 +586,55 @@ class CheckpointRepository:
         """Return whether a workspace file exactly matches *expected*."""
         target = self.workspace_path(rel)
         try:
-            if (
-                target.is_symlink()
-                or not target.is_file()
-                or target.stat().st_size != len(expected)
+            target_stat = os.lstat(target)
+            if self._is_reparse_stat(target_stat) or not stat.S_ISREG(
+                target_stat.st_mode,
             ):
                 return False
-            view = memoryview(expected)
-            offset = 0
-            with target.open("rb") as stream:
-                while chunk := stream.read(1024 * 1024):
-                    end = offset + len(chunk)
-                    if chunk != view[offset:end]:
-                        return False
-                    offset = end
-            return offset == len(expected)
+            return self._same_regular_content(target, target_stat, expected)
+        except OSError:
+            return False
+
+    @staticmethod
+    def _same_regular_content(
+        target: Path,
+        target_stat: os.stat_result,
+        expected: bytes,
+    ) -> bool:
+        if target_stat.st_size != len(expected):
+            return False
+        view = memoryview(expected)
+        offset = 0
+        with target.open("rb") as stream:
+            while chunk := stream.read(1024 * 1024):
+                end = offset + len(chunk)
+                if chunk != view[offset:end]:
+                    return False
+                offset = end
+        return offset == len(expected)
+
+    def _same_workspace_entry(self, rel: str, entry: _TreeEntry) -> bool:
+        target = self.workspace_path(rel)
+        try:
+            target_stat = os.lstat(target)
+            if entry.mode == _SYMLINK_TREE_MODE:
+                return stat.S_ISLNK(target_stat.st_mode) and (
+                    os.fsencode(os.readlink(target)) == entry.content
+                )
+            if self._is_reparse_stat(target_stat) or not stat.S_ISREG(
+                target_stat.st_mode,
+            ):
+                return False
+            if os.name != "nt":
+                expected_executable = entry.mode == "100755"
+                actual_executable = bool(target_stat.st_mode & 0o111)
+                if actual_executable != expected_executable:
+                    return False
+            return self._same_regular_content(
+                target,
+                target_stat,
+                entry.content,
+            )
         except OSError:
             return False
 
@@ -437,15 +646,18 @@ class CheckpointRepository:
         """Return paths that restoring from *commit* would write/delete."""
         restored: list[str] = []
         deleted: list[str] = []
-        blob_paths = self.tree_blob_paths(commit, paths)
+        entries = self._tree_entries(commit, paths)
         for rel in sorted(paths):
-            if rel not in blob_paths:
+            if rel not in entries:
                 target = self.workspace_path(rel)
-                if target.exists() or target.is_symlink():
+                try:
+                    os.lstat(target)
+                except FileNotFoundError:
+                    pass
+                else:
                     deleted.append(rel)
                 continue
-            blob = self.read_blob(commit, rel)
-            if not self.same_workspace_content(rel, blob):
+            if not self._same_workspace_entry(rel, entries[rel]):
                 restored.append(rel)
         return restored, deleted
 
@@ -457,41 +669,99 @@ class CheckpointRepository:
         """Restore selected workspace paths from a checkpoint tree."""
         restored: list[str] = []
         deleted: list[str] = []
-        blob_paths = self.tree_blob_paths(commit, paths)
-        for rel in sorted(paths - blob_paths, reverse=True):
+        entries = self._tree_entries(commit, paths)
+        for rel in sorted(paths - set(entries), reverse=True):
             if self.delete_workspace_path(rel):
                 deleted.append(rel)
-        for rel in sorted(blob_paths):
-            blob = self.read_blob(commit, rel)
-            if self.same_workspace_content(rel, blob):
+        for rel, entry in sorted(entries.items()):
+            if self._same_workspace_entry(rel, entry):
                 continue
             target = self.workspace_path(rel)
-            if target.is_dir() and not target.is_symlink():
+            try:
+                target_stat = os.lstat(target)
+            except FileNotFoundError:
+                target_stat = None
+            if target_stat is not None and stat.S_ISDIR(target_stat.st_mode):
                 self.delete_workspace_path(rel)
-            self.restore_paths({rel: blob})
+            self._restore_tree_entry(rel, entry)
             restored.append(rel)
         return restored, sorted(deleted)
 
-    def restore_paths(self, blobs: dict[str, bytes]) -> None:
+    def _restore_tree_entry(self, rel: str, entry: _TreeEntry) -> None:
+        if entry.mode == _SYMLINK_TREE_MODE:
+            self._restore_symlink(rel, entry.content)
+            return
+        self._restore_regular_file(
+            rel,
+            entry.content,
+            mode=_REGULAR_TREE_MODES[entry.mode],
+        )
+
+    def restore_internal_paths(self, blobs: dict[str, bytes]) -> None:
+        """Restore checkpoint-internal regular files with private mode."""
         for rel, content in blobs.items():
-            target = self.workspace_path(rel)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            temp_path: Path | None = None
-            try:
-                with tempfile.NamedTemporaryFile(
-                    dir=target.parent,
-                    prefix=f".{target.name}.ckpt-",
-                    suffix=".tmp",
-                    delete=False,
-                ) as temp_file:
-                    temp_file.write(content)
-                    temp_file.flush()
-                    os.fsync(temp_file.fileno())
-                    temp_path = Path(temp_file.name)
-                os.replace(temp_path, target)
-            except OSError as exc:
-                if temp_path is not None:
-                    temp_path.unlink(missing_ok=True)
-                raise CheckpointError(
-                    f"Failed to restore file {rel}: {exc}",
-                ) from exc
+            self._restore_regular_file(rel, content, mode=0o600)
+
+    def _restore_regular_file(
+        self,
+        rel: str,
+        content: bytes,
+        *,
+        mode: int,
+    ) -> None:
+        temp_path: Path | None = None
+        try:
+            target, parent_identity = self._prepare_workspace_target(rel)
+            with tempfile.NamedTemporaryFile(
+                dir=target.parent,
+                prefix=f".{target.name}.ckpt-",
+                suffix=".tmp",
+                delete=False,
+            ) as temp_file:
+                temp_file.write(content)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+                temp_path = Path(temp_file.name)
+            os.chmod(temp_path, mode)
+            target = self._verify_workspace_parent(rel, parent_identity)
+            os.replace(temp_path, target)
+            temp_path = None
+            self._verify_workspace_parent(rel, parent_identity)
+        except CheckpointError:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+            raise
+        except (OSError, ValueError) as exc:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+            raise CheckpointError(
+                f"Failed to restore file {rel}: {exc}",
+            ) from exc
+
+    def _restore_symlink(self, rel: str, content: bytes) -> None:
+        temp_path: Path | None = None
+        try:
+            target, parent_identity = self._prepare_workspace_target(rel)
+            handle, temp_name = tempfile.mkstemp(
+                dir=target.parent,
+                prefix=f".{target.name}.ckpt-",
+                suffix=".tmp",
+            )
+            os.close(handle)
+            temp_path = Path(temp_name)
+            temp_path.unlink()
+            os.symlink(os.fsdecode(content), temp_path)
+            target = self._verify_workspace_parent(rel, parent_identity)
+            os.replace(temp_path, target)
+            temp_path = None
+            self._verify_workspace_parent(rel, parent_identity)
+        except CheckpointError:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+            raise
+        except (OSError, ValueError) as exc:
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
+            raise CheckpointError(
+                f"Failed to restore symbolic link {rel}: {exc}",
+            ) from exc

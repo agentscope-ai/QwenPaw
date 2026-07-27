@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
+import subprocess
 import threading
 from pathlib import Path
 
@@ -357,6 +359,137 @@ async def test_restore_with_files_dry_run_then_confirm_skips_qwenpaw_state(
     assert state_file.read_text(encoding="utf-8") == "state after"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable mode semantics")
+def test_tree_restore_preserves_executable_mode(tmp_path: Path) -> None:
+    source = tmp_path / "run.sh"
+    source.write_bytes(b"#!/bin/sh\nexit 0\n")
+    source.chmod(0o755)
+    repository = CheckpointRepository(tmp_path)
+    tree = repository.write_workspace_tree()
+
+    source.chmod(0o644)
+    preview = repository.plan_tree_restore(tree, {"run.sh"})
+    assert preview == (["run.sh"], [])
+
+    restored, deleted = repository.restore_tree_paths(tree, {"run.sh"})
+    assert restored == ["run.sh"]
+    assert deleted == []
+    assert source.read_bytes() == b"#!/bin/sh\nexit 0\n"
+    assert source.stat().st_mode & 0o111 == 0o111
+
+    source.chmod(0o644)
+    non_executable_tree = repository.write_workspace_tree()
+    source.chmod(0o755)
+    restored, deleted = repository.restore_tree_paths(
+        non_executable_tree,
+        {"run.sh"},
+    )
+    assert restored == ["run.sh"]
+    assert deleted == []
+    assert source.stat().st_mode & 0o111 == 0
+
+
+def test_tree_restore_preserves_symbolic_link(tmp_path: Path) -> None:
+    target = tmp_path / "target.txt"
+    target.write_text("target", encoding="utf-8")
+    link = tmp_path / "current.txt"
+    try:
+        os.symlink("target.txt", link)
+    except OSError as exc:
+        pytest.skip(f"symbolic links are unavailable: {exc}")
+    repository = CheckpointRepository(tmp_path)
+    tree = repository.write_workspace_tree()
+
+    link.unlink()
+    link.write_text("target.txt", encoding="utf-8")
+    preview = repository.plan_tree_restore(tree, {"current.txt"})
+    assert preview == (["current.txt"], [])
+
+    restored, deleted = repository.restore_tree_paths(
+        tree,
+        {"current.txt"},
+    )
+    assert restored == ["current.txt"]
+    assert deleted == []
+    assert link.is_symlink()
+    assert os.readlink(link) == "target.txt"
+
+
+@pytest.mark.parametrize(
+    ("tree_output", "message"),
+    [
+        ("malformed-entry", "malformed Git tree entry"),
+        (
+            "160000 commit deadbeef\tvendor\0",
+            "unsupported Git tree entry",
+        ),
+    ],
+)
+def test_tree_restore_rejects_invalid_tree_entries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tree_output: str,
+    message: str,
+) -> None:
+    repository = CheckpointRepository(tmp_path)
+    monkeypatch.setattr(
+        repository,
+        "run_git",
+        lambda *_args, **_kwargs: tree_output,
+    )
+
+    with pytest.raises(CheckpointError, match=message):
+        repository.plan_tree_restore("deadbeef", {"vendor"})
+
+
+def test_restore_rejects_symlink_parent_outside_workspace(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    repository = CheckpointRepository(workspace)
+    linked = workspace / "linked"
+    try:
+        os.symlink(outside, linked, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"directory symbolic links are unavailable: {exc}")
+
+    with pytest.raises(CheckpointError, match="outside workspace|reparse"):
+        repository.restore_internal_paths({"linked/escaped.txt": b"escaped"})
+
+    assert not (outside / "escaped.txt").exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows junction regression")
+def test_restore_rejects_windows_junction_parent(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    repository = CheckpointRepository(workspace)
+    junction = workspace / "junction"
+    created = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(junction), str(outside)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if created.returncode != 0:
+        pytest.skip(f"junctions are unavailable: {created.stderr}")
+
+    with pytest.raises(CheckpointError, match="outside workspace|reparse"):
+        repository.restore_internal_paths(
+            {"junction/escaped.txt": b"escaped"},
+        )
+
+    assert not (outside / "escaped.txt").exists()
+    sentinel = outside / "sentinel.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    assert repository.delete_workspace_path("junction") is True
+    assert sentinel.read_text(encoding="utf-8") == "keep"
+    assert not junction.exists()
+
+
 @pytest.mark.asyncio
 async def test_restore_with_memory_and_files_combines_both_scopes(
     tmp_path: Path,
@@ -631,7 +764,7 @@ async def test_restore_io_does_not_block_event_loop(
     await _checkpoint(engine, "second")
     started = threading.Event()
     release = threading.Event()
-    original_restore_paths = engine.repository.restore_paths
+    original_restore_paths = engine.repository.restore_internal_paths
 
     def slow_restore_paths(blobs: dict[str, bytes]) -> None:
         started.set()
@@ -641,7 +774,7 @@ async def test_restore_io_does_not_block_event_loop(
 
     monkeypatch.setattr(
         engine.repository,
-        "restore_paths",
+        "restore_internal_paths",
         slow_restore_paths,
     )
     restore_task = asyncio.create_task(
