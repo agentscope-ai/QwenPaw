@@ -1053,6 +1053,32 @@ def _resolve_chromium_launch_target() -> tuple[Optional[str], Optional[str]]:
     return default_kind, _chromium_executable_path()
 
 
+_FORBIDDEN_BROWSER_ARGS = (
+    "--remote-debugging-port",
+    "--remote-debugging-address",
+)
+
+
+def _should_use_managed_cdp(private_mode: bool, cdp_port: int) -> bool:
+    """Return whether this start explicitly opts in to managed CDP."""
+    if private_mode:
+        return False
+    return cdp_port > 0
+
+
+def _reject_debug_surface_args(browser_args: str) -> None:
+    """Reject launch args that would re-open an unauthenticated CDP surface."""
+    if not browser_args:
+        return
+    for part in shlex.split(browser_args, posix=sys.platform != "win32"):
+        flag = part.split("=", 1)[0]
+        if flag in _FORBIDDEN_BROWSER_ARGS:
+            raise ValueError(
+                f"{flag} is not allowed in browser_args; "
+                "use the cdp_port parameter instead.",
+            )
+
+
 def _find_free_local_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
