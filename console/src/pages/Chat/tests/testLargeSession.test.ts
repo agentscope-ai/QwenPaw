@@ -204,7 +204,7 @@ describe("convertMessages — large session regression for #5479", () => {
     expect(() => convertMessages(messages)).not.toThrow();
   });
 
-  it("handles a single pathological huge assistant message (no chunking regression)", () => {
+  it("defers a single pathological huge assistant message", () => {
     // A single ~1MB assistant content string. If any helper assumes short
     // content, it would blow up here.
     const messages = buildOneGiantAssistantMessage(1024 * 1024);
@@ -215,8 +215,10 @@ describe("convertMessages — large session regression for #5479", () => {
     expect(result).toHaveLength(2); // one user card + one assistant card
     const assistantCard = result![1];
     expect(assistantCard.role).toBe("assistant");
-    // The card must carry the giant content intact (not truncated to empty).
-    const output = (assistantCard.cards?.[0]?.data as any)?.output;
+    const data = assistantCard.cards?.[0]?.data as any;
+    expect(data.qwenpaw_deferred_render).toBe(true);
+    // The card still carries the complete content for explicit expansion.
+    const output = data.output;
     expect(Array.isArray(output)).toBe(true);
     expect(output.length).toBe(1);
     expect(extractTextFromContent(output[0].content).length).toBeGreaterThan(

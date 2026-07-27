@@ -42,6 +42,8 @@ import { extractLatestSnapshotFromCards } from "../turnUsage";
 
 const { convertMessages, extractTextFromContent } = __test__;
 const MAX_OUTPUTS = __test__.MAX_OUTPUTS_PER_RESPONSE_CARD;
+const MAX_CONTENT_BLOCKS = __test__.MAX_CONTENT_BLOCKS_PER_RESPONSE_CARD;
+const MAX_PAYLOAD_CHARS = __test__.MAX_PAYLOAD_CHARS_PER_RESPONSE_CARD;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -84,6 +86,9 @@ function buildTurn(n: number): Message[] {
 }
 
 const cardData = (card: any) => card.cards?.[0]?.data as any;
+
+const assistantCards = (messages: Message[]) =>
+  convertMessages(messages).filter((message) => message.role === "assistant");
 
 // ---------------------------------------------------------------------------
 // Splitting behaviour
@@ -145,6 +150,110 @@ describe("convertMessages — giant turn splitting", () => {
       "assistant",
     ]);
     expect(cardData(result[4]).output).toHaveLength(3);
+  });
+
+  it("splits one assistant message with hundreds of images", () => {
+    const imageCount = MAX_CONTENT_BLOCKS * 25;
+    const cards = assistantCards([
+      {
+        role: "user",
+        content: "show results",
+      },
+      {
+        id: "images",
+        role: "assistant",
+        type: "message",
+        content: Array.from({ length: imageCount }, (_, index) => ({
+          type: "image",
+          image_url: `/result-${index}.png`,
+        })),
+      },
+    ]);
+
+    expect(cards).toHaveLength(25);
+    const images = cards.flatMap((card) =>
+      cardData(card).output.flatMap((output: any) => output.content),
+    );
+    expect(images).toHaveLength(imageCount);
+    expect(images[0].image_url).toBe("/result-0.png");
+    expect(images[images.length - 1].image_url).toBe(
+      `/result-${imageCount - 1}.png`,
+    );
+  });
+
+  it("splits fewer than 20 outputs when their combined payload is large", () => {
+    const cards = assistantCards([
+      { role: "user", content: "go" },
+      ...Array.from({ length: 6 }, (_, index) => ({
+        id: `large-${index}`,
+        role: "assistant",
+        type: "message",
+        content: [
+          {
+            type: "text",
+            text: "x".repeat(Math.floor(MAX_PAYLOAD_CHARS / 2)),
+          },
+        ],
+      })),
+    ]);
+
+    expect(cards.length).toBeGreaterThan(1);
+    expect(
+      cards.every((card) => cardData(card).output.length < MAX_OUTPUTS),
+    ).toBe(true);
+  });
+
+  it("defers one atomic giant text instead of mounting it initially", () => {
+    const cards = assistantCards([
+      { role: "user", content: "go" },
+      {
+        id: "giant-text",
+        role: "assistant",
+        type: "message",
+        content: [
+          { type: "text", text: "x".repeat(MAX_PAYLOAD_CHARS + 1) },
+        ],
+      },
+    ]);
+
+    expect(cards).toHaveLength(1);
+    expect(cardData(cards[0]).qwenpaw_deferred_render).toBe(true);
+  });
+
+  it("keeps a giant tool pair together and defers its output", () => {
+    const cards = assistantCards([
+      { role: "user", content: "run tool" },
+      {
+        id: "tool-call",
+        role: "assistant",
+        type: "plugin_call",
+        content: [
+          {
+            type: "data",
+            data: { call_id: "call-1", name: "comfyui", arguments: "{}" },
+          },
+        ],
+      },
+      {
+        id: "tool-output",
+        role: "system",
+        type: "plugin_call_output",
+        content: [
+          {
+            type: "data",
+            data: {
+              call_id: "call-1",
+              name: "comfyui",
+              output: "x".repeat(MAX_PAYLOAD_CHARS + 1),
+            },
+          },
+        ],
+      },
+    ]);
+
+    expect(cards).toHaveLength(1);
+    expect(cardData(cards[0]).output).toHaveLength(2);
+    expect(cardData(cards[0]).qwenpaw_deferred_render).toBe(true);
   });
 });
 

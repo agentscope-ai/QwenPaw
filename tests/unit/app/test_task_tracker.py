@@ -447,6 +447,191 @@ async def test_no_truncated_marker_when_buffer_within_limits():
     await asyncio.sleep(0.05)
 
 
+@pytest.mark.asyncio
+async def test_slow_subscriber_queue_is_bounded(monkeypatch):
+    monkeypatch.setattr(task_tracker_mod, "MAX_SUBSCRIBER_EVENTS", 4)
+    monkeypatch.setattr(task_tracker_mod, "MAX_SUBSCRIBER_BYTES", 1024)
+    tracker = TaskTracker()
+    produced = asyncio.Event()
+    release = asyncio.Event()
+
+    async def burst(_payload):
+        for index in range(12):
+            yield f"data: event-{index}\n\n"
+        produced.set()
+        await release.wait()
+
+    queue, _ = await tracker.attach_or_start(
+        "run-slow-subscriber",
+        payload=None,
+        stream_fn=burst,
+    )
+    await asyncio.wait_for(produced.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    assert queue.qsize() <= task_tracker_mod.MAX_SUBSCRIBER_EVENTS
+    queued = await _drain(queue, queue.qsize())
+    assert queued == [task_tracker_mod.TRUNCATED_MARKER_SSE]
+
+    release.set()
+    await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_subscriber_byte_limit_drops_oversized_intermediate(monkeypatch):
+    monkeypatch.setattr(task_tracker_mod, "MAX_SUBSCRIBER_EVENTS", 8)
+    monkeypatch.setattr(task_tracker_mod, "MAX_SUBSCRIBER_BYTES", 32)
+    tracker = TaskTracker()
+    produced = asyncio.Event()
+    release = asyncio.Event()
+    oversized = f"data: {'x' * 64}\n\n"
+
+    async def burst(_payload):
+        yield "data: old\n\n"
+        yield oversized
+        produced.set()
+        await release.wait()
+
+    queue, _ = await tracker.attach_or_start(
+        "run-byte-limited-subscriber",
+        payload=None,
+        stream_fn=burst,
+    )
+    await asyncio.wait_for(produced.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    queued = await _drain(queue, queue.qsize())
+    assert queued == [task_tracker_mod.TRUNCATED_MARKER_SSE]
+
+    release.set()
+    await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_subscriber_byte_limit_keeps_completed_response(monkeypatch):
+    monkeypatch.setattr(task_tracker_mod, "MAX_SUBSCRIBER_EVENTS", 8)
+    monkeypatch.setattr(task_tracker_mod, "MAX_SUBSCRIBER_BYTES", 64)
+    tracker = TaskTracker()
+    completed_payload = {
+        "object": "response",
+        "status": "completed",
+        "output": [f"{'x' * 128}"],
+    }
+    completed = f"data: {json.dumps(completed_payload)}\n\n"
+
+    queue, _ = await tracker.attach_or_start(
+        "run-completed-subscriber",
+        payload=None,
+        stream_fn=_make_stream([completed]),
+    )
+
+    queued = await _drain(queue, 3)
+    assert queued == [
+        task_tracker_mod.TRUNCATED_MARKER_SSE,
+        completed,
+        None,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_oversized_completed_survives_following_turn_usage(monkeypatch):
+    monkeypatch.setattr(task_tracker_mod, "MAX_SUBSCRIBER_EVENTS", 2)
+    monkeypatch.setattr(task_tracker_mod, "MAX_SUBSCRIBER_BYTES", 64)
+    tracker = TaskTracker()
+    completed_payload = {
+        "object": "response",
+        "status": "completed",
+        "output": [f"{'x' * 128}"],
+    }
+    usage_payload = {
+        "type": "turn_usage",
+        "usage": {"total_tokens": 1},
+    }
+    completed = f"data: {json.dumps(completed_payload)}\n\n"
+    usage = f"data: {json.dumps(usage_payload)}\n\n"
+
+    queue, _ = await tracker.attach_or_start(
+        "run-completed-with-usage",
+        payload=None,
+        stream_fn=_make_stream([completed, usage]),
+    )
+
+    queued = await _drain(queue, 4)
+    assert queued == [
+        task_tracker_mod.TRUNCATED_MARKER_SSE,
+        completed,
+        usage,
+        None,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_overflow_suppresses_deltas_until_completed(monkeypatch):
+    monkeypatch.setattr(task_tracker_mod, "MAX_SUBSCRIBER_EVENTS", 2)
+    monkeypatch.setattr(task_tracker_mod, "MAX_SUBSCRIBER_BYTES", 1024)
+    tracker = TaskTracker()
+    completed_payload = {
+        "object": "response",
+        "status": "completed",
+        "output": ["canonical"],
+    }
+    completed = f"data: {json.dumps(completed_payload)}\n\n"
+    produced = asyncio.Event()
+
+    async def burst(_payload):
+        for event in [
+            "data: first\n\n",
+            "data: overflow\n\n",
+            "data: dropped-1\n\n",
+            "data: dropped-2\n\n",
+            completed,
+        ]:
+            yield event
+        produced.set()
+
+    queue, _ = await tracker.attach_or_start(
+        "run-suppress-deltas",
+        payload=None,
+        stream_fn=burst,
+    )
+    await asyncio.wait_for(produced.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    queued = await _drain(queue, 3)
+    assert queued == [
+        task_tracker_mod.TRUNCATED_MARKER_SSE,
+        completed,
+        None,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_full_subscriber_keeps_tail_before_terminator(monkeypatch):
+    monkeypatch.setattr(task_tracker_mod, "MAX_SUBSCRIBER_EVENTS", 3)
+    monkeypatch.setattr(task_tracker_mod, "MAX_SUBSCRIBER_BYTES", 1024)
+    tracker = TaskTracker()
+
+    queue, _ = await tracker.attach_or_start(
+        "run-full-finish",
+        payload=None,
+        stream_fn=_make_stream(
+            [
+                "data: first\n\n",
+                "data: second\n\n",
+                "data: final\n\n",
+            ],
+        ),
+    )
+
+    queued = await _drain(queue, 4)
+    assert queued == [
+        "data: first\n\n",
+        "data: second\n\n",
+        "data: final\n\n",
+        None,
+    ]
+
+
 # ---------------------------------------------------------------------------
 # stream_from_queue: heartbeat while idle
 # ---------------------------------------------------------------------------
@@ -460,7 +645,7 @@ async def test_stream_from_queue_emits_heartbeat_when_idle(monkeypatch):
         0.05,
     )
     tracker = TaskTracker()
-    queue: asyncio.Queue = asyncio.Queue()
+    queue = task_tracker_mod._SubscriberQueue()
 
     agen = tracker.stream_from_queue(queue, "run-hb")
     first = await asyncio.wait_for(agen.__anext__(), timeout=1)

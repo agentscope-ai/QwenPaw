@@ -16,6 +16,9 @@
  * update the two import statements below.
  */
 import React from "react";
+import { Button } from "antd";
+import { ChevronDown } from "lucide-react";
+import { useTranslation } from "react-i18next";
 // eslint-disable-next-line import/no-unresolved
 import VendorRequestCardOriginal from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 // eslint-disable-next-line import/no-unresolved
@@ -117,6 +120,11 @@ export function HostResponseCard(props: {
 }) {
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
+  const { t } = useTranslation();
+  const deferredRender = Boolean(
+    (props.data as Record<string, unknown>).qwenpaw_deferred_render,
+  );
+  const [deferredExpanded, setDeferredExpanded] = React.useState(false);
 
   const renderEntry = extScalar[ChatScalar.responseRender];
   const renderFn = renderEntry?.value;
@@ -155,6 +163,18 @@ export function HostResponseCard(props: {
         ))}
       </>
     );
+
+  if (deferredRender && !deferredExpanded) {
+    return (
+      <Button
+        type="text"
+        icon={<ChevronDown size={16} />}
+        onClick={() => setDeferredExpanded(true)}
+      >
+        {t("chat.showLargeResponse", "Show large response")}
+      </Button>
+    );
+  }
 
   const fallback = () => (
     <VendorResponseCard

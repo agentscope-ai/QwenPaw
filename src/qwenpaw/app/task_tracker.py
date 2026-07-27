@@ -28,6 +28,14 @@ _SENTINEL = None
 MAX_BUFFER_EVENTS = 2000
 MAX_BUFFER_BYTES = 8 * 1024 * 1024
 
+# Active subscribers are bounded independently from the replay buffer. A slow
+# browser must not retain every live event indefinitely while the producer
+# continues. On overflow, the pending tail is replaced with a truncation
+# marker and further deltas are suppressed until a terminal event arrives.
+# The canonical completed response then brings the client to the final state.
+MAX_SUBSCRIBER_EVENTS = 256
+MAX_SUBSCRIBER_BYTES = 2 * 1024 * 1024
+
 TRUNCATED_MARKER_SSE = f"data: {json.dumps({'type': 'replay_truncated'})}\n\n"
 
 # Emit an SSE comment frame when no event arrives for this long, so
@@ -37,12 +45,108 @@ HEARTBEAT_INTERVAL_SECONDS = 15.0
 HEARTBEAT_SSE = ": keep-alive\n\n"
 
 
+class _SubscriberQueue(asyncio.Queue):
+    """Queue that tracks the UTF-8 bytes currently waiting for delivery."""
+
+    def __init__(self) -> None:
+        # Terminal, usage, and sentinel frames are protected control data.
+        super().__init__(maxsize=MAX_SUBSCRIBER_EVENTS + 3)
+        self.buffered_bytes = 0
+        self.suppress_until_terminal = False
+        self.terminal_enqueued = False
+        self.turn_usage_enqueued = False
+
+    def put_nowait(self, item: Any) -> None:
+        super().put_nowait(item)
+        if isinstance(item, str):
+            self.buffered_bytes += len(item.encode("utf-8"))
+
+    def get_nowait(self) -> Any:
+        item = super().get_nowait()
+        if isinstance(item, str):
+            self.buffered_bytes -= len(item.encode("utf-8"))
+        return item
+
+
+def _clear_subscriber_queue(queue: _SubscriberQueue) -> None:
+    """Discard all events currently waiting in a subscriber queue."""
+    while True:
+        try:
+            queue.get_nowait()
+        except asyncio.QueueEmpty:
+            return
+
+
+def _subscriber_put(queue: _SubscriberQueue, sse: str) -> None:
+    """Enqueue an event while bounding slow-subscriber work."""
+    event_bytes = len(sse.encode("utf-8"))
+    event_kind = _subscriber_event_kind(sse)
+
+    if queue.terminal_enqueued:
+        if event_kind == "turn_usage" and not queue.turn_usage_enqueued:
+            queue.put_nowait(sse)
+            queue.turn_usage_enqueued = True
+        return
+
+    if queue.suppress_until_terminal:
+        if event_kind != "terminal":
+            return
+        queue.suppress_until_terminal = False
+        queue.put_nowait(sse)
+        queue.terminal_enqueued = True
+        return
+
+    exceeds_limit = (
+        queue.qsize() >= MAX_SUBSCRIBER_EVENTS
+        or queue.buffered_bytes + event_bytes > MAX_SUBSCRIBER_BYTES
+    )
+    if exceeds_limit:
+        _clear_subscriber_queue(queue)
+        queue.put_nowait(TRUNCATED_MARKER_SSE)
+        if event_kind != "terminal":
+            queue.suppress_until_terminal = True
+            return
+    queue.put_nowait(sse)
+    if event_kind == "terminal":
+        queue.terminal_enqueued = True
+
+
+def _subscriber_event_kind(sse: str) -> str:
+    """Classify SSE frames that require subscriber queue protection."""
+    stripped = sse.strip()
+    if not stripped.startswith("data: "):
+        return "normal"
+    try:
+        payload = json.loads(stripped[6:])
+    except (json.JSONDecodeError, TypeError):
+        return "normal"
+    if not isinstance(payload, dict):
+        return "normal"
+    if (
+        (
+            payload.get("object") == "response"
+            and payload.get("status") == "completed"
+        )
+        or payload.get("error")
+        or payload.get("type") == "rate_limited"
+    ):
+        return "terminal"
+    if payload.get("type") == "turn_usage":
+        return "turn_usage"
+    return "normal"
+
+
+def _subscriber_finish(queue: _SubscriberQueue) -> None:
+    """Append the terminator without dropping the newest queued event."""
+    queue.put_nowait(_SENTINEL)
+
+
 @dataclass
 class _RunState:
     """Per-run state (task, queues, buffer), guarded by tracker lock."""
 
     task: asyncio.Future
-    queues: list[asyncio.Queue] = field(default_factory=list)
+    queues: list[_SubscriberQueue] = field(default_factory=list)
     buffer: deque[str] = field(default_factory=deque)
     buffer_bytes: int = 0
     truncated: bool = False
@@ -73,8 +177,8 @@ class TaskTracker:
     """Per-workspace tracker: run_key -> RunState.
 
     All mutations to _runs under _lock. Producer broadcasts under lock.
-    Subscribers use unbounded per-connection queues; disconnect removes them
-    via :meth:`detach_subscriber`.
+    Subscribers use bounded per-connection queues; disconnect removes them via
+    :meth:`detach_subscriber`.
     """
 
     def __init__(self) -> None:
@@ -164,22 +268,22 @@ class TaskTracker:
             return False
 
     @staticmethod
-    def _subscribe_with_replay(state: _RunState) -> asyncio.Queue:
+    def _subscribe_with_replay(state: _RunState) -> _SubscriberQueue:
         """Create a subscriber queue pre-filled with the replay buffer.
 
         Prepends the truncated marker when eviction has occurred so the
         client knows early events are missing. Caller must hold the
         tracker lock.
         """
-        q: asyncio.Queue = asyncio.Queue()
+        q = _SubscriberQueue()
         if state.truncated:
-            q.put_nowait(TRUNCATED_MARKER_SSE)
+            _subscriber_put(q, TRUNCATED_MARKER_SSE)
         for sse in state.buffer:
-            q.put_nowait(sse)
+            _subscriber_put(q, sse)
         state.queues.append(q)
         return q
 
-    async def attach(self, run_key: str) -> asyncio.Queue | None:
+    async def attach(self, run_key: str) -> _SubscriberQueue | None:
         """Attach to an existing run.
 
         Returns a new queue pre-filled with the event buffer, or ``None``
@@ -194,7 +298,7 @@ class TaskTracker:
     async def detach_subscriber(
         self,
         run_key: str,
-        queue: asyncio.Queue,
+        queue: _SubscriberQueue,
     ) -> None:
         """Remove *queue* from *run_key*'s subscriber list.
 
@@ -244,7 +348,7 @@ class TaskTracker:
         run_key: str,
         payload: Any,
         stream_fn: Callable[..., Coroutine],
-    ) -> tuple[asyncio.Queue, bool]:
+    ) -> tuple[_SubscriberQueue, bool]:
         """Attach to an existing run or start a new one.
 
         Returns ``(queue, is_new_run)``.
@@ -254,7 +358,7 @@ class TaskTracker:
             if state is not None and not state.task.done():
                 return self._subscribe_with_replay(state), False
 
-            my_queue: asyncio.Queue = asyncio.Queue()
+            my_queue = _SubscriberQueue()
             run = _RunState(
                 task=asyncio.Future(),  # placeholder, replaced below
                 queues=[my_queue],
@@ -281,7 +385,7 @@ class TaskTracker:
                         async with tracker.lock:
                             _buffer_append(run, sse)
                             for q in run.queues:
-                                q.put_nowait(sse)
+                                _subscriber_put(q, sse)
                 except asyncio.CancelledError:
                     logger.debug("run cancelled run_key=%s", run_key)
                 except Exception:
@@ -295,7 +399,7 @@ class TaskTracker:
                         async with tracker.lock:
                             _buffer_append(run, err_sse)
                             for q in run.queues:
-                                q.put_nowait(err_sse)
+                                _subscriber_put(q, err_sse)
                 finally:
                     finish_time = datetime.now(timezone.utc)
                     tracker = tracker_ref()
@@ -305,7 +409,7 @@ class TaskTracker:
                             # pylint: disable=protected-access
                             tracker._global_last_finish_at = finish_time
                             for q in run.queues:
-                                q.put_nowait(_SENTINEL)
+                                _subscriber_finish(q)
                             # pylint: disable=protected-access
                             tracker._runs.pop(
                                 run_key,
@@ -317,7 +421,7 @@ class TaskTracker:
 
     async def stream_from_queue(
         self,
-        queue: asyncio.Queue,
+        queue: _SubscriberQueue,
         run_key: str,
     ) -> AsyncGenerator[str, None]:
         """Yield SSE strings from *queue* until the sentinel ``None``.

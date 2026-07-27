@@ -64,6 +64,10 @@ export default defineConfig(({ mode }) => {
         inline: [/@agentscope-ai\/(?!icons|chat|design)/],
       },
       alias: {
+        "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card":
+          path.resolve(__dirname, "src/test/chat-card-mock.tsx"),
+        "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Card":
+          path.resolve(__dirname, "src/test/chat-card-mock.tsx"),
         // chat is aliased to a tiny stub to avoid OOM from the 2.3MB real package
         // Tests that need specific behavior override with vi.mock('@agentscope-ai/chat', factory)
         "@agentscope-ai/chat": path.resolve(__dirname, "src/test/chat-mock.ts"),

@@ -13,7 +13,7 @@ import { usePlugins } from "../../plugins/PluginContext";
 import { useTranslation } from "react-i18next";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
-import sessionApi from "./sessionApi";
+import sessionApi, { shouldDeferResponseRender } from "./sessionApi";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
 import { agentApi } from "../../api/modules/agent";
@@ -1198,6 +1198,7 @@ export default function ChatPage() {
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
   );
+  const streamTruncatedRef = useRef(false);
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
   const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
   const queueSessionIdRef = useRef(queueSessionId);
@@ -2328,6 +2329,7 @@ export default function ChatPage() {
       }
 
       headlineStreamFilterRef.current = createHeadlineFilterState();
+      streamTruncatedRef.current = false;
 
       const response = await fetch(getApiUrl("/console/chat"), {
         method: "POST",
@@ -2848,9 +2850,28 @@ export default function ChatPage() {
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
           markLoopModeRunning();
+
+          if (isReplayTruncatedPayload(payload)) {
+            streamTruncatedRef.current = true;
+            return null;
+          }
+
+          const completesResponse = payloadCompletesResponse(payload);
+          if (streamTruncatedRef.current && !completesResponse) {
+            if (payload.type !== "rate_limited" && !payload.error) {
+              return null;
+            }
+            streamTruncatedRef.current = false;
+          } else if (completesResponse) {
+            streamTruncatedRef.current = false;
+          }
+
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
-          if (payloadCompletesResponse(payload)) {
+          if (completesResponse) {
+            if (shouldDeferResponseRender(payload.output)) {
+              payload.qwenpaw_deferred_render = true;
+            }
             const trailing = flushHeadlineFilter(
               headlineStreamFilterRef.current,
             );
@@ -2874,14 +2895,6 @@ export default function ChatPage() {
           }
 
           if (payload.type === "turn_usage") {
-            return null;
-          }
-
-          // Backend capped the reconnect replay buffer: early events of
-          // the in-progress turn were evicted. Drop the marker so the SDK
-          // doesn't render an unknown event — the full turn is reloaded
-          // from history once generation completes.
-          if (isReplayTruncatedPayload(payload)) {
             return null;
           }
 
@@ -2923,6 +2936,7 @@ export default function ChatPage() {
 
           const reconnectIdentity = sessionApi.getSessionIdentity();
           headlineStreamFilterRef.current = createHeadlineFilterState();
+          streamTruncatedRef.current = false;
           const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
             headers,

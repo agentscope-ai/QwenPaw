@@ -33,8 +33,11 @@ const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
 // The chat SDK paginates history at message-card granularity, so a single
 // ResponseCard holding hundreds of outputs (e.g. a long ComfyUI run)
 // bypasses the window and forces a full render on open. Turns with more
-// outputs than this are split into multiple cards.
+// outputs than this are split into multiple cards. Media block count and
+// serialized payload size provide additional render-cost boundaries.
 const MAX_OUTPUTS_PER_RESPONSE_CARD = 20;
+const MAX_CONTENT_BLOCKS_PER_RESPONSE_CARD = 8;
+const MAX_PAYLOAD_CHARS_PER_RESPONSE_CARD = 128 * 1024;
 
 function hydrateTurnUsageFromMessages(
   messages: IAgentScopeRuntimeWebUIMessage[],
@@ -100,6 +103,11 @@ interface OutputMessage extends Omit<Message, "role"> {
   role: string;
   metadata: unknown;
   sequence_number?: number;
+}
+
+interface ResponseCardChunk {
+  outputMessages: OutputMessage[];
+  deferredRender: boolean;
 }
 
 /**
@@ -258,6 +266,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
 const buildResponseCard = (
   outputMessages: OutputMessage[],
   turnUsageOverride?: TurnUsageSnapshot | null,
+  deferredRender = false,
 ): IAgentScopeRuntimeWebUIMessage => {
   const fallbackNow = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
@@ -295,6 +304,7 @@ const buildResponseCard = (
           completed_at: lastTs || fallbackNow,
           usage: turnUsage?.usage ?? null,
           context_usage: turnUsage?.context_usage ?? null,
+          qwenpaw_deferred_render: deferredRender,
         },
       },
     ],
@@ -302,30 +312,170 @@ const buildResponseCard = (
   };
 };
 
+function getContentBlockCount(message: OutputMessage): number {
+  if (!Array.isArray(message.content)) return 0;
+  return (message.content as ContentItem[]).filter((item) =>
+    ["image", "video", "audio", "file"].includes(item.type),
+  ).length;
+}
+
+function getPayloadChars(value: unknown): number {
+  try {
+    return JSON.stringify(value).length;
+  } catch {
+    return String(value ?? "").length;
+  }
+}
+
+export function shouldDeferResponseRender(output: unknown): boolean {
+  if (!Array.isArray(output)) return false;
+  const messages = output as OutputMessage[];
+  const mediaBlocks = messages.reduce(
+    (total, message) => total + getContentBlockCount(message),
+    0,
+  );
+  return (
+    mediaBlocks > MAX_CONTENT_BLOCKS_PER_RESPONSE_CARD ||
+    getPayloadChars(messages) > MAX_PAYLOAD_CHARS_PER_RESPONSE_CARD
+  );
+}
+
+function getToolCallKey(message: OutputMessage): string | null {
+  if (!Array.isArray(message.content)) return null;
+  const first = message.content[0] as ContentItem | undefined;
+  const data = first?.data;
+  if (!data || typeof data !== "object") return null;
+  const record = data as Record<string, unknown>;
+  const key = record.call_id ?? record.name;
+  return typeof key === "string" && key ? key : null;
+}
+
+function isToolInput(message: OutputMessage): boolean {
+  return ["plugin_call", "tool_call", "mcp_call"].includes(
+    String(message.type ?? ""),
+  );
+}
+
+function isToolOutput(message: OutputMessage): boolean {
+  return [
+    TYPE_PLUGIN_CALL_OUTPUT,
+    "tool_call_output",
+    "mcp_call_output",
+  ].includes(String(message.type ?? ""));
+}
+
+function splitMessageContent(message: OutputMessage): OutputMessage[][] {
+  if (!Array.isArray(message.content)) return [[message]];
+  if (
+    message.content.length <= MAX_CONTENT_BLOCKS_PER_RESPONSE_CARD &&
+    getPayloadChars(message) <= MAX_PAYLOAD_CHARS_PER_RESPONSE_CARD
+  ) {
+    return [[message]];
+  }
+
+  const chunks: OutputMessage[][] = [];
+  let contentChunk: ContentItem[] = [];
+  for (const item of message.content as ContentItem[]) {
+    const candidate = [...contentChunk, item];
+    const candidateMessage = { ...message, content: candidate };
+    const exceedsLimit =
+      contentChunk.length > 0 &&
+      (candidate.length > MAX_CONTENT_BLOCKS_PER_RESPONSE_CARD ||
+        getPayloadChars(candidateMessage) >
+          MAX_PAYLOAD_CHARS_PER_RESPONSE_CARD);
+    if (exceedsLimit) {
+      chunks.push([{ ...message, content: contentChunk }]);
+      contentChunk = [item];
+    } else {
+      contentChunk = candidate;
+    }
+  }
+  if (contentChunk.length > 0) {
+    chunks.push([{ ...message, content: contentChunk }]);
+  }
+  return chunks.length > 0 ? chunks : [[message]];
+}
+
+function buildRenderUnits(outputMessages: OutputMessage[]): OutputMessage[][] {
+  const units: OutputMessage[][] = [];
+  for (let index = 0; index < outputMessages.length; index++) {
+    const message = outputMessages[index];
+    const next = outputMessages[index + 1];
+    const toolCallKey = getToolCallKey(message);
+    if (
+      next &&
+      toolCallKey &&
+      isToolInput(message) &&
+      isToolOutput(next) &&
+      toolCallKey === getToolCallKey(next)
+    ) {
+      units.push([message, next]);
+      index++;
+      continue;
+    }
+    units.push(...splitMessageContent(message));
+  }
+  return units;
+}
+
+function chunkOutputMessages(
+  outputMessages: OutputMessage[],
+): ResponseCardChunk[] {
+  const chunks: ResponseCardChunk[] = [];
+  let current: OutputMessage[] = [];
+  let contentBlocks = 0;
+  let payloadChars = 0;
+
+  const flush = () => {
+    if (current.length === 0) return;
+    chunks.push({
+      outputMessages: current,
+      deferredRender: payloadChars > MAX_PAYLOAD_CHARS_PER_RESPONSE_CARD,
+    });
+    current = [];
+    contentBlocks = 0;
+    payloadChars = 0;
+  };
+
+  for (const unit of buildRenderUnits(outputMessages)) {
+    const unitBlocks = unit.reduce(
+      (total, message) => total + getContentBlockCount(message),
+      0,
+    );
+    const unitPayloadChars = getPayloadChars(unit);
+    const exceedsLimit =
+      current.length > 0 &&
+      (current.length + unit.length > MAX_OUTPUTS_PER_RESPONSE_CARD ||
+        contentBlocks + unitBlocks > MAX_CONTENT_BLOCKS_PER_RESPONSE_CARD ||
+        payloadChars + unitPayloadChars >
+          MAX_PAYLOAD_CHARS_PER_RESPONSE_CARD);
+    if (exceedsLimit) flush();
+    current.push(...unit);
+    contentBlocks += unitBlocks;
+    payloadChars += unitPayloadChars;
+  }
+  flush();
+  return chunks;
+}
+
 /**
  * Build one or more response cards for a turn's output messages.
- * Turns above MAX_OUTPUTS_PER_RESPONSE_CARD are split into chunk cards so
- * the SDK's history pagination bounds the render cost; the turn usage is
- * attached only to the last chunk to keep tail-scanning consumers intact.
+ * Split turns by output count, media block count, and serialized payload size
+ * so the SDK's history pagination bounds render cost. Turn usage is attached
+ * only to the last chunk to keep tail-scanning consumers intact.
  */
 const buildResponseCards = (
   outputMessages: OutputMessage[],
 ): IAgentScopeRuntimeWebUIMessage[] => {
-  if (outputMessages.length <= MAX_OUTPUTS_PER_RESPONSE_CARD) {
-    return [buildResponseCard(outputMessages)];
-  }
   const turnUsage = extractTurnUsageFromOutputMessages(outputMessages);
-  const cards: IAgentScopeRuntimeWebUIMessage[] = [];
-  for (
-    let i = 0;
-    i < outputMessages.length;
-    i += MAX_OUTPUTS_PER_RESPONSE_CARD
-  ) {
-    const chunk = outputMessages.slice(i, i + MAX_OUTPUTS_PER_RESPONSE_CARD);
-    const isLast = i + MAX_OUTPUTS_PER_RESPONSE_CARD >= outputMessages.length;
-    cards.push(buildResponseCard(chunk, isLast ? turnUsage : null));
-  }
-  return cards;
+  const chunks = chunkOutputMessages(outputMessages);
+  return chunks.map((chunk, index) =>
+    buildResponseCard(
+      chunk.outputMessages,
+      index === chunks.length - 1 ? turnUsage : null,
+      chunk.deferredRender,
+    ),
+  );
 };
 
 /**
@@ -334,8 +484,8 @@ const buildResponseCards = (
  *
  * - User messages → AgentScopeRuntimeRequestCard
  * - Consecutive non-user messages (assistant / system / tool) → grouped
- *   into AgentScopeRuntimeResponseCards, split into chunks of at most
- *   MAX_OUTPUTS_PER_RESPONSE_CARD output messages each.
+ *   into AgentScopeRuntimeResponseCards with bounded output, media, and
+ *   payload render cost.
  */
 const convertMessages = (
   messages: Message[],
@@ -1422,6 +1572,8 @@ export const __test__ = {
   buildResponseCard,
   buildResponseCards,
   MAX_OUTPUTS_PER_RESPONSE_CARD,
+  MAX_CONTENT_BLOCKS_PER_RESPONSE_CARD,
+  MAX_PAYLOAD_CHARS_PER_RESPONSE_CARD,
   toOutputMessage,
   normalizeOutputMessageContent,
   contentToRequestParts,
