@@ -1196,6 +1196,8 @@ def _start_managed_chromium_process(
     browser_args: str = "",
 ) -> subprocess.Popen:
     Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError, NotImplementedError):
+        Path(user_data_dir).chmod(0o700)
     args = [
         executable_path,
         f"--remote-debugging-port={cdp_port}",
@@ -1856,6 +1858,8 @@ async def _action_start(
                 user_data_dir = state["user_data_dir"]
                 if user_data_dir:
                     Path(user_data_dir).mkdir(parents=True, exist_ok=True)
+                    with contextlib.suppress(OSError, NotImplementedError):
+                        Path(user_data_dir).chmod(0o700)
                     context = await pw.chromium.launch_persistent_context(
                         user_data_dir=user_data_dir,
                         headless=state["headless"],
