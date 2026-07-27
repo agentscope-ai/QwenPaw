@@ -70,6 +70,72 @@ def matrix_channel(mock_process):
     )
 
 
+def _import_module_side_effect(*, vodozemac_ok: bool, olm_ok: bool):
+    """Build a fake ``importlib.import_module`` for the E2EE preflight probe.
+
+    Delegates unknown module names to the real import_module so unrelated
+    imports during the preflight still work.
+    """
+    import importlib  # noqa: PLC0415
+
+    real = importlib.import_module
+
+    def _fake(name, *args, **kwargs):
+        if name == "vodozemac":
+            if vodozemac_ok:
+                return MagicMock()
+            raise ImportError("simulated: vodozemac not installed")
+        if name == "olm":
+            if olm_ok:
+                return MagicMock()
+            raise ImportError("simulated: olm not installed")
+        return real(name, *args, **kwargs)
+
+    return _fake
+
+
+def test_preflight_keeps_encryption_with_vodozemac(matrix_channel):
+    """vodozemac (matrix-nio[e2e]) available -> E2EE stays enabled.
+
+    Regression for #6476: the legacy ``olm`` Python bindings are broken
+    on Python 3.12 (``jsmin``), but vodozemac works. The preflight must
+    probe vodozemac, not only olm, or E2EE silently falls back even
+    when a working backend is installed.
+    """
+    matrix_channel.encryption = True
+    side_effect = _import_module_side_effect(
+        vodozemac_ok=True,
+        olm_ok=False,
+    )
+    with patch("importlib.import_module", side_effect=side_effect):
+        matrix_channel._preflight_e2ee_dependencies()
+    assert matrix_channel.encryption is True
+
+
+def test_preflight_falls_back_to_olm_when_no_vodozemac(matrix_channel):
+    """No vodozemac but legacy olm present -> E2EE stays enabled."""
+    matrix_channel.encryption = True
+    side_effect = _import_module_side_effect(
+        vodozemac_ok=False,
+        olm_ok=True,
+    )
+    with patch("importlib.import_module", side_effect=side_effect):
+        matrix_channel._preflight_e2ee_dependencies()
+    assert matrix_channel.encryption is True
+
+
+def test_preflight_disables_encryption_when_no_backend(matrix_channel):
+    """No crypto backend at all -> E2EE disabled with a clear error."""
+    matrix_channel.encryption = True
+    side_effect = _import_module_side_effect(
+        vodozemac_ok=False,
+        olm_ok=False,
+    )
+    with patch("importlib.import_module", side_effect=side_effect):
+        matrix_channel._preflight_e2ee_dependencies()
+    assert matrix_channel.encryption is False
+
+
 @pytest.fixture
 def mock_async_client():
     """Create mock AsyncClient for nio."""
