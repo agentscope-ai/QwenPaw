@@ -163,6 +163,22 @@ class TaskTracker:
         except asyncio.TimeoutError:
             return False
 
+    @staticmethod
+    def _subscribe_with_replay(state: _RunState) -> asyncio.Queue:
+        """Create a subscriber queue pre-filled with the replay buffer.
+
+        Prepends the truncated marker when eviction has occurred so the
+        client knows early events are missing. Caller must hold the
+        tracker lock.
+        """
+        q: asyncio.Queue = asyncio.Queue()
+        if state.truncated:
+            q.put_nowait(TRUNCATED_MARKER_SSE)
+        for sse in state.buffer:
+            q.put_nowait(sse)
+        state.queues.append(q)
+        return q
+
     async def attach(self, run_key: str) -> asyncio.Queue | None:
         """Attach to an existing run.
 
@@ -173,13 +189,7 @@ class TaskTracker:
             state = self._runs.get(run_key)
             if state is None or state.task.done():
                 return None
-            q: asyncio.Queue = asyncio.Queue()
-            if state.truncated:
-                q.put_nowait(TRUNCATED_MARKER_SSE)
-            for sse in state.buffer:
-                q.put_nowait(sse)
-            state.queues.append(q)
-            return q
+            return self._subscribe_with_replay(state)
 
     async def detach_subscriber(
         self,
@@ -242,13 +252,7 @@ class TaskTracker:
         async with self._lock:
             state = self._runs.get(run_key)
             if state is not None and not state.task.done():
-                q: asyncio.Queue = asyncio.Queue()
-                if state.truncated:
-                    q.put_nowait(TRUNCATED_MARKER_SSE)
-                for sse in state.buffer:
-                    q.put_nowait(sse)
-                state.queues.append(q)
-                return q, False
+                return self._subscribe_with_replay(state), False
 
             my_queue: asyncio.Queue = asyncio.Queue()
             run = _RunState(
