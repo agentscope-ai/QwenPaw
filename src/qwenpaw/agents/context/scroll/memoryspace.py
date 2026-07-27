@@ -297,7 +297,11 @@ class MemorySpace:
             where.append("session_id = ?")
             params.append(self._session_id)
         if self._agent_id:
-            where.append("agent_id = ?")
+            # Rows imported by early sync versions used agent_id=NULL. The
+            # session + durable seq span already pins expand to this eviction
+            # lineage, so include those legacy rows until startup sync can
+            # claim them for the canonical agent.
+            where.append("(agent_id = ? OR agent_id IS NULL)")
             params.append(self._agent_id)
         return self._select(
             "SELECT seq, kind, role, name, content, headline, metadata "
@@ -966,7 +970,7 @@ class MemorySpace:
                 deadline=time.monotonic() + _SAVED_TOOL_SCAN_MAX_SECONDS,
             )
         matches: list[dict] = []
-        previous = deque(maxlen=max(0, context))
+        previous: deque[tuple[int, str]] = deque(maxlen=max(0, context))
         pending: list[dict] = []
         try:
             file_obj = path.open("rb")
@@ -976,7 +980,7 @@ class MemorySpace:
             line_no = 0
             while len(matches) < limit:
                 raw = budget.read_line(file_obj)
-                if raw in (None, b""):
+                if raw is None or raw == b"":
                     break
                 line_no += 1
                 line = raw.decode("utf-8", errors="replace").rstrip("\r\n")

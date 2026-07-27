@@ -284,7 +284,9 @@ def test_existing_synthetic_manifest_is_rekeyed_without_changing_seq(
     )
 
     assert second.rows_inserted == 0
-    assert all(result.skipped for result in second.files)
+    # A v1 manifest is deliberately re-read once under manifest v2 so legacy
+    # source IDs can be reconciled without trusting stale provenance.
+    assert not any(result.skipped for result in second.files)
     assert store.count("sync:default_legacy-session") == 0
     after = store._conn.execute(
         "SELECT seq FROM conversation_history "
@@ -298,6 +300,7 @@ def test_existing_synthetic_manifest_is_rekeyed_without_changing_seq(
         manifest["files"]["console/default_legacy-session.json"]["session_id"]
         == "legacy-session"
     )
+    assert manifest["version"] == 2
 
 
 def test_changed_synthetic_manifest_is_rekeyed_before_resync(
@@ -519,6 +522,163 @@ def test_idempotent_even_without_manifest(store, tmp_path: Path):
     )
     assert store.count("sid") == total
     assert not (sessions / MANIFEST_NAME).exists()
+
+
+@pytest.mark.parametrize("chats_path", [None, "missing"])
+def test_unavailable_chat_registry_blocks_import_explicitly(
+    store,
+    tmp_path: Path,
+    chats_path,
+):
+    sessions = tmp_path / "sessions"
+    _write_session_1x(sessions, "old.json", _sample_msgs())
+    supplied_path = (
+        None if chats_path is None else tmp_path / "missing-chats.json"
+    )
+
+    report = sync_sessions_to_history(
+        history=store,
+        sessions_dir=sessions,
+        chats_path=supplied_path,
+    )
+
+    assert report.registry_error
+    assert report.synced_files == 0
+    assert len(report.files) == 1
+    assert report.files[0].blocked
+    assert "migration blocked" in report.summary()
+    assert store.count("sync:old") == 0
+    assert not (sessions / MANIFEST_NAME).exists()
+
+
+@pytest.mark.parametrize("use_manifest", [True, False])
+def test_synthetic_rows_rekey_without_manifest_provenance(
+    store,
+    tmp_path: Path,
+    use_manifest: bool,
+):
+    sessions = tmp_path / "sessions"
+    path = _write_session_1x(sessions, "old.json", _sample_msgs())
+    seeded = sync_mod._sync_file(
+        store,
+        path,
+        "old.json",
+        session_id="sync:old",
+    )
+    before = [
+        row["seq"]
+        for row in store._conn.execute(
+            "SELECT seq FROM conversation_history "
+            "WHERE session_id = 'sync:old' ORDER BY seq",
+        )
+    ]
+    assert seeded.rows_inserted
+    (sessions / MANIFEST_NAME).unlink(missing_ok=True)
+
+    report = _sync_registered(
+        store,
+        sessions,
+        [_chat("old")],
+        use_manifest=use_manifest,
+    )
+
+    assert report.rows_inserted == 0
+    assert store.count("sync:old") == 0
+    after = [
+        row["seq"]
+        for row in store._conn.execute(
+            "SELECT seq FROM conversation_history "
+            "WHERE session_id = 'old' ORDER BY seq",
+        )
+    ]
+    assert after == before
+
+
+def test_embedded_2x_id_rekeys_without_manifest(store, tmp_path: Path):
+    sessions = tmp_path / "sessions"
+    path = _write_session_2x(
+        sessions,
+        "canonical.json",
+        "old-embedded-id",
+        _sample_msgs(),
+    )
+    seeded = sync_mod._sync_file(
+        store,
+        path,
+        "canonical.json",
+        session_id="old-embedded-id",
+    )
+    assert seeded.rows_inserted
+
+    report = _sync_registered(
+        store,
+        sessions,
+        [_chat("canonical")],
+        use_manifest=False,
+    )
+
+    assert report.rows_inserted == 0
+    assert store.count("old-embedded-id") == 0
+    assert store.count("canonical") == seeded.rows_inserted
+
+
+def test_v1_manifest_rekeys_arbitrary_legacy_id(store, tmp_path: Path):
+    sessions = tmp_path / "sessions"
+    path = _write_session_1x(sessions, "canonical.json", _sample_msgs())
+    seeded = sync_mod._sync_file(
+        store,
+        path,
+        "canonical.json",
+        session_id="legacy-arbitrary-id",
+    )
+    assert seeded.rows_inserted
+    (sessions / MANIFEST_NAME).write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "files": {
+                    "canonical.json": {
+                        "sha256": sync_mod._sha256(path),
+                        "session_id": "legacy-arbitrary-id",
+                        "rows_processed": seeded.rows_processed,
+                        "rows_inserted": seeded.rows_inserted,
+                    },
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    report = _sync_registered(store, sessions, [_chat("canonical")])
+
+    assert report.rows_inserted == 0
+    assert store.count("legacy-arbitrary-id") == 0
+    assert store.count("canonical") == seeded.rows_inserted
+    manifest = json.loads(
+        (sessions / MANIFEST_NAME).read_text(encoding="utf-8"),
+    )
+    assert manifest["version"] == 2
+
+
+def test_manifest_skip_claims_legacy_null_agent_rows(store, tmp_path: Path):
+    sessions = tmp_path / "sessions"
+    _write_session_2x(sessions, "sid.json", "sid", _sample_msgs())
+    first = _sync_registered(store, sessions, [_chat("sid")], agent_id=None)
+    assert first.rows_inserted
+    assert store._conn.execute(
+        "SELECT COUNT(*) FROM conversation_history WHERE agent_id IS NULL",
+    ).fetchone()[0]
+
+    second = _sync_registered(store, sessions, [_chat("sid")], agent_id="ag1")
+
+    assert all(result.skipped for result in second.files)
+    assert (
+        store._conn.execute(
+            "SELECT COUNT(*) FROM conversation_history "
+            "WHERE session_id = 'sid' AND agent_id = 'ag1'",
+        ).fetchone()[0]
+        == first.rows_inserted
+    )
 
 
 def test_sync_never_touches_source_files(store, tmp_path: Path):

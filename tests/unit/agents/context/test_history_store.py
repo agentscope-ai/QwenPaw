@@ -130,6 +130,42 @@ def test_rekey_session_preserves_seq_and_deduplicates(store: HistoryStore):
     assert duplicate not in {row["seq"] for row in rows}
 
 
+def test_rekey_session_rows_uses_exact_file_keys_and_claims_agent(
+    store: HistoryStore,
+):
+    selected_seq = store.append(
+        session_id="sync:shared-stem",
+        agent_id=None,
+        dedup_key="selected",
+        entry=_entry("selected row"),
+    )
+    unrelated_seq = store.append(
+        session_id="sync:shared-stem",
+        agent_id=None,
+        dedup_key="other-file",
+        entry=_entry("unrelated row"),
+    )
+
+    moved, deduplicated, claimed = store.rekey_session_rows(
+        {"sync:shared-stem"},
+        "canonical",
+        {"selected"},
+        agent_id="agent-1",
+    )
+
+    assert (moved, deduplicated, claimed) == (1, 0, 0)
+    selected = store._conn.execute(
+        "SELECT session_id, agent_id FROM conversation_history WHERE seq = ?",
+        (selected_seq,),
+    ).fetchone()
+    assert tuple(selected) == ("canonical", "agent-1")
+    unrelated = store._conn.execute(
+        "SELECT session_id, agent_id FROM conversation_history WHERE seq = ?",
+        (unrelated_seq,),
+    ).fetchone()
+    assert tuple(unrelated) == ("sync:shared-stem", None)
+
+
 def test_delete_session_removes_only_target_and_keeps_fts_in_sync(
     store: HistoryStore,
 ):

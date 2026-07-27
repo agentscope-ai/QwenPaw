@@ -432,56 +432,146 @@ class HistoryStore:
             )
             return int(cur.fetchone()["n"])
 
-    def existing_seqs(self, seqs: set[int]) -> set[int]:
-        """Return the subset of globally addressed history rows that exist."""
-        if not seqs:
-            return set()
-        ordered = sorted(int(seq) for seq in seqs)
-        placeholders = ", ".join("?" for _ in ordered)
-        with self._lock:
-            rows = self._conn.execute(
-                "SELECT seq FROM conversation_history WHERE seq IN ("
-                + placeholders
-                + ")",
-                ordered,
-            ).fetchall()
-        return {int(row["seq"]) for row in rows}
+    def claim_session(self, session_id: str, agent_id: str | None) -> int:
+        """Assign legacy unowned rows in one canonical session to an agent.
 
-    def contents_by_seqs(self, seqs: set[int]) -> dict[int, str | None]:
-        """Return exact persisted content for globally addressed rows.
-
-        Summary evidence uses this after live tool results have been folded.
-        Querying exact primary keys, instead of a broad ``lo..hi`` range,
-        prevents interleaved rows from another agent or session entering the
-        evidence. Chunking also keeps the query below SQLite parameter limits
-        for unusually tool-heavy histories.
+        Older startup-sync callers used the public ``agent_id=None`` default,
+        leaving rows invisible to agent-scoped recall after an agent identity
+        was introduced. A chat-registry mapping establishes the ownership
+        needed to backfill those NULL values without weakening every recall
+        query to include all unowned workspace data.
         """
-        if not seqs:
-            return {}
-        ordered = sorted(int(seq) for seq in seqs)
-        found: dict[int, str | None] = {}
-        with self._lock:
-            for start in range(0, len(ordered), 500):
-                chunk = ordered[start : start + 500]
-                placeholders = ", ".join("?" for _ in chunk)
-                rows = self._conn.execute(
-                    "SELECT seq, content FROM conversation_history "
-                    f"WHERE seq IN ({placeholders})",
-                    chunk,
-                ).fetchall()
-                found.update(
-                    {int(row["seq"]): row["content"] for row in rows},
+        if not session_id or not agent_id:
+            return 0
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "UPDATE conversation_history SET agent_id = ? "
+                "WHERE session_id = ? AND agent_id IS NULL",
+                (agent_id, session_id),
+            )
+            return int(cur.rowcount)
+
+    def rekey_session_rows(
+        self,
+        source_ids: set[str],
+        target_id: str,
+        dedup_keys: set[str],
+        *,
+        agent_id: str | None = None,
+    ) -> tuple[int, int, int]:
+        """Move exact imported rows from legacy session IDs to ``target_id``.
+
+        The source session alone is not sufficient provenance: older sync
+        versions derived ``sync:<stem>`` IDs, and equal stems can occur in
+        different channel directories. Restricting the move to dedup keys
+        recomputed from one source file prevents unrelated rows from being
+        swept into the canonical chat when the manifest is missing.
+
+        Returns ``(moved, deduplicated, claimed)``. A source row that already
+        has the same dedup key under the target is removed in favor of the
+        canonical row, so that the unique ``(session_id, dedup_key)`` contract
+        remains intact. Non-conflicting rows keep their original ``seq``.
+        """
+        sources = sorted(
+            source_id
+            for source_id in source_ids
+            if source_id and source_id != target_id
+        )
+        keys = sorted(str(key) for key in dedup_keys if key)
+        if not sources or not target_id or not keys:
+            return (0, 0, self.claim_session(target_id, agent_id))
+
+        moved = 0
+        deduplicated = 0
+        claimed = 0
+        with self._lock, self._conn:
+            for source_id in sources:
+                for start in range(0, len(keys), 400):
+                    chunk = keys[slice(start, start + 400)]
+                    placeholders = ", ".join("?" for _ in chunk)
+                    ownership = ""
+                    params: list[Any] = [source_id, *chunk]
+                    if agent_id:
+                        ownership = " AND (agent_id = ? OR agent_id IS NULL)"
+                        params.append(agent_id)
+                    rows = self._conn.execute(
+                        "SELECT seq, dedup_key, content "
+                        "FROM conversation_history "
+                        "WHERE session_id = ? AND dedup_key IN ("
+                        + placeholders
+                        + ")"
+                        + ownership,
+                        params,
+                    ).fetchall()
+                    if not rows:
+                        continue
+
+                    row_keys = [str(row["dedup_key"]) for row in rows]
+                    target_placeholders = ", ".join("?" for _ in row_keys)
+                    existing = self._conn.execute(
+                        "SELECT dedup_key FROM conversation_history "
+                        "WHERE session_id = ? AND dedup_key IN ("
+                        + target_placeholders
+                        + ")",
+                        [target_id, *row_keys],
+                    ).fetchall()
+                    existing_keys = {str(row["dedup_key"]) for row in existing}
+                    duplicates = [
+                        row
+                        for row in rows
+                        if str(row["dedup_key"]) in existing_keys
+                    ]
+                    movable = [
+                        row
+                        for row in rows
+                        if str(row["dedup_key"]) not in existing_keys
+                    ]
+
+                    if self._fts:
+                        for row in duplicates:
+                            self._conn.execute(
+                                "INSERT INTO conversation_history_fts"
+                                "(conversation_history_fts, rowid, content) "
+                                "VALUES('delete', ?, ?)",
+                                (row["seq"], row["content"] or ""),
+                            )
+                    if duplicates:
+                        self._conn.executemany(
+                            "DELETE FROM conversation_history WHERE seq = ?",
+                            [(row["seq"],) for row in duplicates],
+                        )
+                        deduplicated += len(duplicates)
+
+                    if movable:
+                        seqs = [int(row["seq"]) for row in movable]
+                        seq_placeholders = ", ".join("?" for _ in seqs)
+                        cur = self._conn.execute(
+                            "UPDATE conversation_history "
+                            "SET session_id = ?, "
+                            "agent_id = COALESCE(agent_id, ?) "
+                            "WHERE seq IN (" + seq_placeholders + ")",
+                            [target_id, agent_id, *seqs],
+                        )
+                        moved += int(cur.rowcount)
+
+            if agent_id:
+                cur = self._conn.execute(
+                    "UPDATE conversation_history SET agent_id = ? "
+                    "WHERE session_id = ? AND agent_id IS NULL",
+                    (agent_id, target_id),
                 )
-        return found
+                claimed = int(cur.rowcount)
+        return (moved, deduplicated, claimed)
+
     def rekey_session(self, source_id: str, target_id: str) -> tuple[int, int]:
-        """Move rows from one session id to another without changing seq.
+        """Move rows from one session id to another.
 
         Startup migration originally placed legacy 1.x rows under synthetic
         ``sync:<filename>`` ids. Once the chat registry can recover the real
-        id, preserving ``seq`` matters: seq values are durable recall
-        addresses and may already appear in an eviction index. Rows whose
-        dedup key already exists under the target are dropped before the
-        update; all other rows are updated in place. The return value is
+        id, non-conflicting rows are updated in place and preserve ``seq``.
+        Rows whose dedup key already exists under the target are coalesced
+        into the canonical target row; their source ``seq`` is necessarily
+        retired to retain the unique dedup contract. The return value is
         ``(moved, deduplicated)``.
         """
         if not source_id or not target_id or source_id == target_id:
@@ -518,6 +608,7 @@ class HistoryStore:
                 (target_id, source_id),
             )
             return (int(cur.rowcount), len(duplicates))
+
     def delete_session(self, session_id: str) -> int:
         """Delete every durable row owned by one conversation.
 
@@ -552,7 +643,49 @@ class HistoryStore:
                 "DELETE FROM conversation_history WHERE session_id = ?",
                 (session_id,),
             )
-        return len(doomed)
+            return len(doomed)
+
+    def existing_seqs(self, seqs: set[int]) -> set[int]:
+        """Return the subset of globally addressed history rows that exist."""
+        if not seqs:
+            return set()
+        ordered = sorted(int(seq) for seq in seqs)
+        placeholders = ", ".join("?" for _ in ordered)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT seq FROM conversation_history WHERE seq IN ("
+                + placeholders
+                + ")",
+                ordered,
+            ).fetchall()
+        return {int(row["seq"]) for row in rows}
+
+    def contents_by_seqs(self, seqs: set[int]) -> dict[int, str | None]:
+        """Return exact persisted content for globally addressed rows.
+
+        Summary evidence uses this after live tool results have been folded.
+        Querying exact primary keys, instead of a broad ``lo..hi`` range,
+        prevents interleaved rows from another agent or session entering the
+        evidence. Chunking also keeps the query below SQLite parameter limits
+        for unusually tool-heavy histories.
+        """
+        if not seqs:
+            return {}
+        ordered = sorted(int(seq) for seq in seqs)
+        found: dict[int, str | None] = {}
+        with self._lock:
+            for start in range(0, len(ordered), 500):
+                chunk = ordered[slice(start, start + 500)]
+                placeholders = ", ".join("?" for _ in chunk)
+                rows = self._conn.execute(
+                    "SELECT seq, content FROM conversation_history "
+                    f"WHERE seq IN ({placeholders})",
+                    chunk,
+                ).fetchall()
+                found.update(
+                    {int(row["seq"]): row["content"] for row in rows},
+                )
+        return found
 
     @staticmethod
     def _purge_where(
