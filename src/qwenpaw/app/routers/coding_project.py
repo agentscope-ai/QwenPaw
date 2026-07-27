@@ -13,6 +13,7 @@ import asyncio
 import io
 import json
 import logging
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -24,7 +25,6 @@ from pydantic import BaseModel
 from ..agent_context import get_agent_for_request, get_coding_dir
 from ..utils import safe_project_dest
 from ...constant import CODING_PROJECT_SUBDIR
-from ...governance.policy import DEFAULT_SANDBOX_DENY_PATHS
 from ...utils.command_runner import run_command_async, start_command_async
 
 logger = logging.getLogger(__name__)
@@ -324,10 +324,59 @@ class ImportLocalRequest(BaseModel):
     name: str | None = None  # override destination folder name
 
 
-# Derived from governance policy; .lower() for case-insensitive match.
-_SENSITIVE_SUBDIRS: frozenset[str] = frozenset(
-    p.removeprefix("~/").lower() for p in DEFAULT_SANDBOX_DENY_PATHS
+# Import-specific sensitive directory names. These are checked
+# against every path component (case-insensitive) so that
+# ``~/backup/.ssh`` is caught even when the source path itself
+# is ``~/backup``.  This list is intentionally separate from
+# ``DEFAULT_SANDBOX_DENY_PATHS`` because the security semantics
+# differ: sandbox deny-list controls runtime permissions, while
+# this list prevents data exfiltration via the import API.
+_SENSITIVE_DIR_NAMES: frozenset[str] = frozenset(
+    {
+        ".ssh",
+        ".aws",
+        ".gnupg",
+        ".kube",
+        ".docker",
+        ".azure",
+        ".claude",
+        ".password-store",
+    },
 )
+
+# Sensitive file basenames (case-insensitive).  A directory
+# containing any of these files is not automatically blocked,
+# but a *source path component* matching these names will be.
+_SENSITIVE_FILE_NAMES: frozenset[str] = frozenset(
+    {
+        ".env",
+        ".netrc",
+        ".npmrc",
+        ".yarnrc",
+        ".pypirc",
+        ".gitconfig",
+        ".git-credentials",
+        ".terraformrc",
+        ".vault-token",
+    },
+)
+
+# Multi-component sensitive paths under home (posix-style,
+# lowercase).  Both the source path itself and directories
+# *inside* the source are checked.
+_SENSITIVE_SUBPATHS: frozenset[str] = frozenset(
+    {
+        ".config/gcloud",
+        ".config/nix",
+        ".config/gh",
+    },
+)
+
+
+def _is_sensitive_name(name: str) -> bool:
+    """Check if a single path component is a sensitive name."""
+    low = name.lower()
+    return low in _SENSITIVE_DIR_NAMES or low in _SENSITIVE_FILE_NAMES
 
 
 def _validate_import_source(source: Path) -> None:
@@ -336,16 +385,15 @@ def _validate_import_source(source: Path) -> None:
     Raises HTTPException(403) when:
     - *source* is not under the user's home directory.
     - *source* equals the home directory itself.
-    - *source* is (or is inside) a known sensitive subdirectory
-      such as ``~/.ssh`` or ``~/.aws``.
-    - *source* is an ancestor of a known sensitive subdirectory
-      (e.g. ``~/.config`` which contains ``gcloud``).
+    - *source* path contains a sensitive component name.
+    - *source* is (or is inside) a known sensitive sub-path.
+    - *source* is an ancestor of a known sensitive sub-path.
     """
     home = Path.home().resolve()
     if not source.is_relative_to(home):
         raise HTTPException(
             status_code=403,
-            detail=(f"Source must be under home directory: {home}"),
+            detail=f"Source must be under home directory: {home}",
         )
 
     if source == home:
@@ -354,25 +402,69 @@ def _validate_import_source(source: Path) -> None:
             detail="Cannot import the entire home directory",
         )
 
-    rel_lower = str(source.relative_to(home)).lower()
+    rel = source.relative_to(home)
 
-    for sens in _SENSITIVE_SUBDIRS:
-        if rel_lower == sens or rel_lower.startswith(
-            f"{sens}/",
-        ):
+    for part in rel.parts:
+        if _is_sensitive_name(part):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Path contains sensitive component: {part}",
+            )
+
+    rel_posix = rel.as_posix().lower()
+    for sp in _SENSITIVE_SUBPATHS:
+        if rel_posix == sp or rel_posix.startswith(f"{sp}/"):
             raise HTTPException(
                 status_code=403,
                 detail=(
                     f"Importing sensitive directory " f"not allowed: {source}"
                 ),
             )
-        if sens.startswith(f"{rel_lower}/"):
+        if sp.startswith(f"{rel_posix}/"):
             raise HTTPException(
                 status_code=403,
                 detail=(
-                    f"Directory contains sensitive " f"subdirectory: {sens}"
+                    f"Directory contains sensitive " f"subdirectory: {sp}"
                 ),
             )
+
+
+def _scan_for_sensitive_contents(source: Path) -> None:
+    """Walk *source* and reject if it contains sensitive dirs.
+
+    Checks directory names against ``_SENSITIVE_DIR_NAMES`` and
+    multi-component paths against ``_SENSITIVE_SUBPATHS``.  Only
+    scans one level of depth for each sensitive sub-path to keep
+    the scan fast.
+    """
+    home = Path.home().resolve()
+    for dirpath, dirnames, _filenames in os.walk(source):
+        for d in dirnames:
+            if d.lower() in _SENSITIVE_DIR_NAMES:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"Source contains sensitive "
+                        f"subdirectory: "
+                        f"{Path(dirpath) / d}"
+                    ),
+                )
+        cur = Path(dirpath)
+        if cur.is_relative_to(home):
+            cur_posix = cur.relative_to(home).as_posix().lower()
+            for sp in _SENSITIVE_SUBPATHS:
+                if sp.startswith(f"{cur_posix}/"):
+                    target_name = sp[len(cur_posix) + 1 :].split(
+                        "/",
+                    )[0]
+                    if target_name in {dn.lower() for dn in dirnames}:
+                        raise HTTPException(
+                            status_code=403,
+                            detail=(
+                                f"Source contains sensitive "
+                                f"subdirectory: {sp}"
+                            ),
+                        )
 
 
 @router.post(
@@ -403,6 +495,7 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
         )
 
     _validate_import_source(source)
+    await asyncio.to_thread(_scan_for_sensitive_contents, source)
 
     dest_name = body.name.strip() if body.name else source.name
     base = _projects_base(workspace.workspace_dir)
@@ -410,6 +503,7 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
 
     def _copy() -> Path:
         import shutil
+        import stat
 
         _pattern_ignore = shutil.ignore_patterns(
             "node_modules",
@@ -425,16 +519,39 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
             ".tox",
         )
 
-        def _ignore(directory, contents):
-            """Skip build artifacts and all symlinks.
+        def _is_link_or_junction(p: Path) -> bool:
+            """Detect symlinks and Windows junctions."""
+            if p.is_symlink():
+                return True
+            if sys.platform == "win32":
+                try:
+                    st = p.lstat()
+                    attrs = getattr(
+                        st,
+                        "st_file_attributes",
+                        0,
+                    )
+                    reparse = getattr(
+                        stat,
+                        "FILE_ATTRIBUTE_REPARSE_POINT",
+                        0x400,
+                    )
+                    if attrs & reparse:
+                        return True
+                except OSError:
+                    pass
+            return False
 
-            Symlinks are dropped to prevent a malicious link
-            (e.g. ``leak -> ~/.ssh/id_rsa``) from smuggling
-            sensitive content into the copied project.
+        def _ignore(directory, contents):
+            """Skip build artifacts, symlinks, and junctions.
+
+            All non-regular entries (symlinks, Windows junctions)
+            are dropped to prevent smuggling sensitive content
+            into the copied project.
             """
             ignored = _pattern_ignore(directory, contents)
             d = Path(directory)
-            ignored |= {c for c in contents if (d / c).is_symlink()}
+            ignored |= {c for c in contents if _is_link_or_junction(d / c)}
             return ignored
 
         base.mkdir(parents=True, exist_ok=True)
