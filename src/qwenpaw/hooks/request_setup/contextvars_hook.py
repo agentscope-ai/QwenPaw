@@ -69,6 +69,12 @@ class ContextVarsSetupHook(LifecycleHook):
                 "channel": getattr(ctx.request, "channel", None) or "",
                 "channel_meta": getattr(ctx.request, "channel_meta", None),
             }
+        if isinstance(request_context, dict) and request_context.get(
+            "approval_level",
+        ):
+            approval_route["approval_level"] = request_context.get(
+                "approval_level",
+            )
         set_current_approval_route(approval_route)
 
         coding_project_dir = None
