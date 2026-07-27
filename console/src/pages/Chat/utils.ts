@@ -192,6 +192,29 @@ export function toDisplayUrl(url: string | undefined): string {
 // DOM utilities
 // ---------------------------------------------------------------------------
 
+/** Return the sender textarea belonging to the focused sender surface. */
+export function getActiveSenderTextarea(): HTMLTextAreaElement | null {
+  const focused =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement.closest('[class*="sender"]')
+      : null;
+  const focusedTextarea = focused?.querySelector("textarea");
+  if (focusedTextarea instanceof HTMLTextAreaElement) {
+    return focusedTextarea;
+  }
+
+  const candidates = Array.from(
+    document.querySelectorAll<HTMLTextAreaElement>(
+      '[class*="sender"] textarea',
+    ),
+  );
+  return (
+    candidates.find((textarea) => textarea.offsetParent !== null) ??
+    candidates[candidates.length - 1] ??
+    null
+  );
+}
+
 /** Set textarea value and trigger input event for React state sync.
  * Uses native value setter to bypass React's internal value tracker.
  */
@@ -208,4 +231,17 @@ export function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   textarea.selectionStart = textarea.selectionEnd = value.length;
   const event = new Event("input", { bubbles: true });
   textarea.dispatchEvent(event);
+}
+
+/**
+ * Clear the submitted sender value without erasing text typed for the next
+ * message while the request was being prepared.
+ */
+export function clearSubmittedSenderInput(submittedValue: string): boolean {
+  const textarea = getActiveSenderTextarea();
+  if (!textarea || textarea.value !== submittedValue) {
+    return false;
+  }
+  setTextareaValue(textarea, "");
+  return true;
 }

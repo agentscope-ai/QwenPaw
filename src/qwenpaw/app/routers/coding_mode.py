@@ -48,7 +48,6 @@ async def get_coding_mode(request: Request) -> dict:
     cm = config.coding_mode
     return {
         "enabled": bool(cm.enabled),
-        "project_dir": cm.project_dir,
         "agent_id": config.id,
     }
 

@@ -4,6 +4,11 @@ import { buildAuthHeaders } from "../authHeaders";
 import { useCodeFileCacheStore } from "../../stores/codeFileCacheStore";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types";
+import type {
+  DirectoryPage,
+  FileMetadata,
+  WorkspaceRoot,
+} from "../../features/files-workspace/types";
 
 function getSelectedAgentId(): string {
   try {
@@ -40,7 +45,180 @@ function encodePath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/");
 }
 
+function workspaceQuery(
+  path: string,
+  values: Record<string, string | number | undefined>,
+): string {
+  const query = new URLSearchParams();
+  Object.entries(values).forEach(([key, value]) => {
+    if (value !== undefined) query.set(key, String(value));
+  });
+  return `${path}?${query.toString()}`;
+}
+
+function projectHeaders(chatId?: string): Record<string, string> {
+  return {
+    ...buildAuthHeaders(),
+    ...(chatId ? { "X-Chat-Id": chatId } : {}),
+  };
+}
+
+export class UploadConflictError extends Error {
+  files: string[];
+
+  constructor(files: string[]) {
+    super("Upload contains conflicting filenames");
+    this.name = "UploadConflictError";
+    this.files = files;
+  }
+}
+
 export const workspaceApi = {
+  listDirectory: (
+    path = "",
+    cursor?: string,
+    limit = 200,
+    chatId?: string,
+    root: WorkspaceRoot = "project",
+  ): Promise<DirectoryPage> =>
+    request<DirectoryPage>(
+      workspaceQuery("/workspace/tree", { path, cursor, limit, root }),
+      { headers: projectHeaders(chatId) },
+    ),
+
+  getFileMetadata: (
+    path: string,
+    chatId?: string,
+    root: WorkspaceRoot = "project",
+  ): Promise<FileMetadata> =>
+    request<FileMetadata>(
+      workspaceQuery("/workspace/file-metadata", { path, root }),
+      { headers: projectHeaders(chatId) },
+    ),
+
+  loadFileChunk: (
+    path: string,
+    offset = 0,
+    limit = 256 * 1024,
+    chatId?: string,
+    root: WorkspaceRoot = "project",
+  ) =>
+    request<{
+      path: string;
+      content: string;
+      offset: number;
+      limit: number;
+      next_offset: number;
+      eof: boolean;
+      truncated: boolean;
+      encoding: string;
+      etag: string;
+    }>(
+      workspaceQuery("/workspace/file-content", {
+        path,
+        offset,
+        limit,
+        root,
+      }),
+      { headers: projectHeaders(chatId) },
+    ),
+
+  loadFileText: async (
+    path: string,
+    chatId?: string,
+    root: WorkspaceRoot = "project",
+  ): Promise<string> => {
+    const chunks: string[] = [];
+    let offset = 0;
+    for (;;) {
+      const chunk = await workspaceApi.loadFileChunk(
+        path,
+        offset,
+        256 * 1024,
+        chatId,
+        root,
+      );
+      chunks.push(chunk.content);
+      if (chunk.eof) return chunks.join("");
+      if (chunk.next_offset <= offset) {
+        throw new Error("Workspace file reader did not advance");
+      }
+      offset = chunk.next_offset;
+    }
+  },
+
+  saveFileContent: async (
+    path: string,
+    content: string,
+    etag?: string,
+    chatId?: string,
+    root: WorkspaceRoot = "project",
+  ): Promise<{ path: string; size: number; etag: string }> => {
+    const response = await fetch(
+      getApiUrl(workspaceQuery("/workspace/file-content", { path, root })),
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...projectHeaders(chatId),
+          ...(etag ? { "If-Match": etag } : {}),
+        },
+        body: JSON.stringify({ content }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Workspace save failed: ${response.status}`);
+    }
+    return response.json();
+  },
+
+  getFileDownloadUrl: (path: string, root: WorkspaceRoot = "project") =>
+    getApiUrl(workspaceQuery("/workspace/file-download", { path, root })),
+
+  uploadFiles: async (
+    files: File[],
+    path = "",
+    conflict?: "overwrite" | "skip" | "rename",
+    chatId?: string,
+    root: WorkspaceRoot = "project",
+  ): Promise<{
+    files: Array<{
+      name: string;
+      path: string;
+      size?: number;
+      status: "uploaded" | "skipped";
+    }>;
+  }> => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append("files", file));
+    const response = await fetch(
+      getApiUrl(
+        workspaceQuery("/workspace/file-upload", {
+          path,
+          conflict,
+          root,
+        }),
+      ),
+      {
+        method: "POST",
+        headers: projectHeaders(chatId),
+        body: formData,
+      },
+    );
+    if (response.status === 409) {
+      const payload = await response.json().catch(() => null);
+      if (payload?.detail?.code === "upload_conflict") {
+        throw new UploadConflictError(
+          Array.isArray(payload.detail.files) ? payload.detail.files : [],
+        );
+      }
+    }
+    if (!response.ok) {
+      throw new Error(`File upload failed: ${response.status}`);
+    }
+    return response.json();
+  },
+
   listFiles: () =>
     request<MdFileInfo[]>("/workspace/files").then((files) =>
       files.map((file) => ({
@@ -146,7 +324,7 @@ export const workspaceApi = {
    * Cache strategy: returns the in-memory cached content immediately when
    * present (no network). Otherwise issues a GET with `If-None-Match` from
    * the cached ETag (if any) so a hard-refresh can short-circuit to 304.
-   * Cache invalidation lives in `FileTree`'s SSE handler.
+   * Cache invalidation is driven by the shared workspace watcher.
    */
   loadCodeFile: async (
     filePath: string,
@@ -202,7 +380,8 @@ export const workspaceApi = {
     }),
 
   /** Returns the URL for the SSE file-watch stream (Coding Mode). */
-  getWatchUrl: () => getApiUrl("/workspace/watch"),
+  getWatchUrl: (root: WorkspaceRoot = "project") =>
+    `${getApiUrl("/workspace/watch")}?root=${encodeURIComponent(root)}`,
 
   /**
    * Returns the URL for a binary file (image, PDF, CSV) preview.

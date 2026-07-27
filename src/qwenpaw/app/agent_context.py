@@ -136,25 +136,58 @@ async def get_agent_for_request(
         ) from e
 
 
-def get_coding_dir(workspace: "Workspace") -> Path:
-    """Return the active coding project directory for *workspace*.
+def get_agent_project_dir(workspace: "Workspace") -> Path:
+    """Return the agent's default project directory.
 
-    If the agent has set a ``coding_mode.project_dir`` in its config, that
-    path is returned.  Otherwise the agent's default ``workspace_dir`` is used.
+    The Coding tools switch does not participate in directory resolution.
     """
     from ..config.config import load_agent_config
+    from ..services.project_directory import resolve_effective_project_dir
 
     try:
         config = load_agent_config(workspace.agent_id)
-        project_dir = (
-            config.coding_mode.project_dir if config.coding_mode else None
-        )
+        project_dir = config.project_dir
     except Exception:
         project_dir = None
 
-    if project_dir:
-        return Path(project_dir).expanduser().resolve()
-    return workspace.workspace_dir
+    return resolve_effective_project_dir(
+        workspace.workspace_dir,
+        agent_project_dir=project_dir,
+    )[0]
+
+
+async def get_project_dir_for_request(
+    request: Request,
+    workspace: "Workspace",
+) -> Path:
+    """Resolve the effective project directory for a Files API request."""
+    from ..config.config import load_agent_config
+    from ..services.project_directory import (
+        resolve_effective_project_dir,
+        session_project_dir,
+    )
+
+    try:
+        config = load_agent_config(workspace.agent_id)
+        agent_project_dir = config.project_dir
+    except Exception:
+        agent_project_dir = None
+
+    session_override = None
+    chat_id = request.headers.get("X-Chat-Id")
+    if chat_id:
+        chat = await workspace.chat_manager.get_chat(chat_id)
+        if chat is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="Chat not found")
+        session_override = session_project_dir(chat.meta)
+
+    return resolve_effective_project_dir(
+        workspace.workspace_dir,
+        agent_project_dir=agent_project_dir,
+        session_override=session_override,
+    )[0]
 
 
 def get_active_agent_id() -> str:

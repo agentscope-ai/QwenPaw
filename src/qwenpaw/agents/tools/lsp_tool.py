@@ -17,7 +17,10 @@ from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
-from ...config.context import get_current_workspace_dir
+from ...config.context import (
+    get_current_project_dir,
+    get_current_workspace_dir,
+)
 from ...constant import WORKING_DIR
 from . import _lsp_client as lsp_client
 from . import _lsp_servers as lsp_servers
@@ -56,7 +59,7 @@ def _make_response(text: str) -> ToolChunk:
 
 
 def _resolve_root() -> Path:
-    workspace = get_current_workspace_dir()
+    workspace = get_current_project_dir() or get_current_workspace_dir()
     if workspace is not None:
         return workspace
     return WORKING_DIR

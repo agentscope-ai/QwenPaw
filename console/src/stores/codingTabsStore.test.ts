@@ -47,6 +47,20 @@ describe("codingTabsStore", () => {
     expect(useCodingTabsStore.getState().tabsByAgent["a1"]).toHaveLength(1);
   });
 
+  it("keeps the display path separate from the internal tab key", () => {
+    useCodingTabsStore.getState().openTab("a1", {
+      path: "attachment::hello.txt",
+      displayPath: "/workspace/hello.txt",
+      content: "hello",
+      dirty: false,
+    });
+
+    const tab = useCodingTabsStore.getState().tabsByAgent["a1"]?.[0];
+
+    expect(tab?.path).toBe("attachment::hello.txt");
+    expect(tab?.displayPath).toBe("/workspace/hello.txt");
+  });
+
   // ---------------------------------------------------------------------------
   // closeTab
   // ---------------------------------------------------------------------------
@@ -96,6 +110,26 @@ describe("codingTabsStore", () => {
       .getState()
       .tabsByAgent["a1"].find((t) => t.path === "foo.ts");
     expect(tab?.dirty).toBe(true);
+  });
+
+  it("resolveDiff updates content and removes the diff atomically", () => {
+    useCodingTabsStore.getState().openTab("a1", {
+      path: "foo.ts",
+      content: "old",
+      dirty: true,
+    });
+    useCodingTabsStore
+      .getState()
+      .setDiff("a1", "foo.ts", { original: "old", modified: "new" });
+
+    useCodingTabsStore.getState().resolveDiff("a1", "foo.ts", "new");
+
+    const state = useCodingTabsStore.getState();
+    expect(state.tabsByAgent["a1"][0]).toMatchObject({
+      content: "new",
+      dirty: false,
+    });
+    expect(state.diffsByAgent["a1"]).not.toHaveProperty("foo.ts");
   });
 
   // ---------------------------------------------------------------------------

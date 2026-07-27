@@ -8,15 +8,16 @@
  *   • csv    – parsed table
  */
 
+import { FileWarning, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { invoke } from "@tauri-apps/api/core";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
-import { isDesktopTauriRuntime } from "../../utils/openExternalLink";
+import type { WorkspaceRoot } from "../../features/files-workspace/types";
 import { ExternalMarkdownLink } from "../../components/Markdown/externalLinkComponents";
 import { useAgentStore } from "../../stores/agentStore";
 import styles from "./FilePreview.module.less";
@@ -86,44 +87,36 @@ function parseCsv(raw: string): string[][] {
 // Authenticated blob loader — browser-native <img>/<embed> won't send
 // X-Agent-Id, so we fetch with headers and create an object URL.
 //
-// In Tauri desktop mode, reads the file directly from disk via a native
-// command so binary previews work offline (no backend HTTP required).
 // ---------------------------------------------------------------------------
 
-function useAuthBlobUrl(filePath: string): string | null {
+function useAuthBlobUrl(
+  filePath: string,
+  chatId?: string,
+  binaryUrl?: string,
+  root?: WorkspaceRoot,
+): {
+  blobUrl: string | null;
+  loading: boolean;
+  failed: boolean;
+} {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
 
   useEffect(() => {
     let revoked = false;
+    setLoading(true);
+    setFailed(false);
 
     const loadBlob = async (): Promise<Blob | null> => {
-      // Tauri: read file directly from disk for offline support
-      if (isDesktopTauriRuntime()) {
-        try {
-          const response = await invoke<ArrayBuffer | number[]>(
-            "read_workspace_binary_file",
-            {
-              filePath,
-              agentId: selectedAgent,
-            },
-          );
-          const mimeType = guessMimeType(filePath);
-          // Tauri 2.11.1 on macOS may serialize a raw Vec<u8> as number[]
-          // instead of ArrayBuffer. Normalize both shapes into a Uint8Array
-          // so Blob construction uses the actual bytes, not a string join.
-          const bytes = Array.isArray(response)
-            ? new Uint8Array(response)
-            : new Uint8Array(response);
-          return new Blob([bytes], { type: mimeType });
-        } catch {
-          // Fall through to HTTP fetch as fallback
-        }
-      }
-
-      // Browser / online: fetch via backend API with auth headers
-      const url = workspaceApi.getBinaryFileUrl(filePath);
-      const res = await fetch(url, { headers: buildAuthHeaders() });
+      const url = binaryUrl ?? workspaceApi.getFileDownloadUrl(filePath, root);
+      const res = await fetch(url, {
+        headers: {
+          ...buildAuthHeaders(),
+          ...(chatId ? { "X-Chat-Id": chatId } : {}),
+        },
+      });
       if (!res.ok) throw new Error(`${res.status}`);
       return res.blob();
     };
@@ -132,9 +125,14 @@ function useAuthBlobUrl(filePath: string): string | null {
       .then((blob) => {
         if (revoked || !blob) return;
         setBlobUrl(URL.createObjectURL(blob));
+        setLoading(false);
       })
       .catch(() => {
-        if (!revoked) setBlobUrl(null);
+        if (!revoked) {
+          setBlobUrl(null);
+          setLoading(false);
+          setFailed(true);
+        }
       });
 
     return () => {
@@ -144,35 +142,47 @@ function useAuthBlobUrl(filePath: string): string | null {
         return null;
       });
     };
-  }, [filePath, selectedAgent]);
+  }, [binaryUrl, chatId, filePath, root, selectedAgent]);
 
-  return blobUrl;
-}
-
-/** Guess a MIME type from the file extension for blob creation. */
-function guessMimeType(filePath: string): string {
-  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-  const mimeMap: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    webp: "image/webp",
-    svg: "image/svg+xml",
-    ico: "image/x-icon",
-    bmp: "image/bmp",
-    pdf: "application/pdf",
-  };
-  return mimeMap[ext] ?? "application/octet-stream";
+  return { blobUrl, loading, failed };
 }
 
 // ---------------------------------------------------------------------------
 // Sub-renderers
 // ---------------------------------------------------------------------------
 
-function ImagePreview({ filePath }: { filePath: string }) {
-  const blobUrl = useAuthBlobUrl(filePath);
-  if (!blobUrl) return null;
+function ImagePreview({
+  filePath,
+  chatId,
+  binaryUrl,
+  root,
+}: {
+  filePath: string;
+  chatId?: string;
+  binaryUrl?: string;
+  root?: WorkspaceRoot;
+}) {
+  const { t } = useTranslation();
+  const { blobUrl, loading, failed } = useAuthBlobUrl(
+    filePath,
+    chatId,
+    binaryUrl,
+    root,
+  );
+  if (loading) {
+    return (
+      <PreviewStatus icon={<LoaderCircle size={18} />} spinning>
+        {t("common.loading")}
+      </PreviewStatus>
+    );
+  }
+  if (failed || !blobUrl) {
+    return (
+      <PreviewStatus icon={<FileWarning size={18} />}>
+        {t("files.loadFailed")}
+      </PreviewStatus>
+    );
+  }
   return (
     <div className={styles.imageWrap}>
       <img
@@ -184,9 +194,38 @@ function ImagePreview({ filePath }: { filePath: string }) {
   );
 }
 
-function PdfPreview({ filePath }: { filePath: string }) {
-  const blobUrl = useAuthBlobUrl(filePath);
-  if (!blobUrl) return null;
+function PdfPreview({
+  filePath,
+  chatId,
+  binaryUrl,
+  root,
+}: {
+  filePath: string;
+  chatId?: string;
+  binaryUrl?: string;
+  root?: WorkspaceRoot;
+}) {
+  const { t } = useTranslation();
+  const { blobUrl, loading, failed } = useAuthBlobUrl(
+    filePath,
+    chatId,
+    binaryUrl,
+    root,
+  );
+  if (loading) {
+    return (
+      <PreviewStatus icon={<LoaderCircle size={18} />} spinning>
+        {t("common.loading")}
+      </PreviewStatus>
+    );
+  }
+  if (failed || !blobUrl) {
+    return (
+      <PreviewStatus icon={<FileWarning size={18} />}>
+        {t("files.loadFailed")}
+      </PreviewStatus>
+    );
+  }
   return (
     <embed
       src={blobUrl}
@@ -197,12 +236,40 @@ function PdfPreview({ filePath }: { filePath: string }) {
   );
 }
 
+function PreviewStatus({
+  children,
+  icon,
+  spinning = false,
+}: {
+  children: React.ReactNode;
+  icon: React.ReactNode;
+  spinning?: boolean;
+}) {
+  return (
+    <div className={styles.previewStatus}>
+      <span className={spinning ? styles.spinning : undefined}>{icon}</span>
+      <span>{children}</span>
+    </div>
+  );
+}
+
 const markdownComponents = {
   a: ExternalMarkdownLink,
   pre({ children }: { children?: React.ReactNode }) {
     return <>{children}</>;
   },
-  code({ node: _node, inline: _inline, className, children, ...rest }: any) {
+  code({
+    node,
+    inline,
+    className,
+    children,
+    ...rest
+  }: React.ComponentPropsWithoutRef<"code"> & {
+    node?: unknown;
+    inline?: boolean;
+  }) {
+    void node;
+    void inline;
     const match = /language-([\w-]+)/.exec(className || "");
     const codeText = String(children).replace(/\n$/, "");
     if (match) {
@@ -267,18 +334,15 @@ function CsvPreview({ content }: { content: string }) {
           <thead>
             <tr>
               {header.slice(0, MAX_CSV_COLS).map((h, i) => (
-                // eslint-disable-next-line react/no-array-index-key
-                <th key={i}>{h}</th>
+                <th key={`${i}:${h}`}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {body.map((row, ri) => (
-              // eslint-disable-next-line react/no-array-index-key
-              <tr key={ri}>
+              <tr key={`${ri}:${row.join("\u0000")}`}>
                 {row.slice(0, MAX_CSV_COLS).map((cell, ci) => (
-                  // eslint-disable-next-line react/no-array-index-key
-                  <td key={ci}>{cell}</td>
+                  <td key={`${ci}:${cell}`}>{cell}</td>
                 ))}
               </tr>
             ))}
@@ -297,13 +361,40 @@ export interface FilePreviewProps {
   filePath: string;
   /** Text content – used by Markdown and CSV renderers. */
   content: string;
+  chatId?: string;
+  binaryUrl?: string;
+  root?: WorkspaceRoot;
 }
 
-export default function FilePreview({ filePath, content }: FilePreviewProps) {
+export default function FilePreview({
+  filePath,
+  content,
+  chatId,
+  binaryUrl,
+  root,
+}: FilePreviewProps) {
   const type = getPreviewType(filePath);
 
-  if (type === "image") return <ImagePreview filePath={filePath} />;
-  if (type === "pdf") return <PdfPreview filePath={filePath} />;
+  if (type === "image") {
+    return (
+      <ImagePreview
+        filePath={filePath}
+        chatId={chatId}
+        binaryUrl={binaryUrl}
+        root={root}
+      />
+    );
+  }
+  if (type === "pdf") {
+    return (
+      <PdfPreview
+        filePath={filePath}
+        chatId={chatId}
+        binaryUrl={binaryUrl}
+        root={root}
+      />
+    );
+  }
   if (type === "markdown") return <MarkdownPreview content={content} />;
   if (type === "csv") return <CsvPreview content={content} />;
   return null;

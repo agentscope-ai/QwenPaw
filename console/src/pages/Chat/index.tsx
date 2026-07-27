@@ -3,7 +3,14 @@ import {
   IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { Alert, Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { useIsMobile } from "../../hooks/useIsMobile";
@@ -25,7 +32,6 @@ import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
-import { useCodingMode } from "../../stores/codingModeStore";
 import {
   beginLoopModeSubmission,
   fetchActiveLoopMode,
@@ -72,6 +78,22 @@ import {
   type HeadlineStreamFilterState,
   stripScrollHeadlineTextBlocks,
 } from "./headlineFilter";
+import FilesDrawer from "../../features/files-workspace/FilesDrawer";
+import SessionProjectDirectory from "../../features/project-directory/SessionProjectDirectory";
+import {
+  CLOSED_FILES_DRAWER,
+  filesDrawerReducer,
+} from "../../features/files-workspace/filesDrawerState";
+import {
+  filePathFromPreviewUrl,
+  parseInternalFileLink,
+} from "../../features/files-workspace/internalFileLinks";
+import type { FileTarget } from "../../features/files-workspace/types";
+import {
+  getPendingProjectDirectory,
+  setPendingProjectDirectory,
+} from "../../features/project-directory/pendingProjectDirectory";
+import FileReferenceInputOverlay from "./FileReferenceInputOverlay";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -93,6 +115,17 @@ interface ApprovalMessageData {
   similarTarget?: string;
 }
 
+function resolveBackendChatId(chatId?: string | null): string | undefined {
+  if (!chatId) return undefined;
+  const resolved = sessionApi.getRealIdForSession(chatId);
+  if (resolved) return resolved;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    chatId,
+  )
+    ? chatId
+    : undefined;
+}
+
 import WhisperSpeechButton, {
   WhisperSpeechButtonRef,
 } from "./components/WhisperSpeechButton";
@@ -106,18 +139,18 @@ import {
   normalizeContentUrls,
   extractUserMessageText,
   extractTextFromMessage,
+  clearSubmittedSenderInput,
+  getActiveSenderTextarea,
   setTextareaValue,
   formatMessageTime,
   type CopyableResponse,
   type RuntimeLoadingBridgeApi,
 } from "./utils";
 import {
+  CHAT_BASE_PATH,
+  buildChatPath,
   getSessionIdFromPath,
-  buildBasePath,
-  buildSessionPath,
-  type SessionRouteMode,
 } from "../../utils/sessionRoute";
-import { openExternalLink } from "../../utils/openExternalLink";
 import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import MessageQueuePanel from "./components/MessageQueuePanel";
@@ -322,6 +355,8 @@ async function startBackgroundQueue(
       let fetchStarted = false;
       try {
         const authHeaders = buildAuthHeaders();
+        const queueAgentId = item.agentId || "default";
+        const pendingProjectDir = getPendingProjectDirectory(queueAgentId);
         // Use the agent ID captured at enqueue time to prevent cross-agent
         // delivery when the user switches agents after queueing.
         if (item.agentId) {
@@ -351,10 +386,20 @@ async function startBackgroundQueue(
             user_id: item.userId || DEFAULT_USER_ID,
             channel: item.channel || DEFAULT_CHANNEL,
             stream: true,
+            ...(pendingProjectDir
+              ? {
+                  request_context: {
+                    pending_project_dir: pendingProjectDir,
+                  },
+                }
+              : {}),
           }),
         });
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (pendingProjectDir) {
+          setPendingProjectDirectory(queueAgentId, null);
+        }
         fetchStarted = true;
 
         // Drain the stream; reaching `done` means the backend persisted the
@@ -1134,10 +1179,68 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark } = useTheme();
-  const { codingMode, initialized } = useCodingMode();
-  const codingModeRef = useRef(codingMode);
-  codingModeRef.current = codingMode;
   const loopAvailableModes = useLoopStore((state) => state.availableModes);
+  const [filesDrawerState, dispatchFilesDrawer] = useReducer(
+    filesDrawerReducer,
+    CLOSED_FILES_DRAWER,
+  );
+
+  useEffect(() => {
+    const openFiles = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        trigger?: HTMLElement | null;
+      }>;
+      dispatchFilesDrawer({
+        type: "OPEN_FILES",
+        trigger: customEvent.detail?.trigger ?? null,
+      });
+    };
+    window.addEventListener("qwenpaw:open-files", openFiles);
+    if (sessionStorage.getItem("qwenpaw-open-files") === "true") {
+      sessionStorage.removeItem("qwenpaw-open-files");
+      dispatchFilesDrawer({
+        type: "OPEN_FILES",
+        trigger: null,
+      });
+    }
+    return () => window.removeEventListener("qwenpaw:open-files", openFiles);
+  }, []);
+
+  useEffect(() => {
+    const openPreview = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        target: FileTarget;
+        trigger?: HTMLElement | null;
+      }>;
+      dispatchFilesDrawer({
+        type: "OPEN_PREVIEW",
+        target: customEvent.detail.target,
+        trigger: customEvent.detail.trigger ?? null,
+      });
+    };
+    window.addEventListener("qwenpaw:open-file-preview", openPreview);
+    return () =>
+      window.removeEventListener("qwenpaw:open-file-preview", openPreview);
+  }, []);
+
+  const handleInternalFileLink = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const element = event.target;
+      if (!(element instanceof Element)) return;
+      const anchor = element.closest<HTMLAnchorElement>("a[href]");
+      if (!anchor) return;
+      const target = parseInternalFileLink(anchor.getAttribute("href") ?? "");
+      if (!target) return;
+      event.preventDefault();
+      event.stopPropagation();
+      dispatchFilesDrawer({
+        type: "OPEN_PREVIEW",
+        target,
+        trigger: anchor,
+      });
+    },
+    [],
+  );
 
   // Wide mode toggle: expand chat content to full available width
   const [isWideMode, setIsWideMode] = useState(() => {
@@ -1163,18 +1266,6 @@ export default function ChatPage() {
     });
   }, []);
 
-  // Redirect to /coding when coding mode is active, preserving sessionId.
-  useEffect(() => {
-    if (initialized && codingMode && !location.pathname.startsWith("/coding")) {
-      // Issue #5142: Carry over the current chatId so the session survives
-      // the redirect from /chat/<id> to /coding/<id>.
-      const currentChatId = getSessionIdFromPath(location.pathname);
-      navigate(buildSessionPath("coding", currentChatId), {
-        replace: true,
-      });
-    }
-  }, [initialized, codingMode, navigate, location.pathname]);
-
   const chatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
@@ -1189,6 +1280,12 @@ export default function ChatPage() {
     }>
   >([]);
   const { selectedAgent } = useAgentStore();
+  const drawerAgentRef = useRef(selectedAgent);
+  useEffect(() => {
+    if (drawerAgentRef.current === selectedAgent) return;
+    drawerAgentRef.current = selectedAgent;
+    dispatchFilesDrawer({ type: "CLOSE" });
+  }, [selectedAgent]);
   const { toolRenderConfig } = usePlugins();
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
@@ -1458,12 +1555,8 @@ export default function ChatPage() {
   }, [selectedAgent]);
 
   const isChatActiveRef = useRef(false);
-  // Issue #5142: In Coding mode the Chat component is embedded under /coding/*,
-  // so session callbacks must also fire on /coding paths.
   isChatActiveRef.current =
-    location.pathname === "/" ||
-    location.pathname.startsWith("/chat") ||
-    location.pathname.startsWith("/coding");
+    location.pathname === "/" || location.pathname.startsWith("/chat");
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
 
@@ -1661,6 +1754,11 @@ export default function ChatPage() {
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  const [senderValue, setSenderValue] = useState("");
+  const pendingSenderClearRef = useRef<string | null>(null);
+  const handleSenderChange = useCallback(({ query }: { query: string }) => {
+    setSenderValue(query);
+  }, []);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1969,11 +2067,23 @@ export default function ChatPage() {
 
   const onFileCardClick = useCallback(
     (fileInfo: { name?: string; size?: number; url?: string }) => {
-      if (fileInfo.url) {
-        openExternalLink(fileInfo.url);
-      }
+      if (!fileInfo.url) return;
+      const target: FileTarget = {
+        source: "attachment",
+        path:
+          filePathFromPreviewUrl(fileInfo.url) ||
+          fileInfo.name ||
+          fileInfo.url.split("?")[0].split("/").pop() ||
+          t("files.title"),
+        artifactUrl: fileInfo.url,
+      };
+      dispatchFilesDrawer({
+        type: "OPEN_PREVIEW",
+        target,
+        trigger: null,
+      });
     },
-    [],
+    [t],
   );
 
   // Shortcut key for voice recording (Ctrl+Shift+M or Cmd+Shift+M on Mac)
@@ -2038,13 +2148,10 @@ export default function ChatPage() {
   // Register session API event callbacks for URL synchronization
 
   useEffect(() => {
-    const getCurrentRouteMode = (): SessionRouteMode =>
-      codingModeRef.current ? "coding" : "chat";
-
     const buildCurrentSessionPath = (sessionId: string) =>
-      buildSessionPath(getCurrentRouteMode(), sessionId);
+      buildChatPath(sessionId);
 
-    const buildCurrentBasePath = () => buildBasePath(getCurrentRouteMode());
+    const buildCurrentBasePath = () => CHAT_BASE_PATH;
 
     sessionApi.onSessionIdResolved = (tempId, realId) => {
       if (!isChatActiveRef.current) return;
@@ -2195,7 +2302,7 @@ export default function ChatPage() {
       // Restore last chat ID for the agent we're switching to
       const restored = getLastChatId(selectedAgent);
       if (restored) {
-        navigateRef.current(buildSessionPath("chat", restored), {
+        navigateRef.current(buildChatPath(restored), {
           replace: true,
         });
         sessionApi.preferredChatId = restored;
@@ -2249,12 +2356,21 @@ export default function ChatPage() {
           !activeModels?.active_llm?.provider_id ||
           !activeModels?.active_llm?.model
         ) {
+          pendingSenderClearRef.current = null;
           setShowModelPrompt(true);
           return buildModelError();
         }
       } catch {
+        pendingSenderClearRef.current = null;
         setShowModelPrompt(true);
         return buildModelError();
+      }
+
+      const submittedValue = pendingSenderClearRef.current;
+      if (submittedValue !== null) {
+        clearSubmittedSenderInput(submittedValue);
+        pendingSenderClearRef.current = null;
+        localStorage.removeItem(getDraftStorageKey(selectedAgent));
       }
 
       const { input = [], biz_params } = data;
@@ -2299,6 +2415,18 @@ export default function ChatPage() {
         sessionApprovalLevelRef.current,
         runningConfigApprovalLevel,
       );
+      const pendingProjectDir = getPendingProjectDirectory(selectedAgent);
+      if (pendingProjectDir) {
+        const currentContext =
+          requestBody.request_context &&
+          typeof requestBody.request_context === "object"
+            ? (requestBody.request_context as Record<string, unknown>)
+            : {};
+        requestBody.request_context = {
+          ...currentContext,
+          pending_project_dir: pendingProjectDir,
+        };
+      }
 
       const backendChatId =
         sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
@@ -2338,6 +2466,9 @@ export default function ChatPage() {
       const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
       if (response.ok && localIdToResolve) {
         sessionApi.triggerResolve(localIdToResolve);
+        if (pendingProjectDir) {
+          setPendingProjectDirectory(selectedAgent, null);
+        }
       }
 
       return wrapChatResponseUsageStream(response, chatRef);
@@ -2400,6 +2531,9 @@ export default function ChatPage() {
     [multimodalCaps, t],
   );
 
+  const compactSender =
+    filesDrawerState.kind === "workspace" && filesDrawerState.origin === "chat";
+
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
     const commandSuggestions: CommandSuggestion[] = [
@@ -2449,9 +2583,7 @@ export default function ChatPage() {
       // abort the actual SDK send. The owner tab will pick the item up via
       // cross-tab broadcast and send it.
       if (!isOwnerRef.current) {
-        const textarea = document
-          .querySelector('[class*="sender"]')
-          ?.querySelector("textarea") as HTMLTextAreaElement | null;
+        const textarea = getActiveSenderTextarea();
         const val = textarea?.value.trim() ?? "";
         if (!val) return false;
         const currentQ = useMessageQueueStore
@@ -2490,14 +2622,13 @@ export default function ChatPage() {
       // Clear pending attachments when sending directly (not through queue)
       pendingFileListRef.current = [];
 
-      const textarea = document
-        .querySelector('[class*="sender"]')
-        ?.querySelector("textarea") as HTMLTextAreaElement | null;
+      const textarea = getActiveSenderTextarea();
       if (textarea) {
         const prepared = beginLoopModeSubmission(textarea.value);
         if (prepared !== textarea.value) {
           setTextareaValue(textarea, prepared);
         }
+        pendingSenderClearRef.current = prepared;
       }
 
       return true;
@@ -2736,6 +2867,7 @@ export default function ChatPage() {
       },
       sender: {
         ...(i18nConfig as any)?.sender,
+        onChange: handleSenderChange,
         beforeSubmit: handleBeforeSubmit,
         allowSpeech: whisperChecked && !whisperEnabled,
         beforeUI: showSenderBeforeUI ? (
@@ -2777,6 +2909,7 @@ export default function ChatPage() {
         ),
         actionAffix: (
           <span
+            className={compactSender ? styles.compactSenderAffix : undefined}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -2787,9 +2920,14 @@ export default function ChatPage() {
               onCompact={handleCompactCommand}
               onNew={handleNewCommand}
             />
+            <SessionProjectDirectory
+              chatId={resolveBackendChatId(chatId)}
+              compact={compactSender}
+            />
             <ApprovalLevelToggle
               sessionId={queueSessionId}
               runningConfigApprovalLevel={runningConfigApprovalLevel}
+              compact={compactSender}
               onChange={(sessionOverride) => {
                 sessionApprovalLevelRef.current = sessionOverride;
               }}
@@ -3038,10 +3176,31 @@ export default function ChatPage() {
     toggleHistoryPanel,
     handleCompactCommand,
     handleNewCommand,
+    compactSender,
+    handleSenderChange,
   ]);
 
+  const filesDrawerClass =
+    filesDrawerState.kind === "closed"
+      ? ""
+      : filesDrawerState.kind === "preview"
+      ? styles.filesPreviewOpen
+      : filesDrawerState.origin === "files"
+      ? styles.filesDirectOpen
+      : styles.filesWorkspaceOpen;
+
   return (
-    <div className={styles.chatPageRoot}>
+    <div
+      className={`${styles.chatPageRoot} ${filesDrawerClass}`}
+      onClickCapture={handleInternalFileLink}
+    >
+      {filesDrawerState.kind !== "closed" && (
+        <FilesDrawer
+          state={filesDrawerState}
+          dispatch={dispatchFilesDrawer}
+          chatId={resolveBackendChatId(chatId)}
+        />
+      )}
       {/* Main chat area */}
       <div className={styles.chatMainArea}>
         <div
@@ -3056,6 +3215,7 @@ export default function ChatPage() {
             key={refreshKey}
             options={options}
           />
+          <FileReferenceInputOverlay value={senderValue} />
         </div>
 
         {/* Rate-limit guidance banner */}

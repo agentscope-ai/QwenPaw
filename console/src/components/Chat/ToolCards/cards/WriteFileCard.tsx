@@ -2,7 +2,13 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { FileAddOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
-import { ToolCardShell, DefaultBlock } from "../shared";
+import {
+  ToolCardShell,
+  DefaultBlock,
+  FileAttachmentPreview,
+  FilePreviewLink,
+  hasMultimediaPreview,
+} from "../shared";
 import { shortFileName, countLines } from "../shared/utils";
 import styles from "../shared/toolCards.module.less";
 
@@ -50,7 +56,10 @@ const WriteFileCard: React.FC<WriteFileCardProps> = ({
       icon={<FileAddOutlined />}
       title={title}
       badges={badge}
+      summaryAction={<FilePreviewLink content={content} />}
+      defaultExpanded={hasMultimediaPreview(content)}
     >
+      <FileAttachmentPreview content={content} />
       {writtenContent && (
         <DefaultBlock title="Content" content={writtenContent} />
       )}

@@ -2,6 +2,29 @@
 // FilePreview styles
 // ---------------------------------------------------------------------------
 
+.previewStatus {
+  height: 100%;
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.52));
+  background: var(--layout-body-background, #f7f8f7);
+  font-size: 13px;
+}
+
+.spinning {
+  display: inline-flex;
+  animation: preview-spin 900ms linear infinite;
+}
+
+@keyframes preview-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 // ---- Image ----------------------------------------------------------------
 
 .imageWrap {
@@ -71,7 +94,7 @@
   }
 
   a {
-    color: var(--primary-color, #1677ff);
+    color: var(--files-accent, #f36b21);
     text-decoration: none;
     &:hover {
       text-decoration: underline;
@@ -90,8 +113,8 @@
   blockquote {
     margin: 0.75em 0;
     padding: 0.4em 1em;
-    border-left: 3px solid var(--primary-color, #1677ff);
-    background: var(--primary-bg, rgba(22, 119, 255, 0.04));
+    border-left: 3px solid var(--files-accent, #f36b21);
+    background: var(--files-accent-soft, rgba(243, 107, 33, 0.08));
     color: var(--text-secondary, rgba(0, 0, 0, 0.65));
   }
 
@@ -212,6 +235,11 @@
 
 // ---- Dark mode -----------------------------------------------------------
 :global(.dark-mode) {
+  .previewStatus {
+    color: rgba(255, 255, 255, 0.62);
+    background: #141816;
+  }
+
   .imageWrap {
     background: #141414;
   }
@@ -242,7 +270,7 @@
 
     blockquote {
       border-left-color: #4da3ff;
-      background: rgba(22, 119, 255, 0.08);
+      background: rgba(243, 107, 33, 0.08);
       color: rgba(255, 255, 255, 0.65);
     }
 

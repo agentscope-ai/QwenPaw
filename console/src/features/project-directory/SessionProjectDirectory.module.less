@@ -1,0 +1,246 @@
+.trigger {
+  max-width: 240px;
+  height: 30px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--ant-color-text-secondary);
+  background: rgba(243, 107, 33, 0.07);
+  border: 1px solid rgba(243, 107, 33, 0.2);
+  border-radius: 8px;
+  cursor: pointer;
+
+  > span {
+    overflow: hidden;
+    color: var(--ant-color-text);
+    font-size: 12px;
+    font-weight: 550;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  em {
+    color: #d95b17;
+    font-size: 9px;
+    font-style: normal;
+    white-space: nowrap;
+  }
+
+  &:hover {
+    border-color: #f36b21;
+    background: rgba(243, 107, 33, 0.11);
+  }
+}
+
+.triggerError {
+  color: var(--ant-color-error);
+  border-color: color-mix(in srgb, var(--ant-color-error) 35%, transparent);
+}
+
+.triggerCompact {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+  justify-content: center;
+}
+
+.triggerFullPath {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  justify-content: flex-start;
+
+  > span {
+    flex: 1;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 500;
+    text-align: left;
+  }
+}
+
+.panel {
+  width: min(360px, calc(100vw - 36px));
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panelHeading {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: #f36b21;
+
+  > div {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  strong {
+    color: var(--ant-color-text);
+    font-size: 13px;
+  }
+
+  span {
+    color: var(--ant-color-text-secondary);
+    font-size: 11px;
+  }
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+
+  :global(.ant-btn-primary) {
+    background: #f36b21;
+    box-shadow: none;
+  }
+}
+
+.recent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  > span {
+    color: var(--ant-color-text-tertiary);
+    font-size: 10px;
+  }
+
+  button {
+    min-width: 0;
+    padding: 6px 8px;
+    display: grid;
+    grid-template-columns: auto minmax(60px, auto) minmax(0, 1fr);
+    align-items: center;
+    gap: 7px;
+    color: var(--ant-color-text-secondary);
+    text-align: left;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    cursor: pointer;
+
+    &:hover {
+      color: #f36b21;
+      background: rgba(243, 107, 33, 0.08);
+    }
+  }
+
+  strong {
+    color: var(--ant-color-text);
+    font-size: 11px;
+  }
+
+  small {
+    overflow: hidden;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.browser {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  > code {
+    overflow: hidden;
+    color: var(--ant-color-text-secondary);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.browserBar {
+  display: flex;
+  align-items: center;
+
+  > :first-child {
+    margin-right: auto;
+  }
+}
+
+.directories {
+  max-height: 156px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 8px;
+
+  button {
+    padding: 6px 7px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--ant-color-text-secondary);
+    text-align: left;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+
+    &:hover {
+      color: #f36b21;
+      background: rgba(243, 107, 33, 0.08);
+    }
+  }
+
+  small {
+    padding: 10px;
+    color: var(--ant-color-text-tertiary);
+    text-align: center;
+  }
+}
+
+.hint {
+  color: var(--ant-color-text-tertiary);
+  font-size: 10px;
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+:global(.dark-mode) {
+  .trigger {
+    background: rgba(255, 145, 77, 0.1);
+    border-color: rgba(255, 145, 77, 0.24);
+
+    em {
+      color: #ff914d;
+    }
+  }
+
+  .panelHeading {
+    color: #ff914d;
+  }
+}
+
+@media (max-width: 720px) {
+  .trigger {
+    max-width: 150px;
+
+    em {
+      display: none;
+    }
+  }
+}

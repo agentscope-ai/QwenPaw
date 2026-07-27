@@ -6,6 +6,8 @@ import {
   toStoredName,
   normalizeContentUrls,
   toDisplayUrl,
+  getActiveSenderTextarea,
+  clearSubmittedSenderInput,
 } from "./utils";
 import type { CopyableResponse } from "./utils";
 
@@ -106,6 +108,47 @@ describe("extractUserMessageText", () => {
   it("returns empty string for non-string non-array content", () => {
     expect(extractUserMessageText({ content: null })).toBe("");
     expect(extractUserMessageText({ content: 123 })).toBe("");
+  });
+});
+
+describe("getActiveSenderTextarea", () => {
+  it("prefers the textarea in the focused sender", () => {
+    document.body.innerHTML = `
+      <div class="sender-one"><textarea id="first"></textarea></div>
+      <div class="sender-two"><textarea id="second"></textarea></div>
+    `;
+    const second = document.querySelector("#second") as HTMLTextAreaElement;
+    second.focus();
+
+    expect(getActiveSenderTextarea()).toBe(second);
+    document.body.innerHTML = "";
+  });
+});
+
+describe("clearSubmittedSenderInput", () => {
+  it("clears the real textarea value and dispatches an input event", () => {
+    document.body.innerHTML = `
+      <div class="sender"><textarea>send me</textarea></div>
+    `;
+    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+    const onInput = vi.fn();
+    textarea.addEventListener("input", onInput);
+
+    expect(clearSubmittedSenderInput("send me")).toBe(true);
+    expect(textarea.value).toBe("");
+    expect(onInput).toHaveBeenCalledOnce();
+    document.body.innerHTML = "";
+  });
+
+  it("does not erase text typed for the next message", () => {
+    document.body.innerHTML = `
+      <div class="sender"><textarea>next message</textarea></div>
+    `;
+    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+
+    expect(clearSubmittedSenderInput("sent message")).toBe(false);
+    expect(textarea.value).toBe("next message");
+    document.body.innerHTML = "";
   });
 });
 

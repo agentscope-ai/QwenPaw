@@ -5,7 +5,7 @@
  * blocks: icon + label on a single line, expandable body underneath.
  */
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ToolCallContent } from "./types";
 import DefaultBlock from "./DefaultBlock";
@@ -25,8 +25,12 @@ export interface ToolCardShellProps {
   inlineResult?: string | null;
   /** Optional badge elements (line counts, diff counts). */
   badges?: React.ReactNode;
+  /** Optional compact action rendered immediately after the title. */
+  summaryAction?: React.ReactNode;
   /** Expandable body content. */
   children?: React.ReactNode;
+  /** Open the tool details when its user-facing result should be visible. */
+  defaultExpanded?: boolean;
 }
 
 const ToolCardShell: React.FC<ToolCardShellProps> = ({
@@ -36,7 +40,9 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
   title,
   inlineResult,
   badges,
+  summaryAction,
   children,
+  defaultExpanded = false,
 }) => {
   const { t } = useTranslation();
   const isLoading = content.status === "calling" && isStreaming;
@@ -45,9 +51,16 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
   const inputPreview = inputProgress
     ? `${inputProgress.truncated ? "…\n" : ""}${inputProgress.preview}`
     : "";
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  useEffect(() => {
+    if (defaultExpanded) setExpanded(true);
+  }, [defaultExpanded]);
 
   return (
     <details
+      open={expanded}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
       className={`${styles.toolCallCompact} ${
         isLoading ? styles.toolCallCompactLoading : ""
       } ${isError ? styles.toolCallCompactError : ""}`}
@@ -68,6 +81,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
           {title}
           {isLoading && ` ${t("tool.loading")}`}
         </span>
+        {summaryAction}
         {isLoading && inputProgress && (
           <span className={styles.toolCallInputProgress}>
             {t("tool.inputProgress", {

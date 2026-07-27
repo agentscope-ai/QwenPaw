@@ -19,6 +19,7 @@ from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
 from ...config.context import (
+    get_current_project_dir,
     get_current_shell_command_executable,
     get_current_shell_command_timeout,
     get_current_workspace_dir,
@@ -583,11 +584,14 @@ async def execute_shell_command(
         if configured is not None:
             timeout = configured
 
-    # Use current workspace_dir from context, fallback to WORKING_DIR
     if cwd is not None:
         working_dir = cwd
     else:
-        working_dir = get_current_workspace_dir() or WORKING_DIR
+        working_dir = (
+            get_current_project_dir()
+            or get_current_workspace_dir()
+            or WORKING_DIR
+        )
 
     # Ensure the venv Python is on PATH for subprocesses
     env = os.environ.copy()

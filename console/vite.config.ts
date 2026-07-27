@@ -3,12 +3,17 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-// Vitest plugin: transforms .css imports inside node_modules to empty stubs.
-// This prevents errors from packages like @agentscope-ai/icons that import CSS.
+// Transform dependency CSS imports that are not required at runtime into
+// stubs. Monaco is excluded because its layout, gutter, and hidden input layer
+// depend on editor.main.css in the production bundle.
 const cssStubPlugin = {
   name: "css-stub",
   transform(_code: string, id: string) {
-    if (id.includes("node_modules") && id.endsWith(".css")) {
+    if (
+      id.includes("node_modules") &&
+      id.endsWith(".css") &&
+      !id.includes("monaco-editor")
+    ) {
       return { code: "export default {}" };
     }
   },

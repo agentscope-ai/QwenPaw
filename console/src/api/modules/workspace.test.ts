@@ -22,6 +22,43 @@ import { request } from "../request";
 import { workspaceApi } from "./workspace";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 
+describe("workspaceApi.listDirectory", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("selects the agent configuration directory explicitly", async () => {
+    vi.mocked(request).mockResolvedValue({
+      directory: "",
+      entries: [],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    await workspaceApi.listDirectory(
+      "",
+      undefined,
+      200,
+      undefined,
+      "workspace",
+    );
+
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/tree?path=&limit=200&root=workspace",
+      { headers: {} },
+    );
+  });
+});
+
+describe("workspaceApi.getWatchUrl", () => {
+  it("selects the watched directory root", () => {
+    expect(workspaceApi.getWatchUrl("project")).toBe(
+      "/api/workspace/watch?root=project",
+    );
+    expect(workspaceApi.getWatchUrl("workspace")).toBe(
+      "/api/workspace/watch?root=workspace",
+    );
+  });
+});
+
 describe("workspaceApi.listFiles", () => {
   afterEach(() => vi.clearAllMocks());
 
@@ -120,6 +157,55 @@ describe("workspaceApi.uploadFile", () => {
     await expect(workspaceApi.uploadFile(mockFile)).rejects.toThrow(
       "Upload failed: 413 Payload Too Large - File too big",
     );
+  });
+});
+
+describe("workspaceApi.uploadFiles", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("does not send a conflict policy before a conflict occurs", async () => {
+    const mockFile = new File(["content"], "report.txt");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ files: [] }),
+      } as unknown as Response),
+    );
+
+    await workspaceApi.uploadFiles([mockFile]);
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/workspace/file-upload?path=&root=project",
+      expect.anything(),
+    );
+  });
+
+  it("exposes conflicting filenames from a 409 response", async () => {
+    const mockFile = new File(["content"], "report.txt");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: () =>
+          Promise.resolve({
+            detail: {
+              code: "upload_conflict",
+              files: ["report.txt"],
+            },
+          }),
+      } as unknown as Response),
+    );
+
+    await expect(workspaceApi.uploadFiles([mockFile])).rejects.toMatchObject({
+      name: "UploadConflictError",
+      files: ["report.txt"],
+    });
   });
 });
 

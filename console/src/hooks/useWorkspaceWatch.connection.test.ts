@@ -69,6 +69,26 @@ describe("useWorkspaceWatch — connection lifecycle", () => {
     unmount();
   });
 
+  it("项目目录和配置目录使用独立连接", async () => {
+    const mockFetch = makePendingFetchMock();
+    vi.stubGlobal("fetch", mockFetch);
+    const { workspaceApi } = await import("../api/modules/workspace");
+
+    const project = renderHook(() =>
+      useWorkspaceWatch(vi.fn(), true, "chat-1", "project"),
+    );
+    const workspace = renderHook(() =>
+      useWorkspaceWatch(vi.fn(), true, "chat-1", "workspace"),
+    );
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    expect(workspaceApi.getWatchUrl).toHaveBeenCalledWith("project");
+    expect(workspaceApi.getWatchUrl).toHaveBeenCalledWith("workspace");
+
+    project.unmount();
+    workspace.unmount();
+  });
+
   // ─── 测试 7：最后一个 listener unmount 后断开连接（abort 被调用）──────────
   it("最后一个 listener unmount 后 AbortController.abort 被调用", async () => {
     const mockFetch = makePendingFetchMock();

@@ -1,0 +1,416 @@
+import { FileWarning, Files, GitBranch } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { buildAuthHeaders } from "../../api/authHeaders";
+import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
+import { projectDirectoryApi } from "../../api/modules/projectDirectory";
+import { workspaceApi } from "../../api/modules/workspace";
+import GitPanel from "../../pages/Coding/GitPanel";
+import TabbedEditor from "../../pages/Coding/TabbedEditor";
+import {
+  useCodingTabsStore,
+  useCurrentActiveTabPath,
+  useCurrentTabs,
+} from "../../stores/codingTabsStore";
+import { useAgentStore } from "../../stores/agentStore";
+import { useCodingMode } from "../../stores/codingModeStore";
+import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
+import FilesNavigator from "./FilesNavigator";
+import { directoriesMatch } from "./directorySources";
+import { toProjectRelativePath } from "./internalFileLinks";
+import type { FileMetadata, FileTarget, WorkspaceRoot } from "./types";
+import styles from "./FilesWorkspace.module.less";
+
+interface FilesWorkspaceProps {
+  initialTarget?: FileTarget;
+  chatId?: string;
+}
+
+function inferPreviewKind(
+  path: string,
+  contentType = "",
+): FileMetadata["preview_kind"] {
+  if (/\.(?:png|jpe?g|gif|webp|svg|ico|bmp)$/i.test(path)) return "image";
+  if (/\.pdf$/i.test(path)) return "pdf";
+  if (/\.csv$/i.test(path)) return "csv";
+  if (
+    contentType.startsWith("text/") ||
+    /\.(?:md|mdx|txt|log|json|ya?ml|toml|xml|html|css|less|scss|js|jsx|ts|tsx|py|java|go|rs|sh)$/i.test(
+      path,
+    ) ||
+    !path.split("/").pop()?.includes(".")
+  ) {
+    return "text";
+  }
+  return "binary";
+}
+
+export default function FilesWorkspace({
+  initialTarget,
+  chatId,
+}: FilesWorkspaceProps) {
+  const { t } = useTranslation();
+  const { codingMode } = useCodingMode();
+  const { selectedAgent } = useAgentStore();
+  const tabs = useCurrentTabs();
+  const activeTabPath = useCurrentActiveTabPath();
+  const { closeTab, openTab, setActiveTab, setTabContent, setTabDirty } =
+    useCodingTabsStore();
+  const hydratedTabs = useRef(new Set<string>());
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const targetsByTab = useRef(new Map<string, FileTarget>());
+  const [loadError, setLoadError] = useState("");
+  const [activity, setActivity] = useState<"files" | "git">("files");
+
+  const resolveEditableTarget = useCallback(
+    async (target: FileTarget): Promise<FileTarget> => {
+      if (target.source !== "attachment" || !target.path) {
+        return target;
+      }
+      try {
+        const agentInfo = await projectDirectoryApi.get();
+        const projectDirectory = chatId
+          ? (await chatProjectDirectoryApi.get(chatId)).project_dir
+          : agentInfo.path;
+        const workspaceDirectory = agentInfo.workspace_dir ?? agentInfo.path;
+        const directPath = toProjectRelativePath(target.path);
+        const sameDirectory = directoriesMatch(
+          projectDirectory,
+          workspaceDirectory,
+        );
+        const candidates: Array<{
+          path: string;
+          root: WorkspaceRoot;
+        }> = [];
+        const addCandidate = (path: string | null, root: WorkspaceRoot) => {
+          if (
+            path &&
+            !candidates.some((item) => item.path === path && item.root === root)
+          ) {
+            candidates.push({ path, root });
+          }
+        };
+
+        if (sameDirectory) {
+          addCandidate(
+            directPath ??
+              toProjectRelativePath(target.path, workspaceDirectory),
+            "workspace",
+          );
+        } else {
+          addCandidate(
+            directPath ?? toProjectRelativePath(target.path, projectDirectory),
+            "project",
+          );
+          addCandidate(
+            directPath ??
+              toProjectRelativePath(target.path, workspaceDirectory),
+            "workspace",
+          );
+        }
+
+        for (const candidate of candidates) {
+          try {
+            await workspaceApi.getFileMetadata(
+              candidate.path,
+              chatId,
+              candidate.root,
+            );
+            return {
+              ...target,
+              source: "workspace",
+              path: candidate.path,
+              root: candidate.root,
+            };
+          } catch {
+            // Try the other visible directory root.
+          }
+        }
+      } catch {
+        // Keep historical attachments read-only when directory lookup fails.
+      }
+      return target;
+    },
+    [chatId],
+  );
+
+  const loadTarget = useCallback(
+    async (target: FileTarget) => {
+      if (target.source === "profile") {
+        return {
+          content: (await workspaceApi.loadFile(target.path)).content,
+          previewKind: "text" as const,
+          readOnly: false,
+        };
+      }
+      if (target.source === "memory") {
+        return {
+          content: (await workspaceApi.loadDailyMemory(target.path)).content,
+          previewKind: "text" as const,
+          readOnly: false,
+        };
+      }
+      if (target.source === "workspace") {
+        const metadata = await workspaceApi.getFileMetadata(
+          target.path,
+          chatId,
+          target.root,
+        );
+        const isText =
+          metadata.preview_kind === "text" || metadata.preview_kind === "csv";
+        return {
+          content: isText
+            ? await workspaceApi.loadFileText(target.path, chatId, target.root)
+            : "",
+          previewKind: metadata.preview_kind,
+          readOnly: !isText,
+        };
+      }
+      if (!target.artifactUrl) {
+        throw new Error(`Missing artifact URL for ${target.source}`);
+      }
+      const response = await fetch(target.artifactUrl, {
+        headers: buildAuthHeaders(),
+      });
+      if (!response.ok) throw new Error(`${response.status}`);
+      const previewKind = inferPreviewKind(
+        target.path,
+        response.headers.get("Content-Type") ?? "",
+      );
+      return {
+        content:
+          previewKind === "text" || previewKind === "csv"
+            ? await response.text()
+            : "",
+        previewKind,
+        readOnly: true,
+      };
+    },
+    [chatId],
+  );
+
+  const loadTabContent = useCallback(
+    async (tabPath: string) => {
+      const tab = tabsRef.current.find((item) => item.path === tabPath);
+      const separator = tabPath.indexOf("::");
+      const target =
+        targetsByTab.current.get(tabPath) ??
+        ({
+          source:
+            tab?.source ??
+            (separator < 0
+              ? "workspace"
+              : (tabPath.slice(0, separator) as FileTarget["source"])),
+          path: separator < 0 ? tabPath : tabPath.slice(separator + 2),
+          root: tab?.workspaceRoot,
+          artifactUrl: tab?.artifactUrl,
+        } satisfies FileTarget);
+      return (await loadTarget(target)).content;
+    },
+    [loadTarget],
+  );
+
+  const openTarget = useCallback(
+    async (target: FileTarget) => {
+      const resolvedTarget = await resolveEditableTarget(target);
+      const tabPath =
+        resolvedTarget.source === "workspace"
+          ? resolvedTarget.root === "workspace"
+            ? `workspace-root::${resolvedTarget.path}`
+            : resolvedTarget.path
+          : `${resolvedTarget.source}::${resolvedTarget.path}`;
+      targetsByTab.current.set(tabPath, resolvedTarget);
+      const existing = tabsRef.current.find((tab) => tab.path === tabPath);
+      if (existing) {
+        setLoadError("");
+        setActiveTab(selectedAgent, tabPath);
+        return;
+      }
+      try {
+        const loaded = await loadTarget(resolvedTarget);
+        setLoadError("");
+        openTab(selectedAgent, {
+          path: tabPath,
+          displayPath: resolvedTarget.path,
+          content: loaded.content,
+          dirty: false,
+          source: resolvedTarget.source,
+          workspaceRoot: resolvedTarget.root,
+          artifactUrl: resolvedTarget.artifactUrl,
+          previewKind: loaded.previewKind,
+          readOnly: loaded.readOnly,
+        });
+        setActiveTab(selectedAgent, tabPath);
+      } catch {
+        setLoadError(t("files.loadFailed"));
+      }
+    },
+    [
+      loadTarget,
+      openTab,
+      resolveEditableTarget,
+      selectedAgent,
+      setActiveTab,
+      t,
+    ],
+  );
+
+  useEffect(() => {
+    hydratedTabs.current.clear();
+  }, [selectedAgent]);
+
+  useEffect(() => {
+    tabs.forEach((tab) => {
+      if (tab.content || tab.dirty || hydratedTabs.current.has(tab.path)) {
+        return;
+      }
+      hydratedTabs.current.add(tab.path);
+      void loadTabContent(tab.path)
+        .then((content) => setTabContent(selectedAgent, tab.path, content))
+        .catch(() => {
+          closeTab(selectedAgent, tab.path);
+          setLoadError(t("files.loadFailed"));
+        });
+    });
+  }, [closeTab, loadTabContent, selectedAgent, setTabContent, t, tabs]);
+
+  useEffect(() => {
+    if (initialTarget) void openTarget(initialTarget);
+  }, [initialTarget, openTarget]);
+
+  const handleClose = (path: string) => {
+    const index = tabs.findIndex((tab) => tab.path === path);
+    closeTab(selectedAgent, path);
+    if (activeTabPath === path) {
+      setActiveTab(
+        selectedAgent,
+        tabs[index + 1]?.path ?? tabs[index - 1]?.path ?? "",
+      );
+    }
+  };
+
+  return (
+    <div className={styles.workspace}>
+      {codingMode && (
+        <nav className={styles.activityRail} aria-label={t("files.workspace")}>
+          <button
+            type="button"
+            className={activity === "files" ? styles.activityActive : ""}
+            aria-label={t("files.navigator")}
+            onClick={() => setActivity("files")}
+          >
+            <Files size={18} />
+          </button>
+          <button
+            type="button"
+            className={activity === "git" ? styles.activityActive : ""}
+            aria-label={t("files.sourceControl")}
+            onClick={() => setActivity("git")}
+          >
+            <GitBranch size={18} />
+          </button>
+        </nav>
+      )}
+      {activity === "files" || !codingMode ? (
+        <FilesNavigator
+          chatId={chatId}
+          selectedPath={
+            tabs.find((tab) => tab.path === activeTabPath)?.displayPath ??
+            activeTabPath
+          }
+          onSelect={(target) => void openTarget(target)}
+        />
+      ) : (
+        <aside className={styles.sourcePanel}>
+          <header>
+            <GitBranch size={15} />
+            <span>{t("files.sourceControl")}</span>
+          </header>
+          <GitPanel chatId={chatId} />
+        </aside>
+      )}
+      <main className={styles.documentSurface}>
+        {loadError && (
+          <div className={styles.loadError} role="alert">
+            <FileWarning size={24} />
+            <span>{loadError}</span>
+          </div>
+        )}
+        <TabbedEditor
+          tabs={tabs}
+          activeTabPath={activeTabPath}
+          onTabSelect={(path) => setActiveTab(selectedAgent, path)}
+          onTabClose={handleClose}
+          onTabDirtyChange={(path, dirty) =>
+            setTabDirty(selectedAgent, path, dirty)
+          }
+          onTabContentChange={(path, content) =>
+            setTabContent(selectedAgent, path, content)
+          }
+          onLoadFile={loadTabContent}
+          chatId={chatId}
+          onDownloadFile={async (path) => {
+            const tab = tabsRef.current.find((item) => item.path === path);
+            const separator = path.indexOf("::");
+            const sourcePath =
+              tab?.displayPath ??
+              (separator < 0 ? path : path.slice(separator + 2));
+            const filename = sourcePath.split("/").pop() ?? sourcePath;
+            if (tab?.artifactUrl) {
+              await downloadFileFromUrl(tab.artifactUrl, filename, {
+                headers: buildAuthHeaders(),
+                errorMessage: t("files.downloadFailed"),
+              });
+              return;
+            }
+            if ((tab?.source ?? "workspace") === "workspace") {
+              await downloadFileFromUrl(
+                workspaceApi.getFileDownloadUrl(sourcePath, tab?.workspaceRoot),
+                filename,
+                {
+                  headers: {
+                    ...buildAuthHeaders(),
+                    ...(chatId ? { "X-Chat-Id": chatId } : {}),
+                  },
+                  errorMessage: t("files.downloadFailed"),
+                },
+              );
+              return;
+            }
+            const blob = new Blob([tab?.content ?? ""], {
+              type: "text/plain;charset=utf-8",
+            });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = filename;
+            anchor.click();
+            URL.revokeObjectURL(url);
+          }}
+          onSaveFile={async (path, content) => {
+            const tab = tabsRef.current.find((item) => item.path === path);
+            const separator = path.indexOf("::");
+            if ((tab?.source ?? "workspace") === "workspace") {
+              await workspaceApi.saveFileContent(
+                tab?.displayPath ?? path,
+                content,
+                undefined,
+                chatId,
+                tab?.workspaceRoot,
+              );
+              return;
+            }
+            const source = path.slice(0, separator);
+            const sourcePath = path.slice(separator + 2);
+            if (source === "profile") {
+              await workspaceApi.saveFile(sourcePath, content);
+            } else if (source === "memory") {
+              await workspaceApi.saveDailyMemory(sourcePath, content);
+            }
+          }}
+        />
+      </main>
+    </div>
+  );
+}

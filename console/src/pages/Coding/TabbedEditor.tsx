@@ -21,6 +21,7 @@ import type { editor as MonacoEditor } from "monaco-editor";
 import {
   Check,
   Code2,
+  Download,
   Eye,
   FileCode,
   GitCompareArrows,
@@ -30,6 +31,7 @@ import {
   X,
 } from "lucide-react";
 import { Tooltip } from "antd";
+import { useTranslation } from "react-i18next";
 import FilePreview, { isPreviewable } from "./FilePreview";
 import { workspaceApi } from "../../api/modules/workspace";
 import { useWorkspaceWatch } from "../../hooks/useWorkspaceWatch";
@@ -58,6 +60,10 @@ interface TabbedEditorProps {
   onTabDirtyChange: (path: string, dirty: boolean) => void;
   onTabContentChange: (path: string, content: string) => void;
   onFileSaved?: (path: string) => void;
+  onLoadFile?: (path: string) => Promise<string>;
+  onSaveFile?: (path: string, content: string) => Promise<void>;
+  onDownloadFile?: (path: string) => Promise<void>;
+  chatId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,16 +166,21 @@ function formatSelectionForChat(
   endLine: number,
   mode: CopyMode,
 ): string {
+  const displayPath = visiblePath(filePath);
   if (mode === "whole-file") {
-    return filePath;
+    return displayPath;
   }
   const lineRange =
     startLine === endLine ? `${startLine}` : `${startLine}-${endLine}`;
   if (mode === "lines-only") {
-    return `${filePath}:${lineRange}`;
+    return `${displayPath}:${lineRange}`;
   }
   const lang = getLanguage(filePath);
-  return `${filePath}:${lineRange}\n\`\`\`${lang}\n${code}\n\`\`\``;
+  return `${displayPath}:${lineRange}\n\`\`\`${lang}\n${code}\n\`\`\``;
+}
+
+function visiblePath(path: string): string {
+  return path.includes("::") ? path.slice(path.indexOf("::") + 2) : path;
 }
 
 // ---------------------------------------------------------------------------
@@ -254,18 +265,26 @@ export default function TabbedEditor({
   onTabDirtyChange,
   onTabContentChange,
   onFileSaved,
+  onLoadFile,
+  onSaveFile,
+  onDownloadFile,
+  chatId,
 }: TabbedEditorProps) {
+  const { t } = useTranslation();
   const { isDark } = useTheme();
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const activeTabPathRef = useRef(activeTabPath);
+  const activeDisplayPathRef = useRef(activeTabPath);
   activeTabPathRef.current = activeTabPath;
 
   const [saving, setSaving] = useState(false);
+  const [resolvingDiff, setResolvingDiff] = useState(false);
   const [hasSelection, setHasSelection] = useState(false);
 
   /**
    * Paths whose tabs are currently in "Preview" mode instead of code editor.
-   * Only applies to previewable files (images, md, pdf, csv).
+   * Every file opens Preview-first. Text files enter Monaco only after the
+   * user explicitly selects Edit.
    */
   const [previewPaths, setPreviewPaths] = useState<Set<string>>(new Set());
 
@@ -295,9 +314,7 @@ export default function TabbedEditor({
   }, [tabs]);
 
   /**
-   * Auto-enable preview mode for newly opened previewable files.
-   * Binary files (images, PDF) have no meaningful code representation,
-   * so they should default to preview mode instead of showing raw bytes.
+   * Auto-enable preview mode for newly opened files.
    * Skips files that the user has manually toggled.
    */
   useEffect(() => {
@@ -309,8 +326,7 @@ export default function TabbedEditor({
       if (userToggledPathsRef.current.has(tab.path)) {
         continue;
       }
-      // Auto-enable preview for new previewable files
-      if (isPreviewable(tab.path) && !newPreviewPaths.has(tab.path)) {
+      if (!newPreviewPaths.has(tab.path)) {
         newPreviewPaths.add(tab.path);
         hasChanges = true;
       }
@@ -351,8 +367,13 @@ export default function TabbedEditor({
    */
   const { selectedAgent } = useAgentStore();
   const pendingDiffs = useCurrentDiffs();
-  const { setDiff, removeDiff, updateDiffModified, updateDiffOriginal } =
-    useCodingTabsStore();
+  const {
+    setDiff,
+    removeDiff,
+    updateDiffModified,
+    updateDiffOriginal,
+    resolveDiff,
+  } = useCodingTabsStore();
 
   /**
    * Per-hunk Keep / Undo widgets are rendered as React JSX in an
@@ -369,6 +390,7 @@ export default function TabbedEditor({
    * `onDomNodeTop`, which is what drives the overlay positions.
    */
   const diffEditorRef = useRef<MonacoEditor.IStandaloneDiffEditor | null>(null);
+  const diffModifiedListenerRef = useRef<{ dispose: () => void } | null>(null);
   const hunkZoneIdsRef = useRef<string[]>([]);
 
   // Each overlay: the line-change it represents, plus the pixel-top of
@@ -381,6 +403,15 @@ export default function TabbedEditor({
   const [hunkOverlays, setHunkOverlays] = useState<HunkOverlay[]>([]);
 
   const activeTab = tabs.find((t) => t.path === activeTabPath) ?? null;
+  const activeDisplayPath = activeTab
+    ? activeTab.displayPath ?? visiblePath(activeTab.path)
+    : "";
+  const activeWatchRoot =
+    activeTab?.workspaceRoot ??
+    (activeTab?.source === "profile" ? "workspace" : "project");
+  const watchEnabled =
+    activeTab?.source === "workspace" || activeTab?.source === "profile";
+  activeDisplayPathRef.current = activeDisplayPath;
   const activeDiffRaw = activeTabPath ? pendingDiffs[activeTabPath] : undefined;
   // Only render the diff editor once the modified side has been hydrated.
   const activeDiff =
@@ -400,8 +431,10 @@ export default function TabbedEditor({
     void Promise.all(
       toHydrate.map(async ([path]) => {
         try {
-          const result = await workspaceApi.loadCodeFile(path);
-          return { path, modified: result.content ?? "", ok: true };
+          const modified = onLoadFile
+            ? await onLoadFile(path)
+            : (await workspaceApi.loadCodeFile(path)).content;
+          return { path, modified, ok: true };
         } catch {
           return { path, modified: "", ok: false };
         }
@@ -421,7 +454,7 @@ export default function TabbedEditor({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAgent]);
+  }, [onLoadFile, selectedAgent]);
 
   // ---- Monaco setup -------------------------------------------------------
 
@@ -471,7 +504,7 @@ export default function TabbedEditor({
       // invalidates the cache — otherwise a same-text copy elsewhere
       // (e.g. a markdown preview in the same page) would still trigger
       // the formatted swap on the next chat paste.
-      const path = activeTabPathRef.current;
+      const path = activeDisplayPathRef.current;
       const editor: MonacoEditor.IStandaloneCodeEditor | null =
         diffEditorRef.current?.getModifiedEditor() ?? editorRef.current;
       if (!path || !editor || !editor.hasTextFocus()) {
@@ -579,22 +612,49 @@ export default function TabbedEditor({
   const handleDiffMount: DiffOnMount = useCallback(
     (diffEditor) => {
       diffEditorRef.current = diffEditor;
+      editorRef.current = null;
+      diffModifiedListenerRef.current?.dispose();
+      const modifiedEditor = diffEditor.getModifiedEditor();
+      diffModifiedListenerRef.current = modifiedEditor.onDidChangeModelContent(
+        () => {
+          const path = activeTabPathRef.current;
+          if (!path) return;
+          const currentDiff =
+            useCodingTabsStore.getState().diffsByAgent[selectedAgent]?.[path];
+          const modified = modifiedEditor.getValue();
+          if (currentDiff && currentDiff.modified !== modified) {
+            updateDiffModified(selectedAgent, path, modified);
+          }
+        },
+      );
       diffEditor.onDidUpdateDiff(() => refreshHunkWidgets());
       // Initial pass — Monaco may have already finished diffing by the
       // time we mount (small files), so run once eagerly.
       refreshHunkWidgets();
     },
-    [refreshHunkWidgets],
+    [refreshHunkWidgets, selectedAgent, updateDiffModified],
   );
 
   // ---- Save ---------------------------------------------------------------
 
   const handleSave = useCallback(async () => {
-    if (!activeTabPath || saving) return;
+    if (
+      !activeTabPath ||
+      saving ||
+      resolvingDiff ||
+      activeDiff ||
+      activeTab?.readOnly
+    ) {
+      return;
+    }
     setSaving(true);
     try {
-      const content = editorRef.current?.getValue() ?? activeTab?.content ?? "";
-      await workspaceApi.saveCodeFile(activeTabPath, content);
+      const content = activeTab?.content ?? "";
+      if (onSaveFile) {
+        await onSaveFile(activeTabPath, content);
+      } else {
+        await workspaceApi.saveCodeFile(activeTabPath, content);
+      }
       onTabDirtyChange(activeTabPath, false);
       onFileSaved?.(activeTabPath);
     } catch {
@@ -602,7 +662,16 @@ export default function TabbedEditor({
     } finally {
       setSaving(false);
     }
-  }, [activeTabPath, saving, activeTab, onTabDirtyChange, onFileSaved]);
+  }, [
+    activeTabPath,
+    saving,
+    resolvingDiff,
+    activeDiff,
+    activeTab,
+    onTabDirtyChange,
+    onFileSaved,
+    onSaveFile,
+  ]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -618,7 +687,7 @@ export default function TabbedEditor({
 
   const handleCopyToChat = useCallback(() => {
     const editor = editorRef.current;
-    if (!editor || !activeTabPath) return;
+    if (!editor || !activeTabPath || !activeDisplayPath) return;
     const selection = editor.getSelection();
     if (!selection) return;
     const model = editor.getModel();
@@ -626,15 +695,15 @@ export default function TabbedEditor({
     // Empty selection ≡ whole-file copy via button.
     if (selection.isEmpty()) {
       appendToChat(
-        formatSelectionForChat(activeTabPath, "", 1, 1, "whole-file"),
+        formatSelectionForChat(activeDisplayPath, "", 1, 1, "whole-file"),
       );
       return;
     }
     const { mode, code, startLine, endLine } = detectCopyMode(selection, model);
     appendToChat(
-      formatSelectionForChat(activeTabPath, code, startLine, endLine, mode),
+      formatSelectionForChat(activeDisplayPath, code, startLine, endLine, mode),
     );
-  }, [activeTabPath]);
+  }, [activeDisplayPath, activeTabPath]);
 
   // ---- Diff actions -------------------------------------------------------
 
@@ -642,19 +711,31 @@ export default function TabbedEditor({
    * Keep: dismiss the diff and accept the new (modified) content.
    * The file on disk is already updated; we just clear the diff state.
    */
-  const handleKeep = useCallback(() => {
+  const handleKeep = useCallback(async () => {
     const diff = pendingDiffs[activeTabPath];
-    if (!diff || diff.modified === null) return;
-    removeDiff(selectedAgent, activeTabPath);
-    onTabContentChange(activeTabPath, diff.modified);
-    onTabDirtyChange(activeTabPath, false);
+    if (!diff || diff.modified === null || resolvingDiff) return;
+    setResolvingDiff(true);
+    try {
+      if (onSaveFile) {
+        await onSaveFile(activeTabPath, diff.modified);
+      } else {
+        await workspaceApi.saveCodeFile(activeTabPath, diff.modified);
+      }
+      resolveDiff(selectedAgent, activeTabPath, diff.modified);
+      onFileSaved?.(activeTabPath);
+    } catch {
+      return;
+    } finally {
+      setResolvingDiff(false);
+    }
   }, [
     activeTabPath,
     pendingDiffs,
+    resolvingDiff,
     selectedAgent,
-    removeDiff,
-    onTabContentChange,
-    onTabDirtyChange,
+    resolveDiff,
+    onFileSaved,
+    onSaveFile,
   ]);
 
   /**
@@ -663,27 +744,33 @@ export default function TabbedEditor({
    */
   const handleUndo = useCallback(async () => {
     const diff = pendingDiffs[activeTabPath];
-    if (!diff) return;
-    removeDiff(selectedAgent, activeTabPath);
+    if (!diff || resolvingDiff) return;
+    setResolvingDiff(true);
     // Suppress the watcher so the revert write doesn't spawn a new diff
     undoInProgressRef.current.add(activeTabPath);
     try {
-      await workspaceApi.saveCodeFile(activeTabPath, diff.original);
+      if (onSaveFile) {
+        await onSaveFile(activeTabPath, diff.original);
+      } else {
+        await workspaceApi.saveCodeFile(activeTabPath, diff.original);
+      }
+      resolveDiff(selectedAgent, activeTabPath, diff.original);
+      onFileSaved?.(activeTabPath);
     } catch {
-      // ignore – UI is already restored
+      return;
     } finally {
       // Give the SSE watcher a moment to fire (and be suppressed) before re-enabling
       setTimeout(() => undoInProgressRef.current.delete(activeTabPath), 1500);
+      setResolvingDiff(false);
     }
-    onTabContentChange(activeTabPath, diff.original);
-    onTabDirtyChange(activeTabPath, false);
   }, [
     activeTabPath,
     pendingDiffs,
+    resolvingDiff,
     selectedAgent,
-    removeDiff,
-    onTabContentChange,
-    onTabDirtyChange,
+    resolveDiff,
+    onFileSaved,
+    onSaveFile,
   ]);
 
   /**
@@ -697,9 +784,7 @@ export default function TabbedEditor({
       if (!diff || diff.modified === null) return;
       const newOriginal = applyKeepHunk(diff.original, diff.modified, hunk);
       if (newOriginal === diff.modified) {
-        removeDiff(selectedAgent, activeTabPath);
-        onTabContentChange(activeTabPath, diff.modified);
-        onTabDirtyChange(activeTabPath, false);
+        resolveDiff(selectedAgent, activeTabPath, diff.modified);
       } else {
         updateDiffOriginal(selectedAgent, activeTabPath, newOriginal);
       }
@@ -708,10 +793,8 @@ export default function TabbedEditor({
       activeTabPath,
       pendingDiffs,
       selectedAgent,
-      removeDiff,
+      resolveDiff,
       updateDiffOriginal,
-      onTabContentChange,
-      onTabDirtyChange,
     ],
   );
 
@@ -723,34 +806,43 @@ export default function TabbedEditor({
   const handleUndoHunk = useCallback(
     async (hunk: Hunk) => {
       const diff = pendingDiffs[activeTabPath];
-      if (!diff || diff.modified === null) return;
+      if (!diff || diff.modified === null || resolvingDiff) return;
       const newModified = applyUndoHunk(diff.original, diff.modified, hunk);
 
+      setResolvingDiff(true);
       undoInProgressRef.current.add(activeTabPath);
       try {
-        await workspaceApi.saveCodeFile(activeTabPath, newModified);
+        if (onSaveFile) {
+          await onSaveFile(activeTabPath, newModified);
+        } else {
+          await workspaceApi.saveCodeFile(activeTabPath, newModified);
+        }
+        if (newModified === diff.original) {
+          resolveDiff(selectedAgent, activeTabPath, newModified);
+        } else {
+          updateDiffModified(selectedAgent, activeTabPath, newModified);
+          onTabContentChange(activeTabPath, newModified);
+          onTabDirtyChange(activeTabPath, false);
+        }
+        onFileSaved?.(activeTabPath);
       } catch {
-        // ignore — UI state is updated below regardless
+        return;
       } finally {
         setTimeout(() => undoInProgressRef.current.delete(activeTabPath), 1500);
+        setResolvingDiff(false);
       }
-
-      if (newModified === diff.original) {
-        removeDiff(selectedAgent, activeTabPath);
-      } else {
-        updateDiffModified(selectedAgent, activeTabPath, newModified);
-      }
-      onTabContentChange(activeTabPath, newModified);
-      onTabDirtyChange(activeTabPath, false);
     },
     [
       activeTabPath,
       pendingDiffs,
+      resolvingDiff,
       selectedAgent,
-      removeDiff,
+      resolveDiff,
       updateDiffModified,
       onTabContentChange,
       onTabDirtyChange,
+      onFileSaved,
+      onSaveFile,
     ],
   );
 
@@ -760,59 +852,73 @@ export default function TabbedEditor({
   const hasActiveDiff = activeDiff != null;
   useEffect(() => {
     if (hasActiveDiff) return;
+    diffModifiedListenerRef.current?.dispose();
+    diffModifiedListenerRef.current = null;
     hunkZoneIdsRef.current = [];
     diffEditorRef.current = null;
     setHunkOverlays([]);
   }, [hasActiveDiff]);
 
+  useEffect(
+    () => () => {
+      diffModifiedListenerRef.current?.dispose();
+    },
+    [],
+  );
+
   // ---- File-watch: show inline diff instead of silent reload ---------------
 
-  useWorkspaceWatch((events) => {
-    const path = activeTabPathRef.current;
-    if (!path) return;
+  useWorkspaceWatch(
+    (events) => {
+      const path = activeTabPathRef.current;
+      if (!path) return;
 
-    const tab = tabs.find((t) => t.path === path);
-    // If the user has unsaved edits, don't overwrite them
-    if (tab?.dirty) return;
-    // If an undo revert write is in flight, don't create a diff
-    if (undoInProgressRef.current.has(path)) return;
+      const tab = tabs.find((t) => t.path === path);
+      // If the user has unsaved edits, don't overwrite them
+      if (tab?.dirty) return;
+      // If an undo revert write is in flight, don't create a diff
+      if (undoInProgressRef.current.has(path)) return;
 
-    // Treat `added` the same as `modified` for an already-open tab: atomic
-    // saves (e.g. macOS `sed -i ''`, vim, VSCode) replace the file via
-    // rename, which FSEvents reports as a creation rather than a content
-    // change. From the editor's POV, the path's contents just differ.
-    const affected = events.some(
-      (e) =>
-        (e.change === "modified" || e.change === "added") &&
-        e.path.replace(/\\/g, "/") === path.replace(/\\/g, "/"),
-    );
-    if (!affected) return;
+      // Treat `added` the same as `modified` for an already-open tab: atomic
+      // saves (e.g. macOS `sed -i ''`, vim, VSCode) replace the file via
+      // rename, which FSEvents reports as a creation rather than a content
+      // change. From the editor's POV, the path's contents just differ.
+      const affected = events.some(
+        (e) =>
+          (e.change === "modified" || e.change === "added") &&
+          e.path.replace(/\\/g, "/") ===
+            (tab?.displayPath ?? visiblePath(path)).replace(/\\/g, "/"),
+      );
+      if (!affected) return;
 
-    const existingDiff = pendingDiffs[path];
+      const existingDiff = pendingDiffs[path];
 
-    workspaceApi
-      .loadCodeFile(path)
-      .then((res) => {
-        const newModified = res.content ?? "";
-
-        if (existingDiff) {
-          // There is already a pending diff — update only the modified side so
-          // the user sees the cumulative change (original → latest agent edit).
-          if (newModified === existingDiff.modified) return;
-          updateDiffModified(selectedAgent, path, newModified);
-        } else {
-          // First edit — capture current editor content as baseline original.
-          const originalContent =
-            editorRef.current?.getValue() ?? tab?.content ?? "";
-          if (newModified === originalContent) return;
-          setDiff(selectedAgent, path, {
-            original: originalContent,
-            modified: newModified,
-          });
-        }
-      })
-      .catch(() => undefined);
-  });
+      const loadFile = onLoadFile
+        ? onLoadFile(path)
+        : workspaceApi.loadCodeFile(path).then((res) => res.content ?? "");
+      void loadFile
+        .then((newModified) => {
+          if (existingDiff) {
+            // There is already a pending diff — update only the modified side so
+            // the user sees the cumulative change (original → latest agent edit).
+            if (newModified === existingDiff.modified) return;
+            updateDiffModified(selectedAgent, path, newModified);
+          } else {
+            // First edit — capture current editor content as baseline original.
+            const originalContent = tab?.content ?? "";
+            if (newModified === originalContent) return;
+            setDiff(selectedAgent, path, {
+              original: originalContent,
+              modified: newModified,
+            });
+          }
+        })
+        .catch(() => undefined);
+    },
+    watchEnabled,
+    chatId,
+    activeWatchRoot,
+  );
 
   // ---- Empty state --------------------------------------------------------
 
@@ -820,19 +926,25 @@ export default function TabbedEditor({
     return (
       <div className={styles.empty}>
         <FileCode size={36} className={styles.emptyIcon} />
-        <p className={styles.emptyText}>Select a file to open</p>
+        <p className={styles.emptyText}>{t("files.selectFile")}</p>
       </div>
     );
   }
 
-  const shortPath = (p: string) => p.split("/").slice(-2).join("/");
+  const shortPath = (path: string) => {
+    const displayPath = visiblePath(path);
+    return displayPath.split("/").slice(-2).join("/");
+  };
 
-  const activeIsPreviewable = activeTabPath
-    ? isPreviewable(activeTabPath)
-    : false;
   const activeInPreview = activeTabPath
     ? previewPaths.has(activeTabPath)
     : false;
+  const activeCanEdit =
+    Boolean(activeTab) &&
+    !activeTab?.readOnly &&
+    !["image", "pdf", "binary"].includes(activeTab?.previewKind ?? "text");
+  const activeRenderedContent =
+    activeDiff?.modified ?? activeTab?.content ?? "";
 
   return (
     <div className={styles.wrap} onKeyDown={handleKeyDown}>
@@ -851,14 +963,16 @@ export default function TabbedEditor({
               role="tab"
               tabIndex={0}
               onKeyDown={(e) => e.key === "Enter" && onTabSelect(tab.path)}
-              title={tab.path}
+              title={tab.displayPath ?? visiblePath(tab.path)}
             >
               {hasDiff ? (
                 <GitCompareArrows size={11} className={styles.diffDot} />
               ) : tab.dirty ? (
                 <span className={styles.dirtyDot} />
               ) : null}
-              <span className={styles.tabName}>{shortPath(tab.path)}</span>
+              <span className={styles.tabName}>
+                {shortPath(tab.displayPath ?? tab.path)}
+              </span>
               <button
                 type="button"
                 className={styles.closeBtn}
@@ -866,7 +980,7 @@ export default function TabbedEditor({
                   e.stopPropagation();
                   onTabClose(tab.path);
                 }}
-                aria-label="Close tab"
+                aria-label={t("files.closeTab")}
               >
                 <X size={11} />
               </button>
@@ -877,63 +991,86 @@ export default function TabbedEditor({
 
       {/* ── Toolbar ────────────────────────────────────────────────────── */}
       <div className={styles.toolbar}>
-        <span className={styles.fileName}>
-          {activeTab ? activeTab.path : ""}
-        </span>
+        <span className={styles.fileName}>{activeDisplayPath}</span>
 
-        {activeDiff ? (
-          /* Diff mode: show global Keep all / Undo all */
-          <div className={styles.diffActions}>
-            <span className={styles.diffLabel}>
-              <GitCompareArrows size={12} />
-              Agent changed this file
-            </span>
-            <Tooltip title="Keep all changes in this file">
-              <button
-                type="button"
-                className={`${styles.iconBtn} ${styles.keepBtn}`}
-                onClick={handleKeep}
-              >
-                <Check size={13} />
-                Keep all
-              </button>
-            </Tooltip>
-            <Tooltip title="Undo all changes in this file (revert to original)">
-              <button
-                type="button"
-                className={`${styles.iconBtn} ${styles.undoBtn}`}
-                onClick={() => void handleUndo()}
-              >
-                <RotateCcw size={13} />
-                Undo all
-              </button>
-            </Tooltip>
-          </div>
-        ) : (
-          /* Normal mode: Preview toggle + Copy-to-Chat + Save */
-          <div className={styles.toolbarRight}>
-            {activeIsPreviewable && (
-              <Tooltip
-                title={activeInPreview ? "Switch to Code" : "Open Preview"}
-              >
+        <div className={styles.toolbarRight}>
+          {activeDiff && (
+            <div className={styles.diffActions}>
+              <span className={styles.diffLabel}>
+                <GitCompareArrows size={12} />
+                <span>{t("files.agentChangedFile")}</span>
+              </span>
+              <Tooltip title={t("files.keepAll")}>
                 <button
                   type="button"
-                  className={`${styles.iconBtn} ${
-                    activeInPreview ? styles.previewActiveBtn : ""
-                  }`}
-                  onClick={() => togglePreview(activeTabPath)}
+                  className={`${styles.iconBtn} ${styles.keepBtn}`}
+                  onClick={() => void handleKeep()}
+                  disabled={resolvingDiff}
                 >
-                  {activeInPreview ? <Code2 size={13} /> : <Eye size={13} />}
+                  <Check size={13} />
+                  <span className={styles.actionLabel}>
+                    {t("files.keepAll")}
+                  </span>
+                </button>
+              </Tooltip>
+              <Tooltip title={t("files.undoAll")}>
+                <button
+                  type="button"
+                  className={`${styles.iconBtn} ${styles.undoBtn}`}
+                  onClick={() => void handleUndo()}
+                  disabled={resolvingDiff}
+                >
+                  <RotateCcw size={13} />
+                  <span className={styles.actionLabel}>
+                    {t("files.undoAll")}
+                  </span>
+                </button>
+              </Tooltip>
+            </div>
+          )}
+          <div className={styles.documentActions}>
+            <div className={styles.modeSwitch}>
+              <button
+                type="button"
+                className={activeInPreview ? styles.modeActive : ""}
+                onClick={() => {
+                  if (!activeInPreview) togglePreview(activeTabPath);
+                }}
+              >
+                <Eye size={12} />
+                {t("files.preview")}
+              </button>
+              {activeCanEdit && (
+                <button
+                  type="button"
+                  className={!activeInPreview ? styles.modeActive : ""}
+                  onClick={() => {
+                    if (activeInPreview) togglePreview(activeTabPath);
+                  }}
+                >
+                  <Code2 size={12} />
+                  {t("files.edit")}
+                </button>
+              )}
+            </div>
+            {onDownloadFile && activeTabPath && (
+              <Tooltip title={t("files.download")}>
+                <button
+                  type="button"
+                  className={styles.iconBtn}
+                  onClick={() => void onDownloadFile(activeTabPath)}
+                >
+                  <Download size={13} />
                 </button>
               </Tooltip>
             )}
-            {!activeInPreview && (
+            {!activeDiff && !activeInPreview && (
               <>
                 <Tooltip
                   title={
                     hasSelection
-                      ? "Copy selection to Chat"
-                      : "Copy file to Chat"
+                      ? t("files.copySelectionToChat")
+                      : t("files.copyFileToChat")
                   }
                 >
                   <button
@@ -945,12 +1082,14 @@ export default function TabbedEditor({
                     <MessageSquarePlus size={13} />
                   </button>
                 </Tooltip>
-                <Tooltip title="Save (Cmd+S)">
+                <Tooltip title={t("common.save")}>
                   <button
                     type="button"
                     className={styles.iconBtn}
                     onClick={handleSave}
-                    disabled={saving || !activeTab?.dirty}
+                    disabled={
+                      saving || !activeTab?.dirty || activeTab?.readOnly
+                    }
                   >
                     <Save size={13} />
                   </button>
@@ -958,14 +1097,24 @@ export default function TabbedEditor({
               </>
             )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* ── Editor area ────────────────────────────────────────────────── */}
       <div className={styles.editor}>
         {activeTab && activeInPreview ? (
           /* ── Preview mode (image / markdown / pdf / csv) ─────────────── */
-          <FilePreview filePath={activeTab.path} content={activeTab.content} />
+          isPreviewable(activeDisplayPath) ? (
+            <FilePreview
+              filePath={activeDisplayPath}
+              content={activeRenderedContent}
+              chatId={chatId}
+              binaryUrl={activeTab.artifactUrl}
+              root={activeTab.workspaceRoot}
+            />
+          ) : (
+            <pre className={styles.textPreview}>{activeRenderedContent}</pre>
+          )
         ) : (
           activeTab &&
           (activeDiff ? (
@@ -975,7 +1124,7 @@ export default function TabbedEditor({
                 height="100%"
                 original={activeDiff.original}
                 modified={activeDiff.modified}
-                language={getLanguage(activeTab.path)}
+                language={getLanguage(activeDisplayPath)}
                 theme={isDark ? "vs-dark" : "light"}
                 beforeMount={handleBeforeMount}
                 onMount={handleDiffMount}
@@ -1007,17 +1156,19 @@ export default function TabbedEditor({
                     type="button"
                     className={`${styles.hunkBtn} ${styles.hunkKeepBtn}`}
                     onClick={() => handleKeepHunk(ov.change)}
+                    disabled={resolvingDiff}
                   >
                     <Check size={11} style={{ marginRight: 4 }} />
-                    Keep
+                    {t("files.keep")}
                   </button>
                   <button
                     type="button"
                     className={`${styles.hunkBtn} ${styles.hunkUndoBtn}`}
                     onClick={() => void handleUndoHunk(ov.change)}
+                    disabled={resolvingDiff}
                   >
                     <RotateCcw size={11} style={{ marginRight: 4 }} />
-                    Undo
+                    {t("files.undo")}
                   </button>
                 </div>
               ))}
@@ -1027,8 +1178,8 @@ export default function TabbedEditor({
             <Editor
               height="100%"
               path={activeTab.path}
-              defaultValue={activeTab.content}
-              language={getLanguage(activeTab.path)}
+              value={activeTab.content}
+              language={getLanguage(activeDisplayPath)}
               theme={isDark ? "vs-dark" : "light"}
               beforeMount={handleBeforeMount}
               onMount={handleMount}
@@ -1047,6 +1198,7 @@ export default function TabbedEditor({
                 suggestOnTriggerCharacters: true,
                 acceptSuggestionOnCommitCharacter: true,
                 quickSuggestions: true,
+                readOnly: activeTab.readOnly,
                 parameterHints: { enabled: true },
                 hover: { enabled: true },
                 gotoLocation: { multiple: "goto" },

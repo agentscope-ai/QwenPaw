@@ -16,8 +16,9 @@ from .utils import (
     TRUNCATION_METADATA_KEY,
 )
 from ...config.context import (
-    get_current_workspace_dir,
+    get_current_project_dir,
     get_current_recent_max_bytes,
+    get_current_workspace_dir,
 )
 from ...constant import WORKING_DIR
 from ...runtime.tool_registry import tool_descriptor
@@ -63,9 +64,12 @@ def _resolve_file_path(file_path: str) -> str:
     if path.is_absolute():
         return str(path)
     else:
-        # Use current workspace_dir from context, fallback to WORKING_DIR
-        workspace_dir = get_current_workspace_dir() or WORKING_DIR
-        return str(workspace_dir / file_path)
+        project_dir = (
+            get_current_project_dir()
+            or get_current_workspace_dir()
+            or WORKING_DIR
+        )
+        return str(project_dir / file_path)
 
 
 def _get_encoding_for_file(file_path: str) -> str:

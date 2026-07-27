@@ -19,6 +19,10 @@ from .models import (
     ChatHistory,
 )
 from .utils import agentscope_msg_to_message, parse_legacy_memory_state
+from ...services.project_directory import (
+    resolve_effective_project_dir,
+    session_project_dir,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +71,30 @@ async def get_session(
     """
     workspace = await get_workspace(request)
     return workspace.session
+
+
+class ProjectDirectoryUpdate(BaseModel):
+    """Controlled Session project directory update."""
+
+    project_dir: str
+
+
+def _project_directory_response(chat: ChatSpec, workspace) -> dict:
+    """Build the effective Session project directory response."""
+    from ...config.config import load_agent_config
+
+    agent_config = load_agent_config(workspace.agent_id)
+    project_dir, source = resolve_effective_project_dir(
+        workspace.workspace_dir,
+        agent_project_dir=agent_config.project_dir,
+        session_override=session_project_dir(chat.meta),
+    )
+    return {
+        "project_dir": str(project_dir),
+        "source": source,
+        "agent_project_dir": agent_config.project_dir,
+        "exists": project_dir.is_dir(),
+    }
 
 
 @router.get("", response_model=list[ChatSpec])
@@ -224,6 +252,54 @@ async def unarchive_chat(
             detail=f"Chat not found: {chat_id}",
         )
     return result
+
+
+@router.get("/{chat_id}/project-dir")
+async def get_chat_project_dir(
+    chat_id: str,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+) -> dict:
+    """Return the Session override and effective project directory."""
+    chat = await mgr.get_chat(chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return _project_directory_response(chat, workspace)
+
+
+@router.put("/{chat_id}/project-dir")
+async def set_chat_project_dir(
+    chat_id: str,
+    body: ProjectDirectoryUpdate,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+) -> dict:
+    """Persist a validated Session project directory override."""
+    from pathlib import Path
+
+    target = Path(body.project_dir).expanduser().resolve()
+    if not target.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project directory is unavailable: {target}",
+        )
+    chat = await mgr.set_project_dir(chat_id, str(target))
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return _project_directory_response(chat, workspace)
+
+
+@router.delete("/{chat_id}/project-dir")
+async def clear_chat_project_dir(
+    chat_id: str,
+    mgr: ChatManager = Depends(get_chat_manager),
+    workspace=Depends(get_workspace),
+) -> dict:
+    """Clear the override and inherit the Agent default project directory."""
+    chat = await mgr.set_project_dir(chat_id, None)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return _project_directory_response(chat, workspace)
 
 
 # ----- Existing CRUD endpoints -----

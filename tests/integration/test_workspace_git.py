@@ -3,7 +3,7 @@
 
 Target router: src/qwenpaw/app/routers/git.py (11 routes, 0 cov)
 Backing: real ``git`` binary via ``_git()`` shelling out; the endpoints
-operate on ``get_coding_dir(workspace)`` which, for the default agent,
+operate on ``get_agent_project_dir(workspace)`` which, for the default agent,
 resolves to ``<working_dir>/workspaces/default``.
 
 Coverage strategy (happy path first):

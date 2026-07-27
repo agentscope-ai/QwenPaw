@@ -13,6 +13,7 @@
 import { useEffect, useRef } from "react";
 import { workspaceApi } from "../api/modules/workspace";
 import { buildAuthHeaders } from "../api/authHeaders";
+import type { WorkspaceRoot } from "../features/files-workspace/types";
 
 export interface FileChangeEvent {
   change: "added" | "modified" | "deleted";
@@ -25,12 +26,12 @@ type FileChangeCallback = (events: FileChangeEvent[]) => void;
 // Singleton SSE manager
 // ---------------------------------------------------------------------------
 
-const _listeners = new Set<FileChangeCallback>();
-let _controller: AbortController | null = null;
-let _running = false;
+const _listeners = new Map<string, Set<FileChangeCallback>>();
+const _controllers = new Map<string, AbortController>();
+const _running = new Set<string>();
 
-function _emit(events: FileChangeEvent[]) {
-  _listeners.forEach((cb) => {
+function _emit(key: string, events: FileChangeEvent[]) {
+  _listeners.get(key)?.forEach((cb) => {
     try {
       cb(events);
     } catch {
@@ -39,15 +40,23 @@ function _emit(events: FileChangeEvent[]) {
   });
 }
 
-async function _runLoop(signal: AbortSignal) {
-  const url = workspaceApi.getWatchUrl();
+async function _runLoop(
+  key: string,
+  chatId: string | undefined,
+  root: WorkspaceRoot,
+  signal: AbortSignal,
+) {
+  const url = workspaceApi.getWatchUrl(root);
   let retryDelay = 1_000;
 
   while (!signal.aborted) {
     try {
       const response = await fetch(url, {
         method: "GET",
-        headers: buildAuthHeaders(),
+        headers: {
+          ...buildAuthHeaders(),
+          ...(chatId ? { "X-Chat-Id": chatId } : {}),
+        },
         signal,
       });
 
@@ -80,7 +89,7 @@ async function _runLoop(signal: AbortSignal) {
               events?: FileChangeEvent[];
             };
             if (msg.type === "file_change" && msg.events) {
-              _emit(msg.events);
+              _emit(key, msg.events);
             }
           } catch {
             // ignore parse errors
@@ -95,21 +104,27 @@ async function _runLoop(signal: AbortSignal) {
     }
   }
 
-  _running = false;
+  _running.delete(key);
 }
 
-function _ensureConnected() {
-  if (_running) return;
-  _running = true;
-  _controller = new AbortController();
-  void _runLoop(_controller.signal);
+function _ensureConnected(
+  key: string,
+  chatId: string | undefined,
+  root: WorkspaceRoot,
+) {
+  if (_running.has(key)) return;
+  _running.add(key);
+  const controller = new AbortController();
+  _controllers.set(key, controller);
+  void _runLoop(key, chatId, root, controller.signal);
 }
 
-function _maybeDisconnect() {
-  if (_listeners.size === 0 && _controller) {
-    _controller.abort();
-    _controller = null;
-    _running = false;
+function _maybeDisconnect(key: string) {
+  if ((_listeners.get(key)?.size ?? 0) === 0) {
+    _listeners.delete(key);
+    _controllers.get(key)?.abort();
+    _controllers.delete(key);
+    _running.delete(key);
   }
 }
 
@@ -124,6 +139,8 @@ function _sleep(ms: number): Promise<void> {
 export function useWorkspaceWatch(
   onFileChange: FileChangeCallback,
   enabled = true,
+  chatId?: string,
+  root: WorkspaceRoot = "project",
 ): void {
   // Stable ref so callers don't need to memoize the callback.
   const callbackRef = useRef<FileChangeCallback>(onFileChange);
@@ -136,12 +153,15 @@ export function useWorkspaceWatch(
     const listener: FileChangeCallback = (events) =>
       callbackRef.current(events);
 
-    _listeners.add(listener);
-    _ensureConnected();
+    const key = `${chatId ?? ""}:${root}`;
+    const listeners = _listeners.get(key) ?? new Set<FileChangeCallback>();
+    listeners.add(listener);
+    _listeners.set(key, listeners);
+    _ensureConnected(key, chatId, root);
 
     return () => {
-      _listeners.delete(listener);
-      _maybeDisconnect();
+      listeners.delete(listener);
+      _maybeDisconnect(key);
     };
-  }, [enabled]);
+  }, [chatId, enabled, root]);
 }

@@ -2,7 +2,12 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { EditOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
-import { ToolCardShell } from "../shared";
+import {
+  ToolCardShell,
+  FileAttachmentPreview,
+  FilePreviewLink,
+  hasMultimediaPreview,
+} from "../shared";
 import { shortFileName } from "../shared/utils";
 import styles from "../shared/toolCards.module.less";
 
@@ -57,7 +62,10 @@ const EditFileCard: React.FC<EditFileCardProps> = ({
       icon={<EditOutlined />}
       title={title}
       badges={badges}
+      summaryAction={<FilePreviewLink content={content} />}
+      defaultExpanded={hasMultimediaPreview(content)}
     >
+      <FileAttachmentPreview content={content} />
       {params && (
         <div className={styles.toolCallDiff}>
           {oldText.split("\n").map((line, index) => (

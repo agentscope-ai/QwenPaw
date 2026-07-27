@@ -16,13 +16,22 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { useAgentStore } from "./agentStore";
+import type { WorkspaceRoot } from "../features/files-workspace/types";
 
 export const ORIGINAL_DIFF_SIZE_LIMIT = 256 * 1024;
 
 export interface EditorTab {
+  /** Internal stable identity used by the tab/diff stores. */
   path: string;
+  /** User-facing and filesystem path. Never contains an internal source key. */
+  displayPath?: string;
   content: string;
   dirty: boolean;
+  source?: "workspace" | "attachment" | "profile" | "memory";
+  workspaceRoot?: WorkspaceRoot;
+  artifactUrl?: string;
+  previewKind?: "text" | "image" | "pdf" | "csv" | "binary";
+  readOnly?: boolean;
 }
 
 export interface PendingDiff {
@@ -48,6 +57,7 @@ interface CodingTabsState {
   removeDiff: (agentId: string, path: string) => void;
   updateDiffModified: (agentId: string, path: string, modified: string) => void;
   updateDiffOriginal: (agentId: string, path: string, original: string) => void;
+  resolveDiff: (agentId: string, path: string, content: string) => void;
 }
 
 const omitKey = <T extends object>(obj: T, key: string): T => {
@@ -186,6 +196,24 @@ export const useCodingTabsStore = create<CodingTabsState>()(
             },
           };
         }),
+
+      resolveDiff: (agentId, path, content) =>
+        set((state) => {
+          const tabs = state.tabsByAgent[agentId] ?? [];
+          const agentDiffs = state.diffsByAgent[agentId] ?? {};
+          return {
+            tabsByAgent: {
+              ...state.tabsByAgent,
+              [agentId]: tabs.map((tab) =>
+                tab.path === path ? { ...tab, content, dirty: false } : tab,
+              ),
+            },
+            diffsByAgent: {
+              ...state.diffsByAgent,
+              [agentId]: omitKey(agentDiffs, path),
+            },
+          };
+        }),
     }),
     {
       name: "qwenpaw-coding-tabs",
@@ -194,7 +222,17 @@ export const useCodingTabsStore = create<CodingTabsState>()(
         tabsByAgent: Object.fromEntries(
           Object.entries(state.tabsByAgent).map(([agent, tabs]) => [
             agent,
-            tabs.map((t) => ({ path: t.path, content: "", dirty: false })),
+            tabs.map((t) => ({
+              path: t.path,
+              displayPath: t.displayPath,
+              content: "",
+              dirty: false,
+              source: t.source,
+              workspaceRoot: t.workspaceRoot,
+              artifactUrl: t.artifactUrl,
+              previewKind: t.previewKind,
+              readOnly: t.readOnly,
+            })),
           ]),
         ),
         activeTabByAgent: state.activeTabByAgent,

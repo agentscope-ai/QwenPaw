@@ -4,6 +4,160 @@
   width: 100%;
   display: flex;
   flex-direction: row;
+  position: relative;
+  overflow: hidden;
+
+  :global {
+    [class$="-bubble-files-download"] {
+      opacity: 1 !important;
+      background: transparent !important;
+
+      svg {
+        display: none;
+      }
+    }
+  }
+}
+
+.filesPreviewOpen,
+.filesWorkspaceOpen {
+  .chatMainArea {
+    min-width: 420px;
+    transition:
+      width 330ms cubic-bezier(0.22, 0.78, 0.24, 1),
+      opacity 220ms ease;
+  }
+}
+
+.filesWorkspaceOpen {
+  .chatMainArea {
+    :global {
+      [class$="-sender-content"] {
+        padding: 6px;
+      }
+
+      [class$="-sender-content-bottom"] {
+        min-width: 0;
+        align-items: center;
+        gap: 4px;
+      }
+
+      [class$="-sender-prefix"] {
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      [class$="-sender-actions-list"] {
+        min-width: 0;
+        align-items: center;
+      }
+
+      [class$="-sender-actions-list-length"] {
+        display: none;
+      }
+
+      [class$="-sender-actions-list-presets"] {
+        flex: 0 0 auto;
+      }
+    }
+  }
+}
+
+.compactSenderAffix {
+  min-width: 0;
+  flex: 0 1 auto;
+  gap: 3px !important;
+}
+
+.fileReferenceHost {
+  position: relative;
+}
+
+.fileReferenceTextarea {
+  position: relative;
+  color: transparent !important;
+  caret-color: #302b27;
+  background: transparent !important;
+  z-index: 2;
+
+  &::placeholder {
+    color: rgba(41, 37, 34, 0.42);
+  }
+}
+
+.fileReferenceOverlay {
+  position: absolute;
+  overflow: hidden;
+  color: #302b27;
+  background: transparent;
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  z-index: 1;
+}
+
+.fileReferenceOverlayContent {
+  width: 100%;
+  min-height: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  will-change: transform;
+}
+
+.inlineFileReference {
+  color: #c95012;
+  border-radius: 5px;
+  background: #fff0e7;
+  box-shadow: 0 0 0 1px rgba(243, 107, 33, 0.16);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+:global(.dark-mode) {
+  .fileReferenceTextarea {
+    caret-color: #f4efeb;
+
+    &::placeholder {
+      color: rgba(244, 239, 235, 0.4);
+    }
+  }
+
+  .fileReferenceOverlay {
+    color: #f4efeb;
+  }
+
+  .inlineFileReference {
+    color: #ffad78;
+    background: #40271a;
+    box-shadow: 0 0 0 1px rgba(255, 145, 77, 0.22);
+  }
+}
+
+.filesDirectOpen {
+  .chatMainArea,
+  .historyPanel,
+  .historyPanelMask {
+    display: none;
+  }
+}
+
+@media (max-width: 1024px) {
+  .filesPreviewOpen,
+  .filesWorkspaceOpen {
+    .chatMainArea {
+      min-width: 300px;
+      opacity: 0.7;
+    }
+  }
+}
+
+@media (max-width: 720px) {
+  .filesPreviewOpen,
+  .filesWorkspaceOpen {
+    .chatMainArea {
+      visibility: hidden;
+    }
+  }
 }
 
 /* Main chat area (left of history panel) */
