@@ -458,6 +458,49 @@ async def test_runtime_clients_are_isolated_by_capability_fingerprint(
 
 
 @pytest.mark.asyncio
+async def test_session_switches_runtime_and_resumes_thread(
+    tmp_path: Path,
+) -> None:
+    base_client = FakeCodexClient()
+    first_client = FakeCodexClient()
+    second_client = FakeCodexClient()
+    with patch(
+        "qwenpaw.harnesses.codex.adapter.CodexAppServerClient",
+        side_effect=[base_client, first_client, second_client],
+    ):
+        adapter = CodexAdapter(tmp_path, binary="/custom/codex")
+        for revision in ("first", "second"):
+            _ = [
+                event
+                async for event in adapter.run_turn(
+                    session_id="chat-1",
+                    prompt="Continue",
+                    cwd=tmp_path,
+                    settings={
+                        "_runtime_capabilities": HarnessRuntimeCapabilities(
+                            skills=[
+                                HarnessSkillDefinition(
+                                    name="review",
+                                    directory=tmp_path / "skills",
+                                    revision=revision,
+                                ),
+                            ],
+                        ),
+                    },
+                )
+            ]
+
+    assert adapter._session_clients["chat-1"] is second_client
+    assert (
+        "thread/resume",
+        {"threadId": "thread-1"},
+    ) in second_client.requests
+    assert not any(
+        method == "thread/start" for method, _ in second_client.requests
+    )
+
+
+@pytest.mark.asyncio
 async def test_run_turn_sends_images_and_files_to_app_server(
     tmp_path: Path,
 ) -> None:

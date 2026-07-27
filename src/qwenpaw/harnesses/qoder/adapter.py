@@ -364,6 +364,14 @@ class QoderAdapter(HarnessAdapter):
         settings: dict[str, Any],
     ) -> list[HarnessEvent]:
         """Execute a Qoder local slash command through the same session."""
+        if command != "compact":
+            return await super().run_command(
+                session_id=session_id,
+                command=command,
+                arguments=arguments,
+                cwd=cwd,
+                settings=settings,
+            )
         prompt = f"/{command}"
         if arguments:
             prompt = f"{prompt} {arguments}"
@@ -413,6 +421,17 @@ class QoderAdapter(HarnessAdapter):
         settings: dict[str, Any],
     ) -> Any:
         key = self._client_key(cwd, settings)
+        existing = self._clients.get(session_id)
+        if existing is not None and self._client_keys.get(session_id) == key:
+            return existing
+        capabilities = settings.get("_runtime_capabilities")
+        if not isinstance(capabilities, HarnessRuntimeCapabilities):
+            capabilities = HarnessRuntimeCapabilities()
+        plugin_path = await asyncio.to_thread(
+            materialize_skill_plugin,
+            self._state_dir,
+            capabilities,
+        )
         async with self._session_lock:
             existing = self._clients.get(session_id)
             if (
@@ -431,6 +450,7 @@ class QoderAdapter(HarnessAdapter):
                 is_resume=is_resume,
                 cwd=cwd,
                 settings=settings,
+                plugin_path=plugin_path,
             )
             client = self._new_client(options)
             async with asyncio.timeout(_CONNECT_TIMEOUT_SECONDS):
@@ -453,16 +473,13 @@ class QoderAdapter(HarnessAdapter):
         is_resume: bool,
         cwd: Path,
         settings: dict[str, Any],
+        plugin_path: Path | None,
     ) -> QoderAgentOptions:
         permission_mode = str(settings.get("permission_mode") or "default")
         effort = settings.get("reasoning_effort")
         capabilities = settings.get("_runtime_capabilities")
         if not isinstance(capabilities, HarnessRuntimeCapabilities):
             capabilities = HarnessRuntimeCapabilities()
-        plugin_path = materialize_skill_plugin(
-            self._state_dir,
-            capabilities,
-        )
         projected_mcp = mcp_servers(capabilities)
         extra_args = {}
         if effort in {"low", "medium", "high", "max"}:
@@ -549,8 +566,14 @@ class QoderAdapter(HarnessAdapter):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        async with asyncio.timeout(_STATUS_TIMEOUT_SECONDS):
-            stdout, _ = await process.communicate()
+        try:
+            async with asyncio.timeout(_STATUS_TIMEOUT_SECONDS):
+                stdout, _ = await process.communicate()
+        except BaseException:
+            if process.returncode is None:
+                process.kill()
+            await asyncio.shield(process.wait())
+            raise
         return stdout.decode(errors="replace")
 
     def _resolution(self) -> QoderBinaryResolution | None:

@@ -752,7 +752,7 @@ def agentscope_msg_to_message(
                     current_type = MessageType.MESSAGE
 
                 kwargs = {
-                    "filename": block.get("filename"),
+                    "filename": block.get("filename") or block.get("name"),
                 }
                 if (
                     isinstance(block.get("source"), dict)

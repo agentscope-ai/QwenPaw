@@ -66,9 +66,10 @@ class CodexAdapter(HarnessAdapter):
         self._client = client or CodexAppServerClient(binary=binary)
         self._runtime_clients: dict[str, Any] = {}
         self._session_clients: dict[str, Any] = {}
+        self._session_fingerprints: dict[str, str] = {}
         self._session_lock = asyncio.Lock()
         self._threads = self._load_threads()
-        self._loaded_threads: set[str] = set()
+        self._loaded_threads: set[tuple[int, str]] = set()
         self._thread_contexts: dict[str, dict[str, Any]] = {}
         if hasattr(self._client, "set_server_request_handler"):
             self._client.set_server_request_handler(
@@ -422,9 +423,12 @@ class CodexAdapter(HarnessAdapter):
         async with self._session_lock:
             thread_id = self._threads.pop(session_id, None)
             if thread_id:
-                self._loaded_threads.discard(thread_id)
+                self._loaded_threads = {
+                    key for key in self._loaded_threads if key[1] != thread_id
+                }
                 self._thread_contexts.pop(thread_id, None)
             self._session_clients.pop(session_id, None)
+            self._session_fingerprints.pop(session_id, None)
             await write_json_atomic_async(
                 self._session_path,
                 self._threads,
@@ -443,6 +447,8 @@ class CodexAdapter(HarnessAdapter):
             await client.stop()
         self._runtime_clients.clear()
         self._session_clients.clear()
+        self._session_fingerprints.clear()
+        self._loaded_threads.clear()
 
     async def _thread_for_session(
         self,
@@ -453,16 +459,19 @@ class CodexAdapter(HarnessAdapter):
     ) -> str:
         async with self._session_lock:
             thread_id = self._threads.get(session_id)
-            if thread_id and thread_id not in self._loaded_threads:
-                try:
-                    await client.request(
-                        "thread/resume",
-                        {"threadId": thread_id},
-                    )
-                    self._loaded_threads.add(thread_id)
-                    return thread_id
-                except CodexAppServerError:
-                    self._threads.pop(session_id, None)
+            if thread_id:
+                loaded_key = (id(client), thread_id)
+                if loaded_key not in self._loaded_threads:
+                    try:
+                        await client.request(
+                            "thread/resume",
+                            {"threadId": thread_id},
+                        )
+                        self._loaded_threads.add(loaded_key)
+                        return thread_id
+                    except CodexAppServerError:
+                        self._threads.pop(session_id, None)
+                        thread_id = None
             if thread_id:
                 return thread_id
             params = {
@@ -479,7 +488,7 @@ class CodexAdapter(HarnessAdapter):
             if not thread_id:
                 raise CodexAppServerError("Codex did not return a thread id")
             self._threads[session_id] = thread_id
-            self._loaded_threads.add(thread_id)
+            self._loaded_threads.add((id(client), thread_id))
             await write_json_atomic_async(
                 self._session_path,
                 self._threads,
@@ -491,15 +500,18 @@ class CodexAdapter(HarnessAdapter):
         session_id: str,
         settings: dict[str, Any],
     ) -> Any:
-        existing = self._session_clients.get(session_id)
-        if existing is not None:
-            await existing.start()
-            return existing
         capabilities = settings.get("_runtime_capabilities")
         if not isinstance(capabilities, HarnessRuntimeCapabilities):
             capabilities = HarnessRuntimeCapabilities()
         projection = project_runtime(capabilities)
         fingerprint = capabilities.fingerprint
+        existing = self._session_clients.get(session_id)
+        if (
+            existing is not None
+            and self._session_fingerprints.get(session_id) == fingerprint
+        ):
+            await existing.start()
+            return existing
         if self._injected_client:
             client = self._client
             configure = getattr(client, "configure_runtime", None)
@@ -529,6 +541,7 @@ class CodexAdapter(HarnessAdapter):
             {"extraRoots": list(projection.skill_roots)},
         )
         self._session_clients[session_id] = client
+        self._session_fingerprints[session_id] = fingerprint
         return client
 
     async def _handle_server_request(

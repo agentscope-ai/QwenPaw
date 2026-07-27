@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import mimetypes
+from pathlib import Path
 from typing import Any
 
 from agentscope.message import Msg
@@ -127,7 +129,7 @@ class HarnessSessionBridge:
         messages: list[dict[str, Any]] = []
         for item in getattr(request, "input", None) or []:
             role = cls._enum_value(getattr(item, "role", None)) or "user"
-            blocks = cls._text_blocks(getattr(item, "content", None))
+            blocks = cls._content_blocks(getattr(item, "content", None))
             if not blocks:
                 continue
             messages.append(
@@ -271,14 +273,56 @@ class HarnessSessionBridge:
         return None
 
     @staticmethod
-    def _text_blocks(content: Any) -> list[dict[str, str]]:
+    def _content_blocks(content: Any) -> list[dict[str, Any]]:
         if isinstance(content, str):
             return [{"type": "text", "text": content}]
-        blocks: list[dict[str, str]] = []
+        blocks: list[dict[str, Any]] = []
         for item in content or []:
             text = getattr(item, "text", None)
             if text:
                 blocks.append({"type": "text", "text": str(text)})
+                continue
+            content_type = HarnessSessionBridge._enum_value(
+                getattr(item, "type", None),
+            )
+            field_by_type = {
+                "image": "image_url",
+                "audio": "data",
+                "video": "video_url",
+                "file": "file_url",
+            }
+            field = field_by_type.get(content_type)
+            source = getattr(item, field, None) if field else None
+            if not source:
+                continue
+            source_text = str(source)
+            if "://" not in source_text and not source_text.startswith(
+                "data:",
+            ):
+                source_text = (
+                    Path(source_text).expanduser().absolute().as_uri()
+                )
+            default_media_types = {
+                "image": "image/png",
+                "audio": "audio/mpeg",
+                "video": "video/mp4",
+                "file": "application/octet-stream",
+            }
+            media_type = (
+                mimetypes.guess_type(str(source))[0]
+                or default_media_types[content_type]
+            )
+            block: dict[str, Any] = {
+                "type": "data",
+                "source": {
+                    "type": "url",
+                    "url": source_text,
+                    "media_type": media_type,
+                },
+            }
+            if content_type == "file":
+                block["name"] = getattr(item, "filename", None)
+            blocks.append(block)
         return blocks
 
     @staticmethod

@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -65,7 +68,10 @@ class HarnessCapabilityResolver:
         }
         channel = context.get("channel") or "console"
         return HarnessRuntimeCapabilities(
-            skills=self._resolve_skills(channel),
+            skills=await asyncio.to_thread(
+                self._resolve_skills,
+                channel,
+            ),
             mcp_servers=await self._resolve_mcp_servers(context),
         )
 
@@ -83,9 +89,29 @@ class HarnessCapabilityResolver:
                     name=name,
                     description=info.description,
                     directory=directory,
+                    revision=self._skill_revision(directory),
                 ),
             )
         return result
+
+    @staticmethod
+    def _skill_revision(directory: Path) -> str:
+        """Hash every regular projected file and its relative path."""
+        digest = hashlib.sha256()
+        paths = sorted(
+            directory.rglob("*"),
+            key=lambda item: item.relative_to(directory).as_posix(),
+        )
+        for path in paths:
+            if not path.is_file() or path.is_symlink():
+                continue
+            relative = path.relative_to(directory).as_posix().encode("utf-8")
+            digest.update(len(relative).to_bytes(8, "big"))
+            digest.update(relative)
+            with path.open("rb") as file:
+                while chunk := file.read(1024 * 1024):
+                    digest.update(chunk)
+        return digest.hexdigest()
 
     async def _resolve_mcp_servers(
         self,
@@ -152,6 +178,7 @@ class HarnessCapabilityResolver:
             credential_revision=self._credential_revision(
                 credentials,
             ),
+            runtime_revision=self._runtime_revision(env, headers),
         )
 
     def _credential_providers(
@@ -211,6 +238,38 @@ class HarnessCapabilityResolver:
             if value.meta
         }
         return "|".join(sorted(revisions))
+
+    @staticmethod
+    def _runtime_revision(
+        env: dict[str, Any],
+        headers: dict[str, Any],
+    ) -> str:
+        """Hash resolved runtime values without retaining plaintext."""
+        payload = {
+            "env": {
+                key: (
+                    value.get_secret_value()
+                    if hasattr(value, "get_secret_value")
+                    else str(value)
+                )
+                for key, value in sorted(env.items())
+            },
+            "headers": {
+                key: (
+                    value.get_secret_value()
+                    if hasattr(value, "get_secret_value")
+                    else str(value)
+                )
+                for key, value in sorted(headers.items())
+            },
+        }
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
 
 def _subjects_from_context(

@@ -12,12 +12,16 @@ from qwenpaw.harnesses.session import HarnessSessionBridge
 from qwenpaw.schemas import (
     AgentRequest,
     AgentResponse,
+    AudioContent,
     DataContent,
+    FileContent,
+    ImageContent,
     Message,
     MessageType,
     Role,
     RunStatus,
     TextContent,
+    VideoContent,
 )
 
 
@@ -105,3 +109,59 @@ async def test_bridge_persists_refreshable_reasoning_and_tools(
     ]
     assert restored[1].content[0].text == "Checking"
     assert restored[3].content[0].data["output"] == "1 passed"
+
+
+@pytest.mark.asyncio
+async def test_bridge_persists_attachment_only_message(
+    tmp_path: Path,
+) -> None:
+    session = SafeJSONSession(str(tmp_path))
+    bridge = HarnessSessionBridge(session)
+    request = AgentRequest(
+        session_id="chat-1",
+        user_id="user-1",
+        input=[
+            Message(
+                role=Role.USER,
+                content=[
+                    ImageContent(image_url="/tmp/screen.png"),
+                    FileContent(
+                        filename="notes.txt",
+                        file_url="/tmp/notes.txt",
+                    ),
+                    AudioContent(data="/tmp/voice.mp3", format="mp3"),
+                    VideoContent(video_url="/tmp/demo.mp4"),
+                ],
+            ),
+        ],
+    )
+    response = AgentResponse(
+        id="response-1",
+        output=[],
+        status=RunStatus.Completed,
+    )
+
+    await bridge.append_turn(
+        request=request,
+        response=response,
+        backend="codex",
+    )
+
+    persisted = await session.get_session_state_dict(
+        "chat-1",
+        "user-1",
+    )
+    state = AgentState.model_validate(persisted["agent"]["state"])
+    restored = agentscope_msg_to_message(list(state.context))
+
+    assert len(restored) == 1
+    assert [content.type for content in restored[0].content] == [
+        "image",
+        "file",
+        "audio",
+        "video",
+    ]
+    assert restored[0].content[0].image_url == "/tmp/screen.png"
+    assert restored[0].content[1].file_url == "/tmp/notes.txt"
+    assert restored[0].content[2].data == "/tmp/voice.mp3"
+    assert restored[0].content[3].video_url == "/tmp/demo.mp4"

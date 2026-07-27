@@ -71,6 +71,32 @@ async def test_resolves_channel_scoped_skills(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_skill_fingerprint_tracks_all_projected_files(
+    tmp_path: Path,
+) -> None:
+    _write_skill(tmp_path, "review", channels=["all"])
+    skill_dir = tmp_path / "skills" / "review"
+    resolver = HarnessCapabilityResolver(tmp_path)
+
+    fingerprints = [(await resolver.resolve()).fingerprint]
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: review\ndescription: Updated\n---\n",
+        encoding="utf-8",
+    )
+    fingerprints.append((await resolver.resolve()).fingerprint)
+    references = skill_dir / "references"
+    references.mkdir()
+    (references / "guide.md").write_text("guide", encoding="utf-8")
+    fingerprints.append((await resolver.resolve()).fingerprint)
+    scripts = skill_dir / "scripts"
+    scripts.mkdir()
+    (scripts / "check.py").write_text("print('ok')\n", encoding="utf-8")
+    fingerprints.append((await resolver.resolve()).fingerprint)
+
+    assert len(set(fingerprints)) == 4
+
+
+@pytest.mark.asyncio
 async def test_resolves_mcp_secrets_without_fingerprinting_values(
     tmp_path: Path,
 ) -> None:
@@ -148,6 +174,26 @@ async def test_resolves_mcp_secrets_without_fingerprinting_values(
     assert server.credential_revision == "42"
     assert "super-secret-value" not in repr(server)
     assert "super-secret-value" not in capabilities.fingerprint
+
+    await driver_config.credential_store.put(
+        CredentialRecord(
+            ref="mcp/example",
+            kind=CREDENTIAL_KIND_STATIC,
+            secrets={"api_key": "rotated-secret-value"},
+            meta={"updated_at": 43},
+        ),
+    )
+    rotated = await resolver.resolve(
+        {
+            "channel": "console",
+            "user_id": "person",
+            "session_id": "chat",
+        },
+    )
+
+    assert rotated.fingerprint != capabilities.fingerprint
+    assert "rotated-secret-value" not in repr(rotated)
+    assert "rotated-secret-value" not in rotated.fingerprint
 
 
 @pytest.mark.asyncio

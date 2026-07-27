@@ -139,18 +139,6 @@ PROVIDER_CATALOG = (
                     name="compact",
                     description="Compact the current Qoder session",
                 ),
-                HarnessCommand(
-                    name="agents",
-                    description="List agents available to Qoder",
-                ),
-                HarnessCommand(
-                    name="skills",
-                    description="List skills available to Qoder",
-                ),
-                HarnessCommand(
-                    name="status",
-                    description="Show Qoder account and session status",
-                ),
             ],
             approval_presets=[
                 HarnessApprovalPreset(

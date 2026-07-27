@@ -1,6 +1,6 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { Form } from "antd";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/common_setup";
 import { AgentBackendFields } from "./AgentBackendFields";
@@ -90,6 +90,10 @@ describe("AgentBackendFields", () => {
     vi.clearAllMocks();
     vi.mocked(harnessApi.status).mockResolvedValue(mockProvider);
     mockCopyText.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("separates native and third-party agent creation", async () => {
@@ -260,6 +264,49 @@ describe("AgentBackendFields", () => {
         binary: "/custom/qodercli",
       }),
     );
+    view.unmount();
+  });
+
+  it("waits for each login status request before polling again", async () => {
+    vi.mocked(harnessApi.status).mockImplementation(async (providerId) => ({
+      ...mockProvider,
+      id: providerId,
+      name: providerId === "qoder" ? "Qoder" : "Codex",
+      authenticated: false,
+      account: null,
+    }));
+    vi.mocked(harnessApi.login).mockResolvedValue({
+      type: "external",
+      loginId: "qoder-login",
+      command: "/opt/qoder/qodercli login",
+    });
+    const view = renderWithProviders(<BackendForm />);
+    fireEvent.click(screen.getByText("agent.backend.thirdPartyTitle"));
+    fireEvent.click(screen.getByText("Qoder"));
+
+    const connect = await screen.findByText("agent.backend.qoderConnect");
+    await waitFor(() =>
+      expect(harnessApi.status).toHaveBeenCalledWith("qoder", {}),
+    );
+    vi.mocked(harnessApi.status).mockClear();
+    vi.mocked(harnessApi.status).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    vi.useFakeTimers();
+
+    fireEvent.click(connect);
+    await act(async () => undefined);
+    await act(async () => {
+      vi.advanceTimersByTime(2_000);
+    });
+
+    expect(harnessApi.status).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    expect(harnessApi.status).toHaveBeenCalledTimes(1);
     view.unmount();
   });
 

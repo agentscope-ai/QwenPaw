@@ -20,6 +20,7 @@ class HarnessSkillDefinition(BaseModel):
     name: str
     description: str = ""
     directory: Path
+    revision: str = ""
 
 
 class HarnessMCPServerDefinition(BaseModel):
@@ -38,6 +39,7 @@ class HarnessMCPServerDefinition(BaseModel):
     tool_policies: dict[str, MCPToolPolicy] = Field(default_factory=dict)
     default_policy: MCPToolPolicy = "ask"
     credential_revision: str = ""
+    runtime_revision: str = ""
 
     def revealed_env(self) -> dict[str, str]:
         """Return environment values at the Provider process boundary."""
@@ -67,6 +69,7 @@ class HarnessMCPServerDefinition(BaseModel):
             "tool_policies": self.tool_policies,
             "default_policy": self.default_policy,
             "credential_revision": self.credential_revision,
+            "runtime_revision": self.runtime_revision,
         }
 
 
@@ -86,6 +89,7 @@ class HarnessRuntimeCapabilities(BaseModel):
                 {
                     "name": skill.name,
                     "directory": str(skill.directory),
+                    "revision": skill.revision,
                 }
                 for skill in self.skills
             ],

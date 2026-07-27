@@ -93,7 +93,7 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
   const pollTimeout = useRef<number | undefined>(undefined);
 
   const stopPolling = useCallback(() => {
-    if (pollTimer.current) window.clearInterval(pollTimer.current);
+    if (pollTimer.current) window.clearTimeout(pollTimer.current);
     if (pollTimeout.current) window.clearTimeout(pollTimeout.current);
     pollTimer.current = undefined;
     pollTimeout.current = undefined;
@@ -134,18 +134,27 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
 
   const beginPolling = useCallback(() => {
     stopPolling();
-    pollTimer.current = window.setInterval(async () => {
+    const poll = async () => {
       try {
         const result = await loadStatus();
+        if (pollTimeout.current === undefined) return;
         if (result.authenticated) {
           stopPolling();
           setConnecting(false);
           message.success(t("harnesses.connected"));
+          return;
         }
       } catch {
-        return;
+        // Keep polling until the overall login timeout expires.
       }
-    }, POLL_INTERVAL_MS);
+      if (pollTimeout.current !== undefined) {
+        pollTimer.current = window.setTimeout(
+          () => void poll(),
+          POLL_INTERVAL_MS,
+        );
+      }
+    };
+    pollTimer.current = window.setTimeout(() => void poll(), POLL_INTERVAL_MS);
     pollTimeout.current = window.setTimeout(() => {
       stopPolling();
       setConnecting(false);

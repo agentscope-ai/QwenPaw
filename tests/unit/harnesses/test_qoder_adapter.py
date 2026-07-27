@@ -182,14 +182,43 @@ def test_registry_exposes_qoder_capabilities(tmp_path: Path) -> None:
     assert provider.capabilities.reasoning_stream is True
     assert provider.capabilities.tool_stream is True
     assert provider.capabilities.attachments is True
-    assert {command.name for command in provider.capabilities.commands} == {
-        "agents",
+    assert [command.name for command in provider.capabilities.commands] == [
         "compact",
-        "skills",
-        "status",
-    }
+    ]
     assert isinstance(adapter, QoderAdapter)
     assert adapter._binary == "/custom/qodercli"
+
+
+@pytest.mark.asyncio
+async def test_only_compact_is_forwarded_as_qoder_command(
+    tmp_path: Path,
+) -> None:
+    binary = _executable(tmp_path / "qodercli")
+    client = FakeQoderClient(QoderAgentOptions())
+    adapter = QoderAdapter(
+        tmp_path,
+        binary=str(binary),
+        client_factory=lambda _options: client,
+    )
+
+    unsupported = await adapter.run_command(
+        session_id="chat-1",
+        command="status",
+        arguments="",
+        cwd=tmp_path,
+        settings={},
+    )
+    compact = await adapter.run_command(
+        session_id="chat-1",
+        command="compact",
+        arguments="",
+        cwd=tmp_path,
+        settings={},
+    )
+
+    assert unsupported[0].kind == HarnessEventKind.ERROR
+    assert client.prompts[0] == ("/compact", "default")
+    assert compact[-1].kind == HarnessEventKind.COMPLETED
 
 
 @pytest.mark.asyncio
@@ -627,3 +656,44 @@ async def test_cancelling_turn_interrupts_qoder(tmp_path: Path) -> None:
         await turn
 
     assert client.interrupted is True
+
+
+@pytest.mark.asyncio
+async def test_cli_timeout_reaps_process(tmp_path: Path) -> None:
+    binary = _executable(tmp_path / "qodercli")
+
+    class HangingProcess:
+        def __init__(self) -> None:
+            self.returncode = None
+            self.killed = False
+            self.waited = False
+
+        async def communicate(self):
+            await asyncio.Event().wait()
+
+        def kill(self) -> None:
+            self.killed = True
+            self.returncode = -9
+
+        async def wait(self) -> int:
+            self.waited = True
+            return -9
+
+    process = HangingProcess()
+    adapter = QoderAdapter(tmp_path, binary=str(binary))
+    with (
+        patch(
+            "qwenpaw.harnesses.qoder.adapter."
+            "asyncio.create_subprocess_exec",
+            return_value=process,
+        ),
+        patch(
+            "qwenpaw.harnesses.qoder.adapter._STATUS_TIMEOUT_SECONDS",
+            0.01,
+        ),
+        pytest.raises(asyncio.TimeoutError),
+    ):
+        await adapter._run_cli("status")
+
+    assert process.killed is True
+    assert process.waited is True
