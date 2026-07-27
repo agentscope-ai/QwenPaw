@@ -168,8 +168,10 @@ class CronExecutor:
             },
         )
 
+        final_no_content = False
+
         async def _run() -> None:
-            nonlocal delivery_error
+            nonlocal delivery_error, final_no_content
 
             async def _deliver(event: Any) -> None:
                 nonlocal delivery_error
@@ -208,6 +210,13 @@ class CronExecutor:
 
             if final_event is not None:
                 await _deliver(final_event)
+            elif job.dispatch.mode == "final" and not job.dispatch.silent:
+                final_no_content = True
+                logger.warning(
+                    "cron final delivery: no completed message in "
+                    "stream for job_id=%s",
+                    job.id,
+                )
 
         try:
             await asyncio.wait_for(
@@ -227,6 +236,8 @@ class CronExecutor:
                 delivery_status = "suppressed"
             elif delivery_error:
                 delivery_status = "failed"
+            elif final_no_content:
+                delivery_status = "no_content"
             else:
                 delivery_status = "success"
             return {

@@ -142,3 +142,26 @@ async def test_final_mode_reports_delivery_failure(monkeypatch):
     channel_manager.send_event.assert_awaited_once()
     assert result["delivery_status"] == "failed"
     assert "channel down" in result["delivery_error"]
+
+
+@pytest.mark.asyncio
+async def test_final_mode_no_completed_message_returns_no_content(monkeypatch):
+    progress = Event(object="message", status=RunStatus.InProgress)
+    workspace = _Workspace([progress])
+    channel_manager = AsyncMock()
+    job = make_cron_job_spec(job_id="final-empty-job")
+    job.dispatch = DispatchSpec(
+        target=DispatchTarget(user_id="u1", session_id="console:u1"),
+        mode="final",
+    )
+
+    _patch_trace_storage(monkeypatch)
+
+    result = await CronExecutor(
+        workspace=workspace,
+        channel_manager=channel_manager,
+    ).execute(job)
+
+    assert workspace.events_consumed == 1
+    channel_manager.send_event.assert_not_awaited()
+    assert result["delivery_status"] == "no_content"

@@ -48,7 +48,7 @@ class JsonJobRepository(BaseJobRepository):
     def _load_sync(self) -> JobsFile:
         """Load and validate jobs as one worker-thread operation."""
         if not self._path.exists():
-            return JobsFile(version=1, jobs=[])
+            return JobsFile(version=2, jobs=[])
         return JobsFile.model_validate(read_json(self._path))
 
     async def load(self) -> JobsFile:
