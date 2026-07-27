@@ -199,9 +199,18 @@ def _abspath_from_url(url: str) -> str:
     """
     s = url.strip()
     if s.lower().startswith("file:"):
-        s = s[5:]
-    s = "/" + s.lstrip("/")
-    return unquote(s)
+        parsed = urlparse(s)
+        if parsed.netloc and parsed.netloc.lower() != "localhost":
+            if len(parsed.netloc) == 2 and parsed.netloc[1] == ":":
+                s = f"{parsed.netloc}{parsed.path}"
+            else:
+                s = f"//{parsed.netloc}{parsed.path}"
+        else:
+            s = parsed.path
+    s = unquote(s)
+    if re.match(r"^/[A-Za-z]:[/\\]", s):
+        return s[1:]
+    return s
 
 
 def _resolve_content_url(url: str) -> str:

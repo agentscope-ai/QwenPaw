@@ -117,6 +117,10 @@ async def test_bridge_persists_attachment_only_message(
 ) -> None:
     session = SafeJSONSession(str(tmp_path))
     bridge = HarnessSessionBridge(session)
+    image_path = tmp_path / "screen.png"
+    file_path = tmp_path / "notes.txt"
+    audio_path = tmp_path / "voice.mp3"
+    video_path = tmp_path / "demo.mp4"
     request = AgentRequest(
         session_id="chat-1",
         user_id="user-1",
@@ -124,13 +128,13 @@ async def test_bridge_persists_attachment_only_message(
             Message(
                 role=Role.USER,
                 content=[
-                    ImageContent(image_url="/tmp/screen.png"),
+                    ImageContent(image_url=str(image_path)),
                     FileContent(
                         filename="notes.txt",
-                        file_url="/tmp/notes.txt",
+                        file_url=str(file_path),
                     ),
-                    AudioContent(data="/tmp/voice.mp3", format="mp3"),
-                    VideoContent(video_url="/tmp/demo.mp4"),
+                    AudioContent(data=str(audio_path), format="mp3"),
+                    VideoContent(video_url=str(video_path)),
                 ],
             ),
         ],
@@ -161,7 +165,7 @@ async def test_bridge_persists_attachment_only_message(
         "audio",
         "video",
     ]
-    assert restored[0].content[0].image_url == "/tmp/screen.png"
-    assert restored[0].content[1].file_url == "/tmp/notes.txt"
-    assert restored[0].content[2].data == "/tmp/voice.mp3"
-    assert restored[0].content[3].video_url == "/tmp/demo.mp4"
+    assert Path(restored[0].content[0].image_url) == image_path
+    assert Path(restored[0].content[1].file_url) == file_path
+    assert Path(restored[0].content[2].data) == audio_path
+    assert Path(restored[0].content[3].video_url) == video_path

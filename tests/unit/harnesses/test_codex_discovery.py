@@ -79,8 +79,8 @@ def test_prefers_newest_chatgpt_extension_binary(
     newer = _executable(
         tmp_path / "openai.chatgpt-2" / "bin" / "linux-x64" / "codex",
     )
-    os.utime(older, ns=(1, 1))
-    os.utime(newer, ns=(2, 2))
+    os.utime(older, ns=(10_000_000_000, 10_000_000_000))
+    os.utime(newer, ns=(20_000_000_000, 20_000_000_000))
 
     resolved = resolve_codex_binary(
         "codex",
