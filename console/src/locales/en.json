@@ -580,6 +580,8 @@
     }
   },
   "workspace": {
+    "openInFileManager": "Open in File Manager",
+    "openFailed": "Failed to open the workspace in the file manager",
     "title": "Files",
     "workspacePath": "Workspace:",
     "noFiles": "No files",

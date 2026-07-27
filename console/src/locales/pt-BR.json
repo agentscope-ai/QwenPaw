@@ -414,6 +414,8 @@
     }
   },
   "workspace": {
+    "openInFileManager": "Abrir no Gerenciador de Arquivos",
+    "openFailed": "Falha ao abrir o workspace no gerenciador de arquivos",
     "title": "Arquivos",
     "workspacePath": "Workspace:",
     "noFiles": "Nao Arquivos",

@@ -1,4 +1,9 @@
-import { useAgentsData, FileListPanel, FileEditor } from "./components";
+import {
+  useAgentsData,
+  FileListPanel,
+  FileEditor,
+  OpenWorkspaceButton,
+} from "./components";
 import styles from "./index.module.less";
 import { UploadOutlined, DownloadOutlined } from "@ant-design/icons";
 import { Button, Tooltip } from "@agentscope-ai/design";
@@ -7,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
+import { useAgentStore } from "../../../stores/agentStore";
 import { useUploadLimitStore } from "../../../stores/uploadLimitStore";
 import { DownloadCancelledError } from "../../../utils/downloadFileFromUrl";
 import type { MarkdownFile, DailyMemoryFile } from "../../../api/types";
@@ -14,6 +20,10 @@ import type { MarkdownFile, DailyMemoryFile } from "../../../api/types";
 export default function WorkspacePage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
+  const { agents, selectedAgent } = useAgentStore();
+  const selectedWorkspacePath = agents.find(
+    (agent) => agent.id === selectedAgent,
+  )?.workspace_dir;
   const {
     files,
     selectedFile,
@@ -180,6 +190,9 @@ export default function WorkspacePage() {
         extra={
           <div className={styles.workspaceInfo}>
             <div className={styles.actionButtons}>
+              <OpenWorkspaceButton
+                workspacePath={selectedWorkspacePath ?? null}
+              />
               <input
                 type="file"
                 ref={fileInputRef}

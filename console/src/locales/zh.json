@@ -363,6 +363,8 @@
     }
   },
   "workspace": {
+    "openInFileManager": "在文件管理器中打开",
+    "openFailed": "无法在文件管理器中打开工作区",
     "title": "文件",
     "workspacePath": "工作区路径：",
     "noFiles": "没有文件",
