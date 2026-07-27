@@ -1,3 +1,14 @@
+export function shouldInspectReplayPayload(
+  raw: string,
+  streamTruncated: boolean,
+): boolean {
+  return (
+    streamTruncated ||
+    raw.includes('"turn_usage"') ||
+    raw.includes('"replay_truncated"')
+  );
+}
+
 export function shouldForwardReplayPayload(
   payload: Record<string, unknown>,
   streamTruncated: boolean,

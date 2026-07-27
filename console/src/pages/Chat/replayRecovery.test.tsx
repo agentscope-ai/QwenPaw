@@ -42,6 +42,25 @@ async function readSsePayloads(response: Response) {
 }
 
 describe("replay truncation recovery", () => {
+  it("forwards a normal large event without parsing JSON", async () => {
+    const body = sse({
+      object: "content",
+      type: "text",
+      text: "x".repeat(256 * 1024),
+    });
+    const parseSpy = vi.spyOn(JSON, "parse");
+
+    try {
+      const wrapped = wrapChatResponseUsageStream(responseFromChunks([body]), {
+        current: null,
+      });
+      expect(await wrapped.text()).toBe(body);
+      expect(parseSpy).not.toHaveBeenCalled();
+    } finally {
+      parseSpy.mockRestore();
+    }
+  });
+
   it("forwards only the canonical response to the real SDK builder", async () => {
     const completed = {
       id: "response-1",

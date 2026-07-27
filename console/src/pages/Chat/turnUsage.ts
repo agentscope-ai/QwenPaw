@@ -4,7 +4,10 @@ import type {
   IAgentScopeRuntimeWebUIMessage,
 } from "@agentscope-ai/chat";
 import { useTurnUsageStore } from "./turnUsageStore";
-import { shouldForwardReplayPayload } from "./replayRecovery";
+import {
+  shouldForwardReplayPayload,
+  shouldInspectReplayPayload,
+} from "./replayRecovery";
 
 export const TURN_USAGE_META_KEY = "qwenpaw_turn_usage";
 
@@ -329,6 +332,11 @@ export function wrapChatResponseUsageStream(
   ) => {
     const raw = readSseData(block);
     if (raw === null) {
+      controller.enqueue(encoder.encode(`${block}\n\n`));
+      return;
+    }
+
+    if (!shouldInspectReplayPayload(raw, streamTruncated)) {
       controller.enqueue(encoder.encode(`${block}\n\n`));
       return;
     }
