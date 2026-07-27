@@ -155,12 +155,14 @@ describe("HarnessModelSelector", () => {
     await waitFor(() =>
       expect(harnessApi.listModels).toHaveBeenCalledWith("qoder"),
     );
-    expect(agentsApi.updateBackendSettings).toHaveBeenCalledWith(
-      "qoder-agent",
-      {
-        model: "auto",
-        reasoning_effort: "high",
-      },
+    await waitFor(() =>
+      expect(agentsApi.updateBackendSettings).toHaveBeenCalledWith(
+        "qoder-agent",
+        {
+          model: "auto",
+          reasoning_effort: "high",
+        },
+      ),
     );
   });
 });
