@@ -485,7 +485,7 @@ cp -R console/dist/. src/qwenpaw/console/
 pip install -e .
 ```
 
-- **Dev** (kiểm thử, định dạng): `pip install -e ".[dev,full]"`
+- **Dev** (kiểm thử, định dạng): `pip install -e ".[dev,test,full]"`
 - **Sau đó**: Chạy `qwenpaw init --defaults`, rồi `qwenpaw app`.
 
 > **Lưu ý khi cập nhật:** Khi cập nhật lên phiên bản chính mới sau `git pull`, vui lòng xây dựng lại frontend, cài đặt lại gói (`pip install -e .`), khởi động lại `qwenpaw app`, và xóa bộ nhớ đệm trình duyệt với `Ctrl+Shift+R` (hoặc `Cmd+Shift+R` trên macOS).

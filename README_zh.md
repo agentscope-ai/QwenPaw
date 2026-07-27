@@ -487,7 +487,7 @@ cp -R console/dist/. src/qwenpaw/console/
 pip install -e .
 ```
 
-- **开发**（测试、格式化）：`pip install -e ".[dev,full]"`
+- **开发**（测试、格式化）：`pip install -e ".[dev,test,full]"`
 - **然后**：运行 `qwenpaw init --defaults`，再运行 `qwenpaw app`。
 
 > **版本更新提示：** 当执行 `git pull` 更新到大版本后，请重新构建前端、重新安装 Python 包（`pip install -e .`）、重启 `qwenpaw app`，并清除浏览器缓存（`Ctrl+Shift+R` 或 macOS 上 `Cmd+Shift+R`）。
