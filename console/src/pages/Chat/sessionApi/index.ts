@@ -13,6 +13,7 @@ import { toDisplayUrl } from "../utils";
 import {
   extractTurnUsageFromOutputMessages,
   extractLatestSnapshotFromCards,
+  type TurnUsageSnapshot,
 } from "../turnUsage";
 import { useTurnUsageStore } from "../turnUsageStore";
 
@@ -28,6 +29,12 @@ const ROLE_USER = "user";
 const ROLE_ASSISTANT = "assistant";
 const TYPE_PLUGIN_CALL_OUTPUT = "plugin_call_output";
 const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
+
+// The chat SDK paginates history at message-card granularity, so a single
+// ResponseCard holding hundreds of outputs (e.g. a long ComfyUI run)
+// bypasses the window and forces a full render on open. Turns with more
+// outputs than this are split into multiple cards.
+const MAX_OUTPUTS_PER_RESPONSE_CARD = 20;
 
 function hydrateTurnUsageFromMessages(
   messages: IAgentScopeRuntimeWebUIMessage[],
@@ -243,9 +250,14 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
 /**
  * Build an assistant response card (AgentScopeRuntimeResponseCard)
  * wrapping a group of consecutive non-user output messages.
+ *
+ * @param turnUsageOverride - When ``undefined`` the turn usage is
+ *   extracted from *outputMessages*; pass an explicit snapshot (or null)
+ *   when the turn was split into chunks so only the last chunk carries it.
  */
 const buildResponseCard = (
   outputMessages: OutputMessage[],
+  turnUsageOverride?: TurnUsageSnapshot | null,
 ): IAgentScopeRuntimeWebUIMessage => {
   const fallbackNow = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
@@ -261,7 +273,10 @@ const buildResponseCard = (
     content: normalizeOutputMessageContent(msg.content),
   }));
 
-  const turnUsage = extractTurnUsageFromOutputMessages(outputMessages);
+  const turnUsage =
+    turnUsageOverride === undefined
+      ? extractTurnUsageFromOutputMessages(outputMessages)
+      : turnUsageOverride;
 
   return {
     id: generateId(),
@@ -288,12 +303,39 @@ const buildResponseCard = (
 };
 
 /**
+ * Build one or more response cards for a turn's output messages.
+ * Turns above MAX_OUTPUTS_PER_RESPONSE_CARD are split into chunk cards so
+ * the SDK's history pagination bounds the render cost; the turn usage is
+ * attached only to the last chunk to keep tail-scanning consumers intact.
+ */
+const buildResponseCards = (
+  outputMessages: OutputMessage[],
+): IAgentScopeRuntimeWebUIMessage[] => {
+  if (outputMessages.length <= MAX_OUTPUTS_PER_RESPONSE_CARD) {
+    return [buildResponseCard(outputMessages)];
+  }
+  const turnUsage = extractTurnUsageFromOutputMessages(outputMessages);
+  const cards: IAgentScopeRuntimeWebUIMessage[] = [];
+  for (
+    let i = 0;
+    i < outputMessages.length;
+    i += MAX_OUTPUTS_PER_RESPONSE_CARD
+  ) {
+    const chunk = outputMessages.slice(i, i + MAX_OUTPUTS_PER_RESPONSE_CARD);
+    const isLast = i + MAX_OUTPUTS_PER_RESPONSE_CARD >= outputMessages.length;
+    cards.push(buildResponseCard(chunk, isLast ? turnUsage : null));
+  }
+  return cards;
+};
+
+/**
  * Convert flat backend messages into the card-based format expected by
  * the @agentscope-ai/chat component.
  *
  * - User messages → AgentScopeRuntimeRequestCard
  * - Consecutive non-user messages (assistant / system / tool) → grouped
- *   into a single AgentScopeRuntimeResponseCard with all output messages.
+ *   into AgentScopeRuntimeResponseCards, split into chunks of at most
+ *   MAX_OUTPUTS_PER_RESPONSE_CARD output messages each.
  */
 const convertMessages = (
   messages: Message[],
@@ -310,7 +352,7 @@ const convertMessages = (
       const startIdx = i;
       while (i < len && messages[i].role !== ROLE_USER) i++;
       const outputMsgs = messages.slice(startIdx, i).map(toOutputMessage);
-      if (outputMsgs.length) result.push(buildResponseCard(outputMsgs));
+      if (outputMsgs.length) result.push(...buildResponseCards(outputMsgs));
     }
   }
 
@@ -1378,6 +1420,8 @@ export const __test__ = {
   convertMessages,
   buildUserCard,
   buildResponseCard,
+  buildResponseCards,
+  MAX_OUTPUTS_PER_RESPONSE_CARD,
   toOutputMessage,
   normalizeOutputMessageContent,
   contentToRequestParts,
