@@ -580,7 +580,6 @@ class CheckpointRepository:
             raise CheckpointError(
                 f"Failed to delete file {rel}: {exc}",
             ) from exc
-        return False
 
     def same_workspace_content(self, rel: str, expected: bytes) -> bool:
         """Return whether a workspace file exactly matches *expected*."""
@@ -718,11 +717,12 @@ class CheckpointRepository:
                 suffix=".tmp",
                 delete=False,
             ) as temp_file:
+                temp_path = Path(temp_file.name)
                 temp_file.write(content)
                 temp_file.flush()
+                if os.name != "nt":
+                    os.fchmod(temp_file.fileno(), mode)
                 os.fsync(temp_file.fileno())
-                temp_path = Path(temp_file.name)
-            os.chmod(temp_path, mode)
             target = self._verify_workspace_parent(rel, parent_identity)
             os.replace(temp_path, target)
             temp_path = None
