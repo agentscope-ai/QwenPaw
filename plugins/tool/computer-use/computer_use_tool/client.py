@@ -40,6 +40,7 @@ _INPUT_METHODS = frozenset(
         "type_text",
         "invoke_element",
         "set_value",
+        "close_window",
     }
 )
 TransportFactory = Callable[[], ComputerUseTransport]

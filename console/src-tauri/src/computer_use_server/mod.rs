@@ -49,15 +49,15 @@ use input::{
 #[cfg(windows)]
 use uia::{collect_accessibility, invoke_element, set_value};
 #[cfg(windows)]
-use window::{is_forbidden, list_apps, list_windows, resolve_window};
+use window::{close_window, is_forbidden, list_apps, list_windows, resolve_window};
 
 #[cfg(target_os = "macos")]
 mod platform_macos;
 #[cfg(target_os = "macos")]
 use platform_macos::{
-    click, desktop_locked, drag, invoke_element, is_forbidden, list_apps, list_windows,
-    observe_window, press_key, resolve_window, scroll, set_focus, set_intervention_bypass_once,
-    set_value, type_text,
+    click, close_window, desktop_locked, drag, invoke_element, is_forbidden, list_apps,
+    list_windows, observe_window, press_key, resolve_window, scroll, set_focus,
+    set_intervention_bypass_once, set_value, type_text,
 };
 
 /// Native accessibility element handle stored in an accessibility snapshot.
@@ -343,9 +343,9 @@ fn dispatch_request(
     }
     let window = window.expect("window exists");
     request_approval(connection, &window, &meta)?;
-    // Actions that synthesize input must not run against the secure lock
-    // screen, and the recency guard is exempted once right after the user
-    // resolves an approval prompt in QwenPaw.
+    // Actions that synthesize input or change window state must not run
+    // against the secure lock screen, and the recency guard is exempted once
+    // right after the user resolves an approval prompt in QwenPaw.
     let is_input_method = matches!(
         method,
         "click"
@@ -355,6 +355,7 @@ fn dispatch_request(
             | "type_text"
             | "invoke_element"
             | "set_value"
+            | "close_window"
     );
     if is_input_method {
         if desktop_locked() {
@@ -376,6 +377,22 @@ fn dispatch_request(
             Ok(json!({"window": window.to_json()}))
         }
         "observe_window" => observe_window(state, &window),
+        "close_window" => {
+            let result = close_window(&window)?;
+            if result.get("closed").and_then(Value::as_bool) == Some(true) {
+                // Observations of a closed window can never be acted on
+                // again; drop them so a later action fails fast as stale
+                // instead of pointing at a dead handle.
+                let hwnd = window.hwnd;
+                state
+                    .snapshots
+                    .retain(|_, snapshot| snapshot.window.hwnd != hwnd);
+                state
+                    .accessibility
+                    .retain(|_, snapshot| snapshot.window_hwnd != hwnd);
+            }
+            Ok(result)
+        }
         "click" => click(state, &window, &params),
         "scroll" => scroll(state, &window, &params),
         "drag" => drag(state, &window, &params),

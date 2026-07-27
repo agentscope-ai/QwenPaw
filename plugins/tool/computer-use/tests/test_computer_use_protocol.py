@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 import computer_use_tool.client as client_module
+import computer_use_tool.dispatch as dispatch_module
 from computer_use_tool.client import ComputerUseClient
 from computer_use_tool.dispatch import (
     _dialog_hint,
@@ -107,6 +108,30 @@ def test_coordinate_input_requires_one_complete_visual_snapshot() -> None:
         "button": "left",
         "count": 1,
     }
+
+
+def test_close_window_maps_to_the_native_method() -> None:
+    """Closing needs only the window, and returns no screenshot."""
+    method, params, include_images = _native_request(
+        "close_window",
+        window_id="123",
+    )
+
+    assert method == "close_window"
+    assert params == {"window_id": "123"}
+    assert include_images is False
+
+
+def test_close_window_requires_a_window_id() -> None:
+    with pytest.raises(ValueError, match="window_id"):
+        _native_request("close_window", window_id="")
+
+
+def test_close_window_is_guarded_like_other_state_changes() -> None:
+    """A close can raise a save prompt and follows an approval, so it must
+    take part in both the new-window hint and the post-approval exemption."""
+    assert "close_window" in dispatch_module._DIALOG_HINT_ACTIONS
+    assert "close_window" in client_module._INPUT_METHODS
 
 
 def test_coordinate_input_rejects_missing_snapshot_identifier() -> None:

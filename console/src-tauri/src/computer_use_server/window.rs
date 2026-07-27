@@ -3,18 +3,26 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 use windows::core::{BOOL, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
+use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, WPARAM};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetWindowTextW, GetWindowThreadProcessId,
-    IsWindow, IsWindowVisible,
+    IsWindow, IsWindowVisible, PostMessageW, WM_CLOSE,
 };
 
 use super::WindowInfo;
+use super::reject_recent_user_intervention;
+
+// A close request is asynchronous: wait briefly for the window to go away
+// before reporting that it is still open (usually a save prompt).
+const CLOSE_POLL_ATTEMPTS: u32 = 40;
+const CLOSE_POLL_INTERVAL_MS: u64 = 50;
 
 pub(super) fn list_windows() -> Vec<Value> {
     enumerate_windows()
@@ -122,3 +130,33 @@ pub(super) fn is_forbidden(window: &WindowInfo) -> bool {
         || title.contains("credential")
         || title.contains("qwenpaw")
 }
+
+/// Ask a window to close the same way its own title-bar button would.
+///
+/// `WM_CLOSE` is a request, not a kill: the application runs its normal
+/// shutdown path and may answer with a "save changes?" prompt instead of
+/// exiting. A still-open window is therefore a legitimate outcome rather than
+/// a failure, so the caller reports `closed: false` and lets the model observe
+/// whatever dialog appeared. The process is never terminated.
+pub(super) fn close_window(
+    window: &WindowInfo,
+) -> Result<Value, (&'static str, String)> {
+    let hwnd = HWND(window.hwnd as _);
+    if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
+        return Err((
+            "window_not_found",
+            "Target window no longer exists.".to_string(),
+        ));
+    }
+    reject_recent_user_intervention()?;
+    unsafe { PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) }
+        .map_err(|error| ("input_failed", error.to_string()))?;
+    for _ in 0..CLOSE_POLL_ATTEMPTS {
+        if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
+            return Ok(json!({"closed": true}));
+        }
+        thread::sleep(Duration::from_millis(CLOSE_POLL_INTERVAL_MS));
+    }
+    Ok(json!({"closed": false}))
+}
+

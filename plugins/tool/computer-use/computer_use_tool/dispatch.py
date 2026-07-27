@@ -34,6 +34,7 @@ _DIALOG_HINT_ACTIONS = frozenset(
         "drag",
         "invoke",
         "set_value",
+        "close_window",
     }
 )
 _WINDOW_PROBE_DEADLINE_MS = 3000
@@ -285,6 +286,8 @@ def _native_request(action: str, **values: Any) -> tuple[str, dict[str, Any], bo
         return action, {"window_id": window_id}, True
     if action == "set_focus":
         return action, {"window_id": window_id}, False
+    if action == "close_window":
+        return action, {"window_id": window_id}, False
     if action in {"click", "double_click", "right_click"}:
         params = _point_params(
             window_id=window_id,
@@ -346,6 +349,7 @@ def _native_request(action: str, **values: Any) -> tuple[str, dict[str, Any], bo
         return action, {"window_id": window_id, "key": key}, False
     raise ValueError(
         "Unknown action. Valid actions: list_apps, list_windows, find_window, "
-        "observe_window, launch_app, set_focus, click, double_click, "
-        "right_click, scroll, drag, type, press_key, invoke, set_value, wait, stop.",
+        "observe_window, launch_app, set_focus, close_window, click, "
+        "double_click, right_click, scroll, drag, type, press_key, invoke, "
+        "set_value, wait, stop.",
     )

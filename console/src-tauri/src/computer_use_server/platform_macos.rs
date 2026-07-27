@@ -45,6 +45,11 @@ extern "C" {
 const EVENT_SOURCE_STATE_COMBINED_SESSION: u32 = 1;
 const ANY_INPUT_EVENT_TYPE: u32 = 0xFFFF_FFFF;
 
+// A close request is asynchronous: wait briefly for the window to go away
+// before reporting that it is still open (usually a save prompt).
+const CLOSE_POLL_ATTEMPTS: u32 = 40;
+const CLOSE_POLL_INTERVAL_MS: u64 = 50;
+
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGEventSourceSecondsSinceLastEventType(state_id: u32, event_type: u32) -> f64;
@@ -779,6 +784,60 @@ pub(super) fn set_focus(window: &WindowInfo) -> Result<(), (&'static str, String
         let _ = ax_window.perform_action(&CFString::from_static_string(kAXRaiseAction));
     }
     Ok(())
+}
+
+/// Ask a window to close by pressing its own close button.
+///
+/// This is a request, not a kill: the application runs its normal shutdown
+/// path and may answer with a "save changes?" sheet instead of closing. A
+/// window that is still present is therefore a legitimate outcome reported as
+/// `closed: false`, never an error, and the process is never terminated.
+pub(super) fn close_window(
+    window: &WindowInfo,
+) -> Result<Value, (&'static str, String)> {
+    let pid = window_owner_pid(window.hwnd as i64).ok_or((
+        "window_not_found",
+        "Could not resolve the window's process.".to_string(),
+    ))?;
+    let app = AXUIElement::application(pid);
+    let _ = app.set_messaging_timeout(2.0);
+    let ax_window = find_ax_window(&app, window.hwnd as u32).ok_or((
+        "window_not_found",
+        "Accessibility could not locate the window.".to_string(),
+    ))?;
+    reject_recent_user_intervention()?;
+    let close_button = ax_window
+        .attribute(&AXAttribute::new(&CFString::from_static_string(
+            "AXCloseButton",
+        )))
+        .map_err(|_| {
+            (
+                "unsupported_operation",
+                "This window does not expose a close button.".to_string(),
+            )
+        })?;
+    close_button
+        .downcast_into::<AXUIElement>()
+        .ok_or((
+            "unsupported_operation",
+            "This window does not expose a close button.".to_string(),
+        ))?
+        .perform_action(&CFString::from_static_string(kAXPressAction))
+        .map_err(|error| {
+            (
+                "action_failed",
+                format!("Accessibility close failed: {error:?}"),
+            )
+        })?;
+    for _ in 0..CLOSE_POLL_ATTEMPTS {
+        if window_owner_pid(window.hwnd as i64).is_none() {
+            return Ok(json!({"closed": true}));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(
+            CLOSE_POLL_INTERVAL_MS,
+        ));
+    }
+    Ok(json!({"closed": false}))
 }
 
 fn window_bounds(window_id: i64) -> Option<(f64, f64, f64, f64)> {
