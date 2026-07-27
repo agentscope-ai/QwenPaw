@@ -15,13 +15,25 @@ from .access import (
 )
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
-from .client import is_computer_use_active, stop_computer_use_session
+from .client import (
+    is_computer_use_active,
+    stop_all_computer_use_turns,
+    stop_computer_use_session,
+)
+from .feature_state import get_computer_use_feature_state
 
 
 class SessionRequest(BaseModel):
     """A page action scoped to exactly one active conversation."""
 
     session_id: str = Field(min_length=1)
+
+
+class FeatureToggleRequest(BaseModel):
+    """A request to enable or disable the Computer Use feature."""
+
+    enabled: bool
+    session_id: str | None = None
 
 
 class PersistentAccessRequest(BaseModel):
@@ -68,7 +80,27 @@ def build_router() -> APIRouter:
             "runtime_available": HostRuntimeProvider.is_available(),
             "connection_active": capability is not None,
             "approval_scope": "session_and_persistent",
+            "enabled": get_computer_use_feature_state().is_enabled(),
         }
+
+    @router.post("/feature")
+    async def set_feature_enabled(
+        request: FeatureToggleRequest,
+    ) -> dict[str, int | bool]:
+        get_computer_use_feature_state().set_enabled(request.enabled)
+        if request.enabled:
+            return {"enabled": True}
+        stopped = await stop_all_computer_use_turns()
+        denied = 0
+        if request.session_id:
+            service = get_approval_service()
+            for pending in await _pending_for_session(request.session_id):
+                resolved = await service.resolve_request(
+                    pending.request_id,
+                    ApprovalDecision.DENIED,
+                )
+                denied += int(resolved is not None)
+        return {"enabled": False, "stopped": stopped, "denied": denied}
 
     @router.get("/access")
     def list_persistent_access() -> dict[str, list[dict[str, str]]]:

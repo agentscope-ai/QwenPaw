@@ -13,6 +13,7 @@ from agentscope.tool import ToolResponse
 from qwenpaw.runtime.tool_registry import tool_descriptor
 
 from .client import get_computer_use_client
+from .feature_state import get_computer_use_feature_state
 from .protocol import ComputerUseProtocolError
 
 _MAX_ACTIONS_PER_MINUTE = 60
@@ -213,6 +214,12 @@ async def computer_use(
         action = str(action or "").strip().lower()
         if not action:
             raise ValueError("action is required.")
+        if not get_computer_use_feature_state().is_enabled():
+            return _error(
+                "feature_disabled",
+                "Computer Use is turned off. Enable it in the Computer Use "
+                "panel to allow desktop automation.",
+            )
         if action == "wait":
             await asyncio.sleep(max(0, min(wait_ms, 30_000)) / 1000)
             return _response({"ok": True, "action": action, "waited_ms": wait_ms})

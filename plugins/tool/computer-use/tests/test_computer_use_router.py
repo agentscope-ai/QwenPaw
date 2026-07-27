@@ -12,7 +12,9 @@ from computer_use_tool.access import (
     ComputerUseAccessStore,
     PersistentAppAccess,
 )
+from computer_use_tool.feature_state import ComputerUseFeatureState
 from computer_use_tool.router import (
+    FeatureToggleRequest,
     PendingDecisionRequest,
     PersistentAccessRequest,
     build_router,
@@ -207,3 +209,116 @@ async def test_pending_always_decision_records_persistent_access(
             display_name="Contoso Editor",
         ),
     ]
+
+
+def test_status_route_reports_feature_enabled_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    state = ComputerUseFeatureState(tmp_path / "feature_state.json")
+    monkeypatch.setattr(
+        router_module, "get_computer_use_feature_state", lambda: state
+    )
+    route = next(
+        route for route in build_router().routes if route.path == "/status"
+    )
+
+    assert route.endpoint()["enabled"] is True
+
+
+class _PendingApprovalService:
+    def __init__(self, pending: list[object]) -> None:
+        self.pending = pending
+        self.decisions: list[tuple[str, ApprovalDecision]] = []
+
+    async def list_pending_by_session(self, session_id: str):
+        return [
+            item
+            for item in self.pending
+            if getattr(item, "session_id", None) == session_id
+        ]
+
+    async def resolve_request(
+        self,
+        request_id: str,
+        decision: ApprovalDecision,
+    ) -> object | None:
+        self.decisions.append((request_id, decision))
+        return next(
+            (
+                item
+                for item in self.pending
+                if getattr(item, "request_id", None) == request_id
+            ),
+            None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_feature_disable_stops_turns_and_denies_pending(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    state = ComputerUseFeatureState(tmp_path / "feature_state.json")
+    monkeypatch.setattr(
+        router_module, "get_computer_use_feature_state", lambda: state
+    )
+
+    async def _stop_all() -> int:
+        return 2
+
+    monkeypatch.setattr(
+        router_module, "stop_all_computer_use_turns", _stop_all
+    )
+    pending = SimpleNamespace(
+        request_id="request-1",
+        session_id="session-1",
+        extra={"source_type": "computer_use_app_access"},
+    )
+    service = _PendingApprovalService([pending])
+    monkeypatch.setattr(
+        router_module, "get_approval_service", lambda: service
+    )
+    route = next(
+        route for route in build_router().routes if route.path == "/feature"
+    )
+
+    response = await route.endpoint(
+        FeatureToggleRequest(enabled=False, session_id="session-1"),
+    )
+
+    assert response == {"enabled": False, "stopped": 2, "denied": 1}
+    assert state.is_enabled() is False
+    assert service.decisions == [("request-1", ApprovalDecision.DENIED)]
+    # The decision must survive a reload from disk.
+    reloaded = ComputerUseFeatureState(tmp_path / "feature_state.json")
+    assert reloaded.is_enabled() is False
+
+
+@pytest.mark.asyncio
+async def test_feature_enable_skips_stop_and_persists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    state = ComputerUseFeatureState(tmp_path / "feature_state.json")
+    state.set_enabled(False)
+    monkeypatch.setattr(
+        router_module, "get_computer_use_feature_state", lambda: state
+    )
+
+    async def _stop_all() -> int:
+        raise AssertionError("enable must not stop turns")
+
+    monkeypatch.setattr(
+        router_module, "stop_all_computer_use_turns", _stop_all
+    )
+    route = next(
+        route for route in build_router().routes if route.path == "/feature"
+    )
+
+    response = await route.endpoint(FeatureToggleRequest(enabled=True))
+
+    assert response == {"enabled": True}
+    assert state.is_enabled() is True
+    reloaded = ComputerUseFeatureState(tmp_path / "feature_state.json")
+    assert reloaded.is_enabled() is True

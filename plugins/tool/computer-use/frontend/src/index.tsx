@@ -11,6 +11,7 @@ const {
   Empty,
   Popconfirm,
   Space,
+  Switch,
   Table,
   Tabs,
   Tooltip,
@@ -24,18 +25,15 @@ const {
   FolderOpenOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
-  StopOutlined,
 } = host.antdIcons;
 const { Text, Title } = Typography;
 
-type RuntimeStatus = { runtime_available: boolean };
+type RuntimeStatus = { runtime_available: boolean; enabled: boolean };
 
 type PersistentAccess = {
   canonical_app_id: string;
   display_name: string;
 };
-
-type SessionState = { automation_active: boolean };
 
 type Approval = {
   requestId: string;
@@ -269,33 +267,21 @@ function ComputerUsePage() {
   const sessionId = currentSession?.id ?? host.getCurrentSessionId?.() ?? null;
   const [runtime, setRuntime] = React.useState<RuntimeStatus | null>(null);
   const [access, setAccess] = React.useState<PersistentAccess[]>([]);
-  const [active, setActive] = React.useState(false);
+  const [enabled, setEnabled] = React.useState(true);
+  const [toggling, setToggling] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [action, setAction] = React.useState<string | null>(null);
 
   const refresh = React.useCallback(async () => {
     setLoading(true);
     try {
-      const requests: Array<Promise<unknown>> = [
+      const [runtimePayload, accessPayload] = await Promise.all([
         requestJson("/computer-use/status"),
         requestJson("/computer-use/access"),
-      ];
-      if (sessionId) {
-        requests.push(
-          requestJson(
-            `/computer-use/session?session_id=${encodeURIComponent(sessionId)}`,
-          ),
-        );
-      }
-      const [runtimePayload, accessPayload, sessionPayload] = await Promise.all(
-        requests,
-      );
+      ]);
       setRuntime(runtimePayload as RuntimeStatus);
       setAccess((accessPayload as { access: PersistentAccess[] }).access || []);
-      setActive(
-        (sessionPayload as SessionState | undefined)?.automation_active ||
-          false,
-      );
+      setEnabled((runtimePayload as RuntimeStatus).enabled !== false);
     } catch (error) {
       message.error(
         error instanceof Error ? error.message : t(selectedLocale, "failed"),
@@ -303,7 +289,7 @@ function ComputerUsePage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedLocale, sessionId]);
+  }, [selectedLocale]);
 
   React.useEffect(() => {
     void refresh();
@@ -327,22 +313,25 @@ function ComputerUsePage() {
     }
   };
 
-  const stop = async () => {
-    if (!sessionId) return;
-    setAction("stop");
+  const toggleFeature = async (next: boolean) => {
+    setToggling(true);
     try {
-      await requestJson("/computer-use/session/stop", {
+      await requestJson("/computer-use/feature", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId }),
+        body: JSON.stringify({ enabled: next, session_id: sessionId }),
       });
+      setEnabled(next);
+      message.success(
+        t(selectedLocale, next ? "enabledMsg" : "disabledMsg"),
+      );
       await refresh();
     } catch (error) {
       message.error(
         error instanceof Error ? error.message : t(selectedLocale, "failed"),
       );
     } finally {
-      setAction(null);
+      setToggling(false);
     }
   };
 
@@ -449,15 +438,20 @@ function ComputerUsePage() {
           }),
         ),
         React.createElement(
-          Button,
-          {
-            danger: true,
-            icon: React.createElement(StopOutlined),
-            disabled: !sessionId || !active,
-            loading: action === "stop",
-            onClick: () => void stop(),
-          },
-          t(selectedLocale, "stop"),
+          Space,
+          { size: 8, align: "center" },
+          React.createElement(
+            Text,
+            { type: "secondary", style: { fontSize: 13 } },
+            t(selectedLocale, "feature"),
+          ),
+          React.createElement(Switch, {
+            checked: enabled,
+            loading: toggling,
+            disabled: !runtimeReady,
+            onChange: (next: boolean) => void toggleFeature(next),
+            "aria-label": t(selectedLocale, "feature"),
+          }),
         ),
       ),
     ),

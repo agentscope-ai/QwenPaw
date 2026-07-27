@@ -254,3 +254,16 @@ async def stop_computer_use_session(session_id: str) -> bool:
     """Stop the native Computer Use turn currently owned by one session."""
     client = _clients.get(session_id)
     return await client.stop_turn() if client is not None else False
+
+
+async def stop_all_computer_use_turns() -> int:
+    """Stop every active native turn across all known sessions.
+
+    Used when the feature is switched off so no automation keeps running.
+    Returns the number of turns that were actually stopped.
+    """
+    stopped = 0
+    for client in list(_clients.values()):
+        if await client.stop_turn():
+            stopped += 1
+    return stopped
