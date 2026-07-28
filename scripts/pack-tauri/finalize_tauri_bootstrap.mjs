@@ -21,19 +21,3 @@ if (fs.existsSync(target)) {
 
 fs.renameSync(source, target);
 console.log(`Wrote Tauri bootstrap ${target}`);
-
-// Copy control-overlay.html into dist-tauri for the control mode overlay window
-const overlaySource = path.join(repoRoot, "console", "src-tauri", "static", "control-overlay.html");
-const overlayTarget = path.join(distDir, "control-overlay.html");
-if (fs.existsSync(overlaySource)) {
-  fs.copyFileSync(overlaySource, overlayTarget);
-  console.log(`Copied control overlay ${overlayTarget}`);
-}
-
-// Copy control-overlay.js
-const overlayJsSource = path.join(repoRoot, "console", "src-tauri", "static", "control-overlay.js");
-const overlayJsTarget = path.join(distDir, "control-overlay.js");
-if (fs.existsSync(overlayJsSource)) {
-  fs.copyFileSync(overlayJsSource, overlayJsTarget);
-  console.log(`Copied control overlay JS ${overlayJsTarget}`);
-}
