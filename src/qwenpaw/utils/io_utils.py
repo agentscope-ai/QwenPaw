@@ -288,9 +288,7 @@ def write_text_atomic(
     if backup_count < 0:
         raise ValueError("backup_count must be >= 0")
     target.parent.mkdir(parents=True, exist_ok=True)
-    original_mode = (
-        stat.S_IMODE(target.stat().st_mode) if target.exists() else None
-    )
+    original_mode = stat.S_IMODE(target.stat().st_mode) if target.exists() else None
     final_mode = original_mode if original_mode is not None else new_file_mode
     temp_path: Path | None = None
     try:
@@ -316,6 +314,7 @@ def write_text_atomic(
                         pass
             try:
                 import shutil
+
                 shutil.copy2(target, target.with_suffix(".bak.1"))
             except OSError:
                 pass
@@ -383,6 +382,7 @@ def write_json_atomic(
     Synchronous worker functions may use this directly. Async application
     code should use :func:`write_json_atomic_async`.
     """
+
     def _validate_json(temp_file: Path) -> None:
         json.loads(temp_file.read_text(encoding="utf-8-sig"))
 
