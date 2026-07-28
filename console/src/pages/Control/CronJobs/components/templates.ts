@@ -25,7 +25,7 @@ const buildDispatch = () => ({
     user_id: "default",
     session_id: "cron_job",
   },
-  mode: "final" as const,
+  mode: "stream" as const,
   silent: false,
 });
 

@@ -69,7 +69,7 @@ docs(skills): document Skills Hub import
 
 - **本地必跑门禁（push/提 PR 前必须通过）：**
   ```bash
-  pip install -e ".[dev,full]"
+  pip install -e ".[dev,test,full]"
   pre-commit install
   pre-commit run --all-files
   pytest

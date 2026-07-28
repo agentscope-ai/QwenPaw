@@ -251,10 +251,11 @@ async def test_create_agent_appends_new_id_to_order(monkeypatch, tmp_path):
 
     monkeypatch.setattr(agents_router, "load_config", lambda: config)
     monkeypatch.setattr(agents_router, "save_config", lambda updated: None)
+    saved_agents: list[AgentProfileConfig] = []
     monkeypatch.setattr(
         agents_router,
         "save_agent_config",
-        lambda agent_id, agent_config: None,
+        lambda agent_id, agent_config: saved_agents.append(agent_config),
     )
     monkeypatch.setattr(
         agents_router,
@@ -279,12 +280,15 @@ async def test_create_agent_appends_new_id_to_order(monkeypatch, tmp_path):
         agents_router.CreateAgentRequest(
             name="Beta",
             workspace_dir=str(tmp_path / "beta"),
+            backend="codex",
         ),
         http_request=http_request,
     )
 
     assert config.agents.agent_order == ["alpha", "default", "beta"]
     assert scheduled_ids == ["beta"]
+    assert saved_agents[0].backend == "codex"
+    assert saved_agents[0].workspace_dir == str(tmp_path / "beta")
 
 
 @pytest.mark.asyncio

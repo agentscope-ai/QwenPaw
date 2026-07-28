@@ -16,6 +16,7 @@ from PyInstaller.utils.hooks import (
     collect_data_files,
     collect_submodules,
     copy_metadata,
+    get_package_paths,
 )
 
 REPO_ROOT = Path(SPECPATH).parent.parent
@@ -75,6 +76,49 @@ datas += collect_data_files(
     include_py_files=True,
 )
 
+# The Qoder SDK ships a platform-specific qodercli executable. Classify it as
+# a binary so PyInstaller preserves executable permissions and signs it with
+# the rest of the macOS bundle.
+_, _qoder_sdk_dir = get_package_paths("qoder_agent_sdk")
+_qoder_cli_name = "qodercli.exe" if sys.platform == "win32" else "qodercli"
+_qoder_cli = Path(_qoder_sdk_dir) / "_bundled" / _qoder_cli_name
+if not _qoder_cli.is_file():
+    raise SystemExit(
+        f"Qoder SDK CLI not found at {_qoder_cli}; reinstall qoder-agent-sdk"
+    )
+qoder_binaries = [
+    (str(_qoder_cli), "qoder_agent_sdk/_bundled"),
+]
+
+# The official Codex Python SDK depends on a platform wheel that exposes a
+# stable bundled_codex_path() API. Preserve its runtime layout because Codex
+# resolves sibling hosts and resources relative to the main executable.
+_, _codex_bin_dir = get_package_paths("codex_cli_bin")
+_codex_bin_dir = Path(_codex_bin_dir)
+_codex_executable = (
+    "codex.exe" if sys.platform == "win32" else "codex"
+)
+_codex_cli = _codex_bin_dir / "bin" / _codex_executable
+if not _codex_cli.is_file():
+    raise SystemExit(
+        f"Codex SDK CLI not found at {_codex_cli}; reinstall openai-codex"
+    )
+codex_binaries = [
+    (
+        str(path),
+        str(Path("codex_cli_bin") / path.relative_to(_codex_bin_dir).parent),
+    )
+    for directory_name in ("bin", "codex-path", "codex-resources")
+    for path in (_codex_bin_dir / directory_name).rglob("*")
+    if path.is_file()
+]
+datas.append(
+    (
+        str(_codex_bin_dir / "codex-package.json"),
+        "codex_cli_bin",
+    ),
+)
+
 # Collect package metadata for packages that use importlib.metadata at runtime.
 # Keep this allowlist in sync when adding runtime dependencies that query
 # importlib.metadata, otherwise packaged sidecars may fail only after install.
@@ -99,6 +143,9 @@ _metadata_pkgs = [
     "huggingface_hub",
     "modelscope",
     "openai-whisper",
+    "openai-codex",
+    "openai-codex-cli-bin",
+    "qoder-agent-sdk",
 ]
 for _pkg in _metadata_pkgs:
     try:
@@ -112,9 +159,10 @@ a = Analysis(
         str(SRC / "tauri" / "cli_entry.py"),
     ],
     pathex=[str(REPO_ROOT), str(REPO_ROOT / "src")],
-    binaries=[],
+    binaries=[*qoder_binaries, *codex_binaries],
     datas=datas,
     hiddenimports=[
+        "codex_cli_bin",
         # uvicorn internals (not auto-discovered by PyInstaller)
         "uvicorn.logging",
         "uvicorn.loops",
@@ -132,6 +180,8 @@ a = Analysis(
         *collect_submodules("qwenpaw.app.channels"),
         # ACP runner support is lazily imported by delegate_external_agent.
         *collect_submodules("qwenpaw.agents.acp"),
+        # PawApp SDK modules are imported by installed app plugins at runtime.
+        *collect_submodules("qwenpaw.pawapp"),
         # ASGI app entry points
         "qwenpaw.app._app",
         "qwenpaw.app.multi_agent_manager",

@@ -224,7 +224,7 @@ print(ms.agents())
 
 搜索（`recall_history(op="search")` 与 `ms.search` 皆然）也不会把 Agent 自己的回声搜回来：recall 工具自身的源码/输出行不会出现在结果里，当前**活动轮次**（最新的用户请求和正在写的回复）同样被排除——否则多轮 recall 时，top-k 会命中上一轮引用过的内容而不是真正的历史。本会话更早的已驱逐轮次仍然可搜；`ms.expand` / `ms.recall_tool` 不做过滤（逐字回放正是它们的用途）。
 
-安全说明：`recall_history_python` 会运行模型生成的 Python。正常情况下，它需要治理层注入 sandbox 配置；如果没有 sandbox，它会默认拒绝执行。（`recall_history` 不受影响：它从不执行模型生成的代码，所以在没有沙箱的平台——例如未装 WSL2 的 Windows——上也能正常运行。）只有同时满足以下条件时才允许 REPL 非沙箱运行：
+安全说明：`recall_history_python` 会运行模型生成的 Python。正常情况下，它需要治理层注入 sandbox 配置；如果没有 sandbox，它会默认拒绝执行。（`recall_history` 不受影响：它从不执行模型生成的代码，所以在没有可用沙箱后端或沙箱被禁用时仍能正常运行。QwenPaw 支持原生 Windows 沙箱后端，WSL2 本身不是启用沙箱的前提。）只有同时满足以下条件时才允许 REPL 非沙箱运行：
 
 - 环境变量 `QWENPAW_ALLOW_UNSANDBOXED_RECALL` 为 truthy
 - `running.light_context_config.scroll_config.allow_unsandboxed = true`

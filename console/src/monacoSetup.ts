@@ -18,6 +18,7 @@
 import * as monaco from "monaco-editor";
 import { loader } from "@monaco-editor/react";
 import "monaco-editor/min/vs/editor/editor.main.css";
+import { registerRobotFramework } from "./monaco/robotframework";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
@@ -48,6 +49,9 @@ self.MonacoEnvironment = {
     }
   },
 };
+
+// Register languages Monaco does not ship built-in.
+registerRobotFramework(monaco);
 
 // Use the locally bundled monaco instance instead of loading it from the CDN.
 loader.config({ monaco });

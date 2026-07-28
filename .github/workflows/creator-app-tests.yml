@@ -1,0 +1,106 @@
+name: Creator App Tests
+
+on:
+  push:
+    branches: [main, master, dev, develop]
+    paths:
+      - "plugins/apps/qwenpaw-creator/**"
+      - ".github/workflows/creator-app-tests.yml"
+  pull_request:
+    branches: [main, master, dev, develop]
+    paths:
+      - "plugins/apps/qwenpaw-creator/**"
+      - ".github/workflows/creator-app-tests.yml"
+
+jobs:
+  spam-gate:
+    name: PR Spam Gate
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/pr-spam-gate.yml
+    with:
+      author: ${{ github.event.pull_request.user.login }}
+
+  backend-tests:
+    name: Creator Backend Tests
+    needs: [spam-gate]
+    if: |
+      always() &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Host package supplies the shared framework deps (fastapi, httpx,
+          # pydantic, agentscope, ...); the plugin requirements add the
+          # Creator-specific extras (oss2, imageio-ffmpeg).
+          pip install -e ".[test]"
+          pip install -r plugins/apps/qwenpaw-creator/requirements.txt
+
+      - name: Run Creator backend tests
+        working-directory: plugins/apps/qwenpaw-creator/backend
+        run: |
+          python -m pytest tests -v --timeout=120
+
+  ui-tests:
+    name: Creator UI Build & Tests
+    needs: [spam-gate]
+    if: |
+      always() &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugins/apps/qwenpaw-creator/ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: plugins/apps/qwenpaw-creator/ui/package-lock.json
+
+      - name: Install dependencies
+        # npm ci occasionally crashes ("Exit handler never called") and can
+        # leave a broken node_modules behind. A poisoned ~/.npm cache restored
+        # by setup-node reproduces the crash on every retry, so wipe the npm
+        # cache between attempts before reinstalling from a clean slate.
+        run: |
+          for attempt in 1 2 3; do
+            rm -rf node_modules
+            if npm ci --no-audit --no-fund \
+              && [ -e node_modules/.bin/tsc ] \
+              && [ -e node_modules/.bin/vitest ] \
+              && [ -e node_modules/.bin/vite ]; then
+              break
+            fi
+            echo "npm ci attempt ${attempt} left a broken node_modules"
+            if [ "${attempt}" = "3" ]; then
+              exit 1
+            fi
+            npm cache clean --force
+          done
+
+      - name: Verify toolchain matches lockfile
+        run: |
+          node_modules/.bin/tsc --version
+          node_modules/.bin/vitest --version
+          npm ls typescript vitest vite
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Build plugin frontend
+        run: npm run build

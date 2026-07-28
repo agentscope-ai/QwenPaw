@@ -34,6 +34,7 @@ import {
 } from "../stores/sessionListStore";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
 import { buildChatPath, getSessionIdFromPath } from "../utils/sessionRoute";
+import { useAgentStore } from "../stores/agentStore";
 import sessionApi from "../pages/Chat/sessionApi";
 import { useInboxWobble } from "../hooks/useInboxWobble";
 import styles from "./index.module.less";
@@ -49,6 +50,7 @@ import {
   toAntdItems,
 } from "./registry/adapter";
 import type { FlatMenuEntry } from "./registry/adapter";
+import { filterMenuForAgentCapabilities } from "./registry/capabilities";
 import type { MenuItem } from "../plugins/registry/types";
 import type { ReactNode } from "react";
 
@@ -134,6 +136,17 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
   // Sidebar mode: "simple" (only core items) or "full" (everything)
   const { mode: sidebarMode } = useSidebarModeStore();
+  const { selectedAgent, agents } = useAgentStore();
+  const currentAgent = agents.find((agent) => agent.id === selectedAgent);
+  const backendCapabilities = currentAgent
+    ? {
+        ...currentAgent.backend_capabilities,
+        workspace_ui:
+          currentAgent.backend === "qwenpaw"
+            ? currentAgent.backend_capabilities?.workspace_ui ?? true
+            : false,
+      }
+    : undefined;
 
   // Menu + route snapshots from registry (builtin + plugin registrations merged).
   const rawAgentMenu = useMenuItems("primary.agentScoped");
@@ -141,13 +154,15 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const routes = useRoutes();
 
   // Apply simple-mode filtering when enabled
-  const agentMenu = useMemo(
-    () =>
-      sidebarMode === "simple"
-        ? flattenMenuForSimpleMode(rawAgentMenu)
-        : rawAgentMenu,
-    [rawAgentMenu, sidebarMode],
-  );
+  const agentMenu = useMemo(() => {
+    const visibleMenu = filterMenuForAgentCapabilities(
+      rawAgentMenu,
+      backendCapabilities,
+    );
+    return sidebarMode === "simple"
+      ? flattenMenuForSimpleMode(visibleMenu)
+      : visibleMenu;
+  }, [backendCapabilities, rawAgentMenu, sidebarMode]);
   const settingsMenu = useMemo(
     () =>
       sidebarMode === "simple"

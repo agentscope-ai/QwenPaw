@@ -1,0 +1,10 @@
+ui/node_modules/
+# 构建产物暂不入库，安装前在 ui/ 目录 npm run build 生成
+ui/dist/
+.env
+__pycache__/
+*.pyc
+data/
+generated/
+backend/data/
+backend/generated/

@@ -225,7 +225,7 @@ A failed cell is unmistakable: the observation leads with a `RECALL FAILED — t
 
 Search (both `recall_history(op="search")` and `ms.search`) also never echoes the agent back at itself: the recall tool's own source/output rows are kept out of the results, and so is the current **active turn** (the latest user request and the reply being written) — otherwise a multi-round recall would top-k-match the previous round's quoted findings instead of the real history. Earlier evicted turns of the same session remain searchable, and `ms.expand` / `ms.recall_tool` stay unfiltered (verbatim replay is their point).
 
-Security note: `recall_history_python` runs model-authored Python. It normally requires sandbox injection from the governance layer. (`recall_history` is unaffected: it never executes model-authored code, so it runs everywhere — including on platforms without a sandbox, such as Windows without WSL2.) If no sandbox is available, the REPL fails closed unless both are true:
+Security note: `recall_history_python` runs model-authored Python. It normally requires sandbox injection from the governance layer. (`recall_history` is unaffected: it never executes model-authored code, so it still runs when no sandbox backend is available or sandboxing is disabled. QwenPaw supports native Windows sandbox backends; WSL2 itself is not a prerequisite for sandboxing.) If no sandbox is available, the REPL fails closed unless both are true:
 
 - environment variable `QWENPAW_ALLOW_UNSANDBOXED_RECALL` is truthy
 - `running.light_context_config.scroll_config.allow_unsandboxed = true`

@@ -1,4 +1,4 @@
-# Pack repo plugins (bundle/tool) and publish to the download CDN (OSS).
+# Pack repo plugins (bundle/tool/apps) and publish to the download CDN (OSS).
 # Runs on any published GitHub Release (including prereleases), same as Desktop OSS upload; also manually via Actions tab.
 
 name: QwenPaw Plugins Release
@@ -35,6 +35,23 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build app plugin frontends
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for app_dir in plugins/apps/*; do
+            if [[ -f "$app_dir/ui/package-lock.json" ]]; then
+              echo "Building ${app_dir}/ui"
+              npm --prefix "$app_dir/ui" ci
+              npm --prefix "$app_dir/ui" run build
+            fi
+          done
 
       - name: Pack plugins and build index
         run: |

@@ -7,9 +7,12 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import time
 from typing import TYPE_CHECKING, Any, List
+from urllib.parse import urlparse
 
+import httpx
 from agentscope.model import ChatModelBase
 from openai import APIError
 from pydantic import Field
@@ -33,6 +36,17 @@ TOKEN_PLAN_BASE_URL = (
     "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 )
 
+# Exact hostnames of the DashScope OpenAI-compatible endpoints (mainland,
+# international and US), matched against the parsed URL hostname so
+# lookalike domains cannot select the DashScope probe.
+_DASHSCOPE_HOSTNAMES = frozenset(
+    {
+        "dashscope.aliyuncs.com",
+        "dashscope-intl.aliyuncs.com",
+        "dashscope-us.aliyuncs.com",
+    },
+)
+
 
 def _uses_max_completion_tokens(model_id: str) -> bool:
     """Return whether an OpenAI model requires max_completion_tokens."""
@@ -49,6 +63,95 @@ def _token_limit_kwargs(model_id: str, limit: int) -> dict[str, int]:
     if _uses_max_completion_tokens(model_id):
         return {"max_completion_tokens": limit}
     return {"max_tokens": limit}
+
+
+# Model families that cannot be probed via a chat-completions "ping":
+# speech (ASR/TTS), embedding/rerank and image/video generation models
+# either require dedicated endpoints (e.g. DashScope async task APIs,
+# which reject chat calls with "current user api does not support
+# asynchronous calls") or reject text-only chat input.
+_NON_CHAT_TOKEN_KEYWORDS = frozenset(
+    {
+        "asr",
+        "tts",
+        "t2v",
+        "i2v",
+        "s2v",
+        "kf2v",
+        "r2v",
+        "t2i",
+        "i2i",
+        "sora",
+    },
+)
+_NON_CHAT_SUBSTRINGS = (
+    "paraformer",
+    "sensevoice",
+    "gummy",
+    "cosyvoice",
+    "sambert",
+    "whisper",
+    "wanx",
+    "embedding",
+    "rerank",
+    "qwen-image",
+    "z-image",
+    "gpt-image",
+    "dall-e",
+    "video-synthesis",
+    "image-synthesis",
+    "seedance",
+    "seedream",
+    "seededit",
+)
+
+# DashScope rejects chat calls to task-API models with these messages;
+# receiving one proves the endpoint recognised both the key and the model.
+_API_TYPE_MISMATCH_MARKERS = (
+    "does not support asynchronous calls",
+    "does not support synchronous calls",
+)
+
+# Official zero-cost validation endpoints for non-chat models.  Neither
+# probe issues a billable inference/task request: the DashScope
+# upload-policy API only returns model-bound OSS credentials, and the
+# Ark task-list API only reads task history.
+_DASHSCOPE_UPLOAD_POLICY_PATH = "/api/v1/uploads"
+_ARK_TASK_LIST_PATH = "/api/v3/contents/generations/tasks"
+
+# Markers in a DashScope upload-policy error proving the model id is
+# unknown to the platform (vs. a model that merely lacks file input).
+_DASHSCOPE_UNKNOWN_MODEL_MARKERS = (
+    "not exist",
+    "not found",
+    "invalid model",
+)
+
+
+def _is_non_chat_model(model_id: str) -> bool:
+    """Return whether a model id looks like a non-chat model."""
+    name = model_id.strip().lower().rsplit("/", maxsplit=1)[-1]
+    if any(sub in name for sub in _NON_CHAT_SUBSTRINGS):
+        return True
+    tokens = set(re.split(r"[^a-z0-9]+", name))
+    return not tokens.isdisjoint(_NON_CHAT_TOKEN_KEYWORDS)
+
+
+def _http_error_detail(resp: httpx.Response) -> str:
+    """Extract a short human-readable error message from a response."""
+    try:
+        payload = resp.json()
+    except Exception:
+        return (resp.text or "")[:300]
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            payload = error
+        message = payload.get("message") or payload.get("msg")
+        code = payload.get("code")
+        if message:
+            return f"{code}: {message}" if code else str(message)
+    return str(payload)[:300]
 
 
 if os.environ.get("LANGFUSE_SECRET_KEY") and importlib.util.find_spec(
@@ -158,6 +261,16 @@ class OpenAIProvider(Provider):
         if not model_id:
             return False, "Empty model ID"
 
+        if _is_non_chat_model(model_id):
+            # Non-chat models (ASR/TTS/embedding/media generation) cannot
+            # answer a chat "ping", and issuing a real task against them
+            # is expensive, so use the official zero-cost validation
+            # endpoints instead.
+            return await self._check_non_chat_model_connection(
+                model_id,
+                timeout,
+            )
+
         try:
             client = self._client(timeout=timeout)
             res = await client.chat.completions.create(
@@ -181,13 +294,171 @@ class OpenAIProvider(Provider):
             async for _ in res:
                 break
             return True, ""
-        except APIError:
-            return False, f"API error when connecting to model '{model_id}'"
+        except APIError as exc:
+            detail = str(exc) or getattr(exc, "message", "")
+            if any(
+                marker in detail.lower()
+                for marker in _API_TYPE_MISMATCH_MARKERS
+            ):
+                # The endpoint recognised the key and the model but the
+                # model must be invoked through its dedicated task API
+                # (e.g. DashScope video generation), so connectivity is OK.
+                return (
+                    True,
+                    f"Model '{model_id}' requires a dedicated non-chat "
+                    "API; endpoint and credentials verified",
+                )
+            status = getattr(exc, "status_code", "unknown")
+            return (
+                False,
+                f"API error when connecting to model '{model_id}' "
+                f"(status={status}): {detail}",
+            )
         except Exception:
             return (
                 False,
                 f"Unknown exception when connecting to model '{model_id}'",
             )
+
+    async def _check_non_chat_model_connection(
+        self,
+        model_id: str,
+        timeout: float,
+    ) -> tuple[bool, str]:
+        """Validate a non-chat model without issuing a billable request.
+
+        * DashScope: the model-bound upload-policy API
+          (``GET /api/v1/uploads?action=getPolicy&model=...``) verifies
+          the endpoint, the API key and the model name at zero cost.
+        * Volcano Ark: the content-generation task-list API
+          (``GET /api/v3/contents/generations/tasks``) verifies the
+          endpoint and the API key at zero cost.
+        * Other providers: fall back to provider-level reachability.
+        """
+        host = (urlparse(self.base_url).hostname or "").lower()
+        if host in _DASHSCOPE_HOSTNAMES or host.endswith(
+            ".dashscope.aliyuncs.com",
+        ):
+            return await self._check_dashscope_non_chat_model(
+                model_id,
+                timeout,
+            )
+        if host == "volces.com" or host.endswith(".volces.com"):
+            return await self._check_ark_non_chat_credentials(
+                model_id,
+                timeout,
+            )
+        ok, msg = await self.check_connection(timeout=timeout)
+        if not ok:
+            return False, msg
+        return (
+            True,
+            f"Model '{model_id}' is not a chat model; verified "
+            "provider connectivity instead of a chat probe",
+        )
+
+    async def _check_dashscope_non_chat_model(
+        self,
+        model_id: str,
+        timeout: float,
+    ) -> tuple[bool, str]:
+        """Probe a DashScope task-API model via the upload-policy API."""
+        parsed = urlparse(self.base_url)
+        policy_url = (
+            f"{parsed.scheme}://{parsed.netloc}"
+            f"{_DASHSCOPE_UPLOAD_POLICY_PATH}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.get(
+                    policy_url,
+                    params={"action": "getPolicy", "model": model_id},
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+        except Exception as exc:
+            return False, f"Failed to reach `{policy_url}`: {exc}"
+        if resp.status_code == 200:
+            return (
+                True,
+                f"Model '{model_id}' verified via the DashScope "
+                "upload-policy API (endpoint, API key and model binding "
+                "checked without a billable request)",
+            )
+        detail = _http_error_detail(resp)
+        if resp.status_code in (401, 403):
+            return (
+                False,
+                f"DashScope rejected the API key "
+                f"(status={resp.status_code}): {detail}",
+            )
+        lowered = detail.lower()
+        if "model" in lowered and any(
+            marker in lowered for marker in _DASHSCOPE_UNKNOWN_MODEL_MARKERS
+        ):
+            return (
+                False,
+                f"DashScope does not recognise model '{model_id}' "
+                f"(status={resp.status_code}): {detail}",
+            )
+        if resp.status_code in (404, 408, 429) or resp.status_code >= 500:
+            # These statuses prove nothing about the key: wrong base URL,
+            # rate limiting or provider failure must surface as failures.
+            return (
+                False,
+                f"DashScope upload-policy probe failed "
+                f"(status={resp.status_code}): {detail}",
+            )
+        # Remaining 4xx: auth passed but the model cannot be probed via the
+        # upload-policy API (e.g. TTS models without file input); the
+        # endpoint and key are verified, which is the best zero-cost
+        # signal available.
+        return (
+            True,
+            f"DashScope endpoint and API key verified; model "
+            f"'{model_id}' was not invoked to avoid charges ({detail})",
+        )
+
+    async def _check_ark_non_chat_credentials(
+        self,
+        model_id: str,
+        timeout: float,
+    ) -> tuple[bool, str]:
+        """Verify Ark endpoint and key via the free task-list API."""
+        parsed = urlparse(self.base_url)
+        tasks_url = f"{parsed.scheme}://{parsed.netloc}{_ARK_TASK_LIST_PATH}"
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.get(
+                    tasks_url,
+                    params={"page_size": 1},
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+        except Exception as exc:
+            return False, f"Failed to reach `{tasks_url}`: {exc}"
+        if resp.status_code == 200:
+            return (
+                True,
+                "Ark endpoint and API key verified via the task-list "
+                f"API; model '{model_id}' was not invoked to avoid "
+                "charges",
+            )
+        detail = _http_error_detail(resp)
+        if resp.status_code in (401, 403):
+            return (
+                False,
+                f"Volcano Ark rejected the API key "
+                f"(status={resp.status_code}): {detail}",
+            )
+        # Endpoint variants (e.g. the coding plan) may not expose the
+        # task-list API; fall back to provider-level reachability.
+        ok, msg = await self.check_connection(timeout=timeout)
+        if not ok:
+            return False, msg
+        return (
+            True,
+            f"Model '{model_id}' is not a chat model; verified "
+            "provider connectivity instead of a chat probe",
+        )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential._openai import OpenAICredential

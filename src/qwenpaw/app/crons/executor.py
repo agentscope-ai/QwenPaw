@@ -29,10 +29,11 @@ class CronExecutor:
         """Execute one job once.
 
         - task_type text: send fixed text to channel
-        - task_type agent: ask agent with prompt, send reply to channel (
-            stream_query + send_event)
-        - final delivery: consume the stream, then send only the last
-            completed message
+        - task_type agent + mode stream (default): ask agent with prompt,
+            forward every event to channel in real time
+            (stream_query + send_event)
+        - task_type agent + mode final: consume the full stream, then
+            deliver only the last completed message event
         - silent agent task: consume the full agent stream without channel
             delivery, while preserving session and trace state
         """
@@ -167,8 +168,10 @@ class CronExecutor:
             },
         )
 
+        final_no_content = False
+
         async def _run() -> None:
-            nonlocal delivery_error
+            nonlocal delivery_error, final_no_content
 
             async def _deliver(event: Any) -> None:
                 nonlocal delivery_error
@@ -207,6 +210,13 @@ class CronExecutor:
 
             if final_event is not None:
                 await _deliver(final_event)
+            elif job.dispatch.mode == "final" and not job.dispatch.silent:
+                final_no_content = True
+                logger.warning(
+                    "cron final delivery: no completed message in "
+                    "stream for job_id=%s",
+                    job.id,
+                )
 
         try:
             await asyncio.wait_for(
@@ -226,6 +236,8 @@ class CronExecutor:
                 delivery_status = "suppressed"
             elif delivery_error:
                 delivery_status = "failed"
+            elif final_no_content:
+                delivery_status = "no_content"
             else:
                 delivery_status = "success"
             return {

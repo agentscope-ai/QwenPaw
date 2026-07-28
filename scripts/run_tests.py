@@ -223,7 +223,7 @@ def main() -> int:
         print_error(
             "pytest is not installed. Please install dev dependencies:",
         )
-        print('  pip install -e ".[dev,full]"')
+        print('  pip install -e ".[dev,test,full]"')
         return 1
 
     # Determine what to run

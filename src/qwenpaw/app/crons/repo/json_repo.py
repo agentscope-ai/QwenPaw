@@ -48,7 +48,7 @@ class JsonJobRepository(BaseJobRepository):
     def _load_sync(self) -> JobsFile:
         """Load and validate jobs as one worker-thread operation."""
         if not self._path.exists():
-            return JobsFile(version=1, jobs=[])
+            return JobsFile(jobs=[])
         return JobsFile.model_validate(read_json(self._path))
 
     async def load(self) -> JobsFile:
@@ -222,6 +222,103 @@ def migrate_legacy_weixin_jobs_file(jobs_path: Path | str) -> None:
         logger.error(
             "Failed to migrate legacy 'weixin' cron dispatch targets in "
             "%s: %s",
+            path,
+            exc,
+        )
+
+
+def migrate_final_mode_to_stream(jobs_path: Path | str) -> None:
+    """One-shot migration: rewrite ``dispatch.mode = "final"`` to ``"stream"``.
+
+    This migration runs exactly once, gated by ``version < 2``.  After
+    rewriting, it bumps the file to ``version = 2`` so subsequent starts
+    skip it — even if the user later sets a job back to ``final``
+    intentionally.
+    """
+    path = (
+        Path(jobs_path).expanduser()
+        if isinstance(jobs_path, str)
+        else jobs_path
+    )
+    if not path.is_file():
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(data, dict):
+        return
+
+    if data.get("version", 1) >= 2:
+        return
+
+    jobs = data.get("jobs")
+    if not isinstance(jobs, list):
+        return
+
+    mutated = False
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        dispatch = job.get("dispatch")
+        if not isinstance(dispatch, dict):
+            continue
+        if dispatch.get("mode") == "final":
+            dispatch["mode"] = "stream"
+            mutated = True
+
+    data["version"] = 2
+
+    if not mutated:
+        # Still bump version so we never re-enter this function.
+        try:
+            tmp_path = path.with_suffix(path.suffix + ".tmp")
+            tmp_path.write_text(
+                json.dumps(
+                    data,
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+                newline="\n",
+            )
+            os.replace(tmp_path, path)
+        except OSError as exc:
+            logger.warning(
+                "Failed to bump jobs.json version in %s: %s",
+                path,
+                exc,
+            )
+        return
+
+    try:
+        backup_path = path.with_suffix(
+            path.suffix + f".{uuid.uuid4().hex[:8]}.final-mode-migrate.bak",
+        )
+        shutil.copy2(path, backup_path)
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        tmp_path.write_text(
+            json.dumps(
+                data,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+            newline="\n",
+        )
+        os.replace(tmp_path, path)
+        logger.warning(
+            "Migrated cron dispatch mode 'final' -> 'stream' in %s "
+            "(backup: %s)",
+            path,
+            backup_path,
+        )
+    except OSError as exc:
+        logger.error(
+            "Failed to migrate cron dispatch mode 'final' -> 'stream' "
+            "in %s: %s",
             path,
             exc,
         )
