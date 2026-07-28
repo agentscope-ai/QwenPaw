@@ -97,7 +97,7 @@
     "disconnect": "Disconnect",
     "apiKeyAuthenticated": "Authenticated with API key",
     "chatGptAuthenticated": "Connected with ChatGPT",
-    "cliAuthenticated": "Codex CLI authenticated ({{type}})"
+    "cliAuthenticated": "{{type}} CLI authenticated"
   },
   "nav": {
     "chat": "Chat",

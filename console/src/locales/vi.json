@@ -42,7 +42,7 @@
     "disconnect": "Ngắt kết nối",
     "apiKeyAuthenticated": "Đã xác thực bằng API key",
     "chatGptAuthenticated": "Đã kết nối với ChatGPT",
-    "cliAuthenticated": "Codex CLI đã xác thực ({{type}})"
+    "cliAuthenticated": "{{type}} CLI đã xác thực"
   },
   "desktop": {
     "closeWindow": {

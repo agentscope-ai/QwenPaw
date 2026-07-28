@@ -49,7 +49,12 @@ const { mockCopyText, mockMessage, mockProvider } = vi.hoisted(() => ({
 }));
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, options?: { type?: string }) =>
+      key === "harnesses.cliAuthenticated"
+        ? `${options?.type} CLI authenticated`
+        : key,
+  }),
 }));
 
 vi.mock("@/api/modules/harness", () => ({
@@ -330,7 +335,10 @@ describe("AgentBackendFields", () => {
     fireEvent.click(screen.getByText("agent.backend.thirdPartyTitle"));
     fireEvent.click(screen.getByText("Qoder"));
 
-    expect(await screen.findByText(/qoder-user/)).toBeInTheDocument();
+    expect(
+      await screen.findByText("Qoder CLI authenticated · qoder-user"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Codex CLI/)).not.toBeInTheDocument();
     expect(
       screen.queryByText("agent.backend.qoderConnect"),
     ).not.toBeInTheDocument();

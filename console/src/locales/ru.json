@@ -40,7 +40,7 @@
     "disconnect": "Отключить",
     "apiKeyAuthenticated": "Аутентификация по API-ключу",
     "chatGptAuthenticated": "Подключено к ChatGPT",
-    "cliAuthenticated": "Codex CLI аутентифицирован ({{type}})"
+    "cliAuthenticated": "{{type}} CLI аутентифицирован"
   },
   "desktop": {
     "closeWindow": {

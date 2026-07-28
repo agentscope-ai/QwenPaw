@@ -151,4 +151,13 @@ describe("third-party agent locale coverage", () => {
       }
     },
   );
+
+  it.each(Object.entries(locales))(
+    "%s derives the authenticated CLI name from the agent type",
+    (_localeName, locale) => {
+      expect(
+        String(getTranslation(locale, "harnesses.cliAuthenticated")),
+      ).toContain("{{type}} CLI");
+    },
+  );
 });

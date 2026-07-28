@@ -97,7 +97,7 @@
     "disconnect": "断开连接",
     "apiKeyAuthenticated": "已通过 API Key 认证",
     "chatGptAuthenticated": "已连接 ChatGPT",
-    "cliAuthenticated": "Codex CLI 已认证（{{type}}）"
+    "cliAuthenticated": "{{type}} CLI 已认证"
   },
   "nav": {
     "chat": "聊天",

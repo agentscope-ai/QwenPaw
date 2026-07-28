@@ -42,7 +42,7 @@
     "disconnect": "Putuskan koneksi",
     "apiKeyAuthenticated": "Diautentikasi dengan API key",
     "chatGptAuthenticated": "Terhubung dengan ChatGPT",
-    "cliAuthenticated": "Codex CLI telah diautentikasi ({{type}})"
+    "cliAuthenticated": "{{type}} CLI telah diautentikasi"
   },
   "desktop": {
     "closeWindow": {

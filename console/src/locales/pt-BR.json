@@ -42,7 +42,7 @@
     "disconnect": "Desconectar",
     "apiKeyAuthenticated": "Autenticado com chave de API",
     "chatGptAuthenticated": "Conectado ao ChatGPT",
-    "cliAuthenticated": "Codex CLI autenticado ({{type}})"
+    "cliAuthenticated": "{{type}} CLI autenticado"
   },
   "desktop": {
     "closeWindow": {

@@ -40,7 +40,7 @@
     "disconnect": "切断",
     "apiKeyAuthenticated": "API キーで認証済み",
     "chatGptAuthenticated": "ChatGPT に接続済み",
-    "cliAuthenticated": "Codex CLI 認証済み（{{type}}）"
+    "cliAuthenticated": "{{type}} CLI 認証済み"
   },
   "desktop": {
     "closeWindow": {
