@@ -1048,7 +1048,7 @@ PROVIDER_NVIDIA_NIM = OpenAIProvider(
     support_connection_check=True,
     support_model_discovery=True,
     provider_group="nvidia",
-    provider_group_name="NVIDIA NIM",
+    provider_group_name="NVIDIA",
 )
 
 
