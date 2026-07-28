@@ -439,27 +439,35 @@ fn launch_app(
         class_name: String::new(),
     };
     request_approval(connection, &target, meta)?;
-    std::process::Command::new(&path).spawn().map_err(|error| {
-        (
-            "input_failed",
-            format!("Could not launch application: {error}"),
-        )
-    })?;
+    launch_at(&path)?;
     Ok(json!({"launched": true, "app_id": target.app_id}))
 }
 
-/// Build the canonical application identifier for an executable path.
+/// Build the canonical application identifier for a launchable path.
 ///
-/// `std::fs::canonicalize` returns Windows extended-length (`\\?\`) paths,
-/// while window discovery reports plain drive paths. Stripping the prefix
-/// keeps a single identifier across both origins so an application is only
-/// approved once per session instead of once per path spelling.
+/// Windows discovery reports plain drive paths while `canonicalize` returns
+/// extended-length (`\\?\`) ones, so the prefix is stripped to keep a single
+/// identifier per application; macOS derives the same identifier from the
+/// bundle path. Either way an application is approved once per session rather
+/// than once per path spelling.
+#[cfg(windows)]
 fn app_id_from_path(path: &Path) -> String {
     let text = path.to_string_lossy();
     let normalized = text.strip_prefix(r"\\?\").unwrap_or(&text);
     format!("process:{}", normalized.to_lowercase())
 }
 
+#[cfg(target_os = "macos")]
+fn app_id_from_path(path: &Path) -> String {
+    app_id_from_bundle_path(path)
+}
+
+/// Validate what `launch_app` was given and resolve it to something the
+/// platform can start.
+///
+/// The accepted spellings differ by platform -- an executable file on Windows,
+/// an application bundle on macOS -- so each leaf owns its own rule.
+#[cfg(windows)]
 fn resolve_launch_path(app: &str) -> Result<PathBuf, (&'static str, String)> {
     let value = app.strip_prefix("process:").unwrap_or(app);
     let path = PathBuf::from(value);
@@ -478,6 +486,62 @@ fn resolve_launch_path(app: &str) -> Result<PathBuf, (&'static str, String)> {
         .map_err(|error| ("app_not_found", error.to_string()))
 }
 
+#[cfg(target_os = "macos")]
+fn resolve_launch_path(app: &str) -> Result<PathBuf, (&'static str, String)> {
+    let value = app.strip_prefix("app:").unwrap_or(app);
+    let path = PathBuf::from(value);
+    // A bundle is a directory, so accept either that or a plain executable.
+    let is_bundle = path.is_dir()
+        && path
+            .extension()
+            .is_some_and(|value| value.eq_ignore_ascii_case("app"));
+    if !path.is_absolute() || !(is_bundle || path.is_file()) {
+        return Err((
+            "app_not_found",
+            "launch_app accepts an App ID from list_apps or an absolute path \
+             to an application bundle."
+                .to_string(),
+        ));
+    }
+    path.canonicalize()
+        .map_err(|error| ("app_not_found", error.to_string()))
+}
+
+/// Start the application at a resolved path.
+#[cfg(windows)]
+fn launch_at(path: &Path) -> Result<(), (&'static str, String)> {
+    std::process::Command::new(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| {
+            (
+                "input_failed",
+                format!("Could not launch application: {error}"),
+            )
+        })
+}
+
+/// Start the application at a resolved path.
+///
+/// A bundle cannot be executed directly, so hand it to `open`, which asks
+/// Launch Services to start it -- or to activate it when already running.
+/// `open` returns as soon as the request is made, so the caller polls
+/// `list_windows` for the new window rather than waiting here.
+#[cfg(target_os = "macos")]
+fn launch_at(path: &Path) -> Result<(), (&'static str, String)> {
+    std::process::Command::new("open")
+        .arg("-a")
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| {
+            (
+                "input_failed",
+                format!("Could not launch application: {error}"),
+            )
+        })
+}
+
 fn request_approval(
     connection: &mut (impl Read + Write),
     window: &WindowInfo,
@@ -491,7 +555,13 @@ fn request_approval(
     }
     let request_id = next_id("approval");
     let mut evidence = Map::new();
-    if let Some(path) = window.app_id.strip_prefix("process:") {
+    // Identifiers are path-backed on both platforms, under the prefix that
+    // names the platform's unit of installation.
+    if let Some(path) = window
+        .app_id
+        .strip_prefix("process:")
+        .or_else(|| window.app_id.strip_prefix("app:"))
+    {
         evidence.insert("path".to_string(), Value::String(path.to_string()));
     }
     let request = json!({

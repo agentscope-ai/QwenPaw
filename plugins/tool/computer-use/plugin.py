@@ -52,9 +52,11 @@ def _register_governance() -> None:
 def _tool_descriptor() -> Any | None:
     """Return the ``ToolDescriptor`` attached to the ``computer_use`` func.
 
-    The function is decorated with ``@tool_descriptor`` (enabled_by_default
-    False, async), so the descriptor is ready to hand to a per-workspace
-    ``ToolRegistry``.
+    The function is decorated with ``@tool_descriptor`` (enabled by default,
+    async), so the descriptor is ready to hand to a per-workspace
+    ``ToolRegistry``. Desktop automation is gated by the plugin's own feature
+    switch rather than by per-agent tool enablement, so the tool is wired into
+    every workspace and the switch decides whether it may act.
     """
     _ensure_importable()
     from computer_use_tool import computer_use

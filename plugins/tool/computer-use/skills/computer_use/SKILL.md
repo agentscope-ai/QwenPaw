@@ -14,18 +14,26 @@ approved application at a time and never accepts a free-form screen target.
 
 ## Start With Discovery
 
-1. Call `list_apps` to find a running application or obtain a canonical App
-   ID.
+1. Call `list_apps` to find an application and obtain its canonical App ID.
+   Each entry reports whether it `is_running`; a running one also lists its
+   open windows.
 2. Call `list_windows` and choose the returned `window_id` that matches the
    requested task.
 3. Call `observe_window` for that window. The user may be asked to approve
    access to the application. If access is denied, stop and report the
    blocker.
 
-To start an application, call `launch_app` with either the App ID returned by
-`list_apps` or an explicit absolute `.exe` path. Do not use a display name,
-Start menu, or search UI as an application identifier. After launch, call
-`list_windows` again and choose the actual window.
+To start an application, call `launch_app` with the App ID returned by
+`list_apps`. Do not use a display name, Start menu, or search UI as an
+application identifier. After launch, call `list_windows` again and choose the
+actual window: launching returns as soon as the request is made, so the window
+may take a moment to appear.
+
+When the application you need is not listed, pass an explicit absolute path
+instead: an executable on Windows, an application bundle on macOS. This
+matters on Windows, where `list_apps` reports only applications that already
+have a window, so an application that is not running will not be listed at
+all. If a path is refused, say so rather than guessing repeatedly.
 
 ## Observe Before Acting
 

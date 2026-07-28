@@ -29,21 +29,30 @@ use core_graphics::window::{
 use jpeg_encoder::{ColorType, Encoder};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use super::{
-    next_id, AccessibilitySnapshot, ServerState, Snapshot, WindowInfo, SCREENSHOT_JPEG_QUALITY,
-    SCREENSHOT_MAX_EDGE, USER_INTERVENTION_GRACE_MS,
+    element_line, map_point, merge_app_list, next_id, truncate_document_text,
+    AccessibilitySnapshot, InstalledApp, ServerState, Snapshot, WindowInfo,
+    SCREENSHOT_JPEG_QUALITY, SCREENSHOT_MAX_EDGE, USER_INTERVENTION_GRACE_MS,
 };
-
-/// Upper bound on the document text handed back with an observation. A
-/// large document would otherwise dominate the model's context, and the
-/// leading portion is what identifies the current state.
-const DOC_TEXT_MAX: usize = 4000;
 
 /// How long to wait for a raised window to actually hold focus before
 /// refusing to inject input.
 const FOCUS_POLL_ATTEMPTS: u32 = 20;
 const FOCUS_POLL_INTERVAL_MS: u64 = 25;
+
+/// Directories a macOS application bundle is normally installed into.
+///
+/// Only one level is scanned, plus the Utilities folders Apple ships, because
+/// a full recursive walk would pick up the many nested helper bundles inside
+/// each application.
+const APP_SEARCH_DIRS: [&str; 4] = [
+    "/Applications",
+    "/Applications/Utilities",
+    "/System/Applications",
+    "/System/Applications/Utilities",
+];
 
 // Private ApplicationServices API mapping an accessibility window element to
 // its CoreGraphics window id. It is the reliable way to match a CGWindowID
@@ -98,23 +107,41 @@ pub(super) fn list_windows() -> Vec<Value> {
 }
 
 pub(super) fn list_apps() -> Vec<Value> {
-    let mut apps = HashMap::<String, (WindowInfo, Vec<Value>)>::new();
-    for window in enumerate_windows() {
-        let entry = apps
-            .entry(window.app_id.clone())
-            .or_insert_with(|| (window.clone(), Vec::new()));
-        entry.1.push(window.to_json());
+    merge_app_list(installed_apps(), enumerate_windows())
+}
+
+/// Applications installed in the usual locations, whether running or not.
+///
+/// Discovery matters because launching an application is only useful when it
+/// is not already open, and a window-derived list can never name those.
+fn installed_apps() -> Vec<InstalledApp> {
+    let mut apps = Vec::new();
+    let mut roots: Vec<PathBuf> = APP_SEARCH_DIRS.iter().map(PathBuf::from).collect();
+    if let Some(home) = std::env::var_os("HOME") {
+        roots.push(PathBuf::from(home).join("Applications"));
     }
-    apps.into_values()
-        .map(|(window, windows)| {
-            serde_json::json!({
-                "id": window.app_id,
-                "display_name": window.display_name,
-                "is_running": true,
-                "windows": windows,
-            })
-        })
-        .collect()
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path
+                .extension()
+                .is_some_and(|value| value.eq_ignore_ascii_case("app"))
+            {
+                continue;
+            }
+            let Some(display_name) = path.file_stem().and_then(|value| value.to_str()) else {
+                continue;
+            };
+            apps.push(InstalledApp {
+                app_id: app_id_from_bundle_path(&path),
+                display_name: display_name.to_string(),
+            });
+        }
+    }
+    apps
 }
 
 pub(super) fn resolve_window(value: &str) -> Result<WindowInfo, (&'static str, String)> {
@@ -169,16 +196,75 @@ fn enumerate_windows() -> Vec<WindowInfo> {
         }
         let pid = dict_i64(&dict, unsafe { kCGWindowOwnerPID }).unwrap_or(0);
         let title = dict_string(&dict, unsafe { kCGWindowName }).unwrap_or_default();
-        let _ = pid;
         windows.push(WindowInfo {
             hwnd: number as isize,
-            app_id: format!("app:{}", owner.to_ascii_lowercase()),
+            app_id: app_id_for_pid(pid as i32, &owner),
             display_name: owner.clone(),
             title,
             class_name: owner,
         });
     }
     windows
+}
+
+/// Canonical identifier for the application owning a window.
+///
+/// The bundle path is preferred because it is stable and can be launched
+/// again later, mirroring the process path Windows uses. When it cannot be
+/// read -- a system-protected process, for instance -- fall back to the owner
+/// name so the window stays addressable, accepting that such an application
+/// cannot be launched by id.
+fn app_id_for_pid(pid: i32, owner: &str) -> String {
+    bundle_path_for_pid(pid)
+        .map(|path| app_id_from_bundle_path(&path))
+        .unwrap_or_else(|| format!("app:{}", owner.to_lowercase()))
+}
+
+/// Canonical identifier for an application bundle or executable path.
+///
+/// Both discovery routes -- scanning the install directories and reading a
+/// running process -- pass through here, and both resolve symlinks first, so
+/// one application cannot end up with two identifiers and be approved twice.
+pub(super) fn app_id_from_bundle_path(path: &Path) -> String {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    format!("app:{}", resolved.to_string_lossy().to_lowercase())
+}
+
+/// Resolve the application bundle that owns a process.
+///
+/// `proc_pidpath` yields the executable inside the bundle, so walk up to the
+/// nearest `.app` ancestor. The nearest one is deliberate: a nested bundle
+/// such as Instruments inside Xcode is its own application as far as its
+/// windows and authorisation are concerned.
+fn bundle_path_for_pid(pid: i32) -> Option<PathBuf> {
+    if pid <= 0 {
+        return None;
+    }
+    let mut buffer = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let written = unsafe {
+        libc::proc_pidpath(
+            pid,
+            buffer.as_mut_ptr() as *mut libc::c_void,
+            buffer.len() as u32,
+        )
+    };
+    if written <= 0 {
+        return None;
+    }
+    buffer.truncate(written as usize);
+    let executable = PathBuf::from(String::from_utf8(buffer).ok()?);
+    bundle_root(&executable).or(Some(executable))
+}
+
+/// The nearest `.app` ancestor of a path, if it sits inside a bundle.
+fn bundle_root(path: &Path) -> Option<PathBuf> {
+    path.ancestors()
+        .find(|ancestor| {
+            ancestor
+                .extension()
+                .is_some_and(|value| value.eq_ignore_ascii_case("app"))
+        })
+        .map(Path::to_path_buf)
 }
 
 fn dict_i64(dict: &CFDictionary<CFString, CFType>, key: CFStringRef) -> Option<i64> {
@@ -483,16 +569,6 @@ fn ax_string(element: &AXUIElement, attribute: &'static str) -> Option<String> {
     Some(text)
 }
 
-/// Bound the text by character count, flagging that more remains.
-fn truncate_document_text(text: String) -> String {
-    if text.chars().count() <= DOC_TEXT_MAX {
-        return text;
-    }
-    let mut bounded: String = text.chars().take(DOC_TEXT_MAX).collect();
-    bounded.push_str("… (truncated)");
-    bounded
-}
-
 fn find_ax_window(app: &AXUIElement, target: u32) -> Option<AXUIElement> {
     let windows = app.attribute(&AXAttribute::children()).ok()?;
     for window in windows.iter() {
@@ -538,7 +614,7 @@ fn walk_accessibility(
                 .unwrap_or(false)
         {
             *focused = Some((
-                format!("{element_id} {control_type_name} \"{title}\""),
+                element_line(&element_id, control_type_name, &title),
                 element.clone(),
             ));
         }
@@ -1059,23 +1135,10 @@ fn resolve_point(
     }
     let x = integer_param(params, x_key)?;
     let y = integer_param(params, y_key)?;
-    let display_width = snapshot.display_width.max(1) as i64;
-    let display_height = snapshot.display_height.max(1) as i64;
-    // Coordinates are expressed in the delivered screenshot space. Anything
-    // outside it would extrapolate to an arbitrary screen point, and the
-    // approval covers this window only.
-    if x < 0 || y < 0 || x >= display_width || y >= display_height {
-        return Err((
-            "point_outside_viewport",
-            "Point is outside the captured viewport.".to_string(),
-        ));
-    }
-    let [origin_x, origin_y, width, height] = snapshot.bounds;
-    let fx = x as f64 / display_width as f64;
-    let fy = y as f64 / display_height as f64;
+    let (x_offset, y_offset) = map_point(snapshot, x, y)?;
     let point = CGPoint {
-        x: origin_x as f64 + fx * width as f64,
-        y: origin_y as f64 + fy * height as f64,
+        x: f64::from(snapshot.bounds[0]) + x_offset,
+        y: f64::from(snapshot.bounds[1]) + y_offset,
     };
     // Finally confirm the target still owns that point: another window may
     // sit above it even though the target itself has not moved.
@@ -1175,4 +1238,55 @@ pub(super) fn spawn_parent_death_watch() {
         unsafe { libc::close(kq) };
         std::process::exit(0);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bundle_executable_resolves_to_its_bundle() {
+        let executable = Path::new("/Applications/Safari.app/Contents/MacOS/Safari");
+        assert_eq!(
+            bundle_root(executable),
+            Some(PathBuf::from("/Applications/Safari.app"))
+        );
+    }
+
+    #[test]
+    fn a_nested_bundle_resolves_to_the_nearest_one() {
+        // Instruments owns its windows, so it is its own application even
+        // though it ships inside Xcode.
+        let executable = Path::new(
+            "/Applications/Xcode.app/Contents/Applications/Instruments.app\
+             /Contents/MacOS/Instruments",
+        );
+        assert_eq!(
+            bundle_root(executable),
+            Some(PathBuf::from(
+                "/Applications/Xcode.app/Contents/Applications/Instruments.app"
+            ))
+        );
+    }
+
+    #[test]
+    fn a_bare_executable_belongs_to_no_bundle() {
+        assert_eq!(bundle_root(Path::new("/usr/bin/vim")), None);
+    }
+
+    #[test]
+    fn an_identifier_is_lowercased_under_the_app_prefix() {
+        // A path that does not exist cannot be canonicalised, which is the
+        // case that must still yield a usable identifier.
+        assert_eq!(
+            app_id_from_bundle_path(Path::new("/Applications/Safari.app")),
+            "app:/applications/safari.app"
+        );
+    }
+
+    #[test]
+    fn an_unresolvable_process_falls_back_to_the_owner_name() {
+        // pid 0 is never a real process, standing in for a protected one.
+        assert_eq!(app_id_for_pid(0, "Some App"), "app:some app");
+    }
 }
