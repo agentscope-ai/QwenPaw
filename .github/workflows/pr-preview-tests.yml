@@ -57,7 +57,7 @@ jobs:
 
       - name: Run unit tests
         shell: bash
-        run: pytest tests/unit -v
+        run: pytest tests/unit plugins/tool/computer-use/tests -v
 
   contract-tests:
     name: Contract Tests - py${{ matrix.python-version }} - ${{ matrix.os }}
