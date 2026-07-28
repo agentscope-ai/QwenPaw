@@ -41,11 +41,7 @@ async function executePluginScript(entryUrl: string): Promise<void> {
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  // `cache: "no-store"` prevents WebView2 / Chromium from serving a stale
-  // plugin bundle from its HTTP cache when a plugin is hot-updated on disk.
-  // The backend also sends `Cache-Control: no-cache`, but pinning the fetch
-  // side is a belt-and-braces defence against future header regressions.
-  const response = await fetch(entryUrl, { headers, cache: "no-store" });
+  const response = await fetch(entryUrl, { headers });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} for ${entryUrl}`);
   }
@@ -83,10 +79,7 @@ export async function loadAllPlugins(): Promise<{
     const token = getApiToken();
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(getApiUrl("/frontend_plugin"), {
-      headers,
-      cache: "no-store",
-    });
+    const res = await fetch(getApiUrl("/frontend_plugin"), { headers });
     if (!res.ok) {
       console.warn(`[PluginLoader] /api/plugins returned ${res.status}`);
       return { loaded: 0, failed: [] };
