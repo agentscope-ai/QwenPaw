@@ -86,7 +86,7 @@ windows = { version = "0.61.3", features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = { version = "0.10", features = ["link"] }
 core-graphics = { version = "0.24", features = ["link"] }
-accessibility = "0.1"
-accessibility-sys = "0.1"
+accessibility = "0.2"
+accessibility-sys = "0.2"
 jpeg-encoder = "0.6"
 libc = "0.2"
