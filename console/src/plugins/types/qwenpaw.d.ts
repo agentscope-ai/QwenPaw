@@ -275,6 +275,7 @@ export interface QwenPawWindowNamespace {
   chat: QwenPawChatNamespace;
   audit: QwenPawAuditNamespace;
   modules: Record<string, Record<string, unknown>>;
+  loadModule(key: string): Promise<Record<string, unknown>>;
   registerRoutes?(pluginId: string, routes: PluginRouteDeclaration[]): void;
   registerToolRender?(
     pluginId: string,

@@ -10,6 +10,9 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 const shellRenderSpy = vi.hoisted(() => vi.fn());
+const shellState = vi.hoisted(() => ({
+  renderBody: undefined as undefined | (() => React.ReactNode),
+}));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -20,18 +23,14 @@ vi.mock("react-i18next", () => ({
 vi.mock("../shared", () => ({
   ToolCardShell: ({
     title,
-    children,
+    renderBody,
   }: {
     title: string;
-    children?: React.ReactNode;
+    renderBody?: () => React.ReactNode;
   }) => {
     shellRenderSpy();
-    return (
-      <div data-testid="shell">
-        {title}
-        {children}
-      </div>
-    );
+    shellState.renderBody = renderBody;
+    return <div data-testid="shell">{title}</div>;
   },
   DefaultBlock: ({ title, content }: { title: string; content: string }) => (
     <div data-testid={`block-${title}`}>{content}</div>
@@ -56,7 +55,7 @@ function makeContent(result: unknown): ToolCallContent {
 }
 
 describe("RunToolBatchCard", () => {
-  it("renders media previews and text output from the result blocks", () => {
+  it("defers media and output derivation until the body is requested", () => {
     const content = makeContent([
       { type: "image", url: "/api/files/preview/out.png", name: "out.png" },
       { type: "text", text: "batch finished" },
@@ -64,6 +63,8 @@ describe("RunToolBatchCard", () => {
 
     render(<RunToolBatchCard content={content} />);
 
+    expect(screen.queryByTestId("media")).not.toBeInTheDocument();
+    render(<>{shellState.renderBody?.()}</>);
     expect(screen.getByTestId("media")).toBeInTheDocument();
     expect(screen.getByTestId("block-Output")).toHaveTextContent(
       "batch finished",

@@ -170,6 +170,8 @@ export interface WindowNamespace {
    * Plugins can access and modify module exports to monkey-patch host functions.
    */
   modules: Record<string, Record<string, unknown>>;
+  /** Load one patchable host module without warming every page module. */
+  loadModule: (key: string) => Promise<Record<string, unknown>>;
   /** Register page routes for a plugin. Translates to menu.add + route.add. */
   registerRoutes?: (pluginId: string, routes: PluginRouteDeclaration[]) => void;
   /** Register tool-call renderers for a plugin. */

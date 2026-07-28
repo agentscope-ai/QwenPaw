@@ -4,16 +4,24 @@
  * Runtime module registry for plugin system monkey-patching
  *
  * How it works:
- * 1. Host app calls moduleRegistry.register() at startup to register all @patchable modules
- * 2. Plugins access and modify module exports via window.QwenPaw.modules
- * 3. Host code accesses modules via moduleRegistry.get/call to ensure using plugin-modified versions
+ * 1. Host app registers lazy import factories for all @patchable modules.
+ * 2. Plugins load only the modules they need and patch the copied exports.
+ * 3. Host code reads the registry so plugin-modified exports take effect.
  */
+
+export type ModuleFactory = () => Promise<Record<string, unknown>>;
 
 export interface ModuleRegistry {
   /**
    * Register a module (called by generated registerHostModules())
    */
   register(key: string, module: Record<string, unknown>): void;
+
+  /** Register a lazy module factory without executing it. */
+  registerFactory(key: string, factory: ModuleFactory): void;
+
+  /** Load and register one module, deduplicating concurrent requests. */
+  load(key: string): Promise<Record<string, unknown>>;
 
   /**
    * Get a module export value (for const/let/var types)
@@ -36,8 +44,10 @@ export interface ModuleRegistry {
   getModule(key: string): Record<string, unknown> | undefined;
 }
 
-class ModuleRegistryImpl implements ModuleRegistry {
+export class ModuleRegistryImpl implements ModuleRegistry {
   private modules = new Map<string, Record<string, unknown>>();
+  private factories = new Map<string, ModuleFactory>();
+  private pendingLoads = new Map<string, Promise<Record<string, unknown>>>();
 
   register(key: string, module: Record<string, unknown>): void {
     // Safely copy module exports, avoiding ES Module namespace special properties
@@ -75,6 +85,36 @@ class ModuleRegistryImpl implements ModuleRegistry {
         );
       }
     }
+  }
+
+  registerFactory(key: string, factory: ModuleFactory): void {
+    this.factories.set(key, factory);
+  }
+
+  load(key: string): Promise<Record<string, unknown>> {
+    const loaded = this.modules.get(key);
+    if (loaded) return Promise.resolve(loaded);
+
+    const pending = this.pendingLoads.get(key);
+    if (pending) return pending;
+
+    const factory = this.factories.get(key);
+    if (!factory) {
+      return Promise.reject(
+        new Error(`[moduleRegistry] Module factory not found: ${key}`),
+      );
+    }
+
+    const loadPromise = factory()
+      .then((module) => {
+        this.register(key, module);
+        return this.modules.get(key) ?? {};
+      })
+      .finally(() => {
+        this.pendingLoads.delete(key);
+      });
+    this.pendingLoads.set(key, loadPromise);
+    return loadPromise;
   }
 
   get(moduleKey: string, exportName: string): unknown {
@@ -123,15 +163,16 @@ export const moduleRegistry = new ModuleRegistryImpl();
 // Set during initialization
 if (typeof window !== "undefined") {
   if (!window.QwenPaw) {
-    (window as any).QwenPaw = {};
+    window.QwenPaw = {} as Window["QwenPaw"];
   }
 
   // Use Proxy for dynamic access, ensuring plugins always get latest module state
   Object.defineProperty(window.QwenPaw, "modules", {
     get() {
-      return (moduleRegistry as any).getAllModules();
+      return moduleRegistry.getAllModules();
     },
     configurable: true,
     enumerable: true,
   });
+  window.QwenPaw.loadModule = (key: string) => moduleRegistry.load(key);
 }

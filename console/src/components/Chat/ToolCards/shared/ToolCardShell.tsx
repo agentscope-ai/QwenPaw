@@ -4,10 +4,8 @@
  * Renders the compact `<details>/<summary>` layout used by ChatV2 tool
  * blocks: icon + label on a single line, expandable body underneath.
  *
- * The body is mounted lazily: `<details>` only hides content visually,
- * so without this gate every collapsed card would still parse, highlight
- * and fetch its full body on page load. Children mount on first expand
- * and stay mounted afterwards to preserve their internal state.
+ * The body is mounted only while expanded. `<details>` otherwise hides
+ * content visually while React still pays its rendering and media costs.
  */
 
 import React, { useCallback, useState } from "react";
@@ -30,8 +28,10 @@ export interface ToolCardShellProps {
   inlineResult?: string | null;
   /** Optional badge elements (line counts, diff counts). */
   badges?: React.ReactNode;
-  /** Expandable body content. */
+  /** Expandable body content for lightweight callers. */
   children?: React.ReactNode;
+  /** Lazily create an expensive body only after the card opens. */
+  renderBody?: () => React.ReactNode;
 }
 
 const ToolCardShell: React.FC<ToolCardShellProps> = ({
@@ -42,9 +42,10 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
   inlineResult,
   badges,
   children,
+  renderBody,
 }) => {
   const { t } = useTranslation();
-  const [hasOpened, setHasOpened] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const isLoading = content.status === "calling" && isStreaming;
   const isError = content.status === "error";
   const inputProgress = content.inputProgress;
@@ -54,7 +55,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
 
   const handleToggle = useCallback(
     (e: React.SyntheticEvent<HTMLDetailsElement>) => {
-      if (e.currentTarget.open) setHasOpened(true);
+      setIsOpen(e.currentTarget.open);
     },
     [],
   );
@@ -96,7 +97,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
           </span>
         )}
       </summary>
-      {hasOpened &&
+      {isOpen &&
         (isError ? (
           <>
             <DefaultBlock
@@ -116,7 +117,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
                 content={inputPreview}
               />
             )}
-            {children}
+            {renderBody ? renderBody() : children}
           </>
         ))}
     </details>

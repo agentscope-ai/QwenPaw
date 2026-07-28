@@ -2,8 +2,7 @@
  * Tests for ToolCardShell lazy body mounting.
  *
  * `<details>` only hides content visually, so the shell must not mount
- * its body (children / error blocks) until the card is first expanded;
- * afterwards the body stays mounted to preserve internal state.
+ * its body until expanded and must release it again after collapse.
  */
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
@@ -36,9 +35,9 @@ function makeContent(overrides?: Partial<ToolCallContent>): ToolCallContent {
   };
 }
 
-function expandCard(container: HTMLElement) {
+function toggleCard(container: HTMLElement, open: boolean) {
   const details = container.querySelector("details")!;
-  details.open = true;
+  details.open = open;
   fireEvent(details, new Event("toggle", { bubbles: true }));
 }
 
@@ -54,21 +53,36 @@ describe("ToolCardShell lazy body", () => {
     expect(screen.queryByTestId("body")).not.toBeInTheDocument();
   });
 
-  it("mounts children on first expand and keeps them after collapse", () => {
+  it("mounts children while expanded and unmounts after collapse", () => {
     const { container } = render(
       <ToolCardShell content={makeContent()} icon={<span />} title="card">
         <div data-testid="body">heavy body</div>
       </ToolCardShell>,
     );
 
-    expandCard(container);
+    toggleCard(container, true);
     expect(screen.getByTestId("body")).toBeInTheDocument();
 
-    // Collapsing again must not unmount the body (state preservation).
-    const details = container.querySelector("details")!;
-    details.open = false;
-    fireEvent(details, new Event("toggle", { bubbles: true }));
-    expect(screen.getByTestId("body")).toBeInTheDocument();
+    toggleCard(container, false);
+    expect(screen.queryByTestId("body")).not.toBeInTheDocument();
+  });
+
+  it("does not invoke an expensive body factory while collapsed", () => {
+    const renderBody = vi.fn(() => <div data-testid="body">heavy body</div>);
+    const { container } = render(
+      <ToolCardShell
+        content={makeContent()}
+        icon={<span />}
+        title="card"
+        renderBody={renderBody}
+      />,
+    );
+
+    expect(renderBody).not.toHaveBeenCalled();
+    toggleCard(container, true);
+    expect(renderBody).toHaveBeenCalledTimes(1);
+    toggleCard(container, false);
+    expect(screen.queryByTestId("body")).not.toBeInTheDocument();
   });
 
   it("mounts error blocks only after expand", () => {
@@ -83,7 +97,7 @@ describe("ToolCardShell lazy body", () => {
     expect(screen.queryByTestId("block-Input")).not.toBeInTheDocument();
     expect(screen.queryByTestId("block-Error")).not.toBeInTheDocument();
 
-    expandCard(container);
+    toggleCard(container, true);
     expect(screen.getByTestId("block-Input")).toBeInTheDocument();
     expect(screen.getByTestId("block-Error")).toHaveTextContent("boom");
   });

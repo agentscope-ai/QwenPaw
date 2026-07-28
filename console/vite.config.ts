@@ -145,17 +145,13 @@ export default defineConfig(({ mode }) => {
             ) {
               return "monaco-vendor";
             }
-            // AgentScope UI SDK (chat/design/markdown). Split from antd so
-            // the entry chunk stays smaller; the dependency is one-way
-            // (@agentscope-ai → antd), so no circular chunk imports arise.
-            if (id.includes("node_modules/@agentscope-ai/")) {
-              return "agentscope-vendor";
-            }
-            // Ant Design (icons included — merged to avoid circular deps)
+            // Ant Design and AgentScope UI share circular runtime
+            // dependencies, so keep them together in one stable chunk.
             if (
               id.includes("node_modules/antd/") ||
               id.includes("node_modules/antd-style/") ||
-              id.includes("node_modules/@ant-design/")
+              id.includes("node_modules/@ant-design/") ||
+              id.includes("node_modules/@agentscope-ai/")
             ) {
               return "ui-vendor";
             }
@@ -182,15 +178,6 @@ export default defineConfig(({ mode }) => {
             // Drag and drop
             if (id.includes("node_modules/@dnd-kit/")) {
               return "dnd-vendor";
-            }
-            // Utilities (dayjs, zustand, ahooks, etc.)
-            if (
-              id.includes("node_modules/dayjs/") ||
-              id.includes("node_modules/zustand/") ||
-              id.includes("node_modules/ahooks/") ||
-              id.includes("node_modules/@vvo/tzdb/")
-            ) {
-              return "utils-vendor";
             }
           },
         },

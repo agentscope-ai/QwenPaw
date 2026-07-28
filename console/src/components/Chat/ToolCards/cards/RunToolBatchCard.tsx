@@ -337,15 +337,14 @@ export interface RunToolBatchCardProps {
   isStreaming?: boolean;
 }
 
-const RunToolBatchCard: React.FC<RunToolBatchCardProps> = React.memo(
-  ({ content, isStreaming }) => {
+interface RunToolBatchBodyProps {
+  content: ToolCallContent;
+  actionCount: number;
+}
+
+const RunToolBatchBody: React.FC<RunToolBatchBodyProps> = React.memo(
+  ({ content, actionCount }) => {
     const { t } = useTranslation();
-    const params = content.params || {};
-    const workflowLabel = getWorkflowLabel(params);
-    const actionCount = getActionCount(params);
-    // Media extraction and output stripping walk the entire result tree and
-    // run several whole-text regexes — memoize so streaming re-renders of
-    // the parent message don't repeat the full scan.
     const mediaItems = useMemo(
       () => extractMediaFromBlocks(content.result),
       [content.result],
@@ -354,28 +353,13 @@ const RunToolBatchCard: React.FC<RunToolBatchCardProps> = React.memo(
       () => getOutputText(content.result, mediaItems),
       [content.result, mediaItems],
     );
-    const shouldShowOutput = Boolean(outputText.trim());
     const outputBlockProps: Partial<DefaultBlockProps> =
       outputText.length > LARGE_OUTPUT_THRESHOLD
         ? { copyTitle: outputText }
         : {};
 
-    const title = t("tool.runToolBatch", { workflow: workflowLabel });
-    const inlineResult =
-      content.status === "calling"
-        ? actionCount > 0
-          ? t("tool.runToolBatchProgress", { count: actionCount })
-          : t("tool.runToolBatchRunning")
-        : null;
-
     return (
-      <ToolCardShell
-        content={content}
-        isStreaming={isStreaming}
-        icon={<NodeIndexOutlined />}
-        title={title}
-        inlineResult={inlineResult}
-      >
+      <>
         {content.status === "calling" && (
           <DefaultBlock
             title="Workflow"
@@ -391,14 +375,45 @@ const RunToolBatchCard: React.FC<RunToolBatchCardProps> = React.memo(
         {mediaItems.map((media) => (
           <MediaPreview key={`${media.name}:${media.url}`} media={media} />
         ))}
-        {shouldShowOutput && (
+        {outputText.trim() && (
           <DefaultBlock
             title="Output"
             content={outputText}
             {...outputBlockProps}
           />
         )}
-      </ToolCardShell>
+      </>
+    );
+  },
+);
+
+RunToolBatchBody.displayName = "RunToolBatchBody";
+
+const RunToolBatchCard: React.FC<RunToolBatchCardProps> = React.memo(
+  ({ content, isStreaming }) => {
+    const { t } = useTranslation();
+    const params = content.params || {};
+    const workflowLabel = getWorkflowLabel(params);
+    const actionCount = getActionCount(params);
+    const title = t("tool.runToolBatch", { workflow: workflowLabel });
+    const inlineResult =
+      content.status === "calling"
+        ? actionCount > 0
+          ? t("tool.runToolBatchProgress", { count: actionCount })
+          : t("tool.runToolBatchRunning")
+        : null;
+
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<NodeIndexOutlined />}
+        title={title}
+        inlineResult={inlineResult}
+        renderBody={() => (
+          <RunToolBatchBody content={content} actionCount={actionCount} />
+        )}
+      />
     );
   },
 );

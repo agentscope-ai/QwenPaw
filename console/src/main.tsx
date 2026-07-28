@@ -3,7 +3,7 @@ import App from "./App.tsx";
 import "./i18n";
 import { installHostExternals } from "./plugins/hostExternals";
 import { installHostSdk } from "./plugins/hostSdk/install";
-import { registerHostModulesDynamic } from "./plugins/dynamicModuleRegistry";
+import { registerHostModuleFactories } from "./plugins/dynamicModuleRegistry";
 import { registerBuiltinCards } from "./components/Chat/ToolCards/registerBuiltinCards";
 // Bare side-effect imports: each file self-registers its data into
 // menuRegistry / routeRegistry so consumers' first render sees them.
@@ -22,12 +22,9 @@ installHostSdk();
 // so ChatV1 (@agentscope-ai/chat) picks them up via customToolRenderConfig.
 registerBuiltinCards();
 
-// Dynamic module registration — fire-and-forget. Pages register into
-// `moduleRegistry` as they are lazy-loaded; this background pass pre-warms
-// the registry so `window.QwenPaw.modules.<page>` is populated soon after
-// startup without blocking the first paint (eager mode used to synchronously
-// pull all 233 page modules + transitive deps into the main thread).
-void registerHostModulesDynamic();
+// Register lazy factories only. No page module is imported until its route or
+// a plugin explicitly requests it through window.QwenPaw.loadModule().
+registerHostModuleFactories();
 
 if (typeof window !== "undefined") {
   // Prevent the browser/WebView from navigating away (replacing the whole

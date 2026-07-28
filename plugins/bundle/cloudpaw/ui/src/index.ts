@@ -8,7 +8,7 @@
  * Uses window.QwenPaw plugin API (PR #3512+)
  */
 
-function buildPlugin() {
+async function buildPlugin() {
   const { React, antd, antdIcons, getApiUrl, getApiToken } = (window as any)
     .QwenPaw.host;
   const {
@@ -3099,7 +3099,7 @@ function buildPlugin() {
 
   // ── Patchable module overrides (QwenPaw ≥ 1.1.4b1) ─────────────────
 
-  patchWelcomeAndTheme();
+  await patchWelcomeAndTheme();
 
   // ── Activate A2A command stream interceptor ────────────────────────
 
@@ -3203,11 +3203,14 @@ function ensureDefaultAgent() {
 
 // ── Welcome & Theme customisation via configProvider monkey-patch ──────
 
-function patchWelcomeAndTheme() {
-  const modules = (window as any).QwenPaw?.modules;
-  if (!modules) return;
+async function patchWelcomeAndTheme() {
+  const qwenPaw = (window as any).QwenPaw;
+  if (!qwenPaw) return;
 
-  const configModule = modules["Chat/OptionsPanel/defaultConfig"];
+  const moduleKey = "Chat/OptionsPanel/defaultConfig";
+  const configModule = qwenPaw.loadModule
+    ? await qwenPaw.loadModule(moduleKey)
+    : qwenPaw.modules?.[moduleKey];
   if (!configModule?.configProvider) {
     console.warn(
       "[cloudpaw] configProvider not found — skipping welcome/theme patch",
@@ -3306,4 +3309,6 @@ function patchWelcomeAndTheme() {
   console.info("[cloudpaw] Patched welcome config & theme via configProvider");
 }
 
-buildPlugin();
+const ready = buildPlugin();
+
+export default ready;

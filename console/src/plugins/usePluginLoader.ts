@@ -20,6 +20,10 @@ interface PluginInfo {
   frontend_entry?: string;
 }
 
+interface PluginModule {
+  default?: unknown;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,6 +40,20 @@ function resolveUrl(pluginId: string, apiPath: string): string {
  * Fetch a plugin's JS source, wrap it in a same-origin Blob URL, and
  * execute it via dynamic import.  Blob URL is revoked immediately after.
  */
+export async function waitForPluginReady(
+  pluginModule: PluginModule,
+): Promise<void> {
+  const ready = pluginModule.default;
+  if (
+    ready &&
+    typeof ready === "object" &&
+    "then" in ready &&
+    typeof ready.then === "function"
+  ) {
+    await ready;
+  }
+}
+
 async function executePluginScript(entryUrl: string): Promise<void> {
   const token = getApiToken();
   const headers: Record<string, string> = {};
@@ -51,7 +69,8 @@ async function executePluginScript(entryUrl: string): Promise<void> {
     new Blob([jsText], { type: "application/javascript" }),
   );
   try {
-    await import(/* @vite-ignore */ blobUrl);
+    const pluginModule = await import(/* @vite-ignore */ blobUrl);
+    await waitForPluginReady(pluginModule);
   } finally {
     URL.revokeObjectURL(blobUrl);
   }

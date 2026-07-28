@@ -18,8 +18,12 @@ vi.mock("@agentscope-ai/chat", () => ({
 }));
 
 vi.mock("@agentscope-ai/design", () => ({
-  Audio: () => <div data-testid="audio" />,
-  Video: () => <div data-testid="video" />,
+  Audio: (props: React.AudioHTMLAttributes<HTMLAudioElement>) => (
+    <audio data-testid="audio" {...props} />
+  ),
+  Video: (props: React.VideoHTMLAttributes<HTMLVideoElement>) => (
+    <video data-testid="video" {...props} />
+  ),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -186,5 +190,23 @@ describe("MediaPreview error state", () => {
       ).not.toBeInTheDocument();
     });
     expect(screen.getByTestId("file-card")).toBeInTheDocument();
+  });
+});
+
+describe("MediaPreview loading", () => {
+  it("does not preload video or audio bodies", () => {
+    render(
+      <>
+        <MediaPreview
+          media={{ url: "/video.mp4", name: "video.mp4", type: "video" }}
+        />
+        <MediaPreview
+          media={{ url: "/audio.mp3", name: "audio.mp3", type: "audio" }}
+        />
+      </>,
+    );
+
+    expect(screen.getByTestId("video")).toHaveAttribute("preload", "none");
+    expect(screen.getByTestId("audio")).toHaveAttribute("preload", "none");
   });
 });

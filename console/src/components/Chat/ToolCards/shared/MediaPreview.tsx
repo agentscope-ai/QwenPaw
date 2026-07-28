@@ -145,12 +145,17 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
       )}
       {media.type === "video" && (
         <div className={styles.bubbleVideo}>
-          <Video src={media.url} controls onError={handleMediaError} />
+          <Video
+            src={media.url}
+            controls
+            preload="none"
+            onError={handleMediaError}
+          />
         </div>
       )}
       {media.type === "audio" && (
         <div className={styles.bubbleAudio}>
-          <Audio src={media.url} onError={handleMediaError} />
+          <Audio src={media.url} preload="none" onError={handleMediaError} />
         </div>
       )}
       {media.type === "file" && (

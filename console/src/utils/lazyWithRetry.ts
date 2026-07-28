@@ -15,9 +15,10 @@ const RETRY_DELAY_MS = 1000;
  *   "../../pages/Settings/Debug"         →  "Settings/Debug/index"
  */
 function pathToModuleKey(importPath: string): string {
+  const hasExtension = /\.(ts|tsx)$/.test(importPath);
   const key = importPath.replace(/^.*\/pages\//, "").replace(/\.[^.]+$/, "");
-  // Bare-directory imports are registered as "<Dir>/index" in registerHostModules
-  return key.includes("/") && !/\/index$/.test(key) ? `${key}/index` : key;
+  // Bare-directory imports are registered as "<Dir>/index".
+  return !hasExtension && !/\/index$/.test(key) ? `${key}/index` : key;
 }
 
 function retryImport<T extends ComponentType<unknown>>(
@@ -33,27 +34,6 @@ function retryImport<T extends ComponentType<unknown>>(
       ),
     );
   });
-}
-
-// All page modules, keyed relative to this file (src/utils/).
-// e.g. "../pages/Settings/Debug/index.tsx"
-const PAGE_MODULES = import.meta.glob<ComponentType<unknown>>(
-  ["../pages/**/*.{ts,tsx}", "!../pages/**/*.test.{ts,tsx}"],
-  { import: "default" },
-);
-
-/**
- * Normalize any caller-relative path to the glob key used by PAGE_MODULES.
- * Callers in src/layouts/MainLayout use "../../pages/…"
- * The glob map is keyed as "../pages/…" (relative to src/utils/).
- */
-function toGlobKey(path: string): string {
-  // Strip everything up to and including the first occurrence of "pages/"
-  let afterPages = path.replace(/^.*pages\//, "pages/");
-  // Remove a bare "/index" suffix so both "Foo/index" and "Foo" resolve the same
-  afterPages = afterPages.replace(/\/index$/, "");
-  // Add the ../  prefix to match the glob map
-  return `../${afterPages}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,23 +58,27 @@ export function lazyWithRetry<T extends ComponentType<unknown>>(
   factory: () => Promise<{ default: T }>,
   moduleKeyOrPath?: string,
 ) {
-  return lazy(() =>
-    retryImport(factory, MAX_RETRIES).then((mod) => {
-      if (!moduleKeyOrPath) return mod;
-      const key = moduleKeyOrPath.startsWith(".")
-        ? pathToModuleKey(moduleKeyOrPath)
-        : moduleKeyOrPath;
-      const patched = moduleRegistry.get(key, "default");
-      if (patched) return { default: patched as T };
-      return mod;
-    }),
-  );
+  if (moduleKeyOrPath) {
+    const key = moduleKeyOrPath.startsWith(".")
+      ? pathToModuleKey(moduleKeyOrPath)
+      : moduleKeyOrPath;
+    return lazy(() =>
+      retryImport(
+        () =>
+          moduleRegistry.load(key).then((module) => ({
+            default: module.default as T,
+          })),
+        MAX_RETRIES,
+      ),
+    );
+  }
+  return lazy(() => retryImport(factory, MAX_RETRIES));
 }
 
 /**
- * Convenience variant — call sites only need the **path string**.
- * The dynamic import is sourced from an `import.meta.glob` map, so Vite
- * still creates individual chunks while allowing a runtime registry override.
+ * Convenience variant — call sites only need the **path string**. The
+ * central module registry owns the Vite import factory so routes and plugins
+ * share one deduplicated, patchable load path.
  *
  * Path is relative to the caller — bare-directory or full-extension paths both work:
  *
@@ -109,34 +93,14 @@ export function lazyWithRetry<T extends ComponentType<unknown>>(
 export function lazyImportWithRetry(
   path: string,
 ): ReturnType<typeof lazy<ComponentType<unknown>>> {
-  // Normalise to the glob-map key (relative to src/utils/).
-  // Bare-directory paths like "../../pages/Settings/Debug" are tried with
-  // /index.tsx and /index.ts suffixes automatically.
-  const base = toGlobKey(path);
-  const globKey = PAGE_MODULES[base]
-    ? base
-    : PAGE_MODULES[`${base}/index.tsx`]
-    ? `${base}/index.tsx`
-    : PAGE_MODULES[`${base}/index.ts`]
-    ? `${base}/index.ts`
-    : base;
-  const factory = PAGE_MODULES[globKey];
-  if (!factory) {
-    throw new Error(
-      `[lazyImportWithRetry] No glob entry found for "${path}".\n` +
-        `Resolved key: "${globKey}". ` +
-        `Available: ${Object.keys(PAGE_MODULES).join(", ")}`,
-    );
-  }
   const key = pathToModuleKey(path);
   return lazy(() =>
     retryImport(
-      () => factory().then((comp) => ({ default: comp })),
+      () =>
+        moduleRegistry.load(key).then((module) => ({
+          default: module.default as ComponentType<unknown>,
+        })),
       MAX_RETRIES,
-    ).then((mod) => {
-      const patched = moduleRegistry.get(key, "default");
-      if (patched) return { default: patched as ComponentType<unknown> };
-      return mod;
-    }),
+    ),
   );
 }
