@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from watchfiles import Change
 
 from qwenpaw.app.routers import workspace as workspace_router
 
@@ -200,3 +201,114 @@ def test_watch_rejects_an_unknown_root(files_client: TestClient) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "root must be project or workspace"
+
+
+@pytest.mark.asyncio
+async def test_watch_remains_open_after_idle_poll(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An idle poll must not close the underlying file watcher."""
+    watch_dir = tmp_path / "project"
+    watch_dir.mkdir()
+    target = watch_dir / "notes.md"
+    captured: dict[str, object] = {}
+
+    class FakeWatcher:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.closed = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            self.calls += 1
+            if self.calls == 1:
+                return set()
+            if self.calls == 2:
+                return {(Change.modified, str(target))}
+            raise StopAsyncIteration
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    watcher = FakeWatcher()
+
+    def fake_awatch(path: Path, **kwargs):
+        captured["path"] = path
+        captured.update(kwargs)
+        return watcher
+
+    class ConnectedRequest:
+        async def is_disconnected(self) -> bool:
+            return False
+
+    monkeypatch.setattr(workspace_router, "awatch", fake_awatch)
+    messages = [
+        message
+        async for message in workspace_router.workspace_watch_events(
+            ConnectedRequest(),
+            watch_dir,
+        )
+    ]
+
+    assert captured == {
+        "path": watch_dir,
+        "rust_timeout": 1_000,
+        "yield_on_timeout": True,
+    }
+    assert any('"path": "notes.md"' in message for message in messages)
+    assert watcher.calls == 3
+    assert watcher.closed is True
+
+
+@pytest.mark.asyncio
+async def test_watch_checks_disconnect_after_idle_poll(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An idle wake-up must promptly observe a disconnected client."""
+    watch_dir = tmp_path / "project"
+    watch_dir.mkdir()
+
+    class IdleWatcher:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.closed = False
+
+        async def __anext__(self):
+            self.calls += 1
+            return set()
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    class DisconnectingRequest:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def is_disconnected(self) -> bool:
+            self.calls += 1
+            return self.calls > 1
+
+    watcher = IdleWatcher()
+    request = DisconnectingRequest()
+    monkeypatch.setattr(
+        workspace_router,
+        "awatch",
+        lambda *_args, **_kwargs: watcher,
+    )
+
+    messages = [
+        message
+        async for message in workspace_router.workspace_watch_events(
+            request,
+            watch_dir,
+        )
+    ]
+
+    assert messages == ['data: {"type": "connected"}\n\n']
+    assert watcher.calls == 1
+    assert request.calls == 2
+    assert watcher.closed is True

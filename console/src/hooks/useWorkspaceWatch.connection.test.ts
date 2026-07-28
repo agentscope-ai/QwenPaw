@@ -35,6 +35,7 @@ describe("useWorkspaceWatch — connection lifecycle", () => {
 
   afterEach(() => {
     // 恢复原始 fetch（防止 mock 泄漏）
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -133,6 +134,25 @@ describe("useWorkspaceWatch — connection lifecycle", () => {
     });
 
     expect(abortSpy).toHaveBeenCalled();
+  });
+
+  it("unmount 会立即取消等待中的重试计时器", async () => {
+    vi.useFakeTimers();
+    const mockFetch = vi.fn().mockRejectedValue(new TypeError("offline"));
+    vi.stubGlobal("fetch", mockFetch);
+
+    const { unmount } = renderHook(() => useWorkspaceWatch(vi.fn(), true));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(1);
+
+    act(() => {
+      unmount();
+    });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   // ─── 测试 8：enabled 从 false 变为 true 时启动连接 ────────────────────────

@@ -65,7 +65,7 @@ async function _runLoop(
       });
 
       if (!response.ok || !response.body) {
-        await _sleep(retryDelay);
+        await _sleep(retryDelay, signal);
         retryDelay = Math.min(retryDelay * 2, 30_000);
         continue;
       }
@@ -103,7 +103,7 @@ async function _runLoop(
     } catch (err) {
       if (signal.aborted) break;
       if (err instanceof DOMException && err.name === "AbortError") break;
-      await _sleep(retryDelay);
+      await _sleep(retryDelay, signal);
       retryDelay = Math.min(retryDelay * 2, 30_000);
     }
   }
@@ -133,8 +133,17 @@ function _maybeDisconnect(key: string) {
   }
 }
 
-function _sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function _sleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    const timeout = setTimeout(finish, ms);
+    signal.addEventListener("abort", finish, { once: true });
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ import os
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 from fastapi import (
     APIRouter,
@@ -67,6 +67,8 @@ from ..agent_context import (
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 _FILESYSTEM_SEMAPHORE = asyncio.Semaphore(8)
+_WATCH_HEARTBEAT_SECONDS = 30.0
+_WATCH_POLL_TIMEOUT_MS = 1_000
 
 
 class MdFileInfo(BaseModel):
@@ -792,66 +794,8 @@ async def watch_workspace_files(
     workspace = await get_agent_for_request(request)
     watch_dir = await _resolve_files_root(request, workspace, root)
 
-    async def event_generator():
-        yield 'data: {"type": "connected"}\n\n'
-        watcher = awatch(watch_dir)
-        try:
-            while True:
-                if await request.is_disconnected():
-                    break
-                try:
-                    raw_changes = await asyncio.wait_for(
-                        watcher.__anext__(),
-                        timeout=30.0,
-                    )
-                except asyncio.TimeoutError:
-                    yield ": heartbeat\n\n"
-                    continue
-                except (
-                    StopAsyncIteration,
-                    asyncio.CancelledError,
-                    GeneratorExit,
-                ):
-                    # StopAsyncIteration  – watcher stopped naturally
-                    # CancelledError      – app shutdown cancelled the task
-                    # GeneratorExit       – streaming response closed
-                    break
-
-                events = []
-                for change_type, path in raw_changes:
-                    try:
-                        rel = Path(path).relative_to(watch_dir)
-                    except ValueError:
-                        continue
-                    if _should_skip(rel.parts):
-                        continue
-                    change_name = (
-                        "added"
-                        if change_type is Change.added
-                        else "deleted"
-                        if change_type is Change.deleted
-                        else "modified"
-                    )
-                    events.append(
-                        {"change": change_name, "path": rel.as_posix()},
-                    )
-
-                if events:
-                    payload = json.dumps(
-                        {"type": "file_change", "events": events},
-                        ensure_ascii=False,
-                    )
-                    yield f"data: {payload}\n\n"
-        except (asyncio.CancelledError, GeneratorExit):
-            pass  # normal during app shutdown
-        finally:
-            try:
-                await watcher.aclose()
-            except Exception:
-                pass
-
     return StreamingResponse(
-        event_generator(),
+        workspace_watch_events(request, watch_dir),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -859,6 +803,70 @@ async def watch_workspace_files(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+async def workspace_watch_events(
+    request: Request,
+    watch_dir: Path,
+) -> AsyncIterator[str]:
+    """Yield workspace file changes without cancelling the watcher on idle."""
+    yield 'data: {"type": "connected"}\n\n'
+    watcher = awatch(
+        watch_dir,
+        rust_timeout=_WATCH_POLL_TIMEOUT_MS,
+        yield_on_timeout=True,
+    )
+    last_emit = asyncio.get_running_loop().time()
+    try:
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                raw_changes = await watcher.__anext__()
+            except (
+                StopAsyncIteration,
+                asyncio.CancelledError,
+                GeneratorExit,
+            ):
+                break
+
+            events = []
+            for change_type, path in raw_changes:
+                try:
+                    rel = Path(path).relative_to(watch_dir)
+                except ValueError:
+                    continue
+                if _should_skip(rel.parts):
+                    continue
+                change_name = (
+                    "added"
+                    if change_type is Change.added
+                    else "deleted"
+                    if change_type is Change.deleted
+                    else "modified"
+                )
+                events.append(
+                    {"change": change_name, "path": rel.as_posix()},
+                )
+
+            now = asyncio.get_running_loop().time()
+            if events:
+                payload = json.dumps(
+                    {"type": "file_change", "events": events},
+                    ensure_ascii=False,
+                )
+                yield f"data: {payload}\n\n"
+                last_emit = now
+            elif now - last_emit >= _WATCH_HEARTBEAT_SECONDS:
+                yield ": heartbeat\n\n"
+                last_emit = now
+    except (asyncio.CancelledError, GeneratorExit):
+        pass
+    finally:
+        try:
+            await watcher.aclose()
+        except Exception:
+            pass
 
 
 @router.get(
