@@ -38,6 +38,16 @@ export function useChannels() {
     } finally {
       setLoading(false);
     }
+    // Fetch schemas separately so failures don't block core channel loading
+    try {
+      const schemas = await api.listChannelSchemas();
+      if (schemas) setChannelSchemas(schemas);
+    } catch {
+      // Plugin system may not be available; non-critical
+    }
+  }, []);
+
+  const fetchDependencyStatuses = useCallback(async () => {
     setDependencyStatusesLoaded(false);
     setDependencyStatusError(false);
     try {
@@ -49,18 +59,15 @@ export function useChannels() {
     } finally {
       setDependencyStatusesLoaded(true);
     }
-    // Fetch schemas separately so failures don't block core channel loading
-    try {
-      const schemas = await api.listChannelSchemas();
-      if (schemas) setChannelSchemas(schemas);
-    } catch {
-      // Plugin system may not be available; non-critical
-    }
   }, []);
 
   useEffect(() => {
     fetchChannels();
   }, [fetchChannels, selectedAgent]);
+
+  useEffect(() => {
+    fetchDependencyStatuses();
+  }, [fetchDependencyStatuses]);
 
   const installingChannels = useMemo(
     () =>

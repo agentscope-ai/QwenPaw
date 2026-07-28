@@ -204,8 +204,14 @@ def runtime_write_lock(
 
 def _safe_relative_path(root: Path, value: str) -> Path:
     root = root.resolve()
-    candidate = Path(value)
-    if candidate.is_absolute() or ".." in candidate.parts:
+    candidate = Path(value.replace("\\", "/"))
+    if candidate.is_absolute():
+        raise RuntimeError(f"Runtime RECORD path escapes root: {value}")
+    if candidate.parts[:2] == ("..", "..") and len(candidate.parts) > 2:
+        script_root = candidate.parts[2]
+        if script_root.casefold() in {"bin", "scripts"}:
+            candidate = Path(*candidate.parts[2:])
+    if ".." in candidate.parts:
         raise RuntimeError(f"Runtime RECORD path escapes root: {value}")
     resolved = (root / candidate).resolve()
     if resolved != root and root not in resolved.parents:

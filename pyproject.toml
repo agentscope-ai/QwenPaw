@@ -111,7 +111,7 @@ channel-discord = [
     "discord-py==2.7.1",
 ]
 channel-feishu = [
-    "lark-oapi==1.7.1",
+    "lark-oapi==1.7.0",
     "python-socks==2.8.2",
 ]
 channel-qq = [
@@ -190,7 +190,7 @@ whisper = [
     "openai-whisper>=20231117",
 ]
 full = [
-    "qwenpaw[local,whisper,channels-all]",
+    "qwenpaw[local,whisper]",
 ]
 # Preserve the legacy extras: ``sip`` is the PyVoIP backend, while the
 # channel UI installs both backends through ``channel-sip``.

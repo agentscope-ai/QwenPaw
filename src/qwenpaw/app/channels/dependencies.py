@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -434,6 +435,8 @@ class ChannelDependencyService:
         self._active_by_channel: dict[str, str] = {}
         self._lock = threading.Lock()
         self._persist_lock = threading.Lock()
+        self._status_cache_lock = threading.Lock()
+        self._status_cache: dict[str, dict[str, Any]] | None = None
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._shutting_down = threading.Event()
         self._state_dir = _channel_state_dir()
@@ -479,8 +482,7 @@ class ChannelDependencyService:
     ) -> dict[str, Any]:
         if refresh:
             self._refresh_jobs_from_disk()
-        if snapshot is None:
-            snapshot = channel_runtime_snapshot()
+            self._invalidate_status_cache()
         spec = BUILTIN_CHANNEL_CATALOG[key]
         if not spec.platform_supported:
             return {
@@ -505,6 +507,8 @@ class ChannelDependencyService:
                 "requirements": requirements_for_extra(spec.extra),
                 "missing_requirements": list(job.requirements),
             }
+        if snapshot is None:
+            snapshot = channel_runtime_snapshot()
         missing = missing_requirements(spec, snapshot)
         status = (
             "failed"
@@ -537,30 +541,38 @@ class ChannelDependencyService:
             result["last_error"] = job.error
         return result
 
+    def _invalidate_status_cache(self) -> None:
+        with self._status_cache_lock:
+            self._status_cache = None
+
     def all_statuses(self) -> dict[str, dict[str, Any]]:
         self._refresh_jobs_from_disk()
-        snapshot = channel_runtime_snapshot()
-        result: dict[str, dict[str, Any]] = {}
-        for key, spec in BUILTIN_CHANNEL_CATALOG.items():
-            try:
-                result[key] = self.channel_status(
-                    key,
-                    refresh=False,
-                    snapshot=snapshot,
-                )
-            except Exception as exc:
-                logger.exception(
-                    "Failed to inspect channel dependencies: %s",
-                    key,
-                )
-                result[key] = {
-                    "channel": key,
-                    "status": "load_error",
-                    "requirements": requirements_for_extra(spec.extra),
-                    "missing_requirements": [],
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
-        return result
+        with self._status_cache_lock:
+            if self._status_cache is not None:
+                return deepcopy(self._status_cache)
+            snapshot = channel_runtime_snapshot()
+            result: dict[str, dict[str, Any]] = {}
+            for key, spec in BUILTIN_CHANNEL_CATALOG.items():
+                try:
+                    result[key] = self.channel_status(
+                        key,
+                        refresh=False,
+                        snapshot=snapshot,
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        "Failed to inspect channel dependencies: %s",
+                        key,
+                    )
+                    result[key] = {
+                        "channel": key,
+                        "status": "load_error",
+                        "requirements": requirements_for_extra(spec.extra),
+                        "missing_requirements": [],
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+            self._status_cache = deepcopy(result)
+            return result
 
     def get_job(self, job_id: str) -> InstallJob | None:
         self._refresh_jobs_from_disk()
@@ -696,6 +708,7 @@ class ChannelDependencyService:
             self._cancel_path(job.id).unlink(missing_ok=True)
             self._write_jobs_file(jobs)
             self._replace_cached_jobs(jobs, local_job=job)
+        self._invalidate_status_cache()
         return job, True
 
     async def repair_version_mismatches(
@@ -1300,6 +1313,11 @@ class ChannelDependencyService:
     def _refresh_jobs_from_disk(self) -> None:
         if not (self._state_dir / "install_jobs.json").is_file():
             return
+        with self._lock:
+            previous = {
+                job_id: job.storage_dict()
+                for job_id, job in self._jobs.items()
+            }
         with self._persist_lock, self._jobs_file_lock() as acquired:
             if not acquired:
                 raise RuntimeError(
@@ -1310,6 +1328,13 @@ class ChannelDependencyService:
             if changed:
                 self._write_jobs_file(jobs)
         self._replace_cached_jobs(jobs)
+        with self._lock:
+            current = {
+                job_id: job.storage_dict()
+                for job_id, job in self._jobs.items()
+            }
+        if current != previous:
+            self._invalidate_status_cache()
 
     def _persist_job(self, job: InstallJob) -> None:
         with self._persist_lock, self._jobs_file_lock() as acquired:
@@ -1328,6 +1353,8 @@ class ChannelDependencyService:
                 setattr(job, key, value)
             job.updated_at = _utc_now()
         self._persist_job(job)
+        if "status" in changes:
+            self._invalidate_status_cache()
 
     def _append_attempted_source(self, job: InstallJob, label: str) -> None:
         with self._lock:

@@ -564,6 +564,38 @@ def test_transaction_rejects_record_path_outside_runtime(tmp_path):
     assert outside.read_text() == "keep\n"
 
 
+@pytest.mark.parametrize("script_dir", ["bin", "Scripts"])
+def test_transaction_accepts_target_script_record_paths(tmp_path, script_dir):
+    site_dir = tmp_path / "site"
+    site_dir.mkdir()
+    _write_distribution(
+        site_dir,
+        name="script-package",
+        version="1.0",
+        files={f"{script_dir}/script-tool": "#!/usr/bin/env python\n"},
+    )
+    metadata = site_dir / "script_package-1.0.dist-info" / "RECORD"
+    metadata.write_text(
+        f"../../{script_dir}/script-tool,,\n"
+        "script_package-1.0.dist-info/METADATA,,\n"
+        "script_package-1.0.dist-info/RECORD,,\n",
+        encoding="utf-8",
+    )
+    transaction = RuntimeTransaction(site_dir)
+    staging = transaction.create()
+    _write_distribution(
+        staging,
+        name="second-package",
+        version="1.0",
+        files={"second.py": "value\n"},
+    )
+
+    transaction.commit()
+
+    assert (site_dir / script_dir / "script-tool").is_file()
+    assert (site_dir / "second.py").read_text() == "value\n"
+
+
 def test_transaction_rolls_back_when_verification_fails(tmp_path):
     site_dir = tmp_path / "site"
     _write_distribution(

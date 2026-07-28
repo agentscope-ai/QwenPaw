@@ -516,7 +516,7 @@ def test_channel_job_state_is_isolated_by_runtime_environment(tmp_path):
     assert len({desktop, first, second}) == 3
 
 
-def test_all_statuses_reuses_one_runtime_snapshot(tmp_path):
+def test_all_statuses_caches_dependency_detection(tmp_path):
     with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
         service = ChannelDependencyService()
     snapshot = MagicMock()
@@ -531,14 +531,69 @@ def test_all_statuses_reuses_one_runtime_snapshot(tmp_path):
             return_value={"status": "ready"},
         ) as channel_status,
     ):
-        service.all_statuses()
+        first = service.all_statuses()
+        second = service.all_statuses()
 
     runtime_snapshot.assert_called_once_with()
     assert channel_status.call_count == len(BUILTIN_CHANNEL_CATALOG)
+    assert first == second
+    assert first is not second
     assert all(
         call.kwargs["snapshot"] is snapshot
         for call in channel_status.call_args_list
     )
+
+
+def test_job_status_change_invalidates_dependency_cache(tmp_path):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    job = InstallJob(
+        id="job-1",
+        channel="feishu",
+        requirements=["lark-oapi==1.5.3"],
+    )
+    with (
+        patch(
+            "qwenpaw.app.channels.dependencies.channel_runtime_snapshot",
+        ) as runtime_snapshot,
+        patch.object(
+            service,
+            "channel_status",
+            return_value={"status": "ready"},
+        ),
+        patch.object(service, "_persist_job"),
+    ):
+        service.all_statuses()
+        service._update_job(  # pylint: disable=protected-access
+            job,
+            status="installing",
+        )
+        service.all_statuses()
+
+    assert runtime_snapshot.call_count == 2
+
+
+def test_installing_status_does_not_scan_runtime(tmp_path):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    job = InstallJob(
+        id="job-1",
+        channel="feishu",
+        requirements=["lark-oapi==1.5.3"],
+        status="installing",
+    )
+    service._jobs[job.id] = job  # pylint: disable=protected-access
+    service._active_by_channel[  # pylint: disable=protected-access
+        job.channel
+    ] = job.id
+
+    with patch(
+        "qwenpaw.app.channels.dependencies.channel_runtime_snapshot",
+    ) as runtime_snapshot:
+        status = service.channel_status("feishu")
+
+    runtime_snapshot.assert_not_called()
+    assert status["status"] == "installing"
 
 
 def test_platform_unsupported_status(tmp_path):

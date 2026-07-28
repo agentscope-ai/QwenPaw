@@ -220,4 +220,18 @@ describe("useChannels", () => {
     expect(result.current.dependencyStatusError).toBe(true);
     expect(result.current.dependencyStatuses).toEqual({});
   });
+
+  it("does not reload global dependency status with channel data", async () => {
+    const { result } = renderHook(() => useChannels());
+
+    await waitFor(() => {
+      expect(result.current.dependencyStatusesLoaded).toBe(true);
+    });
+    await act(async () => {
+      await result.current.fetchChannels();
+    });
+
+    expect(api.listChannels).toHaveBeenCalledTimes(2);
+    expect(api.listChannelDependencies).toHaveBeenCalledTimes(1);
+  });
 });
