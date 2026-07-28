@@ -1,32 +1,14 @@
 # -*- coding: utf-8 -*-
 """Windows sandbox shared infrastructure and unelevated sandbox.
 
-This module provides the shared foundation for all Windows sandbox backends
-and the ``WindowsUnelevatedSandbox`` implementation.
-
-Shared infrastructure:
-    ``WindowsSandboxBase``:
-        Abstract base class for all Windows sandboxes.
-    Ctypes structures:
-        Win32 structs (``_SID_AND_ATTRIBUTES``, ``_STARTUPINFOW``, etc.)
-        and the ``_WC`` constants namespace.
-    SID / token / ACL helpers:
-        ``_string_to_sid``, ``_sid_to_string``, ``_build_explicit_access``,
-        ``_set_default_dacl``, ``_enable_privilege``, etc.
-    Pipe output decoding:
-        Multi-codec fallback (UTF-16LE, OEM, ANSI, UTF-8).
-    Process helpers:
-        Shell command line building, stdio pipe I/O, Job Object creation.
-    ACL cleanup:
-        Win32 API-based DACL manipulation with verification.
+Provides the shared foundation (base class, ctypes structures, SID/token/ACL
+helpers, pipe decoding, process utilities) for all Windows sandbox backends,
+plus the ``WindowsUnelevatedSandbox`` implementation.
 
 ``WindowsUnelevatedSandbox`` uses a WRITE_RESTRICTED token derived from
 the current process token without requiring administrator privileges.
 Write access is gated by a fabricated capability SID; read/execute access
 is unrestricted.
-
-``WindowsAppContainerSandbox`` and ``WindowsElevatedSandbox`` (defined in
-sibling modules) import shared code from here.
 """
 
 from __future__ import annotations
@@ -68,11 +50,7 @@ logger = logging.getLogger(__name__)
 
 
 class _WC:
-    """Win32 numeric and string constants shared across all Windows sandboxes.
-
-    Grouped into a single namespace so that sibling modules can
-    ``from … import _WC`` instead of listing dozens of individual names.
-    """
+    """Win32 constants shared across all Windows sandbox backends."""
 
     # Violation detection regex (includes Chinese locale patterns)
     VIOLATION_RE = re.compile(
@@ -322,14 +300,13 @@ def _get_system_oem_encoding() -> str:
 def _try_decode_utf16le(raw: bytes) -> Optional[str]:
     """Attempts to decode raw bytes as UTF-16LE.
 
-    Checks for a BOM first, then falls back to a null-byte heuristic
-    on the first 64 bytes.
+    Checks for a BOM first, then falls back to a null-byte heuristic.
 
     Args:
         raw: Raw byte content from a pipe.
 
     Returns:
-        Decoded string if UTF-16LE was detected, None otherwise.
+        Decoded string if UTF-16LE was detected, ``None`` otherwise.
     """
     if len(raw) < 2:
         return None
@@ -353,16 +330,15 @@ def _try_decode_utf16le(raw: bytes) -> Optional[str]:
 
 
 def _decode_pipe_output(raw: bytes) -> str:
-    """Decodes raw pipe output using a multi-codec fallback strategy.
+    """Decodes raw pipe output with multi-codec fallback.
 
-    Codec order: UTF-16LE (BOM + heuristic) → system OEM code page →
-    system ANSI code page → UTF-8 with replacement.
+    Tries UTF-16LE → OEM → ANSI → UTF-8 (with replacement).
 
     Args:
         raw: Raw byte content from a pipe.
 
     Returns:
-        Decoded string (always succeeds; worst case uses replacement chars).
+        Decoded string (always succeeds).
     """
     if not raw:
         return ""
@@ -657,13 +633,13 @@ def _string_to_sid(sid_string: str) -> ctypes.c_void_p:
     """Converts a SID string to a PSID pointer.
 
     Args:
-        sid_string: SID in string form (e.g. ``"S-1-5-21-…"``).
+        sid_string: SID in string form (e.g. ``S-1-5-21-…``).
 
     Returns:
-        PSID pointer. Caller must free with ``LocalFree``.
+        PSID pointer. Caller must free with LocalFree.
 
     Raises:
-        OSError: If ``ConvertStringSidToSidW`` fails.
+        OSError: If ConvertStringSidToSidW fails.
     """
     advapi32 = _get_advapi32()
     psid = ctypes.c_void_p()
@@ -687,10 +663,10 @@ def _sid_to_string(psid: ctypes.c_void_p, advapi32: Any = None) -> str:
         advapi32: Optional pre-loaded advapi32 DLL handle.
 
     Returns:
-        SID string (e.g. ``"S-1-5-21-…"``).
+        SID string (e.g. ``S-1-5-21-…``).
 
     Raises:
-        OSError: If ``ConvertSidToStringSidW`` fails or returns NULL.
+        OSError: If ConvertSidToStringSidW fails.
     """
     if advapi32 is None:
         advapi32 = _get_advapi32()
@@ -713,14 +689,13 @@ def _create_well_known_sid(sid_type: int) -> bytes:
     """Creates a well-known SID by type constant.
 
     Args:
-        sid_type: Well-known SID type (e.g. ``WinWorldSid = 1``
-            for Everyone).
+        sid_type: Well-known SID type (e.g. 1 for Everyone).
 
     Returns:
         Raw SID bytes.
 
     Raises:
-        OSError: If ``CreateWellKnownSid`` fails.
+        OSError: If CreateWellKnownSid fails.
     """
     advapi32 = _get_advapi32()
     size = ctypes.wintypes.DWORD(0)
@@ -766,8 +741,7 @@ def _get_logon_sid_bytes(h_token: ctypes.wintypes.HANDLE) -> bytes:
         Raw SID bytes of the logon SID.
 
     Raises:
-        OSError: If token information cannot be read or no logon SID
-            is found.
+        OSError: If no logon SID is found in the token groups.
     """
     advapi32 = _get_advapi32()
     needed = ctypes.wintypes.DWORD(0)
@@ -825,17 +799,16 @@ def _build_explicit_access(
     access_mode: int,
     inheritance: int = 0,
 ) -> _EXPLICIT_ACCESS_W:
-    """Builds an ``EXPLICIT_ACCESS_W`` entry for a given SID.
+    """Builds an EXPLICIT_ACCESS_W entry for a given SID.
 
     Args:
         psid: Pointer to the trustee SID.
         access_mask: Access rights bitmask.
-        access_mode: Access mode (``GRANT_ACCESS``, ``SET_ACCESS``,
-            ``DENY_ACCESS``).
-        inheritance: Inheritance flags (e.g. ``CONTAINER_INHERIT_ACE``).
+        access_mode: GRANT_ACCESS, SET_ACCESS, or DENY_ACCESS.
+        inheritance: Inheritance flags (e.g. CONTAINER_INHERIT_ACE).
 
     Returns:
-        Populated ``_EXPLICIT_ACCESS_W`` structure.
+        Populated _EXPLICIT_ACCESS_W structure.
     """
     entry = _EXPLICIT_ACCESS_W()
     entry.grfAccessPermissions = access_mask
@@ -857,7 +830,7 @@ def _set_default_dacl(
 
     Args:
         h_token: Handle to the token to modify.
-        sid_ptrs: List of PSID pointers to grant ``GENERIC_ALL``.
+        sid_ptrs: List of PSID pointers to grant GENERIC_ALL.
     """
     if not sid_ptrs:
         return
@@ -896,7 +869,7 @@ def _enable_privilege(h_token: ctypes.wintypes.HANDLE, name: str) -> bool:
 
     Args:
         h_token: Handle to the token.
-        name: Privilege name (e.g. ``"SeChangeNotifyPrivilege"``).
+        name: Privilege name (e.g. ``SeChangeNotifyPrivilege``).
 
     Returns:
         True if the privilege was successfully enabled.
@@ -933,17 +906,16 @@ def _build_shell_command_line(
     cmd: str,
     shell_executable: Optional[str] = None,
 ) -> str:
-    """Builds the full command line string for launching a shell command.
+    """Builds a command line string for launching a shell command.
 
-    Dispatches by shell type: PowerShell, cmd.exe, or generic
-    (``-c`` flag).
+    Dispatches by shell type (PowerShell, cmd.exe, or generic ``-c``).
 
     Args:
         cmd: User command to execute.
-        shell_executable: Shell binary path. Defaults to ``cmd.exe``.
+        shell_executable: Shell binary path (defaults to cmd.exe).
 
     Returns:
-        Complete command line string ready for ``CreateProcessW``.
+        Complete command line string ready for CreateProcess.
     """
     name = (
         os.path.basename(shell_executable).lower() if shell_executable else ""
@@ -963,13 +935,13 @@ def _build_shell_command_line(
 
 
 def _make_env_block(env: Dict[str, str]) -> ctypes.Array:
-    """Builds a null-terminated Unicode environment block for CreateProcess.
+    """Builds a double-null-terminated Unicode environment block.
 
     Args:
         env: Environment variable mapping.
 
     Returns:
-        ctypes unicode buffer containing the double-null-terminated block.
+        ctypes unicode buffer for CreateProcess.
     """
     items = sorted(env.items(), key=lambda kv: kv[0].upper())
     env_str = "\x00".join(f"{k}={v}" for k, v in items) + "\x00\x00"
@@ -990,11 +962,10 @@ def _create_stdio_pipes(
         kernel32: Optional pre-loaded kernel32 DLL handle.
 
     Returns:
-        Tuple of ``(stdout_read, stdout_write, stderr_read, stderr_write)``
-        handles.
+        (stdout_read, stdout_write, stderr_read, stderr_write) handles.
 
     Raises:
-        OSError: If ``CreatePipe`` fails.
+        OSError: If CreatePipe fails.
     """
     if kernel32 is None:
         kernel32 = _get_kernel32()
@@ -1137,13 +1108,10 @@ def _remove_ace_by_sid_api(  # pylint: disable=too-many-branches
     path: str,
     sid_string: str,
 ) -> bool:
-    """Removes all ACEs matching a SID from a path's DACL using Win32 API.
+    """Removes all ACEs matching a SID from a path's DACL via Win32 API.
 
-    Unlike ``icacls /remove``, this directly manipulates the ACL structure
-    and does not require the SID to resolve to a known account.  This is
-    necessary because the unelevated sandbox uses fabricated SIDs
-    (``S-1-5-21-<random>``) that ``icacls`` cannot handle (returns
-    ``ERROR_NONE_MAPPED`` / exit code 1332).
+    Directly manipulates the ACL structure, which works with fabricated
+    SIDs that icacls cannot resolve.
 
     Args:
         path: Filesystem path to clean.
@@ -1274,26 +1242,20 @@ def _remove_acl_with_verify_sync(
     _reset_only: bool = False,
     deadline: float = 0.0,
 ) -> bool:
-    """Removes ACEs for a SID using Win32 API with verification.
+    """Removes ACEs for a SID via Win32 API with retry.
 
-    Uses direct DACL manipulation via ``GetNamedSecurityInfoW`` /
-    ``DeleteAce`` / ``SetNamedSecurityInfoW`` to remove ACEs matching
-    the given SID.  This approach works reliably with fabricated SIDs
-    that ``icacls`` cannot handle (icacls returns ERROR_NONE_MAPPED
-    for SIDs not in SAM/AD).
-
-    Falls back to a retry loop if the first attempt fails (e.g. due
-    to a transient sharing violation from a process exiting).
+    Uses direct DACL manipulation which works with fabricated SIDs
+    that icacls cannot handle.  Retries on transient failures.
 
     Args:
         path: Filesystem path to clean.
         sid: SID string to remove from the DACL.
         _reset_only: Unused (kept for API compatibility).
-        deadline: Monotonic time deadline. 0.0 means no deadline.
+        deadline: Monotonic time deadline (0.0 = no deadline).
 
     Returns:
-        True if the SID was successfully removed (or the path does
-        not exist).
+        True if the SID was successfully removed or the path does
+        not exist.
     """
     if not os.path.exists(path):
         return True
@@ -1340,15 +1302,8 @@ def _remove_acl_with_verify_sync(
 class WindowsSandboxBase(ABC):
     """Abstract base class for all Windows sandbox implementations.
 
-    Provides shared infrastructure:
-        - Config storage and ``config`` property.
-        - Async context manager protocol.
-        - Process termination via Job Object or direct handle.
-        - Sandbox violation detection via regex.
-        - Base environment building (inherits + config env_vars).
-
-    Attributes:
-        config: The sandbox configuration.
+    Provides config storage, async context manager protocol, process
+    termination, violation detection, and base environment building.
     """
 
     def __init__(self, config: SandboxConfig):
@@ -1419,11 +1374,8 @@ class WindowsSandboxBase(ABC):
     def _build_base_env(self) -> Dict[str, str]:
         """Builds the base child process environment.
 
-        Inherits the current process environment, applies config
-        ``env_vars``, and ensures ``PYTHONHOME`` is set.
-
         Returns:
-            Mutable environment dict for the child process.
+            Mutable environment dict (inherited env + config env_vars).
         """
         env = dict(os.environ)
         if self._config.env_vars:
@@ -1471,8 +1423,7 @@ def _set_path_ace(
         path: Filesystem path.
         psid: Pointer to the trustee SID.
         access_mask: Access rights bitmask.
-        access_mode: ``SET_ACCESS``, ``GRANT_ACCESS``, or
-            ``DENY_ACCESS``.
+        access_mode: SET_ACCESS, GRANT_ACCESS, or DENY_ACCESS.
         inherit: Whether to apply container/object inheritance.
 
     Returns:
@@ -1549,21 +1500,18 @@ def _create_restricted_token(
 ) -> Tuple[ctypes.wintypes.HANDLE, ctypes.c_void_p]:
     """Creates a WRITE_RESTRICTED token for the unelevated sandbox.
 
-    The restricting SID list is ``[cap_sid, logon_sid, Everyone]``.
-    Only write access checks the restricting SID list; read/execute
-    access uses normal DACL evaluation.
+    Restricting SID list: ``[cap_sid, logon_sid, Everyone]``.
 
     Args:
         h_base_token: Handle to the base process token.
-        cap_sid_string: Fabricated capability SID string used to gate
-            write access.
+        cap_sid_string: Fabricated capability SID string to gate writes.
 
     Returns:
-        Tuple of ``(new_token_handle, cap_psid)``. Caller must free
-        ``cap_psid`` with ``LocalFree`` after ACL operations complete.
+        (new_token_handle, cap_psid). Caller must free cap_psid with
+        LocalFree after ACL operations complete.
 
     Raises:
-        OSError: If ``CreateRestrictedToken`` fails.
+        OSError: If CreateRestrictedToken fails.
     """
     advapi32 = _get_advapi32()
     kernel32 = _get_kernel32()
@@ -1617,6 +1565,144 @@ def _create_restricted_token(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Shared: Process wait-and-read helper
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _wait_and_read_process(
+    process_handle: ctypes.wintypes.HANDLE,
+    stdout_handle: ctypes.wintypes.HANDLE,
+    stderr_handle: ctypes.wintypes.HANDLE,
+    timeout_seconds: int,
+    job_handle: Optional[ctypes.wintypes.HANDLE] = None,
+) -> Tuple[int, str, str, bool]:
+    """Waits for process exit and drains output pipes concurrently.
+
+    Synchronous; wrap with ``asyncio.to_thread`` for async usage.
+
+    Args:
+        process_handle: Handle to the child process.
+        stdout_handle: Read end of the stdout pipe.
+        stderr_handle: Read end of the stderr pipe.
+        timeout_seconds: Maximum seconds to wait before terminating.
+        job_handle: Optional Job Object handle for group termination.
+
+    Returns:
+        (exit_code, stdout, stderr, timed_out) tuple.
+    """
+    import concurrent.futures
+
+    kernel32 = _get_kernel32()
+    timeout_ms = timeout_seconds * 1000
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        f_stdout = pool.submit(_read_pipe, stdout_handle, kernel32)
+        f_stderr = pool.submit(_read_pipe, stderr_handle, kernel32)
+
+        wait_result = kernel32.WaitForSingleObject(process_handle, timeout_ms)
+        timed_out = wait_result == _WC.WAIT_TIMEOUT
+
+        if timed_out:
+            if job_handle:
+                kernel32.TerminateJobObject(job_handle, 1)
+            else:
+                kernel32.TerminateProcess(process_handle, 1)
+            kernel32.WaitForSingleObject(process_handle, 5000)
+
+        stdout_raw = f_stdout.result(timeout=10)
+        stderr_raw = f_stderr.result(timeout=10)
+
+    exit_code = ctypes.wintypes.DWORD()
+    kernel32.GetExitCodeProcess(process_handle, ctypes.byref(exit_code))
+
+    kernel32.CloseHandle(stdout_handle)
+    kernel32.CloseHandle(stderr_handle)
+    kernel32.CloseHandle(process_handle)
+    if job_handle:
+        kernel32.CloseHandle(job_handle)
+
+    return (
+        exit_code.value,
+        _decode_pipe_output(stdout_raw),
+        _decode_pipe_output(stderr_raw),
+        timed_out,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Shared: Metadata persistence helpers
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _save_sandbox_metadata(
+    meta_dir: Path,
+    sandbox_name: str,
+    meta: Dict[str, Any],
+) -> Path:
+    """Atomically persists sandbox metadata to a JSON file.
+
+    Args:
+        meta_dir: Directory to store metadata files.
+        sandbox_name: Filename stem (``{name}.json``).
+        meta: Metadata dict to serialize.
+
+    Returns:
+        Path to the written metadata file.
+    """
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    meta_path = meta_dir / f"{sandbox_name}.json"
+    tmp_path = meta_path.with_suffix(".tmp")
+    try:
+        tmp_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        os.replace(str(tmp_path), str(meta_path))
+    except OSError as e:
+        logger.warning("Failed to save sandbox metadata %s: %s", meta_path, e)
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return meta_path
+
+
+def _iter_orphaned_metadata(
+    sb_dir: Path,
+) -> List[Tuple[Path, Dict[str, Any]]]:
+    """Returns metadata files whose owner process is dead or is ourselves.
+
+    Args:
+        sb_dir: Directory containing ``*.json`` metadata files.
+
+    Returns:
+        List of (meta_file, meta_dict) for sandboxes eligible for cleanup.
+    """
+    if not sb_dir.exists():
+        return []
+
+    my_pid = os.getpid()
+    result: List[Tuple[Path, Dict[str, Any]]] = []
+
+    for meta_file in sb_dir.glob("*.json"):
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        owner_pid = meta.get("owner_pid")
+        if owner_pid is not None and owner_pid != my_pid:
+            if _is_pid_alive(owner_pid):
+                logger.debug(
+                    "Skipping sandbox %s — owner pid %d still alive",
+                    meta.get("sandbox_id", "?"),
+                    owner_pid,
+                )
+                continue
+
+        result.append((meta_file, meta))
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Unelevated-specific: Process Creation
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -1634,10 +1720,7 @@ def _create_process_as_user(
     ctypes.wintypes.HANDLE,
     Optional[ctypes.wintypes.HANDLE],
 ]:
-    """Creates a process under the restricted token.
-
-    The process is created suspended, assigned to a Job Object, then
-    resumed.
+    """Creates a suspended process under the restricted token, then resumes it.
 
     Args:
         h_token: Restricted token handle.
@@ -1647,11 +1730,10 @@ def _create_process_as_user(
         shell_executable: Shell binary path.
 
     Returns:
-        Tuple of ``(pid, process_handle, stdout_read, stderr_read,
-        job_handle)``.
+        (pid, process_handle, stdout_read, stderr_read, job_handle) tuple.
 
     Raises:
-        OSError: If ``CreateProcessAsUserW`` fails.
+        OSError: If CreateProcessAsUserW fails.
     """
     kernel32 = _get_kernel32()
     advapi32 = _get_advapi32()
@@ -1733,16 +1815,13 @@ _qwenpaw_state_dir = (
 
 @contextlib.contextmanager
 def _sandbox_file_lock(sandbox_name: str):
-    """Cross-process/cross-thread file lock for sandbox initialization.
+    """Cross-process file lock for sandbox initialization.
 
-    Uses a ``.lock`` file in the unelevated sandboxes directory with
-    ``msvcrt.locking`` (Windows mandatory lock) to serialize concurrent
-    ``_initialize_sync`` calls for the same sandbox_name.  This prevents
-    multiple instances from generating different capability SIDs and
-    racing on ACL application for the same workspace.
+    Uses msvcrt.locking to serialize concurrent initialization calls
+    for the same sandbox_name, preventing capability SID races.
 
-    The lock is held only during initialization (acquire-or-create) and
-    released immediately after metadata is written.
+    Args:
+        sandbox_name: Sandbox identifier (used as lock filename stem).
     """
     lock_dir = _qwenpaw_state_dir / "unelevated_sandboxes"
     lock_dir.mkdir(parents=True, exist_ok=True)
@@ -1777,13 +1856,22 @@ def _sandbox_file_lock(sandbox_name: str):
             os.close(fd)
 
 
-def _compute_unelevated_fingerprint(config: SandboxConfig) -> str:
-    """Computes a config fingerprint for sandbox reuse.
+def _compute_config_fingerprint(
+    config: SandboxConfig,
+    extra_fields: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Computes a 16-char hex fingerprint of security-boundary fields.
 
-    Hashes security-boundary fields to a 16-char hex digest.  Sandboxes
-    with the same fingerprint can reuse each other's ACLs and token SID.
+    Sandboxes with the same fingerprint can reuse each other's ACLs.
+
+    Args:
+        config: Sandbox configuration.
+        extra_fields: Additional fields to include in the hash.
+
+    Returns:
+        16-character hex digest string.
     """
-    data = {
+    data: Dict[str, Any] = {
         "workspace_dir": os.path.normpath(config.workspace_dir),
         "deny_paths": sorted(
             os.path.normpath(os.path.expanduser(p)) for p in config.deny_paths
@@ -1794,6 +1882,8 @@ def _compute_unelevated_fingerprint(config: SandboxConfig) -> str:
         ),
         "network_allow": sorted(config.network_allow),
     }
+    if extra_fields:
+        data.update(extra_fields)
     return hashlib.sha256(
         json.dumps(data, sort_keys=True).encode(),
     ).hexdigest()[:16]
@@ -1815,9 +1905,6 @@ def _save_unelevated_metadata(
     Returns:
         Path to the written metadata file.
     """
-    sb_dir = _unelevated_sandboxes_dir()
-    sb_dir.mkdir(parents=True, exist_ok=True)
-    meta_path = sb_dir / f"{sandbox_name}.json"
     meta = {
         "sandbox_id": sandbox_name,
         "cap_sid": cap_sid,
@@ -1833,17 +1920,11 @@ def _save_unelevated_metadata(
         ],
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
-    tmp_path = meta_path.with_suffix(".tmp")
-    try:
-        tmp_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-        os.replace(str(tmp_path), str(meta_path))
-    except OSError as e:
-        logger.warning("Failed to save unelevated sandbox metadata: %s", e)
-        try:
-            tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-    return meta_path
+    return _save_sandbox_metadata(
+        _unelevated_sandboxes_dir(),
+        sandbox_name,
+        meta,
+    )
 
 
 def _find_reusable_unelevated(sandbox_name: str) -> Optional[dict]:
@@ -1894,25 +1975,10 @@ def _verify_acl_present_sync(path: str, sid: str) -> bool:
 class WindowsUnelevatedSandbox(WindowsSandboxBase):
     """Windows sandbox using a WRITE_RESTRICTED token without admin privileges.
 
-    Write operations are gated by a fabricated capability SID: only
-    filesystem paths with an explicit allow ACE for this SID can be
-    written to by the sandboxed process. Read/execute access is
-    unrestricted. Network is soft-blocked via proxy environment variables
-    when ``network_allow`` is empty.
-
-    Uses per-instance metadata files for sandbox reuse across invocations.
-    A config fingerprint determines whether an existing sandbox can be
-    reused (same workspace, mounts, deny paths, and network settings).
-
-    Lifecycle:
-        ``__aenter__``: Acquires a sandbox (reuse or create new) — sets
-            up the restricted token and applies workspace/mount ACEs.
-        ``execute``: Launches a command under the restricted token.
-        ``__aexit__`` / ``stop``: Terminates the process and closes
-            token handles. ACLs and metadata persist for reuse.
-        ``shutdown_cleanup``: atexit handler — iterates per-instance
-            metadata files and removes ACLs with verified multi-strategy
-            removal.
+    Write operations are gated by a fabricated capability SID; read/execute
+    access is unrestricted.  Network is soft-blocked via proxy environment
+    variables when ``network_allow`` is empty.  Instances are cached on
+    disk and reused across invocations with matching config fingerprints.
     """
 
     def __init__(self, config: SandboxConfig):
@@ -1941,15 +2007,10 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         self._initialized = True
 
     def _initialize_sync(self) -> None:
-        """Synchronous initialization: acquire or create a sandbox instance.
+        """Acquires or creates a sandbox instance under a file lock.
 
-        Computes a config fingerprint and attempts to reuse an existing
-        sandbox with matching ACLs.  Falls back to creating a new sandbox
-        with a fresh capability SID if no reusable instance is found.
-
-        Uses a per-sandbox file lock to serialize concurrent initialization
-        for the same sandbox_name, preventing multiple instances from
-        generating conflicting capability SIDs and racing on ACL updates.
+        Computes a config fingerprint and reuses an existing sandbox if
+        ACLs are intact; otherwise creates a new one.
         """
         kernel32 = _get_kernel32()
         advapi32 = _get_advapi32()
@@ -1957,7 +2018,7 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         workspace = self._config.workspace_dir
         os.makedirs(workspace, exist_ok=True)
 
-        fingerprint = _compute_unelevated_fingerprint(self._config)
+        fingerprint = _compute_config_fingerprint(self._config)
         sandbox_name = f"qwenpaw_u_{fingerprint[:12]}"
         self._config_fingerprint = fingerprint
         self._sandbox_name = sandbox_name
@@ -2174,59 +2235,17 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
         h_stderr: ctypes.wintypes.HANDLE,
         h_job: Optional[ctypes.wintypes.HANDLE],
     ) -> Tuple[int, str, str, bool]:
-        """Waits for process exit and drains output pipes.
-
-        Args:
-            h_proc: Process handle.
-            h_stdout: Stdout read pipe handle.
-            h_stderr: Stderr read pipe handle.
-            h_job: Optional Job Object handle for group termination.
-
-        Returns:
-            Tuple of ``(exit_code, stdout, stderr, timed_out)``.
-        """
-        kernel32 = _get_kernel32()
-        timeout_ms = self._config.timeout_seconds * 1000
-
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            f_stdout = pool.submit(_read_pipe, h_stdout)
-            f_stderr = pool.submit(_read_pipe, h_stderr)
-
-            wait_result = kernel32.WaitForSingleObject(h_proc, timeout_ms)
-            timed_out = wait_result == _WC.WAIT_TIMEOUT
-
-            if timed_out:
-                if h_job:
-                    kernel32.TerminateJobObject(h_job, 1)
-                else:
-                    kernel32.TerminateProcess(h_proc, 1)
-                kernel32.WaitForSingleObject(h_proc, 5000)
-
-            stdout_raw = f_stdout.result(timeout=10)
-            stderr_raw = f_stderr.result(timeout=10)
-
-        exit_code = ctypes.wintypes.DWORD()
-        kernel32.GetExitCodeProcess(h_proc, ctypes.byref(exit_code))
-
-        kernel32.CloseHandle(h_stdout)
-        kernel32.CloseHandle(h_stderr)
-        kernel32.CloseHandle(h_proc)
-        if h_job:
-            kernel32.CloseHandle(h_job)
-
-        stdout = _decode_pipe_output(stdout_raw)
-        stderr = _decode_pipe_output(stderr_raw)
-
-        return (exit_code.value, stdout, stderr, timed_out)
+        """Waits for process exit and drains output pipes."""
+        return _wait_and_read_process(
+            h_proc,
+            h_stdout,
+            h_stderr,
+            self._config.timeout_seconds,
+            h_job,
+        )
 
     async def stop(self) -> None:
-        """Terminate any running process and release token handles.
-
-        ACLs and metadata are preserved on disk for sandbox reuse.
-        Full cleanup happens in ``shutdown_cleanup()`` at process exit.
-        """
+        """Terminates any running process and releases token handles."""
         kernel32 = _get_kernel32()
 
         self._terminate_process()
@@ -2284,13 +2303,10 @@ def _migrate_legacy_state_file() -> None:
         logger.warning("Failed to migrate legacy state file: %s", e)
 
 
-def shutdown_cleanup() -> None:  # pylint: disable=too-many-branches
+def shutdown_cleanup() -> None:
     """Best-effort cleanup of unelevated sandbox ACLs on process exit.
 
-    Iterates per-instance metadata files under
-    ``~/.qwenpaw/unelevated_sandboxes/``, skips sandboxes whose owner
-    process is still alive, and removes all ACEs using Win32 API-based
-    DACL manipulation.
+    Removes ACEs for orphaned sandboxes whose owner process is dead.
     """
     if sys.platform != "win32":
         return
@@ -2298,29 +2314,14 @@ def shutdown_cleanup() -> None:  # pylint: disable=too-many-branches
     _migrate_legacy_state_file()
 
     sb_dir = _unelevated_sandboxes_dir()
-    if not sb_dir.exists():
+    orphaned = _iter_orphaned_metadata(sb_dir)
+    if not orphaned:
         return
 
     t_start = time.monotonic()
-    my_pid = os.getpid()
     sandboxes_processed = 0
 
-    for meta_file in sb_dir.glob("*.json"):
-        try:
-            meta = json.loads(meta_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-
-        owner_pid = meta.get("owner_pid")
-        if owner_pid is not None and owner_pid != my_pid:
-            if _is_pid_alive(owner_pid):
-                logger.debug(
-                    "Skipping unelevated sandbox %s — owner pid %d alive",
-                    meta.get("sandbox_id", "?"),
-                    owner_pid,
-                )
-                continue
-
+    for meta_file, meta in orphaned:
         cap_sid = meta.get("cap_sid", "")
         if not cap_sid:
             continue
@@ -2359,11 +2360,6 @@ def shutdown_cleanup() -> None:  # pylint: disable=too-many-branches
                 cap_sid,
                 len(failed_paths),
                 failed_paths,
-            )
-        else:
-            logger.info(
-                "Unelevated sandbox cleanup: removed ACEs for %s",
-                sandbox_id,
             )
 
         logger.info(

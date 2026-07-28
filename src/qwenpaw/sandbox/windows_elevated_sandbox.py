@@ -1,15 +1,12 @@
 # -*- coding: utf-8 -*-
 """Windows elevated sandbox implementation.
 
-Uses a dedicated local user account with a WRITE_RESTRICTED token and
-WFP firewall rules for process isolation. Read/execute access uses
-normal DACL evaluation (no per-directory read ACEs needed); only write
-operations check the restricting SID list.
+Uses a dedicated local user account with a WRITE_RESTRICTED token and WFP
+firewall rules for process isolation.  Read/execute access uses normal DACL
+evaluation; only write operations check the restricting SID list.
 
 Selected when ``allow_read_all=True`` and the process has administrator
-privileges. Without admin, ``WindowsUnelevatedSandbox`` is used instead.
-
-Requires Windows 10 1507+, administrator privileges, and Python ctypes.
+privileges.  Requires Windows 10 1507+.
 """
 
 import asyncio
@@ -17,7 +14,6 @@ import atexit
 import base64
 import ctypes
 import ctypes.wintypes
-import hashlib
 import json
 import logging
 import os
@@ -38,26 +34,33 @@ from .windows_unelevated_sandbox import (
     _AclEntry,
     _build_explicit_access,
     _build_shell_command_line,
+    _compute_config_fingerprint,
     _copy_sid_from_ptr,
     _create_job_object,
     _create_stdio_pipes,
     _create_well_known_sid,
-    _decode_pipe_output,
     _enable_privilege,
     _get_logon_sid_bytes,
     _get_python_install_dir,
     _is_admin,
-    _is_pid_alive,
+    _iter_orphaned_metadata,
     _make_env_block,
     _make_random_cap_sid_string,
     _qwenpaw_state_dir,
-    _read_pipe,
     _remove_acl_with_verify_sync,
     _sandbox_file_lock,
+    _save_sandbox_metadata,
     _set_default_dacl,
     _set_path_ace,
     _sid_to_string,
     _string_to_sid,
+    _wait_and_read_process,
+)
+from .windows_unelevated_sandbox import (
+    _get_advapi32 as _get_shared_advapi32,
+)
+from .windows_unelevated_sandbox import (
+    _get_kernel32 as _get_shared_kernel32,
 )
 
 logger = logging.getLogger(__name__)
@@ -89,27 +92,22 @@ _ERROR_ALIAS_EXISTS = 1379
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Cached DLL accessors (module-local — different argtypes from shared)
+# DLL accessors — extend shared ones with elevated-specific argtypes
 # ═══════════════════════════════════════════════════════════════════════════
 
-_dll_kernel32: Optional[Any] = None
-_dll_advapi32: Optional[Any] = None
+_elevated_kernel32_ready: bool = False
+_elevated_advapi32_ready: bool = False
 _dll_netapi32: Optional[Any] = None
 _dll_user32: Optional[Any] = None
 _dll_userenv: Optional[Any] = None
 
 
 def _get_kernel32():
-    global _dll_kernel32
-    if _dll_kernel32 is None:
-        _dll_kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
-        _dll_kernel32.LocalFree.argtypes = [ctypes.wintypes.HLOCAL]
-        _dll_kernel32.LocalFree.restype = ctypes.wintypes.HLOCAL
-        _dll_kernel32.GetCurrentProcess.argtypes = []
-        _dll_kernel32.GetCurrentProcess.restype = ctypes.wintypes.HANDLE
-        _dll_kernel32.CloseHandle.argtypes = [ctypes.wintypes.HANDLE]
-        _dll_kernel32.CloseHandle.restype = ctypes.wintypes.BOOL
-        _dll_kernel32.CreateFileW.argtypes = [
+    """Returns shared kernel32 with elevated-specific argtypes added."""
+    global _elevated_kernel32_ready
+    dll = _get_shared_kernel32()
+    if not _elevated_kernel32_ready:
+        dll.CreateFileW.argtypes = [
             ctypes.wintypes.LPCWSTR,
             ctypes.wintypes.DWORD,
             ctypes.wintypes.DWORD,
@@ -118,169 +116,19 @@ def _get_kernel32():
             ctypes.wintypes.DWORD,
             ctypes.wintypes.HANDLE,
         ]
-        _dll_kernel32.CreateFileW.restype = ctypes.wintypes.HANDLE
-        _dll_kernel32.WaitForSingleObject.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.wintypes.DWORD,
-        ]
-        _dll_kernel32.WaitForSingleObject.restype = ctypes.wintypes.DWORD
-        _dll_kernel32.GetExitCodeProcess.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.POINTER(ctypes.wintypes.DWORD),
-        ]
-        _dll_kernel32.GetExitCodeProcess.restype = ctypes.wintypes.BOOL
-        _dll_kernel32.ReadFile.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.c_void_p,
-            ctypes.wintypes.DWORD,
-            ctypes.POINTER(ctypes.wintypes.DWORD),
-            ctypes.c_void_p,
-        ]
-        _dll_kernel32.ReadFile.restype = ctypes.wintypes.BOOL
-        _dll_kernel32.OpenProcess.argtypes = [
-            ctypes.wintypes.DWORD,
-            ctypes.wintypes.BOOL,
-            ctypes.wintypes.DWORD,
-        ]
-        _dll_kernel32.OpenProcess.restype = ctypes.wintypes.HANDLE
-        _dll_kernel32.TerminateProcess.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.c_uint,
-        ]
-        _dll_kernel32.TerminateProcess.restype = ctypes.wintypes.BOOL
-        _dll_kernel32.CreateJobObjectW.argtypes = [
-            ctypes.c_void_p,
-            ctypes.wintypes.LPCWSTR,
-        ]
-        _dll_kernel32.CreateJobObjectW.restype = ctypes.wintypes.HANDLE
-        _dll_kernel32.AssignProcessToJobObject.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.wintypes.HANDLE,
-        ]
-        _dll_kernel32.AssignProcessToJobObject.restype = ctypes.wintypes.BOOL
-        _dll_kernel32.TerminateJobObject.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.c_uint,
-        ]
-        _dll_kernel32.TerminateJobObject.restype = ctypes.wintypes.BOOL
-        _dll_kernel32.SetInformationJobObject.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.c_int,
-            ctypes.c_void_p,
-            ctypes.wintypes.DWORD,
-        ]
-        _dll_kernel32.SetInformationJobObject.restype = ctypes.wintypes.BOOL
-        _dll_kernel32.GetCurrentThreadId.argtypes = []
-        _dll_kernel32.GetCurrentThreadId.restype = ctypes.wintypes.DWORD
-    return _dll_kernel32
+        dll.CreateFileW.restype = ctypes.wintypes.HANDLE
+        dll.GetCurrentThreadId.argtypes = []
+        dll.GetCurrentThreadId.restype = ctypes.wintypes.DWORD
+        _elevated_kernel32_ready = True
+    return dll
 
 
 def _get_advapi32():
-    global _dll_advapi32
-    if _dll_advapi32 is None:
-        _dll_advapi32 = ctypes.WinDLL("advapi32.dll", use_last_error=True)
-        _dll_advapi32.OpenProcessToken.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.wintypes.DWORD,
-            ctypes.POINTER(ctypes.wintypes.HANDLE),
-        ]
-        _dll_advapi32.OpenProcessToken.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.LookupPrivilegeValueW.argtypes = [
-            ctypes.wintypes.LPCWSTR,
-            ctypes.wintypes.LPCWSTR,
-            ctypes.c_void_p,
-        ]
-        _dll_advapi32.LookupPrivilegeValueW.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.AdjustTokenPrivileges.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.wintypes.BOOL,
-            ctypes.c_void_p,
-            ctypes.wintypes.DWORD,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-        ]
-        _dll_advapi32.AdjustTokenPrivileges.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.GetNamedSecurityInfoW.argtypes = [
-            ctypes.wintypes.LPCWSTR,
-            ctypes.wintypes.DWORD,
-            ctypes.wintypes.DWORD,
-            ctypes.POINTER(ctypes.c_void_p),
-            ctypes.POINTER(ctypes.c_void_p),
-            ctypes.POINTER(ctypes.c_void_p),
-            ctypes.POINTER(ctypes.c_void_p),
-            ctypes.POINTER(ctypes.c_void_p),
-        ]
-        _dll_advapi32.GetNamedSecurityInfoW.restype = ctypes.wintypes.DWORD
-        _dll_advapi32.SetNamedSecurityInfoW.argtypes = [
-            ctypes.wintypes.LPWSTR,
-            ctypes.wintypes.DWORD,
-            ctypes.wintypes.DWORD,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-        ]
-        _dll_advapi32.SetNamedSecurityInfoW.restype = ctypes.wintypes.DWORD
-        _dll_advapi32.SetEntriesInAclW.argtypes = [
-            ctypes.wintypes.ULONG,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.POINTER(ctypes.c_void_p),
-        ]
-        _dll_advapi32.SetEntriesInAclW.restype = ctypes.wintypes.DWORD
-        _dll_advapi32.ConvertStringSidToSidW.argtypes = [
-            ctypes.wintypes.LPCWSTR,
-            ctypes.POINTER(ctypes.c_void_p),
-        ]
-        _dll_advapi32.ConvertStringSidToSidW.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.ConvertSidToStringSidW.argtypes = [
-            ctypes.c_void_p,
-            ctypes.POINTER(ctypes.c_wchar_p),
-        ]
-        _dll_advapi32.ConvertSidToStringSidW.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.CreateWellKnownSid.argtypes = [
-            ctypes.wintypes.DWORD,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.POINTER(ctypes.wintypes.DWORD),
-        ]
-        _dll_advapi32.CreateWellKnownSid.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.CreateRestrictedToken.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.wintypes.DWORD,
-            ctypes.wintypes.DWORD,
-            ctypes.c_void_p,
-            ctypes.wintypes.DWORD,
-            ctypes.c_void_p,
-            ctypes.wintypes.DWORD,
-            ctypes.c_void_p,
-            ctypes.POINTER(ctypes.wintypes.HANDLE),
-        ]
-        _dll_advapi32.CreateRestrictedToken.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.SetTokenInformation.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.wintypes.DWORD,
-            ctypes.c_void_p,
-            ctypes.wintypes.DWORD,
-        ]
-        _dll_advapi32.SetTokenInformation.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.GetTokenInformation.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.wintypes.DWORD,
-            ctypes.c_void_p,
-            ctypes.wintypes.DWORD,
-            ctypes.POINTER(ctypes.wintypes.DWORD),
-        ]
-        _dll_advapi32.GetTokenInformation.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.GetLengthSid.argtypes = [ctypes.c_void_p]
-        _dll_advapi32.GetLengthSid.restype = ctypes.wintypes.DWORD
-        _dll_advapi32.CopySid.argtypes = [
-            ctypes.wintypes.DWORD,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-        ]
-        _dll_advapi32.CopySid.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.LogonUserW.argtypes = [
+    """Returns shared advapi32 with elevated-specific argtypes added."""
+    global _elevated_advapi32_ready
+    dll = _get_shared_advapi32()
+    if not _elevated_advapi32_ready:
+        dll.LogonUserW.argtypes = [
             ctypes.wintypes.LPCWSTR,
             ctypes.wintypes.LPCWSTR,
             ctypes.wintypes.LPCWSTR,
@@ -288,8 +136,8 @@ def _get_advapi32():
             ctypes.wintypes.DWORD,
             ctypes.POINTER(ctypes.wintypes.HANDLE),
         ]
-        _dll_advapi32.LogonUserW.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.LookupAccountNameW.argtypes = [
+        dll.LogonUserW.restype = ctypes.wintypes.BOOL
+        dll.LookupAccountNameW.argtypes = [
             ctypes.wintypes.LPCWSTR,
             ctypes.wintypes.LPCWSTR,
             ctypes.c_void_p,
@@ -298,22 +146,8 @@ def _get_advapi32():
             ctypes.POINTER(ctypes.wintypes.DWORD),
             ctypes.POINTER(ctypes.wintypes.DWORD),
         ]
-        _dll_advapi32.LookupAccountNameW.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.CreateProcessAsUserW.argtypes = [
-            ctypes.wintypes.HANDLE,
-            ctypes.wintypes.LPCWSTR,
-            ctypes.wintypes.LPWSTR,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.wintypes.BOOL,
-            ctypes.wintypes.DWORD,
-            ctypes.c_void_p,
-            ctypes.wintypes.LPCWSTR,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-        ]
-        _dll_advapi32.CreateProcessAsUserW.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.CreateProcessWithTokenW.argtypes = [
+        dll.LookupAccountNameW.restype = ctypes.wintypes.BOOL
+        dll.CreateProcessWithTokenW.argtypes = [
             ctypes.wintypes.HANDLE,
             ctypes.wintypes.DWORD,
             ctypes.wintypes.LPCWSTR,
@@ -324,8 +158,8 @@ def _get_advapi32():
             ctypes.c_void_p,
             ctypes.c_void_p,
         ]
-        _dll_advapi32.CreateProcessWithTokenW.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.GetSecurityInfo.argtypes = [
+        dll.CreateProcessWithTokenW.restype = ctypes.wintypes.BOOL
+        dll.GetSecurityInfo.argtypes = [
             ctypes.wintypes.HANDLE,
             ctypes.wintypes.DWORD,
             ctypes.wintypes.DWORD,
@@ -335,8 +169,8 @@ def _get_advapi32():
             ctypes.POINTER(ctypes.c_void_p),
             ctypes.POINTER(ctypes.c_void_p),
         ]
-        _dll_advapi32.GetSecurityInfo.restype = ctypes.wintypes.DWORD
-        _dll_advapi32.SetSecurityInfo.argtypes = [
+        dll.GetSecurityInfo.restype = ctypes.wintypes.DWORD
+        dll.SetSecurityInfo.argtypes = [
             ctypes.wintypes.HANDLE,
             ctypes.wintypes.DWORD,
             ctypes.wintypes.DWORD,
@@ -345,29 +179,28 @@ def _get_advapi32():
             ctypes.c_void_p,
             ctypes.c_void_p,
         ]
-        _dll_advapi32.SetSecurityInfo.restype = ctypes.wintypes.DWORD
-        _dll_advapi32.GetSecurityDescriptorDacl.argtypes = [
+        dll.SetSecurityInfo.restype = ctypes.wintypes.DWORD
+        dll.GetSecurityDescriptorDacl.argtypes = [
             ctypes.c_void_p,
             ctypes.POINTER(ctypes.wintypes.BOOL),
             ctypes.POINTER(ctypes.c_void_p),
             ctypes.POINTER(ctypes.wintypes.BOOL),
         ]
-        _dll_advapi32.GetSecurityDescriptorDacl.restype = ctypes.wintypes.BOOL
-        _dll_advapi32.InitializeSecurityDescriptor.argtypes = [
+        dll.GetSecurityDescriptorDacl.restype = ctypes.wintypes.BOOL
+        dll.InitializeSecurityDescriptor.argtypes = [
             ctypes.c_void_p,
             ctypes.wintypes.DWORD,
         ]
-        _dll_advapi32.InitializeSecurityDescriptor.restype = (
-            ctypes.wintypes.BOOL
-        )
-        _dll_advapi32.SetSecurityDescriptorDacl.argtypes = [
+        dll.InitializeSecurityDescriptor.restype = ctypes.wintypes.BOOL
+        dll.SetSecurityDescriptorDacl.argtypes = [
             ctypes.c_void_p,
             ctypes.wintypes.BOOL,
             ctypes.c_void_p,
             ctypes.wintypes.BOOL,
         ]
-        _dll_advapi32.SetSecurityDescriptorDacl.restype = ctypes.wintypes.BOOL
-    return _dll_advapi32
+        dll.SetSecurityDescriptorDacl.restype = ctypes.wintypes.BOOL
+        _elevated_advapi32_ready = True
+    return dll
 
 
 def _get_netapi32():
@@ -430,14 +263,13 @@ def _get_userenv():
 def _lookup_account_sid(
     account_name: str,
 ) -> Optional[Tuple[ctypes.Array, int]]:
-    """Resolves an account name to a SID buffer.
+    """Resolves a local account name to a SID buffer.
 
     Args:
         account_name: Local account or group name.
 
     Returns:
-        Tuple of ``(sid_buffer, sid_size)``, or None if the account
-        is not found.
+        ``(sid_buffer, sid_size)`` tuple, or ``None`` if not found.
     """
     advapi32 = _get_advapi32()
     sid_size = ctypes.wintypes.DWORD(0)
@@ -476,14 +308,7 @@ def _lookup_account_sid(
 
 
 def _random_password(length: int = 24) -> str:
-    """Generates a random password for sandbox user accounts.
-
-    Args:
-        length: Password length.
-
-    Returns:
-        Random password string.
-    """
+    """Generates a random password for sandbox user accounts."""
     chars = (
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
         "0123456789!@#$%^&*()-_=+"
@@ -512,7 +337,7 @@ def _dpapi_encrypt(plaintext: str) -> str:
         Base64-encoded ciphertext.
 
     Raises:
-        OSError: If ``CryptProtectData`` fails.
+        OSError: If CryptProtectData fails.
     """
     data = plaintext.encode("utf-8")
     blob_in = _DATA_BLOB(
@@ -556,7 +381,7 @@ def _dpapi_decrypt(ciphertext_b64: str) -> str:
         Decrypted plaintext string.
 
     Raises:
-        OSError: If ``CryptUnprotectData`` fails.
+        OSError: If CryptUnprotectData fails.
     """
     data = base64.b64decode(ciphertext_b64)
     blob_in = _DATA_BLOB(
@@ -890,10 +715,7 @@ def _create_restricted_token(
 ) -> ctypes.wintypes.HANDLE:
     """Creates a WRITE_RESTRICTED token for the elevated sandbox.
 
-    In WRITE_RESTRICTED mode only write access checks the restricting
-    SID list; read/execute access uses normal DACL evaluation.
-
-    The restricting SID list is:
+    The restricting SID list is
     ``[capabilities…, user_sid, logon_sid, Everyone]``.
 
     Args:
@@ -905,7 +727,7 @@ def _create_restricted_token(
         Handle to the new restricted token.
 
     Raises:
-        OSError: If ``CreateRestrictedToken`` fails.
+        OSError: If CreateRestrictedToken fails.
     """
     advapi32 = _get_advapi32()
     kernel32 = _get_kernel32()
@@ -986,11 +808,11 @@ _privileges_enabled = False
 def _ensure_privileges() -> None:
     """Enables required security privileges on the current process token.
 
-    Privileges enabled: ``SeRestorePrivilege``, ``SeBackupPrivilege``,
-    ``SeTakeOwnershipPrivilege``, ``SeImpersonatePrivilege``,
-    ``SeAssignPrimaryTokenPrivilege``, ``SeIncreaseQuotaPrivilege``.
+    Enables SeRestorePrivilege, SeBackupPrivilege,
+    SeTakeOwnershipPrivilege, SeImpersonatePrivilege,
+    SeAssignPrimaryTokenPrivilege, and SeIncreaseQuotaPrivilege.
 
-    Called once and cached; subsequent calls are no-ops.
+    Called once; subsequent calls are no-ops.
     """
     global _privileges_enabled
     if _privileges_enabled:
@@ -1059,14 +881,16 @@ _ACL_TRAVERSE = 0x00120021
 def _add_traverse_ace(path: str, psid: ctypes.c_void_p) -> bool:
     """Adds a non-inheritable traverse ACE on a directory.
 
-    Grants only FILE_LIST_DIRECTORY | FILE_TRAVERSE | READ_CONTROL |
-    SYNCHRONIZE — the minimum required for PowerShell/.NET to validate
-    the path via ``Directory.Exists()``.  Non-inheritable so that only
-    the directory itself is affected, not its children.
+    Grants FILE_LIST_DIRECTORY | FILE_TRAVERSE | READ_CONTROL |
+    SYNCHRONIZE — the minimum for PowerShell/.NET path validation.
     """
     _ensure_privileges()
     return _set_path_ace(
-        path, psid, _ACL_TRAVERSE, _WC.SET_ACCESS, inherit=False
+        path,
+        psid,
+        _ACL_TRAVERSE,
+        _WC.SET_ACCESS,
+        inherit=False,
     )
 
 
@@ -1155,12 +979,9 @@ _python_dir_acl_granted: bool = False
 
 
 def _ensure_python_dir_group_acl() -> None:
-    """Grants read/execute access to the ``QwenpawUsers`` group.
+    """Grants read/execute access to QwenpawUsers on the Python install dir.
 
-    Targets the Python install directory.
-
-    This is a one-time operation: a marker file is written after the
-    ACL is set to skip the grant on subsequent calls.
+    One-time operation; a marker file prevents repeated calls.
     """
     global _python_dir_acl_granted
     if _python_dir_acl_granted:
@@ -1210,25 +1031,17 @@ def _ensure_python_dir_group_acl() -> None:
 def _ensure_parent_traverse_acls(
     group_psid: ctypes.c_void_p,
 ) -> None:
-    """Grants traverse on ``C:\\Users`` and ``%USERPROFILE%``.
+    """Grants traverse ACEs on ``C:\\Users`` and ``%USERPROFILE%``.
 
-    PowerShell/.NET validates every segment of a path via
-    ``Directory.Exists()`` before accepting it as ``$PWD``.  Without
-    at least ``FILE_LIST_DIRECTORY`` on the user's profile directory
-    (e.g. ``C:\\Users\\mkh``), PowerShell falls back to the drive root.
+    PowerShell/.NET validates every path segment via Directory.Exists()
+    before accepting it as $PWD.  Sets traverse ACEs on these two
+    directories so the sandbox user's working directory resolves
+    correctly.
 
-    This function sets a traverse ACE on exactly two directories:
-        - ``C:\\Users``
-        - ``C:\\Users\\<current_user>``  (i.e. ``%USERPROFILE%``)
-
-    This is a **one-time persistent operation**: a marker file
-    (``~/.qwenpaw/.traverse_acl_granted``) is written after ACLs are
-    applied.  The traverse ACEs are intentionally never cleaned up —
-    they use the ``QwenpawUsers`` group and carry minimal security
-    impact (filename visibility only, no content access).
+    One-time persistent operation (marker-file guarded, never cleaned up).
 
     Args:
-        group_psid: Pointer to the ``QwenpawUsers`` group SID.
+        group_psid: Pointer to the QwenpawUsers group SID.
     """
     marker = _qwenpaw_state_dir / ".traverse_acl_granted"
     if marker.exists():
@@ -1278,12 +1091,9 @@ def _apply_all_acls(
 ) -> List[_AclEntry]:
     """Applies filesystem ACLs for the elevated sandbox.
 
-    Grants write access to workspace and mounts for both the capability
-    SID and the user SID, denies access to deny_paths for the user SID,
-    ensures the Python install directory is readable via the
-    ``QwenpawUsers`` group, and grants traverse permission on
-    intermediate parent directories so that PowerShell can validate the
-    working directory path.
+    Grants write to workspace/mounts for both the capability SID and user
+    SID, denies deny_paths, ensures Python dir is readable, and grants
+    traverse on parent directories.
 
     Args:
         config: Sandbox configuration.
@@ -1291,7 +1101,7 @@ def _apply_all_acls(
         user_sid_string: Sandbox user's SID string.
 
     Returns:
-        List of ``_AclEntry`` records describing the ACLs applied.
+        List of applied ACL entries.
     """
     kernel32 = _get_kernel32()
     psid = _string_to_sid(cap_sid_string)
@@ -1567,8 +1377,8 @@ def _create_process_with_token(
 ]:
     """Launches a process with the restricted token.
 
-    Tries ``CreateProcessWithTokenW`` first and falls back to
-    ``CreateProcessAsUserW`` on failure.
+    Tries CreateProcessWithTokenW first and falls back to
+    CreateProcessAsUserW on failure.
 
     Args:
         h_token: Restricted token handle.
@@ -1578,8 +1388,8 @@ def _create_process_with_token(
         shell_executable: Shell binary path.
 
     Returns:
-        Tuple of ``(pid, process_handle, stdout_read, stderr_read,
-        job_handle)``.
+        Tuple of (pid, process_handle, stdout_read, stderr_read,
+        job_handle).
 
     Raises:
         OSError: If both process creation methods fail.
@@ -1670,77 +1480,25 @@ def _create_process_with_token(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Pipe reading and process waiting
+# Pipe reading and process waiting (delegates to shared helper)
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-async def _wait_and_read_process(
+async def _async_wait_and_read(
     process_handle: ctypes.wintypes.HANDLE,
     stdout_handle: ctypes.wintypes.HANDLE,
     stderr_handle: ctypes.wintypes.HANDLE,
     timeout_seconds: int,
     job_handle: Optional[ctypes.wintypes.HANDLE] = None,
 ) -> Tuple[int, str, str, bool]:
-    """Waits for process completion and reads pipe output.
-
-    Drains stdout/stderr in parallel with the process wait. On timeout,
-    terminates via the Job Object (if available) or directly.
-
-    Args:
-        process_handle: Handle to the child process.
-        stdout_handle: Read end of the stdout pipe.
-        stderr_handle: Read end of the stderr pipe.
-        timeout_seconds: Maximum seconds to wait.
-        job_handle: Optional Job Object handle for group termination.
-
-    Returns:
-        Tuple of ``(exit_code, stdout, stderr, timed_out)``.
-    """
-    kernel32 = _get_kernel32()
-    loop = asyncio.get_event_loop()
-
-    def _drain_stdout():
-        return _read_pipe(stdout_handle, kernel32)
-
-    def _drain_stderr():
-        return _read_pipe(stderr_handle, kernel32)
-
-    def _wait_process():
-        timeout_ms = timeout_seconds * 1000
-        result = kernel32.WaitForSingleObject(process_handle, timeout_ms)
-        timed_out = result == _WC.WAIT_TIMEOUT
-        if timed_out:
-            if job_handle:
-                kernel32.TerminateJobObject(job_handle, 1)
-            else:
-                kernel32.TerminateProcess(process_handle, 1)
-            kernel32.WaitForSingleObject(process_handle, 5000)
-        return timed_out
-
-    stdout_future = loop.run_in_executor(None, _drain_stdout)
-    stderr_future = loop.run_in_executor(None, _drain_stderr)
-    wait_future = loop.run_in_executor(None, _wait_process)
-
-    timed_out, stdout_data, stderr_data = await asyncio.gather(
-        wait_future,
-        stdout_future,
-        stderr_future,
-    )
-
-    exit_code = ctypes.wintypes.DWORD()
-    kernel32.GetExitCodeProcess(process_handle, ctypes.byref(exit_code))
-
-    kernel32.CloseHandle(stdout_handle)
-    kernel32.CloseHandle(stderr_handle)
-    kernel32.CloseHandle(process_handle)
-    if job_handle:
-        kernel32.CloseHandle(job_handle)
-
-    return (
-        exit_code.value,
-        _decode_pipe_output(stdout_data),
-        _decode_pipe_output(stderr_data),
-        timed_out,
+    """Async wrapper around the shared ``_wait_and_read_process``."""
+    return await asyncio.to_thread(
+        _wait_and_read_process,
+        process_handle,
+        stdout_handle,
+        stderr_handle,
+        timeout_seconds,
+        job_handle,
     )
 
 
@@ -1749,23 +1507,14 @@ async def _wait_and_read_process(
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def _compute_config_fingerprint(config: SandboxConfig) -> str:
+def _compute_elevated_fingerprint(config: SandboxConfig) -> str:
     python_dir = _get_python_install_dir()
-    data = {
-        "workspace_dir": os.path.normpath(config.workspace_dir),
-        "deny_paths": sorted(
-            os.path.normpath(os.path.expanduser(p)) for p in config.deny_paths
-        ),
-        "mounts": sorted(
-            (os.path.normpath(m.path), m.writable, m.executable)
-            for m in config.mounts
-        ),
-        "network_allow": sorted(config.network_allow),
-        "python_dir": os.path.normpath(python_dir) if python_dir else None,
-    }
-    return hashlib.sha256(
-        json.dumps(data, sort_keys=True).encode(),
-    ).hexdigest()[:16]
+    return _compute_config_fingerprint(
+        config,
+        extra_fields={
+            "python_dir": os.path.normpath(python_dir) if python_dir else None,
+        },
+    )
 
 
 def _sandboxes_dir(state_dir: Path) -> Path:
@@ -2002,9 +1751,6 @@ def _create_new_sandbox(
 
     h_token = _create_restricted_token(h_user_token, [cap_sid])
 
-    sb_dir = _sandboxes_dir(_qwenpaw_state_dir)
-    sb_dir.mkdir(parents=True, exist_ok=True)
-    meta_path = sb_dir / f"{sandbox_id}.json"
     encrypted_password = None
     try:
         encrypted_password = _dpapi_encrypt(password)
@@ -2031,7 +1777,11 @@ def _create_new_sandbox(
         ],
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    meta_path = _save_sandbox_metadata(
+        _sandboxes_dir(_qwenpaw_state_dir),
+        sandbox_id,
+        meta,
+    )
 
     logger.debug(
         "Created sandbox %s (user=%s, cap_sid=%s, profile=%s)",
@@ -2057,14 +1807,11 @@ def _create_new_sandbox(
 
 
 def _acquire_sandbox_sync(config: SandboxConfig) -> _SandboxInstance:
-    """Synchronous sandbox acquisition, protected by a cross-process lock.
+    """Acquires a sandbox instance under a cross-process file lock.
 
-    The file lock serializes concurrent callers using the same sandbox
-    name (derived from the config fingerprint), preventing the race
-    where multiple processes reset the user password simultaneously and
-    invalidate each other's credentials.
+    Serializes concurrent callers to prevent password-reset races.
     """
-    fingerprint = _compute_config_fingerprint(config)
+    fingerprint = _compute_elevated_fingerprint(config)
     sandbox_name = f"qwenpaw_{fingerprint[:12]}"
 
     with _sandbox_file_lock(sandbox_name):
@@ -2091,23 +1838,12 @@ async def _release_sandbox(instance: _SandboxInstance) -> None:
 
 
 class WindowsElevatedSandbox(WindowsSandboxBase):
-    """Windows elevated sandbox with a WRITE_RESTRICTED token.
+    """Elevated sandbox using a dedicated user + WRITE_RESTRICTED token.
 
-    Uses a dedicated user account for process isolation.
-
-    Used when ``allow_read_all=True`` and the process has administrator
-    privileges. Reads work via normal DACL evaluation; writes are gated
-    by the restricting SID list. Network is blocked via WFP firewall
-    rules when ``network_allow`` is empty.
-
-    Sandbox instances are cached on disk and reused across invocations
-    with identical configurations.
-
-    Lifecycle:
-        ``__aenter__``: Acquires a sandbox instance (creates or reuses).
-        ``execute``: Launches a command with the restricted token.
-        ``__aexit__`` / ``stop``: Terminates the running process and
-            releases the instance reference.
+    Reads use normal DACL evaluation; writes are gated by the
+    restricting SID list.  Network is blocked via WFP firewall rules
+    when ``network_allow`` is empty.  Instances are cached on disk and
+    reused across invocations with identical configurations.
     """
 
     def __init__(self, config: SandboxConfig):
@@ -2173,7 +1909,7 @@ class WindowsElevatedSandbox(WindowsSandboxBase):
                 stdout,
                 stderr,
                 timed_out,
-            ) = await _wait_and_read_process(
+            ) = await _async_wait_and_read(
                 proc_handle,
                 stdout_handle,
                 stderr_handle,
@@ -2279,12 +2015,7 @@ def _run_cmd_sync(
 
 
 def _remove_firewall_rules_sync(username: str) -> bool:
-    """Removes inbound/outbound firewall block rules for a sandbox user.
-
-    Uses ``netsh advfirewall`` instead of PowerShell's
-    ``Remove-NetFirewallRule`` to avoid the ~1-2 s overhead of
-    launching the PowerShell/.NET runtime.
-    """
+    """Removes inbound/outbound firewall block rules for a sandbox user."""
     rule_name_out = f"QwenPaw_Block_{username}_Out"
     rule_name_in = f"QwenPaw_Block_{username}_In"
 
@@ -2316,9 +2047,8 @@ def _delete_local_user_sync(username: str) -> bool:
 def _remove_profile_dir_sync(username: str, user_sid: str = "") -> bool:
     """Removes the sandbox user's profile directory.
 
-    Uses a fast path (``reg unload`` + ``rd /s /q``) that avoids the
-    expensive recursive ``icacls /T``.  Falls back to ``takeown /R`` +
-    ``rd /s /q`` if the first attempt leaves remnants.
+    Uses ``reg unload`` + ``rd /s /q``; falls back to ``takeown /R``
+    if the first attempt leaves remnants.
     """
     sys_drive = os.environ.get("SystemDrive", "C:")
     profile_dir = os.path.join(sys_drive + os.sep, "Users", username)
@@ -2369,12 +2099,12 @@ def _run_icacls_sync_local(
     args: List[str],
     timeout: Optional[float] = None,
 ) -> bool:
-    """Module-local ``icacls`` runner with budget-aware timeout.
+    """Runs icacls with budget-aware timeout.
 
     Args:
-        args: Arguments to pass to ``icacls``.
-        timeout: Maximum seconds. Defaults to the remaining shutdown
-            budget (capped at 180 s).
+        args: Arguments to pass to icacls.
+        timeout: Maximum seconds (defaults to remaining shutdown budget,
+            capped at 180 s).
 
     Returns:
         True if icacls exited with code 0.
@@ -2398,10 +2128,8 @@ def _remove_acl_with_verify_sync_local(  # pylint: disable=unused-argument
 ) -> bool:
     """Budget-aware ACL removal for elevated sandbox shutdown cleanup.
 
-    Delegates to the shared ``_remove_acl_with_verify_sync`` (Win32 API
-    DACL manipulation) which handles both fabricated capability SIDs and
-    real account SIDs.  On failure, falls back to ``icacls /reset`` as a
-    last resort for paths with corrupted inherited ACLs.
+    Delegates to the shared _remove_acl_with_verify_sync; falls back to
+    ``icacls /reset`` on failure.
 
     Args:
         path: Filesystem path to clean.
@@ -2440,12 +2168,10 @@ def _remove_acl_with_verify_sync_local(  # pylint: disable=unused-argument
 
 
 def shutdown_cleanup() -> None:
-    """Destroys elevated sandbox instances owned by this process or orphaned.
+    """Cleans up elevated sandbox instances owned by this process or orphaned.
 
-    Iterates metadata files under ``~/.qwenpaw/sandboxes/``, skips
-    sandboxes whose owner process is still alive, and cleans up the
-    rest (ACLs, firewall rules, local user accounts, profile
-    directories).
+    Removes ACLs, firewall rules, local user accounts, and profile
+    directories for sandboxes whose owner process is dead.
     """
     global _SHUTDOWN_ACL_DEADLINE
 
@@ -2455,44 +2181,23 @@ def shutdown_cleanup() -> None:
         return
 
     sb_dir = _sandboxes_dir(_qwenpaw_state_dir)
-    if not sb_dir.exists() or not list(sb_dir.glob("*.json")):
+    orphaned = _iter_orphaned_metadata(sb_dir)
+    if not orphaned:
         return
 
     t_start = time.monotonic()
-    sandbox_count = len(list(sb_dir.glob("*.json")))
     _SHUTDOWN_ACL_DEADLINE = (
-        time.monotonic() + sandbox_count * _SHUTDOWN_ACL_TIMEOUT_PER_SANDBOX
+        time.monotonic() + len(orphaned) * _SHUTDOWN_ACL_TIMEOUT_PER_SANDBOX
     )
     logger.info(
         "Elevated sandbox shutdown_cleanup: %d sandbox(es) to process",
-        sandbox_count,
+        len(orphaned),
     )
 
-    my_pid = os.getpid()
-
-    for meta_file in sb_dir.glob("*.json"):
-        try:
-            meta = json.loads(meta_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-
-        owner_pid = meta.get("owner_pid")
-
-        if owner_pid is not None and owner_pid != my_pid:
-            if _is_pid_alive(owner_pid):
-                logger.debug(
-                    "Skipping sandbox %s — owner pid %d still alive",
-                    meta.get("sandbox_id", "?"),
-                    owner_pid,
-                )
-                continue
-
+    for meta_file, meta in orphaned:
         username = meta.get("username", "")
         if username:
-            logger.info(
-                "Cleaning sandbox metadata: %s",
-                username,
-            )
+            logger.info("Cleaning sandbox metadata: %s", username)
             _cleanup_from_metadata(meta, meta_file)
 
     if sb_dir.exists() and not list(sb_dir.glob("*.json")):
