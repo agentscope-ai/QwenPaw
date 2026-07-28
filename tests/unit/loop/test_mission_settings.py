@@ -48,6 +48,38 @@ def test_mission_args_use_defaults_and_allow_command_override() -> None:
     assert override["verify_commands"] == "pytest"
 
 
+def test_mission_args_handles_quoted_verify_command() -> None:
+    """Quoted multi-word verify commands must be parsed as a single token."""
+    result = parse_mission_args(
+        'Implement the feature --verify "pytest -q" --max-iterations 7',
+    )
+
+    assert result["task_text"] == "Implement the feature"
+    assert result["verify_commands"] == "pytest -q"
+    assert result["max_iterations"] == 7
+
+
+def test_mission_args_handles_single_quoted_verify_command() -> None:
+    """Single-quoted verify commands must also be parsed correctly."""
+    result = parse_mission_args(
+        "Implement the feature --verify 'npm test --coverage' --max-iterations 5",
+    )
+
+    assert result["task_text"] == "Implement the feature"
+    assert result["verify_commands"] == "npm test --coverage"
+    assert result["max_iterations"] == 5
+
+
+def test_mission_args_falls_back_on_malformed_quotes() -> None:
+    """Malformed quotes should not crash — falls back to whitespace split."""
+    result = parse_mission_args(
+        'Implement the feature --verify "unclosed quote',
+    )
+
+    assert result["verify_commands"] == '"unclosed'
+    assert result["task_text"] == "Implement the feature quote"
+
+
 def test_master_prompt_uses_configured_story_retry_limit() -> None:
     """Retry configuration replaces the previous hard-coded prompt value."""
     prompt = build_master_prompt(

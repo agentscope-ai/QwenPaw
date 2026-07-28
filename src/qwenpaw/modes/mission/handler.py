@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,10 @@ def parse_mission_args(
 
     Unlike the old ``_parse_mission_args`` this receives
     the text *after* ``/mission`` (no command prefix).
+
+    Uses :func:`shlex.split` for quote-aware tokenization so that
+    ``--verify "pytest -q"`` is parsed correctly.  Falls back to plain
+    whitespace splitting when the input contains malformed quotes.
     """
     args: dict[str, Any] = {
         "task_text": "",
@@ -53,7 +58,11 @@ def parse_mission_args(
         "max_iterations": default_max_iterations,
     }
 
-    tokens = raw_args.split()
+    try:
+        tokens = shlex.split(raw_args)
+    except ValueError:
+        tokens = raw_args.split()
+
     task_parts: list[str] = []
     i = 0
     while i < len(tokens):
