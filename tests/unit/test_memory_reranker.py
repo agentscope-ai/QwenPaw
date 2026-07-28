@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# pylint: disable=protected-access,unused-argument
+# pylint: disable=protected-access,unused-argument,redefined-outer-name
 """Unit tests for ReMe memory reranker (over-fetch + rerank + cap).
 
 Tests cover:
@@ -46,13 +46,13 @@ def _result(i, text=None):
 
 def _make_config(**overrides):
     """Build a dummy RerankerConfig with sensible defaults."""
-    d = dict(
-        enabled=True,
-        base_url="https://x",
-        model_name="m",
-        candidate_multiplier=3,
-        timeout=10.0,
-    )
+    d = {
+        "enabled": True,
+        "base_url": "https://x",
+        "model_name": "m",
+        "candidate_multiplier": 3,
+        "timeout": 10.0,
+    }
     d.update(overrides)
     return types.SimpleNamespace(**d)
 
