@@ -178,7 +178,12 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "pass",
 ]
-fail_under = 30
+# Coverage gate (raised in stages per the July quality plan):
+#   30 (baseline) -> 45 (stage 1) -> 50 (current, ~1.6pt headroom under
+#   CI's measured 51.59% per the "leave 1-2pt to resist flaky" rule).
+# Bump up only after natural coverage rises (bug-regression + contract
+# gains), never chase a number.
+fail_under = 50
 show_missing = true
 
 [tool.coverage.html]
