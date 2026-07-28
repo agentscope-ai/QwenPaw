@@ -776,7 +776,9 @@ class TestWindowsElevatedSandboxExecute:
         instance.config_fingerprint = "abc123"
         return instance
 
-    @patch("qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process")
+    @patch(
+        "qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process",
+    )
     @patch(
         "qwenpaw.sandbox.windows_elevated_sandbox._create_process_with_token",
     )
@@ -790,7 +792,7 @@ class TestWindowsElevatedSandboxExecute:
             MagicMock(),
         )
 
-        async def fake_wait(*args, **kwargs):
+        def fake_wait(*args, **kwargs):
             return (0, "hello world\n", "", False)
 
         mock_wait.side_effect = fake_wait
@@ -804,7 +806,9 @@ class TestWindowsElevatedSandboxExecute:
         assert result.sandbox_violation is None
         assert result.timed_out is False
 
-    @patch("qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process")
+    @patch(
+        "qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process",
+    )
     @patch(
         "qwenpaw.sandbox.windows_elevated_sandbox._create_process_with_token",
     )
@@ -818,7 +822,7 @@ class TestWindowsElevatedSandboxExecute:
             MagicMock(),
         )
 
-        async def fake_wait(*args, **kwargs):
+        def fake_wait(*args, **kwargs):
             return (1, "", "Access is denied\n", False)
 
         mock_wait.side_effect = fake_wait
@@ -831,7 +835,9 @@ class TestWindowsElevatedSandboxExecute:
         assert result.sandbox_violation is not None
         assert "Access is denied" in result.sandbox_violation
 
-    @patch("qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process")
+    @patch(
+        "qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process",
+    )
     @patch(
         "qwenpaw.sandbox.windows_elevated_sandbox._create_process_with_token",
     )
@@ -845,7 +851,7 @@ class TestWindowsElevatedSandboxExecute:
             MagicMock(),
         )
 
-        async def fake_wait(*args, **kwargs):
+        def fake_wait(*args, **kwargs):
             return (1, "", "", True)
 
         mock_wait.side_effect = fake_wait
@@ -873,7 +879,9 @@ class TestWindowsElevatedSandboxExecute:
         assert result.exit_code == -1
         assert "CreateProcess failed" in result.stderr
 
-    @patch("qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process")
+    @patch(
+        "qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process",
+    )
     @patch(
         "qwenpaw.sandbox.windows_elevated_sandbox._create_process_with_token",
     )
@@ -887,7 +895,7 @@ class TestWindowsElevatedSandboxExecute:
             MagicMock(),
         )
 
-        async def fake_wait(*args, **kwargs):
+        def fake_wait(*args, **kwargs):
             return (1, "System error 5 has occurred\n", "", False)
 
         mock_wait.side_effect = fake_wait
@@ -899,7 +907,9 @@ class TestWindowsElevatedSandboxExecute:
         assert result.sandbox_violation is not None
         assert "error 5" in result.sandbox_violation
 
-    @patch("qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process")
+    @patch(
+        "qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process",
+    )
     @patch(
         "qwenpaw.sandbox.windows_elevated_sandbox._create_process_with_token",
     )
@@ -913,7 +923,7 @@ class TestWindowsElevatedSandboxExecute:
             MagicMock(),
         )
 
-        async def fake_wait(*args, **kwargs):
+        def fake_wait(*args, **kwargs):
             return (1, "", "\u62d2\u7edd\u8bbf\u95ee\u3002\n", False)
 
         mock_wait.side_effect = fake_wait
@@ -924,7 +934,9 @@ class TestWindowsElevatedSandboxExecute:
 
         assert result.sandbox_violation is not None
 
-    @patch("qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process")
+    @patch(
+        "qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process",
+    )
     @patch(
         "qwenpaw.sandbox.windows_elevated_sandbox._create_process_with_token",
     )
@@ -938,7 +950,7 @@ class TestWindowsElevatedSandboxExecute:
 
         mock_create.side_effect = capture_create
 
-        async def fake_wait(*args, **kwargs):
+        def fake_wait(*args, **kwargs):
             return (0, "", "", False)
 
         mock_wait.side_effect = fake_wait
@@ -950,7 +962,9 @@ class TestWindowsElevatedSandboxExecute:
         assert captured_env["USERNAME"] == "qwenpaw_test"
         assert r"qwenpaw_test" in captured_env["USERPROFILE"]
 
-    @patch("qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process")
+    @patch(
+        "qwenpaw.sandbox.windows_elevated_sandbox._wait_and_read_process",
+    )
     @patch(
         "qwenpaw.sandbox.windows_elevated_sandbox._create_process_with_token",
     )
@@ -964,7 +978,7 @@ class TestWindowsElevatedSandboxExecute:
 
         mock_create.side_effect = capture_create
 
-        async def fake_wait(*args, **kwargs):
+        def fake_wait(*args, **kwargs):
             return (0, "", "", False)
 
         mock_wait.side_effect = fake_wait
