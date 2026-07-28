@@ -67,6 +67,108 @@ def _changed_paths(
     return paths
 
 
+class WorkspaceMutationGuard:
+    """Pause cooperative workspace writers for one restore transaction."""
+
+    def __init__(self, workspace, *, timeout: float) -> None:
+        self.workspace = workspace
+        self.timeout = timeout
+
+    async def quiesce(self) -> list[Callable[[], None]]:
+        """Pause cron and wait until tracked workspace tasks are idle."""
+        resume_callbacks = self._pause_workspace_cron()
+        try:
+            await self._wait_workspace_idle()
+        except BaseException:
+            self.resume(resume_callbacks)
+            raise
+        return resume_callbacks
+
+    def _pause_workspace_cron(self) -> list[Callable[[], None]]:
+        resume_callbacks: list[Callable[[], None]] = []
+        cron_executor = getattr(self.workspace, "cron_executor", None)
+        if cron_executor is not None and hasattr(cron_executor, "pause"):
+            try:
+                cron_executor.pause()
+                if hasattr(cron_executor, "resume"):
+                    resume_callbacks.append(cron_executor.resume)
+            except Exception as exc:
+                raise CheckpointError(
+                    "Checkpoint restore was cancelled because cron could "
+                    "not be paused.",
+                ) from exc
+            return resume_callbacks
+
+        cron_manager = getattr(self.workspace, "cron_manager", None)
+        scheduler = getattr(cron_manager, "_scheduler", None)
+        if scheduler is not None and hasattr(scheduler, "pause"):
+            try:
+                scheduler.pause()
+                if hasattr(scheduler, "resume"):
+                    resume_callbacks.append(scheduler.resume)
+            except Exception as exc:
+                raise CheckpointError(
+                    "Checkpoint restore was cancelled because the cron "
+                    "scheduler could not be paused.",
+                ) from exc
+        return resume_callbacks
+
+    async def _wait_workspace_idle(self) -> None:
+        task_tracker = getattr(self.workspace, "task_tracker", None)
+        if task_tracker is not None and hasattr(task_tracker, "wait_all_idle"):
+            try:
+                await asyncio.wait_for(
+                    task_tracker.wait_all_idle(),
+                    timeout=self.timeout,
+                )
+            except asyncio.TimeoutError as exc:
+                raise CheckpointError(
+                    "Checkpoint restore was cancelled because workspace "
+                    f"tasks did not become idle within {self.timeout:.1f}s.",
+                ) from exc
+            except Exception as exc:
+                raise CheckpointError(
+                    "Checkpoint restore was cancelled because workspace "
+                    "idle state could not be verified.",
+                ) from exc
+        elif task_tracker is not None and hasattr(
+            task_tracker,
+            "list_active_tasks",
+        ):
+            try:
+                await asyncio.wait_for(
+                    self._wait_for_other_tasks(task_tracker),
+                    timeout=self.timeout,
+                )
+            except asyncio.TimeoutError as exc:
+                raise CheckpointError(
+                    "Checkpoint restore was cancelled because workspace "
+                    f"tasks did not become idle within {self.timeout:.1f}s.",
+                ) from exc
+            except Exception as exc:
+                raise CheckpointError(
+                    "Checkpoint restore was cancelled because active tasks "
+                    "could not be inspected.",
+                ) from exc
+
+    @staticmethod
+    async def _wait_for_other_tasks(task_tracker) -> None:
+        while True:
+            active = await task_tracker.list_active_tasks()
+            if len(active) <= 1:
+                return
+            await asyncio.sleep(0.5)
+
+    @staticmethod
+    def resume(callbacks: list[Callable[[], None]]) -> None:
+        """Resume paused writers in reverse acquisition order."""
+        for callback in reversed(callbacks):
+            try:
+                callback()
+            except Exception:
+                logger.debug("Failed to resume cron", exc_info=True)
+
+
 class RestoreService:
     """Plan, apply, and roll back checkpoint restores."""
 
@@ -183,6 +285,11 @@ class RestoreService:
             if include_memory
             else None
         )
+        mutation_guard = (
+            self._workspace_mutation_guard()
+            if not dry_run and (include_files or include_memory)
+            else None
+        )
         prepared: _PreparedRestore | None = None
         pre_ref: str | None = None
         resume_callbacks: list[Callable[[], None]] = []
@@ -191,8 +298,8 @@ class RestoreService:
                 service.query_gate.clear()
             try:
                 async with service.lock:
-                    if memory is not None and not dry_run:
-                        resume_callbacks = await memory.quiesce_workspace()
+                    if mutation_guard is not None:
+                        resume_callbacks = await mutation_guard.quiesce()
                     prepared = await run_sync_io(
                         self._prepare_restore,
                         target=target,
@@ -233,8 +340,8 @@ class RestoreService:
                         memory=memory,
                     )
             finally:
-                if memory is not None:
-                    memory.resume_workspace(resume_callbacks)
+                if mutation_guard is not None:
+                    mutation_guard.resume(resume_callbacks)
                 if not dry_run:
                     service.query_gate.set()
 
@@ -371,6 +478,7 @@ class RestoreService:
         current_tree: str | None = None
         if include_files:
             current_tree = self.repository.write_workspace_tree()
+            assert current_tree is not None
             touched = self._file_restore_candidates(
                 target_commit=entry.commit,
                 current_tree=current_tree,
@@ -536,10 +644,12 @@ class RestoreService:
         return True
 
     def _memory_restorer(self) -> MemoryRestorer:
-        return MemoryRestorer(
-            repository=self.repository,
+        return MemoryRestorer(repository=self.repository)
+
+    def _workspace_mutation_guard(self) -> WorkspaceMutationGuard:
+        return WorkspaceMutationGuard(
             workspace=self.service.workspace,
-            quiesce_timeout=self.service.memory_quiesce_timeout,
+            timeout=self.service.memory_quiesce_timeout,
         )
 
 
@@ -550,13 +660,9 @@ class MemoryRestorer:
         self,
         *,
         repository,
-        workspace=None,
-        quiesce_timeout: float = 30.0,
     ) -> None:
         self.repository = repository
         self.workspace_dir = repository.workspace_dir
-        self.workspace = workspace
-        self.quiesce_timeout = quiesce_timeout
         self.mutation_started = False
 
     def plan(self, commit: str) -> tuple[list[str], list[str]]:
@@ -567,15 +673,6 @@ class MemoryRestorer:
             commit,
             current_paths | set(target_paths),
         )
-
-    async def apply(self, commit: str) -> tuple[list[str], list[str]]:
-        """Restore memory without releasing quiesce state on cancellation."""
-        resume_callbacks = await self.quiesce_workspace()
-        self.mutation_started = True
-        try:
-            return await run_sync_io(self.restore_sync, commit)
-        finally:
-            self.resume_workspace(resume_callbacks)
 
     def restore_sync(self, commit: str) -> tuple[list[str], list[str]]:
         target_paths = self._checkpoint_paths(commit)
@@ -630,101 +727,3 @@ class MemoryRestorer:
                 path.rmdir()
             except OSError:
                 pass
-
-    async def quiesce_workspace(self) -> list[Callable[[], None]]:
-        resume_callbacks: list[Callable[[], None]] = []
-        workspace = self.workspace
-
-        resume_callbacks.extend(self._pause_workspace_cron(workspace))
-        try:
-            await self._wait_workspace_idle(workspace)
-        except BaseException:
-            self.resume_workspace(resume_callbacks)
-            raise
-        return resume_callbacks
-
-    def _pause_workspace_cron(self, workspace) -> list[Callable[[], None]]:
-        resume_callbacks: list[Callable[[], None]] = []
-        cron_executor = getattr(workspace, "cron_executor", None)
-        if cron_executor is not None and hasattr(cron_executor, "pause"):
-            try:
-                cron_executor.pause()
-                if hasattr(cron_executor, "resume"):
-                    resume_callbacks.append(cron_executor.resume)
-            except Exception as exc:
-                raise CheckpointError(
-                    "Memory restore was cancelled because cron could not be "
-                    "paused.",
-                ) from exc
-            return resume_callbacks
-
-        cron_manager = getattr(workspace, "cron_manager", None)
-        scheduler = getattr(cron_manager, "_scheduler", None)
-        if scheduler is not None and hasattr(scheduler, "pause"):
-            try:
-                scheduler.pause()
-                if hasattr(scheduler, "resume"):
-                    resume_callbacks.append(scheduler.resume)
-            except Exception as exc:
-                raise CheckpointError(
-                    "Memory restore was cancelled because the cron "
-                    "scheduler could not be paused.",
-                ) from exc
-        return resume_callbacks
-
-    async def _wait_workspace_idle(
-        self,
-        workspace,
-    ) -> None:
-        task_tracker = getattr(workspace, "task_tracker", None)
-        if task_tracker is not None and hasattr(task_tracker, "wait_all_idle"):
-            try:
-                await asyncio.wait_for(
-                    task_tracker.wait_all_idle(),
-                    timeout=self.quiesce_timeout,
-                )
-            except asyncio.TimeoutError as exc:
-                raise CheckpointError(
-                    "Memory restore was cancelled because workspace tasks did "
-                    f"not become idle within {self.quiesce_timeout:.1f}s.",
-                ) from exc
-            except Exception as exc:
-                raise CheckpointError(
-                    "Memory restore was cancelled because workspace idle "
-                    "state could not be verified.",
-                ) from exc
-        elif task_tracker is not None and hasattr(
-            task_tracker,
-            "list_active_tasks",
-        ):
-            try:
-                await asyncio.wait_for(
-                    self._wait_for_other_tasks(task_tracker),
-                    timeout=self.quiesce_timeout,
-                )
-            except asyncio.TimeoutError as exc:
-                raise CheckpointError(
-                    "Memory restore was cancelled because workspace tasks did "
-                    f"not become idle within {self.quiesce_timeout:.1f}s.",
-                ) from exc
-            except Exception as exc:
-                raise CheckpointError(
-                    "Memory restore was cancelled because active tasks could "
-                    "not be inspected.",
-                ) from exc
-
-    @staticmethod
-    async def _wait_for_other_tasks(task_tracker) -> None:
-        while True:
-            active = await task_tracker.list_active_tasks()
-            if len(active) <= 1:
-                return
-            await asyncio.sleep(0.5)
-
-    @staticmethod
-    def resume_workspace(callbacks: list[Callable[[], None]]) -> None:
-        for resume in reversed(callbacks):
-            try:
-                resume()
-            except Exception:
-                logger.debug("Failed to resume cron", exc_info=True)

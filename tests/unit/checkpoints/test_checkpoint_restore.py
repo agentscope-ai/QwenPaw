@@ -22,7 +22,7 @@ from qwenpaw.checkpoints.policy import (
     session_file_path,
     session_key,
 )
-from qwenpaw.checkpoints.restore import MemoryRestorer
+from qwenpaw.checkpoints.restore import MemoryRestorer, WorkspaceMutationGuard
 from qwenpaw.checkpoints.models import CheckpointError, RestoreResult
 from qwenpaw.checkpoints.render import render_restore
 from qwenpaw.checkpoints.repository import CheckpointRepository
@@ -843,9 +843,7 @@ def test_long_numeric_target_is_not_treated_as_timeline_index(
 
 
 @pytest.mark.asyncio
-async def test_memory_restore_fails_when_workspace_does_not_quiesce(
-    tmp_path: Path,
-) -> None:
+async def test_memory_restore_fails_when_workspace_does_not_quiesce() -> None:
     class BusyTasks:
         @staticmethod
         async def wait_all_idle() -> None:
@@ -854,14 +852,77 @@ async def test_memory_restore_fails_when_workspace_does_not_quiesce(
     class Workspace:
         task_tracker = BusyTasks()
 
-    restorer = MemoryRestorer(
-        repository=CheckpointRepository(tmp_path),
-        workspace=Workspace(),
-        quiesce_timeout=0.01,
-    )
+    guard = WorkspaceMutationGuard(Workspace(), timeout=0.01)
 
     with pytest.raises(CheckpointError, match="did not become idle"):
-        await restorer.quiesce_workspace()
+        await guard.quiesce()
+
+
+@pytest.mark.asyncio
+async def test_file_restore_quiesces_internal_workspace_writers(
+    tmp_path: Path,
+) -> None:
+    class BusyTasks:
+        def __init__(self) -> None:
+            self.waiting = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def wait_all_idle(self) -> None:
+            self.waiting.set()
+            await self.release.wait()
+
+    class CronExecutor:
+        def __init__(self) -> None:
+            self.paused = False
+            self.resume_count = 0
+
+        def pause(self) -> None:
+            self.paused = True
+
+        def resume(self) -> None:
+            self.paused = False
+            self.resume_count += 1
+
+    class Workspace:
+        def __init__(self) -> None:
+            self.task_tracker = BusyTasks()
+            self.cron_executor = CronExecutor()
+
+    engine = CheckpointService(tmp_path)
+    workspace = Workspace()
+    engine.workspace = workspace
+    _write_session(tmp_path, "before")
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("before", encoding="utf-8")
+    first_commit = await _checkpoint(engine, "before")
+    _write_session(tmp_path, "after")
+    source.write_text("after", encoding="utf-8")
+
+    restore_task = asyncio.create_task(
+        engine.restore_with_files(
+            target=first_commit[:12],
+            session_id=SESSION_ID,
+            user_id=USER_ID,
+            channel=CHANNEL,
+            selected_files=("src/app.py",),
+        ),
+    )
+    await asyncio.wait_for(workspace.task_tracker.waiting.wait(), timeout=1)
+
+    assert workspace.cron_executor.paused is True
+    assert source.read_text(encoding="utf-8") == "after"
+    assert not restore_task.done()
+    assert not engine.query_gate.is_set()
+
+    workspace.task_tracker.release.set()
+    restored = await restore_task
+
+    assert restored.include_files is True
+    assert source.read_text(encoding="utf-8") == "before"
+    assert workspace.cron_executor.paused is False
+    assert workspace.cron_executor.resume_count == 1
+    assert engine.query_gate.is_set()
 
 
 @pytest.mark.asyncio

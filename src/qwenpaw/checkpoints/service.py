@@ -73,8 +73,8 @@ class CheckpointService:
     ):
         self.repository = repository or CheckpointRepository(workspace_dir)
         self.policy = policy or CheckpointPolicy(self.repository.config_file)
-        # Set by the registry when a live request is available; memory restore
-        # needs it to quiesce tasks and pause cron.
+        # Set by the registry when a live request is available; mutating
+        # restores need it to quiesce tasks and pause cron.
         self._workspace_ref = None
         self._workspace_fallback = None
         self.query_gate = asyncio.Event()
