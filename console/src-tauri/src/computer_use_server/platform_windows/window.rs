@@ -15,23 +15,23 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsWindow, IsWindowVisible, PostMessageW, WM_CLOSE,
 };
 
-use super::merge_app_list;
-use super::reject_recent_user_intervention;
-use super::WindowInfo;
+use super::super::merge_app_list;
+use super::super::WindowInfo;
+use super::input::reject_recent_user_intervention;
 
 // A close request is asynchronous: wait briefly for the window to go away
 // before reporting that it is still open (usually a save prompt).
 const CLOSE_POLL_ATTEMPTS: u32 = 40;
 const CLOSE_POLL_INTERVAL_MS: u64 = 50;
 
-pub(super) fn list_windows() -> Vec<Value> {
+pub(crate) fn list_windows() -> Vec<Value> {
     enumerate_windows()
         .into_iter()
         .map(|window| window.to_json())
         .collect()
 }
 
-pub(super) fn list_apps() -> Vec<Value> {
+pub(crate) fn list_apps() -> Vec<Value> {
     // Windows discovery is limited to applications that own a window, so no
     // installed-only entries are contributed here.
     merge_app_list(Vec::new(), enumerate_windows())
@@ -53,7 +53,7 @@ fn enumerate_windows() -> Vec<WindowInfo> {
     windows
 }
 
-pub(super) fn resolve_window(value: &str) -> Result<WindowInfo, (&'static str, String)> {
+pub(crate) fn resolve_window(value: &str) -> Result<WindowInfo, (&'static str, String)> {
     let hwnd = value
         .parse::<isize>()
         .map_err(|_| ("invalid_request", "window_id is invalid.".to_string()))?;
@@ -108,7 +108,7 @@ fn process_image_path(pid: u32) -> Option<String> {
     Some(String::from_utf16_lossy(&buffer[..length as usize]))
 }
 
-pub(super) fn is_forbidden(window: &WindowInfo) -> bool {
+pub(crate) fn is_forbidden(window: &WindowInfo) -> bool {
     let class_name = window.class_name.to_ascii_lowercase();
     let title = window.title.to_ascii_lowercase();
     class_name.contains("credential")
@@ -124,7 +124,7 @@ pub(super) fn is_forbidden(window: &WindowInfo) -> bool {
 /// exiting. A still-open window is therefore a legitimate outcome rather than
 /// a failure, so the caller reports `closed: false` and lets the model observe
 /// whatever dialog appeared. The process is never terminated.
-pub(super) fn close_window(
+pub(crate) fn close_window(
     window: &WindowInfo,
 ) -> Result<Value, (&'static str, String)> {
     let hwnd = HWND(window.hwnd as _);

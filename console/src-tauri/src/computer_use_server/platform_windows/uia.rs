@@ -12,10 +12,10 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
-use super::{
-    element_line, next_id, reject_recent_user_intervention, truncate_document_text, ServerState,
-    WindowInfo, DOC_TEXT_MAX,
+use super::super::{
+    element_line, next_id, truncate_document_text, ServerState, WindowInfo, DOC_TEXT_MAX,
 };
+use super::input::reject_recent_user_intervention;
 
 /// Map a UI Automation control-type identifier to a human-readable role
 /// name so callers can recognise actionable controls (for example an
@@ -96,7 +96,7 @@ fn element_text(element: &IUIAutomationElement) -> Option<String> {
     Some(truncate_document_text(value))
 }
 
-pub(super) fn collect_accessibility(
+pub(crate) fn collect_accessibility(
     window: &WindowInfo,
 ) -> Result<(String, Value, HashMap<String, IUIAutomationElement>), String> {
     let automation: IUIAutomation = unsafe {
@@ -173,7 +173,7 @@ pub(super) fn collect_accessibility(
     Ok((revision, Value::Object(accessibility), elements))
 }
 
-pub(super) fn invoke_element(
+pub(crate) fn invoke_element(
     state: &ServerState,
     window: &WindowInfo,
     params: &serde_json::Map<String, Value>,
@@ -196,7 +196,7 @@ pub(super) fn invoke_element(
     Ok(json!({"applied": true}))
 }
 
-pub(super) fn set_value(
+pub(crate) fn set_value(
     state: &ServerState,
     window: &WindowInfo,
     params: &serde_json::Map<String, Value>,

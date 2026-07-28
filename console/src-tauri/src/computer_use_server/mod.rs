@@ -30,26 +30,16 @@ use framing::{read_message, request_id, write_error, write_message, write_result
 
 // Platform leaves expose the same function surface (window discovery, capture,
 // UI automation, input); only the implementation differs. The shared dispatch
-// core below never names a platform-specific type directly.
+// core below never names a platform-specific type directly. Each platform keeps
+// its leaves in its own directory so the two never mix.
 #[cfg(windows)]
-mod window;
+mod platform_windows;
 #[cfg(windows)]
-mod capture;
-#[cfg(windows)]
-mod uia;
-#[cfg(windows)]
-mod input;
-#[cfg(windows)]
-use capture::observe_window;
-#[cfg(windows)]
-use input::{
-    click, desktop_locked, drag, press_key, reject_recent_user_intervention, scroll,
-    set_focus, set_intervention_bypass_once, type_text,
+use platform_windows::{
+    click, close_window, desktop_locked, drag, invoke_element, is_forbidden, list_apps,
+    list_windows, observe_window, press_key, resolve_window, scroll, set_focus,
+    set_intervention_bypass_once, set_value, type_text,
 };
-#[cfg(windows)]
-use uia::{collect_accessibility, invoke_element, set_value};
-#[cfg(windows)]
-use window::{close_window, is_forbidden, list_apps, list_windows, resolve_window};
 
 #[cfg(target_os = "macos")]
 mod platform_macos;

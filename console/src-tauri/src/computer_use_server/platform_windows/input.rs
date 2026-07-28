@@ -23,10 +23,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GA_ROOT, SW_RESTORE,
 };
 
-use super::super::get_visible_window_rect;
-use super::{map_point, ServerState, WindowInfo, USER_INTERVENTION_GRACE_MS};
+use super::super::super::get_visible_window_rect;
+use super::super::{map_point, ServerState, WindowInfo, USER_INTERVENTION_GRACE_MS};
 
-pub(super) fn click(
+pub(crate) fn click(
     state: &ServerState,
     window: &WindowInfo,
     params: &Map<String, Value>,
@@ -57,7 +57,7 @@ pub(super) fn click(
     Ok(json!({"applied": true}))
 }
 
-pub(super) fn scroll(
+pub(crate) fn scroll(
     state: &ServerState,
     window: &WindowInfo,
     params: &Map<String, Value>,
@@ -75,7 +75,7 @@ pub(super) fn scroll(
     Ok(json!({"applied": true}))
 }
 
-pub(super) fn drag(
+pub(crate) fn drag(
     state: &ServerState,
     window: &WindowInfo,
     params: &Map<String, Value>,
@@ -91,7 +91,7 @@ pub(super) fn drag(
     Ok(json!({"applied": true}))
 }
 
-pub(super) fn type_text(
+pub(crate) fn type_text(
     window: &WindowInfo,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
@@ -111,7 +111,7 @@ pub(super) fn type_text(
     Ok(json!({"applied": true, "text_length": text.chars().count()}))
 }
 
-pub(super) fn press_key(
+pub(crate) fn press_key(
     window: &WindowInfo,
     params: &Map<String, Value>,
 ) -> Result<Value, (&'static str, String)> {
@@ -335,7 +335,7 @@ fn verify_point_with_prefix(
     Ok(point)
 }
 
-pub(super) fn set_focus(window: &WindowInfo) -> Result<(), (&'static str, String)> {
+pub(crate) fn set_focus(window: &WindowInfo) -> Result<(), (&'static str, String)> {
     let hwnd = HWND(window.hwnd as _);
     if !unsafe { IsWindow(Some(hwnd)).as_bool() } {
         return Err((
@@ -435,11 +435,11 @@ thread_local! {
 }
 
 /// Arm or clear the one-shot recency-guard exemption for this connection.
-pub(super) fn set_intervention_bypass_once(value: bool) {
+pub(crate) fn set_intervention_bypass_once(value: bool) {
     INTERVENTION_BYPASS_ONCE.with(|cell| cell.set(value));
 }
 
-pub(super) fn reject_recent_user_intervention() -> Result<(), (&'static str, String)> {
+pub(crate) fn reject_recent_user_intervention() -> Result<(), (&'static str, String)> {
     if INTERVENTION_BYPASS_ONCE.with(|cell| cell.replace(false)) {
         return Ok(());
     }
@@ -465,7 +465,7 @@ pub(super) fn reject_recent_user_intervention() -> Result<(), (&'static str, Str
 /// Winlogon desktop, which a normal user-session process cannot open;
 /// `OpenInputDesktop` then fails, which we treat as "locked". A successful
 /// open (the ordinary Default desktop) means the session is usable.
-pub(super) fn desktop_locked() -> bool {
+pub(crate) fn desktop_locked() -> bool {
     unsafe {
         match OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_READOBJECTS) {
             Ok(desktop) => {

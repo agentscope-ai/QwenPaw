@@ -12,14 +12,14 @@ use windows::Graphics::Imaging::{
 };
 use windows::Storage::Streams::{DataReader, InMemoryRandomAccessStream};
 
-use super::super::{capture_window, CaptureArgs};
-use super::{
-    collect_accessibility, next_id, AccessibilitySnapshot, ServerState,
-    Snapshot, WindowInfo, BMP_HEADER_BYTES, SCREENSHOT_JPEG_QUALITY,
-    SCREENSHOT_MAX_EDGE,
+use super::super::super::{capture_window, CaptureArgs};
+use super::super::{
+    next_id, AccessibilitySnapshot, ServerState, Snapshot, WindowInfo, BMP_HEADER_BYTES,
+    SCREENSHOT_JPEG_QUALITY, SCREENSHOT_MAX_EDGE,
 };
+use super::uia::collect_accessibility;
 
-pub(super) fn observe_window(
+pub(crate) fn observe_window(
     state: &mut ServerState,
     window: &WindowInfo,
 ) -> Result<Value, (&'static str, String)> {
