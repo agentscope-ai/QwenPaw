@@ -11,10 +11,42 @@ describe("splitFileReferences", () => {
         "查看 @ /Users/ray/work/hello.txt 和 @ C:\\work\\app.ts",
       ),
     ).toEqual([
-      { text: "查看 ", reference: false },
-      { text: "@ /Users/ray/work/hello.txt", reference: true },
-      { text: " 和 ", reference: false },
-      { text: "@ C:\\work\\app.ts", reference: true },
+      { text: "查看 ", reference: null },
+      {
+        text: "@ /Users/ray/work/hello.txt",
+        reference: {
+          kind: "file",
+          path: "/Users/ray/work/hello.txt",
+        },
+      },
+      { text: " 和 ", reference: null },
+      {
+        text: "@ C:\\work\\app.ts",
+        reference: {
+          kind: "file",
+          path: "C:\\work\\app.ts",
+        },
+      },
+    ]);
+  });
+
+  it("marks relative file references inserted by Preview", () => {
+    expect(splitFileReferences("@ src/app.ts 和 @ LICENSE")).toEqual([
+      {
+        text: "@ src/app.ts",
+        reference: {
+          kind: "file",
+          path: "src/app.ts",
+        },
+      },
+      { text: " 和 ", reference: null },
+      {
+        text: "@ LICENSE",
+        reference: {
+          kind: "file",
+          path: "LICENSE",
+        },
+      },
     ]);
   });
 
@@ -30,17 +62,39 @@ describe("splitFileReferences", () => {
   it("marks editor line references without changing their text", () => {
     const value = "src/app.ts:12-18\n```typescript\nconst app = true;\n```";
     expect(splitFileReferences(value)).toEqual([
-      { text: "src/app.ts:12-18", reference: true },
+      {
+        text: "src/app.ts:12-18",
+        reference: {
+          kind: "editor",
+          path: "src/app.ts",
+          startLine: 12,
+          endLine: 18,
+        },
+      },
       {
         text: "\n```typescript\nconst app = true;\n```",
-        reference: false,
+        reference: null,
       },
     ]);
   });
 
-  it("does not style ordinary mentions or unqualified relative paths", () => {
-    expect(splitFileReferences("@ ray @ src/app.ts")).toEqual([
-      { text: "@ ray @ src/app.ts", reference: false },
+  it("marks Windows Editor line references", () => {
+    expect(splitFileReferences("C:\\work\\app.ts:4-9")).toEqual([
+      {
+        text: "C:\\work\\app.ts:4-9",
+        reference: {
+          kind: "editor",
+          path: "C:\\work\\app.ts",
+          startLine: 4,
+          endLine: 9,
+        },
+      },
+    ]);
+  });
+
+  it("does not style ordinary text that resembles a label and number", () => {
+    expect(splitFileReferences("chapter:12 plain text")).toEqual([
+      { text: "chapter:12 plain text", reference: null },
     ]);
   });
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { render, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import FileReferenceInputOverlay from "./FileReferenceInputOverlay";
 
 describe("FileReferenceInputOverlay", () => {
@@ -17,9 +17,7 @@ describe("FileReferenceInputOverlay", () => {
     );
 
     await waitFor(() => {
-      expect(document.querySelector('[aria-hidden="true"]')).toHaveTextContent(
-        "@ /work/hello.txt",
-      );
+      expect(screen.getByRole("button")).toHaveTextContent("@ /work/hello.txt");
     });
     rerender(
       <>
@@ -33,9 +31,38 @@ describe("FileReferenceInputOverlay", () => {
     );
 
     await waitFor(() => {
-      expect(document.querySelector('[aria-hidden="true"]')?.textContent).toBe(
-        "",
-      );
+      expect(screen.queryByRole("button")).not.toBeInTheDocument();
     });
+  });
+
+  it("opens a parsed Editor reference without changing the textarea", async () => {
+    const onOpenReference = vi.fn();
+    render(
+      <>
+        <div className="sender">
+          <div>
+            <textarea defaultValue="src/app.ts:12-18" />
+          </div>
+        </div>
+        <FileReferenceInputOverlay
+          value="src/app.ts:12-18"
+          onOpenReference={onOpenReference}
+        />
+      </>,
+    );
+
+    const reference = await screen.findByRole("button");
+    fireEvent.click(reference);
+
+    expect(onOpenReference).toHaveBeenCalledWith(
+      {
+        kind: "editor",
+        path: "src/app.ts",
+        startLine: 12,
+        endLine: 18,
+      },
+      reference,
+    );
+    expect(screen.getByRole("textbox")).toHaveValue("src/app.ts:12-18");
   });
 });

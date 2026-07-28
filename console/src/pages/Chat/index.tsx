@@ -87,14 +87,18 @@ import {
 import {
   filePathFromPreviewUrl,
   parseInternalFileLink,
+  rootForFileReference,
 } from "../../features/files-workspace/internalFileLinks";
 import type { FileTarget } from "../../features/files-workspace/types";
+import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
+import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import {
   migratePendingProjectDirectory,
   setPendingProjectDirectory,
   withPendingProjectDirectory,
 } from "../../features/project-directory/pendingProjectDirectory";
 import FileReferenceInputOverlay from "./FileReferenceInputOverlay";
+import type { ParsedFileReference } from "./fileReferenceFormatting";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -2084,6 +2088,39 @@ export default function ChatPage() {
     [t],
   );
 
+  const openInlineFileReference = useCallback(
+    async (reference: ParsedFileReference, trigger: HTMLElement) => {
+      let root: FileTarget["root"] = "project";
+      try {
+        const agentDirectory = await projectDirectoryApi.get();
+        const backendChatId = resolveBackendChatId(chatId);
+        const projectDirectory = backendChatId
+          ? (await chatProjectDirectoryApi.get(backendChatId)).project_dir
+          : agentDirectory.path;
+        root = rootForFileReference(
+          reference.path,
+          projectDirectory,
+          agentDirectory.workspace_dir ?? agentDirectory.path,
+        );
+      } catch {
+        root = "project";
+      }
+      const target: FileTarget = {
+        source: "workspace",
+        path: reference.path,
+        root,
+        line: reference.startLine,
+        endLine: reference.endLine,
+      };
+      dispatchFilesDrawer({
+        type: reference.kind === "editor" ? "OPEN_WORKSPACE" : "OPEN_PREVIEW",
+        target,
+        trigger,
+      });
+    },
+    [chatId],
+  );
+
   // Shortcut key for voice recording (Ctrl+Shift+M or Cmd+Shift+M on Mac)
   useEffect(() => {
     const handleShortcut = (e: KeyboardEvent) => {
@@ -3219,7 +3256,12 @@ export default function ChatPage() {
             key={refreshKey}
             options={options}
           />
-          <FileReferenceInputOverlay value={senderValue} />
+          <FileReferenceInputOverlay
+            value={senderValue}
+            onOpenReference={(reference, trigger) =>
+              void openInlineFileReference(reference, trigger)
+            }
+          />
         </div>
 
         {/* Rate-limit guidance banner */}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseInternalFileLink,
   filePathFromPreviewUrl,
+  rootForFileReference,
   toProjectRelativePath,
 } from "./internalFileLinks";
 
@@ -57,5 +58,36 @@ describe("parseInternalFileLink", () => {
     expect(
       filePathFromPreviewUrl("/api/files/preview/C%3A/Work/Project/hello.txt"),
     ).toBe("C:/Work/Project/hello.txt");
+  });
+
+  it("resolves absolute references against project and workspace roots", () => {
+    expect(
+      rootForFileReference(
+        "/Users/demo/project/src/app.ts",
+        "/Users/demo/project",
+        "/Users/demo/workspace",
+      ),
+    ).toBe("project");
+    expect(
+      rootForFileReference(
+        "/Users/demo/workspace/PROFILE.md",
+        "/Users/demo/project",
+        "/Users/demo/workspace",
+      ),
+    ).toBe("workspace");
+    expect(
+      rootForFileReference(
+        "C:\\Users\\demo\\workspace\\PROFILE.md",
+        "C:\\Users\\demo\\project",
+        "c:\\users\\demo\\workspace",
+      ),
+    ).toBe("workspace");
+    expect(
+      rootForFileReference(
+        "src/app.ts",
+        "/Users/demo/project",
+        "/Users/demo/workspace",
+      ),
+    ).toBe("project");
   });
 });

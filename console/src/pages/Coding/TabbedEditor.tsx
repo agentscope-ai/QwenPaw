@@ -44,6 +44,12 @@ import {
   type EditorTab,
 } from "../../stores/codingTabsStore";
 import { useAgentStore } from "../../stores/agentStore";
+import {
+  detectCopyMode,
+  formatSelectionForChat,
+  getEditorLanguage,
+  visibleEditorPath,
+} from "./editorCopyFormatting";
 import styles from "./TabbedEditor.module.less";
 
 // ---------------------------------------------------------------------------
@@ -64,43 +70,18 @@ interface TabbedEditorProps {
   onSaveFile?: (path: string, content: string) => Promise<void>;
   onDownloadFile?: (path: string) => Promise<void>;
   chatId?: string;
+  navigation?: {
+    path: string;
+    line: number;
+    endLine: number;
+    column?: number;
+    sequence: number;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function getLanguage(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
-  const map: Record<string, string> = {
-    py: "python",
-    ts: "typescript",
-    tsx: "typescript",
-    js: "javascript",
-    jsx: "javascript",
-    json: "json",
-    yaml: "yaml",
-    yml: "yaml",
-    md: "markdown",
-    sh: "shell",
-    bash: "shell",
-    html: "html",
-    css: "css",
-    less: "less",
-    scss: "scss",
-    sql: "sql",
-    toml: "ini",
-    rs: "rust",
-    go: "go",
-    java: "java",
-    cpp: "cpp",
-    c: "c",
-    h: "c",
-    kt: "kotlin",
-    rb: "ruby",
-  };
-  return map[ext] ?? "plaintext";
-}
 
 function appendToChat(text: string): void {
   const senderEl = document.querySelector('[class*="sender"]');
@@ -111,76 +92,6 @@ function appendToChat(text: string): void {
   const prev = textarea.value;
   setTextareaValue(textarea, prev ? `${prev}\n${text}` : text);
   textarea.focus();
-}
-
-type CopyMode = "whole-file" | "lines-only" | "with-code";
-
-const stripTrailingNewlines = (s: string) => s.replace(/\n+$/, "");
-
-// Classify a Monaco selection into one of three copy modes:
-//   • whole-file  → output just the path (file contents fully covered)
-//   • lines-only  → output `path:x-y` (selection spans complete lines)
-//   • with-code   → output `path:x-y` + fenced code block (column-level partial)
-// Geometric quirk handled: a triple-click style selection ending at column 1
-// of the next line is normalised so the displayed end line is the previous one.
-function detectCopyMode(
-  selection: {
-    startLineNumber: number;
-    startColumn: number;
-    endLineNumber: number;
-    endColumn: number;
-  },
-  model: MonacoEditor.ITextModel,
-): {
-  mode: CopyMode;
-  code: string;
-  startLine: number;
-  endLine: number;
-} {
-  const code = model.getValueInRange(selection);
-  const startLine = selection.startLineNumber;
-  let endLine = selection.endLineNumber;
-  if (endLine > startLine && selection.endColumn === 1) {
-    endLine -= 1;
-  }
-
-  if (stripTrailingNewlines(code) === stripTrailingNewlines(model.getValue())) {
-    return { mode: "whole-file", code, startLine, endLine };
-  }
-
-  const lines: string[] = [];
-  for (let l = startLine; l <= endLine; l += 1) {
-    lines.push(model.getLineContent(l));
-  }
-  if (stripTrailingNewlines(code) === lines.join("\n")) {
-    return { mode: "lines-only", code, startLine, endLine };
-  }
-
-  return { mode: "with-code", code, startLine, endLine };
-}
-
-function formatSelectionForChat(
-  filePath: string,
-  code: string,
-  startLine: number,
-  endLine: number,
-  mode: CopyMode,
-): string {
-  const displayPath = visiblePath(filePath);
-  if (mode === "whole-file") {
-    return displayPath;
-  }
-  const lineRange =
-    startLine === endLine ? `${startLine}` : `${startLine}-${endLine}`;
-  if (mode === "lines-only") {
-    return `${displayPath}:${lineRange}`;
-  }
-  const lang = getLanguage(filePath);
-  return `${displayPath}:${lineRange}\n\`\`\`${lang}\n${code}\n\`\`\``;
-}
-
-function visiblePath(path: string): string {
-  return path.includes("::") ? path.slice(path.indexOf("::") + 2) : path;
 }
 
 // ---------------------------------------------------------------------------
@@ -269,13 +180,16 @@ export default function TabbedEditor({
   onSaveFile,
   onDownloadFile,
   chatId,
+  navigation,
 }: TabbedEditorProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
   const activeTabPathRef = useRef(activeTabPath);
   const activeDisplayPathRef = useRef(activeTabPath);
+  const navigationRef = useRef(navigation);
   activeTabPathRef.current = activeTabPath;
+  navigationRef.current = navigation;
 
   const [saving, setSaving] = useState(false);
   const [resolvingDiff, setResolvingDiff] = useState(false);
@@ -351,6 +265,17 @@ export default function TabbedEditor({
     });
   }, []);
 
+  useEffect(() => {
+    if (!navigation || navigation.path !== activeTabPath) return;
+    userToggledPathsRef.current.add(navigation.path);
+    setPreviewPaths((previous) => {
+      if (!previous.has(navigation.path)) return previous;
+      const next = new Set(previous);
+      next.delete(navigation.path);
+      return next;
+    });
+  }, [activeTabPath, navigation]);
+
   // Previewable files auto-enter preview mode; user can toggle back to Code via Eye button.
 
   /**
@@ -404,7 +329,7 @@ export default function TabbedEditor({
 
   const activeTab = tabs.find((t) => t.path === activeTabPath) ?? null;
   const activeDisplayPath = activeTab
-    ? activeTab.displayPath ?? visiblePath(activeTab.path)
+    ? activeTab.displayPath ?? visibleEditorPath(activeTab.path)
     : "";
   const activeWatchRoot =
     activeTab?.workspaceRoot ??
@@ -471,9 +396,37 @@ export default function TabbedEditor({
     });
   }, []);
 
+  const revealNavigation = useCallback(
+    (editor: MonacoEditor.IStandaloneCodeEditor) => {
+      const target = navigationRef.current;
+      if (!target || target.path !== activeTabPathRef.current) return;
+      const model = editor.getModel();
+      if (!model) return;
+      const line = Math.min(Math.max(target.line, 1), model.getLineCount());
+      const endLine = Math.min(
+        Math.max(target.endLine, line),
+        model.getLineCount(),
+      );
+      const column = Math.min(
+        Math.max(target.column ?? 1, 1),
+        model.getLineMaxColumn(line),
+      );
+      editor.setSelection({
+        startLineNumber: line,
+        startColumn: column,
+        endLineNumber: endLine,
+        endColumn: model.getLineMaxColumn(endLine),
+      });
+      editor.revealLinesInCenter(line, endLine);
+      editor.focus();
+    },
+    [],
+  );
+
   const handleMount = useCallback(
     (editor: MonacoEditor.IStandaloneCodeEditor) => {
       editorRef.current = editor;
+      revealNavigation(editor);
 
       editor.onDidChangeCursorSelection((e) => {
         const sel = e.selection;
@@ -484,8 +437,14 @@ export default function TabbedEditor({
         );
       });
     },
-    [],
+    [revealNavigation],
   );
+
+  useEffect(() => {
+    const editor =
+      diffEditorRef.current?.getModifiedEditor() ?? editorRef.current;
+    if (editor) revealNavigation(editor);
+  }, [navigation, revealNavigation]);
 
   /**
    * Cmd/Ctrl+C in any of our editors (normal or diff-modified): let
@@ -615,6 +574,7 @@ export default function TabbedEditor({
       editorRef.current = null;
       diffModifiedListenerRef.current?.dispose();
       const modifiedEditor = diffEditor.getModifiedEditor();
+      revealNavigation(modifiedEditor);
       diffModifiedListenerRef.current = modifiedEditor.onDidChangeModelContent(
         () => {
           const path = activeTabPathRef.current;
@@ -632,7 +592,7 @@ export default function TabbedEditor({
       // time we mount (small files), so run once eagerly.
       refreshHunkWidgets();
     },
-    [refreshHunkWidgets, selectedAgent, updateDiffModified],
+    [refreshHunkWidgets, revealNavigation, selectedAgent, updateDiffModified],
   );
 
   // ---- Save ---------------------------------------------------------------
@@ -887,7 +847,7 @@ export default function TabbedEditor({
         (e) =>
           (e.change === "modified" || e.change === "added") &&
           e.path.replace(/\\/g, "/") ===
-            (tab?.displayPath ?? visiblePath(path)).replace(/\\/g, "/"),
+            (tab?.displayPath ?? visibleEditorPath(path)).replace(/\\/g, "/"),
       );
       if (!affected) return;
 
@@ -932,7 +892,7 @@ export default function TabbedEditor({
   }
 
   const shortPath = (path: string) => {
-    const displayPath = visiblePath(path);
+    const displayPath = visibleEditorPath(path);
     return displayPath.split("/").slice(-2).join("/");
   };
 
@@ -963,7 +923,7 @@ export default function TabbedEditor({
               role="tab"
               tabIndex={0}
               onKeyDown={(e) => e.key === "Enter" && onTabSelect(tab.path)}
-              title={tab.displayPath ?? visiblePath(tab.path)}
+              title={tab.displayPath ?? visibleEditorPath(tab.path)}
             >
               {hasDiff ? (
                 <GitCompareArrows size={11} className={styles.diffDot} />
@@ -1124,7 +1084,7 @@ export default function TabbedEditor({
                 height="100%"
                 original={activeDiff.original}
                 modified={activeDiff.modified}
-                language={getLanguage(activeDisplayPath)}
+                language={getEditorLanguage(activeDisplayPath)}
                 theme={isDark ? "vs-dark" : "light"}
                 beforeMount={handleBeforeMount}
                 onMount={handleDiffMount}
@@ -1179,7 +1139,7 @@ export default function TabbedEditor({
               height="100%"
               path={activeTab.path}
               value={activeTab.content}
-              language={getLanguage(activeDisplayPath)}
+              language={getEditorLanguage(activeDisplayPath)}
               theme={isDark ? "vs-dark" : "light"}
               beforeMount={handleBeforeMount}
               onMount={handleMount}

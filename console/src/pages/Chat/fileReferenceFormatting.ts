@@ -1,6 +1,13 @@
 export interface FileReferenceSegment {
   text: string;
-  reference: boolean;
+  reference: ParsedFileReference | null;
+}
+
+export interface ParsedFileReference {
+  kind: "file" | "editor";
+  path: string;
+  startLine?: number;
+  endLine?: number;
 }
 
 export interface FileReferenceRange {
@@ -8,14 +15,58 @@ export interface FileReferenceRange {
   end: number;
 }
 
-const FILE_REFERENCE_PATTERN =
-  /@ (?:(?:[a-zA-Z]:[\\/])|\/)[^\s\n]+|(?:(?:[a-zA-Z]:[\\/]|\/)?(?:[^\s\n:]+[\\/])*[^\s\n:]+\.[a-zA-Z0-9_-]+):\d+(?:-\d+)?/g;
+interface ParsedFileReferenceRange extends FileReferenceRange {
+  reference: ParsedFileReference;
+}
 
-export function fileReferenceRanges(value: string): FileReferenceRange[] {
-  return Array.from(value.matchAll(FILE_REFERENCE_PATTERN), (match) => ({
-    start: match.index ?? 0,
-    end: (match.index ?? 0) + match[0].length,
-  }));
+const FILE_MENTION_PATTERN = /@ ([^\s\n]+)/g;
+const EDITOR_REFERENCE_PATTERN =
+  /((?:[a-zA-Z]:[\\/]|\/)?(?:[^\s\n:]+[\\/])*[^\s\n:]+):(\d+)(?:-(\d+))?/g;
+
+function looksLikeEditorPath(path: string): boolean {
+  const name = path.split(/[\\/]/).pop() ?? path;
+  return (
+    path.includes("/") ||
+    path.includes("\\") ||
+    name.includes(".") ||
+    /^[A-Z][A-Z0-9_.-]*$/.test(name)
+  );
+}
+
+function fileReferenceRanges(value: string): ParsedFileReferenceRange[] {
+  const ranges: ParsedFileReferenceRange[] = [];
+  for (const match of value.matchAll(FILE_MENTION_PATTERN)) {
+    const start = match.index ?? 0;
+    ranges.push({
+      start,
+      end: start + match[0].length,
+      reference: {
+        kind: "file",
+        path: match[1],
+      },
+    });
+  }
+  for (const match of value.matchAll(EDITOR_REFERENCE_PATTERN)) {
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    if (
+      !looksLikeEditorPath(match[1]) ||
+      ranges.some((range) => start < range.end && end > range.start)
+    ) {
+      continue;
+    }
+    ranges.push({
+      start,
+      end,
+      reference: {
+        kind: "editor",
+        path: match[1],
+        startLine: Number(match[2]),
+        endLine: Number(match[3] ?? match[2]),
+      },
+    });
+  }
+  return ranges.sort((left, right) => left.start - right.start);
 }
 
 export function atomicDeletionRange(
@@ -26,13 +77,13 @@ export function atomicDeletionRange(
 ): FileReferenceRange | null {
   const ranges = fileReferenceRanges(value);
   if (selectionStart === selectionEnd) {
-    return (
+    const range =
       ranges.find((range) =>
         key === "Backspace"
           ? selectionStart > range.start && selectionStart <= range.end
           : selectionStart >= range.start && selectionStart < range.end,
-      ) ?? null
-    );
+      ) ?? null;
+    return range ? { start: range.start, end: range.end } : null;
   }
 
   const touched = ranges.filter(
@@ -48,21 +99,23 @@ export function atomicDeletionRange(
 export function splitFileReferences(value: string): FileReferenceSegment[] {
   const segments: FileReferenceSegment[] = [];
   let offset = 0;
-  for (const match of value.matchAll(FILE_REFERENCE_PATTERN)) {
-    const index = match.index ?? 0;
-    if (index > offset) {
+  for (const range of fileReferenceRanges(value)) {
+    if (range.start > offset) {
       segments.push({
-        text: value.slice(offset, index),
-        reference: false,
+        text: value.slice(offset, range.start),
+        reference: null,
       });
     }
-    segments.push({ text: match[0], reference: true });
-    offset = index + match[0].length;
+    segments.push({
+      text: value.slice(range.start, range.end),
+      reference: range.reference,
+    });
+    offset = range.end;
   }
   if (offset < value.length || segments.length === 0) {
     segments.push({
       text: value.slice(offset),
-      reference: false,
+      reference: null,
     });
   }
   return segments;

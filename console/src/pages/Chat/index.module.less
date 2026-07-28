@@ -78,7 +78,7 @@
   color: transparent !important;
   caret-color: #302b27;
   background: transparent !important;
-  z-index: 2;
+  z-index: 1;
 
   &::placeholder {
     color: rgba(41, 37, 34, 0.42);
@@ -93,7 +93,7 @@
   pointer-events: none;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-  z-index: 1;
+  z-index: 2;
 }
 
 .fileReferenceOverlayContent {
@@ -105,12 +105,24 @@
 }
 
 .inlineFileReference {
-  color: #c95012;
-  border-radius: 5px;
-  background: #fff0e7;
-  box-shadow: 0 0 0 1px rgba(243, 107, 33, 0.16);
+  all: unset;
+  color: #1677ff;
+  border-radius: 4px;
+  background: rgba(22, 119, 255, 0.08);
+  box-shadow: 0 0 0 1px rgba(22, 119, 255, 0.14);
   box-decoration-break: clone;
+  cursor: pointer;
+  pointer-events: auto;
+  text-decoration: underline;
+  text-decoration-color: rgba(22, 119, 255, 0.45);
+  text-underline-offset: 2px;
   -webkit-box-decoration-break: clone;
+
+  &:hover {
+    color: #0958d9;
+    background: rgba(22, 119, 255, 0.13);
+    text-decoration-color: currentColor;
+  }
 }
 
 :global(.dark-mode) {
@@ -127,9 +139,15 @@
   }
 
   .inlineFileReference {
-    color: #ffad78;
-    background: #40271a;
-    box-shadow: 0 0 0 1px rgba(255, 145, 77, 0.22);
+    color: #69b1ff;
+    background: rgba(64, 150, 255, 0.14);
+    box-shadow: 0 0 0 1px rgba(105, 177, 255, 0.24);
+    text-decoration-color: rgba(105, 177, 255, 0.55);
+
+    &:hover {
+      color: #91caff;
+      background: rgba(64, 150, 255, 0.2);
+    }
   }
 }
 

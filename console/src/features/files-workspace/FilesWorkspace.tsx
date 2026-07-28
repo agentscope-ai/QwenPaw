@@ -62,8 +62,16 @@ export default function FilesWorkspace({
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const targetsByTab = useRef(new Map<string, FileTarget>());
+  const navigationSequence = useRef(0);
   const [loadError, setLoadError] = useState("");
   const [activity, setActivity] = useState<"files" | "git">("files");
+  const [editorNavigation, setEditorNavigation] = useState<{
+    path: string;
+    line: number;
+    endLine: number;
+    column?: number;
+    sequence: number;
+  } | null>(null);
 
   const resolveEditableTarget = useCallback(
     async (target: FileTarget): Promise<FileTarget> => {
@@ -223,6 +231,16 @@ export default function FilesWorkspace({
             : resolvedTarget.path
           : `${resolvedTarget.source}::${resolvedTarget.path}`;
       targetsByTab.current.set(tabPath, resolvedTarget);
+      if (resolvedTarget.line) {
+        navigationSequence.current += 1;
+        setEditorNavigation({
+          path: tabPath,
+          line: resolvedTarget.line,
+          endLine: resolvedTarget.endLine ?? resolvedTarget.line,
+          column: resolvedTarget.column,
+          sequence: navigationSequence.current,
+        });
+      }
       const existing = tabsRef.current.find((tab) => tab.path === tabPath);
       if (existing) {
         setLoadError("");
@@ -353,6 +371,7 @@ export default function FilesWorkspace({
           }
           onLoadFile={loadTabContent}
           chatId={chatId}
+          navigation={editorNavigation}
           onDownloadFile={async (path) => {
             const tab = tabsRef.current.find((item) => item.path === path);
             const separator = path.indexOf("::");

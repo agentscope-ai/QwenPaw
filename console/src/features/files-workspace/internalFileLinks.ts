@@ -61,6 +61,32 @@ export function toProjectRelativePath(
   return parseInternalFileLink(path.slice(root.length + 1))?.path ?? null;
 }
 
+function normalizeComparablePath(path: string): string {
+  const normalized = path.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  return /^[a-z]:\//i.test(normalized) ? normalized.toLowerCase() : normalized;
+}
+
+function isWithinDirectory(path: string, directory: string): boolean {
+  const candidate = normalizeComparablePath(path);
+  const root = normalizeComparablePath(directory);
+  return candidate === root || candidate.startsWith(`${root}/`);
+}
+
+export function rootForFileReference(
+  path: string,
+  projectDirectory: string,
+  workspaceDirectory: string,
+): "project" | "workspace" {
+  const normalized = path.trim().replace(/\\/g, "/");
+  const absolute = normalized.startsWith("/") || /^[a-z]:\//i.test(normalized);
+  if (!absolute || isWithinDirectory(normalized, projectDirectory)) {
+    return "project";
+  }
+  return isWithinDirectory(normalized, workspaceDirectory)
+    ? "workspace"
+    : "project";
+}
+
 export function filePathFromPreviewUrl(rawUrl: string): string | null {
   const marker = "/files/preview/";
   const markerIndex = rawUrl.indexOf(marker);

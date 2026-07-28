@@ -62,4 +62,19 @@ describe("filesDrawerReducer", () => {
       }),
     ).toMatchObject({ kind: "workspace", origin: "files" });
   });
+
+  it("opens an editor reference directly in the Chat workspace", () => {
+    const lineTarget = { ...target, line: 12, endLine: 18 };
+    expect(
+      filesDrawerReducer(CLOSED_FILES_DRAWER, {
+        type: "OPEN_WORKSPACE",
+        target: lineTarget,
+        trigger: null,
+      }),
+    ).toMatchObject({
+      kind: "workspace",
+      origin: "chat",
+      target: lineTarget,
+    });
+  });
 });

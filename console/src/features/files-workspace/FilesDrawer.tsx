@@ -374,7 +374,6 @@ export default function FilesDrawer({
                 className={styles.secondaryButton}
                 onClick={() => {
                   insertFileReference(target.path);
-                  close();
                 }}
               >
                 <MessageSquarePlus size={15} />

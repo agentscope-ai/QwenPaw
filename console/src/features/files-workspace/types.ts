@@ -8,6 +8,7 @@ export interface FileTarget {
   /** Stable URL emitted by a chat tool result for a historical artifact. */
   artifactUrl?: string;
   line?: number;
+  endLine?: number;
   column?: number;
 }
 
@@ -36,6 +37,11 @@ export type FilesDrawerEvent =
   | {
       type: "OPEN_FILES";
       target?: FileTarget;
+      trigger: HTMLElement | null;
+    }
+  | {
+      type: "OPEN_WORKSPACE";
+      target: FileTarget;
       trigger: HTMLElement | null;
     }
   | { type: "EXPAND_WORKSPACE" }

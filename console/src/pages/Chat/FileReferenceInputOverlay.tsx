@@ -2,6 +2,7 @@ import { createPortal } from "react-dom";
 import { useEffect, useState, type CSSProperties } from "react";
 import {
   atomicDeletionRange,
+  type ParsedFileReference,
   splitFileReferences,
 } from "./fileReferenceFormatting";
 import { getActiveSenderTextarea } from "./utils";
@@ -37,8 +38,13 @@ function overlayStyle(textarea: HTMLTextAreaElement): CSSProperties {
 
 export default function FileReferenceInputOverlay({
   value,
+  onOpenReference,
 }: {
   value: string;
+  onOpenReference?: (
+    reference: ParsedFileReference,
+    trigger: HTMLElement,
+  ) => void;
 }) {
   const [state, setState] = useState<OverlayState | null>(null);
 
@@ -122,11 +128,7 @@ export default function FileReferenceInputOverlay({
 
   if (!state) return null;
   return createPortal(
-    <div
-      className={styles.fileReferenceOverlay}
-      style={state.style}
-      aria-hidden="true"
-    >
+    <div className={styles.fileReferenceOverlay} style={state.style}>
       <div
         className={styles.fileReferenceOverlayContent}
         style={{
@@ -135,14 +137,22 @@ export default function FileReferenceInputOverlay({
       >
         {splitFileReferences(value).map((segment, index) =>
           segment.reference ? (
-            <span
+            <button
+              type="button"
               className={styles.inlineFileReference}
               key={`${index}-${segment.text}`}
+              tabIndex={-1}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={(event) =>
+                onOpenReference?.(segment.reference!, event.currentTarget)
+              }
             >
               {segment.text}
-            </span>
+            </button>
           ) : (
-            <span key={`${index}-${segment.text}`}>{segment.text}</span>
+            <span aria-hidden="true" key={`${index}-${segment.text}`}>
+              {segment.text}
+            </span>
           ),
         )}
       </div>

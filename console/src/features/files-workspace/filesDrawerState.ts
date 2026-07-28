@@ -20,6 +20,13 @@ export function filesDrawerReducer(
         target: event.target,
         trigger: event.trigger,
       };
+    case "OPEN_WORKSPACE":
+      return {
+        kind: "workspace",
+        origin: "chat",
+        target: event.target,
+        trigger: event.trigger,
+      };
     case "EXPAND_WORKSPACE":
       return state.kind === "preview"
         ? {
