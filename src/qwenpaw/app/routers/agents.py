@@ -8,10 +8,10 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from qwenpaw.exceptions import (
     AppBaseException,
@@ -32,6 +32,7 @@ from ...config.config import (
 from ...config.utils import load_config, save_config
 from ...agents.utils import copy_workspace_md_files, normalize_agent_language
 from ...agents.skill_system import SkillPoolService, get_workspace_skills_dir
+from ...harnesses.registry import ProviderCatalogItem, get_provider
 from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
@@ -51,6 +52,10 @@ class AgentSummary(BaseModel):
     enabled: bool
     pinned: bool
     startup_status: AgentStartupStatus
+    backend: str = "qwenpaw"
+    backend_capabilities: dict[str, Any] = Field(default_factory=dict)
+    backend_model: str | None = None
+    backend_reasoning_effort: str | None = None
     active_model: ModelSlotConfig | None = None
 
 
@@ -64,6 +69,13 @@ class ReorderAgentsRequest(BaseModel):
     """Request model for persisting agent order."""
 
     agent_ids: list[str]
+
+
+class BackendSettingsRequest(BaseModel):
+    """Provider-owned settings updated from Chat controls."""
+
+    model: str | None = None
+    reasoning_effort: str | None = None
 
 
 class CreateAgentRequest(BaseModel):
@@ -81,6 +93,8 @@ class CreateAgentRequest(BaseModel):
     language: str | None = None
     skill_names: list[str] | None = None
     active_model: ModelSlotConfig | None = None
+    backend: str = "qwenpaw"
+    backend_settings: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("id", mode="before")
     @classmethod
@@ -122,6 +136,22 @@ _COPYABLE_MD_FILES = (
     "HEARTBEAT.md",
     "BOOTSTRAP.md",
 )
+
+
+def _get_available_third_party_provider(
+    backend: str,
+) -> ProviderCatalogItem:
+    """Resolve an available third-party backend for API mutations."""
+    try:
+        provider = get_provider(backend)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if provider.coming_soon:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{provider.name} is not available yet",
+        )
+    return provider
 
 
 def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
@@ -249,6 +279,15 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     description = profile_desc
 
             active_model = agent_config.active_model
+            if agent_config.backend == "qwenpaw":
+                backend_capabilities = {"workspace_ui": True}
+            else:
+                try:
+                    backend_capabilities = get_provider(
+                        agent_config.backend,
+                    ).capabilities.model_dump()
+                except ValueError:
+                    backend_capabilities = {}
 
             agents.append(
                 AgentSummary(
@@ -259,6 +298,14 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     enabled=enabled,
                     pinned=pinned,
                     startup_status=startup_status,
+                    backend=agent_config.backend,
+                    backend_capabilities=backend_capabilities,
+                    backend_model=agent_config.backend_settings.get("model"),
+                    backend_reasoning_effort=(
+                        agent_config.backend_settings.get(
+                            "reasoning_effort",
+                        )
+                    ),
                     active_model=active_model,
                 ),
             )
@@ -371,6 +418,43 @@ async def get_agent(agentId: str = PathParam(...)) -> AgentProfileConfig:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.patch(
+    "/{agentId}/backend-settings",
+    response_model=AgentProfileConfig,
+    summary="Update third-party backend Chat settings",
+)
+async def update_backend_settings(
+    body: BackendSettingsRequest,
+    agentId: str = PathParam(...),
+) -> AgentProfileConfig:
+    """Persist model controls owned by a third-party agent backend."""
+    try:
+        agent_config = load_agent_config(agentId)
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if agent_config.backend == "qwenpaw":
+        raise HTTPException(
+            status_code=409,
+            detail="QwenPaw models use the native model configuration",
+        )
+    provider = _get_available_third_party_provider(agent_config.backend)
+    settings = dict(agent_config.backend_settings)
+    values = body.model_dump()
+    if provider.capabilities.model_selection:
+        if values["model"]:
+            settings["model"] = values["model"]
+        else:
+            settings.pop("model", None)
+    if provider.capabilities.reasoning_effort:
+        if values["reasoning_effort"]:
+            settings["reasoning_effort"] = values["reasoning_effort"]
+        else:
+            settings.pop("reasoning_effort", None)
+    agent_config.backend_settings = settings
+    save_agent_config(agentId, agent_config)
+    return agent_config
+
+
 def _generate_unique_id(existing_ids: set[str]) -> str:
     """Generate a unique random short agent ID.
 
@@ -405,6 +489,9 @@ async def create_agent(
     (validated for URL-safe characters, length, reserved words, and
     uniqueness).  Otherwise a random short UUID is generated.
     """
+    if request.backend != "qwenpaw":
+        _get_available_third_party_provider(request.backend)
+
     config = load_config()
     existing_ids = set(config.agents.profiles.keys())
 
@@ -436,8 +523,12 @@ async def create_agent(
         request.language or config.agents.language or "en",
     )
 
-    active_model = request.active_model
-    if not active_model or not active_model.provider_id:
+    active_model = (
+        request.active_model if request.backend == "qwenpaw" else None
+    )
+    if request.backend == "qwenpaw" and (
+        not active_model or not active_model.provider_id
+    ):
         try:
             from ...providers import ProviderManager
 
@@ -452,6 +543,8 @@ async def create_agent(
         name=request.name,
         description=request.description,
         workspace_dir=str(workspace_dir),
+        backend=request.backend,
+        backend_settings=request.backend_settings,
         language=language,
         channels=ChannelConfig(),
         mcp=MCPConfig(),
@@ -526,8 +619,7 @@ def _copy_selected_workspace_files(
         src_skills = get_workspace_skills_dir(source_workspace)
         dst_skills = get_workspace_skills_dir(workspace_dir)
         if src_skills.is_dir():
-            # Destination skills/ is created empty by
-            # _initialize_agent_workspace, so dirs_exist_ok is required.
+            # Dest may already exist when create_skills_dir scaffolding ran.
             shutil.copytree(src_skills, dst_skills, dirs_exist_ok=True)
         src_manifest = source_workspace / "skill.json"
         if src_manifest.is_file():
@@ -594,6 +686,8 @@ async def copy_agent(
         skill_names=[],
         language=language,
         apply_md_templates=request.copy_md_files,
+        create_skills_dir=request.copy_skills,
+        create_jobs_file=request.copy_jobs,
     )
     _copy_selected_workspace_files(
         request=request,
@@ -896,13 +990,16 @@ def _initialize_agent_workspace(
     language: str | None = None,
     *,
     apply_md_templates: bool = True,
+    create_skills_dir: bool = True,
+    create_jobs_file: bool = True,
 ) -> None:
     """Initialize agent workspace with only explicitly requested skills."""
     from ...config import load_config as load_global_config
 
     (workspace_dir / "sessions").mkdir(exist_ok=True)
     (workspace_dir / "memory").mkdir(exist_ok=True)
-    get_workspace_skills_dir(workspace_dir).mkdir(exist_ok=True)
+    if create_skills_dir:
+        get_workspace_skills_dir(workspace_dir).mkdir(exist_ok=True)
 
     config = load_global_config()
     if not language:
@@ -917,15 +1014,16 @@ def _initialize_agent_workspace(
         _ensure_heartbeat_file(workspace_dir, language)
     _install_initial_skills(workspace_dir, skill_names)
 
-    jobs_file = workspace_dir / "jobs.json"
-    if not jobs_file.exists():
-        with open(jobs_file, "w", encoding="utf-8") as file:
-            json.dump(
-                {"version": 1, "jobs": []},
-                file,
-                ensure_ascii=False,
-                indent=2,
-            )
+    if create_jobs_file:
+        jobs_file = workspace_dir / "jobs.json"
+        if not jobs_file.exists():
+            with open(jobs_file, "w", encoding="utf-8") as file:
+                json.dump(
+                    {"version": 1, "jobs": []},
+                    file,
+                    ensure_ascii=False,
+                    indent=2,
+                )
 
     chats_file = workspace_dir / "chats.json"
     if not chats_file.exists():

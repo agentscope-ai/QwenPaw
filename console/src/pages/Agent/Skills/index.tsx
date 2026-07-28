@@ -11,18 +11,22 @@ import {
   HeaderActions,
   SkillsToolbar,
   SkillListItem,
+  ProviderSkillDrawer,
   getSkillVisual,
 } from "./components";
 import type { SkillSpec } from "../../../api/types";
+import type { HarnessDiscoveredSkill } from "../../../api/modules/harness";
 import { PageHeader } from "@/components/PageHeader";
 import { useSkillsPage } from "./useSkillsPage";
 import styles from "./index.module.less";
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useState } from "react";
+import { LockKeyhole, Sparkles } from "lucide-react";
 
 function SkillsPage() {
   const { t } = useTranslation();
   const {
     skills,
+    providerSkills,
     visibleSkills,
     hasMore,
     sentinelRef,
@@ -78,6 +82,8 @@ function SkillsPage() {
   } = useSkillsPage();
 
   const [searchParams, setSearchParams] = useSearchParams();
+  const [selectedProviderSkill, setSelectedProviderSkill] =
+    useState<HarnessDiscoveredSkill | null>(null);
   const marketView = searchParams.get("view") === "market";
 
   const openMarket = useCallback(() => {
@@ -201,6 +207,16 @@ function SkillsPage() {
         hint={t("skillPool.externalHubHint")}
       />
 
+      {providerSkills.length > 0 && (
+        <div className={styles.managementBanner}>
+          <Sparkles size={16} />
+          <div>
+            <strong>{t("skills.qwenpawManaged")}</strong>
+            <span>{t("skills.qwenpawManagedHint")}</span>
+          </div>
+        </div>
+      )}
+
       {!loading && skills.length > 0 && (
         <SkillsToolbar
           searchQuery={searchQuery}
@@ -220,7 +236,11 @@ function SkillsPage() {
           <span className={styles.loadingText}>{t("common.loading")}</span>
         </div>
       ) : skills.length === 0 ? (
-        <div className={styles.emptyState}>
+        <div
+          className={`${styles.emptyState} ${
+            providerSkills.length > 0 ? styles.emptyStateCompact : ""
+          }`}
+        >
           <div className={styles.emptyStateBadge}>
             {t("skills.emptyStateBadge")}
           </div>
@@ -336,6 +356,63 @@ function SkillsPage() {
           )}
         </>
       )}
+
+      {providerSkills.length > 0 && (
+        <section className={styles.providerSkillsSection}>
+          <div className={styles.providerSkillsHeading}>
+            <div>
+              <span className={styles.providerSkillsTitle}>
+                <LockKeyhole size={16} />
+                {t("skills.providerManaged")}
+              </span>
+              <p>{t("skills.providerManagedHint")}</p>
+            </div>
+            <span className={styles.providerSkillsCount}>
+              {providerSkills.length}
+            </span>
+          </div>
+          <div className={styles.providerSkillsGrid}>
+            {providerSkills.map((skill) => (
+              <button
+                type="button"
+                key={`${skill.provider_id}:${skill.source}:${skill.name}`}
+                className={styles.providerSkillCard}
+                onClick={() => setSelectedProviderSkill(skill)}
+                aria-label={`${t("common.view")}: ${skill.name}`}
+              >
+                <div className={styles.providerSkillTop}>
+                  <span className={styles.providerSkillIcon}>
+                    <LockKeyhole size={15} />
+                  </span>
+                  <span
+                    className={
+                      skill.enabled
+                        ? styles.providerSkillEnabled
+                        : styles.providerSkillDisabled
+                    }
+                  >
+                    {skill.enabled ? t("common.enabled") : t("common.disabled")}
+                  </span>
+                </div>
+                <strong title={skill.name}>{skill.name}</strong>
+                <p>{skill.description || t("skills.noDescription")}</p>
+                <div className={styles.providerSkillMeta}>
+                  <span>{skill.provider_id}</span>
+                  {skill.source && <span>{skill.source}</span>}
+                  <span>{t("skills.providerOnly")}</span>
+                  <span>{t("skills.readOnly")}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <ProviderSkillDrawer
+        open={selectedProviderSkill !== null}
+        skill={selectedProviderSkill}
+        onClose={() => setSelectedProviderSkill(null)}
+      />
 
       <PoolTransferModal
         mode={poolModal}

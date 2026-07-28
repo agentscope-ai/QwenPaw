@@ -11,4 +11,14 @@ export const PLATFORM_ICONS: Record<string, LucideIcon> = {
   linux: Monitor,
 };
 
-export const KNOWN_PLUGIN_PLATFORM_KINDS = ["bundle", "tool"] as const;
+export const KNOWN_PLUGIN_PLATFORM_KINDS = [
+  "bundle",
+  "tool",
+  "apps",
+  "app",
+  "provider",
+  "command",
+  "hook",
+  "frontend",
+  "general",
+] as const;

@@ -48,6 +48,24 @@ def _notice_records(caplog) -> list[logging.LogRecord]:
     ]
 
 
+def test_removed_eviction_headline_settings_are_ignored():
+    config = LightContextConfig(
+        strategy="scroll",
+        scroll_config={
+            "summarize_unheadlined_evictions": True,
+            "summarize_eviction_timeout_seconds": 45,
+        },
+    )
+    assert not hasattr(
+        config.scroll_config,
+        "summarize_unheadlined_evictions",
+    )
+    assert not hasattr(
+        config.scroll_config,
+        "summarize_eviction_timeout_seconds",
+    )
+
+
 @pytest.mark.usefixtures("capture_qwenpaw_logs")
 def test_first_run_logs_notice_once(tmp_path: Path, caplog):
     db = tmp_path / "history.db"

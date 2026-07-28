@@ -6,6 +6,18 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit SHA to build/deploy (empty = the triggering ref)"
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Stub the GitHub Pages push (fork verification)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -24,6 +36,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -133,8 +147,14 @@ jobs:
         run: cp website/dist/index.html website/dist/404.html
 
       - name: Deploy to GitHub Pages
+        if: ${{ !inputs.dry_run }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: website/dist
           cname: qwenpaw.agentscope.io
+
+      - name: Dry-run notice
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "DRY-RUN: would deploy website/dist to GitHub Pages (cname qwenpaw.agentscope.io)"

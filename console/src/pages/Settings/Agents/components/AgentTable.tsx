@@ -1,4 +1,4 @@
-import { Table, Button, Space, Popconfirm, Tooltip } from "antd";
+import { Table, Button, Space, Popconfirm, Tag, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
 import {
@@ -19,7 +19,14 @@ import {
   RobotOutlined,
   CopyOutlined,
 } from "@ant-design/icons";
-import { EyeOff, Eye, Pin, PinOff } from "lucide-react";
+import {
+  EyeOff,
+  Eye,
+  PawPrint,
+  Pin,
+  PinOff,
+  SquareTerminal,
+} from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
@@ -27,6 +34,11 @@ import { SortableAgentRow, DragHandle } from "./SortableAgentRow";
 import { providerIcon } from "../../Models/components/providerIcon";
 import { AgentStatusIndicator } from "@/components/AgentStatusIndicator";
 import styles from "../index.module.less";
+
+const THIRD_PARTY_AGENT_NAMES: Record<string, string> = {
+  codex: "Codex",
+  qoder: "Qoder",
+};
 
 interface AgentTableProps {
   agents: AgentSummary[];
@@ -98,7 +110,7 @@ export function AgentTable({
       title: t("agent.name"),
       dataIndex: "name",
       key: "name",
-      width: 300,
+      width: 260,
       render: (_text: string, record: AgentSummary) => (
         <Space>
           <AgentStatusIndicator
@@ -124,25 +136,73 @@ export function AgentTable({
       title: t("agent.id"),
       dataIndex: "id",
       key: "id",
+      width: 180,
+    },
+    {
+      title: t("agent.backend.column"),
+      dataIndex: "backend",
+      key: "backend",
+      width: 180,
+      render: (backend: AgentSummary["backend"]) => {
+        const thirdParty = backend !== "qwenpaw";
+        const name = THIRD_PARTY_AGENT_NAMES[backend] ?? backend;
+        return (
+          <Tag
+            className={`${styles.backendTag} ${
+              thirdParty ? styles.backendTagThirdParty : ""
+            }`}
+            icon={
+              thirdParty ? <SquareTerminal size={12} /> : <PawPrint size={12} />
+            }
+          >
+            {thirdParty
+              ? `${name} · ${t("agent.backend.thirdPartyBadge")}`
+              : `QwenPaw · ${t("agent.backend.nativeBadge")}`}
+          </Tag>
+        );
+      },
     },
     {
       title: t("agent.description"),
       dataIndex: "description",
       key: "description",
+      width: 220,
       ellipsis: true,
     },
     {
       title: t("agent.workspace"),
       dataIndex: "workspace_dir",
       key: "workspace_dir",
+      width: 260,
       ellipsis: true,
     },
     {
       title: t("agent.modelColumn"),
       key: "active_model",
-      width: 260,
+      width: 220,
       ellipsis: true,
       render: (_value: unknown, record: AgentSummary) => {
+        if (record.backend !== "qwenpaw") {
+          const model = record.backend_model;
+          return model ? (
+            <Space size={6}>
+              <SquareTerminal size={15} />
+              <Tooltip
+                title={
+                  record.backend_reasoning_effort
+                    ? `${model} · ${record.backend_reasoning_effort}`
+                    : model
+                }
+              >
+                <span>{model}</span>
+              </Tooltip>
+            </Space>
+          ) : (
+            <span style={{ opacity: 0.45 }}>
+              {t("agent.backend.modelDefault")}
+            </span>
+          );
+        }
         if (!record.active_model) {
           return (
             <span style={{ opacity: 0.45 }}>{t("agent.modelPlaceholder")}</span>
@@ -165,6 +225,8 @@ export function AgentTable({
     {
       title: t("common.actions"),
       key: "actions",
+      width: 240,
+      fixed: "right",
       render: (_value: unknown, record: AgentSummary) => {
         const startupInProgress =
           record.startup_status === "pending" ||
@@ -298,6 +360,7 @@ export function AgentTable({
             columns={columns}
             loading={loading}
             rowKey="id"
+            scroll={{ x: 1620 }}
             components={{
               body: {
                 row: SortableAgentRow,

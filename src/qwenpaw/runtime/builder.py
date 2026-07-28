@@ -842,11 +842,11 @@ class AgentBuilder:
         ``scroll_config.allow_unsandboxed``, via
         ``scroll_unsandboxed_allowed``).
 
-        When neither holds (e.g. Windows without WSL2), every call would fail
-        closed, and the guard layer misreads that ``DENIED`` as a sandbox
-        violation and escalates to a recurring approval prompt. So we omit the
-        REPL and let the model recall through the structured ``recall_history``
-        tool, which needs no sandbox. This is narrower than
+        When neither holds, every call would fail closed, and the guard layer
+        misreads that ``DENIED`` as a sandbox violation and escalates to a
+        recurring approval prompt. So we omit the REPL and let the model recall
+        through the structured ``recall_history`` tool, which needs no sandbox.
+        This is narrower than
         :meth:`_scroll_recall_runnable`, which gates whether scroll is wired at
         all; here scroll is already wired and structured recall is present.
 
@@ -895,11 +895,11 @@ class AgentBuilder:
 
         The sandboxed ``recall_history_python`` REPL is registered ONLY when
         it can actually run in a sandbox (or unsandboxed recall is explicitly
-        opted in). Where no sandbox exists — e.g. Windows without WSL2, or an
-        OFF-mode path that skips sandbox compilation — every call would fail
-        closed, and the guard layer misreads that ``DENIED`` as a sandbox
-        violation and turns it into a recurring approval prompt. Omitting it
-        removes that dead-end: the model recalls through the structured tool.
+        opted in). Where no sandbox exists, or an OFF-mode path skips sandbox
+        compilation, every call would fail closed, and the guard layer misreads
+        that ``DENIED`` as a sandbox violation and turns it into a recurring
+        approval prompt. Omitting it removes that dead-end: the model recalls
+        through the structured tool.
         """
         extra_tools.append(
             self._wrap_tool(

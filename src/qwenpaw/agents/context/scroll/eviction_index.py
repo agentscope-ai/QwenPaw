@@ -30,6 +30,11 @@ from dataclasses import dataclass
 # block and folds the other (_TIER_CAP - 1) into one block a tier higher.
 _TIER_CAP = 10
 
+# A headline may remain up to 2,000 characters in durable state, but the
+# model-facing index is only a retrieval directory. Keep one rendered
+# headline compact; the exact turn remains addressable by its seq.
+_HEADLINE_VIEW_CHARS = 400
+
 # The seam banner closing the index placeholder. It is the LAST thing the model
 # reads before the live tail, so the structural signal sits right where the
 # confusion happens: the placeholder is a ``user`` message and so is the real
@@ -41,9 +46,13 @@ _TIER_CAP = 10
 # ``[CONTEXT SUMMARY]`` label — telling the model, at the seam, which side is
 # archive and which side is the request. Constant text, so it never breaks the
 # placeholder's KV-cache prefix.
-_LIVE_TURN_BANNER = [
+_ARCHIVED_INDEX_END = [
     "",
     "═══════════════ END OF ARCHIVED INDEX ═══════════════",
+]
+
+_LIVE_TURN_BANNER = [
+    "",
     "The CURRENT LIVE TURN is the message(s) that follow this one. Answer the "
     "most recent USER message there — NEVER a ⟦headline⟧ listed in the map "
     "above; those are archived, not requests. If your current request is not "
@@ -51,6 +60,11 @@ _LIVE_TURN_BANNER = [
     "retrieve it, say so — never answer an older message as if it were the "
     "request.",
 ]
+
+
+def render_live_turn_banner() -> str:
+    """Render the stable seam immediately before the live conversation."""
+    return "\n".join(_LIVE_TURN_BANNER)
 
 
 @dataclass(frozen=True)
@@ -147,7 +161,6 @@ class EvictionIndex:
         *,
         seq_lo: int,
         seq_hi: int,
-        fallback_lines: list[Line] | None = None,
     ) -> None:
         """Drop one eviction onto Tier 0 as a new block, then run the carry.
 
@@ -155,18 +168,16 @@ class EvictionIndex:
         the *full* evicted span (tool results and unheadlined turns
         included) so a range query recovers everything.
 
-        ``fallback_lines`` stands in for a span that produced no ``leaves`` (a
-        legacy 1.x span, or a tool-heavy stretch the model never headlined):
-        generated ``Line`` entries — each a seq sub-range with a synthesized
-        headline — that tile the span the way real milestones would. Empty or
-        ``None`` keeps the bare ``(no milestone)`` marker. The full turns stay
-        recoverable by the block's seq span either way.
+        A span with no ``leaves`` (for example a legacy conversation or a
+        routine stretch with no durable state change) gets a bare
+        ``(no milestone)`` marker. Its full turns remain recoverable by the
+        block's seq span.
         """
         lines = [
             Line(lf.seq, lf.seq, lf.headline, lf.headline) for lf in leaves
         ]
         if not lines:
-            lines = fallback_lines or [
+            lines = [
                 Line(seq_lo, seq_hi, "(no milestone)", "(no milestone)"),
             ]
         if not self._tiers:
@@ -245,11 +256,23 @@ class EvictionIndex:
 
     # -- rendering -----------------------------------------------------------
 
-    def render(self) -> str:
+    def render(
+        self,
+        *,
+        include_envelope: bool = True,
+        include_live_banner: bool = True,
+        detail_char_budget: int | None = None,
+    ) -> str:
         """The single placeholder message: the whole map + how to expand it.
 
         Tiers print oldest-first (highest tier on top) down to ``Tier 0`` (the
         most recently compressed) at the bottom, mirroring the live tail below.
+
+        ``detail_char_budget`` bounds only the tier/block directory, not the
+        stable preamble or seam banners. When supplied, individual headline
+        views are shortened first, then blocks collapse to endpoint lines, and
+        finally the whole directory becomes one recallable global seq span.
+        Durable state and :meth:`describe` remain lossless.
 
         KV-cache safe: the intro + recall block and the ``Tier N`` banners are
         constant, and a new eviction only appends a block to the bottom of
@@ -258,7 +281,6 @@ class EvictionIndex:
         then, which is inherent to the roll-up.)
         """
         out = [
-            "<system-info>",
             "[context compressed] The turns below were evicted from the live "
             "window but remain durable in conversation_history. This is an "
             "ARCHIVED MAP for reference only — NOT the live conversation. "
@@ -275,21 +297,77 @@ class EvictionIndex:
             "if one is available to you.",
             "",
         ]
-        out.extend(self._tier_lines())
-        # The seam banner closes the block right before the live tail — the
-        # structural anchor that keeps the model answering the request below,
-        # not a headline in the map above.
-        out.extend(_LIVE_TURN_BANNER)
-        out.append("</system-info>")
-        return "\n".join(out)
+        out.extend(
+            self._tier_lines(detail_char_budget=detail_char_budget),
+        )
+        out.extend(_ARCHIVED_INDEX_END)
+        if include_live_banner:
+            # With no continuation summary, the seam closes the block right
+            # before the live tail. The manager can defer it until after task
+            # state so that task state remains closest to the live request.
+            out.extend(_LIVE_TURN_BANNER)
+        body = "\n".join(out)
+        return (
+            f"<system-info>\n{body}\n</system-info>"
+            if include_envelope
+            else body
+        )
 
     def describe(self) -> str:
         """The tier/span map without the ``render`` preamble — for the
         user-facing ``/compact`` reply. Empty string if nothing is indexed."""
         return "\n".join(self._tier_lines())
 
-    def _tier_lines(self) -> list[str]:
-        """Tiers oldest-first, each block's seq span and per-line headlines."""
+    @staticmethod
+    def _bounded_headline(text: str, limit: int) -> str:
+        """Shorten a model-visible headline without changing durable state."""
+        if len(text) <= limit:
+            return text
+        return text[: max(1, limit - 3)].rstrip() + "..."
+
+    @staticmethod
+    def _lines_size(lines: list[str]) -> int:
+        """Rendered character count including newline separators."""
+        return len("\n".join(lines))
+
+    @classmethod
+    def _bounded_line_text(cls, line: Line, limit: int) -> str:
+        """Keep both endpoint headlines visible for a collapsed line."""
+        if line.head == line.tail:
+            return cls._bounded_headline(line.head, limit)
+        endpoint_limit = max(1, limit // 2)
+        return (
+            f"{cls._bounded_headline(line.head, endpoint_limit)} - "
+            f"{cls._bounded_headline(line.tail, endpoint_limit)}"
+        )
+
+    def _tier_lines(
+        self,
+        *,
+        detail_char_budget: int | None = None,
+    ) -> list[str]:
+        """Render a lossless or budgeted oldest-first tier directory."""
+        headline_limit = (
+            _HEADLINE_VIEW_CHARS if detail_char_budget is not None else None
+        )
+        expanded = self._expanded_tier_lines(headline_limit=headline_limit)
+        if (
+            detail_char_budget is None
+            or self._lines_size(expanded) <= detail_char_budget
+        ):
+            return expanded
+
+        endpoints = self._endpoint_tier_lines()
+        if self._lines_size(endpoints) <= detail_char_budget:
+            return endpoints
+        return self._global_span_lines()
+
+    def _expanded_tier_lines(
+        self,
+        *,
+        headline_limit: int | None,
+    ) -> list[str]:
+        """Every block and headline, optionally shortened for model view."""
         out: list[str] = []
         for k in range(len(self._tiers) - 1, -1, -1):
             tier = self._tiers[k]
@@ -300,5 +378,44 @@ class EvictionIndex:
             for block in tier:
                 out.append(f"  [seq {block.seq_lo}–{block.seq_hi}]")
                 for ln in block.lines:
-                    out.append(f"    · {ln.span}  ⟦ {ln.text} ⟧")
+                    text = ln.text
+                    if headline_limit is not None:
+                        text = self._bounded_line_text(ln, headline_limit)
+                    out.append(f"    · {ln.span}  ⟦ {text} ⟧")
         return out
+
+    def _endpoint_tier_lines(self) -> list[str]:
+        """One bounded endpoint line per block, preserving every block span."""
+        out: list[str] = []
+        endpoint_limit = _HEADLINE_VIEW_CHARS // 2
+        for k in range(len(self._tiers) - 1, -1, -1):
+            tier = self._tiers[k]
+            if not tier:
+                continue
+            label = "recently compressed" if k == 0 else "older msgs"
+            out.append(f"===== Tier {k} ({label}; details folded) =====")
+            for block in tier:
+                head = self._bounded_headline(block.first, endpoint_limit)
+                tail = self._bounded_headline(block.last, endpoint_limit)
+                text = head if head == tail else f"{head} - {tail}"
+                span = (
+                    f"seq {block.seq_lo}"
+                    if block.seq_lo == block.seq_hi
+                    else f"seq {block.seq_lo}–{block.seq_hi}"
+                )
+                out.append(f"  · {span}  ⟦ {text} ⟧")
+        return out
+
+    def _global_span_lines(self) -> list[str]:
+        """Last-resort bounded directory retaining one exact recall span."""
+        blocks = [block for tier in self._tiers for block in tier]
+        if not blocks:
+            return []
+        lo = min(block.seq_lo for block in blocks)
+        hi = max(block.seq_hi for block in blocks)
+        return [
+            "===== Archived index (details folded to fit context) =====",
+            f"  [seq {lo}–{hi}]",
+            "    · Index details omitted; recover this span with "
+            f'recall_history(op="expand", lo={lo}, hi={hi})',
+        ]
