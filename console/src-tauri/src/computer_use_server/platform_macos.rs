@@ -11,6 +11,7 @@ use accessibility::{AXAttribute, AXUIElement};
 use accessibility_sys::{kAXPressAction, kAXRaiseAction, AXError, AXUIElementRef};
 use base64::Engine;
 use core_foundation::base::{CFType, TCFType};
+use core_foundation::boolean::CFBoolean;
 use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
 use core_foundation::number::CFNumber;
 use core_foundation::string::{CFString, CFStringRef};
@@ -38,6 +39,11 @@ use super::{
 /// large document would otherwise dominate the model's context, and the
 /// leading portion is what identifies the current state.
 const DOC_TEXT_MAX: usize = 4000;
+
+/// How long to wait for a raised window to actually hold focus before
+/// refusing to inject input.
+const FOCUS_POLL_ATTEMPTS: u32 = 20;
+const FOCUS_POLL_INTERVAL_MS: u64 = 25;
 
 // Private ApplicationServices API mapping an accessibility window element to
 // its CoreGraphics window id. It is the reliable way to match a CGWindowID
@@ -830,10 +836,63 @@ pub(super) fn set_focus(window: &WindowInfo) -> Result<(), (&'static str, String
     ))?;
     let app = AXUIElement::application(pid);
     let _ = app.set_messaging_timeout(2.0);
-    if let Some(ax_window) = find_ax_window(&app, window.hwnd as u32) {
-        let _ = ax_window.perform_action(&CFString::from_static_string(kAXRaiseAction));
+    let ax_window = find_ax_window(&app, window.hwnd as u32).ok_or((
+        "window_not_found",
+        "Accessibility could not locate the window.".to_string(),
+    ))?;
+    ax_window
+        .perform_action(&CFString::from_static_string(kAXRaiseAction))
+        .map_err(|_| {
+            (
+                "focus_failed",
+                "The window did not accept being brought forward.".to_string(),
+            )
+        })?;
+    // Raising is asynchronous, so wait for the window to actually hold focus.
+    // Reporting success without it would let keyboard input land in whatever
+    // application happens to be in front -- one this session may never have
+    // been approved for.
+    for _ in 0..FOCUS_POLL_ATTEMPTS {
+        if window_holds_focus(&app, window.hwnd as u32) {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(
+            FOCUS_POLL_INTERVAL_MS,
+        ));
     }
-    Ok(())
+    Err((
+        "focus_failed",
+        "The window did not take focus; it may be blocked by another window."
+            .to_string(),
+    ))
+}
+
+/// Whether the target window is the one that would receive keyboard input:
+/// its application is frontmost and the window is that application's focused
+/// window.
+fn window_holds_focus(app: &AXUIElement, target: u32) -> bool {
+    let frontmost = app
+        .attribute(&AXAttribute::new(&CFString::from_static_string(
+            "AXFrontmost",
+        )))
+        .ok()
+        .and_then(|value: CFType| value.downcast::<CFBoolean>())
+        .map(bool::from)
+        .unwrap_or(false);
+    if !frontmost {
+        return false;
+    }
+    let Ok(focused) = app.attribute(&AXAttribute::new(
+        &CFString::from_static_string("AXFocusedWindow"),
+    )) else {
+        return false;
+    };
+    let Some(element) = focused.downcast_into::<AXUIElement>() else {
+        return false;
+    };
+    let mut id: u32 = 0;
+    let status = unsafe { _AXUIElementGetWindow(element.as_concrete_TypeRef(), &mut id) };
+    status == 0 && id == target
 }
 
 /// Ask a window to close by pressing its own close button.
@@ -901,18 +960,25 @@ fn window_bounds(window_id: i64) -> Option<(f64, f64, f64, f64)> {
         if dict_i64(&dict, unsafe { kCGWindowNumber }) != Some(window_id) {
             continue;
         }
-        let key = unsafe { CFString::wrap_under_get_rule(kCGWindowBounds) };
-        let bounds = dict
-            .find(&key)?
-            .downcast::<CFDictionary<CFString, CFType>>()?;
-        return Some((
-            dict_f64(&bounds, "X")?,
-            dict_f64(&bounds, "Y")?,
-            dict_f64(&bounds, "Width")?,
-            dict_f64(&bounds, "Height")?,
-        ));
+        return bounds_from_dict(&dict);
     }
     None
+}
+
+/// Read a window's on-screen bounds out of an already-obtained window dict.
+fn bounds_from_dict(
+    dict: &CFDictionary<CFString, CFType>,
+) -> Option<(f64, f64, f64, f64)> {
+    let key = unsafe { CFString::wrap_under_get_rule(kCGWindowBounds) };
+    let bounds = dict
+        .find(&key)?
+        .downcast::<CFDictionary<CFString, CFType>>()?;
+    Some((
+        dict_f64(&bounds, "X")?,
+        dict_f64(&bounds, "Y")?,
+        dict_f64(&bounds, "Width")?,
+        dict_f64(&bounds, "Height")?,
+    ))
 }
 
 fn dict_f64(dict: &CFDictionary<CFString, CFType>, key: &str) -> Option<f64> {
@@ -973,15 +1039,88 @@ fn resolve_point(
             "Screenshot id does not match the snapshot.".to_string(),
         ));
     }
+    // The window must still be where it was when the screenshot was taken,
+    // or the mapping below would aim at whatever now occupies those pixels.
+    let current = window_bounds(window.hwnd as i64).ok_or((
+        "stale_window",
+        "Window geometry is no longer available.".to_string(),
+    ))?;
+    let current_bounds = [
+        current.0 as i32,
+        current.1 as i32,
+        current.2 as i32,
+        current.3 as i32,
+    ];
+    if current_bounds != snapshot.bounds {
+        return Err((
+            "stale_snapshot",
+            "Window geometry changed; observe it again.".to_string(),
+        ));
+    }
     let x = integer_param(params, x_key)?;
     let y = integer_param(params, y_key)?;
+    let display_width = snapshot.display_width.max(1) as i64;
+    let display_height = snapshot.display_height.max(1) as i64;
+    // Coordinates are expressed in the delivered screenshot space. Anything
+    // outside it would extrapolate to an arbitrary screen point, and the
+    // approval covers this window only.
+    if x < 0 || y < 0 || x >= display_width || y >= display_height {
+        return Err((
+            "point_outside_viewport",
+            "Point is outside the captured viewport.".to_string(),
+        ));
+    }
     let [origin_x, origin_y, width, height] = snapshot.bounds;
-    let fx = x as f64 / snapshot.display_width.max(1) as f64;
-    let fy = y as f64 / snapshot.display_height.max(1) as f64;
-    Ok(CGPoint {
+    let fx = x as f64 / display_width as f64;
+    let fy = y as f64 / display_height as f64;
+    let point = CGPoint {
         x: origin_x as f64 + fx * width as f64,
         y: origin_y as f64 + fy * height as f64,
-    })
+    };
+    // Finally confirm the target still owns that point: another window may
+    // sit above it even though the target itself has not moved.
+    if !point_belongs_to_window(point, window.hwnd as i64) {
+        return Err((
+            "target_not_at_point",
+            "Target window is no longer at this point.".to_string(),
+        ));
+    }
+    Ok(point)
+}
+
+/// Whether the frontmost window covering `point` is the target window.
+///
+/// The window list is ordered front to back, so the first on-screen window
+/// whose bounds contain the point is the one that would receive a click.
+fn point_belongs_to_window(point: CGPoint, window_id: i64) -> bool {
+    let option = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+    let Some(list) = copy_window_info(option, kCGNullWindowID) else {
+        return false;
+    };
+    for item in list.iter() {
+        let dict_ref = (*item) as CFDictionaryRef;
+        if dict_ref.is_null() {
+            continue;
+        }
+        let dict = unsafe { CFDictionary::<CFString, CFType>::wrap_under_get_rule(dict_ref) };
+        if dict_i64(&dict, unsafe { kCGWindowLayer }).unwrap_or(1) != 0 {
+            continue;
+        }
+        let Some(number) = dict_i64(&dict, unsafe { kCGWindowNumber }) else {
+            continue;
+        };
+        let Some((left, top, width, height)) = bounds_from_dict(&dict) else {
+            continue;
+        };
+        let inside = point.x >= left
+            && point.y >= top
+            && point.x < left + width
+            && point.y < top + height;
+        if inside {
+            return number == window_id;
+        }
+    }
+    false
 }
 
 fn integer_param(params: &Map<String, Value>, key: &str) -> Result<i64, (&'static str, String)> {
