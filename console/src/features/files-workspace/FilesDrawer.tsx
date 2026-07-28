@@ -15,6 +15,7 @@ import {
   Suspense,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import FilePreview, { isPreviewable } from "../../pages/Coding/FilePreview";
@@ -67,6 +68,8 @@ export default function FilesDrawer({
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const prefersReducedMotion = useReducedMotion();
   const isWorkspace = state.kind === "workspace";
   const chatId = scope.chatId;
   const projectDirOverride = scope.projectDirOverride;
@@ -204,6 +207,7 @@ export default function FilesDrawer({
 
   const resizeFromPointer = (event: React.PointerEvent) => {
     event.preventDefault();
+    setIsResizing(true);
     const startX = event.clientX;
     const initial = drawerRef.current?.getBoundingClientRect().width ?? 0;
     const containerWidth =
@@ -220,23 +224,51 @@ export default function FilesDrawer({
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      setIsResizing(false);
       const current = drawerRef.current?.getBoundingClientRect().width;
       if (current) localStorage.setItem(widthStorageKey, String(current));
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
 
   const drawerStyle = width > 0 ? { width: `${width}px` } : undefined;
   const filename = target?.path.split("/").pop() ?? t("files.title");
 
   return (
-    <aside
+    <motion.aside
       ref={drawerRef}
       className={`${styles.drawer} ${
         isWorkspace ? styles.drawerWorkspace : styles.drawerPreview
-      }`}
+      } ${isResizing ? styles.drawerResizing : ""}`}
       style={drawerStyle}
+      layout={isResizing || prefersReducedMotion ? false : "size"}
+      initial={
+        prefersReducedMotion ? false : { opacity: 0, x: -18, scale: 0.995 }
+      }
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={
+        prefersReducedMotion
+          ? { opacity: 0 }
+          : { opacity: 0, x: -14, scale: 0.995 }
+      }
+      transition={
+        prefersReducedMotion
+          ? { duration: 0 }
+          : {
+              layout: {
+                type: "spring",
+                stiffness: 360,
+                damping: 38,
+                mass: 0.82,
+              },
+              opacity: { duration: 0.2, ease: "easeOut" },
+              x: { duration: 0.28, ease: [0.22, 0.78, 0.24, 1] },
+              scale: { duration: 0.28, ease: [0.22, 0.78, 0.24, 1] },
+            }
+      }
       role="region"
       aria-label={t("files.title")}
       tabIndex={-1}
@@ -337,61 +369,86 @@ export default function FilesDrawer({
         </button>
       </header>
 
-      {isWorkspace ? (
-        <Suspense
-          fallback={<div className={styles.empty}>{t("common.loading")}</div>}
+      <AnimatePresence initial={false} mode="popLayout">
+        <motion.div
+          key={isWorkspace ? "workspace" : "preview"}
+          className={styles.drawerContent}
+          initial={
+            prefersReducedMotion
+              ? false
+              : { opacity: 0, x: isWorkspace ? 10 : -10 }
+          }
+          animate={{ opacity: 1, x: 0 }}
+          exit={
+            prefersReducedMotion
+              ? { opacity: 0 }
+              : { opacity: 0, x: isWorkspace ? -8 : 8 }
+          }
+          transition={
+            prefersReducedMotion
+              ? { duration: 0 }
+              : { duration: 0.2, ease: [0.22, 0.78, 0.24, 1] }
+          }
         >
-          <FilesWorkspace initialTarget={target} scope={scope} />
-        </Suspense>
-      ) : (
-        <>
-          <div className={styles.previewSurface} aria-busy={loading}>
-            {loading ? (
-              <div className={styles.empty}>{t("common.loading")}</div>
-            ) : loadFailed ? (
-              <div className={styles.empty}>{t("files.loadFailed")}</div>
-            ) : target && metadata && isPreviewable(target.path) ? (
-              <FilePreview
-                filePath={target.path}
-                content={content}
-                chatId={chatId}
-                binaryUrl={target.artifactUrl}
-                root={target.root}
-              />
-            ) : metadata?.preview_kind === "text" ? (
-              <pre className={styles.textPreview}>{content}</pre>
-            ) : (
-              <div className={styles.empty}>
-                {t("files.previewUnavailable")}
+          {isWorkspace ? (
+            <Suspense
+              fallback={
+                <div className={styles.empty}>{t("common.loading")}</div>
+              }
+            >
+              <FilesWorkspace initialTarget={target} scope={scope} />
+            </Suspense>
+          ) : (
+            <>
+              <div className={styles.previewSurface} aria-busy={loading}>
+                {loading ? (
+                  <div className={styles.empty}>{t("common.loading")}</div>
+                ) : loadFailed ? (
+                  <div className={styles.empty}>{t("files.loadFailed")}</div>
+                ) : target && metadata && isPreviewable(target.path) ? (
+                  <FilePreview
+                    filePath={target.path}
+                    content={content}
+                    chatId={chatId}
+                    binaryUrl={target.artifactUrl}
+                    root={target.root}
+                  />
+                ) : metadata?.preview_kind === "text" ? (
+                  <pre className={styles.textPreview}>{content}</pre>
+                ) : (
+                  <div className={styles.empty}>
+                    {t("files.previewUnavailable")}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <footer className={styles.drawerFooter}>
-            {target && (
-              <button
-                type="button"
-                className={styles.secondaryButton}
-                onClick={() => {
-                  insertFileReference(target.path);
-                }}
-              >
-                <MessageSquarePlus size={15} />
-                {t("files.mentionInChat")}
-              </button>
-            )}
-            {target && (
-              <button
-                type="button"
-                className={styles.primaryButton}
-                onClick={() => dispatch({ type: "EXPAND_WORKSPACE" })}
-              >
-                <Expand size={15} />
-                {t("files.expandWorkspace")}
-              </button>
-            )}
-          </footer>
-        </>
-      )}
-    </aside>
+              <footer className={styles.drawerFooter}>
+                {target && (
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    onClick={() => {
+                      insertFileReference(target.path);
+                    }}
+                  >
+                    <MessageSquarePlus size={15} />
+                    {t("files.mentionInChat")}
+                  </button>
+                )}
+                {target && (
+                  <button
+                    type="button"
+                    className={styles.primaryButton}
+                    onClick={() => dispatch({ type: "EXPAND_WORKSPACE" })}
+                  >
+                    <Expand size={15} />
+                    {t("files.expandWorkspace")}
+                  </button>
+                )}
+              </footer>
+            </>
+          )}
+        </motion.div>
+      </AnimatePresence>
+    </motion.aside>
   );
 }

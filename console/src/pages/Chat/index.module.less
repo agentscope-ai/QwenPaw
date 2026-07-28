@@ -112,6 +112,13 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chatMainArea {
+    will-change: auto;
+  }
 }
 
 /* Chat messages scrollable area */

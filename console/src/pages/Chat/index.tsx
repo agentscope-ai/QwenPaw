@@ -11,6 +11,7 @@ import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
 import { usePlugins } from "../../plugins/PluginContext";
 import { useTranslation } from "react-i18next";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
@@ -1463,6 +1464,7 @@ export default function ChatPage() {
   // On mobile viewports the right-side history panel should always be
   // available regardless of the sidebar mode setting.
   const isMobile = useIsMobile();
+  const prefersReducedMotion = useReducedMotion();
   const effectiveIsFullMode = isFullMode || isMobile;
 
   // Right-side history panel state
@@ -3198,15 +3200,33 @@ export default function ChatPage() {
       className={`${styles.chatPageRoot} ${filesDrawerClass}`}
       onClickCapture={handleInternalFileLink}
     >
-      {filesDrawerState.kind !== "closed" ? (
-        <FilesDrawer
-          state={filesDrawerState}
-          dispatch={dispatchFilesDrawer}
-          scope={sessionScope}
-        />
-      ) : null}
+      <AnimatePresence initial={false} mode="popLayout">
+        {filesDrawerState.kind !== "closed" ? (
+          <FilesDrawer
+            key="session-files-drawer"
+            state={filesDrawerState}
+            dispatch={dispatchFilesDrawer}
+            scope={sessionScope}
+          />
+        ) : null}
+      </AnimatePresence>
       {/* Main chat area */}
-      <div className={styles.chatMainArea}>
+      <motion.div
+        className={styles.chatMainArea}
+        layout={prefersReducedMotion ? false : "size"}
+        transition={
+          prefersReducedMotion
+            ? { duration: 0 }
+            : {
+                layout: {
+                  type: "spring",
+                  stiffness: 360,
+                  damping: 38,
+                  mass: 0.82,
+                },
+              }
+        }
+      >
         <div
           className={
             isWideMode
@@ -3385,7 +3405,7 @@ export default function ChatPage() {
             ]}
           />
         </Modal>
-      </div>
+      </motion.div>
       {/* End of main chat area */}
 
       {/* Right-side history panel (full mode only) */}

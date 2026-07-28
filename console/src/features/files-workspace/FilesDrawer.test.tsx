@@ -1,5 +1,5 @@
 import { renderWithProviders } from "@/test/common_setup";
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import FilesDrawer from "./FilesDrawer";
@@ -94,5 +94,33 @@ describe("FilesDrawer", () => {
         name: /mentionInChat|在聊天中引用/i,
       }),
     ).toBeInTheDocument();
+  });
+
+  it("keeps pointer resizing direct until the gesture ends", async () => {
+    renderWithProviders(
+      <FilesDrawer
+        state={{
+          kind: "workspace",
+          trigger: null,
+        }}
+        dispatch={vi.fn()}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "session-1",
+        }}
+      />,
+    );
+
+    const drawer = screen.getByRole("region");
+    const separator = screen.getByRole("separator");
+    fireEvent.pointerDown(separator, { clientX: 420 });
+    expect(drawer.className).toContain("drawerResizing");
+
+    fireEvent.pointerMove(window, { clientX: 520 });
+    fireEvent.pointerUp(window);
+    await waitFor(() => {
+      expect(drawer.className).not.toContain("drawerResizing");
+    });
   });
 });
