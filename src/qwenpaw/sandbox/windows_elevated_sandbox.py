@@ -1066,11 +1066,7 @@ def _add_traverse_ace(path: str, psid: ctypes.c_void_p) -> bool:
     """
     _ensure_privileges()
     return _set_path_ace(
-        path,
-        psid,
-        _ACL_TRAVERSE,
-        _WC.SET_ACCESS,
-        inherit=False,
+        path, psid, _ACL_TRAVERSE, _WC.SET_ACCESS, inherit=False
     )
 
 
@@ -2283,19 +2279,33 @@ def _run_cmd_sync(
 
 
 def _remove_firewall_rules_sync(username: str) -> bool:
+    """Removes inbound/outbound firewall block rules for a sandbox user.
+
+    Uses ``netsh advfirewall`` instead of PowerShell's
+    ``Remove-NetFirewallRule`` to avoid the ~1-2 s overhead of
+    launching the PowerShell/.NET runtime.
+    """
     rule_name_out = f"QwenPaw_Block_{username}_Out"
     rule_name_in = f"QwenPaw_Block_{username}_In"
-    ps_script = (
-        f"Remove-NetFirewallRule -DisplayName '{rule_name_out}' "
-        f"-ErrorAction SilentlyContinue; "
-        f"Remove-NetFirewallRule -DisplayName '{rule_name_in}' "
-        f"-ErrorAction SilentlyContinue"
-    )
-    try:
-        result = _run_powershell(ps_script)
-        return result.returncode == 0
-    except (OSError, Exception):
-        return False
+
+    ok = True
+    for rule_name in (rule_name_out, rule_name_in):
+        result = _run_cmd_sync(
+            [
+                "netsh",
+                "advfirewall",
+                "firewall",
+                "delete",
+                "rule",
+                f"name={rule_name}",
+            ],
+            timeout=15,
+        )
+        # netsh returns 0 on success, 1 if rule not found (acceptable).
+        if result is None:
+            ok = False
+
+    return ok
 
 
 def _delete_local_user_sync(username: str) -> bool:
@@ -2303,46 +2313,43 @@ def _delete_local_user_sync(username: str) -> bool:
     return result is not None and result.returncode == 0
 
 
-def _remove_profile_dir_sync(username: str) -> bool:
-    import shutil
-    import stat
+def _remove_profile_dir_sync(username: str, user_sid: str = "") -> bool:
+    """Removes the sandbox user's profile directory.
 
+    Uses a fast path (``reg unload`` + ``rd /s /q``) that avoids the
+    expensive recursive ``icacls /T``.  Falls back to ``takeown /R`` +
+    ``rd /s /q`` if the first attempt leaves remnants.
+    """
     sys_drive = os.environ.get("SystemDrive", "C:")
     profile_dir = os.path.join(sys_drive + os.sep, "Users", username)
     if not os.path.exists(profile_dir):
         return True
 
+    # Unload the user's registry hive to release NTUSER.DAT lock.
+    if user_sid:
+        _run_cmd_sync(
+            ["reg", "unload", f"HKU\\{user_sid}"],
+            timeout=15,
+        )
+
+    # Fast kernel-mode recursive delete.
     _run_cmd_sync(
-        ["takeown", "/F", profile_dir, "/A", "/D", "Y"],
-        timeout=30,
-    )
-    _run_cmd_sync(
-        [
-            "icacls",
-            profile_dir,
-            "/grant",
-            "Administrators:(OI)(CI)F",
-            "/T",
-            "/C",
-        ],
+        ["cmd", "/c", "rd", "/s", "/q", profile_dir],
         timeout=60,
     )
 
-    def _on_rm_error(func, path, _exc_info):
-        try:
-            os.chmod(
-                path,
-                stat.S_IRWXU | stat.S_IRWXG | stat.S_IRWXO,
-            )
-            func(path)
-        except OSError:
-            pass
+    if not os.path.exists(profile_dir):
+        return True
 
-    try:
-        # pylint: disable=deprecated-argument
-        shutil.rmtree(profile_dir, onerror=_on_rm_error)
-    except OSError:
-        pass
+    # Fallback: take ownership recursively then retry.
+    _run_cmd_sync(
+        ["takeown", "/F", profile_dir, "/R", "/A", "/D", "Y"],
+        timeout=60,
+    )
+    _run_cmd_sync(
+        ["cmd", "/c", "rd", "/s", "/q", profile_dir],
+        timeout=60,
+    )
 
     return not os.path.exists(profile_dir)
 
@@ -2596,7 +2603,7 @@ def _cleanup_from_metadata(meta: dict, meta_file: Path) -> None:
         t3 = t2
 
     if username:
-        _remove_profile_dir_sync(username)
+        _remove_profile_dir_sync(username, user_sid)
         t4 = time.monotonic()
         logger.info(
             "[%s] Profile directory removal: %.2fs",
