@@ -146,19 +146,25 @@ class TokenUsageBuffer:
                     break
 
     async def _flush_once(self, force: bool = False) -> None:
-        """Write ``_disk_cache`` to disk if dirty."""
+        """Write ``_disk_cache`` to disk if dirty.
+
+        The dirty flag is cleared **only** after a successful write so that
+        transient I/O failures are retried by the next periodic flush.
+        """
         if not self._cache_loaded:
-            # The cache was never seeded, so no event can have reached
-            # ``_disk_cache`` and it still holds the initial empty dict.
-            # Writing it out would replace the stored history with ``{}``.
             return
         if not self._dirty and not force:
             return
-        self._dirty = False
 
         snapshot = copy.deepcopy(self._disk_cache)
-        await asyncio.to_thread(save_data_sync, self._path, snapshot)
-        logger.debug("token_usage: flushed cache to disk")
+        ok = await asyncio.to_thread(save_data_sync, self._path, snapshot)
+        if ok:
+            self._dirty = False
+            logger.debug("token_usage: flushed cache to disk")
+        else:
+            logger.warning(
+                "token_usage: flush failed, retaining dirty flag for retry",
+            )
 
     async def _flush_loop(self) -> None:
         """Periodically flush the cache to disk."""

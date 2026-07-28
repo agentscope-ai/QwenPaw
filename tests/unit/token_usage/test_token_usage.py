@@ -283,6 +283,82 @@ class TestTokenUsageBuffer:
         assert written["2026-04-23"]["openai:gpt-4"]["prompt_tokens"] == 7
         assert written["2026-04-24"]["openai:gpt-4"]["prompt_tokens"] == 100
 
+    @pytest.mark.asyncio
+    async def test_flush_once_retains_dirty_flag_on_failure(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A failed flush must leave _dirty=True so a later flush retries."""
+        path = tmp_path / "test.json"
+        path.write_text("{}", encoding="utf-8")
+
+        buffer = TokenUsageBuffer(path, flush_interval=3600)
+        buffer.start()
+        buffer.enqueue(
+            _UsageEvent(
+                provider_id="openai",
+                model_name="gpt-4",
+                prompt_tokens=100,
+                completion_tokens=50,
+                date_str="2026-04-24",
+                now_iso="2026-04-24T10:00:00+00:00",
+            ),
+        )
+
+        await asyncio.sleep(0.2)
+
+        assert buffer._dirty is True
+
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.buffer.save_data_sync",
+            lambda _p, _d: False,
+        )
+
+        await buffer._flush_once()
+
+        assert buffer._dirty is True
+
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.buffer.save_data_sync",
+            lambda _p, _d: True,
+        )
+
+        await buffer._flush_once()
+
+        assert buffer._dirty is False
+
+        await buffer.stop()
+
+    @pytest.mark.asyncio
+    async def test_flush_once_success_clears_dirty_flag(self, tmp_path):
+        """A successful flush must clear the dirty flag."""
+        path = tmp_path / "test.json"
+        path.write_text("{}", encoding="utf-8")
+
+        buffer = TokenUsageBuffer(path, flush_interval=3600)
+        buffer.start()
+        buffer.enqueue(
+            _UsageEvent(
+                provider_id="openai",
+                model_name="gpt-4",
+                prompt_tokens=100,
+                completion_tokens=50,
+                date_str="2026-04-24",
+                now_iso="2026-04-24T10:00:00+00:00",
+            ),
+        )
+
+        await asyncio.sleep(0.2)
+
+        assert buffer._dirty is True
+
+        await buffer._flush_once()
+
+        assert buffer._dirty is False
+
+        await buffer.stop()
+
 
 # =============================================================================
 # Test Pydantic Models
