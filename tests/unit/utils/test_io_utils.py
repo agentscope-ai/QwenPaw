@@ -341,8 +341,6 @@ def test_read_json_strips_bom(tmp_path: Path) -> None:
     content = '{"key": "value"}'
     # Write manually with BOM
     path.write_bytes(b"\xef\xbb\xbf" + content.encode("utf-8"))
-
-    from qwenpaw.utils.io_utils import read_json
     data = read_json(path)
     assert data == {"key": "value"}
 
@@ -351,8 +349,6 @@ def test_write_text_atomic_rotates_backups(tmp_path: Path) -> None:
     """Atomic write rotates up to backup_count previous versions."""
     path = tmp_path / "state.txt"
     path.write_text("v1", encoding="utf-8")
-
-    from qwenpaw.utils.io_utils import write_text_atomic
     write_text_atomic(path, "v2", backup_count=3)
     assert path.read_text(encoding="utf-8") == "v2"
     assert path.with_suffix(".bak.1").read_text(encoding="utf-8") == "v1"
@@ -380,9 +376,6 @@ def test_write_json_atomic_validator(tmp_path: Path) -> None:
     """Failed JSON validation cancels atomic write and prevents rotation."""
     path = tmp_path / "state.json"
     path.write_text('{"key": "v1"}', encoding="utf-8")
-
-    from qwenpaw.utils.io_utils import write_json_atomic
-    import json
 
     # We'll mock json.loads inside write_json_atomic's validator
     mock_error = json.JSONDecodeError("mock", "doc", 0)
