@@ -1,7 +1,6 @@
 //! Window/app enumeration, resolution, and identity.
 
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
@@ -16,8 +15,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsWindow, IsWindowVisible, PostMessageW, WM_CLOSE,
 };
 
-use super::WindowInfo;
+use super::merge_app_list;
 use super::reject_recent_user_intervention;
+use super::WindowInfo;
 
 // A close request is asynchronous: wait briefly for the window to go away
 // before reporting that it is still open (usually a save prompt).
@@ -32,23 +32,9 @@ pub(super) fn list_windows() -> Vec<Value> {
 }
 
 pub(super) fn list_apps() -> Vec<Value> {
-    let mut apps = HashMap::<String, (WindowInfo, Vec<Value>)>::new();
-    for window in enumerate_windows() {
-        let entry = apps
-            .entry(window.app_id.clone())
-            .or_insert_with(|| (window.clone(), Vec::new()));
-        entry.1.push(window.to_json());
-    }
-    apps.into_values()
-        .map(|(window, windows)| {
-            json!({
-                "id": window.app_id,
-                "display_name": window.display_name,
-                "is_running": true,
-                "windows": windows,
-            })
-        })
-        .collect()
+    // Windows discovery is limited to applications that own a window, so no
+    // installed-only entries are contributed here.
+    merge_app_list(Vec::new(), enumerate_windows())
 }
 
 fn enumerate_windows() -> Vec<WindowInfo> {

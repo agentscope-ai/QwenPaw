@@ -50,7 +50,9 @@ pub(super) fn observe_window(
             ("image/bmp", bytes)
         }
     };
-    let bounds = capture.window_rect;
+    // Snapshots record origin plus size, while the capture reports edges.
+    let [left, top, right, bottom] = capture.window_rect;
+    let bounds = [left, top, right - left, bottom - top];
     state.snapshots.insert(
         snapshot_id.clone(),
         Snapshot {

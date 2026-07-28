@@ -12,12 +12,10 @@ use windows::Win32::UI::Accessibility::{
 };
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
 
-use super::{next_id, reject_recent_user_intervention, ServerState, WindowInfo};
-
-/// Upper bound on the document text handed back with an observation. A
-/// large document would otherwise dominate the model's context, and the
-/// leading portion is what identifies the current state.
-const DOC_TEXT_MAX: i32 = 4000;
+use super::{
+    element_line, next_id, reject_recent_user_intervention, truncate_document_text, ServerState,
+    WindowInfo, DOC_TEXT_MAX,
+};
 
 /// Map a UI Automation control-type identifier to a human-readable role
 /// name so callers can recognise actionable controls (for example an
@@ -69,23 +67,18 @@ fn control_type_name(control_type: i32) -> &'static str {
     }
 }
 
-/// Render one element the same way the tool adapter renders the listing, so
-/// a summary line and a listing line are directly comparable.
-fn element_line(element_id: &str, control_type_name: &str, name: &str) -> String {
-    format!("{element_id} {control_type_name} \"{name}\"")
-}
-
 /// Read the text of an editable or document element.
 ///
 /// Rich documents expose TextPattern, while plain edit controls (Notepad's
 /// editor among them) only expose ValuePattern, so both are attempted.
 /// Returns `None` when the element carries no readable text.
 fn element_text(element: &IUIAutomationElement) -> Option<String> {
+    let limit = DOC_TEXT_MAX as i32;
     if let Ok(pattern) =
         unsafe { element.GetCurrentPatternAs::<IUIAutomationTextPattern>(UIA_TextPatternId) }
     {
         if let Ok(range) = unsafe { pattern.DocumentRange() } {
-            if let Ok(text) = unsafe { range.GetText(DOC_TEXT_MAX) } {
+            if let Ok(text) = unsafe { range.GetText(limit) } {
                 let text = text.to_string();
                 if !text.is_empty() {
                     return Some(text);
@@ -101,17 +94,6 @@ fn element_text(element: &IUIAutomationElement) -> Option<String> {
         return None;
     }
     Some(truncate_document_text(value))
-}
-
-/// Bound the text by character count, flagging that more remains.
-fn truncate_document_text(text: String) -> String {
-    let limit = DOC_TEXT_MAX as usize;
-    if text.chars().count() <= limit {
-        return text;
-    }
-    let mut bounded: String = text.chars().take(limit).collect();
-    bounded.push_str("… (truncated)");
-    bounded
 }
 
 pub(super) fn collect_accessibility(
@@ -294,38 +276,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn short_document_text_is_returned_unchanged() {
-        let text = "hello world".to_string();
-        assert_eq!(truncate_document_text(text.clone()), text);
-    }
-
-    #[test]
-    fn long_document_text_is_bounded_and_flagged() {
-        let text: String = "x".repeat(DOC_TEXT_MAX as usize + 500);
-        let bounded = truncate_document_text(text);
-        assert!(bounded.ends_with("… (truncated)"));
-        assert_eq!(
-            bounded.chars().filter(|value| *value == 'x').count(),
-            DOC_TEXT_MAX as usize
-        );
-    }
-
-    #[test]
-    fn truncation_counts_characters_not_bytes() {
-        // Multi-byte text must not be cut mid-character.
-        let text: String = "字".repeat(DOC_TEXT_MAX as usize + 10);
-        let bounded = truncate_document_text(text);
-        assert_eq!(
-            bounded.chars().filter(|value| *value == '字').count(),
-            DOC_TEXT_MAX as usize
-        );
-    }
-
-    #[test]
-    fn element_line_matches_the_listing_format() {
-        assert_eq!(
-            element_line("uia-1", "Edit", "text editor"),
-            "uia-1 Edit \"text editor\""
-        );
+    fn control_type_names_cover_the_actionable_roles() {
+        assert_eq!(control_type_name(50000), "Button");
+        assert_eq!(control_type_name(50004), "Edit");
+        assert_eq!(control_type_name(50007), "ListItem");
+        assert_eq!(control_type_name(1), "Unknown");
     }
 }

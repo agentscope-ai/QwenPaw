@@ -24,7 +24,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::super::get_visible_window_rect;
-use super::{ServerState, WindowInfo, USER_INTERVENTION_GRACE_MS};
+use super::{map_point, ServerState, WindowInfo, USER_INTERVENTION_GRACE_MS};
 
 pub(super) fn click(
     state: &ServerState,
@@ -302,7 +302,13 @@ fn verify_point_with_prefix(
     }
     let current =
         get_visible_window_rect(HWND(window.hwnd as _)).map_err(|error| ("stale_window", error))?;
-    let current_bounds = [current.left, current.top, current.right, current.bottom];
+    // Snapshots record origin plus size, so compare in the same form.
+    let current_bounds = [
+        current.left,
+        current.top,
+        current.right - current.left,
+        current.bottom - current.top,
+    ];
     if current_bounds != snapshot.bounds {
         return Err((
             "stale_state",
@@ -313,25 +319,10 @@ fn verify_point_with_prefix(
     set_focus(window)?;
     let x = integer_param(params, &format!("{prefix}x"))?;
     let y = integer_param(params, &format!("{prefix}y"))?;
-    let display_width = snapshot.display_width.max(1) as i32;
-    let display_height = snapshot.display_height.max(1) as i32;
-    if x < 0 || y < 0 || x >= display_width || y >= display_height {
-        return Err((
-            "point_outside_viewport",
-            "Point is outside the captured viewport.".to_string(),
-        ));
-    }
-    // Model coordinates are expressed in the delivered screenshot space,
-    // which may be downscaled; map them back to physical window pixels
-    // before injecting input. When no downscaling occurred these ratios are
-    // 1:1 and the mapping is an identity.
-    let phys_w = snapshot.bounds[2] - snapshot.bounds[0];
-    let phys_h = snapshot.bounds[3] - snapshot.bounds[1];
-    let x_phys = (i64::from(x) * i64::from(phys_w) / i64::from(display_width)) as i32;
-    let y_phys = (i64::from(y) * i64::from(phys_h) / i64::from(display_height)) as i32;
+    let (x_offset, y_offset) = map_point(snapshot, i64::from(x), i64::from(y))?;
     let point = POINT {
-        x: snapshot.bounds[0] + x_phys,
-        y: snapshot.bounds[1] + y_phys,
+        x: snapshot.bounds[0] + x_offset as i32,
+        y: snapshot.bounds[1] + y_offset as i32,
     };
     let hit = unsafe { WindowFromPoint(point) };
     let root = unsafe { GetAncestor(hit, GA_ROOT) };
