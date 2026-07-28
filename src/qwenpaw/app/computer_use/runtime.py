@@ -77,7 +77,9 @@ class HostRuntimeProvider:
     @classmethod
     def is_available(cls) -> bool:
         """Whether this process can obtain a compatible desktop capability."""
-        return cls.get_capability() is not None or _control_endpoint() is not None
+        return (
+            cls.get_capability() is not None or _control_endpoint() is not None
+        )
 
 
 def _environment_capability() -> RuntimeCapability | None:
@@ -102,7 +104,12 @@ def _control_endpoint() -> _ControlEndpoint | None:
         protocol_version = int(os.environ.get(_CONTROL_PROTOCOL_ENV, "1"))
     except ValueError:
         return None
-    if host != "127.0.0.1" or not 0 < port < 65536 or not token or protocol_version != 1:
+    if (
+        host != "127.0.0.1"
+        or not 0 < port < 65536
+        or not token
+        or protocol_version != 1
+    ):
         return None
     return _ControlEndpoint(host, port, token, protocol_version)
 
@@ -120,7 +127,9 @@ def _request_capability(control: _ControlEndpoint) -> RuntimeCapability | None:
         ) as connection:
             connection.settimeout(_CONTROL_TIMEOUT_SECONDS)
             with connection.makefile("rwb") as stream:
-                stream.write(json.dumps(request, separators=(",", ":")).encode("utf-8"))
+                stream.write(
+                    json.dumps(request, separators=(",", ":")).encode("utf-8"),
+                )
                 stream.write(b"\n")
                 stream.flush()
                 payload = stream.readline(_CONTROL_MAX_MESSAGE_BYTES + 1)
@@ -134,7 +143,11 @@ def _request_capability(control: _ControlEndpoint) -> RuntimeCapability | None:
     pipe_name = response.get("pipe_name")
     secret = response.get("capability")
     version = response.get("protocol_version")
-    if not isinstance(pipe_name, str) or not isinstance(secret, str) or version != control.protocol_version:
+    if (
+        not isinstance(pipe_name, str)
+        or not isinstance(secret, str)
+        or version != control.protocol_version
+    ):
         return None
     if not pipe_name or not secret:
         return None

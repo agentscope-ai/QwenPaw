@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for plugin-local Computer Use application access decisions."""
 
 from computer_use_tool import access
@@ -26,7 +27,8 @@ def test_session_decision_is_scoped_to_session_and_application():
     access_store.record_session(request, allowed=True)
 
     assert access_store.resolve(request) == access.AppAccessDecision(
-        True, "session"
+        True,
+        "session",
     )
     assert access_store.resolve(_request(session_id="session-2")) is None
     assert access_store.resolve(_request(app_id="win32:other")) is None
@@ -71,5 +73,6 @@ def test_process_app_id_spellings_share_one_decision():
     access_store.record_session(launched, allowed=True)
 
     assert access_store.resolve(discovered) == access.AppAccessDecision(
-        True, "session"
+        True,
+        "session",
     )

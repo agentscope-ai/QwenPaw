@@ -300,6 +300,7 @@ def tool_descriptor(
             validate_default_policy,
             validate_tool_type,
         )
+
         _materialize_annotations(fn)
 
         resolved_name = name or fn.__name__

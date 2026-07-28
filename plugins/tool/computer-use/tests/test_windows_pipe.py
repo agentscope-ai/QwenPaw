@@ -5,6 +5,10 @@ Every test here deadlocks or hangs forever with the pre-fix synchronous pipe
 handle, so they guard the overlapped I/O rework directly.
 """
 
+# Nested helpers shadow the fixture name on purpose, and the fake handlers
+# accept the arguments of the real signature without reading them all.
+# pylint: disable=redefined-outer-name, unused-argument
+
 from __future__ import annotations
 
 import asyncio
@@ -28,7 +32,8 @@ from computer_use_tool.transport.windows_pipe import (
 from qwenpaw.app.computer_use.runtime import RuntimeCapability
 
 pytestmark = pytest.mark.skipif(
-    os.name != "nt", reason="Windows named pipes only"
+    os.name != "nt",
+    reason="Windows named pipes only",
 )
 
 _PIPE_ACCESS_DUPLEX = 0x00000003
@@ -48,7 +53,9 @@ class _MockHelper:
 
     def start(self) -> None:
         thread = threading.Thread(
-            target=self._serve, name="mock-helper", daemon=True
+            target=self._serve,
+            name="mock-helper",
+            daemon=True,
         )
         thread.start()
         assert self._ready.wait(5), "mock helper pipe did not appear"
@@ -56,8 +63,14 @@ class _MockHelper:
     def _serve(self) -> None:
         kernel32 = _kernel32()
         kernel32.CreateNamedPipeW.argtypes = [
-            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD,
-            wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.LPVOID,
         ]
         kernel32.CreateNamedPipeW.restype = wintypes.HANDLE
         kernel32.ConnectNamedPipe.argtypes = [wintypes.HANDLE, wintypes.LPVOID]
@@ -140,7 +153,9 @@ class _MockHelper:
         if header is None:
             return None
         body = self._read_fully(
-            kernel32, hpipe, struct.unpack("<I", header)[0]
+            kernel32,
+            hpipe,
+            struct.unpack("<I", header)[0],
         )
         if body is None:
             return None
@@ -154,7 +169,11 @@ class _MockHelper:
             buffer = ctypes.create_string_buffer(remaining)
             read = wintypes.DWORD()
             ok = kernel32.ReadFile(
-                hpipe, buffer, remaining, ctypes.byref(read), None
+                hpipe,
+                buffer,
+                remaining,
+                ctypes.byref(read),
+                None,
             )
             if not ok or not read.value:
                 return None
@@ -186,7 +205,9 @@ def mock_helper():
 
 
 def _request(
-    method: str, params: dict | None = None, deadline: int = 10000
+    method: str,
+    params: dict | None = None,
+    deadline: int = 10000,
 ) -> dict:
     return {
         "request_id": uuid.uuid4().hex,
@@ -207,7 +228,8 @@ def _transport(helper: _MockHelper) -> WindowsPipeTransport:
 
 
 _session_var: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "cu_test_session", default=""
+    "cu_test_session",
+    default="",
 )
 
 
@@ -259,7 +281,7 @@ def test_slow_approval_pauses_request_deadline(
         transport.set_reverse_request_handler(handler)
         await asyncio.wait_for(transport.connect(), 5)
         response = await transport.request(
-            _request("needs_approval", deadline=1000)
+            _request("needs_approval", deadline=1000),
         )
         assert response.get("ok")
         assert response.get("result", {}).get("approved") is True

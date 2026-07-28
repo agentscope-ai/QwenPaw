@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """Windows named-pipe transport for the host-managed Computer Use helper."""
 
+# The capability's endpoint name and secret are deliberately private so they
+# cannot leak into tool inputs; a transport is their only intended reader.
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import asyncio
@@ -94,11 +98,16 @@ class WindowsPipeTransport(ComputerUseTransport):
         }
         response = await self.request(hello)
         result = response.get("result")
-        if not isinstance(result, Mapping) or int(result.get("protocol_version", 0)) != self._capability.protocol_version:
+        if (
+            not isinstance(result, Mapping)
+            or int(result.get("protocol_version", 0))
+            != self._capability.protocol_version
+        ):
             await self.close()
             raise ComputerUseProtocolError(
                 "protocol_mismatch",
-                "Computer Use helper protocol is incompatible with this plugin.",
+                "Computer Use helper protocol is incompatible with this "
+                "plugin.",
             )
 
     async def request(self, message: Mapping[str, Any]) -> dict[str, Any]:
@@ -114,7 +123,9 @@ class WindowsPipeTransport(ComputerUseTransport):
                 "invalid_request",
                 "Computer Use request is missing its request identifier.",
             )
-        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        future: asyncio.Future[
+            dict[str, Any]
+        ] = asyncio.get_running_loop().create_future()
         with self._pending_lock:
             if request_id in self._pending:
                 raise ComputerUseProtocolError(
@@ -127,7 +138,11 @@ class WindowsPipeTransport(ComputerUseTransport):
         # (session, agent, user, channel) for the approval coroutine.
         self._reverse_context = contextvars.copy_context()
         meta = message.get("meta")
-        timeout_ms = int(meta.get("deadline_ms", 10000)) if isinstance(meta, Mapping) else 10000
+        timeout_ms = (
+            int(meta.get("deadline_ms", 10000))
+            if isinstance(meta, Mapping)
+            else 10000
+        )
         timeout = max(0.1, timeout_ms / 1000)
         try:
             try:
@@ -190,9 +205,15 @@ class WindowsPipeTransport(ComputerUseTransport):
         reader, self._reader = self._reader, None
         if handle is not None:
             await asyncio.to_thread(_close_handle, handle, reader)
-        self._fail_pending("runtime_disconnected", "Computer Use connection closed.")
+        self._fail_pending(
+            "runtime_disconnected",
+            "Computer Use connection closed.",
+        )
 
-    def set_reverse_request_handler(self, handler: ReverseRequestHandler) -> None:
+    def set_reverse_request_handler(
+        self,
+        handler: ReverseRequestHandler,
+    ) -> None:
         self._reverse_handler = handler
 
     @property
@@ -245,14 +266,17 @@ class WindowsPipeTransport(ComputerUseTransport):
         context = self._reverse_context
         if context is None:
             asyncio.run_coroutine_threadsafe(
-                self._reply_to_reverse_request(message), loop
+                self._reply_to_reverse_request(message),
+                loop,
             )
             return
         # run_coroutine_threadsafe would copy this reader thread's bare
         # context, losing the session contextvars, so schedule through
         # call_soon_threadsafe with the snapshot captured in request().
         loop.call_soon_threadsafe(
-            self._start_reverse_task, message, context=context
+            self._start_reverse_task,
+            message,
+            context=context,
         )
 
     def _start_reverse_task(self, message: dict[str, Any]) -> None:
@@ -284,7 +308,8 @@ class WindowsPipeTransport(ComputerUseTransport):
         except Exception:
             self._fail_pending(
                 "runtime_disconnected",
-                "Computer Use approval reply could not reach the native runtime.",
+                "Computer Use approval reply could not reach the native "
+                "runtime.",
             )
 
     def _resolve_response(self, message: dict[str, Any]) -> None:
@@ -324,9 +349,15 @@ def _connect_pipe(pipe_path: str) -> int:
             return int(handle)
         error = ctypes.get_last_error()
         remaining = deadline - time.monotonic()
-        if error in (_ERROR_PIPE_BUSY, _ERROR_FILE_NOT_FOUND) and remaining > 0:
+        if (
+            error in (_ERROR_PIPE_BUSY, _ERROR_FILE_NOT_FOUND)
+            and remaining > 0
+        ):
             if error == _ERROR_PIPE_BUSY:
-                _kernel32().WaitNamedPipeW(pipe_path, max(1, min(250, int(remaining * 1000))))
+                _kernel32().WaitNamedPipeW(
+                    pipe_path,
+                    max(1, min(250, int(remaining * 1000))),
+                )
             else:
                 time.sleep(min(0.05, remaining))
             continue
@@ -335,7 +366,10 @@ def _connect_pipe(pipe_path: str) -> int:
                 "runtime_unavailable",
                 "Computer Use native runtime is not running.",
             )
-        raise OSError(error, f"Could not connect to Computer Use pipe {pipe_path!r}")
+        raise OSError(
+            error,
+            f"Could not connect to Computer Use pipe {pipe_path!r}",
+        )
 
 
 def _read_message(
@@ -344,12 +378,18 @@ def _read_message(
 ) -> dict[str, Any]:
     frame_size = struct.unpack("<I", _read_exact(handle, 4, abort_check))[0]
     if not 0 < frame_size <= _MAX_FRAME_BYTES:
-        raise ComputerUseProtocolError("invalid_frame", "Invalid Computer Use frame size.")
+        raise ComputerUseProtocolError(
+            "invalid_frame",
+            "Invalid Computer Use frame size.",
+        )
     value = json.loads(
-        _read_exact(handle, frame_size, abort_check).decode("utf-8")
+        _read_exact(handle, frame_size, abort_check).decode("utf-8"),
     )
     if not isinstance(value, dict):
-        raise ComputerUseProtocolError("invalid_frame", "Invalid Computer Use message.")
+        raise ComputerUseProtocolError(
+            "invalid_frame",
+            "Invalid Computer Use message.",
+        )
     return value
 
 
@@ -372,7 +412,11 @@ def _read_exact(
                 handle,
                 overlapped,
                 lambda: _kernel32().ReadFile(
-                    handle, buffer, remaining, None, ctypes.byref(overlapped)
+                    handle,
+                    buffer,
+                    remaining,
+                    None,
+                    ctypes.byref(overlapped),
                 ),
                 None,
                 "Computer Use pipe read failed",
@@ -399,7 +443,11 @@ def _write_all(handle: int, data: bytes) -> None:
                 handle,
                 overlapped,
                 lambda: _kernel32().WriteFile(
-                    handle, chunk, len(chunk), None, ctypes.byref(overlapped)
+                    handle,
+                    chunk,
+                    len(chunk),
+                    None,
+                    ctypes.byref(overlapped),
                 ),
                 _WRITE_TIMEOUT_MS,
                 "Computer Use pipe write failed",
@@ -460,20 +508,28 @@ def _run_io(
                 raise TimeoutError("Computer Use pipe I/O timed out")
     transferred = wintypes.DWORD()
     if not kernel32.GetOverlappedResult(
-        handle, ctypes.byref(overlapped), ctypes.byref(transferred), False
+        handle,
+        ctypes.byref(overlapped),
+        ctypes.byref(transferred),
+        False,
     ):
         raise OSError(ctypes.get_last_error(), error_message)
     return transferred.value
 
 
 def _cancel_and_drain(
-    kernel32: Any, handle: int, overlapped: _OVERLAPPED
+    kernel32: Any,
+    handle: int,
+    overlapped: _OVERLAPPED,
 ) -> None:
     """Cancel and drain the pending operation before buffers are freed."""
     kernel32.CancelIoEx(handle, ctypes.byref(overlapped))
     drained = wintypes.DWORD()
     kernel32.GetOverlappedResult(
-        handle, ctypes.byref(overlapped), ctypes.byref(drained), True
+        handle,
+        ctypes.byref(overlapped),
+        ctypes.byref(drained),
+        True,
     )
 
 

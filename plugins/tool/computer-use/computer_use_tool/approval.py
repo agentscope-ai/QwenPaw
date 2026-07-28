@@ -6,18 +6,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from qwenpaw.app.approvals import ApprovalRequestSummary, get_approval_service
-
-from .access import (
-    AppApprovalRequest,
-    get_computer_use_access_store,
-)
 from qwenpaw.app import agent_context
+from qwenpaw.app.approvals import ApprovalRequestSummary, get_approval_service
 from qwenpaw.config.context import (
     get_current_session_id as get_tool_session_id,
 )
 from qwenpaw.constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
+
+from .access import (
+    AppApprovalRequest,
+    get_computer_use_access_store,
+)
 
 
 class ComputerUseApprovalCoordinator:
@@ -104,7 +104,10 @@ class ComputerUseApprovalCoordinator:
             agent_context.get_current_root_session_id() or current_session
         )
         agent_id = agent_context.get_current_agent_id() or "unknown"
-        summary = f"Computer Use requests access to {request.display_name} for this session."
+        summary = (
+            f"Computer Use requests access to {request.display_name} "
+            "for this session."
+        )
         return await get_approval_service().create_pending_summary(
             session_id=current_session,
             root_session_id=root_session,

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Tests for the Computer Use feature switch and its dispatch gate."""
 
 from __future__ import annotations
@@ -50,14 +51,18 @@ async def test_dispatch_blocks_actions_while_disabled(
     state = ComputerUseFeatureState(tmp_path / "feature_state.json")
     state.set_enabled(False)
     monkeypatch.setattr(
-        dispatch_module, "get_computer_use_feature_state", lambda: state
+        dispatch_module,
+        "get_computer_use_feature_state",
+        lambda: state,
     )
 
     def _unexpected_client():
         raise AssertionError("disabled feature must not touch the client")
 
     monkeypatch.setattr(
-        dispatch_module, "get_computer_use_client", _unexpected_client
+        dispatch_module,
+        "get_computer_use_client",
+        _unexpected_client,
     )
 
     payload = _first_text_block(await computer_use(action="list_apps"))
@@ -73,7 +78,9 @@ async def test_dispatch_allows_wait_while_enabled(
 ) -> None:
     state = ComputerUseFeatureState(tmp_path / "feature_state.json")
     monkeypatch.setattr(
-        dispatch_module, "get_computer_use_feature_state", lambda: state
+        dispatch_module,
+        "get_computer_use_feature_state",
+        lambda: state,
     )
 
     payload = _first_text_block(await computer_use(action="wait", wait_ms=0))

@@ -8,6 +8,10 @@ socket instead of a Windows named pipe), so no background thread or
 overlapped I/O machinery is needed.
 """
 
+# The capability's endpoint name and secret are deliberately private so they
+# cannot leak into tool inputs; a transport is their only intended reader.
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import asyncio
@@ -78,11 +82,16 @@ class UnixSocketTransport(ComputerUseTransport):
         }
         response = await self.request(hello)
         result = response.get("result")
-        if not isinstance(result, Mapping) or int(result.get("protocol_version", 0)) != self._capability.protocol_version:
+        if (
+            not isinstance(result, Mapping)
+            or int(result.get("protocol_version", 0))
+            != self._capability.protocol_version
+        ):
             await self.close()
             raise ComputerUseProtocolError(
                 "protocol_mismatch",
-                "Computer Use helper protocol is incompatible with this plugin.",
+                "Computer Use helper protocol is incompatible with this "
+                "plugin.",
             )
 
     async def request(self, message: Mapping[str, Any]) -> dict[str, Any]:
@@ -98,7 +107,9 @@ class UnixSocketTransport(ComputerUseTransport):
                 "invalid_request",
                 "Computer Use request is missing its request identifier.",
             )
-        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        future: asyncio.Future[
+            dict[str, Any]
+        ] = asyncio.get_running_loop().create_future()
         if request_id in self._pending:
             raise ComputerUseProtocolError(
                 "duplicate_request",
@@ -110,11 +121,18 @@ class UnixSocketTransport(ComputerUseTransport):
         # (session, agent, user, channel) for the approval coroutine.
         self._reverse_context = contextvars.copy_context()
         meta = message.get("meta")
-        timeout_ms = int(meta.get("deadline_ms", 10000)) if isinstance(meta, Mapping) else 10000
+        timeout_ms = (
+            int(meta.get("deadline_ms", 10000))
+            if isinstance(meta, Mapping)
+            else 10000
+        )
         timeout = max(0.1, timeout_ms / 1000)
         try:
             try:
-                await asyncio.wait_for(self._write_message(dict(message)), timeout)
+                await asyncio.wait_for(
+                    self._write_message(dict(message)),
+                    timeout,
+                )
             except Exception:
                 # A failed or timed-out write may leave a partial frame on the
                 # socket, so the connection can no longer be trusted.
@@ -171,11 +189,19 @@ class UnixSocketTransport(ComputerUseTransport):
             try:
                 writer.close()
                 await writer.wait_closed()
-            except Exception:  # noqa: BLE001 - closing a broken socket may raise
+            except (
+                Exception
+            ):  # noqa: BLE001 - closing a broken socket may raise
                 pass
-        self._fail_pending("runtime_disconnected", "Computer Use connection closed.")
+        self._fail_pending(
+            "runtime_disconnected",
+            "Computer Use connection closed.",
+        )
 
-    def set_reverse_request_handler(self, handler: ReverseRequestHandler) -> None:
+    def set_reverse_request_handler(
+        self,
+        handler: ReverseRequestHandler,
+    ) -> None:
         self._reverse_handler = handler
 
     async def _write_message(self, message: dict[str, Any]) -> None:
@@ -215,15 +241,24 @@ class UnixSocketTransport(ComputerUseTransport):
                     f"Computer Use connection failed: {exc}",
                 )
 
-    async def _read_message(self, reader: asyncio.StreamReader) -> dict[str, Any]:
+    async def _read_message(
+        self,
+        reader: asyncio.StreamReader,
+    ) -> dict[str, Any]:
         header = await reader.readexactly(4)
         frame_size = struct.unpack("<I", header)[0]
         if not 0 < frame_size <= _MAX_FRAME_BYTES:
-            raise ComputerUseProtocolError("invalid_frame", "Invalid Computer Use frame size.")
+            raise ComputerUseProtocolError(
+                "invalid_frame",
+                "Invalid Computer Use frame size.",
+            )
         payload = await reader.readexactly(frame_size)
         value = json.loads(payload.decode("utf-8"))
         if not isinstance(value, dict):
-            raise ComputerUseProtocolError("invalid_frame", "Invalid Computer Use message.")
+            raise ComputerUseProtocolError(
+                "invalid_frame",
+                "Invalid Computer Use message.",
+            )
         return value
 
     def _schedule_reverse_request(self, message: dict[str, Any]) -> None:
@@ -237,7 +272,10 @@ class UnixSocketTransport(ComputerUseTransport):
         # session/agent/user/channel it needs; the bare reader-task context
         # would drop those contextvars.
         if context is not None:
-            loop.create_task(self._reply_to_reverse_request(message), context=context)
+            loop.create_task(
+                self._reply_to_reverse_request(message),
+                context=context,
+            )
         else:
             loop.create_task(self._reply_to_reverse_request(message))
 
@@ -266,7 +304,8 @@ class UnixSocketTransport(ComputerUseTransport):
         except Exception:
             self._fail_pending(
                 "runtime_disconnected",
-                "Computer Use approval reply could not reach the native runtime.",
+                "Computer Use approval reply could not reach the native "
+                "runtime.",
             )
 
     def _resolve_response(self, message: dict[str, Any]) -> None:

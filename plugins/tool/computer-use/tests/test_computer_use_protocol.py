@@ -1,4 +1,10 @@
+# -*- coding: utf-8 -*-
 """Tests for the thin Computer Use protocol adapter."""
+
+# Tests reach into module internals to pin the protocol contract, and their
+# fakes deliberately accept arguments they ignore to match real signatures.
+# pylint: disable=protected-access, unused-argument, unnecessary-lambda
+# pylint: disable=useless-return, use-implicit-booleaness-not-comparison
 
 from __future__ import annotations
 
@@ -21,7 +27,10 @@ from computer_use_tool.dispatch import (
     _response,
     _with_compact_elements,
 )
-from computer_use_tool.transport.base import ComputerUseTransport, ReverseRequestHandler
+from computer_use_tool.transport.base import (
+    ComputerUseTransport,
+    ReverseRequestHandler,
+)
 from qwenpaw.app.computer_use import (
     HostRuntimeProvider,
     set_current_computer_use_turn_id,
@@ -63,7 +72,7 @@ def test_host_runtime_requests_a_capability_only_when_needed(
                 received.update(json.loads(stream.readline()))
                 stream.write(
                     b'{"ok":true,"pipe_name":"pipe-1","capability":"secret-1",'
-                    b'"protocol_version":1}\n'
+                    b'"protocol_version":1}\n',
                 )
                 stream.flush()
 
@@ -79,7 +88,11 @@ def test_host_runtime_requests_a_capability_only_when_needed(
     capability = HostRuntimeProvider.acquire_capability()
     server.join(timeout=1)
 
-    assert capability == runtime_module.RuntimeCapability("pipe-1", "secret-1", 1)
+    assert capability == runtime_module.RuntimeCapability(
+        "pipe-1",
+        "secret-1",
+        1,
+    )
     assert received == {
         "protocol_version": 1,
         "token": token,
@@ -170,9 +183,7 @@ def test_screenshot_data_stays_out_of_the_text_block() -> None:
     image_blocks = [
         block for block in response.content if block.type == "data"
     ]
-    text_blocks = [
-        block for block in response.content if block.type == "text"
-    ]
+    text_blocks = [block for block in response.content if block.type == "text"]
     assert len(image_blocks) == 1
     assert str(image_blocks[0].source.url) == data_url
     assert len(text_blocks) == 1
@@ -219,7 +230,10 @@ class _FakeTransport(ComputerUseTransport):
     async def close(self) -> None:
         self.closed = True
 
-    def set_reverse_request_handler(self, handler: ReverseRequestHandler) -> None:
+    def set_reverse_request_handler(
+        self,
+        handler: ReverseRequestHandler,
+    ) -> None:
         self.handler = handler
 
 
@@ -298,7 +312,7 @@ def test_observe_windows_seeds_then_reports_new_windows() -> None:
     assert client.observe_windows([{"id": "1", "title": "Editor"}]) == []
 
     new = client.observe_windows(
-        [{"id": "1", "title": "Editor"}, {"id": "9", "title": "Save As"}]
+        [{"id": "1", "title": "Editor"}, {"id": "9", "title": "Save As"}],
     )
     assert [window["id"] for window in new] == ["9"]
 
@@ -328,7 +342,7 @@ async def test_note_new_windows_attaches_hint_for_opened_dialog(
             "windows": [
                 {"id": "1", "title": "Editor"},
                 {"id": "9", "title": "Save As"},
-            ]
+            ],
         }
 
     monkeypatch.setattr(client, "execute", _fake_execute)
@@ -413,7 +427,7 @@ def test_element_line_uses_bounds_centre_on_windows() -> None:
             "bounds": [100, 200, 300, 400],
             "enabled": True,
             "offscreen": False,
-        }
+        },
     )
     assert line == 'uia-1 Edit "text editor" @200,300'
 
@@ -427,7 +441,7 @@ def test_element_line_uses_value_on_macos() -> None:
             "control_type_name": "Edit",
             "name": "note",
             "value": "hello",
-        }
+        },
     )
     assert line == 'ax-2 Edit "note" =hello'
 
@@ -442,7 +456,7 @@ def test_element_line_keeps_disabled_and_offscreen_visible() -> None:
             "bounds": [0, 0, 10, 10],
             "enabled": False,
             "offscreen": True,
-        }
+        },
     )
     assert line == 'uia-9 Button "Save" @5,5 [disabled] [offscreen]'
 
@@ -512,7 +526,7 @@ def test_response_text_is_compact_and_carries_summary_fields() -> None:
                     "control_type_name": "Edit",
                     "name": "text editor",
                     "bounds": [100, 200, 300, 400],
-                }
+                },
             ],
         },
     }

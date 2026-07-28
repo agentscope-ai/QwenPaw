@@ -171,7 +171,7 @@ class QwenPawOffloader:
             elif source is not None:
                 media_type = getattr(source, "media_type", None)
             if media_type:
-                kind = str(media_type).split("/")[0]
+                kind = str(media_type).split("/", maxsplit=1)[0]
             elif block_type != "data":
                 kind = block_type
             else:

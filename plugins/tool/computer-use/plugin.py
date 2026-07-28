@@ -24,7 +24,9 @@ logger = logging.getLogger("qwenpaw.plugins.computer_use_tool")
 _PLUGIN_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 
 _TOOL_NAME = "computer_use"
-_TOOL_DESCRIPTION = "Desktop GUI automation with window-bound screenshots and inputs"
+_TOOL_DESCRIPTION = (
+    "Desktop GUI automation with window-bound screenshots and inputs"
+)
 
 
 def _ensure_importable() -> None:
@@ -103,11 +105,14 @@ def _enable_tool_for_existing_agents() -> None:
     """Make plugin availability the only enablement switch for its tool."""
     from qwenpaw.config.utils import load_config
 
-    profiles = getattr(
-        getattr(load_config(), "agents", None),
-        "profiles",
-        {},
-    ) or {}
+    profiles = (
+        getattr(
+            getattr(load_config(), "agents", None),
+            "profiles",
+            {},
+        )
+        or {}
+    )
     for agent_id in profiles:
         _enable_tool_for_agent(agent_id)
 
@@ -174,7 +179,8 @@ class ComputerUseToolPlugin:
 
         if not HostRuntimeProvider.is_available():
             logger.warning(
-                "Computer Use native runtime is unavailable; tool registration is skipped",
+                "Computer Use native runtime is unavailable; tool "
+                "registration is skipped",
             )
             return
 
@@ -201,6 +207,9 @@ class ComputerUseToolPlugin:
         )
 
         def _wire_existing_workspaces() -> None:
+            # The plugin API exposes no public way to reach every workspace,
+            # so the registration helper it uses internally is reused here.
+            # pylint: disable=protected-access
             workspaces = list(api._get_all_workspaces())
             logger.info(
                 "computer_use toolkit wiring: %d workspace(s)",
@@ -215,6 +224,7 @@ class ComputerUseToolPlugin:
                 _register_into_workspace(workspace)
 
         def _wire_new_workspace(workspace_info: dict) -> None:
+            # pylint: disable=protected-access
             agent_id = workspace_info.get("agent_id")
             if isinstance(agent_id, str) and agent_id:
                 _enable_tool_for_agent(agent_id)

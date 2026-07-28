@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Application access decisions owned by the Computer Use plugin."""
 
 from __future__ import annotations
@@ -53,7 +54,7 @@ def _normalize_app_id(app_id: str) -> str:
     if separator and scheme == "process":
         verbatim_prefix = "\\\\?\\"
         if remainder.startswith(verbatim_prefix):
-            remainder = remainder[len(verbatim_prefix):]
+            remainder = remainder[len(verbatim_prefix) :]
         return f"{scheme}:{remainder.lower()}"
     return text
 
@@ -91,17 +92,20 @@ class ComputerUseAccessStore:
         return None
 
     def record_session(
-        self, request: AppApprovalRequest, *, allowed: bool
+        self,
+        request: AppApprovalRequest,
+        *,
+        allowed: bool,
     ) -> None:
         """Keep a decision for the current in-memory session only."""
         app_id = _normalize_app_id(request.canonical_app_id)
         with self._lock:
-            self._session_decisions[
-                (request.session_id, app_id)
-            ] = allowed
+            self._session_decisions[(request.session_id, app_id)] = allowed
 
     def record_persistent(
-        self, canonical_app_id: str, display_name: str
+        self,
+        canonical_app_id: str,
+        display_name: str,
     ) -> None:
         """Persist an explicit allow for this QwenPaw installation."""
         app_id = _normalize_app_id(canonical_app_id)
@@ -115,7 +119,8 @@ class ComputerUseAccessStore:
         with self._lock:
             decisions = list(self._persistent_decisions.values())
         return sorted(
-            decisions, key=lambda decision: decision.display_name.casefold()
+            decisions,
+            key=lambda decision: decision.display_name.casefold(),
         )
 
     def revoke_persistent(self, canonical_app_id: str) -> bool:
@@ -142,12 +147,12 @@ class ComputerUseAccessStore:
             if isinstance(record, dict)
             and (
                 app_id := _normalize_app_id(
-                    str(record.get("canonical_app_id") or "").strip()
+                    str(record.get("canonical_app_id") or "").strip(),
                 )
             )
             and (
                 display_name := str(
-                    record.get("display_name") or app_id
+                    record.get("display_name") or app_id,
                 ).strip()
             )
         }

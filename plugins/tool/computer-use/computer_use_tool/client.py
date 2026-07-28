@@ -20,7 +20,11 @@ from qwenpaw.config.context import (
 
 from .approval import ComputerUseApprovalCoordinator
 from .protocol import ComputerUseProtocolError, NativeRequest, parse_response
-from .transport import ComputerUseTransport, UnixSocketTransport, WindowsPipeTransport
+from .transport import (
+    ComputerUseTransport,
+    UnixSocketTransport,
+    WindowsPipeTransport,
+)
 
 _DEFAULT_DEADLINE_MS = 10000
 # The desktop host spawns the helper process while answering acquire; the
@@ -41,7 +45,7 @@ _INPUT_METHODS = frozenset(
         "invoke_element",
         "set_value",
         "close_window",
-    }
+    },
 )
 TransportFactory = Callable[[], ComputerUseTransport]
 
@@ -101,7 +105,7 @@ class ComputerUseClient:
             )
             try:
                 return parse_response(
-                    await transport.request(request.to_message())
+                    await transport.request(request.to_message()),
                 )
             except asyncio.CancelledError:
                 # Release the native pipe instance so the helper's serve
@@ -136,7 +140,7 @@ class ComputerUseClient:
         self._known_window_ids = set(current)
         if known is None:
             return []
-        return [current[wid] for wid in current if wid not in known]
+        return [window for wid, window in current.items() if wid not in known]
 
     @property
     def has_active_turn(self) -> bool:
@@ -206,7 +210,7 @@ class ComputerUseClient:
             # The provider call blocks on a control socket; keep it off the
             # event loop so other sessions stay responsive.
             capability = await asyncio.to_thread(
-                HostRuntimeProvider.acquire_capability
+                HostRuntimeProvider.acquire_capability,
             )
             if capability is not None:
                 return capability

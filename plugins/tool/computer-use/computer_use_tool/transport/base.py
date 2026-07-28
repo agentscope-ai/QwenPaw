@@ -7,7 +7,10 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
-ReverseRequestHandler = Callable[[Mapping[str, Any]], Awaitable[dict[str, Any]]]
+ReverseRequestHandler = Callable[
+    [Mapping[str, Any]],
+    Awaitable[dict[str, Any]],
+]
 
 
 class ComputerUseTransport(ABC):
@@ -26,5 +29,8 @@ class ComputerUseTransport(ABC):
         """Close the transport and fail outstanding requests."""
 
     @abstractmethod
-    def set_reverse_request_handler(self, handler: ReverseRequestHandler) -> None:
+    def set_reverse_request_handler(
+        self,
+        handler: ReverseRequestHandler,
+    ) -> None:
         """Install the handler for native-initiated policy requests."""

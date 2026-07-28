@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Thin tool adapter for the host-managed Computer Use runtime."""
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ _DIALOG_HINT_ACTIONS = frozenset(
         "invoke",
         "set_value",
         "close_window",
-    }
+    },
 )
 _WINDOW_PROBE_DEADLINE_MS = 3000
 
@@ -65,7 +66,7 @@ def _without_screenshot_urls(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     for screenshot in screenshots:
         if isinstance(screenshot, Mapping) and "url" in screenshot:
             sanitized.append(
-                {**screenshot, "url": _SCREENSHOT_URL_PLACEHOLDER}
+                {**screenshot, "url": _SCREENSHOT_URL_PLACEHOLDER},
             )
         else:
             sanitized.append(screenshot)
@@ -95,7 +96,7 @@ def _element_line(element: Mapping[str, Any]) -> str:
         else:
             parts.append(f"@{(left + right) // 2},{(top + bottom) // 2}")
     elif isinstance(value, str) and value:
-        parts.append(f'={value}')
+        parts.append(f"={value}")
     # Both states stay visible: an offscreen entry may become reachable
     # after scrolling, and a disabled control tells the model not to try.
     if element.get("enabled") is False:
@@ -119,22 +120,30 @@ def _with_compact_elements(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         if isinstance(element, Mapping)
     ]
     compact = {
-        key: value
-        for key, value in accessibility.items()
-        if key != "elements"
+        key: value for key, value in accessibility.items() if key != "elements"
     }
     compact["elements"] = "\n".join(lines)
     return {**payload, "accessibility": compact}
 
 
-def _response(payload: Mapping[str, Any], *, include_images: bool = False) -> ToolResponse:
+def _response(
+    payload: Mapping[str, Any],
+    *,
+    include_images: bool = False,
+) -> ToolResponse:
     content: list[Any] = []
     if include_images:
         for screenshot in payload.get("screenshots", []):
-            if isinstance(screenshot, Mapping) and isinstance(screenshot.get("url"), str):
+            if isinstance(screenshot, Mapping) and isinstance(
+                screenshot.get("url"),
+                str,
+            ):
                 content.append(
                     DataBlock(
-                        source=URLSource(url=screenshot["url"], media_type="image/*"),
+                        source=URLSource(
+                            url=screenshot["url"],
+                            media_type="image/*",
+                        ),
                     ),
                 )
     content.append(
@@ -151,7 +160,9 @@ def _response(payload: Mapping[str, Any], *, include_images: bool = False) -> To
 
 
 def _error(code: str, message: str) -> ToolResponse:
-    return _response({"ok": False, "error": {"code": code, "message": message}})
+    return _response(
+        {"ok": False, "error": {"code": code, "message": message}},
+    )
 
 
 def _dialog_hint(new_windows: list[Mapping[str, Any]]) -> str:
@@ -175,7 +186,9 @@ async def _note_new_windows(client: Any, payload: dict[str, Any]) -> None:
     """
     try:
         probe = await client.execute(
-            "list_windows", {}, deadline_ms=_WINDOW_PROBE_DEADLINE_MS
+            "list_windows",
+            {},
+            deadline_ms=_WINDOW_PROBE_DEADLINE_MS,
         )
     except Exception:  # noqa: BLE001 - a probe must not break the action
         return
@@ -198,9 +211,13 @@ def _snapshot_params(
     screenshot_id: str,
 ) -> dict[str, str]:
     if not snapshot_id:
-        raise ValueError("Coordinate input requires snapshot_id from observe_window.")
+        raise ValueError(
+            "Coordinate input requires snapshot_id from observe_window.",
+        )
     if not screenshot_id:
-        raise ValueError("Coordinate input requires screenshot_id from observe_window.")
+        raise ValueError(
+            "Coordinate input requires screenshot_id from observe_window.",
+        )
     return {
         "window_id": window_id,
         "snapshot_id": snapshot_id,
@@ -231,7 +248,10 @@ def _point_params(
     name="computer_use",
     enabled_by_default=True,
     async_execution=True,
-    description="Control approved desktop applications through the native Computer Use runtime.",
+    description=(
+        "Control approved desktop applications through the native "
+        "Computer Use runtime."
+    ),
     requires_skills=("computer_use",),
 )
 async def computer_use(
@@ -267,6 +287,9 @@ async def computer_use(
     ``launch_app`` accepts an App ID returned by ``list_apps`` or an absolute
     ``.exe`` path.
     """
+    # Each early return maps to one refusal reason the model must be able to
+    # tell apart, so they are reported individually rather than merged.
+    # pylint: disable=too-many-return-statements
     try:
         _check_rate_limit()
         action = str(action or "").strip().lower()
@@ -280,7 +303,9 @@ async def computer_use(
             )
         if action == "wait":
             await asyncio.sleep(max(0, min(wait_ms, 30_000)) / 1000)
-            return _response({"ok": True, "action": action, "waited_ms": wait_ms})
+            return _response(
+                {"ok": True, "action": action, "waited_ms": wait_ms},
+            )
 
         client = get_computer_use_client()
         if action == "stop":
@@ -323,17 +348,27 @@ async def computer_use(
         return _error(error.code, str(error))
     except ValueError as error:
         return _error("invalid_request", str(error))
-    except Exception as error:  # noqa: BLE001 - tool calls must not escape errors
+    except (
+        Exception
+    ) as error:  # noqa: BLE001 - tool calls must not escape errors
         return _error("tool_failed", f"Computer Use failed: {error}")
 
 
-def _native_request(action: str, **values: Any) -> tuple[str, dict[str, Any], bool]:
+def _native_request(
+    action: str,
+    **values: Any,
+) -> tuple[str, dict[str, Any], bool]:
+    # One branch per action keeps the whole request contract readable in a
+    # single place; splitting it per action would scatter the protocol.
+    # pylint: disable=too-many-return-statements, too-many-branches
     if action in {"list_apps", "list_windows"}:
         return action, {}, False
     if action == "launch_app":
         app = str(values["app"] or "").strip()
         if not app:
-            raise ValueError("launch_app requires an App ID or an absolute .exe path.")
+            raise ValueError(
+                "launch_app requires an App ID or an absolute .exe path.",
+            )
         return action, {"app": app}, False
 
     window_id = _window_id(values["window_id"], action)
@@ -353,7 +388,9 @@ def _native_request(action: str, **values: Any) -> tuple[str, dict[str, Any], bo
             x=values["x"],
             y=values["y"],
         )
-        params["button"] = "right" if action == "right_click" else values["button"]
+        params["button"] = (
+            "right" if action == "right_click" else values["button"]
+        )
         params["count"] = 2 if action == "double_click" else values["count"]
         return "click", params, False
     if action == "scroll":
@@ -389,7 +426,8 @@ def _native_request(action: str, **values: Any) -> tuple[str, dict[str, Any], bo
         element_id = str(values["element_id"] or "").strip()
         if not revision or not element_id:
             raise ValueError(
-                f"{action} requires accessibility_revision and element_id from observe_window.",
+                f"{action} requires accessibility_revision and element_id "
+                "from observe_window.",
             )
         params = {
             "window_id": window_id,
@@ -398,7 +436,11 @@ def _native_request(action: str, **values: Any) -> tuple[str, dict[str, Any], bo
         }
         if action == "set_value":
             params["value"] = str(values["value"] or "")
-        return f"{action}_element" if action == "invoke" else action, params, False
+        return (
+            f"{action}_element" if action == "invoke" else action,
+            params,
+            False,
+        )
     if action == "press_key":
         key = str(values["key"] or "").strip()
         if not key:

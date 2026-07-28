@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
 """Tests for the Computer Use plugin status route."""
+
+# Fixtures are requested for their side effects, so some are never read.
+# pylint: disable=unused-argument, use-implicit-booleaness-not-comparison
 
 from __future__ import annotations
 
@@ -59,7 +63,9 @@ def test_revoke_persistent_access(
     store = ComputerUseAccessStore(tmp_path / "app_access.json")
     store.record_persistent("win32:contoso.editor", "Contoso Editor")
     monkeypatch.setattr(
-        router_module, "get_computer_use_access_store", lambda: store
+        router_module,
+        "get_computer_use_access_store",
+        lambda: store,
     )
     route = next(
         route
@@ -217,7 +223,9 @@ def test_status_route_reports_feature_enabled_by_default(
 ) -> None:
     state = ComputerUseFeatureState(tmp_path / "feature_state.json")
     monkeypatch.setattr(
-        router_module, "get_computer_use_feature_state", lambda: state
+        router_module,
+        "get_computer_use_feature_state",
+        lambda: state,
     )
     route = next(
         route for route in build_router().routes if route.path == "/status"
@@ -261,14 +269,18 @@ async def test_feature_disable_stops_turns_and_denies_pending(
 ) -> None:
     state = ComputerUseFeatureState(tmp_path / "feature_state.json")
     monkeypatch.setattr(
-        router_module, "get_computer_use_feature_state", lambda: state
+        router_module,
+        "get_computer_use_feature_state",
+        lambda: state,
     )
 
     async def _stop_all() -> int:
         return 2
 
     monkeypatch.setattr(
-        router_module, "stop_all_computer_use_turns", _stop_all
+        router_module,
+        "stop_all_computer_use_turns",
+        _stop_all,
     )
     pending = SimpleNamespace(
         request_id="request-1",
@@ -277,7 +289,9 @@ async def test_feature_disable_stops_turns_and_denies_pending(
     )
     service = _PendingApprovalService([pending])
     monkeypatch.setattr(
-        router_module, "get_approval_service", lambda: service
+        router_module,
+        "get_approval_service",
+        lambda: service,
     )
     route = next(
         route for route in build_router().routes if route.path == "/feature"
@@ -303,14 +317,18 @@ async def test_feature_enable_skips_stop_and_persists(
     state = ComputerUseFeatureState(tmp_path / "feature_state.json")
     state.set_enabled(False)
     monkeypatch.setattr(
-        router_module, "get_computer_use_feature_state", lambda: state
+        router_module,
+        "get_computer_use_feature_state",
+        lambda: state,
     )
 
     async def _stop_all() -> int:
         raise AssertionError("enable must not stop turns")
 
     monkeypatch.setattr(
-        router_module, "stop_all_computer_use_turns", _stop_all
+        router_module,
+        "stop_all_computer_use_turns",
+        _stop_all,
     )
     route = next(
         route for route in build_router().routes if route.path == "/feature"

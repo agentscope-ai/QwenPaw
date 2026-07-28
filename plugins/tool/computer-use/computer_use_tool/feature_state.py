@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Installation-scoped on/off switch for the Computer Use feature."""
 
 from __future__ import annotations

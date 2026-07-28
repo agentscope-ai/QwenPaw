@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Session-scoped controls for the Computer Use plugin page."""
 
 from __future__ import annotations
@@ -7,13 +8,13 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from qwenpaw.app.computer_use import HostRuntimeProvider
 from qwenpaw.app.approvals import get_approval_service
+from qwenpaw.app.computer_use import HostRuntimeProvider
+from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
 from .access import (
     get_computer_use_access_store,
 )
-from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
 from .client import (
     is_computer_use_active,
@@ -157,7 +158,8 @@ def build_router() -> APIRouter:
             or not _is_computer_use_pending(pending)
         ):
             raise HTTPException(
-                status_code=404, detail="Pending approval not found."
+                status_code=404,
+                detail="Pending approval not found.",
             )
         decision = (
             ApprovalDecision.DENIED
@@ -169,7 +171,8 @@ def build_router() -> APIRouter:
         if request.decision == "always":
             if app is None:
                 raise HTTPException(
-                    status_code=400, detail="Pending application is invalid."
+                    status_code=400,
+                    detail="Pending application is invalid.",
                 )
             access_store.record_persistent(*app)
         resolved = await get_approval_service().resolve_request(

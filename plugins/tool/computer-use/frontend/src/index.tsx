@@ -322,9 +322,7 @@ function ComputerUsePage() {
         body: JSON.stringify({ enabled: next, session_id: sessionId }),
       });
       setEnabled(next);
-      message.success(
-        t(selectedLocale, next ? "enabledMsg" : "disabledMsg"),
-      );
+      message.success(t(selectedLocale, next ? "enabledMsg" : "disabledMsg"));
       await refresh();
     } catch (error) {
       message.error(
