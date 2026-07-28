@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import tomllib
 from typing import Any, Awaitable, Callable, Literal
 from urllib.parse import urlsplit
@@ -955,6 +956,11 @@ class ChannelDependencyService:
                     else None
                 )
                 try:
+                    pip_started = time.monotonic()
+                    logger.debug(
+                        f"Channel dependency pip install started: "
+                        f"{job.channel} (source={label})",
+                    )
                     result = self._run_install(
                         requirements,
                         index_url,
@@ -964,6 +970,12 @@ class ChannelDependencyService:
                         ),
                         reinstall=reinstall,
                         target=target,
+                    )
+                    logger.debug(
+                        f"Channel dependency pip install finished: "
+                        f"{job.channel} (source={label}, "
+                        f"elapsed={time.monotonic() - pip_started:.3f}s, "
+                        f"returncode={result.returncode})",
                     )
                 except subprocess.TimeoutExpired:
                     last_output = f"Package source {label} timed out"
@@ -1008,17 +1020,38 @@ class ChannelDependencyService:
         }
 
         def verify() -> None:
-            verify_runtime_requirements(
-                python,
-                _channel_site_dir(),
-                requirements,
-                import_names,
+            verify_started = time.monotonic()
+            logger.debug(
+                f"Channel Runtime verification started: " f"{requirements}",
             )
+            try:
+                verify_runtime_requirements(
+                    python,
+                    _channel_site_dir(),
+                    requirements,
+                    import_names,
+                )
+            finally:
+                logger.debug(
+                    f"Channel Runtime verification finished: "
+                    f"elapsed={time.monotonic() - verify_started:.3f}s",
+                )
 
-        transaction.commit(
-            verify=verify,
-            constraints=_channel_runtime_constraints(),
+        commit_started = time.monotonic()
+        logger.debug(
+            f"Channel Runtime transaction commit started: "
+            f"{transaction.transaction_dir.name}",
         )
+        try:
+            transaction.commit(
+                verify=verify,
+                constraints=_channel_runtime_constraints(),
+            )
+        finally:
+            logger.debug(
+                f"Channel Runtime transaction commit finished: "
+                f"elapsed={time.monotonic() - commit_started:.3f}s",
+            )
 
     @staticmethod
     def _should_fallback(output: str, source: str) -> bool:
