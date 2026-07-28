@@ -1,7 +1,35 @@
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn main() {
-    eprintln!("qwenpaw-computer-use-helper is only supported on Windows");
+    eprintln!("qwenpaw-computer-use-helper is only supported on Windows and macOS");
     std::process::exit(2);
+}
+
+// On macOS the helper only serves the RPC protocol: screen capture is part of
+// the shared server there rather than a separate capture mode, so there is no
+// command-line capture entry point to parse.
+#[cfg(target_os = "macos")]
+fn main() {
+    macos_app::main();
+}
+
+#[cfg(target_os = "macos")]
+mod macos_app {
+    use std::env;
+
+    pub fn main() {
+        let args = env::args().skip(1).collect::<Vec<_>>();
+        if !args.first().is_some_and(|value| value == "serve") {
+            eprintln!("usage: qwenpaw-computer-use-helper serve <endpoint> <capability>");
+            std::process::exit(2);
+        }
+        if let Err(error) = computer_use_server::run(&args[1..]) {
+            eprintln!("Computer Use helper failed: {error}");
+            std::process::exit(2);
+        }
+    }
+
+    #[path = "../../computer_use_server/mod.rs"]
+    mod computer_use_server;
 }
 
 #[cfg(windows)]
