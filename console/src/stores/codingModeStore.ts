@@ -21,7 +21,6 @@ export const useCodingModeStore = create<CodingModeState>((set) => ({
     set((state: CodingModeState) => ({
       codingModeByAgent: { ...state.codingModeByAgent, [agentId]: enabled },
     })),
-
 }));
 
 /** Convenience hook: coding mode status for the currently selected agent.

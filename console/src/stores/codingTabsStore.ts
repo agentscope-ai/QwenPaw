@@ -101,10 +101,7 @@ function scopedEnvelope(
     ...envelope,
     state: {
       tabsByAgent: filterRecord(envelope.state?.tabsByAgent, prefix),
-      activeTabByAgent: filterRecord(
-        envelope.state?.activeTabByAgent,
-        prefix,
-      ),
+      activeTabByAgent: filterRecord(envelope.state?.activeTabByAgent, prefix),
       diffsByAgent: filterRecord(envelope.state?.diffsByAgent, prefix),
     },
   };

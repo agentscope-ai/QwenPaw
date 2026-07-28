@@ -45,8 +45,8 @@ describe("projectDirectoryApi", () => {
     expect(request).toHaveBeenCalledWith(
       "/workspace/project-directory/create",
       {
-      method: "POST",
-      body: JSON.stringify({ name: "my-proj" }),
+        method: "POST",
+        body: JSON.stringify({ name: "my-proj" }),
       },
     );
   });
@@ -149,12 +149,12 @@ describe("projectDirectoryApi", () => {
     expect(fetch).toHaveBeenCalledWith(
       "/api/workspace/project-directory/clone",
       {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        url: "https://git.example/x.git",
-        name: "x",
-      }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: "https://git.example/x.git",
+          name: "x",
+        }),
       },
     );
   });
@@ -167,12 +167,12 @@ describe("projectDirectoryApi", () => {
     expect(fetch).toHaveBeenCalledWith(
       "/api/workspace/project-directory/clone",
       {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        url: "https://git.example/y.git",
-        name: undefined,
-      }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: "https://git.example/y.git",
+          name: undefined,
+        }),
       },
     );
   });

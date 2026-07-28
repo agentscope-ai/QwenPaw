@@ -52,12 +52,7 @@ export const gitApi = {
       body: JSON.stringify({ branch, create }),
     }),
 
-  diff: (
-    path?: string,
-    staged = false,
-    untracked = false,
-    chatId?: string,
-  ) => {
+  diff: (path?: string, staged = false, untracked = false, chatId?: string) => {
     const params = new URLSearchParams();
     if (path) params.set("path", path);
     if (staged) params.set("staged", "true");

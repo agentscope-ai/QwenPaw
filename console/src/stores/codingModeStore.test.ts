@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
-import {
-  useCodingModeStore,
-  useCodingMode,
-} from "./codingModeStore";
+import { useCodingModeStore, useCodingMode } from "./codingModeStore";
 import { useAgentStore } from "./agentStore";
 
 beforeEach(() => {
@@ -55,5 +52,4 @@ describe("codingModeStore", () => {
     expect(result.current.codingMode).toBe(false);
     expect(result.current.initialized).toBe(true);
   });
-
 });

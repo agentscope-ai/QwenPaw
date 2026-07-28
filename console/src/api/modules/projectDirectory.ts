@@ -26,8 +26,7 @@ export interface BrowseDirsResponse {
 
 export const projectDirectoryApi = {
   /** Get the current Agent default project directory. */
-  get: () =>
-    request<ProjectDirectoryInfo>("/workspace/project-directory"),
+  get: () => request<ProjectDirectoryInfo>("/workspace/project-directory"),
 
   /**
    * Set the active project directory.
