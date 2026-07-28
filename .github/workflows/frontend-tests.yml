@@ -61,10 +61,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run unit tests
-        run: npm run test:run
-
-      - name: Coverage ratchet (blocks PR on regression)
+      # A single vitest pass: runs the full suite AND enforces the coverage
+      # ratchet (fails on test failures or coverage regression). The previous
+      # separate `npm run test:run` pass executed the identical suite twice.
+      - name: Run unit tests with coverage (ratchet blocks PR on regression)
         run: npm run test:coverage
 
       - name: Upload coverage report
