@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 import uuid
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -252,6 +253,12 @@ class ComputerUseClient:
 
 
 _clients: dict[str, ComputerUseClient] = {}
+# The cache is read and written from more than one event loop -- the host runs
+# one per workspace on its own thread -- so a plain dict could be mutated while
+# another thread iterates it during eviction. The lock covers the get-or-create
+# and eviction paths; per-client work happens outside it, guarded by the
+# client's own async lock.
+_clients_lock = threading.Lock()
 
 # A client caches per-session state that has to outlive a single tool call --
 # the active turn and the window baseline used to notice newly opened windows.
@@ -263,7 +270,10 @@ _MAX_CACHED_CLIENTS = 64
 
 
 def _evict_idle_clients() -> None:
-    """Drop cached clients for sessions with no turn in flight."""
+    """Drop cached clients for sessions with no turn in flight.
+
+    The caller holds ``_clients_lock``.
+    """
     if len(_clients) < _MAX_CACHED_CLIENTS:
         return
     for session_id, client in list(_clients.items()):
@@ -281,12 +291,13 @@ def get_computer_use_client() -> ComputerUseClient:
             "session_unavailable",
             "Computer Use requires an active session.",
         )
-    client = _clients.get(session_id)
-    if client is None:
-        _evict_idle_clients()
-        client = ComputerUseClient(session_id)
-        _clients[session_id] = client
-    return client
+    with _clients_lock:
+        client = _clients.get(session_id)
+        if client is None:
+            _evict_idle_clients()
+            client = ComputerUseClient(session_id)
+            _clients[session_id] = client
+        return client
 
 
 def is_computer_use_active(session_id: str) -> bool:
@@ -308,7 +319,12 @@ async def stop_all_computer_use_turns() -> int:
     Returns the number of turns that were actually stopped.
     """
     stopped = 0
-    for client in list(_clients.values()):
+    # Snapshot under the lock, then stop turns without holding it: stop_turn
+    # awaits native I/O, and the lock is a sync primitive that must not be held
+    # across an await.
+    with _clients_lock:
+        clients = list(_clients.values())
+    for client in clients:
         if await client.stop_turn():
             stopped += 1
     return stopped

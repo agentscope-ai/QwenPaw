@@ -562,7 +562,23 @@ def _close_handle(handle: int, reader: threading.Thread | None = None) -> None:
     _kernel32().CloseHandle(handle)
 
 
+_kernel32_cache = None
+_kernel32_cache_lock = threading.Lock()
+
+
 def _kernel32():
+    # The signatures are configured once and reused. Rebuilding the WinDLL
+    # wrapper and re-declaring argtypes on every close/cancel/event call was
+    # wasted work; the module itself was already loaded once by the OS.
+    global _kernel32_cache
+    if _kernel32_cache is None:
+        with _kernel32_cache_lock:
+            if _kernel32_cache is None:
+                _kernel32_cache = _build_kernel32()
+    return _kernel32_cache
+
+
+def _build_kernel32():
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CreateFileW.argtypes = [
         wintypes.LPCWSTR,

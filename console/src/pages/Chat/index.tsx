@@ -1655,7 +1655,7 @@ export default function ChatPage() {
         return next;
       });
     },
-    [setApprovals],
+    [setApprovals, setApprovalRequests],
   );
 
   const handleApprove = useCallback(

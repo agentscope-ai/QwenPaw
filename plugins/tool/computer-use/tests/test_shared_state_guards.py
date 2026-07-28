@@ -6,6 +6,7 @@
 
 import threading
 
+from computer_use_tool import access as access_module
 from computer_use_tool import client as client_module
 from computer_use_tool import dispatch
 from computer_use_tool.protocol import ComputerUseProtocolError
@@ -76,3 +77,24 @@ def test_the_client_cache_leaves_room_untouched_below_capacity(monkeypatch):
     client_module._evict_idle_clients()
 
     assert set(cache) == {"one", "two"}
+
+
+def test_the_access_store_is_a_single_shared_instance(monkeypatch):
+    # Concurrent first-callers on different threads must all receive the same
+    # store; without the double-checked lock two could each build one and half
+    # the callers would read from an instance the other half never writes to.
+    monkeypatch.setattr(access_module, "_access_store", None)
+    seen = []
+    barrier = threading.Barrier(8)
+
+    def acquire() -> None:
+        barrier.wait()
+        seen.append(access_module.get_computer_use_access_store())
+
+    threads = [threading.Thread(target=acquire) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len({id(store) for store in seen}) == 1

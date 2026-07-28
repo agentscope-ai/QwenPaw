@@ -2,7 +2,7 @@
   "id": "computer-use-tool",
   "name": "Computer Use",
   "version": "2.0.0",
-  "description": "Control approved desktop applications through the native runtime (Windows only)",
+  "description": "Control approved desktop applications through the native runtime (Windows and macOS)",
   "author": "QwenPaw Team",
   "entry": {
     "backend": "plugin.py",

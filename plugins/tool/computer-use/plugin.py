@@ -2,8 +2,9 @@
 """Computer Use tool plugin entry point.
 
 Provides the ``computer_use`` desktop-automation tool, its governance
-metadata, and the window-bound usage skill. Windows only; the backend
-raises ``NotImplementedError`` on other platforms.
+metadata, and the window-bound usage skill. Windows and macOS are supported
+through the native helper; the tool is skipped where no helper runtime is
+available.
 """
 
 from __future__ import annotations

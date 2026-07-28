@@ -173,11 +173,18 @@ class ComputerUseAccessStore:
 
 
 _access_store: ComputerUseAccessStore | None = None
+_access_store_lock = RLock()
 
 
 def get_computer_use_access_store() -> ComputerUseAccessStore:
     """Return the process-wide Computer Use plugin access authority."""
     global _access_store
+    # Double-checked: the fast path skips the lock once built, and the lock
+    # keeps two callers on different event-loop threads from each building a
+    # store and racing to install it. Under the GIL this is belt-and-braces,
+    # but the guarantee it leans on is the interpreter's, not the code's.
     if _access_store is None:
-        _access_store = ComputerUseAccessStore()
+        with _access_store_lock:
+            if _access_store is None:
+                _access_store = ComputerUseAccessStore()
     return _access_store
