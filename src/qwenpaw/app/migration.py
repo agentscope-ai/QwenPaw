@@ -27,6 +27,7 @@ from ..constant import (
     WORKING_DIR,
 )
 from ..config.utils import load_config, save_config
+from ..utils.io_utils import write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -158,24 +159,16 @@ def _do_migrate_legacy_workspace() -> bool:
     # Save default agent configuration to workspace/agent.json
     # Use atomic write to prevent corruption
     agent_config_path = default_workspace / "agent.json"
-    agent_config_tmp = default_workspace / "agent.json.tmp"
 
     try:
-        with open(agent_config_tmp, "w", encoding="utf-8") as f:
-            json.dump(
-                default_agent_config.model_dump(exclude_none=True),
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
-        # Atomic rename (safer than direct write)
-        agent_config_tmp.replace(agent_config_path)
+        write_json_atomic(
+            agent_config_path,
+            default_agent_config.model_dump(exclude_none=True),
+            backup_count=3,
+        )
         logger.info(f"Created agent config: {agent_config_path}")
     except Exception as e:
         logger.error(f"Failed to save agent config: {e}")
-        # Clean up temp file if it exists
-        if agent_config_tmp.exists():
-            agent_config_tmp.unlink()
         raise
 
     migrated_items = []
