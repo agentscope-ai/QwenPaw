@@ -1,8 +1,10 @@
 <div align="center">
 
-# QwenPaw
+# QwenPaw - NVIDIA NIM Edition 🚀
 
-> **Note**: This fork adds native support for **NVIDIA NIM** (NVIDIA Inference Microservices), allowing you to seamlessly integrate and use NVIDIA's optimized models with your API key.
+[![NVIDIA NIM](https://img.shields.io/badge/NVIDIA_NIM-Supported-76B900?style=for-the-badge&logo=nvidia&logoColor=white)](#-nvidia-nim-support)
+
+> **Welcome to the NVIDIA NIM Fork!** This version of QwenPaw includes native, built-in support for **NVIDIA Inference Microservices (NIM)**, allowing you to use NVIDIA's highly optimized models out-of-the-box.
 
 
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Repo-black.svg?logo=github)](https://github.com/agentscope-ai/QwenPaw)
@@ -58,6 +60,24 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 - **Custom workflows**: Combine built-in capabilities, plugins, and scheduled tasks into workflows tailored to your needs.
 
 </details>
+
+---
+
+## 🚀 NVIDIA NIM Support
+
+This specialized fork of QwenPaw introduces first-class support for **NVIDIA NIM (NVIDIA Inference Microservices)**. 
+
+### Why NVIDIA NIM?
+- **Optimized Performance:** Access highly optimized inference models hosted by NVIDIA.
+- **Dynamic Model Discovery:** QwenPaw automatically discovers all models available to your NIM API key. No manual configuration of model IDs is required!
+- **Native Integration:** Features the official NVIDIA branding and logo in the UI.
+
+### How to Configure
+1. Get your API key from the [NVIDIA API Catalog](https://build.nvidia.com/).
+2. In QwenPaw, go to **Settings → Models**.
+3. Select **NVIDIA NIM** from the provider list.
+4. Enter your API Key (it should start with `nvapi-`).
+5. **Important:** The model list will initially be empty. It will automatically populate with all available models the moment you enter a valid API key!
 
 ---
 
