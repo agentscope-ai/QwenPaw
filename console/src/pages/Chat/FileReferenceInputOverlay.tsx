@@ -18,6 +18,8 @@ interface OverlayState {
   value: string;
 }
 
+const FILE_REFERENCE_INPUT_ATTRIBUTE = "data-qwenpaw-file-reference-input";
+
 function overlayStyle(textarea: HTMLTextAreaElement): CSSProperties {
   const computed = window.getComputedStyle(textarea);
   return {
@@ -90,7 +92,7 @@ export default function FileReferenceInputOverlay({
 
     const detach = () => {
       if (!textarea) return;
-      textarea.classList.remove(styles.fileReferenceTextarea);
+      textarea.removeAttribute(FILE_REFERENCE_INPUT_ATTRIBUTE);
       textarea.parentElement?.classList.remove(styles.fileReferenceHost);
       textarea.removeEventListener("input", sync);
       textarea.removeEventListener("scroll", sync);
@@ -105,7 +107,7 @@ export default function FileReferenceInputOverlay({
       if (!next || next === textarea) return;
       detach();
       textarea = next;
-      textarea.classList.add(styles.fileReferenceTextarea);
+      textarea.setAttribute(FILE_REFERENCE_INPUT_ATTRIBUTE, "");
       textarea.parentElement?.classList.add(styles.fileReferenceHost);
       textarea.addEventListener("input", sync);
       textarea.addEventListener("scroll", sync);

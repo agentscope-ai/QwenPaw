@@ -71,19 +71,19 @@
 
 .fileReferenceHost {
   position: relative;
-}
 
-.fileReferenceTextarea {
-  position: relative;
-  color: transparent !important;
-  -webkit-text-fill-color: transparent !important;
-  caret-color: #302b27;
-  background: transparent !important;
-  z-index: 1;
+  > textarea[data-qwenpaw-file-reference-input] {
+    position: relative;
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
+    caret-color: #302b27;
+    background: transparent !important;
+    z-index: 1;
 
-  &::placeholder {
-    color: rgba(41, 37, 34, 0.42);
-    -webkit-text-fill-color: rgba(41, 37, 34, 0.42);
+    &::placeholder {
+      color: rgba(41, 37, 34, 0.42);
+      -webkit-text-fill-color: rgba(41, 37, 34, 0.42);
+    }
   }
 }
 
@@ -140,7 +140,7 @@
 }
 
 :global(.dark-mode) {
-  .fileReferenceTextarea {
+  .fileReferenceHost > textarea[data-qwenpaw-file-reference-input] {
     caret-color: #f4efeb;
 
     &::placeholder {

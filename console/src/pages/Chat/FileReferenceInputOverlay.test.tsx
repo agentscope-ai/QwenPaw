@@ -88,6 +88,30 @@ describe("FileReferenceInputOverlay", () => {
       "@ /Users/ray/.copaw/workspaces/default/random.md ",
     );
   });
+
+  it("keeps its input marker when the sender rewrites className on focus", async () => {
+    render(
+      <>
+        <div className="sender">
+          <div>
+            <textarea
+              className="sender-input"
+              defaultValue="@ /work/random.md"
+            />
+          </div>
+        </div>
+        <FileReferenceInputOverlay />
+      </>,
+    );
+
+    const textarea = screen.getByRole("textbox");
+    expect(await screen.findByRole("button")).toHaveTextContent("random.md");
+
+    textarea.className = "sender-input sender-input-mouse-active";
+    fireEvent.focus(textarea);
+
+    expect(textarea).toHaveAttribute("data-qwenpaw-file-reference-input");
+  });
 });
 
 describe("compactFileReferenceLabel", () => {
