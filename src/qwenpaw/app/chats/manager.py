@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Chat manager for managing chat specifications."""
+
 from __future__ import annotations
 
 import asyncio
@@ -13,14 +14,41 @@ from .models import (
     BatchFailure,
     ChatSpec,
     ChatUpdate,
+    PendingChatDeletion,
     SessionSource,
 )
 from .repo import BaseChatRepository
+from .session import session_relative_path
 from ..channels.schema import DEFAULT_CHANNEL
 
 logger = logging.getLogger(__name__)
 
 MAX_BATCH_SIZE = 500
+DeletionPlanner = Callable[
+    [list[ChatSpec], list[ChatSpec]],
+    Awaitable[PendingChatDeletion],
+]
+
+
+class ChatDeletionPendingError(RuntimeError):
+    """Raised when a new chat would reuse storage being deleted."""
+
+
+def _identity_is_pending(
+    pending_deletions: list[PendingChatDeletion],
+    session_id: str,
+    user_id: str,
+    channel: str,
+) -> bool:
+    """Whether a tombstone owns the same physical session-state identity."""
+    candidate_paths = {
+        session_relative_path(session_id, user_id),
+        session_relative_path(session_id, user_id, channel),
+    }
+    return any(
+        candidate_paths.intersection(deletion.session_paths)
+        for deletion in pending_deletions
+    )
 
 
 class ChatManager:
@@ -130,6 +158,16 @@ class ChatManager:
                     f"get_or_create_chat: Found existing chat: {existing.id}",
                 )
                 return existing
+            chats_file = await self._repo.load()
+            if _identity_is_pending(
+                chats_file.pending_deletions,
+                session_id,
+                user_id,
+                channel,
+            ):
+                raise ChatDeletionPendingError(
+                    "chat storage deletion is still in progress",
+                )
 
             # Create new
             logger.debug(
@@ -165,6 +203,16 @@ class ChatManager:
             Chat spec
         """
         async with self._lock:
+            chats_file = await self._repo.load()
+            if _identity_is_pending(
+                chats_file.pending_deletions,
+                spec.session_id,
+                spec.user_id,
+                spec.channel,
+            ):
+                raise ChatDeletionPendingError(
+                    "chat storage deletion is still in progress",
+                )
             await self._repo.upsert_chat(spec)
             return spec
 
@@ -244,6 +292,57 @@ class ChatManager:
                 logger.debug(f"Deleted chats: {chat_ids}")
 
             return deleted
+
+    async def prepare_deletion(
+        self,
+        chat_ids: list[str],
+        planner: DeletionPlanner,
+    ) -> list[PendingChatDeletion]:
+        """Atomically remove chat specs and persist cleanup intent."""
+        requested = set(chat_ids)
+        if not requested:
+            return []
+        async with self._lock:
+            chats_file = await self._repo.load()
+            pending = [
+                deletion
+                for deletion in chats_file.pending_deletions
+                if any(chat.id in requested for chat in deletion.chats)
+            ]
+            selected = [
+                chat for chat in chats_file.chats if chat.id in requested
+            ]
+            if not selected:
+                return pending
+            retained = [
+                chat for chat in chats_file.chats if chat.id not in requested
+            ]
+            deletion = await planner(selected, retained)
+            chats_file.chats = retained
+            chats_file.pending_deletions.append(deletion)
+            await self._repo.save(chats_file)
+            return [*pending, deletion]
+
+    async def finalize_deletion(self, deletion_id: str) -> bool:
+        """Remove one completed deletion tombstone."""
+        async with self._lock:
+            chats_file = await self._repo.load()
+            before = len(chats_file.pending_deletions)
+            chats_file.pending_deletions = [
+                deletion
+                for deletion in chats_file.pending_deletions
+                if deletion.id != deletion_id
+            ]
+            if len(chats_file.pending_deletions) == before:
+                return False
+            await self._repo.save(chats_file)
+            return True
+
+    async def list_pending_deletions(self) -> list[PendingChatDeletion]:
+        """Return durable cleanup work still awaiting completion."""
+        async with self._lock:
+            chats_file = await self._repo.load()
+            return list(chats_file.pending_deletions)
 
     # ----- Archive Operations -----
 

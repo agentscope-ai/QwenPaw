@@ -14,7 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.agents.context.scroll.history import (
+    HistoryStore,
+    delete_history_sessions,
+    history_session_watermarks,
+)
 from qwenpaw.agents.context.types import LogEntry
 
 
@@ -86,6 +90,67 @@ def test_append_many_populates_fts(store: HistoryStore):
         "conversation_history_fts MATCH 'aardvark'",
     ).fetchall()
     assert len(rows) == 1
+
+
+def test_bounded_session_delete_preserves_newer_rows_and_other_sessions(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "history.db"
+    store = HistoryStore(db_path)
+    old = store.append(
+        session_id="deleted",
+        dedup_key="old",
+        entry=_entry("old uniquedeletiontoken"),
+    )
+    store.append(
+        session_id="retained",
+        dedup_key="kept",
+        entry=_entry("keep"),
+    )
+    watermarks = history_session_watermarks(db_path, {"deleted"})
+    assert watermarks == {"deleted": old}
+    store.append(
+        session_id="deleted",
+        dedup_key="new",
+        entry=_entry("new survives"),
+    )
+    store.close()
+
+    assert delete_history_sessions(db_path, watermarks) == 1
+
+    check = HistoryStore(db_path)
+    try:
+        assert check.count("deleted") == 1
+        assert check.count("retained") == 1
+        if check._fts:
+            rows = check._conn.execute(
+                "SELECT rowid FROM conversation_history_fts WHERE "
+                "conversation_history_fts MATCH 'uniquedeletiontoken'",
+            ).fetchall()
+            assert rows == []
+    finally:
+        check.close()
+
+
+def test_deletion_helpers_do_not_create_missing_database(tmp_path: Path):
+    db_path = tmp_path / "missing.db"
+    assert not history_session_watermarks(db_path, {"s"})
+    assert delete_history_sessions(db_path, {"s": 10}) == 0
+    assert not db_path.exists()
+
+
+def test_deletion_watermark_does_not_quarantine_corrupt_database(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "history.db"
+    original = b"not a sqlite database"
+    db_path.write_bytes(original)
+
+    with pytest.raises(sqlite3.DatabaseError):
+        history_session_watermarks(db_path, {"s"})
+
+    assert db_path.read_bytes() == original
+    assert not list(tmp_path.glob("history.db.corrupt-*"))
 
 
 def test_same_dedup_key_different_session_does_not_collide(

@@ -9,6 +9,7 @@ Covers:
 - ``migrate_legacy_weixin_session_files`` weixin -> wechat rename
 - ``AgentStateError`` raised for missing-file ``allow_not_exist=False``
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -24,6 +25,8 @@ from qwenpaw.app.chats.session import (
     _safe_json_loads,
     migrate_legacy_weixin_session_files,
     sanitize_filename,
+    session_filename,
+    session_relative_path,
 )
 from qwenpaw.exceptions import AgentStateError
 
@@ -91,6 +94,21 @@ def test_safe_json_loads_completely_corrupted_returns_empty_dict():
 )
 def test_sanitize_filename(raw, expected):
     assert sanitize_filename(raw) == expected
+
+
+def test_session_path_helpers_match_runtime_layout():
+    assert session_filename("console:s1", "u1") == "u1_console--s1.json"
+    assert (
+        session_relative_path("console:s1", "u1", "console")
+        == "console/u1_console--s1.json"
+    )
+    assert session_filename("same", "same") == "same.json"
+
+
+@pytest.mark.parametrize("channel", [".", ".."])
+def test_session_relative_path_rejects_parent_channels(channel: str):
+    with pytest.raises(ValueError, match="invalid session channel"):
+        session_relative_path("sid", "uid", channel)
 
 
 # ---------------------------------------------------------------------------
@@ -426,3 +444,40 @@ def test_archive_dir_constant_excluded_from_session_scans():
     # level down so it must not start with a dot-stripped name that
     # collides with session files.
     assert session_mod._WEIXIN_LEGACY_ARCHIVE_DIR.startswith(".")
+
+
+@pytest.mark.asyncio
+async def test_stage_deletion_moves_live_file_and_discard_removes_trash(
+    tmp_path: Path,
+):
+    session = SafeJSONSession(str(tmp_path))
+    relative = session_relative_path("console:s1", "u1", "console")
+    deletion_id = "fe70b92a-b213-489c-9bf9-cb3259a02f01"
+    source = tmp_path / relative
+    source.parent.mkdir(parents=True)
+    source.write_text("{}", encoding="utf-8")
+
+    await session.stage_deletion(deletion_id, [relative])
+
+    staged = tmp_path / ".trash" / deletion_id / relative
+    assert not source.exists()
+    assert staged.exists()
+    await session.discard_staged_deletion(deletion_id)
+    assert not staged.exists()
+
+
+@pytest.mark.asyncio
+async def test_stage_deletion_rejects_escaping_persisted_path(tmp_path: Path):
+    session = SafeJSONSession(str(tmp_path))
+    with pytest.raises(ValueError, match="invalid session deletion path"):
+        await session.stage_deletion(
+            "fe70b92a-b213-489c-9bf9-cb3259a02f01",
+            ["../outside.json"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_stage_deletion_rejects_non_uuid_deletion_id(tmp_path: Path):
+    session = SafeJSONSession(str(tmp_path))
+    with pytest.raises(ValueError, match="invalid deletion id"):
+        await session.stage_deletion("..", ["session.json"])

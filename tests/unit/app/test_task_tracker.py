@@ -12,6 +12,7 @@ Covers:
 - wait_all_done() returns True when idle, False on timeout
 - global status counters update via run lifecycle
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -20,8 +21,7 @@ import json
 
 import pytest
 
-from qwenpaw.app.task_tracker import TaskTracker
-
+from qwenpaw.app.task_tracker import RunBlockedError, TaskTracker
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -64,6 +64,27 @@ async def test_attach_returns_none_for_unknown_run_key():
     tracker = TaskTracker()
 
     assert await tracker.attach("missing") is None
+
+
+@pytest.mark.asyncio
+async def test_deletion_reservation_blocks_new_run_until_released():
+    tracker = TaskTracker()
+    assert await tracker.reserve_for_deletion({"run-1"}) == []
+
+    with pytest.raises(RunBlockedError):
+        await tracker.attach_or_start(
+            "run-1",
+            None,
+            _make_stream([]),
+        )
+
+    await tracker.release_deletion_reservation({"run-1"})
+    _queue, is_new = await tracker.attach_or_start(
+        "run-1",
+        None,
+        _make_stream([]),
+    )
+    assert is_new is True
 
 
 # ---------------------------------------------------------------------------

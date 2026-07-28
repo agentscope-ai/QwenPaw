@@ -449,3 +449,22 @@ def test_first_run_emits_console_notice_then_stays_quiet(
     with caplog.at_level(logging.WARNING, logger=sync_mod.logger.name):
         sync_all_scroll_agents()
     assert not [r for r in caplog.records if "first run" in r.getMessage()]
+
+
+def test_startup_sync_skips_workspace_with_failed_deletion_recovery(
+    monkeypatch,
+    tmp_path: Path,
+):
+    workspace = tmp_path / "ws"
+    _write_session_2x(
+        workspace / "sessions",
+        "conv.json",
+        "sid",
+        _sample_msgs(),
+    )
+    _stub_config_loaders(monkeypatch, workspace)
+
+    sync_all_scroll_agents({workspace.resolve()})
+
+    assert not (workspace / "history.db").exists()
+    assert not (workspace / "sessions" / MANIFEST_NAME).exists()
