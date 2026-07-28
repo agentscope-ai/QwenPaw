@@ -144,7 +144,12 @@ class ChatPage(BasePage):
 
     # --- Slash-command suggestion popup (@ant-design/x Suggestion) ---
     # Opens while the input starts with "/" and has no whitespace yet.
-    SUGGESTION_POPUP = '.qwenpaw-suggestion'
+    # Two nodes carry .qwenpaw-suggestion (inline content + the cascader
+    # dropdown); anchor on the dropdown, excluding its hidden state.
+    SUGGESTION_POPUP = (
+        '.qwenpaw-suggestion.qwenpaw-select-dropdown'
+        ':not(.qwenpaw-select-dropdown-hidden)'
+    )
     SUGGESTION_ITEM = '.qwenpaw-suggestion-item'
 
     # --- Sidebar session date groups — upstream #5643 ---

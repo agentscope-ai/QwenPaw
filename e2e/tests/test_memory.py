@@ -339,7 +339,9 @@ class TestMemoryBackendSelect:
         log_test_step("1. Open /agent-config on the ReAct Agent tab")
         memory_page.open_agent_config()
         memory_page.click_react_tab()
-        backend_select = page.locator(memory_page.BACKEND_SELECT).first
+        backend_select = page.locator(
+            memory_page.BACKEND_SELECT_TRIGGER
+        ).first
         expect(backend_select).to_be_visible(timeout=memory_page.timeout)
 
         log_test_step("2. Baseline: remelight backend => Long-term Memory tab")

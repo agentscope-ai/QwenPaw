@@ -77,6 +77,12 @@ class MemoryPage(BasePage):
     REME_MEMORY_TAB = '[data-node-key="remeLightMemory"]'
     ADBPG_MEMORY_TAB = '[data-node-key="adbpgMemory"]'
     BACKEND_SELECT = '#memory_manager_backend'
+    # antd Select: the inner input is readonly; clicks must land on the
+    # surrounding selector box, not on #memory_manager_backend itself.
+    BACKEND_SELECT_TRIGGER = (
+        '.qwenpaw-select:has(#memory_manager_backend) '
+        '.qwenpaw-select-selector'
+    )
     BACKEND_OPTION = (
         '.qwenpaw-select-dropdown:not(.qwenpaw-select-dropdown-hidden) '
         '.qwenpaw-select-item-option'
