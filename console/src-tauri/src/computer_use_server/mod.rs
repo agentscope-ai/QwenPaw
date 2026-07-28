@@ -80,6 +80,8 @@ const SCREENSHOT_JPEG_QUALITY: f32 = 0.8;
 // Downscaling to a bounded edge keeps the payload small while leaving
 // enough detail for reading on-screen text and controls.
 const SCREENSHOT_MAX_EDGE: u32 = 1600;
+// Only the Windows capture path decodes raw bitmaps.
+#[cfg(windows)]
 const BMP_HEADER_BYTES: usize = 54;
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -89,6 +91,10 @@ struct WindowInfo {
     app_id: String,
     display_name: String,
     title: String,
+    // Windows matches this against its credential-dialog guard. macOS has no
+    // equivalent notion of a window class and recognises those dialogs by
+    // title and owner instead.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     class_name: String,
 }
 

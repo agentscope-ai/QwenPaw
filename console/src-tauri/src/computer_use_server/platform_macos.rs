@@ -1278,11 +1278,14 @@ mod tests {
 
     #[test]
     fn an_identifier_is_lowercased_under_the_app_prefix() {
-        // A path that does not exist cannot be canonicalised, which is the
-        // case that must still yield a usable identifier.
+        // Nothing is installed at this path, so canonicalisation cannot rewrite
+        // it and the identifier is the path as given. An installed application
+        // does get rewritten -- Safari resolves into its cryptex volume -- and
+        // that rewriting is what makes the install scan and a running process
+        // agree on one identifier instead of two.
         assert_eq!(
-            app_id_from_bundle_path(Path::new("/Applications/Safari.app")),
-            "app:/applications/safari.app"
+            app_id_from_bundle_path(Path::new("/Applications/QwenPawNotInstalled.app")),
+            "app:/applications/qwenpawnotinstalled.app"
         );
     }
 
