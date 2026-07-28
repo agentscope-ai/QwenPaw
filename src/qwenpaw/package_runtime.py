@@ -28,6 +28,17 @@ RequirementState = Literal[
 ]
 
 _VERIFY_RESULT_PREFIX = "QWENPAW_RUNTIME_VERIFY:"
+_DIRECTORY_REPLACE_EXCLUSIONS = {
+    "__pycache__",
+    "bin",
+    "scripts",
+}
+_RUNTIME_BINARY_SUFFIXES = {
+    ".dll",
+    ".dylib",
+    ".pyd",
+    ".so",
+}
 
 
 class RuntimeLockUnavailable(RuntimeError):
@@ -375,13 +386,16 @@ class RuntimeTransaction:
         self,
         replacement_names: set[str],
         current: RuntimeSnapshot,
-    ) -> tuple[dict[Path, set[str]], set[Path]]:
+    ) -> tuple[dict[Path, set[str]], set[Path], bool]:
         ownership: dict[Path, set[str]] = {}
         candidate_old_paths: set[Path] = set()
+        records_complete = True
         for name, entries in current.distributions.items():
             for distribution in entries:
                 record_paths = _record_paths(distribution, self.site_dir)
                 paths = record_paths or set()
+                if record_paths is None:
+                    records_complete = False
                 if name in replacement_names:
                     paths.update(
                         _metadata_paths(distribution, self.site_dir),
@@ -392,7 +406,101 @@ class RuntimeTransaction:
                     ownership.setdefault(path, set()).add(name)
                     if name in replacement_names:
                         candidate_old_paths.add(path)
-        return ownership, candidate_old_paths
+        return ownership, candidate_old_paths, records_complete
+
+    @staticmethod
+    def _snapshot_ownership(
+        snapshot: RuntimeSnapshot,
+        site_dir: Path,
+    ) -> tuple[dict[Path, set[str]], bool]:
+        ownership: dict[Path, set[str]] = {}
+        records_complete = True
+        for name, entries in snapshot.distributions.items():
+            for distribution in entries:
+                record_paths = _record_paths(distribution, site_dir)
+                if record_paths is None:
+                    records_complete = False
+                    continue
+                for path in record_paths:
+                    ownership.setdefault(path, set()).add(name)
+        return ownership, records_complete
+
+    @staticmethod
+    def _top_level_directory(relative: Path) -> Path | None:
+        if len(relative.parts) < 2:
+            return None
+        name = relative.parts[0]
+        lowered = name.casefold()
+        if (
+            lowered in _DIRECTORY_REPLACE_EXCLUSIONS
+            or lowered.endswith(".dist-info")
+            or lowered.endswith(".egg-info")
+            or name.startswith(".")
+        ):
+            return None
+        return Path(name)
+
+    @staticmethod
+    def _managed_directory_files(
+        root: Path,
+        site_dir: Path,
+        ownership: dict[Path, set[str]],
+        allowed_owners: set[str],
+    ) -> set[Path] | None:
+        if not root.exists():
+            return set()
+        if not root.is_dir() or root.is_symlink():
+            return None
+        files: set[Path] = set()
+        for path in root.rglob("*"):
+            if path.is_symlink():
+                return None
+            if not path.is_file():
+                continue
+            if path.suffix.casefold() in _RUNTIME_BINARY_SUFFIXES:
+                return None
+            relative = path.relative_to(site_dir)
+            owners = ownership.get(relative, set())
+            if not owners or not owners <= allowed_owners:
+                return None
+            files.add(relative)
+        return files or None
+
+    def _exclusive_directories(
+        self,
+        replacement_names: set[str],
+        ownership: dict[Path, set[str]],
+        staged_ownership: dict[Path, set[str]],
+        old_paths: set[Path],
+        staged_paths: set[Path],
+        *,
+        records_complete: bool,
+    ) -> set[Path]:
+        if not records_complete:
+            return set()
+        candidates = {
+            directory
+            for relative in old_paths | staged_paths
+            if (directory := self._top_level_directory(relative)) is not None
+        }
+        exclusive: set[Path] = set()
+        for directory in candidates:
+            current_files = self._managed_directory_files(
+                self.site_dir / directory,
+                self.site_dir,
+                ownership,
+                replacement_names,
+            )
+            staged_files = self._managed_directory_files(
+                self.staging_dir / directory,
+                self.staging_dir,
+                staged_ownership,
+                replacement_names,
+            )
+            if current_files is None or staged_files is None:
+                continue
+            exclusive.add(directory)
+        return exclusive
 
     def _validate_staged_paths(
         self,
@@ -425,7 +533,7 @@ class RuntimeTransaction:
     def _prepare(
         self,
         constraints: list[str],
-    ) -> tuple[set[str], set[Path], set[Path]]:
+    ) -> tuple[set[str], set[Path], set[Path], set[Path], set[Path]]:
         staged = build_runtime_snapshot(self.staging_dir)
         staged_versions = self._staged_versions(staged)
         replacement_names = set(staged_versions)
@@ -441,9 +549,17 @@ class RuntimeTransaction:
             staged_versions,
             [*constraints, *installed_constraints],
         )
-        ownership, candidate_old_paths = self._installed_ownership(
+        (
+            ownership,
+            candidate_old_paths,
+            current_records_complete,
+        ) = self._installed_ownership(
             replacement_names,
             current,
+        )
+        staged_ownership, staged_records_complete = self._snapshot_ownership(
+            staged,
+            self.staging_dir,
         )
         old_paths = {
             path
@@ -451,6 +567,29 @@ class RuntimeTransaction:
             if ownership.get(path, set()) <= replacement_names
         }
         staged_paths = _relative_files(self.staging_dir)
+        directory_paths = self._exclusive_directories(
+            replacement_names,
+            ownership,
+            staged_ownership,
+            old_paths,
+            staged_paths,
+            records_complete=(
+                current_records_complete and staged_records_complete
+            ),
+        )
+        directory_backup_paths = {
+            path for path in directory_paths if (self.site_dir / path).exists()
+        }
+        old_paths = {
+            path
+            for path in old_paths
+            if self._top_level_directory(path) not in directory_paths
+        }
+        staged_paths = {
+            path
+            for path in staged_paths
+            if self._top_level_directory(path) not in directory_paths
+        }
         self._validate_staged_paths(
             staged_paths,
             old_paths,
@@ -461,7 +600,13 @@ class RuntimeTransaction:
         backup_paths = {
             path for path in new_paths if (self.site_dir / path).exists()
         }
-        return replacement_names, backup_paths, staged_paths
+        return (
+            replacement_names,
+            backup_paths,
+            staged_paths,
+            directory_paths,
+            directory_backup_paths,
+        )
 
     def commit(
         self,
@@ -470,14 +615,22 @@ class RuntimeTransaction:
         constraints: list[str] | None = None,
     ) -> None:
         """Commit staged distributions and roll back if verification fails."""
-        replacement_names, backup_paths, staged_paths = self._prepare(
-            constraints or [],
-        )
+        (
+            replacement_names,
+            backup_paths,
+            staged_paths,
+            directory_paths,
+            directory_backup_paths,
+        ) = self._prepare(constraints or [])
         self._manifest = {
             "site_dir": str(self.site_dir),
             "replacement_names": sorted(replacement_names),
             "backup_paths": sorted(str(path) for path in backup_paths),
             "staged_paths": sorted(str(path) for path in staged_paths),
+            "directory_paths": sorted(str(path) for path in directory_paths),
+            "directory_backup_paths": sorted(
+                str(path) for path in directory_backup_paths
+            ),
         }
         self._write_manifest("prepared")
         try:
@@ -487,7 +640,9 @@ class RuntimeTransaction:
             raise
         try:
             self._write_manifest("committing")
+            self._backup_directories(directory_backup_paths)
             self._remove_old_files(backup_paths - staged_paths)
+            self._install_staged_directories(directory_paths)
             self._copy_staging(staged_paths)
             if verify is not None:
                 verify()
@@ -505,6 +660,24 @@ class RuntimeTransaction:
             destination = self.backup_dir / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
+
+    def _backup_directories(self, paths: set[Path]) -> None:
+        for relative in sorted(paths, key=str):
+            source = self.site_dir / relative
+            destination = self.backup_dir / relative
+            os.replace(source, destination)
+
+    def _install_staged_directories(self, paths: set[Path]) -> None:
+        for relative in sorted(paths, key=str):
+            source = self.staging_dir / relative
+            if not source.exists():
+                continue
+            destination = self.site_dir / relative
+            if destination.exists():
+                raise RuntimeError(
+                    f"Runtime directory conflict for {relative}",
+                )
+            os.replace(source, destination)
 
     def _remove_old_files(self, paths: set[Path]) -> None:
         for relative in paths:
@@ -532,6 +705,14 @@ class RuntimeTransaction:
             _safe_relative_path(self.site_dir, str(value))
             for value in self._manifest.get("staged_paths", [])
         }
+        directory_paths = {
+            _safe_relative_path(self.site_dir, str(value))
+            for value in self._manifest.get("directory_paths", [])
+        }
+        directory_backup_paths = {
+            _safe_relative_path(self.site_dir, str(value))
+            for value in self._manifest.get("directory_backup_paths", [])
+        }
         missing_backups = [
             relative
             for relative in backup_paths
@@ -540,6 +721,10 @@ class RuntimeTransaction:
         if missing_backups:
             missing = ", ".join(str(path) for path in missing_backups)
             raise RuntimeError(f"Runtime backup is incomplete: {missing}")
+        self._restore_directories(
+            directory_paths,
+            directory_backup_paths,
+        )
         for relative in sorted(backup_paths, key=str):
             source = self.backup_dir / relative
             destination = self.site_dir / relative
@@ -564,6 +749,33 @@ class RuntimeTransaction:
                 path.unlink()
         _prune_empty_parents(self.site_dir, new_paths)
         self.cleanup()
+
+    def _restore_directories(
+        self,
+        paths: set[Path],
+        backup_paths: set[Path],
+    ) -> None:
+        for relative in sorted(paths, key=str):
+            current = self.site_dir / relative
+            backup = self.backup_dir / relative
+            if backup.exists():
+                if current.is_dir() and not current.is_symlink():
+                    shutil.rmtree(current)
+                elif current.exists() or current.is_symlink():
+                    current.unlink()
+                os.replace(backup, current)
+                continue
+            if relative in backup_paths:
+                if not current.exists():
+                    raise RuntimeError(
+                        f"Runtime directory backup is incomplete: "
+                        f"{relative}",
+                    )
+                continue
+            if current.is_dir() and not current.is_symlink():
+                shutil.rmtree(current)
+            elif current.exists() or current.is_symlink():
+                current.unlink()
 
     def cleanup(self) -> None:
         """Remove temporary transaction data."""

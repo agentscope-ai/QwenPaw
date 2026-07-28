@@ -625,6 +625,104 @@ def test_transaction_rolls_back_when_verification_fails(tmp_path):
     assert [entry.version for entry in entries] == ["1.0"]
 
 
+def test_transaction_moves_exclusive_directory_without_copying_files(
+    tmp_path,
+):
+    site_dir = tmp_path / "site"
+    _write_distribution(
+        site_dir,
+        name="demo-package",
+        version="1.0",
+        files={
+            "demo/__init__.py": "old\n",
+            "demo/generated/item.py": "old item\n",
+        },
+    )
+    transaction = RuntimeTransaction(site_dir)
+    staging = transaction.create()
+    _write_distribution(
+        staging,
+        name="demo-package",
+        version="2.0",
+        files={
+            "demo/__init__.py": "new\n",
+            "demo/generated/item.py": "new item\n",
+        },
+    )
+    original_copy = shutil.copy2
+
+    def reject_directory_file_copy(source, destination, *args, **kwargs):
+        source_path = Path(source)
+        if "demo" in source_path.parts:
+            raise AssertionError("exclusive directory files were copied")
+        return original_copy(source, destination, *args, **kwargs)
+
+    with patch(
+        "qwenpaw.package_runtime.shutil.copy2",
+        side_effect=reject_directory_file_copy,
+    ):
+        transaction.commit()
+
+    assert (site_dir / "demo/__init__.py").read_text() == "new\n"
+    assert (site_dir / "demo/generated/item.py").read_text() == ("new item\n")
+
+
+def test_transaction_restores_exclusive_directory_after_verify_failure(
+    tmp_path,
+):
+    site_dir = tmp_path / "site"
+    _write_distribution(
+        site_dir,
+        name="demo-package",
+        version="1.0",
+        files={"demo/__init__.py": "old\n"},
+    )
+    transaction = RuntimeTransaction(site_dir)
+    staging = transaction.create()
+    _write_distribution(
+        staging,
+        name="demo-package",
+        version="2.0",
+        files={"demo/__init__.py": "new\n"},
+    )
+
+    with pytest.raises(RuntimeError, match="verify failed"):
+        transaction.commit(
+            verify=lambda: (_ for _ in ()).throw(
+                RuntimeError("verify failed"),
+            ),
+        )
+
+    assert (site_dir / "demo/__init__.py").read_text() == "old\n"
+    entries = build_runtime_snapshot(site_dir).entries("demo-package")
+    assert [entry.version for entry in entries] == ["1.0"]
+
+
+def test_transaction_does_not_move_directory_with_unmanaged_file(tmp_path):
+    site_dir = tmp_path / "site"
+    _write_distribution(
+        site_dir,
+        name="demo-package",
+        version="1.0",
+        files={"demo/__init__.py": "old\n"},
+    )
+    unmanaged = site_dir / "demo/local.py"
+    unmanaged.write_text("keep\n", encoding="utf-8")
+    transaction = RuntimeTransaction(site_dir)
+    staging = transaction.create()
+    _write_distribution(
+        staging,
+        name="demo-package",
+        version="2.0",
+        files={"demo/__init__.py": "new\n"},
+    )
+
+    transaction.commit()
+
+    assert (site_dir / "demo/__init__.py").read_text() == "new\n"
+    assert unmanaged.read_text() == "keep\n"
+
+
 def test_transaction_rolls_back_when_runtime_file_is_locked(tmp_path):
     site_dir = tmp_path / "site"
     _write_distribution(
@@ -719,6 +817,33 @@ def test_recover_runtime_transactions_restores_committing_backup(tmp_path):
     recover_runtime_transactions(site_dir)
 
     assert (site_dir / "demo.py").read_text() == "old\n"
+    assert not transaction_dir.exists()
+
+
+def test_recover_runtime_transactions_restores_directory_backup(tmp_path):
+    site_dir = tmp_path / "bucket" / "site"
+    current = site_dir / "demo"
+    current.mkdir(parents=True)
+    (current / "__init__.py").write_text("new\n", encoding="utf-8")
+    transaction_dir = site_dir.parent / ".transactions" / "interrupted"
+    backup = transaction_dir / "backup" / "demo"
+    backup.mkdir(parents=True)
+    (backup / "__init__.py").write_text("old\n", encoding="utf-8")
+    (transaction_dir / "manifest.json").write_text(
+        """{
+  "state": "committing",
+  "backup_paths": [],
+  "staged_paths": [],
+  "directory_paths": ["demo"],
+  "directory_backup_paths": ["demo"]
+}
+""",
+        encoding="utf-8",
+    )
+
+    recover_runtime_transactions(site_dir)
+
+    assert (site_dir / "demo/__init__.py").read_text() == "old\n"
     assert not transaction_dir.exists()
 
 
