@@ -25,18 +25,14 @@ import { uninstallPlugin } from "../api/modules/plugin";
 import { ChunkErrorBoundary } from "../components/ChunkErrorBoundary";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { useAgentStore } from "../stores/agentStore";
+import { useShallow } from "zustand/react/shallow";
 import { useOsWindows } from "./osWindowStore";
 import { useOsPlugins } from "./osPluginStore";
-import {
-  OS_APPS,
-  findAppDef,
-  STORE_APP,
-  SETTINGS_APP,
-  type OsAppDef,
-} from "./osApps";
+import { OS_APPS, STORE_APP, SETTINGS_APP, type OsAppDef } from "./osApps";
+import { useOsApps, resolveAppDef } from "./osAppRegistry";
 import { useOsStyles, MENUBAR_H } from "./useOsStyles";
-import { usePluginApps } from "./usePluginApps";
 import { useOsNotifyPoller } from "./useOsNotifyPoller";
+import { useOsLifecycle } from "./useOsLifecycle";
 import WindowFrame from "./WindowFrame";
 import WindowRouter from "./WindowRouter";
 import { baseFromRoutePath } from "./osRouteMap";
@@ -74,6 +70,8 @@ export default function DesktopOS() {
   const { message } = App.useApp();
   const isMobile = useIsMobile();
   const routes = useRoutes();
+  // Narrow subscription: only the fields the desktop shell renders from.
+  // Actions are referentially stable; geometry churn stays inside frames.
   const {
     windows,
     order,
@@ -84,10 +82,24 @@ export default function DesktopOS() {
     switchSpace,
     missionControlOpen,
     setMissionControl,
-  } = useOsWindows();
-  const { installed, uninstall } = useOsPlugins();
+  } = useOsWindows(
+    useShallow((s) => ({
+      windows: s.windows,
+      order: s.order,
+      open: s.open,
+      launcherOpen: s.launcherOpen,
+      setLauncher: s.setLauncher,
+      spaceId: s.spaceId,
+      switchSpace: s.switchSpace,
+      missionControlOpen: s.missionControlOpen,
+      setMissionControl: s.setMissionControl,
+    })),
+  );
+  const { uninstall } = useOsPlugins();
   const { selectedAgent, refreshAgents } = useAgentStore();
-  const pluginApps = usePluginApps();
+  // Single app registry: desktop icons, window chrome and the launcher all
+  // read from the same source (catalog + system + dynamic plugin apps).
+  const { apps: visibleApps, appById } = useOsApps();
   const { wallpaperId } = useOsWallpaper();
 
   // Desktop right-click menu and wallpaper picker overlay.
@@ -110,6 +122,10 @@ export default function DesktopOS() {
 
   // Poll approvals + unread inbox events → macOS-style notifications.
   useOsNotifyPoller();
+
+  // Registry-driven cleanup: close ghost windows, drop icon positions and
+  // deep-link targets for uninstalled apps, prune deleted agents' Spaces.
+  useOsLifecycle(appById);
 
   // Viewport changed (browser resize, DPI/monitor switch): pull persisted
   // windows back into the visible work area.
@@ -181,31 +197,6 @@ export default function DesktopOS() {
     return map;
   }, [routes]);
 
-  const availableIds = useMemo(
-    () => new Set(routes.map((r) => r.id)),
-    [routes],
-  );
-
-  // Visible apps = App Store (system, always present) + installed catalog
-  // apps whose route actually resolves + installed plugin apps (PawApps,
-  // derived live from the registry) + System Settings. Driven by
-  // osPluginStore + the plugin registry, so installs update the desktop.
-  const visibleApps = useMemo(() => {
-    const installedSet = new Set(installed);
-    const catalog = OS_APPS.filter(
-      (a) => availableIds.has(a.routeId) && installedSet.has(a.routeId),
-    );
-    return [STORE_APP, ...catalog, ...pluginApps, SETTINGS_APP];
-  }, [availableIds, installed, pluginApps]);
-
-  // Resolve a window's app def (title/icon/accent) across every source:
-  // system apps, catalog apps and dynamic plugin apps.
-  const appDefById = useMemo(() => {
-    const map = new Map<string, OsAppDef>();
-    for (const a of visibleApps) map.set(a.routeId, a);
-    return map;
-  }, [visibleApps]);
-
   const openWindows = order
     .map((id) => windows[id])
     .filter((w): w is NonNullable<typeof w> => Boolean(w));
@@ -260,23 +251,8 @@ export default function DesktopOS() {
     const iconEl = (
       <div
         className={styles.desktopIcon}
-        onDoubleClick={() =>
-          open(a.routeId, {
-            w: a.defaultW,
-            h: a.defaultH,
-            minW: a.minW,
-            minH: a.minH,
-          })
-        }
-        onClick={() =>
-          isMobile &&
-          open(a.routeId, {
-            w: a.defaultW,
-            h: a.defaultH,
-            minW: a.minW,
-            minH: a.minH,
-          })
-        }
+        onDoubleClick={() => open(a.routeId)}
+        onClick={() => isMobile && open(a.routeId)}
       >
         <div className={styles.iconTile} style={{ background: a.accent }}>
           <Icon size={26} />
@@ -405,7 +381,7 @@ export default function DesktopOS() {
       <div className={styles.windowsLayer}>
         {openWindows.map((win) => {
           const def =
-            appDefById.get(win.id) ?? findAppDef(win.id) ?? OS_APPS[0];
+            appById.get(win.id) ?? resolveAppDef(win.id) ?? OS_APPS[0];
           const isStore = win.id === STORE_APP.routeId;
           const isSettings = win.id === SETTINGS_APP.routeId;
           const Component = componentById.get(win.id);

@@ -20,6 +20,15 @@ describe("osIconStore", () => {
     expect(useOsIcons.getState().positions).toEqual({});
   });
 
+  it("prune drops positions for apps missing from the registry", () => {
+    useOsIcons.getState().setPosition("core.chat", 1, 2);
+    useOsIcons.getState().setPosition("gone.app", 3, 4);
+    useOsIcons.getState().prune(new Set(["core.chat"]));
+    expect(useOsIcons.getState().positions).toEqual({
+      "core.chat": { x: 1, y: 2 },
+    });
+  });
+
   it("defaultIconPos lays out column-major with a fixed step", () => {
     const first = defaultIconPos(0, 800);
     const second = defaultIconPos(1, 800);

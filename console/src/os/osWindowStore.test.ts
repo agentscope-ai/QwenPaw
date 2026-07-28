@@ -1,5 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { Puzzle } from "lucide-react";
 import { useOsWindows } from "./osWindowStore";
+import { syncDynamicApps } from "./osAppRegistry";
+import type { OsAppDef } from "./osApps";
 
 /** Reset the store to a pristine desktop between tests. */
 function resetStore() {
@@ -17,6 +20,17 @@ function resetStore() {
 
 const s = () => useOsWindows.getState();
 
+const pluginApp: OsAppDef = {
+  routeId: "plugin.office",
+  labelKey: "Office",
+  fallback: "Office",
+  Icon: Puzzle,
+  accent: "#6366f1",
+  defaultW: 960,
+  defaultH: 680,
+  source: "office",
+};
+
 describe("osWindowStore", () => {
   beforeEach(() => {
     // Fixed desktop-sized viewport so open()'s viewport clamp stays inert.
@@ -31,6 +45,11 @@ describe("osWindowStore", () => {
       writable: true,
     });
     resetStore();
+  });
+
+  afterEach(() => {
+    // Dynamic app defs are module-level state in the registry.
+    syncDynamicApps([]);
   });
 
   it("open creates a window with the given size and focuses it", () => {
@@ -142,6 +161,52 @@ describe("osWindowStore", () => {
     // System Settings manifest: 1200x720, min 960x560 (osApps.ts).
     s().open("os.settings");
     expect(s().windows["os.settings"]).toMatchObject({ w: 1200, h: 720 });
+  });
+
+  it("open resolves dynamic plugin app sizes via the registry", () => {
+    syncDynamicApps([pluginApp]);
+    s().open("plugin.office");
+    expect(s().windows["plugin.office"]).toMatchObject({ w: 960, h: 680 });
+  });
+
+  it("reconcile closes ghost windows in active and saved spaces", () => {
+    s().open("core.chat");
+    s().open("core.inbox");
+    s().switchSpace("agent-b");
+    s().open("core.tools");
+    s().open("core.mcp");
+
+    s().reconcile(new Set(["core.chat", "core.tools"]));
+
+    // Active space: core.mcp is gone, core.tools survives.
+    expect(s().windows["core.mcp"]).toBeUndefined();
+    expect(s().order).toEqual(["core.tools"]);
+    expect(s().activeId).toBe("core.tools");
+    // Saved space: core.inbox is gone, core.chat survives.
+    const savedDefault = s().saved["default"];
+    expect(savedDefault.windows["core.inbox"]).toBeUndefined();
+    expect(savedDefault.order).toEqual(["core.chat"]);
+    expect(savedDefault.activeId).toBe("core.chat");
+  });
+
+  it("reconcile keeps everything when all windows are valid", () => {
+    s().open("core.chat");
+    s().open("core.inbox");
+    s().reconcile(new Set(["core.chat", "core.inbox"]));
+    expect(s().order).toEqual(["core.chat", "core.inbox"]);
+    expect(s().activeId).toBe("core.inbox");
+  });
+
+  it("pruneSpaces drops layouts for deleted agents only", () => {
+    s().open("core.chat");
+    s().switchSpace("agent-b");
+    s().open("core.inbox");
+    s().switchSpace("agent-c"); // saved: default, agent-b
+
+    s().pruneSpaces(new Set(["default", "agent-c"]));
+
+    expect(s().saved["default"]).toBeDefined();
+    expect(s().saved["agent-b"]).toBeUndefined();
   });
 
   it("debounces localStorage writes during a drag burst", () => {

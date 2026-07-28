@@ -53,7 +53,8 @@ function useOpenInbox() {
       /* storage unavailable — Inbox falls back to its default tab */
     }
     if (INBOX_ROUTE === STORE_APP.routeId) return; // guard (never true)
-    open(INBOX_ROUTE, { w: 640, h: 500 });
+    // Geometry comes from the app registry manifest, like every entry point.
+    open(INBOX_ROUTE);
   };
 }
 

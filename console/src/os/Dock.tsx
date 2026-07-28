@@ -10,35 +10,34 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dropdown } from "antd";
 import { LayoutGrid, LogIn, X } from "lucide-react";
-import { useRoutes } from "../plugins/registry/hooks";
+import { useShallow } from "zustand/react/shallow";
 import { useOsWindows } from "./osWindowStore";
-import { useOsPlugins } from "./osPluginStore";
 import { useOsNotify } from "./osNotifyStore";
-import { OS_APPS, STORE_APP, SETTINGS_APP, type OsAppDef } from "./osApps";
-import { usePluginApps } from "./usePluginApps";
+import { useOsApps } from "./osAppRegistry";
 import { buttonRoleProps } from "./a11y";
 import { useOsStyles } from "./useOsStyles";
 
 export default function Dock({ revealed = true }: { revealed?: boolean }) {
   const { styles, cx } = useOsStyles();
   const { t } = useTranslation();
-  const routes = useRoutes();
-  const { windows, open, launcherOpen, setLauncher, close, focus } =
-    useOsWindows();
-  const { installed } = useOsPlugins();
+  // Narrow subscriptions: actions are referentially stable and `order`
+  // only changes on open/close, so window drags never re-render the Dock.
+  const { open, setLauncher, close, focus } = useOsWindows(
+    useShallow((s) => ({
+      open: s.open,
+      setLauncher: s.setLauncher,
+      close: s.close,
+      focus: s.focus,
+    })),
+  );
+  const launcherOpen = useOsWindows((s) => s.launcherOpen);
+  const order = useOsWindows((s) => s.order);
   const { approvalCount, inboxCount } = useOsNotify();
-  const pluginApps = usePluginApps();
+  const { apps } = useOsApps();
   const inboxBadge = approvalCount + inboxCount;
   const [hovered, setHovered] = useState<string | null>(null);
 
-  const apps: OsAppDef[] = useMemo(() => {
-    const availableIds = new Set(routes.map((r) => r.id));
-    const installedSet = new Set(installed);
-    const catalog = OS_APPS.filter(
-      (a) => availableIds.has(a.routeId) && installedSet.has(a.routeId),
-    );
-    return [STORE_APP, ...catalog, ...pluginApps, SETTINGS_APP];
-  }, [routes, installed, pluginApps]);
+  const runningIds = useMemo(() => new Set(order), [order]);
 
   return (
     <div className={cx(styles.dock, !revealed && styles.dockHidden)}>
@@ -68,7 +67,7 @@ export default function Dock({ revealed = true }: { revealed?: boolean }) {
 
       {apps.map((a) => {
         const Icon = a.Icon;
-        const running = Boolean(windows[a.routeId]);
+        const running = runningIds.has(a.routeId);
         return (
           <Dropdown
             key={a.routeId}
@@ -81,15 +80,7 @@ export default function Dock({ revealed = true }: { revealed?: boolean }) {
                   label: running
                     ? t("os.focusApp", "Focus")
                     : t("os.openApp", "Open"),
-                  onClick: () =>
-                    running
-                      ? focus(a.routeId)
-                      : open(a.routeId, {
-                          w: a.defaultW,
-                          h: a.defaultH,
-                          minW: a.minW,
-                          minH: a.minH,
-                        }),
+                  onClick: () => (running ? focus(a.routeId) : open(a.routeId)),
                 },
                 ...(running
                   ? [
@@ -109,22 +100,9 @@ export default function Dock({ revealed = true }: { revealed?: boolean }) {
               className={styles.dockItem}
               onMouseEnter={() => setHovered(a.routeId)}
               onMouseLeave={() => setHovered(null)}
-              onClick={() =>
-                open(a.routeId, {
-                  w: a.defaultW,
-                  h: a.defaultH,
-                  minW: a.minW,
-                  minH: a.minH,
-                })
-              }
+              onClick={() => open(a.routeId)}
               {...buttonRoleProps(
-                () =>
-                  open(a.routeId, {
-                    w: a.defaultW,
-                    h: a.defaultH,
-                    minW: a.minW,
-                    minH: a.minH,
-                  }),
+                () => open(a.routeId),
                 t(a.labelKey, a.fallback),
               )}
             >

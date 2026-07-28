@@ -16,3 +16,16 @@
   padding-right: 0;
   padding-bottom: 0;
 }
+
+/* In-window app overlays (see OsAppHost.tsx). Modal/Drawer mounted into
+ * the window's overlay root via useOverlayContainer() position against the
+ * window instead of the viewport; the window root's overflow keeps them
+ * clipped to the window (App overlay semantics). */
+.os-window-overlay-root .ant-modal-root .ant-modal-wrap,
+.os-window-overlay-root .ant-modal-root .ant-modal-mask {
+  position: absolute;
+}
+
+.os-window-overlay-root > .ant-drawer {
+  position: absolute;
+}

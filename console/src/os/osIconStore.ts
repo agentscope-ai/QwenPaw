@@ -17,6 +17,8 @@ export interface IconPos {
 interface OsIconStore {
   positions: Record<string, IconPos>;
   setPosition: (id: string, x: number, y: number) => void;
+  /** Drop stored positions for apps no longer in the registry. */
+  prune: (validIds: ReadonlySet<string>) => void;
   reset: () => void;
 }
 
@@ -40,6 +42,16 @@ export const useOsIcons = create<OsIconStore>()(
       positions: {},
       setPosition: (id, x, y) =>
         set((s) => ({ positions: { ...s.positions, [id]: { x, y } } })),
+      prune: (validIds) =>
+        set((s) => {
+          const positions: Record<string, IconPos> = {};
+          let changed = false;
+          for (const [id, pos] of Object.entries(s.positions)) {
+            if (validIds.has(id)) positions[id] = pos;
+            else changed = true;
+          }
+          return changed ? { positions } : {};
+        }),
       reset: () => set({ positions: {} }),
     }),
     { name: "qwenpaw.os.iconPositions" },

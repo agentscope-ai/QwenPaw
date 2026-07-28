@@ -16,9 +16,10 @@ import {
   BatteryFull,
 } from "lucide-react";
 import { useAgentStore } from "../stores/agentStore";
+import { useShallow } from "zustand/react/shallow";
 import { useOsWindows } from "./osWindowStore";
 import { useOsNotify, unreadNotifyCount } from "./osNotifyStore";
-import { findAppDef } from "./osApps";
+import { resolveAppDef } from "./osAppRegistry";
 import { useOsStyles } from "./useOsStyles";
 
 function useClock() {
@@ -34,14 +35,22 @@ export default function MenuBar({ hidden = false }: { hidden?: boolean }) {
   const { styles, cx } = useOsStyles();
   const { t } = useTranslation();
   const { agents } = useAgentStore();
+  // Narrow subscription: geometry updates never re-render the menu bar.
   const { spaceId, activeId, missionControlOpen, setMissionControl } =
-    useOsWindows();
+    useOsWindows(
+      useShallow((s) => ({
+        spaceId: s.spaceId,
+        activeId: s.activeId,
+        missionControlOpen: s.missionControlOpen,
+        setMissionControl: s.setMissionControl,
+      })),
+    );
   const { history, centerOpen, setCenter } = useOsNotify();
   const unread = unreadNotifyCount(history);
   const now = useClock();
 
   const spaceName = agents.find((a) => a.id === spaceId)?.name ?? spaceId;
-  const activeApp = activeId ? findAppDef(activeId) : undefined;
+  const activeApp = activeId ? resolveAppDef(activeId) : undefined;
   const activeTitle = activeApp
     ? t(activeApp.labelKey, activeApp.fallback)
     : t("os.finder", "Desktop");

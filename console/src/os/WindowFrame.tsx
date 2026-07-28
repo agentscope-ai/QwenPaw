@@ -6,16 +6,26 @@
  * every edge and corner (8 directions), with a visible grip at the
  * bottom-right. Maximise fills the desktop minus the taskbar.
  * On small viewports windows are forced full-screen and drag is disabled.
+ *
+ * Gesture geometry is transient: pointermove writes straight to the DOM
+ * (coalesced per animation frame) and the final rect is committed to the
+ * store once on pointerup — store subscribers and persistence stay off the
+ * pointermove hot path.
  */
-import { useCallback, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { theme as antdTheme } from "antd";
 import { Minus, X, Maximize2, type LucideIcon } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { useTheme } from "../contexts/ThemeContext";
 import { useOsWindows, type OsWindow, type OsRect } from "./osWindowStore";
 import { computeSnapRect, type SnapZone } from "./snap";
-import { OsWindowContainerContext } from "./osWindowContainer";
-import { OsWindowSizeContext } from "./osWindowSizeContext";
-import { useElementWidth } from "./useElementWidth";
+import OsAppHost from "./OsAppHost";
 import { useOsStyles, MENUBAR_H, DOCK_H } from "./useOsStyles";
 
 interface WindowFrameProps {
@@ -134,32 +144,87 @@ export default function WindowFrame({
   const { styles, cx } = useOsStyles();
   const { isDark } = useTheme();
   const { token } = antdTheme.useToken();
-  const {
-    focus,
-    close,
-    minimize,
-    toggleMaximize,
-    move,
-    resize,
-    snap,
-    activeId,
-  } = useOsWindows();
+  // Actions only (referentially stable) + a boolean activity flag — this
+  // frame re-renders when ITS activation flips, not on every store change.
+  const { focus, close, minimize, toggleMaximize, move, resize, snap } =
+    useOsWindows(
+      useShallow((s) => ({
+        focus: s.focus,
+        close: s.close,
+        minimize: s.minimize,
+        toggleMaximize: s.toggleMaximize,
+        move: s.move,
+        resize: s.resize,
+        snap: s.snap,
+      })),
+    );
+  const isActive = useOsWindows((s) => s.activeId === win.id);
   const dragRef = useRef<{ dx: number; dy: number } | null>(null);
   const resizeRef = useRef<
     ({ dir: ResizeDir; sx: number; sy: number } & OsRect) | null
   >(null);
-  // Exposed to descendant overlays (Drawer/Modal) as their render container so
-  // they stay within this window instead of covering the whole desktop.
-  const [contentEl, setContentEl] = useState<HTMLElement | null>(null);
-  // Live content width for container-aware hooks (useIsMobile) inside pages.
-  const contentWidth = useElementWidth(contentEl);
+  // Transient gesture geometry: applied to the DOM each animation frame and
+  // committed to the store once when the gesture ends.
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const pendingRef = useRef<Partial<OsRect> | null>(null);
+  const rafRef = useRef<number | null>(null);
   // Live edge-snap zone while dragging the header; drives the preview overlay.
   const [snapZone, setSnapZone] = useState<SnapZone | null>(null);
   // Minimize animation: keep the frame mounted briefly to play the transition.
   const [minimizing, setMinimizing] = useState(false);
 
-  const isActive = activeId === win.id;
   const isFull = win.maximized || isMobile;
+
+  // Write the pending gesture rect to the DOM (idempotent, cheap no-op
+  // when no gesture is in flight).
+  const applyRect = useCallback(() => {
+    const el = frameRef.current;
+    const rect = pendingRef.current;
+    if (!el || !rect) return;
+    if (rect.x !== undefined) el.style.left = `${rect.x}px`;
+    if (rect.y !== undefined) el.style.top = `${rect.y}px`;
+    if (rect.w !== undefined) el.style.width = `${rect.w}px`;
+    if (rect.h !== undefined) el.style.height = `${rect.h}px`;
+  }, []);
+
+  const onFrame = useCallback(() => {
+    rafRef.current = null;
+    applyRect();
+  }, [applyRect]);
+
+  const queueApply = useCallback(
+    (rect: Partial<OsRect>) => {
+      pendingRef.current = { ...pendingRef.current, ...rect };
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(onFrame);
+      }
+    },
+    [onFrame],
+  );
+
+  // Mid-gesture re-renders (snap preview state) reset the inline styles
+  // from props — re-apply the transient rect before paint.
+  useLayoutEffect(() => {
+    applyRect();
+  });
+
+  /** Stop frame scheduling and return the gesture's final rect (if any). */
+  const takeGestureRect = useCallback((): Partial<OsRect> | null => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    const rect = pendingRef.current;
+    pendingRef.current = null;
+    return rect;
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    },
+    [],
+  );
 
   const onHeaderPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -182,22 +247,28 @@ export default function WindowFrame({
         Math.max(MENUBAR_H, e.clientY - dragRef.current.dy),
         maxY,
       );
-      move(win.id, nx, ny);
+      // Transient: DOM only — the store is untouched until pointerup.
+      queueApply({ x: nx, y: ny });
       const EDGE = 12;
       if (e.clientY <= MENUBAR_H + EDGE) setSnapZone("maximize");
       else if (e.clientX <= EDGE) setSnapZone("left");
       else if (e.clientX >= window.innerWidth - EDGE) setSnapZone("right");
       else setSnapZone(null);
     },
-    [move, win.id],
+    [queueApply],
   );
 
   const endDrag = useCallback(
     (e: React.PointerEvent) => {
+      const wasDragging = dragRef.current !== null;
       dragRef.current = null;
+      const rect = takeGestureRect();
       if (snapZone) {
         snap(win.id, snapZone);
         setSnapZone(null);
+      } else if (wasDragging && rect?.x !== undefined && rect.y !== undefined) {
+        // Single commit: one store update (and one persisted write) per drag.
+        move(win.id, rect.x, rect.y);
       }
       try {
         (e.target as HTMLElement).releasePointerCapture(e.pointerId);
@@ -205,7 +276,7 @@ export default function WindowFrame({
         /* pointer may already be released */
       }
     },
-    [snapZone, snap, win.id],
+    [snapZone, snap, move, takeGestureRect, win.id],
   );
 
   const onResizePointerDown = useCallback(
@@ -252,19 +323,30 @@ export default function WindowFrame({
         rect.h = nh;
         rect.y = ny;
       }
-      resize(win.id, rect);
+      // Transient: DOM only — the store is untouched until pointerup.
+      queueApply(rect);
     },
-    [resize, win.id, minW, minH],
+    [queueApply, minW, minH],
   );
 
-  const endResize = useCallback((e: React.PointerEvent) => {
-    resizeRef.current = null;
-    try {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      /* noop */
-    }
-  }, []);
+  const endResize = useCallback(
+    (e: React.PointerEvent) => {
+      const wasResizing = resizeRef.current !== null;
+      resizeRef.current = null;
+      const rect = takeGestureRect();
+      if (wasResizing && rect) {
+        // Single commit: one store update (and one persisted write) per
+        // resize gesture.
+        resize(win.id, rect);
+      }
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {
+        /* noop */
+      }
+    },
+    [resize, takeGestureRect, win.id],
+  );
 
   const handleMinimize = useCallback(() => {
     setMinimizing(true);
@@ -305,6 +387,7 @@ export default function WindowFrame({
 
   return (
     <div
+      ref={frameRef}
       className={cx(
         styles.window,
         isActive && styles.windowActive,
@@ -352,17 +435,12 @@ export default function WindowFrame({
         <div style={{ width: 70 }} />
       </div>
 
-      <div
-        className={cx(styles.content, "os-window-body")}
-        style={contentStyle}
-        ref={setContentEl}
+      <OsAppHost
+        contentClassName={cx(styles.content, "os-window-body")}
+        contentStyle={contentStyle}
       >
-        <OsWindowContainerContext.Provider value={contentEl}>
-          <OsWindowSizeContext.Provider value={contentWidth}>
-            {children}
-          </OsWindowSizeContext.Provider>
-        </OsWindowContainerContext.Provider>
-      </div>
+        {children}
+      </OsAppHost>
 
       {!isFull && (
         <>

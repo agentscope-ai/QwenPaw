@@ -6,6 +6,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Search } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { useOsWindows } from "./osWindowStore";
 import type { OsAppDef } from "./osApps";
 import { buttonRoleProps } from "./a11y";
@@ -19,7 +20,11 @@ interface LauncherProps {
 export default function Launcher({ apps: source }: LauncherProps) {
   const { styles } = useOsStyles();
   const { t } = useTranslation();
-  const { open, setLauncher } = useOsWindows();
+  // Actions only (referentially stable) — window updates never re-render
+  // the launcher grid.
+  const { open, setLauncher } = useOsWindows(
+    useShallow((s) => ({ open: s.open, setLauncher: s.setLauncher })),
+  );
   const [query, setQuery] = useState("");
 
   const apps = useMemo(
@@ -46,12 +51,7 @@ export default function Launcher({ apps: source }: LauncherProps) {
         {apps.map((a) => {
           const Icon = a.Icon;
           const launch = () => {
-            open(a.routeId, {
-              w: a.defaultW,
-              h: a.defaultH,
-              minW: a.minW,
-              minH: a.minH,
-            });
+            open(a.routeId);
             setLauncher(false);
           };
           return (

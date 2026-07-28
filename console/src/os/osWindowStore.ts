@@ -17,7 +17,7 @@ import {
   type StateStorage,
 } from "zustand/middleware";
 import { computeSnapRect, type SnapZone } from "./snap";
-import { findAppDef } from "./osApps";
+import { resolveAppDef } from "./osAppRegistry";
 import { clampRectToViewport } from "./windowGeometry";
 
 export interface OsRect {
@@ -87,6 +87,18 @@ interface OsStore {
    * off-screen (monitor switch, DPI change, smaller browser window).
    */
   clampToViewport: () => void;
+  /**
+   * Drop state for apps that no longer resolve in the registry (plugin
+   * uninstalled, route gone): closes ghost windows in the active space and
+   * every saved space, pruning order/activeId accordingly.
+   */
+  reconcile: (validIds: ReadonlySet<string>) => void;
+  /**
+   * Drop saved Space layouts whose id is no longer a valid space (agent
+   * deleted). Callers must only pass ids from a successfully loaded agent
+   * list — never prune on load failure.
+   */
+  pruneSpaces: (validSpaceIds: ReadonlySet<string>) => void;
 }
 
 const BASE_Z = 100;
@@ -139,7 +151,7 @@ const debouncedLocalStorage = createDebouncedStorage(PERSIST_DEBOUNCE_MS);
 
 /** Re-clamp a window (and its restore rect) to the given viewport. */
 function clampWindow(win: OsWindow, vw: number, vh: number): OsWindow {
-  const def = findAppDef(win.id);
+  const def = resolveAppDef(win.id);
   const limits = { minW: def?.minW, minH: def?.minH };
   return {
     ...win,
@@ -190,7 +202,7 @@ export const useOsWindows = create<OsStore>()(
         // (Dock, Launcher, desktop icons, cross-app navigation) opens the
         // same app with the same size; the explicit `size` argument only
         // overrides it. Then clamp to the visible desktop area.
-        const def = findAppDef(id);
+        const def = resolveAppDef(id);
         const rect = clampRectToViewport(
           {
             x: 80 + count * CASCADE,
@@ -383,6 +395,64 @@ export const useOsWindows = create<OsStore>()(
             };
           }
           return { windows: clampWindows(s.windows, vw, vh), saved };
+        }),
+
+      reconcile: (validIds) =>
+        set((s) => {
+          const prune = (
+            space: SavedSpace,
+          ): { space: SavedSpace; changed: boolean } => {
+            // Guard against persisted states where windows/order diverge.
+            const ids = new Set([
+              ...space.order,
+              ...Object.keys(space.windows),
+            ]);
+            const stale = [...ids].filter((id) => !validIds.has(id));
+            if (stale.length === 0) return { space, changed: false };
+            const windows = { ...space.windows };
+            for (const id of stale) delete windows[id];
+            const order = space.order.filter((id) => validIds.has(id));
+            const activeId =
+              space.activeId !== null && validIds.has(space.activeId)
+                ? space.activeId
+                : order[order.length - 1] ?? null;
+            return {
+              space: { ...space, windows, order, activeId },
+              changed: true,
+            };
+          };
+
+          const active = prune({
+            windows: s.windows,
+            order: s.order,
+            activeId: s.activeId,
+            zCounter: s.zCounter,
+          });
+          const saved: Record<string, SavedSpace> = {};
+          let savedChanged = false;
+          for (const [sid, space] of Object.entries(s.saved)) {
+            const next = prune(space);
+            saved[sid] = next.space;
+            savedChanged = savedChanged || next.changed;
+          }
+          if (!active.changed && !savedChanged) return {};
+          return {
+            windows: active.space.windows,
+            order: active.space.order,
+            activeId: active.space.activeId,
+            saved: savedChanged ? saved : s.saved,
+          };
+        }),
+
+      pruneSpaces: (validSpaceIds) =>
+        set((s) => {
+          const saved: Record<string, SavedSpace> = {};
+          let changed = false;
+          for (const [sid, space] of Object.entries(s.saved)) {
+            if (validSpaceIds.has(sid)) saved[sid] = space;
+            else changed = true;
+          }
+          return changed ? { saved } : {};
         }),
     }),
     {

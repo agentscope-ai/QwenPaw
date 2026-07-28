@@ -33,7 +33,9 @@ function colorFor(id: string): string {
 export default function SpacesPanel({ visible }: { visible: boolean }) {
   const { styles, cx } = useOsStyles();
   const { agents, selectedAgent, setSelectedAgent } = useAgentStore();
-  const { spaceId, switchSpace } = useOsWindows();
+  // Narrow subscription: only the space id (and the stable action).
+  const spaceId = useOsWindows((s) => s.spaceId);
+  const switchSpace = useOsWindows((s) => s.switchSpace);
 
   const spaces = useMemo(() => {
     const list = agents.map((a) => ({ id: a.id, name: a.name }));

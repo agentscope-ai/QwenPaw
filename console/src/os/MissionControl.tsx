@@ -10,8 +10,10 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import { useAgentStore } from "../stores/agentStore";
+import { useShallow } from "zustand/react/shallow";
 import { useOsWindows } from "./osWindowStore";
-import { findAppDef, OS_APPS } from "./osApps";
+import { OS_APPS } from "./osApps";
+import { resolveAppDef } from "./osAppRegistry";
 import { buttonRoleProps } from "./a11y";
 import { useOsStyles } from "./useOsStyles";
 
@@ -36,6 +38,8 @@ export default function MissionControl() {
   const { styles, cx } = useOsStyles();
   const { t } = useTranslation();
   const { agents, selectedAgent, setSelectedAgent } = useAgentStore();
+  // Narrow subscription: Mission Control is an overlay — it needs layout
+  // fields, not per-frame geometry (drags don't happen while it's open).
   const {
     spaceId,
     saved,
@@ -44,7 +48,17 @@ export default function MissionControl() {
     switchSpace,
     focus,
     setMissionControl,
-  } = useOsWindows();
+  } = useOsWindows(
+    useShallow((s) => ({
+      spaceId: s.spaceId,
+      saved: s.saved,
+      windows: s.windows,
+      order: s.order,
+      switchSpace: s.switchSpace,
+      focus: s.focus,
+      setMissionControl: s.setMissionControl,
+    })),
+  );
 
   // Ensure the current agent always appears as a space even before the agent
   // list loads from the backend.
@@ -104,7 +118,7 @@ export default function MissionControl() {
           </div>
         ) : (
           openWindows.map((win) => {
-            const def = findAppDef(win.id) ?? OS_APPS[0];
+            const def = resolveAppDef(win.id) ?? OS_APPS[0];
             const Icon = def.Icon;
             const focusWindow = () => {
               focus(win.id);
