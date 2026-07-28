@@ -47,6 +47,8 @@ class BaseMemoryManager(ABC):
         agent_id: Unique identifier of the owning agent.
     """
 
+    enabled = True
+
     def __init__(self, working_dir: str, agent_id: str):
         self.working_dir: str = working_dir
         self.agent_id: str = agent_id
@@ -273,6 +275,10 @@ class BaseMemoryManager(ABC):
 
     async def reme_status(self) -> Any | None:
         """Return ReMe runtime status when supported by the backend."""
+        return None
+
+    async def rebuild_index(self) -> Any | None:
+        """Rebuild the memory search index when supported by the backend."""
         return None
 
     async def auto_memory_search(

@@ -7,7 +7,6 @@ import {
   PathIcon,
 } from "@/components/Icon";
 import ShinyText from "@/components/ShinyText";
-import { LATEST_RELEASE_VERSION } from "@/pages/releaseNotesData";
 
 const AGENTSCOPE_PLATFORM_URL = "https://platform.agentscope.io/";
 
@@ -88,9 +87,7 @@ export function Hero() {
           <div className="mx-auto mb-5 inline-flex box-border items-center gap-2 rounded-full border border-(--border) bg-(--surface) px-4 py-1.5 text-sm text-(--color-text-secondary) sm:mb-6">
             <PathIcon size={16} />
             <ShinyText
-              text={t("hero.releaseNote", {
-                version: LATEST_RELEASE_VERSION,
-              })}
+              text={t("hero.releaseNote")}
               speed={1.8}
               delay={0}
               color="#9c9b9a"
@@ -138,7 +135,7 @@ export function Hero() {
             </span>
           </h1>
           <p className="font-inter mx-auto mt-3 max-w-3xl px-2 text-[14px] font-medium leading-[1.55] text-(--color-text-tertiary) sm:mt-4 sm:px-0 sm:text-[15px] md:mt-5 md:text-[16px]">
-            {t("hero.sub", { version: LATEST_RELEASE_VERSION })}
+            {t("hero.sub")}
             <br />
             {t("hero.sub1")}
           </p>

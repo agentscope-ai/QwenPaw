@@ -69,6 +69,8 @@ interface ToAntdOpts {
   iconSize?: number;
   /** Optional Sidebar-local decoration. e.g. wrap inbox label with unread Badge. */
   decorateLabel?: (item: MenuItem, label: ReactNode) => ReactNode;
+  /** Optional per-item className (e.g. shake animation for inbox). */
+  getItemClassName?: (item: MenuItem) => string | undefined;
 }
 
 type ItemWithChildren = MenuItem & { __children?: MenuItem[] };
@@ -81,7 +83,7 @@ export function toAntdItems(
   items: MenuItem[],
   opts: ToAntdOpts,
 ): MenuProps["items"] {
-  const { collapsed, iconSize = 16, decorateLabel } = opts;
+  const { collapsed, iconSize = 16, decorateLabel, getItemClassName } = opts;
   return items
     .filter((i) => i.visible?.() !== false)
     .map((rawItem) => {
@@ -92,6 +94,7 @@ export function toAntdItems(
         key: i.id,
         label: decorated,
         icon: renderIcon(i.icon, iconSize),
+        className: getItemClassName?.(i),
       };
       if (i.__children && i.__children.length > 0) {
         // antd expects `children` on submenu / group items

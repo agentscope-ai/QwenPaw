@@ -1,1 +1,1 @@
-export { LoopCommandChip } from "./LoopCommandChip";
+export { LoopModeSelector } from "./LoopModeSelector";

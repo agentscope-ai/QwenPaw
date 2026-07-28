@@ -640,10 +640,12 @@ class OpenAIChatModelCompat(OpenAIChatModel):
         *,
         default_headers: dict[str, str] | None = None,
         extra_generate_kwargs: dict[str, Any] | None = None,
+        output_token_param: str = "max_tokens",
         **kwargs: Any,
     ) -> None:
         self._default_headers = default_headers
         self._extra_generate_kwargs = extra_generate_kwargs or {}
+        self._output_token_param = output_token_param
         super().__init__(**kwargs)
 
     async def __call__(self, *args: Any, **kwargs: Any) -> Any:
@@ -675,6 +677,10 @@ class OpenAIChatModelCompat(OpenAIChatModel):
     ) -> Any:
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
         self._consume_disable_thinking(merged)
+        if self._output_token_param != "max_tokens":
+            max_tokens = merged.pop("max_tokens", None)
+            if max_tokens is not None:
+                merged.setdefault(self._output_token_param, max_tokens)
         if self._default_headers:
             existing = merged.get("extra_headers") or {}
             merged["extra_headers"] = {**self._default_headers, **existing}

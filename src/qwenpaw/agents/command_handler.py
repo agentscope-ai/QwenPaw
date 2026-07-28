@@ -6,16 +6,20 @@ This module handles system commands like /compact, /new, /clear, etc.
 
 import json
 import logging
-import re
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
-from agentscope.message import Msg, TextBlock
+from agentscope.message import HintBlock, Msg, TextBlock
 
+from .context.scroll.continuation_summary import (
+    ContinuationSummary,
+    redact_secrets,
+)
 from .utils.context_stats import format_history_str
 from ..config.config import load_agent_config, get_model_max_input_length
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
+from ..loop.gates.runner import clear_pending_gate_state
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
@@ -50,6 +54,7 @@ SYSTEM_COMMAND_DESCRIPTIONS: dict[str, str] = {
 # directly; the field is constrained ``gt=0``, so we use a negligible value
 # rather than zero.
 _FORCE_TRIGGER_RATIO = 1e-6
+_MAX_COMPACT_HINT_CHARS = 2000
 
 
 def _fmt_tokens(n: int) -> str:
@@ -208,44 +213,31 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Write the rolling compaction summary."""
         self._state.summary = value or ""
 
-    def _reset_stop_gates(  # pylint: disable=protected-access
+    async def _reset_modes(
         self,
     ) -> None:
-        """Reset all gate / mode state on /new or /clear."""
-        ws = getattr(
-            self._prompt_context,
-            "workspace",
-            None,
-        )
-        if ws is None:
+        """Reset mode-owned state on /new or /clear."""
+        ctx = self._prompt_context
+        if ctx is None:
+            clear_pending_gate_state(self._agent)
             return
-
-        handler = getattr(ws, "_stop_handler", None)
-        if handler is not None:
-            handler.reset()
+        if getattr(ctx, "agent", None) is None and self._agent is not None:
+            ctx.agent = self._agent
 
         for mode in getattr(
-            getattr(ws, "plugins", None),
+            getattr(getattr(ctx, "workspace", None), "plugins", None),
             "modes",
             [],
         ):
             try:
-                mode.on_conversation_reset(ws)
+                await mode.on_conversation_reset(ctx)
             except Exception:  # noqa: BLE001
                 logger.warning(
                     "mode '%s' reset raised",
                     getattr(mode, "name", "?"),
                     exc_info=True,
                 )
-
-        agent = self._agent or getattr(
-            self._prompt_context,
-            "agent",
-            None,
-        )
-        if agent is not None:
-            agent._gate_pending_stop = None
-            agent._gate_pending_continue = None
+        clear_pending_gate_state(getattr(ctx, "agent", None) or self._agent)
 
     def is_command(self, query: str | None) -> bool:
         """Check if the query is a system command (alias for mixin)."""
@@ -273,8 +265,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         )
 
     def _has_memory_manager(self) -> bool:
-        """Check if memory manager is available."""
-        return self.memory_manager is not None
+        """Return whether a functional memory manager is enabled."""
+        manager = self.memory_manager
+        return manager is not None and getattr(manager, "enabled", True)
 
     def _current_session_id(self) -> str:
         """Resolve the active session id on a best-effort basis.
@@ -319,10 +312,18 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
             return base
 
+    @staticmethod
+    def _compact_instructions(args: str) -> HintBlock | None:
+        """Build bounded, secret-safe guidance for one manual compaction."""
+        safe_hint = redact_secrets(args.strip())[:_MAX_COMPACT_HINT_CHARS]
+        if not safe_hint:
+            return None
+        return HintBlock(hint=safe_hint, source="user")
+
     async def _process_compact(
         self,
         messages: list[Msg],
-        args: str = "",  # pylint: disable=unused-argument
+        args: str = "",
     ) -> Msg:
         """Process /compact command.
 
@@ -362,11 +363,13 @@ class CommandHandler(ConversationCommandHandlerMixin):
         # Manual command: force compaction, and measure before/after so the
         # reply reports what was actually evicted.
         forced_cfg = self._forced_context_config(agent)
+        instructions = self._compact_instructions(args)
         before = len(self._state.context)
         # Scroll keeps its compaction map in the eviction index
         # (``state.summary`` stays empty); native fills ``state.summary``.
         # Capture whichever applies.
         index_text = ""
+        continuation_text = ""
         compress_stats: dict = {}
         try:
             # Agent-backed mode: ``QwenPawAgent.compress_context`` already
@@ -382,15 +385,24 @@ class CommandHandler(ConversationCommandHandlerMixin):
             if scroll_mgr is not None:
                 try:
                     scroll_mgr.load_state(self._scroll_state or {})
-                    await scroll_mgr.compress(agent, forced_cfg)
+                    await scroll_mgr.compress(
+                        agent,
+                        forced_cfg,
+                        instructions=instructions,
+                    )
                     self._updated_scroll_state = scroll_mgr.to_dict()
                     index_text = scroll_mgr.describe_index()
+                    continuation_text = scroll_mgr.describe_summary()
                     compress_stats = dict(scroll_mgr.last_compress)
                 finally:
                     scroll_mgr.close()
             else:
-                await agent.compress_context(forced_cfg)
+                await agent.compress_context(
+                    forced_cfg,
+                    instructions=instructions,
+                )
                 index_text = self._scroll_index_text(agent)
+                continuation_text = self._scroll_summary_text(agent)
                 cm = getattr(agent, "_context_manager", None)
                 compress_stats = dict(
                     getattr(cm, "last_compress", None) or {},
@@ -403,7 +415,10 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         after = len(self._state.context)
-        evicted = max(0, before - after)
+        inferred_evicted = max(0, before - after)
+        evicted = int(
+            compress_stats.get("evicted", inferred_evicted) or 0,
+        )
         reme_cfg = agent_config.running.reme_light_memory_config
         if self._has_memory_manager() and reme_cfg.summarize_when_compact:
             self.memory_manager.add_summarize_task(
@@ -413,19 +428,25 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         summary = self._get_summary()
         folded = int(compress_stats.get("folded", 0) or 0)
-        if evicted == 0 and folded == 0 and not summary and not index_text:
+        if evicted == 0 and folded == 0 and (bool(index_text) or not summary):
             return await self._make_system_msg(
                 "ℹ️ **Nothing to compact.**\n\n"
                 f"- Context is already minimal ({before} message(s))\n"
                 "- No turns were evicted",
             )
         if index_text:
+            summary_line = (
+                "- Continuation summary: available via `/compact_str`\n"
+                if continuation_text
+                else "- Continuation summary: unavailable; archived "
+                "turns remain recoverable\n"
+            )
             detail = (
-                "**Archived Turns:**\n"
-                f"{self._format_scroll_compact_detail(index_text)}\n"
+                f"{summary_line}"
+                "- Older turns remain recoverable through Scroll history\n"
             )
         else:
-            detail = f"**Compressed Summary:**\n{summary}\n"
+            detail = f"**Compressed Summary:**\n{summary}\n" if summary else ""
         # The fold rewrites tool results in place (message count unchanged),
         # so it must be reported explicitly — a fold-only run used to claim
         # "Nothing to compact" while live outputs were replaced with stubs.
@@ -434,52 +455,58 @@ class CommandHandler(ConversationCommandHandlerMixin):
             if folded
             else ""
         )
+        action_label = (
+            "Messages archived"
+            if compress_stats or index_text
+            else "Messages compacted"
+        )
         return await self._make_system_msg(
             f"✅ **Compact Complete!**\n\n"
-            f"- Messages compacted: {evicted}\n"
+            f"- {action_label}: {evicted}\n"
             f"{folded_line}"
             f"{detail}",
         )
-
-    @staticmethod
-    def _format_scroll_compact_detail(
-        index_text: str,
-        *,
-        max_items: int = 5,
-    ) -> str:
-        """Return a user-readable summary of the scroll eviction index."""
-        headlines = []
-        for line in index_text.splitlines():
-            match = re.search(r"⟦\s*(.*?)\s*⟧", line)
-            if match:
-                headline = match.group(1).strip()
-                if headline:
-                    headlines.append(headline)
-
-        if not headlines:
-            return (
-                "- Older turns were archived and remain available through "
-                "scroll history."
-            )
-
-        shown = headlines[-max_items:]
-        lines = [f"- {headline}" for headline in shown]
-        remaining = len(headlines) - len(shown)
-        if remaining > 0:
-            lines.append(f"- ...and {remaining} older archived turn(s)")
-        lines.append(
-            "\nOlder turns were removed from the live context but remain "
-            "available in scroll history.",
-        )
-        return "\n".join(lines)
 
     @staticmethod
     def _scroll_index_text(agent: "Agent") -> str:
         """Scroll eviction-index map for a live agent, or '' under native."""
         cm = getattr(agent, "_context_manager", None)
         if cm is not None and hasattr(cm, "describe_index"):
-            return cm.describe_index()
+            value = cm.describe_index()
+            return value if isinstance(value, str) else ""
         return ""
+
+    @staticmethod
+    def _scroll_summary_text(agent: "Agent") -> str:
+        """Scroll continuation state for a live agent, else an empty string."""
+        cm = getattr(agent, "_context_manager", None)
+        if cm is not None and hasattr(cm, "describe_summary"):
+            value = cm.describe_summary()
+            return value if isinstance(value, str) else ""
+        return ""
+
+    def _stored_scroll_summary_text(self) -> str:
+        """Render the persisted Scroll continuation state, if available."""
+        if self._agent is not None:
+            return self._scroll_summary_text(self._agent)
+        state = self._scroll_state
+        if not isinstance(state, dict):
+            return ""
+        raw_summary = state.get("continuation_summary")
+        if not isinstance(raw_summary, dict):
+            return ""
+        summary = ContinuationSummary.from_dict(raw_summary)
+        return summary.render() if summary is not None else ""
+
+    def _uses_scroll_context(self) -> bool:
+        """Return whether the active light-context strategy is Scroll."""
+        try:
+            light_context = (
+                self._get_agent_config().running.light_context_config
+            )
+        except Exception:
+            return False
+        return getattr(light_context, "strategy", "native") == "scroll"
 
     @staticmethod
     def _build_manual_context_config(agent_config: Any) -> Any:
@@ -562,16 +589,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 # Already gated: the adapter only supplies an offloader when
                 # ``offload_dialog`` is on, so this archives iff configured.
                 offloader=self._offloader,
-                summarize_unheadlined=getattr(
-                    sc,
-                    "summarize_unheadlined_evictions",
-                    True,
-                ),
-                summarize_timeout_s=getattr(
-                    sc,
-                    "summarize_eviction_timeout_seconds",
-                    20,
-                ),
             )
         except Exception:
             logger.exception("Failed to build scroll manager for /compact")
@@ -579,7 +596,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
     async def _process_new(self, messages: list[Msg], _args: str = "") -> Msg:
         """Process /new command."""
-        self._reset_stop_gates()
+        await self._reset_modes()
         if not messages:
             self._set_summary("")
             return await self._make_system_msg(
@@ -620,7 +637,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Process /clear command."""
         await self._persist_and_clear()
         self._set_summary("")
-        self._reset_stop_gates()
+        await self._reset_modes()
         return await self._make_system_msg(
             "**History Cleared!**\n\n"
             "- Compressed summary reset\n"
@@ -649,6 +666,20 @@ class CommandHandler(ConversationCommandHandlerMixin):
         _args: str = "",
     ) -> Msg:
         """Process /compact_str command to show compressed summary."""
+        if self._uses_scroll_context():
+            summary = self._stored_scroll_summary_text()
+            if not summary:
+                return await self._make_system_msg(
+                    "**No Continuation Summary**\n\n"
+                    "- Scroll has not generated a continuation summary yet\n"
+                    "- Use `/compact` or wait for auto-compaction\n"
+                    "- Archived turns remain recoverable through Scroll "
+                    "history",
+                )
+            return await self._make_system_msg(
+                f"**Continuation Summary**\n\n{summary}",
+            )
+
         summary = self._get_summary()
         if not summary:
             return await self._make_system_msg(
@@ -815,7 +846,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
             return await self._make_system_msg(
                 "**Memory Manager Disabled**\n\n"
                 "- Cannot inspect ReMe memory usage\n"
-                "- Enable the ReMe memory manager to use this feature",
+                "- Set `memory_manager_backend` to `remelight` and restart "
+                "QwenPaw to enable this feature",
             )
 
         try:

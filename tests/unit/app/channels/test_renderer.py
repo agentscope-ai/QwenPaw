@@ -14,9 +14,6 @@ from __future__ import annotations
 
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison,unused-import  # noqa: E501
 
-import asyncio
-import os
-import tempfile
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -25,6 +22,7 @@ import pytest
 from qwenpaw.app.channels.renderer import (
     MessageRenderer,
     RenderStyle,
+    ChannelDisplayConfig,
     _fmt_code_block,
     _fmt_tool_call,
     _fmt_tool_output_label,
@@ -32,6 +30,7 @@ from qwenpaw.app.channels.renderer import (
 from qwenpaw.schemas import (
     AudioContent,
     ContentType,
+    DataContent,
     FileContent,
     ImageContent,
     Message,
@@ -50,18 +49,56 @@ from qwenpaw.schemas import (
 class TestRenderStyle:
     def test_defaults(self):
         s = RenderStyle()
-        assert s.show_tool_details
         assert s.supports_markdown
         assert s.supports_code_fence
         assert s.use_emoji
-        assert not s.filter_tool_messages
-        assert not s.filter_thinking
-        assert s.internal_tools == frozenset()
+        assert s.display_config.show_tool_details
+        assert s.display_config.show_thinking
+        assert s.display_config.show_tool_calls
+        assert s.display_config.show_tool_results
+        assert s.display_config.tool_call_max_length == 200
+        assert s.display_config.tool_result_max_length == 500
 
     def test_custom(self):
         s = RenderStyle(use_emoji=False, supports_markdown=False)
         assert not s.use_emoji
         assert not s.supports_markdown
+
+    @pytest.mark.parametrize(
+        ("config", "expected"),
+        [
+            (
+                {
+                    "show_tool_calls": "false",
+                    "show_tool_results": "true",
+                    "tool_call_max_length": "0",
+                    "tool_result_max_length": "invalid",
+                },
+                (False, True, 0, 500),
+            ),
+            (
+                {
+                    "show_tool_calls": "invalid",
+                    "show_tool_results": None,
+                    "tool_call_max_length": -1,
+                    "tool_result_max_length": True,
+                },
+                (True, True, 0, 500),
+            ),
+        ],
+    )
+    def test_display_config_from_config_sanitizes_values(
+        self,
+        config,
+        expected,
+    ):
+        display = ChannelDisplayConfig.from_config(config)
+        assert (
+            display.show_tool_calls,
+            display.show_tool_results,
+            display.tool_call_max_length,
+            display.tool_result_max_length,
+        ) == expected
 
 
 class TestFormatHelpers:
@@ -189,20 +226,184 @@ class TestMessageToParts:
         parts = r.message_to_parts(msg)
         assert any(getattr(p, "type", None) == ContentType.FILE for p in parts)
 
-    def test_filter_thinking_drops_reasoning(self):
-        r = MessageRenderer(RenderStyle(filter_thinking=True))
+    def test_hidden_thinking_drops_reasoning(self):
+        r = MessageRenderer(
+            RenderStyle(
+                display_config=ChannelDisplayConfig(show_thinking=False),
+            ),
+        )
         msg = _mk_message([TextContent(text="r")], MessageType.REASONING)
         assert r.message_to_parts(msg) == []
 
-    def test_filter_thinking_keeps_message(self):
-        r = MessageRenderer(RenderStyle(filter_thinking=True))
+    def test_hidden_thinking_keeps_regular_message(self):
+        r = MessageRenderer(
+            RenderStyle(
+                display_config=ChannelDisplayConfig(show_thinking=False),
+            ),
+        )
         msg = _mk_message([TextContent(text="hi")], MessageType.MESSAGE)
         parts = r.message_to_parts(msg)
         assert len(parts) == 1
 
-    def test_function_call_filter_tool_messages(self):
-        r = MessageRenderer(RenderStyle(filter_tool_messages=True))
+    def test_function_call_can_be_hidden(self):
+        r = MessageRenderer(
+            RenderStyle(
+                display_config=ChannelDisplayConfig(show_tool_calls=False),
+            ),
+        )
         msg = _mk_message([], MessageType.FUNCTION_CALL)
+        assert r.message_to_parts(msg) == []
+
+    def test_tool_call_zero_length_is_unlimited(self):
+        r = MessageRenderer(
+            RenderStyle(
+                display_config=ChannelDisplayConfig(tool_call_max_length=0),
+            ),
+        )
+        args = "x" * 300
+        msg = _mk_message(
+            [DataContent(data={"name": "tool", "arguments": args})],
+            MessageType.PLUGIN_CALL,
+        )
+        assert args in r.message_to_parts(msg)[0].text
+
+    def test_no_details_uses_placeholder_before_length(self):
+        r = MessageRenderer(
+            RenderStyle(
+                display_config=ChannelDisplayConfig(
+                    show_tool_details=False,
+                    show_tool_calls=True,
+                    tool_call_max_length=0,
+                ),
+            ),
+        )
+        msg = _mk_message(
+            [DataContent(data={"name": "tool", "arguments": "secret"})],
+            MessageType.PLUGIN_CALL,
+        )
+        text = r.message_to_parts(msg)[0].text
+        assert "..." in text
+        assert "secret" not in text
+
+    def test_hidden_tool_result_keeps_media(self):
+        r = MessageRenderer(
+            RenderStyle(
+                display_config=ChannelDisplayConfig(show_tool_results=False),
+            ),
+        )
+        msg = _mk_message(
+            [
+                DataContent(
+                    data={
+                        "name": "download",
+                        "output": [
+                            {"type": "text", "text": "hidden"},
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "url",
+                                    "url": "https://example.com/image.png",
+                                },
+                            },
+                        ],
+                    },
+                ),
+            ],
+            MessageType.PLUGIN_CALL_OUTPUT,
+        )
+        parts = r.message_to_parts(msg)
+        assert not any(
+            getattr(part, "type", None) == ContentType.TEXT for part in parts
+        )
+        assert any(
+            getattr(part, "type", None) == ContentType.IMAGE for part in parts
+        )
+
+    def test_hidden_tool_result_drops_internal_tool_media(self):
+        """Internal tools (display_to_user=False) withhold media when the
+        tool result is hidden."""
+        r = MessageRenderer(
+            RenderStyle(
+                display_config=ChannelDisplayConfig(show_tool_results=False),
+                internal_tools=frozenset({"view_image"}),
+            ),
+        )
+        msg = _mk_message(
+            [
+                DataContent(
+                    data={
+                        "name": "view_image",
+                        "output": [
+                            {"type": "text", "text": "hidden"},
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "url",
+                                    "url": "https://example.com/image.png",
+                                },
+                            },
+                        ],
+                    },
+                ),
+            ],
+            MessageType.PLUGIN_CALL_OUTPUT,
+        )
+        assert r.message_to_parts(msg) == []
+
+    def test_no_details_result_uses_placeholder_and_keeps_media(self):
+        r = MessageRenderer(
+            RenderStyle(
+                display_config=ChannelDisplayConfig(
+                    show_tool_details=False,
+                    show_tool_calls=False,
+                    show_tool_results=True,
+                    tool_result_max_length=0,
+                ),
+            ),
+        )
+        msg = _mk_message(
+            [
+                DataContent(
+                    data={
+                        "name": "download",
+                        "output": [
+                            {"type": "text", "text": "secret"},
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "url",
+                                    "url": "https://example.com/image.png",
+                                },
+                            },
+                        ],
+                    },
+                ),
+            ],
+            MessageType.PLUGIN_CALL_OUTPUT,
+        )
+
+        parts = r.message_to_parts(msg)
+        text = "\n".join(
+            getattr(part, "text", "")
+            for part in parts
+            if getattr(part, "type", None) == ContentType.TEXT
+        )
+        assert "..." in text
+        assert "secret" not in text
+        assert any(
+            getattr(part, "type", None) == ContentType.IMAGE for part in parts
+        )
+
+    def test_hidden_tool_data_in_generic_message_has_no_placeholder(self):
+        r = MessageRenderer(
+            RenderStyle(
+                display_config=ChannelDisplayConfig(show_tool_calls=False),
+            ),
+        )
+        msg = _mk_message(
+            [DataContent(data={"name": "tool", "arguments": "secret"})],
+            MessageType.MESSAGE,
+        )
         assert r.message_to_parts(msg) == []
 
 
@@ -401,11 +602,11 @@ class TestStreamingChunkSplitting:
         assert buffers["message"] == "second"
 
     @pytest.mark.asyncio
-    async def test_filter_thinking_skips_reasoning_delta(
+    async def test_hidden_thinking_skips_reasoning_delta(
         self,
         streaming_channel,
     ):
-        streaming_channel._filter_thinking = True
+        streaming_channel._display_config.show_thinking = False
         req = SimpleNamespace(
             user_id="u",
             session_id="console:u",

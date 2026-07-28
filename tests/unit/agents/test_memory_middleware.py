@@ -31,6 +31,7 @@ def _make_agent(*, source: str | None = None):
         session_id="session-1",
         reply_id="reply-1",
     )
+    agent._context_manager = None
     if source is not None:
         agent._request_context = {"source": source, "session_id": "session-1"}
     else:
@@ -415,6 +416,45 @@ class TestOnCompressContextAutomationSkip:
 
             mock_wc.assert_awaited_once()
             next_handler.assert_awaited_once()
+
+
+class TestWillCompressContextBoundary:
+    @staticmethod
+    def _agent_at(tokens: int):
+        agent = _make_agent(source="user")
+        agent.context_config = SimpleNamespace(trigger_ratio=0.8)
+        agent.model = SimpleNamespace(
+            context_size=1000,
+            count_tokens=AsyncMock(return_value=tokens),
+        )
+        agent._prepare_model_input = AsyncMock(return_value={})
+        return agent
+
+    @pytest.mark.asyncio
+    async def test_native_compacts_at_exact_trigger(self):
+        agent = self._agent_at(800)
+
+        assert await MemoryMiddleware._will_compress_context(agent, {}) is True
+
+    @pytest.mark.asyncio
+    async def test_scroll_does_not_compact_at_exact_trigger(self):
+        agent = self._agent_at(800)
+        agent._context_manager = SimpleNamespace(
+            should_compress=lambda tokens, trigger: tokens > trigger,
+        )
+
+        assert (
+            await MemoryMiddleware._will_compress_context(agent, {}) is False
+        )
+
+    @pytest.mark.asyncio
+    async def test_scroll_compacts_above_trigger(self):
+        agent = self._agent_at(801)
+        agent._context_manager = SimpleNamespace(
+            should_compress=lambda tokens, trigger: tokens > trigger,
+        )
+
+        assert await MemoryMiddleware._will_compress_context(agent, {}) is True
 
 
 # ---------------------------------------------------------------------------

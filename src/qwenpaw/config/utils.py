@@ -34,6 +34,7 @@ from .config import (
     LastApiConfig,
     LastDispatchConfig,
     load_agent_config,
+    migrate_channel_display_fields,
     save_agent_config,
 )
 
@@ -529,57 +530,19 @@ def _read_config_data(config_path: Path) -> Optional[dict]:
     return data
 
 
-def _rewrite_legacy_weixin_key_on_disk(config_path: Path) -> None:
-    """One-shot migration: rewrite ``channels.weixin`` -> ``channels.wechat``.
-
-    Re-reads the raw file to detect whether the legacy key is still
-    present on disk (in-memory data may already have been normalized by
-    the model validator). When detected, backs up the original file and
-    writes the migrated content back so subsequent loads see the
-    canonical key directly.
-    """
-    try:
-        with open(config_path, "r", encoding="utf-8") as file:
-            raw = file.read()
-        raw_data = json.loads(raw)
-    except (OSError, json.JSONDecodeError):
-        return
-    if not isinstance(raw_data, dict):
-        return
-    channels = raw_data.get("channels")
-    if not isinstance(channels, dict) or "weixin" not in channels:
-        return
-
-    legacy = channels.pop("weixin")
-    if "wechat" not in channels:
-        channels["wechat"] = legacy
-
-    try:
-        backup_path = config_path.with_suffix(
-            f".{uuid.uuid4().hex[:8]}.weixin-migrate.bak",
-        )
-        shutil.copy2(config_path, backup_path)
-        with open(config_path, "w", encoding="utf-8") as file:
-            json.dump(raw_data, file, indent=2, ensure_ascii=False)
-        logger.warning(
-            "Migrated legacy 'channels.weixin' -> 'channels.wechat' in %s "
-            "(backup: %s)",
-            config_path,
-            backup_path,
-        )
-    except OSError as exc:
-        logger.error(
-            "Failed to migrate legacy 'weixin' key in %s: %s",
-            config_path,
-            exc,
-        )
-
-
 def _load_and_validate_config(
     config_path: Path,
     data: dict,
 ) -> Config:
     """Load and validate config data, handling validation errors."""
+    channels = data.get("channels")
+    migrated_weixin = False
+    if isinstance(channels, dict) and "weixin" in channels:
+        legacy = channels.pop("weixin")
+        channels.setdefault("wechat", legacy)
+        migrated_weixin = True
+    migrated_display = migrate_channel_display_fields(channels)
+    migrated_data = data
     data = _normalize_working_dir_bound_paths(data)
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
@@ -609,7 +572,27 @@ def _load_and_validate_config(
             )
             return Config()
 
-    _rewrite_legacy_weixin_key_on_disk(config_path)
+    if migrated_weixin or migrated_display:
+        try:
+            migration_name = (
+                "channel-display" if migrated_display else "weixin"
+            )
+            backup_path = config_path.with_suffix(
+                f".{uuid.uuid4().hex[:8]}.{migration_name}-migrate.bak",
+            )
+            shutil.copy2(config_path, backup_path)
+            with open(config_path, "w", encoding="utf-8") as file:
+                json.dump(migrated_data, file, indent=2, ensure_ascii=False)
+            logger.warning(
+                "Migrated legacy channel configuration in %s (backup: %s)",
+                config_path,
+                backup_path,
+            )
+        except OSError:
+            logger.warning(
+                "Failed to persist channel configuration migration: %s",
+                config_path,
+            )
     return config
 
 
@@ -650,7 +633,10 @@ def load_config(config_path: Optional[Path] = None) -> Config:
             config = _load_and_validate_config(config_path, data)
 
         _config_cache = config
-        _config_mtime = current_mtime
+        try:
+            _config_mtime = config_path.stat().st_mtime
+        except OSError:
+            _config_mtime = current_mtime
         return config
 
 

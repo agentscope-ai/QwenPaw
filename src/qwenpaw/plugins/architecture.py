@@ -34,6 +34,11 @@ class PluginType(str, Enum):
     FRONTEND = "frontend"
     """Ships a frontend JS bundle loaded dynamically by the UI."""
 
+    APP = "app"
+    """A PawApp: a full app (backend router + UI page) authored with the
+    PawApp SDK and described by a ``manifest.yaml``. Loaded through the
+    same pipeline as other plugins; surfaced only in the App Center."""
+
     GENERAL = "general"
     """Fallback for plugins that do not match any specific category."""
 

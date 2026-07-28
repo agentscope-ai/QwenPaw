@@ -23,7 +23,7 @@ import pytest
 from qwenpaw.providers import provider_manager as _provider_manager_module
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def capture_qwenpaw_logs(monkeypatch: pytest.MonkeyPatch) -> None:
     """Let caplog see qwenpaw records despite the app logger handler."""
     monkeypatch.setattr(logging.getLogger("qwenpaw"), "propagate", True)
@@ -363,8 +363,9 @@ def mock_channel_config():
 
     config = MagicMock()
     config.enabled = True
-    config.filter_tool_messages = False
-    config.filter_thinking = False
+    config.show_tool_calls = True
+    config.show_tool_results = True
+    config.show_thinking = True
     config.dm_policy = "open"
     config.group_policy = "open"
     config.require_mention = False

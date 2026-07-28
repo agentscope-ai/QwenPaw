@@ -128,16 +128,22 @@ PROJECT_NAME = "QwenPaw"
 
 # Message metadata tags shared across agent middleware and memory managers.
 QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
+SCROLL_MEMORY_MESSAGE_TAG = "scroll_memory"
 AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY = "auto_memory_search_block_ids"
 EXTERNAL_USER_QUERY_MESSAGE_TAG = "external_user_query"
 AUTO_CONTINUE_MESSAGE_TAG = "auto_continue"
 LOOP_CONTINUATION_MESSAGE_TAG = "loop_continuation"
+RUBRIC_EVALUATION_MESSAGE_TAG = "rubric_evaluation"
 # User-role messages the runtime injects to keep a turn going. They are NOT
 # new requests: the scroll active-turn anchor (live scan + SQL floor) must
 # skip them, or the anchor jumps to the stub and the REAL request becomes
 # evictable/searchable again (the #5746 failure mode, loop-session flavor).
 SYNTHETIC_USER_MESSAGE_TAGS = frozenset(
-    {AUTO_CONTINUE_MESSAGE_TAG, LOOP_CONTINUATION_MESSAGE_TAG},
+    {
+        AUTO_CONTINUE_MESSAGE_TAG,
+        LOOP_CONTINUATION_MESSAGE_TAG,
+        RUBRIC_EVALUATION_MESSAGE_TAG,
+    },
 )
 AUTO_MEMORY_SEARCH_TEXT = (
     "I'll check memory for relevant context before answering."

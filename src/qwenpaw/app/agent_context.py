@@ -4,7 +4,9 @@
 Provides utilities to get the correct agent instance for each request.
 """
 from contextvars import ContextVar
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 from typing import Optional, TYPE_CHECKING
 from fastapi import Request
 from .multi_agent_manager import MultiAgentManager
@@ -38,6 +40,11 @@ _current_user_id: ContextVar[Optional[str]] = ContextVar(
 
 _current_channel: ContextVar[Optional[str]] = ContextVar(
     "current_channel",
+    default=None,
+)
+
+_current_approval_route: ContextVar[Optional[dict]] = ContextVar(
+    "current_approval_route",
     default=None,
 )
 
@@ -188,6 +195,16 @@ def set_current_session_id(session_id: str) -> None:
     _current_session_id.set(session_id)
 
 
+@contextmanager
+def scoped_session_id(session_id: str) -> Iterator[None]:
+    """Temporarily expose one session through the request context."""
+    token = _current_session_id.set(session_id)
+    try:
+        yield
+    finally:
+        _current_session_id.reset(token)
+
+
 def get_current_session_id() -> Optional[str]:
     return _current_session_id.get()
 
@@ -228,3 +245,13 @@ def set_current_channel(channel: Optional[str]) -> None:
 def get_current_channel() -> Optional[str]:
     """Get current channel from context."""
     return _current_channel.get()
+
+
+def set_current_approval_route(route: Optional[dict]) -> None:
+    """Set routing metadata used only for spawned-child approvals."""
+    _current_approval_route.set(route)
+
+
+def get_current_approval_route() -> Optional[dict]:
+    """Return routing metadata used only for spawned-child approvals."""
+    return _current_approval_route.get()

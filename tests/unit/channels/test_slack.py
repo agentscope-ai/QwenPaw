@@ -18,6 +18,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+
 from qwenpaw.schemas import (
     AudioContent,
     ContentType,
@@ -1152,12 +1154,15 @@ class TestSlackEventHandlerFileExtraction:
         mock_session.get = MagicMock(
             side_effect=[fail_resp, ok_resp],
         )
-        with patch(
-            "qwenpaw.app.channels.slack.handler.aiohttp.ClientSession",
-            return_value=mock_session,
-        ), patch(
-            "qwenpaw.app.channels.slack.handler.asyncio.sleep",
-            AsyncMock(),
+        with (
+            patch(
+                "qwenpaw.app.channels.slack.handler.aiohttp.ClientSession",
+                return_value=mock_session,
+            ),
+            patch(
+                "qwenpaw.app.channels.slack.handler.asyncio.sleep",
+                AsyncMock(),
+            ),
         ):
             slack_channel._media_dir = tmp_path / "media"
             slack_channel._media_dir.mkdir(parents=True, exist_ok=True)
@@ -1696,7 +1701,7 @@ class TestSlackChannelAdvancedInit:
         assert channel.access_control_dm is True
         assert channel.access_control_group is True
 
-    def test_init_with_show_tool_details_and_filters(self, mock_process):
+    def test_init_with_display_config(self, mock_process):
         from qwenpaw.app.channels.slack.channel import SlackChannel
 
         channel = SlackChannel(
@@ -1704,13 +1709,17 @@ class TestSlackChannelAdvancedInit:
             enabled=True,
             bot_token="xoxb-test",
             app_token="xapp-test",
-            show_tool_details=False,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_details=False,
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
-        assert channel._show_tool_details is False
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is False
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
 
     def test_init_media_dir_from_workspace(self, mock_process, tmp_path):
         from qwenpaw.app.channels.slack.channel import SlackChannel
@@ -2349,6 +2358,47 @@ class TestSlackEventHandlerUserResolution:
         )
         assert name == ""
 
+    async def test_user_name_cache_is_lru_bounded(
+        self,
+        slack_event_handler,
+        monkeypatch,
+    ):
+        from qwenpaw.app.channels.slack import handler as handler_module
+
+        monkeypatch.setattr(
+            handler_module,
+            "SLACK_USER_NAME_CACHE_MAX_ENTRIES",
+            2,
+        )
+        slack_event_handler._cache_user_name("U1", "one")
+        slack_event_handler._cache_user_name("U2", "two")
+        slack_event_handler._cache_user_name("U3", "three")
+
+        assert list(slack_event_handler._user_name_cache) == ["U2", "U3"]
+
+    async def test_user_name_cache_expires(
+        self,
+        slack_event_handler,
+        monkeypatch,
+    ):
+        from qwenpaw.app.channels.slack import handler as handler_module
+
+        monkeypatch.setattr(
+            handler_module,
+            "SLACK_USER_NAME_CACHE_TTL_S",
+            0,
+        )
+        slack_event_handler._cache_user_name("U123", "Old Name")
+        client = AsyncMock()
+        client.users_info.return_value = {
+            "user": {"profile": {"display_name": "New Name"}},
+        }
+
+        name = await slack_event_handler._resolve_user_name("U123", client)
+
+        assert name == "New Name"
+        client.users_info.assert_awaited_once()
+
 
 # =============================================================================
 # P1: Handler Slash Command
@@ -2592,12 +2642,12 @@ class TestSlackChannelStreamingHooks:
         )
         mock_slack_client.chat_postMessage.assert_not_called()
 
-    async def test_on_streaming_start_filter_thinking(
+    async def test_on_streaming_start_hidden_thinking(
         self,
         slack_channel,
         mock_slack_client,
     ):
-        slack_channel._filter_thinking = True
+        slack_channel._display_config.show_thinking = False
         slack_channel._client = mock_slack_client
         send_meta = {"slack_channel_id": "C123"}
         await slack_channel.on_streaming_start(
@@ -2634,12 +2684,12 @@ class TestSlackChannelStreamingHooks:
         )
         mock_slack_client.chat_update.assert_called_once()
 
-    async def test_on_streaming_delta_filter_thinking(
+    async def test_on_streaming_delta_hidden_thinking(
         self,
         slack_channel,
         mock_slack_client,
     ):
-        slack_channel._filter_thinking = True
+        slack_channel._display_config.show_thinking = False
         slack_channel._client = mock_slack_client
         send_meta = {"slack_channel_id": "C123"}
         await slack_channel.on_streaming_delta(

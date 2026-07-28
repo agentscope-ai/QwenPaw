@@ -53,6 +53,15 @@ def test_render_closes_with_live_turn_banner():
     assert out.index("CURRENT LIVE TURN") < out.index("</system-info>")
 
 
+def test_render_can_defer_live_turn_banner_after_the_index():
+    """The manager may place task state between the map and live seam."""
+    idx = EvictionIndex(session_id="s")
+    _add(idx, 5, "old headline")
+    out = idx.render(include_live_banner=False)
+    assert "END OF ARCHIVED INDEX" in out
+    assert "CURRENT LIVE TURN" not in out
+
+
 def test_describe_omits_the_model_facing_banner():
     """``describe()`` feeds the user-facing /compact reply — it should show the
     tier/span map only, not the model-only 'answer THIS' banner."""
@@ -136,3 +145,48 @@ def test_render_lists_tiers_oldest_on_top():
         _add(idx, i, f"h{i}")
     out = idx.render()
     assert out.index("Tier 1") < out.index("Tier 0")
+
+
+def test_budgeted_render_shortens_headline_without_mutating_index():
+    idx = EvictionIndex(session_id="s")
+    headline = "start-" + "x" * 1000 + "-durable-end"
+    _add(idx, 5, headline)
+
+    rendered = idx.render(detail_char_budget=10_000)
+
+    assert headline not in rendered
+    assert "start-" in rendered
+    assert idx.describe().endswith(f"⟦ {headline} ⟧")
+    assert idx.to_dict()["tiers"][0][0]["lines"][0][2] == headline
+
+
+def test_budgeted_render_folds_each_block_to_endpoints():
+    idx = EvictionIndex(session_id="s")
+    idx.add_eviction(
+        [
+            Leaf(seq=seq, headline=f"headline-{seq}-" + "x" * 100)
+            for seq in range(1, 9)
+        ],
+        seq_lo=1,
+        seq_hi=8,
+    )
+
+    rendered = idx.render(detail_char_budget=600)
+
+    assert "details folded" in rendered
+    assert "seq 1–8" in rendered
+    assert "headline-1-" in rendered
+    assert "headline-8-" in rendered
+    assert "headline-4-" not in rendered
+
+
+def test_tiny_index_budget_keeps_one_recallable_global_span():
+    idx = EvictionIndex(session_id="s")
+    for seq in range(1, 5):
+        _add(idx, seq, f"headline-{seq}-" + "x" * 1000)
+
+    rendered = idx.render(detail_char_budget=128)
+
+    assert "details folded to fit context" in rendered
+    assert "[seq 1–4]" in rendered
+    assert 'recall_history(op="expand", lo=1, hi=4)' in rendered

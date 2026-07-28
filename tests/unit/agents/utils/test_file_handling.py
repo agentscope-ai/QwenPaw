@@ -11,6 +11,8 @@ Covers:
 """
 # pylint: disable=protected-access,unused-argument
 
+import os
+import stat
 import urllib.parse
 from pathlib import Path
 from unittest.mock import patch
@@ -194,6 +196,8 @@ class TestDownloadFileFromBase64:
         )
         assert "test.txt" in result
         assert Path(result).read_bytes() == b"hello world"
+        if os.name != "nt":
+            assert stat.S_IMODE(Path(result).stat().st_mode) == 0o644
 
     @pytest.mark.asyncio
     async def test_download_without_filename(self, tmp_path):
@@ -256,3 +260,5 @@ class TestDownloadFileFromUrl:
             download_dir=str(tmp_path),
         )
         assert result is not None
+        if os.name != "nt":
+            assert stat.S_IMODE(Path(result).stat().st_mode) == 0o644

@@ -276,73 +276,6 @@ async def test_stream_from_queue_yields_until_sentinel_and_detaches():
 
 
 # ---------------------------------------------------------------------------
-# External task lifecycle
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_external_task_register_and_unregister_round_trip():
-    tracker = TaskTracker()
-
-    await tracker.register_external_task("ext-1")
-
-    assert await tracker.get_status("ext-1") == "running"
-    assert await tracker.has_active_tasks() is True
-    assert "ext-1" in await tracker.list_active_tasks()
-
-    summary = await tracker.get_global_status()
-    assert summary["status"] == "running"
-    assert summary["running_task_count"] == 1
-    assert summary["last_run_at"] is not None
-
-    await tracker.unregister_external_task("ext-1")
-
-    assert await tracker.get_status("ext-1") == "idle"
-    assert await tracker.has_active_tasks() is False
-    after = await tracker.get_global_status()
-    assert after["status"] == "idle"
-    assert after["running_task_count"] == 0
-    assert after["last_finish_at"] is not None
-
-
-@pytest.mark.asyncio
-async def test_external_task_register_is_idempotent_for_live_run():
-    tracker = TaskTracker()
-
-    await tracker.register_external_task("ext-dup")
-    first_state = tracker._runs["ext-dup"]
-    await tracker.register_external_task("ext-dup")  # second call is no-op
-
-    assert tracker._runs["ext-dup"] is first_state
-
-    await tracker.unregister_external_task("ext-dup")
-
-
-@pytest.mark.asyncio
-async def test_unregister_external_task_unknown_is_safe():
-    tracker = TaskTracker()
-
-    # Should not raise.
-    await tracker.unregister_external_task("never-registered")
-
-
-@pytest.mark.asyncio
-async def test_unregister_external_task_drains_subscriber_queues():
-    tracker = TaskTracker()
-    await tracker.register_external_task("ext-sub")
-
-    # Manually attach a queue (external tasks bypass attach_or_start).
-    q: asyncio.Queue = asyncio.Queue()
-    async with tracker._lock:
-        tracker._runs["ext-sub"].queues.append(q)
-
-    await tracker.unregister_external_task("ext-sub")
-
-    sentinel = await asyncio.wait_for(q.get(), timeout=1)
-    assert sentinel is None
-
-
-# ---------------------------------------------------------------------------
 # wait_all_done: timeout behaviour
 # ---------------------------------------------------------------------------
 
@@ -357,12 +290,24 @@ async def test_wait_all_done_returns_true_when_idle():
 @pytest.mark.asyncio
 async def test_wait_all_done_times_out_when_task_runs():
     tracker = TaskTracker()
-    await tracker.register_external_task("ext-long")
+    release = asyncio.Event()
+
+    async def producer(_payload):
+        await release.wait()
+        yield "data: done\n\n"
+
+    queue, _ = await tracker.attach_or_start(
+        "run-long",
+        payload=None,
+        stream_fn=producer,
+    )
 
     try:
         assert await tracker.wait_all_done(timeout=0.2) is False
     finally:
-        await tracker.unregister_external_task("ext-long")
+        release.set()
+        async for _ in tracker.stream_from_queue(queue, "run-long"):
+            pass
 
 
 # ---------------------------------------------------------------------------

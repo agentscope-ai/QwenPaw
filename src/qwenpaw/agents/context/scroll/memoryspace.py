@@ -44,7 +44,11 @@ _RECALL_EXCL_PLACEHOLDERS = ", ".join("?" for _ in _RECALL_TOOL_NAMES)
 # stub and the real request becomes searchable mid-turn again (echo loop).
 # Values must match SYNTHETIC_USER_MESSAGE_TAGS in qwenpaw.constant (this
 # module stays stdlib-only for the sandboxed REPL, so no import).
-_SYNTHETIC_USER_TAGS = ("loop_continuation", "auto_continue")
+_SYNTHETIC_USER_TAGS = (
+    "loop_continuation",
+    "auto_continue",
+    "rubric_evaluation",
+)
 
 _DATE_RE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})")
 _SAVED_TOOL_FILE_RE = re.compile(

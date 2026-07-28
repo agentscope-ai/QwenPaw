@@ -21,6 +21,7 @@ Run:
 # pylint: disable=broad-exception-raised
 from __future__ import annotations
 
+
 import json
 import threading
 import time
@@ -28,6 +29,8 @@ from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 from tests.fixtures.channels.mock_http import MockAiohttpSession
 
@@ -64,9 +67,10 @@ def qq_channel(mock_process_handler, tmp_path) -> Generator:
         bot_prefix="[Bot] ",
         markdown_enabled=True,
         media_dir=str(tmp_path / "media"),
-        show_tool_details=False,
-        filter_tool_messages=True,
-        filter_thinking=False,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=False,
+            show_tool_results=False,
+        ),
         max_reconnect_attempts=10,
     )
     yield channel
@@ -142,16 +146,19 @@ class TestQQChannelInit:
             client_secret="",
             bot_prefix="",
             markdown_enabled=True,
-            show_tool_details=True,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
             media_dir=str(tmp_path),
         )
 
         assert channel.enabled is False
-        assert channel._show_tool_details is True
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is True
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
 
     def test_init_creates_required_data_structures(self, mock_process_handler):
         """Constructor should initialize required internal data structures."""

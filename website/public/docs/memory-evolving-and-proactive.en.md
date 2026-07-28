@@ -128,7 +128,7 @@ Auto Dream is exposed in QwenPaw through:
 
 - `/dream [hint]`, handled by `CommandHandler._process_dream()`;
 - the scheduler configured by `dream_cron` when `dream_cron_enabled` is true,
-  default `0 23 * * *`;
+  default `0 23 * * *`; scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls;
 - `ReMeLightMemoryManager.dream(date="", hint="")`.
 
 QwenPaw runs the ReMe job named `auto_dream` with `needs_llm=True`, so the embedded ReMe app refreshes its LLM component from the active QwenPaw model before the job runs.
