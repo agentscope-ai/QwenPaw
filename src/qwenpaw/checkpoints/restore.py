@@ -558,13 +558,10 @@ class MemoryRestorer:
         """Return only memory files whose contents would actually change."""
         target_paths = self._checkpoint_paths(commit)
         current_paths = self._current_memory_paths()
-        would_restore: list[str] = []
-        for rel in target_paths:
-            content = self.repository.read_blob(commit, rel)
-            if not self.repository.same_workspace_content(rel, content):
-                would_restore.append(rel)
-        would_delete = sorted(current_paths - set(target_paths))
-        return would_restore, would_delete
+        return self.repository.plan_tree_restore(
+            commit,
+            current_paths | set(target_paths),
+        )
 
     async def apply(self, commit: str) -> tuple[list[str], list[str]]:
         """Restore memory without releasing quiesce state on cancellation."""

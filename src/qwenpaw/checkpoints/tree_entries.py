@@ -22,7 +22,12 @@ class TreeEntry:
     object_id: str
 
 
-def parse_tree_entries(output: str, *, commit: str) -> dict[str, TreeEntry]:
+def parse_tree_entries(
+    output: str,
+    *,
+    commit: str,
+    paths: set[str] | None = None,
+) -> dict[str, TreeEntry]:
     """Parse NUL-delimited ``git ls-tree`` output."""
     entries: dict[str, TreeEntry] = {}
     for item in output.split("\0"):
@@ -35,6 +40,8 @@ def parse_tree_entries(output: str, *, commit: str) -> dict[str, TreeEntry]:
                 "Checkpoint contains malformed Git tree entry "
                 f"in {commit[:12]}",
             )
+        if paths is not None and path not in paths:
+            continue
         mode, object_type, object_id = fields
         if object_type != "blob" or mode not in _RESTORABLE_TREE_MODES:
             raise CheckpointError(

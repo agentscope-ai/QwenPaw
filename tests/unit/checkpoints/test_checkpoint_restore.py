@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -497,6 +498,99 @@ def test_tree_entry_discovery_does_not_load_blob_content(
         "models/one.bin": ("100644", "a" * 40),
         "scripts/run.sh": ("100755", "b" * 40),
     }
+
+
+def test_tree_entry_discovery_uses_fixed_git_arguments(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = CheckpointRepository(tmp_path)
+    calls: list[tuple[str, ...]] = []
+
+    def run_git(*args: str, **_kwargs: object) -> str:
+        calls.append(args)
+        return (
+            "100644 blob aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "\tselected.txt\0"
+            "160000 commit bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            "\tvendor/unrequested\0"
+        )
+
+    monkeypatch.setattr(repository, "run_git", run_git)
+    paths = {f"missing/file_{index:04d}.txt" for index in range(5000)}
+    paths.add("selected.txt")
+    entries = repository._tree_entries("deadbeef", paths)
+
+    assert set(entries) == {"selected.txt"}
+    assert calls == [("ls-tree", "-r", "-z", "--full-tree", "deadbeef")]
+
+
+def test_tree_restore_uses_constant_git_processes_for_many_files(
+    tmp_path: Path,
+) -> None:
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    paths: set[str] = set()
+    for index in range(1000):
+        rel = f"src/file_{index:04d}.py"
+        (tmp_path / rel).write_text(f"VALUE = {index}\n", encoding="utf-8")
+        paths.add(rel)
+
+    repository = CheckpointRepository(tmp_path)
+    tree = repository.write_workspace_tree()
+
+    for operation in (
+        repository.plan_tree_restore,
+        repository.restore_tree_paths,
+    ):
+        with patch("subprocess.Popen", wraps=subprocess.Popen) as popen:
+            result = operation(tree, paths)
+
+        assert result == ([], [])
+        commands = [tuple(call.args[0]) for call in popen.call_args_list]
+        assert len(commands) == 2
+        assert sum("ls-tree" in command for command in commands) == 1
+        assert (
+            sum(
+                "cat-file" in command and "--batch" in command
+                for command in commands
+            )
+            == 1
+        )
+
+
+def test_memory_preview_uses_constant_git_processes(
+    tmp_path: Path,
+) -> None:
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    for index in range(1000):
+        (memory_dir / f"fact_{index:04d}.md").write_text(
+            f"fact {index}\n",
+            encoding="utf-8",
+        )
+
+    repository = CheckpointRepository(tmp_path)
+    tree = repository.write_workspace_tree()
+    restorer = MemoryRestorer(repository=repository)
+
+    with patch("subprocess.Popen", wraps=subprocess.Popen) as popen:
+        result = restorer.plan(tree)
+
+    assert result == ([], [])
+    commands = [tuple(call.args[0]) for call in popen.call_args_list]
+    assert len(commands) == 3
+    assert sum("ls-tree" in command for command in commands) == 2
+    assert (
+        sum(
+            "cat-file" in command and "--batch" in command
+            for command in commands
+        )
+        == 1
+    )
+    assert not any(
+        "cat-file" in command and "blob" in command for command in commands
+    )
 
 
 def test_restore_rejects_symlink_parent_outside_workspace(

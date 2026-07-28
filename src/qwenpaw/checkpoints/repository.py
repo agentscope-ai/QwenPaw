@@ -18,6 +18,7 @@ from .policy import (
     SNAPSHOT_EXCLUDE_PATHSPECS,
     ensure_git_available,
 )
+from .git_batch import GitBlobBatch
 from .models import CheckpointError
 from .safe_workspace_fs import SafeWorkspaceFS
 from .tree_entries import TreeEntry, parse_tree_entries
@@ -363,14 +364,16 @@ class CheckpointRepository:
         """Return requested tree entries without discarding Git modes."""
         if not paths:
             return {}
-        output = self.run_git(
-            "ls-tree",
-            "-z",
-            commit,
-            "--",
-            *sorted(paths),
+        output = self.run_git("ls-tree", "-r", "-z", "--full-tree", commit)
+        return parse_tree_entries(output, commit=commit, paths=paths)
+
+    def _blob_batch(self) -> GitBlobBatch:
+        return GitBlobBatch(
+            self._git_command("cat-file", "--batch"),
+            cwd=self.workspace_dir,
+            env=self._git_env(),
+            timeout=_GIT_TIMEOUT_SECONDS,
         )
-        return parse_tree_entries(output, commit=commit)
 
     def list_tree_paths(self, commit: str, *prefixes: str) -> list[str]:
         """List blob paths below one or more checkpoint tree prefixes."""
@@ -396,15 +399,16 @@ class CheckpointRepository:
         """Return whether a workspace file exactly matches *expected*."""
         return self._workspace_fs.same_workspace_content(rel, expected)
 
-    def _read_tree_entry(self, rel: str, entry: TreeEntry) -> bytes:
-        return self._read_blob_spec(
+    @staticmethod
+    def _read_tree_entry(
+        blobs: GitBlobBatch,
+        rel: str,
+        entry: TreeEntry,
+    ) -> bytes:
+        return blobs.read_blob(
             entry.object_id,
             error_message=f"Failed to read checkpoint file {rel}",
         )
-
-    def _same_checkpoint_entry(self, rel: str, entry: TreeEntry) -> bool:
-        content = self._read_tree_entry(rel, entry)
-        return self._workspace_fs.same_tree_entry(rel, entry.mode, content)
 
     def plan_tree_restore(
         self,
@@ -415,18 +419,24 @@ class CheckpointRepository:
         restored: list[str] = []
         deleted: list[str] = []
         entries = self._tree_entries(commit, paths)
-        for rel in sorted(paths):
-            if rel not in entries:
-                target = self.workspace_path(rel)
-                try:
-                    os.lstat(target)
-                except FileNotFoundError:
-                    pass
-                else:
-                    deleted.append(rel)
-                continue
-            if not self._same_checkpoint_entry(rel, entries[rel]):
-                restored.append(rel)
+        for rel in sorted(paths - entries.keys()):
+            target = self.workspace_path(rel)
+            try:
+                os.lstat(target)
+            except FileNotFoundError:
+                pass
+            else:
+                deleted.append(rel)
+        if entries:
+            with self._blob_batch() as blobs:
+                for rel, entry in sorted(entries.items()):
+                    content = self._read_tree_entry(blobs, rel, entry)
+                    if not self._workspace_fs.same_tree_entry(
+                        rel,
+                        entry.mode,
+                        content,
+                    ):
+                        restored.append(rel)
         return restored, deleted
 
     def restore_tree_paths(
@@ -441,14 +451,17 @@ class CheckpointRepository:
         for rel in sorted(paths - set(entries), reverse=True):
             if self.delete_workspace_path(rel):
                 deleted.append(rel)
-        for rel, entry in sorted(entries.items()):
-            if self._restore_tree_entry(rel, entry):
-                restored.append(rel)
+        if entries:
+            with self._blob_batch() as blobs:
+                for rel, entry in sorted(entries.items()):
+                    content = self._read_tree_entry(blobs, rel, entry)
+                    if self._workspace_fs.restore_tree_entry(
+                        rel,
+                        entry.mode,
+                        content,
+                    ):
+                        restored.append(rel)
         return restored, sorted(deleted)
-
-    def _restore_tree_entry(self, rel: str, entry: TreeEntry) -> bool:
-        content = self._read_tree_entry(rel, entry)
-        return self._workspace_fs.restore_tree_entry(rel, entry.mode, content)
 
     def restore_internal_paths(self, blobs: dict[str, bytes]) -> None:
         """Restore checkpoint-internal regular files with private mode."""
