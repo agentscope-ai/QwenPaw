@@ -19,6 +19,7 @@
     "view": "閲覧",
     "content": "内容",
     "loading": "読み込み中...",
+    "saving": "保存中...",
     "copy": "コピー",
     "copied": "クリップボードにコピーしました",
     "copyFailed": "クリップボードへのコピーに失敗しました",
@@ -29,6 +30,17 @@
     "total": "合計 {{count}} 件",
     "clear": "クリア",
     "paste": "貼り付け"
+  },
+  "harnesses": {
+    "connected": "接続済み",
+    "disconnected": "切断済み",
+    "notConnected": "未接続",
+    "comingSoon": "近日公開",
+    "connect": "ChatGPTで接続",
+    "disconnect": "切断",
+    "apiKeyAuthenticated": "API キーで認証済み",
+    "chatGptAuthenticated": "ChatGPT に接続済み",
+    "cliAuthenticated": "{{type}} CLI 認証済み"
   },
   "desktop": {
     "closeWindow": {
@@ -109,6 +121,85 @@
     "id": "ID",
     "description": "説明",
     "workspace": "ワークスペースパス",
+    "backend": {
+      "column": "バックエンド",
+      "eyebrow": "エージェントアーキテクチャ",
+      "typeTitle": "このエージェントの動作方式を選択",
+      "typeDescription": "エージェントの種類は、Chat、Coding、Channel のすべての会話に適用されます。",
+      "nativeTitle": "QwenPaw ネイティブエージェント",
+      "nativeBadge": "ネイティブ",
+      "nativeDescription": "設定済みの LLM、Skills、ツール、メモリ、QwenPaw ランタイムを使用します。",
+      "thirdPartyTitle": "サードパーティエージェント",
+      "thirdPartyBadge": "サードパーティ",
+      "thirdPartyDescription": "QwenPaw モデルの代わりに、認証済みの外部エージェントランタイムを使用します。",
+      "providerTitle": "サードパーティエージェントを選択",
+      "providerDescription": "認証情報はこのデバイスで共有されますが、プロジェクトと会話はエージェントごとに分離されます。",
+      "codexHint": "ChatGPT OAuth · エージェントワークスペース",
+      "qoderHint": "Qoder アカウントまたは PAT · エージェントワークスペース",
+      "account": "Codex アカウント",
+      "qoderAccount": "Qoder アカウント",
+      "binary": "Codex 実行ファイル",
+      "binaryHelp": "空欄の場合は Python SDK 付属の Codex CLI を優先し、単独インストールも自動検出します。手動で指定する場合は、macOS/Linux の codex または Windows の codex.exe のフルパスを入力してください。ChatGPT App やエディター拡張機能に内蔵されたバイナリはサポートされません。QwenPaw は CODEX_BINARY とバックエンドの PATH も参照します。",
+      "binaryPlaceholder": "自動検出、または Codex 実行ファイルのパスを貼り付け",
+      "qoderBinary": "Qoder 実行ファイル",
+      "qoderBinaryHelp": "空欄の場合は Python SDK 同梱の qodercli を優先し、既存のインストールも自動検出します。手動指定では macOS/Linux の qodercli または Windows の qodercli.exe へのフルパスを入力してください。QODERCLI_PATH とバックエンドの PATH も参照します。",
+      "qoderBinaryPlaceholder": "自動検出、または qodercli のパスを貼り付け",
+      "detect": "再検出",
+      "detectedBinary": "Codex を検出しました",
+      "qoderDetectedBinary": "Qoder を検出しました",
+      "apiKeyLoginHint": "ターミナルで codex login --with-api-key を実行して認証することもできます。",
+      "qoderAuthHint": "接続すると Qoder のブラウザログインが開きます。qodercli login の実行、またはバックエンド起動前の QODER_PERSONAL_ACCESS_TOKEN 設定も利用できます。",
+      "qoderConnect": "Qoder に接続",
+      "model": "エージェントモデル",
+      "modelDefault": "エージェントのデフォルトを使用",
+      "defaultBadge": "デフォルト",
+      "reasoningEffort": "推論レベル",
+      "reasoningDefault": "モデルのデフォルトを使用",
+      "codexNotFound": "Codex runtime が見つかりません。qwenpaw[codex] をインストールするか、単独の Codex CLI を指定してください。",
+      "qoderNotFound": "Qoder runtime が見つかりません。qwenpaw[qoder] をインストールするか、qodercli を指定してください。",
+      "chatSettingsHint": "Chat ツールバーでモデル、推論レベル、実行権限を選択します。",
+      "capabilityTitle": "QwenPaw の機能",
+      "inheritedSkills": "スキル",
+      "inheritedMcp": "MCP サーバー",
+      "runtimeInherited": "実行時に継承 · 新規セッション",
+      "notSupported": "このプロバイダーでは未対応",
+      "policyCompatibility": "MCP ポリシー",
+      "toolAllowlistSupported": "ツール許可リスト対応",
+      "policyLimited": "プロバイダーの制限あり",
+      "chatModelHint": "エージェント単位の設定 · 次のターンから適用",
+      "appliesNextTurn": "次のターンから適用",
+      "approvalMode": "実行権限",
+      "approvalPresets": {
+        "ask": {
+          "name": "変更前に確認",
+          "description": "ワークスペースの変更を許可し、昇格操作の前に確認します。"
+        },
+        "read-only": {
+          "name": "読み取り専用",
+          "description": "ファイルを変更せずに確認します。"
+        },
+        "workspace": {
+          "name": "ワークスペースアクセス",
+          "description": "確認なしでワークスペースの変更を許可します。"
+        },
+        "accept-edits": {
+          "name": "編集を許可",
+          "description": "ファイル編集を許可し、その他の安全確認は維持します。"
+        },
+        "plan": {
+          "name": "計画のみ",
+          "description": "ファイルを変更せずに分析と計画を行います。"
+        },
+        "auto": {
+          "name": "自動",
+          "description": "安全な操作を Qoder が判断して実行します。"
+        },
+        "full-access": {
+          "name": "フルアクセス",
+          "description": "確認なしで無制限のローカル実行を許可します。"
+        }
+      }
+    },
     "create": "エージェントを作成",
     "createTitle": "新しいエージェントを作成",
     "createSuccess": "エージェントが正常に作成されました",
@@ -235,6 +326,19 @@
   "skills": {
     "title": "スキル",
     "description": "エージェントのスキルと機能を管理します。",
+    "qwenpawManaged": "QwenPaw 管理",
+    "qwenpawManagedHint": "編集可能で、実行時に対応する外部エージェントへ反映されます。",
+    "providerManaged": "サードパーティエージェントのスキル",
+    "providerManagedHint": "現在のサードパーティエージェントから検出され、読み取り専用で表示されます。",
+    "providerOnly": "現在のサードパーティエージェントのみ",
+    "readOnly": "読み取り専用",
+    "noDescription": "説明はありません。",
+    "providerSkillDetails": "サードパーティエージェント Skill の詳細",
+    "providerManagedDetailHint": "この Skill はサードパーティエージェントによって管理されています。QwenPaw では表示および使用できますが、変更はできません。",
+    "provider": "サードパーティエージェント",
+    "scope": "スコープ",
+    "statusLabel": "ステータス",
+    "descriptionLabel": "説明",
     "importHub": "URL からアップロード",
     "supportedSources": "対応ソース：",
     "importSkills": "スキルをインポート",
@@ -456,6 +560,12 @@
   },
   "mcp": {
     "title": "MCPクライアント",
+    "qwenpawManaged": "QwenPaw 管理",
+    "qwenpawManagedHint": "統合コントロールプレーンで管理し、対応するサードパーティエージェントへ実行時に注入します。",
+    "providerManaged": "{{provider}} ローカル MCP",
+    "providerManagedHint": "サードパーティエージェント固有の設定から検出されます。読み取り専用で、そのエージェントだけで使用できます。",
+    "providerOnly": "サードパーティエージェント限定",
+    "readOnly": "読み取り専用",
     "create": "クライアントを作成",
     "formatSupport": "サポートされているフォーマット",
     "standardFormat": "標準（mcpServers でラップ）",
@@ -2052,6 +2162,15 @@
       },
       "skills": {
         "description": "チャットで利用可能なスキルを一覧し、明示的なスキルコマンドを表示します"
+      },
+      "agents": {
+        "description": "現在のランタイムで利用可能なエージェントを一覧表示"
+      },
+      "review": {
+        "description": "Codex で未コミットのワークスペース変更をレビュー"
+      },
+      "status": {
+        "description": "現在のエージェントアカウント、モデル、ワークスペースを表示"
       },
       "goal": {
         "description": "Goalループ — エージェントが目標に向かって継続実行し、Rubric評価で完了を自動判定"

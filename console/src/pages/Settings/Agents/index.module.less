@@ -98,6 +98,7 @@
 
 .tableCard {
   margin-bottom: 24px;
+  overflow: hidden;
 
   &:last-child {
     margin-bottom: 0;
@@ -136,7 +137,27 @@
 }
 
 .sortableRowDragging {
-  background: rgba(24, 144, 255, 0.08);
+  background: rgba(255, 127, 22, 0.08);
+}
+
+.backendTag {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-color: #ded7d1;
+  color: #685f58;
+  background: #faf8f6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backendTagThirdParty {
+  border-color: rgba(255, 127, 22, 0.42);
+  color: #bd5100;
+  background: #fff4e9;
 }
 
 /* ─── Skill Picker (agent create/edit modal) ───────────────────────────────── */
@@ -158,13 +179,13 @@
   transition: all 0.15s ease;
 
   &:hover {
-    border-color: #615ced;
-    background: rgba(97, 92, 237, 0.02);
+    border-color: #ff7f16;
+    background: rgba(255, 127, 22, 0.03);
   }
 
   &.pickerCardSelected {
-    border-color: #615ced;
-    background: rgba(97, 92, 237, 0.06);
+    border-color: #ff7f16;
+    background: rgba(255, 127, 22, 0.08);
   }
 
   &.pickerCardDisabled {
@@ -180,7 +201,7 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #615ced;
+  background: #ff7f16;
   color: #fff;
   display: flex;
   align-items: center;
@@ -231,18 +252,32 @@
   }
 
   .sortableRowDragging {
-    background: rgba(120, 170, 255, 0.12);
+    background: rgba(255, 127, 22, 0.12);
+  }
+
+  .backendTag {
+    border-color: #48413c;
+    color: #c6bbb2;
+    background: #282522;
+  }
+
+  .backendTagThirdParty {
+    border-color: rgba(255, 127, 22, 0.52);
+    color: #ff9a47;
+    background: rgba(255, 127, 22, 0.12);
   }
 
   .pickerCard {
     border-color: rgba(255, 255, 255, 0.12);
 
     &:hover {
-      background: rgba(97, 92, 237, 0.08);
+      border-color: #ff7f16;
+      background: rgba(255, 127, 22, 0.08);
     }
 
     &.pickerCardSelected {
-      background: rgba(97, 92, 237, 0.12);
+      border-color: #ff7f16;
+      background: rgba(255, 127, 22, 0.13);
     }
   }
 

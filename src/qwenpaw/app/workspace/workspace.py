@@ -80,6 +80,7 @@ class Workspace:
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
         self._app_services: Any = None
+        self._harness_runtime = None
 
         # Register all services
         self._register_services()
@@ -135,6 +136,20 @@ class Workspace:
     def local_workspace(self) -> QwenPawLocalWorkspace:
         """AgentScope LocalWorkspace routing tools to ToolRegistry."""
         return self._local_workspace
+
+    @property
+    def harness_runtime(self):
+        """Return the lazily-created third-party agent runtime."""
+        if self._harness_runtime is None:
+            from ...harnesses import HarnessRuntime
+
+            self._harness_runtime = HarnessRuntime(
+                self.workspace_dir,
+                self.session,
+                self.agent_id,
+                self,
+            )
+        return self._harness_runtime
 
     def bootstrap_plugins(  # pylint: disable=too-many-branches
         self,
@@ -270,6 +285,35 @@ class Workspace:
 
         Drop-in replacement for the old ``Runner.stream_query()``.
         """
+        config = load_agent_config(self.agent_id)
+        backend = config.backend
+        if backend != "qwenpaw":
+            settings = dict(getattr(config, "backend_settings", {}))
+            request_context = dict(
+                getattr(request, "request_context", None) or {},
+            )
+            backend_controls = request_context.pop(
+                "backend_controls",
+                {},
+            )
+            if isinstance(backend_controls, dict):
+                settings.update(backend_controls)
+            settings["_request_context"] = {
+                **request_context,
+                "agent_id": self.agent_id,
+                "session_id": getattr(request, "session_id", None),
+                "user_id": getattr(request, "user_id", None),
+                "channel": getattr(request, "channel", None) or "console",
+            }
+            async for item in self.harness_runtime.stream(
+                backend=backend,
+                request=request,
+                cwd=self.workspace_dir.resolve(),
+                settings=settings,
+            ):
+                yield item
+            return
+
         from ...runtime import Runtime
 
         rt = Runtime(workspace=self, app_services=self._app_services)
@@ -514,7 +558,10 @@ class Workspace:
         Each step is guarded so a failure logs a warning instead of
         blocking startup; affected files stay in their legacy state.
         """
-        from ..crons.repo.json_repo import migrate_legacy_weixin_jobs_file
+        from ..crons.repo.json_repo import (
+            migrate_final_mode_to_stream,
+            migrate_legacy_weixin_jobs_file,
+        )
         from ..chats.repo.json_repo import migrate_legacy_weixin_chats_file
         from ..chats.session import migrate_legacy_weixin_session_files
 
@@ -553,6 +600,17 @@ class Workspace:
                 exc,
             )
 
+        try:
+            migrate_final_mode_to_stream(
+                self.workspace_dir / "jobs.json",
+            )
+        except Exception as exc:
+            logger.warning(
+                "final->stream jobs.json migration failed for agent %s: %s",
+                self.agent_id,
+                exc,
+            )
+
     async def stop(self, final: bool = True):
         """Stop agent instance and clean up all resources.
 
@@ -570,6 +628,10 @@ class Workspace:
 
         # Stop all services via ServiceManager (handles reuse automatically)
         await self._service_manager.stop_all(final=final)
+
+        if self._harness_runtime is not None:
+            await self._harness_runtime.stop()
+            self._harness_runtime = None
 
         self._started = False
         logger.info(f"Workspace stopped: {self.agent_id}")

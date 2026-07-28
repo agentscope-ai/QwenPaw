@@ -20,6 +20,7 @@
     "view": "查看",
     "content": "内容",
     "loading": "加载中...",
+    "saving": "保存中...",
     "copy": "复制",
     "copied": "已复制到剪贴板",
     "copyFailed": "复制到剪贴板失败",
@@ -86,6 +87,17 @@
     "id": "ID",
     "category": "分类",
     "description": "描述"
+  },
+  "harnesses": {
+    "connected": "已连接",
+    "disconnected": "已断开",
+    "notConnected": "未连接",
+    "comingSoon": "即将推出",
+    "connect": "使用 ChatGPT 连接",
+    "disconnect": "断开连接",
+    "apiKeyAuthenticated": "已通过 API Key 认证",
+    "chatGptAuthenticated": "已连接 ChatGPT",
+    "cliAuthenticated": "{{type}} CLI 已认证"
   },
   "nav": {
     "chat": "聊天",
@@ -373,6 +385,85 @@
     "selectNone": "清空",
     "noPoolSkills": "技能池中暂无可用技能",
     "addSkillsToAgent": "添加技能",
+    "backend": {
+      "column": "后端",
+      "eyebrow": "智能体架构",
+      "typeTitle": "选择智能体的工作方式",
+      "typeDescription": "智能体类型决定它在 Chat、Coding 和所有 Channel 中的运行方式。",
+      "nativeTitle": "QwenPaw 原生智能体",
+      "nativeBadge": "原生",
+      "nativeDescription": "使用已配置的 LLM、Skills、工具、记忆和 QwenPaw Runtime。",
+      "thirdPartyTitle": "第三方智能体",
+      "thirdPartyBadge": "第三方",
+      "thirdPartyDescription": "使用已授权的外部 Agent Runtime，不依赖 QwenPaw 模型。",
+      "providerTitle": "选择第三方智能体",
+      "providerDescription": "授权在本机共享，项目与会话仍按智能体隔离。",
+      "codexHint": "ChatGPT OAuth · 智能体工作区",
+      "qoderHint": "Qoder 账户或 PAT · 智能体工作区",
+      "account": "Codex 账户",
+      "qoderAccount": "Qoder 账户",
+      "binary": "Codex 可执行文件",
+      "binaryHelp": "留空将优先使用 Python SDK 自带的 Codex CLI，也会自动检测独立安装。手动填写时请输入 macOS/Linux 下的 codex 或 Windows 下的 codex.exe 完整路径。不支持 ChatGPT App 或编辑器扩展内置的二进制。QwenPaw 也会读取 CODEX_BINARY 和后端进程的 PATH。",
+      "binaryPlaceholder": "自动检测，或粘贴 codex 可执行文件路径",
+      "qoderBinary": "Qoder 可执行文件",
+      "qoderBinaryHelp": "留空将优先使用 Python SDK 自带的 qodercli，也会自动检测已有安装。手动填写时请输入可执行文件本身的完整路径：macOS/Linux 下为 qodercli，Windows 下为 qodercli.exe。QwenPaw 也会读取 QODERCLI_PATH 和后端进程的 PATH。",
+      "qoderBinaryPlaceholder": "自动检测，或粘贴 qodercli 可执行文件路径",
+      "detect": "重新检测",
+      "detectedBinary": "已检测到 Codex",
+      "qoderDetectedBinary": "已检测到 Qoder",
+      "apiKeyLoginHint": "也可以在终端运行 codex login --with-api-key 完成 API Key 认证。",
+      "qoderAuthHint": "点击连接会打开 Qoder 浏览器登录；也可以在终端运行 qodercli login，或在启动后端前设置 QODER_PERSONAL_ACCESS_TOKEN。",
+      "qoderConnect": "连接 Qoder",
+      "model": "智能体模型",
+      "modelDefault": "使用智能体默认模型",
+      "defaultBadge": "默认",
+      "reasoningEffort": "推理强度",
+      "reasoningDefault": "使用模型默认强度",
+      "codexNotFound": "未检测到 Codex runtime。请安装 qwenpaw[codex]，或提供独立 Codex CLI。",
+      "qoderNotFound": "未检测到 Qoder runtime。请安装 qwenpaw[qoder]，或提供 qodercli。",
+      "chatSettingsHint": "模型、推理强度与执行权限统一在 Chat 工具栏中选择。",
+      "capabilityTitle": "QwenPaw 能力",
+      "inheritedSkills": "技能",
+      "inheritedMcp": "MCP 服务",
+      "runtimeInherited": "运行时继承 · 新会话生效",
+      "notSupported": "当前服务商不支持",
+      "policyCompatibility": "MCP 策略",
+      "toolAllowlistSupported": "支持工具白名单",
+      "policyLimited": "受服务商能力限制",
+      "chatModelHint": "智能体级设置 · 下一轮生效",
+      "appliesNextTurn": "下一轮对话生效",
+      "approvalMode": "执行权限",
+      "approvalPresets": {
+        "ask": {
+          "name": "变更前询问",
+          "description": "允许修改工作区，执行越权操作前需要确认。"
+        },
+        "read-only": {
+          "name": "只读",
+          "description": "仅检查文件，不允许修改。"
+        },
+        "workspace": {
+          "name": "工作区访问",
+          "description": "允许直接修改工作区，无需逐次确认。"
+        },
+        "accept-edits": {
+          "name": "自动接受编辑",
+          "description": "允许文件编辑，同时保留其他安全确认。"
+        },
+        "plan": {
+          "name": "仅规划",
+          "description": "只进行分析和规划，不修改文件。"
+        },
+        "auto": {
+          "name": "自动判断",
+          "description": "由 Qoder 判断哪些安全操作可以直接执行。"
+        },
+        "full-access": {
+          "name": "完全访问",
+          "description": "允许不受限的本地执行，不进行确认。"
+        }
+      }
+    },
     "model": "模型",
     "modelHelp": "为此智能体指定特定的 LLM 模型。留空则使用全局默认模型。",
     "modelPlaceholder": "使用全局默认",
@@ -453,6 +544,19 @@
   "skills": {
     "title": "技能",
     "description": "管理智能体技能和能力。",
+    "qwenpawManaged": "QwenPaw 管理",
+    "qwenpawManagedHint": "可编辑，并在运行时投影到支持的第三方智能体。",
+    "providerManaged": "第三方智能体技能",
+    "providerManagedHint": "从当前第三方智能体发现，仅供只读查看。",
+    "providerOnly": "仅当前第三方智能体",
+    "readOnly": "只读",
+    "noDescription": "暂无描述。",
+    "providerSkillDetails": "第三方智能体技能详情",
+    "providerManagedDetailHint": "该技能由第三方智能体管理。QwenPaw 可以展示和使用，但不能修改。",
+    "provider": "第三方智能体",
+    "scope": "作用域",
+    "statusLabel": "状态",
+    "descriptionLabel": "描述",
     "importHub": "通过URL上传",
     "supportedSources": "支持的来源：",
     "importSkills": "导入技能",
@@ -687,6 +791,12 @@
   },
   "mcp": {
     "title": "MCP 客户端",
+    "qwenpawManaged": "QwenPaw 管理",
+    "qwenpawManagedHint": "由统一控制面管理，并在运行时注入支持的第三方智能体。",
+    "providerManaged": "{{provider}} 本地 MCP",
+    "providerManagedHint": "从第三方智能体自身配置中发现；仅供该智能体使用，并以只读方式展示。",
+    "providerOnly": "仅当前第三方智能体",
+    "readOnly": "只读",
     "create": "创建客户端",
     "formatSupport": "支持的格式",
     "standardFormat": "标准（mcpServers 包裹）",
@@ -2309,6 +2419,15 @@
       },
       "skills": {
         "description": "列出当前对话可用的技能，并显示可显式调用的技能命令"
+      },
+      "agents": {
+        "description": "列出当前运行时可用的智能体"
+      },
+      "review": {
+        "description": "使用 Codex 审查工作区中尚未提交的变更"
+      },
+      "status": {
+        "description": "查看当前智能体账户、模型和工作区"
       },
       "plan": {
         "description": "创建结构化计划，将任务分解为多个子任务"

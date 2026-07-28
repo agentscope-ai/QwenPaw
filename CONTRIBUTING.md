@@ -69,7 +69,7 @@ docs(skills): document Skills Hub import
 
 - **Required local gate (must pass before push/PR):**
   ```bash
-  pip install -e ".[dev,full]"
+  pip install -e ".[dev,test,full]"
   pre-commit install
   pre-commit run --all-files
   pytest
