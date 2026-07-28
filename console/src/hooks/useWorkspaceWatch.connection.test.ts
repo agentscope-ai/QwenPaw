@@ -89,6 +89,34 @@ describe("useWorkspaceWatch — connection lifecycle", () => {
     workspace.unmount();
   });
 
+  it("新会话使用临时项目目录建立监听", async () => {
+    const mockFetch = makePendingFetchMock();
+    vi.stubGlobal("fetch", mockFetch);
+
+    const { unmount } = renderHook(() =>
+      useWorkspaceWatch(
+        vi.fn(),
+        true,
+        undefined,
+        "project",
+        "/projects/session",
+      ),
+    );
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://test/watch",
+        expect.objectContaining({
+          headers: {
+            "X-Session-Project-Dir": "/projects/session",
+          },
+        }),
+      );
+    });
+
+    unmount();
+  });
+
   // ─── 测试 7：最后一个 listener unmount 后断开连接（abort 被调用）──────────
   it("最后一个 listener unmount 后 AbortController.abort 被调用", async () => {
     const mockFetch = makePendingFetchMock();

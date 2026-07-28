@@ -4,6 +4,7 @@
     "reset": "Redefinir",
     "cancel": "Cancelar",
     "confirm": "Confirmar",
+    "apply": "Aplicar",
     "delete": "Excluir",
     "edit": "Editar",
     "create": "Criar",
@@ -1762,13 +1763,23 @@
     "loadFailed": "Falha ao carregar o arquivo. Verifique se ele ainda está no workspace do agente atual.",
     "previewUnavailable": "Preview indisponível. Metadados e download continuam disponíveis.",
     "mentionInChat": "Mencionar no Chat",
-    "expandWorkspace": "Expandir workspace"
+    "expandWorkspace": "Expandir workspace",
+    "openWorkspace": "Abrir workspace",
+    "closeWorkspace": "Fechar workspace"
   },
   "projectDirectory": {
+    "agentTitle": "Diretório de projeto do agente",
     "sessionTitle": "Diretório de projeto da sessão",
-    "sessionDescription": "A próxima execução usa este diretório para arquivos e comandos.",
     "pathPlaceholder": "Digite um caminho absoluto",
+    "recentProjects": "Projetos recentes",
+    "browseDirectory": "Explorar diretórios",
+    "noRecentProjects": "Nenhum projeto recente",
+    "clearSelection": "Limpar projeto selecionado",
+    "homeDirectory": "Diretório inicial",
+    "parentDirectory": "Diretório pai",
+    "refreshDirectory": "Atualizar diretório",
     "inheritAgent": "Herdar padrão do agente",
+    "useWorkspace": "Usar diretório de configuração",
     "createSessionHint": "Envie a primeira mensagem para definir um diretório da sessão.",
     "sessionSource": "Sessão",
     "agentSource": "Agente"

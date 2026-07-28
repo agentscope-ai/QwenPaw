@@ -1,5 +1,5 @@
 /**
- * Per-agent persistence for Coding Mode editor tabs and pending diffs.
+ * Per-scope persistence for Files workspace tabs and pending diffs.
  *
  * Persists to localStorage so the IDE survives a page reload and an
  * agent-switch round trip. To stay under the localStorage quota:
@@ -14,11 +14,16 @@
  *     consumer fetches the disk content on mount to fill it in.
  */
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { useAgentStore } from "./agentStore";
+import {
+  createJSONStorage,
+  persist,
+  type StateStorage,
+} from "zustand/middleware";
 import type { WorkspaceRoot } from "../features/files-workspace/types";
 
 export const ORIGINAL_DIFF_SIZE_LIMIT = 256 * 1024;
+export const AGENT_FILES_TABS_STORAGE_KEY = "qwenpaw-agent-files-tabs";
+export const SESSION_FILES_TABS_STORAGE_KEY = "qwenpaw-session-files-tabs";
 
 export interface EditorTab {
   /** Internal stable identity used by the tab/diff stores. */
@@ -52,6 +57,9 @@ interface CodingTabsState {
   setTabDirty: (agentId: string, path: string, dirty: boolean) => void;
 
   clearAgent: (agentId: string) => void;
+  clearProjectTabs: (scopeKey: string) => void;
+  migrateScope: (fromScopeKey: string, toScopeKey: string) => void;
+  removeScope: (scopeKey: string) => void;
 
   setDiff: (agentId: string, path: string, diff: PendingDiff) => void;
   removeDiff: (agentId: string, path: string) => void;
@@ -67,6 +75,93 @@ const omitKey = <T extends object>(obj: T, key: string): T => {
   return next as T;
 };
 
+interface PersistedTabsEnvelope {
+  state?: {
+    tabsByAgent?: Record<string, EditorTab[]>;
+    activeTabByAgent?: Record<string, string>;
+    diffsByAgent?: Record<string, Record<string, PendingDiff>>;
+  };
+  version?: number;
+}
+
+function filterRecord<T>(
+  record: Record<string, T> | undefined,
+  prefix: "agent:" | "session:",
+): Record<string, T> {
+  return Object.fromEntries(
+    Object.entries(record ?? {}).filter(([key]) => key.startsWith(prefix)),
+  );
+}
+
+function scopedEnvelope(
+  envelope: PersistedTabsEnvelope,
+  prefix: "agent:" | "session:",
+): PersistedTabsEnvelope {
+  return {
+    ...envelope,
+    state: {
+      tabsByAgent: filterRecord(envelope.state?.tabsByAgent, prefix),
+      activeTabByAgent: filterRecord(
+        envelope.state?.activeTabByAgent,
+        prefix,
+      ),
+      diffsByAgent: filterRecord(envelope.state?.diffsByAgent, prefix),
+    },
+  };
+}
+
+/**
+ * Zustand sees one store at runtime, while persistence is physically split
+ * by ownership. The retired shared key is intentionally never read.
+ */
+const splitTabsStorage: StateStorage = {
+  getItem: () => {
+    const agentValue = localStorage.getItem(AGENT_FILES_TABS_STORAGE_KEY);
+    const sessionValue = localStorage.getItem(SESSION_FILES_TABS_STORAGE_KEY);
+    if (!agentValue && !sessionValue) return null;
+
+    const agentEnvelope = agentValue
+      ? (JSON.parse(agentValue) as PersistedTabsEnvelope)
+      : {};
+    const sessionEnvelope = sessionValue
+      ? (JSON.parse(sessionValue) as PersistedTabsEnvelope)
+      : {};
+    return JSON.stringify({
+      ...agentEnvelope,
+      ...sessionEnvelope,
+      state: {
+        tabsByAgent: {
+          ...agentEnvelope.state?.tabsByAgent,
+          ...sessionEnvelope.state?.tabsByAgent,
+        },
+        activeTabByAgent: {
+          ...agentEnvelope.state?.activeTabByAgent,
+          ...sessionEnvelope.state?.activeTabByAgent,
+        },
+        diffsByAgent: {
+          ...agentEnvelope.state?.diffsByAgent,
+          ...sessionEnvelope.state?.diffsByAgent,
+        },
+      },
+    } satisfies PersistedTabsEnvelope);
+  },
+  setItem: (_name, value) => {
+    const envelope = JSON.parse(value) as PersistedTabsEnvelope;
+    localStorage.setItem(
+      AGENT_FILES_TABS_STORAGE_KEY,
+      JSON.stringify(scopedEnvelope(envelope, "agent:")),
+    );
+    localStorage.setItem(
+      SESSION_FILES_TABS_STORAGE_KEY,
+      JSON.stringify(scopedEnvelope(envelope, "session:")),
+    );
+  },
+  removeItem: () => {
+    localStorage.removeItem(AGENT_FILES_TABS_STORAGE_KEY);
+    localStorage.removeItem(SESSION_FILES_TABS_STORAGE_KEY);
+  },
+};
+
 export const useCodingTabsStore = create<CodingTabsState>()(
   persist<CodingTabsState>(
     (set) => ({
@@ -79,6 +174,74 @@ export const useCodingTabsStore = create<CodingTabsState>()(
           tabsByAgent: { ...state.tabsByAgent, [agentId]: [] },
           activeTabByAgent: { ...state.activeTabByAgent, [agentId]: "" },
           diffsByAgent: { ...state.diffsByAgent, [agentId]: {} },
+        })),
+
+      clearProjectTabs: (scopeKey) =>
+        set((state) => {
+          const tabs = state.tabsByAgent[scopeKey] ?? [];
+          const removedPaths = new Set(
+            tabs
+              .filter(
+                (tab) =>
+                  (tab.source ?? "workspace") === "workspace" &&
+                  (tab.workspaceRoot ?? "project") === "project",
+              )
+              .map((tab) => tab.path),
+          );
+          if (removedPaths.size === 0) return state;
+          const nextTabs = tabs.filter((tab) => !removedPaths.has(tab.path));
+          const activePath = state.activeTabByAgent[scopeKey] ?? "";
+          const diffs = state.diffsByAgent[scopeKey] ?? {};
+          return {
+            tabsByAgent: {
+              ...state.tabsByAgent,
+              [scopeKey]: nextTabs,
+            },
+            activeTabByAgent: {
+              ...state.activeTabByAgent,
+              [scopeKey]: removedPaths.has(activePath)
+                ? nextTabs[0]?.path ?? ""
+                : activePath,
+            },
+            diffsByAgent: {
+              ...state.diffsByAgent,
+              [scopeKey]: Object.fromEntries(
+                Object.entries(diffs).filter(
+                  ([path]) => !removedPaths.has(path),
+                ),
+              ),
+            },
+          };
+        }),
+
+      migrateScope: (fromScopeKey, toScopeKey) =>
+        set((state) => {
+          if (fromScopeKey === toScopeKey) return state;
+          const tabs = state.tabsByAgent[fromScopeKey];
+          const activeTab = state.activeTabByAgent[fromScopeKey];
+          const diffs = state.diffsByAgent[fromScopeKey];
+          if (!tabs && !activeTab && !diffs) return state;
+          return {
+            tabsByAgent: {
+              ...omitKey(state.tabsByAgent, fromScopeKey),
+              [toScopeKey]: tabs ?? [],
+            },
+            activeTabByAgent: {
+              ...omitKey(state.activeTabByAgent, fromScopeKey),
+              [toScopeKey]: activeTab ?? "",
+            },
+            diffsByAgent: {
+              ...omitKey(state.diffsByAgent, fromScopeKey),
+              [toScopeKey]: diffs ?? {},
+            },
+          };
+        }),
+
+      removeScope: (scopeKey) =>
+        set((state) => ({
+          tabsByAgent: omitKey(state.tabsByAgent, scopeKey),
+          activeTabByAgent: omitKey(state.activeTabByAgent, scopeKey),
+          diffsByAgent: omitKey(state.diffsByAgent, scopeKey),
         })),
 
       openTab: (agentId, tab) =>
@@ -216,7 +379,8 @@ export const useCodingTabsStore = create<CodingTabsState>()(
         }),
     }),
     {
-      name: "qwenpaw-coding-tabs",
+      name: "qwenpaw-split-files-workbench",
+      storage: createJSONStorage(() => splitTabsStorage),
       // Persist only the path list (no content/dirty) and small `original`s.
       partialize: ((state: CodingTabsState) => ({
         tabsByAgent: Object.fromEntries(
@@ -258,19 +422,16 @@ export const useCodingTabsStore = create<CodingTabsState>()(
 const EMPTY_TABS: EditorTab[] = [];
 const EMPTY_DIFFS: Record<string, PendingDiff> = {};
 
-export function useCurrentTabs(): EditorTab[] {
-  const { selectedAgent } = useAgentStore();
-  return useCodingTabsStore((s) => s.tabsByAgent[selectedAgent] ?? EMPTY_TABS);
+export function useTabsForScope(scopeKey: string): EditorTab[] {
+  return useCodingTabsStore((s) => s.tabsByAgent[scopeKey] ?? EMPTY_TABS);
 }
 
-export function useCurrentActiveTabPath(): string {
-  const { selectedAgent } = useAgentStore();
-  return useCodingTabsStore((s) => s.activeTabByAgent[selectedAgent] ?? "");
+export function useActiveTabPathForScope(scopeKey: string): string {
+  return useCodingTabsStore((s) => s.activeTabByAgent[scopeKey] ?? "");
 }
 
-export function useCurrentDiffs(): Record<string, PendingDiff> {
-  const { selectedAgent } = useAgentStore();
-  return useCodingTabsStore(
-    (s) => s.diffsByAgent[selectedAgent] ?? EMPTY_DIFFS,
-  );
+export function useDiffsForScope(
+  scopeKey: string,
+): Record<string, PendingDiff> {
+  return useCodingTabsStore((s) => s.diffsByAgent[scopeKey] ?? EMPTY_DIFFS);
 }

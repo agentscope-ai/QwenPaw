@@ -4,27 +4,31 @@ import { useTranslation } from "react-i18next";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
+import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
+import { listenForProjectDirectoryChanges } from "../project-directory/projectDirectoryChangeEvent";
 import { workspaceApi } from "../../api/modules/workspace";
 import GitPanel from "../../pages/Coding/GitPanel";
 import TabbedEditor from "../../pages/Coding/TabbedEditor";
 import {
   useCodingTabsStore,
-  useCurrentActiveTabPath,
-  useCurrentTabs,
+  useActiveTabPathForScope,
+  useTabsForScope,
 } from "../../stores/codingTabsStore";
-import { useAgentStore } from "../../stores/agentStore";
 import { useCodingMode } from "../../stores/codingModeStore";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import FilesNavigator from "./FilesNavigator";
 import { directoriesMatch } from "./directorySources";
+import {
+  filesWorkspaceScopeKey,
+  type FilesWorkspaceScope,
+} from "./filesWorkspaceScope";
 import { toProjectRelativePath } from "./internalFileLinks";
 import type { FileMetadata, FileTarget, WorkspaceRoot } from "./types";
 import styles from "./FilesWorkspace.module.less";
 
 interface FilesWorkspaceProps {
   initialTarget?: FileTarget;
-  chatId?: string;
-  sessionId: string;
+  scope: FilesWorkspaceScope;
 }
 
 function inferPreviewKind(
@@ -48,16 +52,30 @@ function inferPreviewKind(
 
 export default function FilesWorkspace({
   initialTarget,
-  chatId,
-  sessionId,
+  scope,
 }: FilesWorkspaceProps) {
   const { t } = useTranslation();
   const { codingMode } = useCodingMode();
-  const { selectedAgent } = useAgentStore();
-  const tabs = useCurrentTabs();
-  const activeTabPath = useCurrentActiveTabPath();
-  const { closeTab, openTab, setActiveTab, setTabContent, setTabDirty } =
-    useCodingTabsStore();
+  const scopeKey = filesWorkspaceScopeKey(scope);
+  const chatId = scope.kind === "session" ? scope.chatId : undefined;
+  const projectDirOverride =
+    scope.kind === "session" && !scope.chatId
+      ? getPendingProjectDirectory(scope.agentId, scope.sessionId) ??
+        scope.projectDirOverride ??
+        undefined
+      : undefined;
+  const effectiveScope: FilesWorkspaceScope =
+    scope.kind === "session" ? { ...scope, projectDirOverride } : scope;
+  const tabs = useTabsForScope(scopeKey);
+  const activeTabPath = useActiveTabPathForScope(scopeKey);
+  const {
+    clearProjectTabs,
+    closeTab,
+    openTab,
+    setActiveTab,
+    setTabContent,
+    setTabDirty,
+  } = useCodingTabsStore();
   const hydratedTabs = useRef(new Set<string>());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
@@ -65,6 +83,7 @@ export default function FilesWorkspace({
   const navigationSequence = useRef(0);
   const [loadError, setLoadError] = useState("");
   const [activity, setActivity] = useState<"files" | "git">("files");
+  const [directoryRevision, setDirectoryRevision] = useState(0);
   const [editorNavigation, setEditorNavigation] = useState<{
     path: string;
     line: number;
@@ -72,6 +91,17 @@ export default function FilesWorkspace({
     column?: number;
     sequence: number;
   } | null>(null);
+
+  useEffect(
+    () =>
+      listenForProjectDirectoryChanges((changedScopeKey) => {
+        if (changedScopeKey === scopeKey) {
+          clearProjectTabs(scopeKey);
+          setDirectoryRevision((current) => current + 1);
+        }
+      }),
+    [clearProjectTabs, scopeKey],
+  );
 
   const resolveEditableTarget = useCallback(
     async (target: FileTarget): Promise<FileTarget> => {
@@ -126,6 +156,7 @@ export default function FilesWorkspace({
               candidate.path,
               chatId,
               candidate.root,
+              projectDirOverride,
             );
             return {
               ...target,
@@ -142,7 +173,7 @@ export default function FilesWorkspace({
       }
       return target;
     },
-    [chatId],
+    [chatId, projectDirOverride],
   );
 
   const loadTarget = useCallback(
@@ -166,12 +197,18 @@ export default function FilesWorkspace({
           target.path,
           chatId,
           target.root,
+          projectDirOverride,
         );
         const isText =
           metadata.preview_kind === "text" || metadata.preview_kind === "csv";
         return {
           content: isText
-            ? await workspaceApi.loadFileText(target.path, chatId, target.root)
+            ? await workspaceApi.loadFileText(
+                target.path,
+                chatId,
+                target.root,
+                projectDirOverride,
+              )
             : "",
           previewKind: metadata.preview_kind,
           readOnly: !isText,
@@ -197,7 +234,7 @@ export default function FilesWorkspace({
         readOnly: true,
       };
     },
-    [chatId],
+    [chatId, projectDirOverride],
   );
 
   const loadTabContent = useCallback(
@@ -244,13 +281,13 @@ export default function FilesWorkspace({
       const existing = tabsRef.current.find((tab) => tab.path === tabPath);
       if (existing) {
         setLoadError("");
-        setActiveTab(selectedAgent, tabPath);
+        setActiveTab(scopeKey, tabPath);
         return;
       }
       try {
         const loaded = await loadTarget(resolvedTarget);
         setLoadError("");
-        openTab(selectedAgent, {
+        openTab(scopeKey, {
           path: tabPath,
           displayPath: resolvedTarget.path,
           content: loaded.content,
@@ -261,24 +298,23 @@ export default function FilesWorkspace({
           previewKind: loaded.previewKind,
           readOnly: loaded.readOnly,
         });
-        setActiveTab(selectedAgent, tabPath);
+        setActiveTab(scopeKey, tabPath);
       } catch {
         setLoadError(t("files.loadFailed"));
       }
     },
-    [
-      loadTarget,
-      openTab,
-      resolveEditableTarget,
-      selectedAgent,
-      setActiveTab,
-      t,
-    ],
+    [loadTarget, openTab, resolveEditableTarget, scopeKey, setActiveTab, t],
   );
 
   useEffect(() => {
     hydratedTabs.current.clear();
-  }, [selectedAgent]);
+  }, [scopeKey]);
+
+  useEffect(() => {
+    if (!chatId && projectDirOverride) {
+      setActivity("files");
+    }
+  }, [chatId, projectDirOverride]);
 
   useEffect(() => {
     tabs.forEach((tab) => {
@@ -287,13 +323,13 @@ export default function FilesWorkspace({
       }
       hydratedTabs.current.add(tab.path);
       void loadTabContent(tab.path)
-        .then((content) => setTabContent(selectedAgent, tab.path, content))
+        .then((content) => setTabContent(scopeKey, tab.path, content))
         .catch(() => {
-          closeTab(selectedAgent, tab.path);
+          closeTab(scopeKey, tab.path);
           setLoadError(t("files.loadFailed"));
         });
     });
-  }, [closeTab, loadTabContent, selectedAgent, setTabContent, t, tabs]);
+  }, [closeTab, loadTabContent, scopeKey, setTabContent, t, tabs]);
 
   useEffect(() => {
     if (initialTarget) void openTarget(initialTarget);
@@ -301,17 +337,21 @@ export default function FilesWorkspace({
 
   const handleClose = (path: string) => {
     const index = tabs.findIndex((tab) => tab.path === path);
-    closeTab(selectedAgent, path);
+    closeTab(scopeKey, path);
     if (activeTabPath === path) {
       setActiveTab(
-        selectedAgent,
+        scopeKey,
         tabs[index + 1]?.path ?? tabs[index - 1]?.path ?? "",
       );
     }
   };
 
   return (
-    <div className={styles.workspace}>
+    <div
+      className={`${styles.workspace} ${
+        tabs.length === 0 ? styles.workspaceEmpty : ""
+      }`}
+    >
       {codingMode && (
         <nav className={styles.activityRail} aria-label={t("files.workspace")}>
           <button
@@ -322,20 +362,22 @@ export default function FilesWorkspace({
           >
             <Files size={18} />
           </button>
-          <button
-            type="button"
-            className={activity === "git" ? styles.activityActive : ""}
-            aria-label={t("files.sourceControl")}
-            onClick={() => setActivity("git")}
-          >
-            <GitBranch size={18} />
-          </button>
+          {chatId || !projectDirOverride ? (
+            <button
+              type="button"
+              className={activity === "git" ? styles.activityActive : ""}
+              aria-label={t("files.sourceControl")}
+              onClick={() => setActivity("git")}
+            >
+              <GitBranch size={18} />
+            </button>
+          ) : null}
         </nav>
       )}
       {activity === "files" || !codingMode ? (
         <FilesNavigator
-          chatId={chatId}
-          sessionId={sessionId}
+          key={`${scopeKey}:${projectDirOverride ?? ""}:${directoryRevision}`}
+          scope={effectiveScope}
           selectedPath={
             tabs.find((tab) => tab.path === activeTabPath)?.displayPath ??
             activeTabPath
@@ -359,18 +401,19 @@ export default function FilesWorkspace({
           </div>
         )}
         <TabbedEditor
+          key={`${scopeKey}:${directoryRevision}`}
           tabs={tabs}
           activeTabPath={activeTabPath}
-          onTabSelect={(path) => setActiveTab(selectedAgent, path)}
+          scopeKey={scopeKey}
+          onTabSelect={(path) => setActiveTab(scopeKey, path)}
           onTabClose={handleClose}
-          onTabDirtyChange={(path, dirty) =>
-            setTabDirty(selectedAgent, path, dirty)
-          }
+          onTabDirtyChange={(path, dirty) => setTabDirty(scopeKey, path, dirty)}
           onTabContentChange={(path, content) =>
-            setTabContent(selectedAgent, path, content)
+            setTabContent(scopeKey, path, content)
           }
           onLoadFile={loadTabContent}
           chatId={chatId}
+          projectDirOverride={projectDirOverride}
           navigation={editorNavigation}
           onDownloadFile={async (path) => {
             const tab = tabsRef.current.find((item) => item.path === path);
@@ -394,6 +437,11 @@ export default function FilesWorkspace({
                   headers: {
                     ...buildAuthHeaders(),
                     ...(chatId ? { "X-Chat-Id": chatId } : {}),
+                    ...(!chatId && projectDirOverride
+                      ? {
+                          "X-Session-Project-Dir": projectDirOverride,
+                        }
+                      : {}),
                   },
                   errorMessage: t("files.downloadFailed"),
                 },
@@ -420,6 +468,7 @@ export default function FilesWorkspace({
                 undefined,
                 chatId,
                 tab?.workspaceRoot,
+                projectDirOverride,
               );
               return;
             }

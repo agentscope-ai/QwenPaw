@@ -4,6 +4,7 @@
     "reset": "Đặt lại",
     "cancel": "Hủy",
     "confirm": "Xác nhận",
+    "apply": "Áp dụng",
     "delete": "Xóa",
     "edit": "Chỉnh sửa",
     "create": "Tạo mới",
@@ -841,13 +842,23 @@
     "loadFailed": "Không thể tải tệp. Hãy kiểm tra tệp trong không gian làm việc của tác nhân hiện tại.",
     "previewUnavailable": "Không thể Preview. Siêu dữ liệu và tải xuống vẫn khả dụng.",
     "mentionInChat": "Đề cập trong Chat",
-    "expandWorkspace": "Mở rộng workspace"
+    "expandWorkspace": "Mở rộng workspace",
+    "openWorkspace": "Mở workspace",
+    "closeWorkspace": "Đóng workspace"
   },
   "projectDirectory": {
+    "agentTitle": "Thư mục dự án của tác nhân",
     "sessionTitle": "Thư mục dự án của phiên",
-    "sessionDescription": "Lượt chạy tiếp theo dùng thư mục này cho tệp và lệnh.",
     "pathPlaceholder": "Nhập đường dẫn thư mục tuyệt đối",
+    "recentProjects": "Dự án gần đây",
+    "browseDirectory": "Duyệt thư mục",
+    "noRecentProjects": "Chưa có dự án gần đây",
+    "clearSelection": "Xóa dự án đã chọn",
+    "homeDirectory": "Thư mục chính",
+    "parentDirectory": "Thư mục cha",
+    "refreshDirectory": "Làm mới thư mục",
     "inheritAgent": "Kế thừa mặc định của tác nhân",
+    "useWorkspace": "Sử dụng thư mục cấu hình",
     "createSessionHint": "Gửi tin nhắn đầu tiên để đặt thư mục riêng cho phiên.",
     "sessionSource": "Phiên",
     "agentSource": "Tác nhân"

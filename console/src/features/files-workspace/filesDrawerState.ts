@@ -13,17 +13,9 @@ export function filesDrawerReducer(
         target: event.target,
         trigger: event.trigger,
       };
-    case "OPEN_FILES":
-      return {
-        kind: "workspace",
-        origin: "files",
-        target: event.target,
-        trigger: event.trigger,
-      };
     case "OPEN_WORKSPACE":
       return {
         kind: "workspace",
-        origin: "chat",
         target: event.target,
         trigger: event.trigger,
       };
@@ -31,13 +23,12 @@ export function filesDrawerReducer(
       return state.kind === "preview"
         ? {
             kind: "workspace",
-            origin: "chat",
             target: state.target,
             trigger: state.trigger,
           }
         : state;
     case "COLLAPSE_TO_PREVIEW":
-      return state.kind === "workspace" && state.origin === "chat"
+      return state.kind === "workspace" && state.target
         ? {
             kind: "preview",
             target: state.target,

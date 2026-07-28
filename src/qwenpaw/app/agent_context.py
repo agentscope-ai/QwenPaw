@@ -182,6 +182,18 @@ async def get_project_dir_for_request(
 
             raise HTTPException(status_code=404, detail="Chat not found")
         session_override = session_project_dir(chat.meta)
+    else:
+        pending_override = request.headers.get("X-Session-Project-Dir")
+        if pending_override:
+            pending_path = Path(pending_override).expanduser().resolve()
+            if not pending_path.is_dir():
+                from fastapi import HTTPException
+
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Project directory is unavailable: {pending_path}",
+                )
+            session_override = str(pending_path)
 
     return resolve_effective_project_dir(
         workspace.workspace_dir,

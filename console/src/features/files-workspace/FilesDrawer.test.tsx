@@ -17,7 +17,40 @@ vi.mock("../../api/modules/workspace", () => ({
   },
 }));
 
+vi.mock("./FilesWorkspace", () => ({
+  default: () => <div data-testid="files-workspace" />,
+}));
+
 describe("FilesDrawer", () => {
+  it("does not repeat the Workspace label in the expanded header", async () => {
+    renderWithProviders(
+      <FilesDrawer
+        state={{
+          kind: "workspace",
+          target: {
+            source: "workspace",
+            path: "hello.txt",
+            root: "project",
+          },
+          trigger: null,
+        }}
+        dispatch={vi.fn()}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "session-1",
+        }}
+      />,
+    );
+
+    expect(await screen.findByTestId("files-workspace")).toBeInTheDocument();
+    expect(
+      screen.queryByText((content) =>
+        ["工作区", "Workspace", "files.workspace"].includes(content),
+      ),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps Preview open after inserting a file reference", async () => {
     const dispatch = vi.fn();
     const user = userEvent.setup();
@@ -37,7 +70,11 @@ describe("FilesDrawer", () => {
             trigger: null,
           }}
           dispatch={dispatch}
-          sessionId="session-1"
+          scope={{
+            kind: "session",
+            agentId: "default",
+            sessionId: "session-1",
+          }}
         />
       </>,
     );

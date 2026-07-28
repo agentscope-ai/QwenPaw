@@ -2,8 +2,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TabbedEditor from "./TabbedEditor";
-import { useAgentStore } from "../../stores/agentStore";
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
+
+const SCOPE_KEY = "agent:default";
 
 vi.mock("@monaco-editor/react", () => ({
   default: ({
@@ -35,9 +36,11 @@ function Harness({
 }: {
   onSaveFile: (path: string, content: string) => Promise<void>;
 }) {
-  const tabs = useCodingTabsStore((state) => state.tabsByAgent.default ?? []);
+  const tabs = useCodingTabsStore(
+    (state) => state.tabsByAgent[SCOPE_KEY] ?? [],
+  );
   const activeTabPath = useCodingTabsStore(
-    (state) => state.activeTabByAgent.default ?? "",
+    (state) => state.activeTabByAgent[SCOPE_KEY] ?? "",
   );
   const store = useCodingTabsStore();
 
@@ -45,13 +48,14 @@ function Harness({
     <TabbedEditor
       tabs={tabs}
       activeTabPath={activeTabPath}
-      onTabSelect={(path) => store.setActiveTab("default", path)}
-      onTabClose={(path) => store.closeTab("default", path)}
+      scopeKey={SCOPE_KEY}
+      onTabSelect={(path) => store.setActiveTab(SCOPE_KEY, path)}
+      onTabClose={(path) => store.closeTab(SCOPE_KEY, path)}
       onTabDirtyChange={(path, dirty) =>
-        store.setTabDirty("default", path, dirty)
+        store.setTabDirty(SCOPE_KEY, path, dirty)
       }
       onTabContentChange={(path, content) =>
-        store.setTabContent("default", path, content)
+        store.setTabContent(SCOPE_KEY, path, content)
       }
       onSaveFile={onSaveFile}
     />
@@ -60,14 +64,13 @@ function Harness({
 
 describe("TabbedEditor diff resolution", () => {
   beforeEach(() => {
-    useAgentStore.setState({ selectedAgent: "default", agents: [] });
     useCodingTabsStore.setState({
       tabsByAgent: {
-        default: [{ path: "hello.txt", content: "original", dirty: false }],
+        [SCOPE_KEY]: [{ path: "hello.txt", content: "original", dirty: false }],
       },
-      activeTabByAgent: { default: "hello.txt" },
+      activeTabByAgent: { [SCOPE_KEY]: "hello.txt" },
       diffsByAgent: {
-        default: {
+        [SCOPE_KEY]: {
           "hello.txt": { original: "original", modified: "changed" },
         },
       },
@@ -84,7 +87,7 @@ describe("TabbedEditor diff resolution", () => {
     await waitFor(() => {
       expect(onSaveFile).toHaveBeenCalledWith("hello.txt", "original");
       expect(
-        useCodingTabsStore.getState().diffsByAgent.default,
+        useCodingTabsStore.getState().diffsByAgent[SCOPE_KEY],
       ).not.toHaveProperty("hello.txt");
     });
 

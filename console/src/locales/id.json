@@ -4,6 +4,7 @@
     "reset": "Atur ulang",
     "cancel": "Batal",
     "confirm": "Konfirmasi",
+    "apply": "Terapkan",
     "delete": "Hapus",
     "edit": "Edit",
     "create": "Buat",
@@ -1953,13 +1954,23 @@
     "loadFailed": "Gagal memuat file. Pastikan file masih berada di ruang kerja agen saat ini.",
     "previewUnavailable": "Preview tidak tersedia. Metadata dan unduhan tetap tersedia.",
     "mentionInChat": "Sebutkan di Chat",
-    "expandWorkspace": "Perluas workspace"
+    "expandWorkspace": "Perluas workspace",
+    "openWorkspace": "Buka workspace",
+    "closeWorkspace": "Tutup workspace"
   },
   "projectDirectory": {
+    "agentTitle": "Direktori proyek Agen",
     "sessionTitle": "Direktori proyek Sesi",
-    "sessionDescription": "Putaran Agen berikutnya memakai direktori ini untuk file dan perintah.",
     "pathPlaceholder": "Masukkan path direktori absolut",
+    "recentProjects": "Proyek terbaru",
+    "browseDirectory": "Telusuri direktori",
+    "noRecentProjects": "Belum ada proyek terbaru",
+    "clearSelection": "Hapus pilihan proyek",
+    "homeDirectory": "Direktori utama",
+    "parentDirectory": "Direktori induk",
+    "refreshDirectory": "Segarkan direktori",
     "inheritAgent": "Warisi default Agen",
+    "useWorkspace": "Gunakan direktori konfigurasi",
     "createSessionHint": "Kirim pesan pertama untuk menetapkan direktori khusus Sesi.",
     "sessionSource": "Sesi",
     "agentSource": "Default Agen"

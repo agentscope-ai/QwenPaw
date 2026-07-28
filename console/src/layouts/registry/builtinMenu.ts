@@ -133,7 +133,7 @@ export const BUILTIN_MENU: MenuItem[] = [
     parentId: "core.workspace-group",
     label: navLabel("nav.files"),
     icon: Files,
-    route: "core.chat",
+    route: "core.files",
     order: 5,
   },
   {

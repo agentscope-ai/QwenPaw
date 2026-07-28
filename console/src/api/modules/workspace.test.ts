@@ -46,6 +46,60 @@ describe("workspaceApi.listDirectory", () => {
       { headers: {} },
     );
   });
+
+  it("sends a validated pending directory for a new Session", async () => {
+    vi.mocked(request).mockResolvedValue({
+      directory: "",
+      entries: [],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    await workspaceApi.listDirectory(
+      "",
+      undefined,
+      200,
+      undefined,
+      "project",
+      "/projects/session",
+    );
+
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/tree?path=&limit=200&root=project",
+      {
+        headers: {
+          "X-Session-Project-Dir": "/projects/session",
+        },
+      },
+    );
+  });
+
+  it("prefers a persisted Chat id over a pending directory header", async () => {
+    vi.mocked(request).mockResolvedValue({
+      directory: "",
+      entries: [],
+      next_cursor: null,
+      has_more: false,
+    });
+
+    await workspaceApi.listDirectory(
+      "",
+      undefined,
+      200,
+      "chat-1",
+      "project",
+      "/projects/pending",
+    );
+
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/tree?path=&limit=200&root=project",
+      {
+        headers: {
+          "X-Chat-Id": "chat-1",
+        },
+      },
+    );
+  });
 });
 
 describe("workspaceApi.getWatchUrl", () => {

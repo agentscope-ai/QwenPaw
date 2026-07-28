@@ -43,6 +43,7 @@ function _emit(key: string, events: FileChangeEvent[]) {
 async function _runLoop(
   key: string,
   chatId: string | undefined,
+  projectDirOverride: string | undefined,
   root: WorkspaceRoot,
   signal: AbortSignal,
 ) {
@@ -56,6 +57,9 @@ async function _runLoop(
         headers: {
           ...buildAuthHeaders(),
           ...(chatId ? { "X-Chat-Id": chatId } : {}),
+          ...(!chatId && projectDirOverride
+            ? { "X-Session-Project-Dir": projectDirOverride }
+            : {}),
         },
         signal,
       });
@@ -110,13 +114,14 @@ async function _runLoop(
 function _ensureConnected(
   key: string,
   chatId: string | undefined,
+  projectDirOverride: string | undefined,
   root: WorkspaceRoot,
 ) {
   if (_running.has(key)) return;
   _running.add(key);
   const controller = new AbortController();
   _controllers.set(key, controller);
-  void _runLoop(key, chatId, root, controller.signal);
+  void _runLoop(key, chatId, projectDirOverride, root, controller.signal);
 }
 
 function _maybeDisconnect(key: string) {
@@ -141,6 +146,7 @@ export function useWorkspaceWatch(
   enabled = true,
   chatId?: string,
   root: WorkspaceRoot = "project",
+  projectDirOverride?: string,
 ): void {
   // Stable ref so callers don't need to memoize the callback.
   const callbackRef = useRef<FileChangeCallback>(onFileChange);
@@ -153,15 +159,15 @@ export function useWorkspaceWatch(
     const listener: FileChangeCallback = (events) =>
       callbackRef.current(events);
 
-    const key = `${chatId ?? ""}:${root}`;
+    const key = `${chatId ?? ""}:${projectDirOverride ?? ""}:${root}`;
     const listeners = _listeners.get(key) ?? new Set<FileChangeCallback>();
     listeners.add(listener);
     _listeners.set(key, listeners);
-    _ensureConnected(key, chatId, root);
+    _ensureConnected(key, chatId, projectDirOverride, root);
 
     return () => {
       listeners.delete(listener);
       _maybeDisconnect(key);
     };
-  }, [chatId, enabled, root]);
+  }, [chatId, enabled, projectDirOverride, root]);
 }

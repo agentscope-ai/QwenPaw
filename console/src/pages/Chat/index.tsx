@@ -3,14 +3,7 @@ import {
   IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { useIsMobile } from "../../hooks/useIsMobile";
@@ -81,22 +74,31 @@ import {
 import FilesDrawer from "../../features/files-workspace/FilesDrawer";
 import SessionProjectDirectory from "../../features/project-directory/SessionProjectDirectory";
 import {
-  CLOSED_FILES_DRAWER,
-  filesDrawerReducer,
-} from "../../features/files-workspace/filesDrawerState";
+  sessionFilesScopeKey,
+  type FilesWorkspaceScope,
+} from "../../features/files-workspace/filesWorkspaceScope";
 import {
   filePathFromPreviewUrl,
   parseInternalFileLink,
   rootForFileReference,
 } from "../../features/files-workspace/internalFileLinks";
-import type { FileTarget } from "../../features/files-workspace/types";
+import type {
+  FilesDrawerEvent,
+  FileTarget,
+} from "../../features/files-workspace/types";
 import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import {
+  getPendingProjectDirectory,
   migratePendingProjectDirectory,
   setPendingProjectDirectory,
   withPendingProjectDirectory,
 } from "../../features/project-directory/pendingProjectDirectory";
+import {
+  useFilesSurfaceStore,
+  useSessionFilesDrawer,
+} from "../../stores/filesSurfaceStore";
+import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import RichFileReferenceInput, {
   RichFileReferenceInputProvider,
 } from "./RichFileReferenceInput";
@@ -1122,32 +1124,60 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark } = useTheme();
-  const loopAvailableModes = useLoopStore((state) => state.availableModes);
-  const [filesDrawerState, dispatchFilesDrawer] = useReducer(
-    filesDrawerReducer,
-    CLOSED_FILES_DRAWER,
+  const { selectedAgent } = useAgentStore();
+  const chatId = useMemo(
+    () => getSessionIdFromPath(location.pathname),
+    [location.pathname],
   );
-
-  useEffect(() => {
-    const openFiles = (event: Event) => {
-      const customEvent = event as CustomEvent<{
-        trigger?: HTMLElement | null;
-      }>;
-      dispatchFilesDrawer({
-        type: "OPEN_FILES",
-        trigger: customEvent.detail?.trigger ?? null,
-      });
-    };
-    window.addEventListener("qwenpaw:open-files", openFiles);
-    if (sessionStorage.getItem("qwenpaw-open-files") === "true") {
-      sessionStorage.removeItem("qwenpaw-open-files");
-      dispatchFilesDrawer({
-        type: "OPEN_FILES",
-        trigger: null,
-      });
+  const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
+  const backendChatId = resolveBackendChatId(chatId);
+  const pendingProjectDir = backendChatId
+    ? undefined
+    : getPendingProjectDirectory(selectedAgent, queueSessionId) ?? undefined;
+  const sessionScope = useMemo<
+    Extract<FilesWorkspaceScope, { kind: "session" }>
+  >(
+    () => ({
+      kind: "session",
+      agentId: selectedAgent,
+      sessionId: queueSessionId,
+      chatId: backendChatId,
+      projectDirOverride: pendingProjectDir,
+    }),
+    [backendChatId, pendingProjectDir, queueSessionId, selectedAgent],
+  );
+  const currentSessionFilesScopeKey = sessionFilesScopeKey(
+    selectedAgent,
+    queueSessionId,
+  );
+  const filesDrawerState = useSessionFilesDrawer(currentSessionFilesScopeKey);
+  const dispatchFilesDrawer = useCallback(
+    (event: FilesDrawerEvent) => {
+      useFilesSurfaceStore
+        .getState()
+        .dispatchSession(currentSessionFilesScopeKey, event);
+    },
+    [currentSessionFilesScopeKey],
+  );
+  const filesWorkspaceOpen = filesDrawerState.kind === "workspace";
+  const toggleFilesWorkspace = useCallback(() => {
+    const current = useFilesSurfaceStore.getState().sessionDrawers[
+      currentSessionFilesScopeKey
+    ] ?? { kind: "closed" as const };
+    if (current.kind === "workspace") {
+      dispatchFilesDrawer({ type: "CLOSE" });
+      return;
     }
-    return () => window.removeEventListener("qwenpaw:open-files", openFiles);
-  }, []);
+    if (current.kind === "preview") {
+      dispatchFilesDrawer({ type: "EXPAND_WORKSPACE" });
+      return;
+    }
+    dispatchFilesDrawer({
+      type: "OPEN_WORKSPACE",
+      trigger: null,
+    });
+  }, [currentSessionFilesScopeKey, dispatchFilesDrawer]);
+  const loopAvailableModes = useLoopStore((state) => state.availableModes);
 
   useEffect(() => {
     const openPreview = (event: Event) => {
@@ -1164,7 +1194,7 @@ export default function ChatPage() {
     window.addEventListener("qwenpaw:open-file-preview", openPreview);
     return () =>
       window.removeEventListener("qwenpaw:open-file-preview", openPreview);
-  }, []);
+  }, [dispatchFilesDrawer]);
 
   const handleInternalFileLink = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -1182,7 +1212,7 @@ export default function ChatPage() {
         trigger: anchor,
       });
     },
-    [],
+    [dispatchFilesDrawer],
   );
 
   // Wide mode toggle: expand chat content to full available width
@@ -1209,10 +1239,6 @@ export default function ChatPage() {
     });
   }, []);
 
-  const chatId = useMemo(
-    () => getSessionIdFromPath(location.pathname),
-    [location.pathname],
-  );
   const [showModelPrompt, setShowModelPrompt] = useState(false);
   const [rateLimitAlternatives, setRateLimitAlternatives] = useState<
     Array<{
@@ -1222,13 +1248,6 @@ export default function ChatPage() {
       model_name: string;
     }>
   >([]);
-  const { selectedAgent } = useAgentStore();
-  const drawerAgentRef = useRef(selectedAgent);
-  useEffect(() => {
-    if (drawerAgentRef.current === selectedAgent) return;
-    drawerAgentRef.current = selectedAgent;
-    dispatchFilesDrawer({ type: "CLOSE" });
-  }, [selectedAgent]);
   const { toolRenderConfig } = usePlugins();
   const extScalar = useChatScalarSnapshot();
   const extLists = useChatListSnapshot();
@@ -1238,7 +1257,6 @@ export default function ChatPage() {
     createHeadlineFilterState(),
   );
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
-  const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
   const queueSessionIdRef = useRef(queueSessionId);
   queueSessionIdRef.current = queueSessionId;
   const messageQueue =
@@ -2020,7 +2038,7 @@ export default function ChatPage() {
         trigger: null,
       });
     },
-    [t],
+    [dispatchFilesDrawer, t],
   );
 
   const openInlineFileReference = useCallback(
@@ -2053,7 +2071,7 @@ export default function ChatPage() {
         trigger,
       });
     },
-    [chatId],
+    [chatId, dispatchFilesDrawer],
   );
 
   // Shortcut key for voice recording (Ctrl+Shift+M or Cmd+Shift+M on Mac)
@@ -2125,7 +2143,12 @@ export default function ChatPage() {
 
     sessionApi.onSessionIdResolved = (tempId, realId) => {
       if (!isChatActiveRef.current) return;
-      migratePendingProjectDirectory(selectedAgentRef.current, tempId, realId);
+      const agentId = selectedAgentRef.current;
+      migratePendingProjectDirectory(agentId, tempId, realId);
+      const fromScopeKey = sessionFilesScopeKey(agentId, tempId);
+      const toScopeKey = sessionFilesScopeKey(agentId, realId);
+      useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
+      useFilesSurfaceStore.getState().migrateSession(fromScopeKey, toScopeKey);
       try {
         useMessageQueueStore.getState().migrateQueue(tempId, realId);
       } catch {
@@ -2153,6 +2176,12 @@ export default function ChatPage() {
         // ignore
       }
       stopBackgroundQueue(removedId);
+      const removedScopeKey = sessionFilesScopeKey(
+        selectedAgentRef.current,
+        removedId,
+      );
+      useCodingTabsStore.getState().removeScope(removedScopeKey);
+      useFilesSurfaceStore.getState().removeSession(removedScopeKey);
     };
 
     sessionApi.onSessionSelected = (
@@ -2224,11 +2253,12 @@ export default function ChatPage() {
 
     sessionApi.onSessionCreated = (sessionId) => {
       if (!isChatActiveRef.current) return;
-      migratePendingProjectDirectory(
-        selectedAgentRef.current,
-        "new",
-        sessionId,
-      );
+      const agentId = selectedAgentRef.current;
+      migratePendingProjectDirectory(agentId, "new", sessionId);
+      const fromScopeKey = sessionFilesScopeKey(agentId, "new");
+      const toScopeKey = sessionFilesScopeKey(agentId, sessionId);
+      useCodingTabsStore.getState().migrateScope(fromScopeKey, toScopeKey);
+      useFilesSurfaceStore.getState().migrateSession(fromScopeKey, toScopeKey);
       try {
         useMessageQueueStore.getState().clear("new");
       } catch {
@@ -2505,8 +2535,7 @@ export default function ChatPage() {
     [multimodalCaps, t],
   );
 
-  const compactSender =
-    filesDrawerState.kind === "workspace" && filesDrawerState.origin === "chat";
+  const compactSender = filesDrawerState.kind === "workspace";
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
@@ -2816,6 +2845,8 @@ export default function ChatPage() {
             <span style={{ flex: 1 }} />
             <ModelSelector />
             <ChatActionGroup
+              onToggleWorkspace={toggleFilesWorkspace}
+              workspaceOpen={filesWorkspaceOpen}
               onToggleHistory={
                 effectiveIsFullMode ? toggleHistoryPanel : undefined
               }
@@ -2894,8 +2925,7 @@ export default function ChatPage() {
               onNew={handleNewCommand}
             />
             <SessionProjectDirectory
-              chatId={resolveBackendChatId(chatId)}
-              sessionId={queueSessionId}
+              scope={sessionScope}
               compact={compactSender}
             />
             <ApprovalLevelToggle
@@ -3151,6 +3181,9 @@ export default function ChatPage() {
     handleCompactCommand,
     handleNewCommand,
     compactSender,
+    sessionScope,
+    filesWorkspaceOpen,
+    toggleFilesWorkspace,
   ]);
 
   const filesDrawerClass =
@@ -3158,8 +3191,6 @@ export default function ChatPage() {
       ? ""
       : filesDrawerState.kind === "preview"
       ? styles.filesPreviewOpen
-      : filesDrawerState.origin === "files"
-      ? styles.filesDirectOpen
       : styles.filesWorkspaceOpen;
 
   return (
@@ -3167,14 +3198,13 @@ export default function ChatPage() {
       className={`${styles.chatPageRoot} ${filesDrawerClass}`}
       onClickCapture={handleInternalFileLink}
     >
-      {filesDrawerState.kind !== "closed" && (
+      {filesDrawerState.kind !== "closed" ? (
         <FilesDrawer
           state={filesDrawerState}
           dispatch={dispatchFilesDrawer}
-          chatId={resolveBackendChatId(chatId)}
-          sessionId={queueSessionId}
+          scope={sessionScope}
         />
-      )}
+      ) : null}
       {/* Main chat area */}
       <div className={styles.chatMainArea}>
         <div

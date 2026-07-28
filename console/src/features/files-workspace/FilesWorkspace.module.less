@@ -248,24 +248,20 @@
 }
 
 .navigatorHeader {
-  min-height: 92px;
-  padding: 10px 12px;
+  padding: 10px 10px 8px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 7px;
-
-  strong {
-    font-size: 13px;
-    font-weight: 650;
-  }
 }
 
-.navigatorLocation {
-  min-width: 0;
+.navigatorHeaderCompact {
+  padding-bottom: 4px;
+}
+
+.directoryToolbar {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: stretch;
+  gap: 6px;
 }
 
 .navigatorActions {
@@ -276,19 +272,83 @@
   gap: 5px;
 }
 
+.directoryTools {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.directoryContext {
+  min-width: 0;
+  min-height: 58px;
+  flex: 1;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid
+    color-mix(in srgb, var(--files-accent) 16%, var(--files-line));
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--files-accent) 7%, var(--files-bg)),
+    var(--files-bg)
+  );
+  box-shadow:
+    0 1px 2px rgba(56, 38, 25, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+
+  &[data-root="workspace"] {
+    border-color: color-mix(in srgb, #7867b8 18%, var(--files-line));
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, #7867b8 8%, var(--files-bg)),
+      var(--files-bg)
+    );
+  }
+}
+
+.directoryContextIcon {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--files-accent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--files-accent) 11%, transparent);
+
+  .directoryContext[data-root="workspace"] & {
+    color: #7867b8;
+    background: color-mix(in srgb, #7867b8 12%, transparent);
+  }
+}
+
+.directoryContextBody {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.directoryContextLabel {
+  overflow: hidden;
+  color: var(--files-muted);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .directoryIdentity {
   min-width: 0;
-  width: fit-content;
-  max-width: 100%;
-  padding: 5px 7px;
   display: flex;
   align-items: center;
-  gap: 7px;
-  color: #6f5eaa;
-  border: 1px solid color-mix(in srgb, #7867b8 16%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, #7867b8 7%, var(--files-bg));
-  box-shadow: 0 1px 2px color-mix(in srgb, #7867b8 7%, transparent);
 }
 
 .directoryIdentityText {
@@ -317,37 +377,25 @@
   }
 }
 
-.rootSwitch {
-  width: fit-content;
-  height: 27px;
-  padding: 0 8px;
+.directorySwitch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  font-size: 10px;
-  font-weight: 650;
+  justify-content: center;
+  color: var(--files-muted);
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
   cursor: pointer;
   transition:
     background 150ms ease,
-    border-color 150ms ease,
     color 150ms ease;
 
-  &[data-root="project"] {
+  &:hover {
     color: var(--files-accent);
-    border-color: color-mix(in srgb, var(--files-accent) 18%, transparent);
     background: var(--files-accent-soft);
-  }
-
-  &[data-root="workspace"] {
-    color: #7867b8;
-    border-color: color-mix(in srgb, #7867b8 18%, transparent);
-    background: #efebfb;
-  }
-
-  &:disabled {
-    cursor: default;
   }
 }
 
@@ -496,14 +544,6 @@
     border-color: #c96a5c;
     background: #fff5f3;
   }
-}
-
-.eyebrow {
-  color: var(--files-muted);
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
 }
 
 .sourceTabs {
@@ -673,17 +713,12 @@
     }
   }
 
-  .rootSwitch[data-root="workspace"] {
-    color: #b8a8ee;
-    border-color: color-mix(in srgb, #b8a8ee 20%, transparent);
-    background: #302946;
-  }
-
-  .directoryIdentity {
-    color: #c2b4ef;
-    border-color: color-mix(in srgb, #b8a8ee 22%, transparent);
-    background: #2c263d;
+  .directoryContext {
     box-shadow: none;
+
+    &[data-root="workspace"] {
+      border-color: color-mix(in srgb, #b8a8ee 20%, var(--files-line));
+    }
   }
 
   .directoryIdentityText {
@@ -762,6 +797,17 @@
   .navigator {
     width: 42%;
     min-width: 156px;
+  }
+
+  .workspaceEmpty {
+    .navigator {
+      width: 100%;
+      min-width: 0;
+    }
+
+    .documentSurface {
+      display: none;
+    }
   }
 
   .activityRail {

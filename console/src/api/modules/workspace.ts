@@ -56,10 +56,16 @@ function workspaceQuery(
   return `${path}?${query.toString()}`;
 }
 
-function projectHeaders(chatId?: string): Record<string, string> {
+function projectHeaders(
+  chatId?: string,
+  projectDirOverride?: string,
+): Record<string, string> {
   return {
     ...buildAuthHeaders(),
     ...(chatId ? { "X-Chat-Id": chatId } : {}),
+    ...(!chatId && projectDirOverride
+      ? { "X-Session-Project-Dir": projectDirOverride }
+      : {}),
   };
 }
 
@@ -80,20 +86,22 @@ export const workspaceApi = {
     limit = 200,
     chatId?: string,
     root: WorkspaceRoot = "project",
+    projectDirOverride?: string,
   ): Promise<DirectoryPage> =>
     request<DirectoryPage>(
       workspaceQuery("/workspace/tree", { path, cursor, limit, root }),
-      { headers: projectHeaders(chatId) },
+      { headers: projectHeaders(chatId, projectDirOverride) },
     ),
 
   getFileMetadata: (
     path: string,
     chatId?: string,
     root: WorkspaceRoot = "project",
+    projectDirOverride?: string,
   ): Promise<FileMetadata> =>
     request<FileMetadata>(
       workspaceQuery("/workspace/file-metadata", { path, root }),
-      { headers: projectHeaders(chatId) },
+      { headers: projectHeaders(chatId, projectDirOverride) },
     ),
 
   loadFileChunk: (
@@ -102,6 +110,7 @@ export const workspaceApi = {
     limit = 256 * 1024,
     chatId?: string,
     root: WorkspaceRoot = "project",
+    projectDirOverride?: string,
   ) =>
     request<{
       path: string;
@@ -120,13 +129,14 @@ export const workspaceApi = {
         limit,
         root,
       }),
-      { headers: projectHeaders(chatId) },
+      { headers: projectHeaders(chatId, projectDirOverride) },
     ),
 
   loadFileText: async (
     path: string,
     chatId?: string,
     root: WorkspaceRoot = "project",
+    projectDirOverride?: string,
   ): Promise<string> => {
     const chunks: string[] = [];
     let offset = 0;
@@ -137,6 +147,7 @@ export const workspaceApi = {
         256 * 1024,
         chatId,
         root,
+        projectDirOverride,
       );
       chunks.push(chunk.content);
       if (chunk.eof) return chunks.join("");
@@ -153,6 +164,7 @@ export const workspaceApi = {
     etag?: string,
     chatId?: string,
     root: WorkspaceRoot = "project",
+    projectDirOverride?: string,
   ): Promise<{ path: string; size: number; etag: string }> => {
     const response = await fetch(
       getApiUrl(workspaceQuery("/workspace/file-content", { path, root })),
@@ -160,7 +172,7 @@ export const workspaceApi = {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          ...projectHeaders(chatId),
+          ...projectHeaders(chatId, projectDirOverride),
           ...(etag ? { "If-Match": etag } : {}),
         },
         body: JSON.stringify({ content }),
@@ -181,6 +193,7 @@ export const workspaceApi = {
     conflict?: "overwrite" | "skip" | "rename",
     chatId?: string,
     root: WorkspaceRoot = "project",
+    projectDirOverride?: string,
   ): Promise<{
     files: Array<{
       name: string;
@@ -201,7 +214,7 @@ export const workspaceApi = {
       ),
       {
         method: "POST",
-        headers: projectHeaders(chatId),
+        headers: projectHeaders(chatId, projectDirOverride),
         body: formData,
       },
     );

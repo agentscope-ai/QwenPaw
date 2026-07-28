@@ -50,6 +50,7 @@ const PluginManagerPage = lazyImportWithRetry(
   "../../pages/Settings/PluginManager",
 );
 const AppCenterPage = lazyImportWithRetry("../../pages/AppCenter");
+const FilesPage = lazyImportWithRetry("../../pages/Files");
 
 /**
  * "/" always lands on the canonical Chat workspace.
@@ -66,6 +67,7 @@ function ACPRedirect() {
 export const BUILTIN_ROUTES: Route[] = [
   { id: "core.root", path: "/", component: DefaultRedirect },
   { id: "core.chat", path: "/chat/*", component: Chat },
+  { id: "core.files", path: "/files", component: FilesPage },
   { id: "core.channels", path: "/channels", component: ChannelsPage },
   { id: "core.sessions", path: "/sessions", component: SessionsPage },
   { id: "core.inbox", path: "/inbox", component: InboxPage },

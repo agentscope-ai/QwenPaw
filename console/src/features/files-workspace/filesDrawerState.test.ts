@@ -13,7 +13,7 @@ describe("filesDrawerReducer", () => {
     expect(preview.kind).toBe("preview");
     expect(
       filesDrawerReducer(preview, { type: "EXPAND_WORKSPACE" }),
-    ).toMatchObject({ kind: "workspace", origin: "chat", target });
+    ).toMatchObject({ kind: "workspace", target });
   });
 
   it("expands a message attachment into the same workspace", () => {
@@ -32,7 +32,6 @@ describe("filesDrawerReducer", () => {
       filesDrawerReducer(preview, { type: "EXPAND_WORKSPACE" }),
     ).toMatchObject({
       kind: "workspace",
-      origin: "chat",
       target: attachment,
     });
   });
@@ -40,7 +39,6 @@ describe("filesDrawerReducer", () => {
   it("separates collapse from direct close", () => {
     const workspace = {
       kind: "workspace" as const,
-      origin: "chat" as const,
       target,
       trigger: null,
     };
@@ -54,15 +52,6 @@ describe("filesDrawerReducer", () => {
     );
   });
 
-  it("opens direct Files without an intermediate Preview", () => {
-    expect(
-      filesDrawerReducer(CLOSED_FILES_DRAWER, {
-        type: "OPEN_FILES",
-        trigger: null,
-      }),
-    ).toMatchObject({ kind: "workspace", origin: "files" });
-  });
-
   it("opens an editor reference directly in the Chat workspace", () => {
     const lineTarget = { ...target, line: 12, endLine: 18 };
     expect(
@@ -73,8 +62,26 @@ describe("filesDrawerReducer", () => {
       }),
     ).toMatchObject({
       kind: "workspace",
-      origin: "chat",
       target: lineTarget,
     });
+  });
+
+  it("opens and closes an empty Workspace from the Chat header", () => {
+    const workspace = filesDrawerReducer(CLOSED_FILES_DRAWER, {
+      type: "OPEN_WORKSPACE",
+      trigger: null,
+    });
+
+    expect(workspace).toEqual({
+      kind: "workspace",
+      target: undefined,
+      trigger: null,
+    });
+    expect(filesDrawerReducer(workspace, { type: "COLLAPSE_TO_PREVIEW" })).toBe(
+      workspace,
+    );
+    expect(filesDrawerReducer(workspace, { type: "CLOSE" })).toEqual(
+      CLOSED_FILES_DRAWER,
+    );
   });
 });

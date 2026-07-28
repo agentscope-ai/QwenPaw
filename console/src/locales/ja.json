@@ -4,6 +4,7 @@
     "reset": "リセット",
     "cancel": "キャンセル",
     "confirm": "確認",
+    "apply": "適用",
     "delete": "削除",
     "edit": "編集",
     "create": "作成",
@@ -1525,13 +1526,23 @@
     "loadFailed": "ファイルを読み込めませんでした。現在のエージェントワークスペースにファイルがあることを確認してください。",
     "previewUnavailable": "プレビューできません。メタデータの表示とダウンロードは利用できます。",
     "mentionInChat": "チャットで参照",
-    "expandWorkspace": "ワークスペースを展開"
+    "expandWorkspace": "ワークスペースを展開",
+    "openWorkspace": "ワークスペースを開く",
+    "closeWorkspace": "ワークスペースを閉じる"
   },
   "projectDirectory": {
+    "agentTitle": "エージェントのプロジェクトディレクトリ",
     "sessionTitle": "セッションのプロジェクトディレクトリ",
-    "sessionDescription": "次の実行では、このディレクトリをファイルとコマンドの基準にします。",
     "pathPlaceholder": "絶対ディレクトリパスを入力",
+    "recentProjects": "最近のプロジェクト",
+    "browseDirectory": "ディレクトリを参照",
+    "noRecentProjects": "最近のプロジェクトはありません",
+    "clearSelection": "選択したプロジェクトを解除",
+    "homeDirectory": "ホームディレクトリ",
+    "parentDirectory": "親ディレクトリ",
+    "refreshDirectory": "ディレクトリを更新",
     "inheritAgent": "エージェントの既定値を継承",
+    "useWorkspace": "設定ディレクトリを使用",
     "createSessionHint": "最初のメッセージ送信後にセッション専用ディレクトリを設定できます。",
     "sessionSource": "セッション",
     "agentSource": "エージェント既定"

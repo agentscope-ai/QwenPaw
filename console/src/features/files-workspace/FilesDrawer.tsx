@@ -21,6 +21,7 @@ import FilePreview, { isPreviewable } from "../../pages/Coding/FilePreview";
 import { setTextareaValue } from "../../pages/Chat/utils";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import type { FileMetadata, FilesDrawerEvent, FilesDrawerState } from "./types";
+import type { FilesWorkspaceScope } from "./filesWorkspaceScope";
 import styles from "./FilesWorkspace.module.less";
 
 const PREVIEW_WIDTH_STORAGE_KEY = "qwenpaw-files-preview-width";
@@ -32,8 +33,7 @@ const FilesWorkspace = lazy(() => import("./FilesWorkspace"));
 interface FilesDrawerProps {
   state: Exclude<FilesDrawerState, { kind: "closed" }>;
   dispatch: (event: FilesDrawerEvent) => void;
-  chatId?: string;
-  sessionId: string;
+  scope: Extract<FilesWorkspaceScope, { kind: "session" }>;
 }
 
 function insertFileReference(path: string): void {
@@ -59,8 +59,7 @@ function insertFileReference(path: string): void {
 export default function FilesDrawer({
   state,
   dispatch,
-  chatId,
-  sessionId,
+  scope,
 }: FilesDrawerProps) {
   const { t } = useTranslation();
   const drawerRef = useRef<HTMLElement>(null);
@@ -69,7 +68,8 @@ export default function FilesDrawer({
   const [loading, setLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const isWorkspace = state.kind === "workspace";
-  const isDirect = isWorkspace && state.origin === "files";
+  const chatId = scope.chatId;
+  const projectDirOverride = scope.projectDirOverride;
   const target = state.target;
   const widthStorageKey = isWorkspace
     ? WORKSPACE_WIDTH_STORAGE_KEY
@@ -146,7 +146,7 @@ export default function FilesDrawer({
         })
       : target.source === "workspace"
       ? workspaceApi
-          .getFileMetadata(target.path, chatId, target.root)
+          .getFileMetadata(target.path, chatId, target.root, projectDirOverride)
           .then(async (nextMetadata) => ({
             metadata: nextMetadata,
             content:
@@ -156,6 +156,7 @@ export default function FilesDrawer({
                     target.path,
                     chatId,
                     target.root,
+                    projectDirOverride,
                   )
                 : "",
           }))
@@ -199,7 +200,7 @@ export default function FilesDrawer({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [chatId, target]);
+  }, [chatId, projectDirOverride, target]);
 
   const resizeFromPointer = (event: React.PointerEvent) => {
     event.preventDefault();
@@ -226,8 +227,7 @@ export default function FilesDrawer({
     window.addEventListener("pointerup", up);
   };
 
-  const drawerStyle =
-    width > 0 && !isDirect ? { width: `${width}px` } : undefined;
+  const drawerStyle = width > 0 ? { width: `${width}px` } : undefined;
   const filename = target?.path.split("/").pop() ?? t("files.title");
 
   return (
@@ -235,63 +235,61 @@ export default function FilesDrawer({
       ref={drawerRef}
       className={`${styles.drawer} ${
         isWorkspace ? styles.drawerWorkspace : styles.drawerPreview
-      } ${isDirect ? styles.drawerDirect : ""}`}
+      }`}
       style={drawerStyle}
       role="region"
       aria-label={t("files.title")}
       tabIndex={-1}
     >
-      {!isDirect && (
-        <div
-          className={styles.resizeHandle}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={t("files.resize")}
-          aria-valuenow={Math.round(width)}
-          tabIndex={0}
-          onPointerDown={resizeFromPointer}
-          onKeyDown={(event) => {
-            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-              return;
-            }
-            event.preventDefault();
-            setWidth((current) => {
-              const base = current || 640;
-              const containerWidth =
-                drawerRef.current?.parentElement?.getBoundingClientRect()
-                  .width ?? window.innerWidth;
-              const maximum = Math.max(
+      <div
+        className={styles.resizeHandle}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t("files.resize")}
+        aria-valuenow={Math.round(width)}
+        tabIndex={0}
+        onPointerDown={resizeFromPointer}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+            return;
+          }
+          event.preventDefault();
+          setWidth((current) => {
+            const base = current || 640;
+            const containerWidth =
+              drawerRef.current?.parentElement?.getBoundingClientRect().width ??
+              window.innerWidth;
+            const maximum = Math.max(
+              MIN_DRAWER_WIDTH,
+              containerWidth - MIN_CHAT_WIDTH,
+            );
+            const next = Math.min(
+              Math.max(
                 MIN_DRAWER_WIDTH,
-                containerWidth - MIN_CHAT_WIDTH,
-              );
-              const next = Math.min(
-                Math.max(
-                  MIN_DRAWER_WIDTH,
-                  base + (event.key === "ArrowRight" ? 24 : -24),
-                ),
-                maximum,
-              );
-              localStorage.setItem(widthStorageKey, String(next));
-              return next;
-            });
-          }}
-        />
-      )}
+                base + (event.key === "ArrowRight" ? 24 : -24),
+              ),
+              maximum,
+            );
+            localStorage.setItem(widthStorageKey, String(next));
+            return next;
+          });
+        }}
+      />
       <header className={styles.drawerHeader}>
         <div className={styles.fileMark}>
           <FileText size={17} />
         </div>
         <div className={styles.drawerTitle}>
           <strong>{filename}</strong>
-          <span>
-            {isWorkspace
-              ? t("files.workspace")
-              : metadata
-              ? t("files.previewSize", { size: metadata.size })
-              : t("files.preview")}
-          </span>
+          {!isWorkspace && (
+            <span>
+              {metadata
+                ? t("files.previewSize", { size: metadata.size })
+                : t("files.preview")}
+            </span>
+          )}
         </div>
-        {isWorkspace && state.origin === "chat" && (
+        {isWorkspace && target && (
           <button
             type="button"
             className={styles.secondaryButton}
@@ -315,6 +313,11 @@ export default function FilesDrawer({
                   headers: {
                     ...buildAuthHeaders(),
                     ...(chatId ? { "X-Chat-Id": chatId } : {}),
+                    ...(!chatId && projectDirOverride
+                      ? {
+                          "X-Session-Project-Dir": projectDirOverride,
+                        }
+                      : {}),
                   },
                   errorMessage: t("files.downloadFailed"),
                 },
@@ -338,11 +341,7 @@ export default function FilesDrawer({
         <Suspense
           fallback={<div className={styles.empty}>{t("common.loading")}</div>}
         >
-          <FilesWorkspace
-            initialTarget={target}
-            chatId={chatId}
-            sessionId={sessionId}
-          />
+          <FilesWorkspace initialTarget={target} scope={scope} />
         </Suspense>
       ) : (
         <>

@@ -39,11 +39,10 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { setTextareaValue } from "../Chat/utils";
 import { clearLastEditorCopy, setLastEditorCopy } from "./lastEditorCopy";
 import {
-  useCurrentDiffs,
   useCodingTabsStore,
+  useDiffsForScope,
   type EditorTab,
 } from "../../stores/codingTabsStore";
-import { useAgentStore } from "../../stores/agentStore";
 import {
   detectCopyMode,
   formatSelectionForChat,
@@ -61,6 +60,7 @@ export type { EditorTab };
 interface TabbedEditorProps {
   tabs: EditorTab[];
   activeTabPath: string;
+  scopeKey: string;
   onTabSelect: (path: string) => void;
   onTabClose: (path: string) => void;
   onTabDirtyChange: (path: string, dirty: boolean) => void;
@@ -70,6 +70,7 @@ interface TabbedEditorProps {
   onSaveFile?: (path: string, content: string) => Promise<void>;
   onDownloadFile?: (path: string) => Promise<void>;
   chatId?: string;
+  projectDirOverride?: string;
   navigation?: {
     path: string;
     line: number;
@@ -171,6 +172,7 @@ function applyUndoHunk(original: string, modified: string, hunk: Hunk): string {
 export default function TabbedEditor({
   tabs,
   activeTabPath,
+  scopeKey,
   onTabSelect,
   onTabClose,
   onTabDirtyChange,
@@ -180,6 +182,7 @@ export default function TabbedEditor({
   onSaveFile,
   onDownloadFile,
   chatId,
+  projectDirOverride,
   navigation,
 }: TabbedEditorProps) {
   const { t } = useTranslation();
@@ -290,8 +293,7 @@ export default function TabbedEditor({
    * the new (modified) content so the user can review. After a reload, the
    * `modified` side is null until the hydrate effect re-fetches it.
    */
-  const { selectedAgent } = useAgentStore();
-  const pendingDiffs = useCurrentDiffs();
+  const pendingDiffs = useDiffsForScope(scopeKey);
   const {
     setDiff,
     removeDiff,
@@ -368,9 +370,9 @@ export default function TabbedEditor({
       if (cancelled) return;
       for (const r of results) {
         if (r.ok) {
-          updateDiffModified(selectedAgent, r.path, r.modified);
+          updateDiffModified(scopeKey, r.path, r.modified);
         } else {
-          removeDiff(selectedAgent, r.path);
+          removeDiff(scopeKey, r.path);
         }
       }
     });
@@ -379,7 +381,7 @@ export default function TabbedEditor({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onLoadFile, selectedAgent]);
+  }, [onLoadFile, scopeKey]);
 
   // ---- Monaco setup -------------------------------------------------------
 
@@ -580,10 +582,10 @@ export default function TabbedEditor({
           const path = activeTabPathRef.current;
           if (!path) return;
           const currentDiff =
-            useCodingTabsStore.getState().diffsByAgent[selectedAgent]?.[path];
+            useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[path];
           const modified = modifiedEditor.getValue();
           if (currentDiff && currentDiff.modified !== modified) {
-            updateDiffModified(selectedAgent, path, modified);
+            updateDiffModified(scopeKey, path, modified);
           }
         },
       );
@@ -592,7 +594,7 @@ export default function TabbedEditor({
       // time we mount (small files), so run once eagerly.
       refreshHunkWidgets();
     },
-    [refreshHunkWidgets, revealNavigation, selectedAgent, updateDiffModified],
+    [refreshHunkWidgets, revealNavigation, scopeKey, updateDiffModified],
   );
 
   // ---- Save ---------------------------------------------------------------
@@ -681,7 +683,7 @@ export default function TabbedEditor({
       } else {
         await workspaceApi.saveCodeFile(activeTabPath, diff.modified);
       }
-      resolveDiff(selectedAgent, activeTabPath, diff.modified);
+      resolveDiff(scopeKey, activeTabPath, diff.modified);
       onFileSaved?.(activeTabPath);
     } catch {
       return;
@@ -692,7 +694,7 @@ export default function TabbedEditor({
     activeTabPath,
     pendingDiffs,
     resolvingDiff,
-    selectedAgent,
+    scopeKey,
     resolveDiff,
     onFileSaved,
     onSaveFile,
@@ -714,7 +716,7 @@ export default function TabbedEditor({
       } else {
         await workspaceApi.saveCodeFile(activeTabPath, diff.original);
       }
-      resolveDiff(selectedAgent, activeTabPath, diff.original);
+      resolveDiff(scopeKey, activeTabPath, diff.original);
       onFileSaved?.(activeTabPath);
     } catch {
       return;
@@ -727,7 +729,7 @@ export default function TabbedEditor({
     activeTabPath,
     pendingDiffs,
     resolvingDiff,
-    selectedAgent,
+    scopeKey,
     resolveDiff,
     onFileSaved,
     onSaveFile,
@@ -744,18 +746,12 @@ export default function TabbedEditor({
       if (!diff || diff.modified === null) return;
       const newOriginal = applyKeepHunk(diff.original, diff.modified, hunk);
       if (newOriginal === diff.modified) {
-        resolveDiff(selectedAgent, activeTabPath, diff.modified);
+        resolveDiff(scopeKey, activeTabPath, diff.modified);
       } else {
-        updateDiffOriginal(selectedAgent, activeTabPath, newOriginal);
+        updateDiffOriginal(scopeKey, activeTabPath, newOriginal);
       }
     },
-    [
-      activeTabPath,
-      pendingDiffs,
-      selectedAgent,
-      resolveDiff,
-      updateDiffOriginal,
-    ],
+    [activeTabPath, pendingDiffs, scopeKey, resolveDiff, updateDiffOriginal],
   );
 
   /**
@@ -778,9 +774,9 @@ export default function TabbedEditor({
           await workspaceApi.saveCodeFile(activeTabPath, newModified);
         }
         if (newModified === diff.original) {
-          resolveDiff(selectedAgent, activeTabPath, newModified);
+          resolveDiff(scopeKey, activeTabPath, newModified);
         } else {
-          updateDiffModified(selectedAgent, activeTabPath, newModified);
+          updateDiffModified(scopeKey, activeTabPath, newModified);
           onTabContentChange(activeTabPath, newModified);
           onTabDirtyChange(activeTabPath, false);
         }
@@ -796,7 +792,7 @@ export default function TabbedEditor({
       activeTabPath,
       pendingDiffs,
       resolvingDiff,
-      selectedAgent,
+      scopeKey,
       resolveDiff,
       updateDiffModified,
       onTabContentChange,
@@ -862,12 +858,12 @@ export default function TabbedEditor({
             // There is already a pending diff — update only the modified side so
             // the user sees the cumulative change (original → latest agent edit).
             if (newModified === existingDiff.modified) return;
-            updateDiffModified(selectedAgent, path, newModified);
+            updateDiffModified(scopeKey, path, newModified);
           } else {
             // First edit — capture current editor content as baseline original.
             const originalContent = tab?.content ?? "";
             if (newModified === originalContent) return;
-            setDiff(selectedAgent, path, {
+            setDiff(scopeKey, path, {
               original: originalContent,
               modified: newModified,
             });
@@ -878,6 +874,7 @@ export default function TabbedEditor({
     watchEnabled,
     chatId,
     activeWatchRoot,
+    projectDirOverride,
   );
 
   // ---- Empty state --------------------------------------------------------
@@ -1137,7 +1134,7 @@ export default function TabbedEditor({
             /* ── Normal editor ──────────────────────────────────────────── */
             <Editor
               height="100%"
-              path={activeTab.path}
+              path={`${scopeKey}/${activeTab.path}`}
               value={activeTab.content}
               language={getEditorLanguage(activeDisplayPath)}
               theme={isDark ? "vs-dark" : "light"}

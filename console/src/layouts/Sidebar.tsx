@@ -379,10 +379,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleMenuClick = (key: string, allItems: MenuItem[]) => {
-    if (key === "core.files") {
-      handleOpenFiles(null);
-      return;
-    }
     const item = findMenuItem(allItems, key);
     if (item?.href) {
       window.open(item.href, "_blank", "noopener,noreferrer");
@@ -391,22 +387,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     const path = routeIdToPath(item?.route, routes);
     if (path) navigate(path);
   };
-
-  const handleOpenFiles = useCallback(
-    (trigger: HTMLElement | null) => {
-      if (!location.pathname.startsWith("/chat")) {
-        sessionStorage.setItem("qwenpaw-open-files", "true");
-        navigate(chatPath);
-        return;
-      }
-      window.dispatchEvent(
-        new CustomEvent("qwenpaw:open-files", {
-          detail: { trigger },
-        }),
-      );
-    },
-    [chatPath, location.pathname, navigate],
-  );
 
   /**
    * New chat: if we're already on the chat page, dispatch the event so
@@ -535,10 +515,8 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                       ? ` ${styles.inboxShake}`
                       : ""
                   }`}
-                  onClick={(event) => {
-                    if (item.key === "core.files") {
-                      handleOpenFiles(event.currentTarget);
-                    } else if (item.href) {
+                  onClick={() => {
+                    if (item.href) {
                       window.open(item.href, "_blank", "noopener,noreferrer");
                     } else {
                       navigate(item.path);
@@ -576,9 +554,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                     }`}
                     onMouseEnter={isInbox ? handleInboxHover : undefined}
                     onClick={() => {
-                      if (entry.key === "core.files") {
-                        handleOpenFiles(null);
-                      } else if (entry.href) {
+                      if (entry.href) {
                         window.open(
                           entry.href,
                           "_blank",

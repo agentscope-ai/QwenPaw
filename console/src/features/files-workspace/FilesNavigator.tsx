@@ -34,8 +34,14 @@ import { useTranslation } from "react-i18next";
 import { UploadConflictError, workspaceApi } from "../../api/modules/workspace";
 import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
+import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import SessionProjectDirectory from "../project-directory/SessionProjectDirectory";
+import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
 import { directoriesMatch, workspaceRoots } from "./directorySources";
+import {
+  filesWorkspaceScopeKey,
+  type FilesWorkspaceScope,
+} from "./filesWorkspaceScope";
 import type {
   DirectoryEntry,
   FileSource,
@@ -47,6 +53,7 @@ import styles from "./FilesWorkspace.module.less";
 interface DirectoryNodeProps {
   entry: DirectoryEntry;
   chatId?: string;
+  projectDirOverride?: string;
   selectedPath: string;
   onSelect: (target: FileTarget) => void;
   depth: number;
@@ -146,6 +153,7 @@ function ProfileFileRow({
 function DirectoryNode({
   entry,
   chatId,
+  projectDirOverride,
   selectedPath,
   onSelect,
   depth,
@@ -168,6 +176,7 @@ function DirectoryNode({
           200,
           chatId,
           root,
+          projectDirOverride,
         );
         setChildren((current) =>
           nextCursor ? [...current, ...page.entries] : page.entries,
@@ -178,7 +187,7 @@ function DirectoryNode({
         setLoading(false);
       }
     },
-    [chatId, entry.path, root],
+    [chatId, entry.path, projectDirOverride, root],
   );
 
   const toggle = () => {
@@ -207,6 +216,7 @@ function DirectoryNode({
               key={child.path}
               entry={child}
               chatId={chatId}
+              projectDirOverride={projectDirOverride}
               depth={depth + 1}
               selectedPath={selectedPath}
               onSelect={onSelect}
@@ -246,17 +256,26 @@ function DirectoryNode({
 interface FilesNavigatorProps {
   selectedPath: string;
   onSelect: (target: FileTarget) => void;
-  chatId?: string;
-  sessionId: string;
+  scope: FilesWorkspaceScope;
 }
 
 export default function FilesNavigator({
   selectedPath,
   onSelect,
-  chatId,
-  sessionId,
+  scope,
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
+  const chatId = scope.kind === "session" ? scope.chatId : undefined;
+  const initialProjectDirOverride =
+    scope.kind === "session" ? scope.projectDirOverride : undefined;
+  const [pendingProjectDir, setPendingProjectDir] = useState(
+    initialProjectDirOverride,
+  );
+  const projectDirOverride =
+    scope.kind === "session" && !scope.chatId
+      ? pendingProjectDir
+      : initialProjectDirOverride;
+  const scopeKey = filesWorkspaceScopeKey(scope);
   const [entries, setEntries] = useState<DirectoryEntry[]>([]);
   const [profileFiles, setProfileFiles] = useState<DirectoryEntry[]>([]);
   const [memoryFiles, setMemoryFiles] = useState<DirectoryEntry[]>([]);
@@ -276,6 +295,41 @@ export default function FilesNavigator({
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
+  useEffect(() => {
+    setPendingProjectDir(initialProjectDirOverride);
+  }, [initialProjectDirOverride, scopeKey]);
+
+  const confirmDirectoryChange = useCallback(async () => {
+    const state = useCodingTabsStore.getState();
+    const tabs = state.tabsByAgent[scopeKey] ?? [];
+    const diffs = state.diffsByAgent[scopeKey] ?? {};
+    const hasUnsavedProjectState = tabs.some(
+      (tab) =>
+        (tab.workspaceRoot ?? "project") === "project" &&
+        (tab.dirty || Boolean(diffs[tab.path])),
+    );
+    if (!hasUnsavedProjectState) return true;
+    return new Promise<boolean>((resolve) => {
+      Modal.confirm({
+        title: t("files.changeDirectoryTitle"),
+        content: t("files.changeDirectoryWarning"),
+        okText: t("common.confirm"),
+        cancelText: t("common.cancel"),
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      });
+    });
+  }, [scopeKey, t]);
+
+  const handleDirectoryChanged = useCallback(() => {
+    useCodingTabsStore.getState().clearProjectTabs(scopeKey);
+    if (scope.kind === "session" && !scope.chatId) {
+      setPendingProjectDir(
+        getPendingProjectDirectory(scope.agentId, scope.sessionId) ?? undefined,
+      );
+    }
+  }, [scope, scopeKey]);
+
   const sameDirectory = useMemo(
     () =>
       directoriesMatch(projectDirectory, workspaceDirectory) &&
@@ -290,12 +344,14 @@ export default function FilesNavigator({
 
   const loadDirectoryIdentity = useCallback(async () => {
     const agentInfo = await projectDirectoryApi.get();
-    const effectiveProject = chatId
+    const effectiveProject = projectDirOverride
+      ? projectDirOverride
+      : chatId
       ? (await chatProjectDirectoryApi.get(chatId)).project_dir
       : agentInfo.path;
     setProjectDirectory(effectiveProject);
     setWorkspaceDirectory(agentInfo.workspace_dir ?? agentInfo.path);
-  }, [chatId]);
+  }, [chatId, projectDirOverride]);
 
   const loadRoot = useCallback(async () => {
     setLoading(true);
@@ -306,6 +362,7 @@ export default function FilesNavigator({
         200,
         chatId,
         workspaceRoot,
+        projectDirOverride,
       );
       setEntries(page.entries);
       setCursor(page.next_cursor);
@@ -313,7 +370,7 @@ export default function FilesNavigator({
     } finally {
       setLoading(false);
     }
-  }, [chatId, workspaceRoot]);
+  }, [chatId, projectDirOverride, workspaceRoot]);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -406,6 +463,7 @@ export default function FilesNavigator({
         conflict,
         chatId,
         workspaceRoot,
+        projectDirOverride,
       );
       setPendingUploads(null);
       setConflictingNames([]);
@@ -466,85 +524,102 @@ export default function FilesNavigator({
       data-root={source === "workspace" ? workspaceRoot : undefined}
       aria-label={t("files.navigator")}
     >
-      <header className={styles.navigatorHeader}>
-        <div className={styles.navigatorLocation}>
-          <span className={styles.eyebrow}>{t(`files.${source}`)}</span>
-          {source === "workspace" ? (
-            <>
+      <header
+        className={`${styles.navigatorHeader} ${
+          source === "workspace" ? "" : styles.navigatorHeaderCompact
+        }`}
+      >
+        {source === "workspace" ? (
+          <div className={styles.directoryToolbar}>
+            <div className={styles.directoryContext} data-root={workspaceRoot}>
+              <span className={styles.directoryContextIcon}>
+                {workspaceRoot === "project" ? (
+                  <FolderOpen size={15} />
+                ) : (
+                  <Settings2 size={15} />
+                )}
+              </span>
+              <div className={styles.directoryContextBody}>
+                <span className={styles.directoryContextLabel}>
+                  {t(`files.${workspaceRoot}Directory`)}
+                </span>
+                {workspaceRoot === "project" ? (
+                  <SessionProjectDirectory
+                    scope={scope}
+                    showFullPath
+                    beforeChange={confirmDirectoryChange}
+                    onChanged={handleDirectoryChanged}
+                  />
+                ) : (
+                  <span className={styles.directoryIdentity}>
+                    <span className={styles.directoryIdentityText}>
+                      <strong>
+                        {workspaceDirectory
+                          .replace(/[\\/]+$/, "")
+                          .split(/[\\/]/)
+                          .pop() || t("files.workspaceDirectory")}
+                      </strong>
+                      <span title={workspaceDirectory}>
+                        {workspaceDirectory}
+                      </span>
+                    </span>
+                  </span>
+                )}
+              </div>
+              {roots.length > 1 && (
+                <button
+                  type="button"
+                  className={styles.directorySwitch}
+                  onClick={() =>
+                    setWorkspaceRoot((current) =>
+                      current === "project" ? "workspace" : "project",
+                    )
+                  }
+                  aria-label={t("files.switchDirectory")}
+                  title={t("files.switchDirectory")}
+                >
+                  <ArrowLeftRight size={14} />
+                </button>
+              )}
+            </div>
+            <div className={styles.directoryTools}>
               <button
                 type="button"
-                className={styles.rootSwitch}
-                data-root={workspaceRoot}
-                disabled={roots.length === 1}
-                onClick={() =>
-                  setWorkspaceRoot((current) =>
-                    current === "project" ? "workspace" : "project",
-                  )
-                }
+                className={styles.iconButton}
+                onClick={() => void refreshCurrent()}
+                aria-label={t("common.refresh")}
               >
-                {workspaceRoot === "project" ? (
-                  <FolderOpen size={14} />
-                ) : (
-                  <Settings2 size={14} />
-                )}
-                <span>{t(`files.${workspaceRoot}Directory`)}</span>
-                {roots.length > 1 && <ArrowLeftRight size={12} />}
+                <RefreshCw size={15} />
               </button>
-              {workspaceRoot === "project" ? (
-                <SessionProjectDirectory
-                  chatId={chatId}
-                  sessionId={sessionId}
-                  showFullPath
-                  onChanged={() =>
-                    void Promise.all([loadDirectoryIdentity(), loadRoot()])
-                  }
-                />
-              ) : (
-                <span className={styles.directoryIdentity}>
-                  <Settings2 size={13} aria-hidden="true" />
-                  <span className={styles.directoryIdentityText}>
-                    <strong>
-                      {workspaceDirectory
-                        .replace(/[\\/]+$/, "")
-                        .split(/[\\/]/)
-                        .pop() || t("files.workspaceDirectory")}
-                    </strong>
-                    <span title={workspaceDirectory}>{workspaceDirectory}</span>
-                  </span>
-                </span>
+              {canUpload && (
+                <button
+                  type="button"
+                  className={styles.iconButton}
+                  onClick={() => uploadRef.current?.click()}
+                  aria-label={t("files.upload")}
+                  disabled={uploading}
+                >
+                  {uploading ? (
+                    <LoaderCircle className={styles.spin} size={15} />
+                  ) : (
+                    <Upload size={15} />
+                  )}
+                </button>
               )}
-            </>
-          ) : source === "profile" ? (
-            <strong>{t("files.profile")}</strong>
-          ) : (
-            <strong>{t("files.memory")}</strong>
-          )}
-        </div>
-        <div className={styles.navigatorActions}>
-          <button
-            type="button"
-            className={styles.iconButton}
-            onClick={() => void refreshCurrent()}
-            aria-label={t("common.refresh")}
-          >
-            <RefreshCw size={15} />
-          </button>
-          {canUpload && (
+            </div>
+          </div>
+        ) : (
+          <div className={styles.navigatorActions}>
             <button
               type="button"
               className={styles.iconButton}
-              onClick={() => uploadRef.current?.click()}
-              aria-label={t("files.upload")}
-              disabled={uploading}
+              onClick={() => void refreshCurrent()}
+              aria-label={t("common.refresh")}
             >
-              {uploading ? (
-                <LoaderCircle className={styles.spin} size={15} />
-              ) : (
-                <Upload size={15} />
-              )}
+              <RefreshCw size={15} />
             </button>
-          )}
-        </div>
+          </div>
+        )}
         {canUpload && (
           <input
             ref={uploadRef}
@@ -599,6 +674,7 @@ export default function FilesNavigator({
                       key={entry.path}
                       entry={entry}
                       chatId={chatId}
+                      projectDirOverride={projectDirOverride}
                       depth={0}
                       selectedPath={selectedPath}
                       onSelect={onSelect}
@@ -658,6 +734,7 @@ export default function FilesNavigator({
                     200,
                     chatId,
                     workspaceRoot,
+                    projectDirOverride,
                   );
                   setEntries((current) => [...current, ...page.entries]);
                   setCursor(page.next_cursor);

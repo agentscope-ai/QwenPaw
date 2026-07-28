@@ -17,13 +17,6 @@ export type FilesDrawerState =
   | { kind: "preview"; target: FileTarget; trigger: HTMLElement | null }
   | {
       kind: "workspace";
-      origin: "chat";
-      target: FileTarget;
-      trigger: HTMLElement | null;
-    }
-  | {
-      kind: "workspace";
-      origin: "files";
       target?: FileTarget;
       trigger: HTMLElement | null;
     };
@@ -35,13 +28,8 @@ export type FilesDrawerEvent =
       trigger: HTMLElement | null;
     }
   | {
-      type: "OPEN_FILES";
-      target?: FileTarget;
-      trigger: HTMLElement | null;
-    }
-  | {
       type: "OPEN_WORKSPACE";
-      target: FileTarget;
+      target?: FileTarget;
       trigger: HTMLElement | null;
     }
   | { type: "EXPAND_WORKSPACE" }
