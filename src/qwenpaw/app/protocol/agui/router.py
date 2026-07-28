@@ -34,7 +34,7 @@ def _get_agui_converter():
     """
 
     try:
-        import ag_ui_protocol  # noqa: F401  — validate availability
+        import ag_ui_protocol  # noqa: F401  # pylint: disable=unused-import
         from agentscope.app.middleware import AGUIProtocolMiddleware
     except ImportError as exc:
         raise HTTPException(
@@ -106,7 +106,8 @@ async def _stream_agui(
                 agui_dict = convert(event)
             except Exception:
                 logger.exception(
-                    "Failed to convert AgentEvent to AG-UI; " "terminating stream"
+                    "Failed to convert AgentEvent to AG-UI; "
+                    "terminating stream",
                 )
                 yield _sse_frame(
                     {
@@ -115,13 +116,15 @@ async def _stream_agui(
                             "AG-UI conversion failed for an agent event. "
                             "The stream has been terminated."
                         ),
-                    }
+                    },
                 )
                 return
             yield _sse_frame(agui_dict)
     except Exception:  # noqa: BLE001
         logger.exception("AG-UI stream error")
-        yield _sse_frame({"type": "RUN_ERROR", "message": "Agent stream error"})
+        yield _sse_frame(
+            {"type": "RUN_ERROR", "message": "Agent stream error"},
+        )
 
 
 async def _heartbeat_wrapper(

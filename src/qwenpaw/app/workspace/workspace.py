@@ -596,7 +596,8 @@ class Workspace:
             )
         except Exception as exc:
             logger.warning(
-                "weixin->wechat chats.json migration failed for " "agent %s: %s",
+                "weixin->wechat chats.json migration failed for "
+                "agent %s: %s",
                 self.agent_id,
                 exc,
             )
@@ -607,7 +608,8 @@ class Workspace:
             )
         except Exception as exc:
             logger.warning(
-                "weixin->wechat jobs.json migration failed for " "agent %s: %s",
+                "weixin->wechat jobs.json migration failed for "
+                "agent %s: %s",
                 self.agent_id,
                 exc,
             )

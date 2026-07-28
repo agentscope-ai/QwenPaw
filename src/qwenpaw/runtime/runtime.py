@@ -223,9 +223,9 @@ class Runtime:
         # Create a minimal envelope solely so _try_save_on_cancel can
         # close dangling tool calls on interruption.  No envelope events
         # are emitted through this path.
-        ctx._envelope = Envelope(
-            session_id=ctx.session_id
-        )  # pylint: disable=protected-access
+        ctx._envelope = Envelope(  # pylint: disable=protected-access
+            session_id=ctx.session_id,
+        )
 
         try:
             # --- [phase 1] PRE_DISPATCH ---
@@ -431,7 +431,9 @@ class Runtime:
             if partial:
                 agent_state = getattr(agent, "state", None)
                 ctx_list = (
-                    getattr(agent_state, "context", None) if agent_state else None
+                    getattr(agent_state, "context", None)
+                    if agent_state
+                    else None
                 )
                 existing_texts: set[str] = set()
                 if ctx_list and len(ctx_list) > 0:
