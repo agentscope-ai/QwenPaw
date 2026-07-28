@@ -26,6 +26,8 @@ class _ContextOverflowError(Exception):
 
 
 class _ScrollManager:
+    supports_context_overflow_recovery = True
+
     def __init__(self, refreshed_context):
         self.refreshed_context = refreshed_context
         self.calls = []
@@ -33,6 +35,10 @@ class _ScrollManager:
     async def compress(self, agent, context_config):
         self.calls.append(context_config)
         agent.state.context = list(self.refreshed_context)
+
+
+class _OtherContextManager(_ScrollManager):
+    supports_context_overflow_recovery = False
 
 
 def _agent(*, context_manager=None):
@@ -67,6 +73,7 @@ async def test_context_overflow_forces_scroll_rebuilds_and_retries_once(
     monkeypatch.setattr(Agent, "_call_model", fake_call_model)
     scroll = _ScrollManager(["compacted"])
     agent = _agent(context_manager=scroll)
+    agent.compress_context = AsyncMock(wraps=agent.compress_context)
 
     result = await agent._call_model(
         messages=["system", "old-1", "old-2"],
@@ -77,6 +84,7 @@ async def test_context_overflow_forces_scroll_rebuilds_and_retries_once(
     assert result == "ok"
     assert len(scroll.calls) == 1
     assert scroll.calls[0].trigger_ratio == pytest.approx(1e-6)
+    agent.compress_context.assert_awaited_once_with(scroll.calls[0])
     agent._prepare_model_input.assert_awaited_once()
     assert calls == [
         (
@@ -156,6 +164,29 @@ async def test_context_overflow_without_scroll_does_not_retry(monkeypatch):
         await agent._call_model(messages=["old"], tools=[])
 
     assert calls == 1
+    agent._prepare_model_input.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_context_overflow_with_other_manager_does_not_retry(monkeypatch):
+    calls = 0
+
+    async def fake_call_model(self, messages, tools, tool_choice=None):
+        nonlocal calls
+        calls += 1
+        raise _ContextOverflowError(
+            "Error code: 400 - prompt is too long",
+        )
+
+    monkeypatch.setattr(Agent, "_call_model", fake_call_model)
+    manager = _OtherContextManager(["compacted"])
+    agent = _agent(context_manager=manager)
+
+    with pytest.raises(_ContextOverflowError, match="prompt is too long"):
+        await agent._call_model(messages=["old"], tools=[])
+
+    assert calls == 1
+    assert not manager.calls
     agent._prepare_model_input.assert_not_awaited()
 
 

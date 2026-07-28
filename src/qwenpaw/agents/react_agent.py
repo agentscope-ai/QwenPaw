@@ -536,7 +536,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
             context_manager = getattr(self, "_context_manager", None)
             if (
                 context_manager is None
-                or not hasattr(context_manager, "compress")
+                or not getattr(
+                    context_manager,
+                    "supports_context_overflow_recovery",
+                    False,
+                )
                 or not self._is_context_overflow_error(exc)
             ):
                 raise
@@ -550,7 +554,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 "Model input exceeded the provider context limit; forcing "
                 "one Scroll compaction and retry.",
             )
-            await context_manager.compress(self, forced_config)
+            await self.compress_context(forced_config)
             after = len(getattr(self.state, "context", []) or [])
 
             # The original `messages` list was prepared before compaction and

@@ -83,6 +83,9 @@ class ScrollContextManager:
     threaded onto each row so cross-session, per-agent recall works.
     """
 
+    # Opt in to QwenPawAgent's one-shot provider-overflow recovery.
+    supports_context_overflow_recovery = True
+
     def __init__(
         self,
         *,
