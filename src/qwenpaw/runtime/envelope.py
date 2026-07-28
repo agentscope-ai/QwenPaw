@@ -888,9 +888,8 @@ class Envelope:
         * ``("text", text)`` — from text blocks (reset on every tool-call
           start, so they belong to the current iteration only).
 
-        This is a public-API entry point so that callers (e.g.
-        ``Runtime._try_save_on_cancel``) do not need to reach into
-        private state.
+        This is a public-API entry point so cancel lifecycle hooks do not
+        need to reach into private state.
         """
         from ..schemas import RunStatus
 

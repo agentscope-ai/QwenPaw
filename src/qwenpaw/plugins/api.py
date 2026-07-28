@@ -1004,8 +1004,9 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         """Register a runtime-phase hook.
 
         The hook is registered into every workspace's HookRegistry
-        on startup. See ``runtime.phases.Phase`` for the 8 available
-        phases.
+        on startup. See ``runtime.phases.Phase`` for the 9 available
+        phases. Hook names must be unique within a phase; a conflicting
+        registration is rejected and logged.
 
         Args:
             hook: A ``HookBase`` subclass instance with ``phase``,
@@ -1177,6 +1178,13 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         try:
             from .registry import PluginRegistry
 
+            # Reload provisioning happens before the new workspace is
+            # atomically published in manager.agents. Prefer that explicit
+            # target so plugin registrations land on the replacement rather
+            # than the still-serving old workspace.
+            workspace = workspace_info.get("_workspace")
+            if workspace is not None:
+                return workspace
             agent_id = workspace_info.get("agent_id")
             if not agent_id:
                 return None
@@ -1250,8 +1258,9 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             try:
                 ws.plugins.hook_registry.register(hook)
             except (TypeError, ValueError) as exc:
-                logger.debug(
-                    f"Hook registration issue: {exc}",
+                logger.warning(
+                    "Hook registration issue: %s",
+                    exc,
                 )
 
     def _register_hook_to_workspace(
@@ -1266,8 +1275,9 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         try:
             ws.plugins.hook_registry.register(hook)
         except (TypeError, ValueError) as exc:
-            logger.debug(
-                f"Hook registration issue: {exc}",
+            logger.warning(
+                "Hook registration issue: %s",
+                exc,
             )
 
     def _register_stop_handler_to_all_workspaces(self, reg):

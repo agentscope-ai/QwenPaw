@@ -66,11 +66,13 @@ class MissionMode(AgentMode):
         from .hooks import (
             MissionStateLoadHook,
             MissionStateSaveHook,
+            MissionStateSaveOnCancelHook,
         )
 
         return [
             MissionStateLoadHook(owner_mode=self),
             MissionStateSaveHook(owner_mode=self),
+            MissionStateSaveOnCancelHook(owner_mode=self),
         ]
 
     def prompt_contributors(self) -> list:

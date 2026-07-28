@@ -11,6 +11,7 @@ from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from qwenpaw.hooks.session.session_hook import (
     SessionLoadHook,
     SessionSaveHook,
+    SessionSaveOnCancelHook,
 )
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
@@ -73,3 +74,12 @@ async def test_normal_request_loads_and_saves_session_state():
     assert session.saved is True
     assert ctx.mode_state == {"mission": {"active": True}}
     assert session.saved_payload["mode_state"] == ctx.mode_state
+
+
+async def test_ephemeral_request_skips_cancel_save():
+    session = _FakeSession()
+    ctx = _ctx(session, ephemeral=True)
+
+    await SessionSaveOnCancelHook().run(ctx)
+
+    assert session.saved is False

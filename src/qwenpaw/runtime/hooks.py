@@ -19,7 +19,9 @@ Three return semantics (``HookAction``):
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
@@ -34,6 +36,7 @@ if TYPE_CHECKING:
     from agentscope.message import Msg
 
     from ..schemas import AgentRequest
+    from .envelope import Envelope
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +96,7 @@ class HookContext:
     workspace_dir: Path | None
 
     # ── Containers (read by hooks; never mutated) ──
-    workspace: (Any)  # forward ref: app/workspace/workspace.py:Workspace
+    workspace: Any  # forward ref: app/workspace/workspace.py:Workspace
     app_services: Any  # forward ref: AppServiceManager
 
     # ── Per-request mutable state, filled in across phases ──
@@ -102,6 +105,7 @@ class HookContext:
     session_state: dict | None = None
     agent: "Agent | None" = None
     error: BaseException | None = None
+    envelope: "Envelope | None" = None
 
     # ── Context injections (改动6B) ──
     context_injections: list = field(default_factory=list)
@@ -165,8 +169,11 @@ class HookBase:
 # ---------------------------------------------------------------------------
 
 
+# pylint: disable=too-many-branches
 def _topo_sort(
     hooks: list[HookBase],
+    *,
+    warn_missing: bool = True,
 ) -> list[HookBase]:
     """Topologically sort ``hooks`` respecting
     ``before``/``after`` constraints.
@@ -195,24 +202,26 @@ def _topo_sort(
     for h in hooks:
         for nm in h.before:
             if nm not in name_to_hook:
-                logger.warning(
-                    "hook %s declares before=%s but"
-                    " %s is not registered; ignoring",
-                    h.name,
-                    nm,
-                    nm,
-                )
+                if warn_missing:
+                    logger.warning(
+                        "hook %s declares before=%s but"
+                        " %s is not registered; ignoring",
+                        h.name,
+                        nm,
+                        nm,
+                    )
                 continue
             _add_edge(h.name, nm)
         for nm in h.after:
             if nm not in name_to_hook:
-                logger.warning(
-                    "hook %s declares after=%s but"
-                    " %s is not registered; ignoring",
-                    h.name,
-                    nm,
-                    nm,
-                )
+                if warn_missing:
+                    logger.warning(
+                        "hook %s declares after=%s but"
+                        " %s is not registered; ignoring",
+                        h.name,
+                        nm,
+                        nm,
+                    )
                 continue
             _add_edge(nm, h.name)
 
@@ -267,6 +276,12 @@ class HookRegistry:
         self._sorted_cache: dict[Phase, list[HookBase]] = {}
 
     def register(self, hook: HookBase) -> None:
+        """Register one hook and validate its phase graph transactionally.
+
+        Hook names must be unique within a phase. The same name may be used
+        in different phases. A duplicate name or ordering cycle leaves the
+        registry unchanged.
+        """
         if not isinstance(hook, HookBase):
             raise TypeError(
                 "register() requires a HookBase instance,"
@@ -278,8 +293,29 @@ class HookRegistry:
             raise TypeError(
                 f"hook {hook.name!r} has invalid phase {hook.phase!r}",
             )
-        self._by_phase[hook.phase].append(hook)
+        phase_hooks = self._by_phase[hook.phase]
+        if any(existing.name == hook.name for existing in phase_hooks):
+            raise ValueError(
+                f"hook name {hook.name!r} is already registered "
+                f"for phase {hook.phase.value!r}",
+            )
+
+        phase_hooks.append(hook)
         self._sorted_cache.pop(hook.phase, None)
+        try:
+            # Validate immediately so a cycle cannot remain latent until the
+            # first request that reaches this phase. Missing references are
+            # allowed because their target may be registered later.
+            _topo_sort(phase_hooks, warn_missing=False)
+        except BaseException:
+            phase_hooks.pop()
+            self._sorted_cache.pop(hook.phase, None)
+            raise
+
+    def validate(self) -> None:
+        """Eagerly validate and cache every registered phase graph."""
+        for phase in tuple(self._by_phase):
+            self.hooks_for(phase)
 
     def hooks_for(self, phase: Phase) -> list[HookBase]:
         """Return the topologically sorted hooks registered for ``phase``."""
@@ -311,11 +347,105 @@ class HookRegistry:
                 final_action = HookAction.SKIP_AGENT
         return HookResult(action=final_action)
 
+    async def run_cancel_safe(self, ctx: HookContext) -> None:
+        """Run ``ON_CANCEL`` hooks serially despite caller re-cancellation.
+
+        The complete ordered batch runs in one shielded task. Re-cancelling
+        the caller delays propagation until every hook has had a chance to
+        finish, so topological dependencies remain completion dependencies
+        and ``Runtime`` cannot close the agent while a cancel hook uses it.
+
+        Hook actions are ignored. Ordinary hook failures, including a
+        hook-originated ``CancelledError``, are logged and isolated.
+
+        The batch task inherits the caller's ContextVar values. Mutations to
+        ContextVars stay local to that child task; hooks must communicate
+        outward through ``ctx`` rather than ContextVar writes.
+        """
+        ordered = self.hooks_for(Phase.ON_CANCEL)
+        if not ordered:
+            return
+
+        async def _run_all() -> None:
+            for hook in ordered:
+                started = time.monotonic()
+                try:
+                    await hook.run(ctx)
+                except asyncio.CancelledError:
+                    logger.warning(
+                        "ON_CANCEL hook %s was cancelled (session=%s)",
+                        hook.name,
+                        ctx.session_id,
+                    )
+                except Exception:
+                    logger.warning(
+                        "ON_CANCEL hook %s failed (session=%s)",
+                        hook.name,
+                        ctx.session_id,
+                        exc_info=True,
+                    )
+                finally:
+                    elapsed = time.monotonic() - started
+                    if elapsed >= 1.0:
+                        logger.warning(
+                            "ON_CANCEL hook %s took %.2fs (session=%s)",
+                            hook.name,
+                            elapsed,
+                            ctx.session_id,
+                        )
+
+        task = asyncio.create_task(
+            _run_all(),
+            name=f"on-cancel:{ctx.session_id}",
+        )
+        recancelled = False
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                recancelled = True
+
+        # Retrieve any non-hook BaseException and avoid an unobserved task
+        # exception. Hook-level failures are isolated inside ``_run_all``.
+        task.result()
+
+        if recancelled:
+            logger.debug(
+                "ON_CANCEL batch completed after re-cancellation (session=%s)",
+                ctx.session_id,
+            )
+
+    async def run_error_safe(self, ctx: HookContext) -> None:
+        """Run every ``ON_ERROR`` hook without one failure stopping cleanup.
+
+        Hook actions are ignored because the response is already on an
+        abnormal-exit path. Both ordinary exceptions and cancellation of an
+        individual hook are logged and isolated.
+        """
+        for hook in self.hooks_for(Phase.ON_ERROR):
+            try:
+                await hook.run(ctx)
+            except asyncio.CancelledError:
+                logger.warning(
+                    "ON_ERROR hook %s was cancelled (session=%s)",
+                    hook.name,
+                    ctx.session_id,
+                )
+            except Exception:
+                logger.warning(
+                    "ON_ERROR hook %s failed (session=%s)",
+                    hook.name,
+                    ctx.session_id,
+                    exc_info=True,
+                )
+
     @classmethod
     def merge(cls, *registries: "HookRegistry") -> "HookRegistry":
         """Combine multiple registries into a new one.
 
-        Uses left-to-right register order.
+        Uses left-to-right register order. Raises ``ValueError`` if two
+        inputs contain the same hook name in the same phase; ordering-cycle
+        failures from ``register()`` also propagate.
         """
         merged = cls()
         for r in registries:

@@ -200,11 +200,15 @@ class Workspace:
                 try:
                     self.plugins.hook_registry.register(cls())
                 except Exception:
-                    logger.debug(
+                    # Built-in hooks are required runtime infrastructure.
+                    # Continuing with a partially registered lifecycle can
+                    # silently disable persistence or cleanup guarantees.
+                    logger.error(
                         "bootstrap: hook register failed for %s",
                         cls,
                         exc_info=True,
                     )
+                    raise
 
         if builtin_command_specs:
             for spec in builtin_command_specs:
@@ -249,6 +253,11 @@ class Workspace:
                 "bootstrap: custom loop modes could not be loaded",
                 exc_info=True,
             )
+
+        # Build every topological ordering now, including rarely reached
+        # phases such as ON_CANCEL, so configuration errors cannot surface
+        # for the first time while handling /stop.
+        self.plugins.hook_registry.validate()
 
         # pylint: disable=protected-access
         n_hooks = len(self.plugins.hook_registry._by_phase)

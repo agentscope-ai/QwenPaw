@@ -442,6 +442,18 @@ class MultiAgentManager:
         try:
             await new_instance.start()
             new_instance.set_manager(self)  # Set manager reference
+
+            # Provision plugin-contributed hooks, modes, commands, and skills
+            # on the replacement before publishing it. The explicit target is
+            # necessary because manager.agents still points at old_instance
+            # until the atomic swap below.
+            await self._fire_workspace_created_hooks(
+                {
+                    "agent_id": agent_id,
+                    "workspace_dir": str(agent_ref.workspace_dir),
+                    "_workspace": new_instance,
+                },
+            )
             logger.info(f"New workspace instance started: {agent_id}")
         except Exception as e:
             logger.exception(
