@@ -101,6 +101,21 @@ def test_requirement_import_name_overrides(distribution, import_name):
     find_spec.assert_called_once_with(import_name)
 
 
+def test_unknown_distribution_has_no_import_name_override():
+    assert (
+        PluginLoader.import_name_override_for_distribution(
+            "unknown-distribution",
+        )
+        is None
+    )
+    assert (
+        PluginLoader.import_name_for_distribution(
+            "unknown-distribution",
+        )
+        == "unknown_distribution"
+    )
+
+
 def test_frozen_plugin_detects_duplicate_runtime_metadata(tmp_path):
     requirements = tmp_path / "requirements.txt"
     requirements.write_text("discord-py==2.7.1\n", encoding="utf-8")

@@ -448,13 +448,16 @@ class PluginLoader:
     _is_requirement_satisfied = is_requirement_satisfied
 
     @staticmethod
-    def import_name_for_distribution(name: str) -> str:
-        """Return the import name used to probe one distribution."""
+    def import_name_override_for_distribution(name: str) -> str | None:
+        """Return a known import-name override for one distribution."""
         distribution = name.lower().replace("_", "-")
-        return _IMPORT_NAME_OVERRIDES.get(
-            distribution,
-            name.replace("-", "_"),
-        )
+        return _IMPORT_NAME_OVERRIDES.get(distribution)
+
+    @staticmethod
+    def import_name_for_distribution(name: str) -> str:
+        """Return the conventional import name for one distribution."""
+        override = PluginLoader.import_name_override_for_distribution(name)
+        return override or name.replace("-", "_")
 
     @staticmethod
     def _find_unsatisfied_dependencies(
@@ -1233,11 +1236,14 @@ class PluginLoader:
                 f"{output[-4000:]}",
             )
         requirements = self._requirement_lines(Path(req))
-        import_names = {
-            key: self.import_name_for_distribution(Requirement(raw).name)
-            for raw in requirements
-            for key in [Requirement(raw).name.lower().replace("_", "-")]
-        }
+        import_names = {}
+        for raw in requirements:
+            requirement = Requirement(raw)
+            import_name = self.import_name_override_for_distribution(
+                requirement.name,
+            )
+            if import_name is not None:
+                import_names[requirement.name] = import_name
         try:
             transaction.commit(
                 verify=lambda: verify_runtime_requirements(

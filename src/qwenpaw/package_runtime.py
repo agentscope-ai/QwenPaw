@@ -886,6 +886,7 @@ def verify_runtime_requirements(
     script = """
 import importlib
 import importlib.metadata
+import importlib.machinery
 import json
 import re
 import sys
@@ -897,28 +898,85 @@ sys.path.insert(0, site_dir)
 def canonicalize_name(value):
     return re.sub(r"[-_.]+", "-", value).lower()
 
-versions = {}
+distributions = {}
 for distribution in importlib.metadata.distributions(path=[site_dir]):
     name = distribution.metadata.get("Name")
     if name:
-        versions.setdefault(canonicalize_name(name), []).append(
-            distribution.version,
+        distributions.setdefault(canonicalize_name(name), []).append(
+            distribution,
         )
+
+def valid_import_name(value):
+    return bool(value) and all(
+        part.isidentifier() for part in value.split(".")
+    )
+
+def distribution_import_names(distribution):
+    names = []
+    top_level = distribution.read_text("top_level.txt") or ""
+    for value in top_level.splitlines():
+        value = value.strip()
+        if valid_import_name(value) and value not in names:
+            names.append(value)
+    if names:
+        return names
+    for item in distribution.files or ():
+        value = str(item).replace("\\\\", "/")
+        parts = value.split("/")
+        if not parts or any(part in ("", "..") for part in parts):
+            continue
+        top = parts[0]
+        if top.endswith((".dist-info", ".egg-info", ".data")):
+            continue
+        candidate = top if len(parts) > 1 else ""
+        if not candidate:
+            for suffix in importlib.machinery.all_suffixes():
+                if top.endswith(suffix):
+                    candidate = top[: -len(suffix)]
+                    break
+        if valid_import_name(candidate) and candidate not in names:
+            names.append(candidate)
+    return names
+
 results = {}
 for check in payload["checks"]:
     key = check["key"]
-    values = versions.get(key, [])
+    matches = distributions.get(key, [])
+    values = [distribution.version for distribution in matches]
     if not values:
         try:
             values = [importlib.metadata.version(check["name"])]
         except importlib.metadata.PackageNotFoundError:
             values = []
-    import_name = check.get("import_name")
+    import_names = []
+    override = check.get("import_name")
+    if override:
+        import_names.append(override)
+    for distribution in matches:
+        for import_name in distribution_import_names(distribution):
+            if import_name not in import_names:
+                import_names.append(import_name)
     imported = False
-    if import_name:
-        importlib.import_module(import_name)
-        imported = True
-    results[key] = {"versions": values, "imported": imported}
+    errors = []
+    for import_name in import_names:
+        try:
+            importlib.import_module(import_name)
+            imported = True
+            break
+        except Exception as exc:
+            errors.append(f"{import_name}: {exc}")
+    if import_names and not imported:
+        attempted = ", ".join(import_names)
+        detail = "; ".join(errors)
+        raise ImportError(
+            f"Could not import Runtime distribution {check['name']} "
+            f"(tried {attempted}): {detail}"
+        )
+    results[key] = {
+        "versions": values,
+        "imported": imported,
+        "import_names": import_names,
+    }
 print("QWENPAW_RUNTIME_VERIFY:" + json.dumps(results, sort_keys=True))
 """
     result = subprocess.run(

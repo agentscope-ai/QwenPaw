@@ -1036,6 +1036,74 @@ def test_verify_runtime_requirements_uses_clean_child_process(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    ("name", "version", "files"),
+    [
+        ("PyJWT", "2.13.0", {"jwt/__init__.py": "value = 1\n"}),
+        ("single-package", "1.0", {"single_module.py": "value = 1\n"}),
+        ("metadata-package", "1.0", {}),
+    ],
+)
+def test_verify_runtime_requirements_infers_imports(
+    tmp_path,
+    name,
+    version,
+    files,
+):
+    _write_distribution(
+        tmp_path,
+        name=name,
+        version=version,
+        files=files,
+    )
+
+    verify_runtime_requirements(
+        sys.executable,
+        tmp_path,
+        [f"{name}=={version}"],
+        {},
+    )
+
+
+def test_verify_runtime_requirements_accepts_one_import_candidate(tmp_path):
+    _write_distribution(
+        tmp_path,
+        name="multi-package",
+        version="1.0",
+        files={
+            "broken/__init__.py": "raise RuntimeError('broken')\n",
+            "working/__init__.py": "value = 1\n",
+        },
+    )
+
+    verify_runtime_requirements(
+        sys.executable,
+        tmp_path,
+        ["multi-package==1.0"],
+        {},
+    )
+
+
+def test_verify_runtime_requirements_rejects_failed_candidates(tmp_path):
+    _write_distribution(
+        tmp_path,
+        name="broken-package",
+        version="1.0",
+        files={"broken/__init__.py": "raise RuntimeError('broken')\n"},
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Could not import Runtime distribution broken-package",
+    ):
+        verify_runtime_requirements(
+            sys.executable,
+            tmp_path,
+            ["broken-package==1.0"],
+            {},
+        )
+
+
 def test_verify_runtime_requirements_keeps_payload_off_command_line(tmp_path):
     secret = "https://user:password@example.com/demo.whl"
     verified = {
