@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { Table, Button, Space, Popconfirm, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTranslation } from "react-i18next";
@@ -45,6 +46,22 @@ export function AgentTable({
 }: AgentTableProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
+  // Measure the table's container so the scroll body height follows the
+  // actual layout (classic page or OS window) instead of the viewport.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [bodyHeight, setBodyHeight] = useState<number>();
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const headerH =
+        el.querySelector("thead")?.getBoundingClientRect().height ?? 40;
+      const next = el.clientHeight - headerH;
+      setBodyHeight(next > 0 ? next : undefined);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -276,19 +293,29 @@ export function AgentTable({
         items={agents.map((agent) => agent.id)}
         strategy={verticalListSortingStrategy}
       >
-        <Table
-          dataSource={agents}
-          columns={columns}
-          loading={loading}
-          rowKey="id"
-          components={{
-            body: {
-              row: SortableAgentRow,
-            },
+        <div
+          ref={containerRef}
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
           }}
-          pagination={false}
-          scroll={{ x: 1200, y: "calc(100vh - 280px)" }}
-        />
+        >
+          <Table
+            dataSource={agents}
+            columns={columns}
+            loading={loading}
+            rowKey="id"
+            components={{
+              body: {
+                row: SortableAgentRow,
+              },
+            }}
+            pagination={false}
+            scroll={{ x: 1200, y: bodyHeight }}
+          />
+        </div>
       </SortableContext>
     </DndContext>
   );

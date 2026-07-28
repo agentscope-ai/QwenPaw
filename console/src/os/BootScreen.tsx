@@ -31,6 +31,10 @@ export default function BootScreen({
 
   useEffect(() => {
     const start = Date.now();
+    // The fade timer is created inside the finish timer, so track it here
+    // and clear all three on cleanup — otherwise unmounting mid-fade would
+    // still fire onDone (and update state) on a dead component.
+    let fade: ReturnType<typeof setTimeout> | undefined;
     const tick = setInterval(() => {
       const pct = Math.min(100, ((Date.now() - start) / durationMs) * 100);
       setProgress(pct);
@@ -38,11 +42,12 @@ export default function BootScreen({
     }, 60);
     const finish = setTimeout(() => {
       setExiting(true);
-      setTimeout(onDone, FADE_MS);
+      fade = setTimeout(onDone, FADE_MS);
     }, durationMs);
     return () => {
       clearInterval(tick);
       clearTimeout(finish);
+      if (fade !== undefined) clearTimeout(fade);
     };
   }, [durationMs, onDone]);
 

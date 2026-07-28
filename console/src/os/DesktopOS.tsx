@@ -9,7 +9,14 @@
  * Reachable at /os (registered in App.tsx) — isolated from MainLayout so the
  * classic sidebar layout is untouched.
  */
-import { Suspense, useMemo, useEffect, useState, useRef } from "react";
+import {
+  Suspense,
+  useMemo,
+  useEffect,
+  useState,
+  useRef,
+  useCallback,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { App, Dropdown, Spin } from "antd";
 import { Command, Trash2, Image as ImageIcon } from "lucide-react";
@@ -89,18 +96,28 @@ export default function DesktopOS() {
 
   // Power-on splash: overlays the desktop, fades out, then unmounts. Played
   // once per browser session (survives OS <-> classic layout switches).
+  // Stable identity so BootScreen's timer effect doesn't restart on every
+  // parent re-render.
   const [booting, setBooting] = useState(shouldPlayBoot);
-  const handleBootDone = () => {
+  const handleBootDone = useCallback(() => {
     setBooting(false);
     try {
       window.sessionStorage.setItem(BOOT_FLAG_KEY, "1");
     } catch {
       /* storage unavailable — splash will just replay next mount */
     }
-  };
+  }, []);
 
   // Poll approvals + unread inbox events → macOS-style notifications.
   useOsNotifyPoller();
+
+  // Viewport changed (browser resize, DPI/monitor switch): pull persisted
+  // windows back into the visible work area.
+  useEffect(() => {
+    const onResize = () => useOsWindows.getState().clampToViewport();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // Load agents once so Mission Control can list them as spaces.
   useEffect(() => {

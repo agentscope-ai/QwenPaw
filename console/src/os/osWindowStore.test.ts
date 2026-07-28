@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useOsWindows } from "./osWindowStore";
 
 /** Reset the store to a pristine desktop between tests. */
@@ -136,5 +136,74 @@ describe("osWindowStore", () => {
   it("open without minimums keeps the requested size", () => {
     s().open("core.chat", { w: 880, h: 640 });
     expect(s().windows["core.chat"]).toMatchObject({ w: 880, h: 640 });
+  });
+
+  it("open without an explicit size falls back to the app manifest", () => {
+    // System Settings manifest: 1200x720, min 960x560 (osApps.ts).
+    s().open("os.settings");
+    expect(s().windows["os.settings"]).toMatchObject({ w: 1200, h: 720 });
+  });
+
+  it("debounces localStorage writes during a drag burst", () => {
+    // The test body stays fully synchronous, so only fake timers can
+    // trigger the debounced flush inside this test.
+    vi.useFakeTimers();
+    try {
+      s().open("core.chat", { w: 700, h: 500 });
+      // Flush the open() write, then clear the stored value so the burst
+      // below is observable in isolation.
+      vi.advanceTimersByTime(300);
+      window.localStorage.removeItem("qwenpaw-os-windows");
+      for (let i = 0; i < 30; i += 1) {
+        s().move("core.chat", 100 + i, 100);
+      }
+      // Mid-burst: no write per pointermove-driven update.
+      expect(window.localStorage.getItem("qwenpaw-os-windows")).toBeNull();
+      vi.advanceTimersByTime(300);
+      // One write after the burst, carrying the final geometry.
+      const stored = window.localStorage.getItem("qwenpaw-os-windows");
+      expect(stored).toContain('"x":129');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clampToViewport pulls off-screen windows back into the work area", () => {
+    s().open("core.chat", { w: 700, h: 500 });
+    s().move("core.chat", 5000, -300);
+    s().clampToViewport();
+    const win = s().windows["core.chat"];
+    expect(win.x).toBeLessThanOrEqual(1920 - 80);
+    expect(win.y).toBeGreaterThanOrEqual(28);
+  });
+
+  it("clampToViewport shrinks oversized windows to the viewport", () => {
+    s().open("core.chat", { w: 700, h: 500 });
+    s().resize("core.chat", { w: 5000, h: 4000 });
+    s().clampToViewport();
+    const win = s().windows["core.chat"];
+    expect(win.w).toBeLessThanOrEqual(1920 - 40);
+    expect(win.h).toBeLessThanOrEqual(1080 - 140);
+  });
+
+  it("clampToViewport reclamps saved spaces and restore rects on shrink", () => {
+    s().open("core.chat", { w: 700, h: 500 });
+    s().move("core.chat", 1500, 900);
+    s().toggleMaximize("core.chat"); // prev = { x:1500, y:900, ... }
+    s().switchSpace("agent-b");
+
+    // Viewport shrinks (smaller monitor / DPI change) before re-clamping.
+    window.innerWidth = 800;
+    window.innerHeight = 500;
+    s().clampToViewport();
+
+    const saved = s().saved["default"].windows["core.chat"];
+    expect(saved.x).toBeLessThanOrEqual(800 - 80);
+    expect(saved.y).toBeLessThanOrEqual(500 - 78 - 40);
+    expect(saved.prev).toBeDefined();
+    expect(saved.prev!.x).toBeLessThanOrEqual(800 - 80);
+    expect(saved.prev!.y).toBeLessThanOrEqual(500 - 78 - 40);
+    expect(saved.prev!.w).toBeLessThanOrEqual(800 - 40);
+    expect(saved.prev!.h).toBeLessThanOrEqual(500 - 140);
   });
 });

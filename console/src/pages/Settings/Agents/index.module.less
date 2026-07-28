@@ -1,5 +1,8 @@
 .agentsPage {
-  height: calc(100vh - 128px);
+  /* Fill the parent container (classic .page-content or the OS window
+   * body) instead of the browser viewport, so the page fits inside OS
+   * windows of any height. */
+  height: 100%;
   padding: 0;
   display: flex;
   flex-direction: column;

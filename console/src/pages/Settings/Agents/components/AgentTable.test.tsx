@@ -40,4 +40,23 @@ describe("AgentTable", () => {
       screen.getByRole("button", { name: "agent.unpinAgent" }),
     ).toBeInTheDocument();
   });
+
+  it("does not size the scroll area from the browser viewport", () => {
+    const { container } = renderWithProviders(
+      <AgentTable
+        agents={[agent("a", false)]}
+        loading={false}
+        reordering={false}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onPin={vi.fn()}
+        onReorder={vi.fn()}
+      />,
+    );
+
+    // Regression guard: the table body height must come from the container
+    // (measured), never from 100vh, so OS windows don't nest scrollbars.
+    expect(container.innerHTML).not.toContain("100vh");
+  });
 });

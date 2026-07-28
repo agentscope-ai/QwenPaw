@@ -11,9 +11,14 @@
  * always start closed.
  */
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import {
+  persist,
+  createJSONStorage,
+  type StateStorage,
+} from "zustand/middleware";
 import { computeSnapRect, type SnapZone } from "./snap";
 import { findAppDef } from "./osApps";
+import { clampRectToViewport } from "./windowGeometry";
 
 export interface OsRect {
   x: number;
@@ -75,10 +80,85 @@ interface OsStore {
   /** Swap the whole desktop to another space (like a full-screen app switch). */
   switchSpace: (id: string) => void;
   setMissionControl: (open: boolean) => void;
+  /**
+   * Re-clamp every window (active space, saved spaces and maximize/snap
+   * restore rects) to the current viewport work area. Called after
+   * hydration and on viewport resize so persisted layouts never restore
+   * off-screen (monitor switch, DPI change, smaller browser window).
+   */
+  clampToViewport: () => void;
 }
 
 const BASE_Z = 100;
 const CASCADE = 28;
+
+/** Debounce delay for persisted writes (one write per gesture burst). */
+const PERSIST_DEBOUNCE_MS = 250;
+
+/**
+ * localStorage adapter that debounces writes. Drag/resize gestures update
+ * the store on every pointermove; persisting each update would run
+ * synchronous storage IO on the hot path and drop frames. Writes collapse
+ * into a single setItem after the burst ends; a pending write flushes on
+ * pagehide so the final geometry survives an immediate reload. Reads stay
+ * synchronous so hydration behaviour is unchanged.
+ */
+function createDebouncedStorage(delayMs: number): StateStorage {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pending: { name: string; value: string } | null = null;
+  const flush = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    if (!pending) return;
+    const { name, value } = pending;
+    pending = null;
+    window.localStorage.setItem(name, value);
+  };
+  if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", flush);
+  }
+  return {
+    getItem: (name) => window.localStorage.getItem(name),
+    setItem: (name, value) => {
+      pending = { name, value };
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(flush, delayMs);
+    },
+    removeItem: (name) => {
+      if (pending?.name === name) {
+        if (timer !== null) clearTimeout(timer);
+        timer = null;
+        pending = null;
+      }
+      window.localStorage.removeItem(name);
+    },
+  };
+}
+
+const debouncedLocalStorage = createDebouncedStorage(PERSIST_DEBOUNCE_MS);
+
+/** Re-clamp a window (and its restore rect) to the given viewport. */
+function clampWindow(win: OsWindow, vw: number, vh: number): OsWindow {
+  const def = findAppDef(win.id);
+  const limits = { minW: def?.minW, minH: def?.minH };
+  return {
+    ...win,
+    ...clampRectToViewport(win, limits, vw, vh),
+    prev: win.prev ? clampRectToViewport(win.prev, limits, vw, vh) : undefined,
+  };
+}
+
+function clampWindows(
+  wins: Record<string, OsWindow> | undefined,
+  vw: number,
+  vh: number,
+): Record<string, OsWindow> {
+  const next: Record<string, OsWindow> = {};
+  for (const [id, win] of Object.entries(wins ?? {})) {
+    next[id] = clampWindow(win, vw, vh);
+  }
+  return next;
+}
 
 export const useOsWindows = create<OsStore>()(
   persist(
@@ -106,18 +186,29 @@ export const useOsWindows = create<OsStore>()(
           return;
         }
         const count = state.order.length;
-        // Clamp: at least the app minimum, at most the visible desktop area.
-        const maxW = Math.max(360, window.innerWidth - 40);
-        const maxH = Math.max(260, window.innerHeight - 140);
-        const w = Math.min(Math.max(size?.w ?? 820, size?.minW ?? 0), maxW);
-        const h = Math.min(Math.max(size?.h ?? 580, size?.minH ?? 0), maxH);
+        // Resolve geometry from the app manifest so every entry point
+        // (Dock, Launcher, desktop icons, cross-app navigation) opens the
+        // same app with the same size; the explicit `size` argument only
+        // overrides it. Then clamp to the visible desktop area.
+        const def = findAppDef(id);
+        const rect = clampRectToViewport(
+          {
+            x: 80 + count * CASCADE,
+            y: 60 + count * CASCADE,
+            w: size?.w ?? def?.defaultW ?? 820,
+            h: size?.h ?? def?.defaultH ?? 580,
+          },
+          {
+            minW: size?.minW ?? def?.minW,
+            minH: size?.minH ?? def?.minH,
+          },
+          window.innerWidth,
+          window.innerHeight,
+        );
         const z = state.zCounter + 1;
         const win: OsWindow = {
           id,
-          x: 80 + count * CASCADE,
-          y: 60 + count * CASCADE,
-          w,
-          h,
+          ...rect,
           z,
           minimized: false,
           maximized: false,
@@ -279,10 +370,27 @@ export const useOsWindows = create<OsStore>()(
         }),
 
       setMissionControl: (open) => set({ missionControlOpen: open }),
+
+      clampToViewport: () =>
+        set((s) => {
+          const vw = window.innerWidth;
+          const vh = window.innerHeight;
+          const saved: Record<string, SavedSpace> = {};
+          for (const [sid, space] of Object.entries(s.saved)) {
+            saved[sid] = {
+              ...space,
+              windows: clampWindows(space.windows, vw, vh),
+            };
+          }
+          return { windows: clampWindows(s.windows, vw, vh), saved };
+        }),
     }),
     {
       name: "qwenpaw-os-windows",
-      version: 2,
+      version: 3,
+      // Debounced storage: keep synchronous localStorage writes off the
+      // drag/resize hot path (see createDebouncedStorage above).
+      storage: createJSONStorage(() => debouncedLocalStorage),
       // Persist only the window layouts (current space + saved spaces);
       // transient overlays (launcher, mission control) always start closed.
       partialize: (s) => ({
@@ -293,29 +401,31 @@ export const useOsWindows = create<OsStore>()(
         spaceId: s.spaceId,
         saved: s.saved,
       }),
-      // Clamp persisted geometry to each app's minimum so layouts stored
-      // before per-app minimums existed cannot restore unusable windows.
+      // Normalize layouts stored by older versions: clamp the full rect
+      // (position + size + restore rect) to the current viewport, not just
+      // the per-app minimums.
       migrate: (persisted) => {
         const st = (persisted ?? {}) as Partial<OsStore>;
-        const clamp = (
-          wins: Record<string, OsWindow> | undefined,
-        ): Record<string, OsWindow> => {
-          const next: Record<string, OsWindow> = {};
-          for (const [id, win] of Object.entries(wins ?? {})) {
-            const def = findAppDef(id);
-            next[id] = {
-              ...win,
-              w: Math.max(win.w, def?.minW ?? 0),
-              h: Math.max(win.h, def?.minH ?? 0),
-            };
-          }
-          return next;
-        };
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
         const saved: Record<string, SavedSpace> = {};
         for (const [sid, space] of Object.entries(st.saved ?? {})) {
-          saved[sid] = { ...space, windows: clamp(space.windows) };
+          saved[sid] = {
+            ...space,
+            windows: clampWindows(space.windows, vw, vh),
+          };
         }
-        return { ...st, windows: clamp(st.windows), saved } as OsStore;
+        return {
+          ...st,
+          windows: clampWindows(st.windows, vw, vh),
+          saved,
+        } as OsStore;
+      },
+      // migrate only runs on version bumps; same-version layouts can still
+      // go stale (display/DPI changed since last visit), so re-clamp after
+      // every hydration too.
+      onRehydrateStorage: () => (state) => {
+        state?.clampToViewport();
       },
     },
   ),
