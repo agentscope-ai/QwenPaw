@@ -18,15 +18,13 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Tuple
 
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as _dist_version
 from packaging.requirements import Requirement
 import psutil
 
 from ..package_runtime import (
     RuntimeTransaction,
-    RuntimeSnapshot,
     build_runtime_snapshot,
+    environment_requirement_satisfied,
     recover_runtime_if_needed,
     recover_runtime_transactions,
     runtime_pythonpath,
@@ -83,32 +81,6 @@ def _wait_for_process(
             return proc.wait(timeout=min(0.25, remaining))
         except subprocess.TimeoutExpired:
             continue
-
-
-# Distribution name -> import name, for the common cases where they differ.
-_IMPORT_NAME_OVERRIDES = {
-    "audioop-lts": "audioop",
-    "pillow": "PIL",
-    "pyyaml": "yaml",
-    "beautifulsoup4": "bs4",
-    "dashscope-realtime": "dashscope_realtime",
-    "discord-py": "discord",
-    "lark-oapi": "lark_oapi",
-    "livekit-api": "livekit",
-    "matrix-nio": "nio",
-    "paho-mqtt": "paho",
-    "pycryptodome": "Crypto",
-    "python-socks": "python_socks",
-    "python-dateutil": "dateutil",
-    "pyvoip": "pyVoIP",
-    "slack-bolt": "slack_bolt",
-    "slack-sdk": "slack_sdk",
-    "websocket-client": "websocket",
-    "wecom-aibot-python-sdk": "aibot",
-    "opencv-python": "cv2",
-    "scikit-learn": "sklearn",
-    "protobuf": "google.protobuf",
-}
 
 
 def _is_frozen() -> bool:
@@ -395,71 +367,6 @@ class PluginLoader:
         return check_plugin_version_compat(manifest)
 
     @staticmethod
-    def is_requirement_satisfied(
-        req: Requirement,
-        snapshot: RuntimeSnapshot | None = None,
-    ) -> bool:
-        """Return True if *req* is already available.
-
-        Two complementary probes are combined so neither environment causes a
-        spurious reinstall on every launch:
-
-        * ``importlib.metadata`` — authoritative for deps installed via
-          ``pip install --target`` (they keep a proper ``.dist-info``) and the
-          only way to honour version specifiers. It is keyed by *distribution*
-          name, so import-name/dist-name mismatches (``pillow`` -> ``PIL``)
-          never cause false negatives.
-        * ``find_spec`` import probe — covers deps already bundled into the
-          frozen desktop build, whose ``.dist-info`` is often stripped, so they
-          are not misreported as missing (issue #5209).
-        """
-        if snapshot is not None:
-            state = runtime_requirement_state(
-                req,
-                snapshot,
-                fallback=PluginLoader.is_requirement_satisfied,
-            )
-            return state == "satisfied"
-
-        # 1) Metadata probe: reliable for --target installs and version checks.
-        try:
-            installed = _dist_version(req.name)
-        except PackageNotFoundError:
-            installed = None
-        if installed is not None:
-            if not req.specifier:
-                return True
-            try:
-                return req.specifier.contains(installed)
-            except Exception:
-                return True
-        # 2) Import probe: frozen-bundled deps that lack ``.dist-info``.
-        dist = req.name.lower().replace("_", "-")
-        import_name = _IMPORT_NAME_OVERRIDES.get(
-            dist,
-            req.name.replace("-", "_"),
-        )
-        top = import_name.split(".")[0]
-        try:
-            return importlib.util.find_spec(top) is not None
-        except (ImportError, ValueError):
-            return False
-
-    _is_requirement_satisfied = is_requirement_satisfied
-
-    @staticmethod
-    def import_name_override_for_distribution(name: str) -> str | None:
-        """Return a known import-name override for one distribution."""
-        distribution = name.lower().replace("_", "-")
-        return _IMPORT_NAME_OVERRIDES.get(distribution)
-
-    @staticmethod
-    def import_name_for_distribution(name: str) -> str:
-        """Return the conventional import name for one distribution."""
-        override = PluginLoader.import_name_override_for_distribution(name)
-        return override or name.replace("-", "_")
-
-    @staticmethod
     def _find_unsatisfied_dependencies(
         requirements_file: Path,
     ) -> List[str]:
@@ -479,7 +386,18 @@ class PluginLoader:
                 req = Requirement(line)
             except Exception:
                 continue
-            if not PluginLoader.is_requirement_satisfied(req, snapshot):
+            if snapshot is not None:
+                satisfied = (
+                    runtime_requirement_state(
+                        req,
+                        snapshot,
+                        fallback=environment_requirement_satisfied,
+                    )
+                    == "satisfied"
+                )
+            else:
+                satisfied = environment_requirement_satisfied(req)
+            if not satisfied:
                 missing.append(line)
 
         return missing
@@ -1236,21 +1154,12 @@ class PluginLoader:
                 f"{output[-4000:]}",
             )
         requirements = self._requirement_lines(Path(req))
-        import_names = {}
-        for raw in requirements:
-            requirement = Requirement(raw)
-            import_name = self.import_name_override_for_distribution(
-                requirement.name,
-            )
-            if import_name is not None:
-                import_names[requirement.name] = import_name
         try:
             transaction.commit(
                 verify=lambda: verify_runtime_requirements(
                     python,
                     site_dir,
                     requirements,
-                    import_names,
                 ),
                 constraints=self._runtime_constraints(),
             )

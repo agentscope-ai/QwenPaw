@@ -410,13 +410,13 @@ def test_non_frozen_uninstalled_package_is_not_satisfied_by_loaded_module():
         ),
         patch(
             "qwenpaw.app.channels.dependencies."
-            "PluginLoader.is_requirement_satisfied",
+            "environment_requirement_satisfied",
             return_value=True,
-        ) as plugin_check,
+        ) as environment_check,
     ):
         assert not _is_requirement_satisfied(req)
 
-    plugin_check.assert_not_called()
+    environment_check.assert_not_called()
 
 
 def test_frozen_unversioned_bundled_package_is_satisfied_when_pinned():
@@ -432,13 +432,13 @@ def test_frozen_unversioned_bundled_package_is_satisfied_when_pinned():
         ),
         patch(
             "qwenpaw.app.channels.dependencies."
-            "PluginLoader.is_requirement_satisfied",
+            "environment_requirement_satisfied",
             return_value=True,
-        ) as plugin_check,
+        ) as environment_check,
     ):
         assert _requirement_state(req) == "satisfied"
 
-    checked = plugin_check.call_args.args[0]
+    checked = environment_check.call_args.args[0]
     assert checked.name == "lark-oapi"
     assert not checked.specifier
 

@@ -36,6 +36,7 @@ from ...package_runtime import (
     RuntimeTransaction,
     RuntimeSnapshot,
     build_runtime_snapshot,
+    environment_requirement_satisfied,
     recover_runtime_if_needed,
     recover_runtime_transactions,
     runtime_pythonpath,
@@ -273,14 +274,14 @@ def _requirement_state(
         return runtime_requirement_state(
             req,
             snapshot,
-            fallback=PluginLoader.is_requirement_satisfied,
+            fallback=environment_requirement_satisfied,
         )
     try:
         installed = version(req.name)
     except PackageNotFoundError:
         if _is_frozen():
             unversioned = Requirement(req.name)
-            if PluginLoader.is_requirement_satisfied(unversioned):
+            if environment_requirement_satisfied(unversioned):
                 return "satisfied"
         return "missing"
     if not req.specifier or req.specifier.contains(installed):
@@ -995,21 +996,12 @@ class ChannelDependencyService:
         python = _desktop_python()
         if python is None:
             raise RuntimeError("Bundled desktop Python runtime is unavailable")
-        import_names = {}
-        for raw in requirements:
-            requirement = Requirement(raw)
-            import_name = PluginLoader.import_name_override_for_distribution(
-                requirement.name,
-            )
-            if import_name is not None:
-                import_names[requirement.name] = import_name
 
         def verify() -> None:
             verify_runtime_requirements(
                 python,
                 _channel_site_dir(),
                 requirements,
-                import_names,
             )
 
         transaction.commit(

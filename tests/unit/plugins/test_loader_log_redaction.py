@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 import logging
-from importlib.metadata import PackageNotFoundError
 import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from packaging.requirements import Requirement
 
 from qwenpaw.plugins.loader import PluginLoader
 
@@ -62,58 +60,6 @@ def test_install_subprocess_redacts_credentials(caplog):
     assert secret_url not in caplog.text
     assert "secret" not in caplog.text
     assert "<redacted>" in caplog.text
-
-
-@pytest.mark.parametrize(
-    ("distribution", "import_name"),
-    [
-        ("audioop-lts", "audioop"),
-        ("dashscope-realtime", "dashscope_realtime"),
-        ("discord-py", "discord"),
-        ("lark-oapi", "lark_oapi"),
-        ("livekit-api", "livekit"),
-        ("matrix-nio", "nio"),
-        ("paho-mqtt", "paho"),
-        ("pycryptodome", "Crypto"),
-        ("python-socks", "python_socks"),
-        ("pyVoIP", "pyVoIP"),
-        ("slack-bolt", "slack_bolt"),
-        ("slack-sdk", "slack_sdk"),
-        ("websocket-client", "websocket"),
-        ("wecom-aibot-python-sdk", "aibot"),
-    ],
-)
-def test_requirement_import_name_overrides(distribution, import_name):
-    with (
-        patch(
-            "qwenpaw.plugins.loader._dist_version",
-            side_effect=PackageNotFoundError,
-        ),
-        patch(
-            "qwenpaw.plugins.loader.importlib.util.find_spec",
-            return_value=object(),
-        ) as find_spec,
-    ):
-        assert PluginLoader.is_requirement_satisfied(
-            Requirement(distribution),
-        )
-
-    find_spec.assert_called_once_with(import_name)
-
-
-def test_unknown_distribution_has_no_import_name_override():
-    assert (
-        PluginLoader.import_name_override_for_distribution(
-            "unknown-distribution",
-        )
-        is None
-    )
-    assert (
-        PluginLoader.import_name_for_distribution(
-            "unknown-distribution",
-        )
-        == "unknown_distribution"
-    )
 
 
 def test_frozen_plugin_detects_duplicate_runtime_metadata(tmp_path):

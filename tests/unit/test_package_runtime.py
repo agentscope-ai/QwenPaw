@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 import shutil
 import subprocess
@@ -12,12 +13,46 @@ import pytest
 from qwenpaw.package_runtime import (
     RuntimeTransaction,
     build_runtime_snapshot,
+    environment_requirement_satisfied,
     recover_runtime_if_needed,
     recover_runtime_transactions,
     runtime_requirement_state,
     runtime_write_lock,
     verify_runtime_requirements,
 )
+
+
+@pytest.mark.parametrize(
+    ("distribution", "import_name"),
+    [
+        ("audioop-lts", "audioop"),
+        ("discord-py", "discord"),
+        ("livekit-api", "livekit"),
+        ("matrix-nio", "nio"),
+        ("paho-mqtt", "paho"),
+        ("pycryptodome", "Crypto"),
+        ("pyVoIP", "pyVoIP"),
+        ("websocket-client", "websocket"),
+        ("wecom-aibot-python-sdk", "aibot"),
+        ("demo-package", "demo_package"),
+    ],
+)
+def test_environment_requirement_uses_import_name(distribution, import_name):
+    with (
+        patch(
+            "qwenpaw.package_runtime.distribution_version",
+            side_effect=PackageNotFoundError,
+        ),
+        patch(
+            "qwenpaw.package_runtime.importlib.util.find_spec",
+            return_value=object(),
+        ) as find_spec,
+    ):
+        assert environment_requirement_satisfied(
+            Requirement(distribution),
+        )
+
+    find_spec.assert_called_once_with(import_name)
 
 
 def _write_metadata(
@@ -1032,7 +1067,6 @@ def test_verify_runtime_requirements_uses_clean_child_process(tmp_path):
         sys.executable,
         tmp_path,
         ["demo-package==1.0"],
-        {"demo-package": "demo_package"},
     )
 
 
@@ -1061,7 +1095,6 @@ def test_verify_runtime_requirements_infers_imports(
         sys.executable,
         tmp_path,
         [f"{name}=={version}"],
-        {},
     )
 
 
@@ -1080,7 +1113,6 @@ def test_verify_runtime_requirements_accepts_one_import_candidate(tmp_path):
         sys.executable,
         tmp_path,
         ["multi-package==1.0"],
-        {},
     )
 
 
@@ -1100,7 +1132,6 @@ def test_verify_runtime_requirements_rejects_failed_candidates(tmp_path):
             sys.executable,
             tmp_path,
             ["broken-package==1.0"],
-            {},
         )
 
 
@@ -1126,7 +1157,6 @@ def test_verify_runtime_requirements_keeps_payload_off_command_line(tmp_path):
             sys.executable,
             tmp_path,
             [f"demo-package @ {secret}"],
-            {},
         )
 
     command = run.call_args.args[0]

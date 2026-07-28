@@ -7,6 +7,9 @@ import contextlib
 import csv
 from dataclasses import dataclass
 from email.parser import Parser
+import importlib.util
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as distribution_version
 import json
 import os
 from pathlib import Path
@@ -38,6 +41,26 @@ _RUNTIME_BINARY_SUFFIXES = {
     ".dylib",
     ".pyd",
     ".so",
+}
+
+# Distribution names whose import names cannot be derived by replacing '-'.
+_IMPORT_NAME_OVERRIDES = {
+    "audioop-lts": "audioop",
+    "pillow": "PIL",
+    "pyyaml": "yaml",
+    "beautifulsoup4": "bs4",
+    "discord-py": "discord",
+    "livekit-api": "livekit",
+    "matrix-nio": "nio",
+    "paho-mqtt": "paho",
+    "pycryptodome": "Crypto",
+    "python-dateutil": "dateutil",
+    "pyvoip": "pyVoIP",
+    "websocket-client": "websocket",
+    "wecom-aibot-python-sdk": "aibot",
+    "opencv-python": "cv2",
+    "scikit-learn": "sklearn",
+    "protobuf": "google.protobuf",
 }
 
 
@@ -184,6 +207,31 @@ def runtime_requirement_state(
     if fallback is not None and fallback(requirement):
         return "satisfied"
     return "missing"
+
+
+def environment_requirement_satisfied(requirement: Requirement) -> bool:
+    """Return whether the current Python environment provides a requirement."""
+    try:
+        installed = distribution_version(requirement.name)
+    except PackageNotFoundError:
+        installed = None
+    if installed is not None:
+        if not requirement.specifier:
+            return True
+        try:
+            return requirement.specifier.contains(installed)
+        except Exception:
+            return True
+
+    name = canonicalize_name(requirement.name)
+    import_name = _IMPORT_NAME_OVERRIDES.get(
+        name,
+        requirement.name.replace("-", "_"),
+    )
+    try:
+        return importlib.util.find_spec(import_name.split(".")[0]) is not None
+    except (ImportError, ValueError):
+        return False
 
 
 @contextlib.contextmanager
@@ -848,16 +896,12 @@ def verify_runtime_requirements(
     python: str,
     site_dir: Path,
     requirements: list[str],
-    import_names: dict[str, str],
     *,
     timeout: int = 60,
 ) -> None:
     """Verify versions and direct imports in a clean Python process."""
-    normalized_import_names = {
-        canonicalize_name(name): value for name, value in import_names.items()
-    }
     applicable: list[Requirement] = []
-    checks: list[dict[str, str | None]] = []
+    checks: list[dict[str, str]] = []
     for raw in requirements:
         try:
             requirement = Requirement(raw)
@@ -874,7 +918,6 @@ def verify_runtime_requirements(
             {
                 "key": key,
                 "name": requirement.name,
-                "import_name": normalized_import_names.get(key),
             },
         )
     payload = json.dumps(
@@ -949,9 +992,6 @@ for check in payload["checks"]:
         except importlib.metadata.PackageNotFoundError:
             values = []
     import_names = []
-    override = check.get("import_name")
-    if override:
-        import_names.append(override)
     for distribution in matches:
         for import_name in distribution_import_names(distribution):
             if import_name not in import_names:
