@@ -190,7 +190,7 @@ whisper = [
     "openai-whisper>=20231117",
 ]
 full = [
-    "qwenpaw[local,whisper]",
+    "qwenpaw[local,whisper,channels-all]",
 ]
 # Preserve the legacy extras: ``sip`` is the PyVoIP backend, while the
 # channel UI installs both backends through ``channel-sip``.
