@@ -17,9 +17,9 @@ on:
       integration_marker:
         description: >-
           Pytest marker expression for the integration tier. Leave blank
-          to keep the event-based default (PR=p0, push/dispatch=p0+p1).
-          Examples: "integration and p0", "integration and (p0 or p1)",
-          "integration".
+          to run the FULL integration suite (the default for every event).
+          Fill in to narrow a manual run, e.g. "integration and p0",
+          "integration and (p0 or p1)".
         required: false
         default: ''
 
@@ -359,15 +359,14 @@ jobs:
           DISPATCH_MARKER: ${{ inputs.integration_marker }}
         run: |
           # Manual dispatch override -> use whatever the maintainer typed.
-          # PR gate -> p0 only (fast feedback)
-          # push / workflow_dispatch (no input) -> p0 + p1 (full pre-merge gate)
-          # nightly full sweep lives in full-tests-nightly.yml
+          # Everything else (PR gate / push) -> FULL integration suite.
+          # The PR gate is the only layer that reliably runs (post-merge
+          # push runs wait on the maintainer-approved environment), so
+          # problems are blocked here rather than detected after merge.
           if [ -n "${DISPATCH_MARKER}" ]; then
             EXPR="${DISPATCH_MARKER}"
-          elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            EXPR="integration and p0"
           else
-            EXPR="integration and (p0 or p1)"
+            EXPR="integration"
           fi
           echo "expr=$EXPR" >> "$GITHUB_OUTPUT"
           echo "Selected marker expression: $EXPR"
