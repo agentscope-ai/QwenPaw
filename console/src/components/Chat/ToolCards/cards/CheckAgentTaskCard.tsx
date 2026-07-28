@@ -28,17 +28,19 @@ const CheckAgentTaskCard: React.FC<CheckAgentTaskCardProps> = ({
     title = t("tool.checkAgentTaskDefault");
   }
 
-  const resultText = stringifyResult(content.result);
-
   return (
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
       icon={<SyncOutlined />}
       title={title}
-    >
-      {resultText && <DefaultBlock title="Output" content={resultText} />}
-    </ToolCardShell>
+      renderBody={() => {
+        const resultText = stringifyResult(content.result);
+        return resultText ? (
+          <DefaultBlock title="Output" content={resultText} />
+        ) : null;
+      }}
+    />
   );
 };
 

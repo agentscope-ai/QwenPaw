@@ -22,17 +22,17 @@ const ViewVideoCard: React.FC<ViewVideoCardProps> = ({
     ? t("tool.viewVideo", { file })
     : t("tool.viewVideoDefault");
 
-  const media = getMediaInfo(content);
-
   return (
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
       icon={<VideoCameraOutlined />}
       title={title}
-    >
-      {media && <MediaPreview media={media} />}
-    </ToolCardShell>
+      renderBody={() => {
+        const media = getMediaInfo(content);
+        return media ? <MediaPreview media={media} /> : null;
+      }}
+    />
   );
 };
 

@@ -21,17 +21,19 @@ const DelegateExternalAgentCard: React.FC<DelegateExternalAgentCardProps> = ({
     ? t("tool.delegateExternalAgent", { runner })
     : t("tool.delegateExternalAgentDefault");
 
-  const resultText = stringifyResult(content.result);
-
   return (
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
       icon={<ApiOutlined />}
       title={title}
-    >
-      {resultText && <DefaultBlock title="Output" content={resultText} />}
-    </ToolCardShell>
+      renderBody={() => {
+        const resultText = stringifyResult(content.result);
+        return resultText ? (
+          <DefaultBlock title="Output" content={resultText} />
+        ) : null;
+      }}
+    />
   );
 };
 

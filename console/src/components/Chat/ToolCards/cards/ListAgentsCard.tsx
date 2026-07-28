@@ -17,26 +17,25 @@ const ListAgentsCard: React.FC<ListAgentsCardProps> = ({
   const { t } = useTranslation();
   const title = t("tool.listAgents");
 
-  // Use the raw result for formatAgentList — it expects JSON to parse.
-  const rawResult =
-    typeof content.result === "string"
-      ? content.result
-      : content.result != null
-      ? JSON.stringify(content.result)
-      : "";
-  const formattedResult = rawResult ? formatAgentList(rawResult, t) : "";
-
   return (
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
       icon={<TeamOutlined />}
       title={title}
-    >
-      {formattedResult && (
-        <DefaultBlock title="Output" content={formattedResult} />
-      )}
-    </ToolCardShell>
+      renderBody={() => {
+        const rawResult =
+          typeof content.result === "string"
+            ? content.result
+            : content.result != null
+            ? JSON.stringify(content.result)
+            : "";
+        const formattedResult = rawResult ? formatAgentList(rawResult, t) : "";
+        return formattedResult ? (
+          <DefaultBlock title="Output" content={formattedResult} />
+        ) : null;
+      }}
+    />
   );
 };
 

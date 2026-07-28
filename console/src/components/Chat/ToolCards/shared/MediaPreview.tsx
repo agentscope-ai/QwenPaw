@@ -34,10 +34,59 @@ async function fetchPreviewError(
   }
 }
 
-/** In-flight/successful HEAD probes keyed by URL, so many previews of the
- *  same file (or re-renders) trigger at most one network request. Failed
- *  probes are evicted — the file may become available later. */
-const probeCache = new Map<string, Promise<{ status: number; code: string }>>();
+const PROBE_CACHE_MAX_ENTRIES = 100;
+const PROBE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface ProbeCacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+export class PreviewProbeCache<T> {
+  private entries = new Map<string, ProbeCacheEntry<T>>();
+  private readonly maxEntries: number;
+  private readonly ttlMs: number;
+
+  constructor(maxEntries: number, ttlMs: number) {
+    this.maxEntries = maxEntries;
+    this.ttlMs = ttlMs;
+  }
+
+  get(key: string): T | undefined {
+    const entry = this.entries.get(key);
+    if (!entry) return undefined;
+    if (entry.expiresAt <= Date.now()) {
+      this.entries.delete(key);
+      return undefined;
+    }
+    this.entries.delete(key);
+    this.entries.set(key, entry);
+    return entry.value;
+  }
+
+  set(key: string, value: T): void {
+    this.entries.delete(key);
+    this.entries.set(key, {
+      value,
+      expiresAt: Date.now() + this.ttlMs,
+    });
+    while (this.entries.size > this.maxEntries) {
+      const oldestKey = this.entries.keys().next().value;
+      if (oldestKey === undefined) break;
+      this.entries.delete(oldestKey);
+    }
+  }
+
+  delete(key: string): void {
+    this.entries.delete(key);
+  }
+}
+
+/** In-flight/successful probes are shared briefly, while the bounded LRU
+ * prevents long-running sessions from retaining every preview URL forever. */
+const probeCache = new PreviewProbeCache<
+  Promise<{ status: number; code: string }>
+>(PROBE_CACHE_MAX_ENTRIES, PROBE_CACHE_TTL_MS);
 
 /** Probe the preview URL with a cheap HEAD request (no body download).
  *  Servers that reject HEAD (405/501) are treated as accessible; other
@@ -90,7 +139,9 @@ const MediaPreview: React.FC<MediaPreviewProps> = ({ media }) => {
   );
 
   const handleMediaError = useCallback(() => {
-    fetchPreviewError(media.url).then(resolveError);
+    probePreviewUrl(media.url).then((result) => {
+      resolveError(result.status === 200 ? { status: 0, code: "" } : result);
+    });
   }, [media.url, resolveError]);
 
   // Reset any stale error when the media URL changes (e.g. the tool result

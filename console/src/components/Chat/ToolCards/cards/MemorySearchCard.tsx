@@ -44,25 +44,27 @@ const MemorySearchCard: React.FC<MemorySearchCardProps> = ({
     );
   }
 
-  const rawResult =
-    typeof content.result === "string"
-      ? content.result
-      : content.result != null
-      ? JSON.stringify(content.result)
-      : "";
-  const formattedResult = rawResult ? formatMemorySearch(rawResult, t) : "";
-
   return (
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
       icon={<BulbOutlined />}
       title={title}
-    >
-      {formattedResult && (
-        <DefaultBlock title="Output" content={formattedResult} />
-      )}
-    </ToolCardShell>
+      renderBody={() => {
+        const rawResult =
+          typeof content.result === "string"
+            ? content.result
+            : content.result != null
+            ? JSON.stringify(content.result)
+            : "";
+        const formattedResult = rawResult
+          ? formatMemorySearch(rawResult, t)
+          : "";
+        return formattedResult ? (
+          <DefaultBlock title="Output" content={formattedResult} />
+        ) : null;
+      }}
+    />
   );
 };
 

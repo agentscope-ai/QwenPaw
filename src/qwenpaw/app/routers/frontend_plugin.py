@@ -54,6 +54,7 @@ async def list_frontend_plugins(request: Request):
                 "loaded": True,
                 "plugin_type": manifest.plugin_type,
                 "frontend_entry": manifest.entry.frontend,
+                "host_modules": manifest.entry.host_modules,
             },
         )
 

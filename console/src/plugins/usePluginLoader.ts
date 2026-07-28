@@ -18,11 +18,14 @@ interface PluginInfo {
   id: string;
   name: string;
   frontend_entry?: string;
+  host_modules?: string[];
 }
 
 interface PluginModule {
   default?: unknown;
 }
+
+const PLUGIN_LOAD_TIMEOUT_MS = 15000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
@@ -54,26 +57,81 @@ export async function waitForPluginReady(
   }
 }
 
-async function executePluginScript(entryUrl: string): Promise<void> {
+export async function preloadPluginHostModules(
+  plugin: PluginInfo,
+): Promise<void> {
+  const moduleKeys = plugin.host_modules ?? [];
+  if (moduleKeys.length === 0) return;
+  await Promise.all(moduleKeys.map((key) => window.QwenPaw.loadModule(key)));
+}
+
+export function withTimeout<T>(
+  task: Promise<T>,
+  timeoutMs: number,
+  message: string,
+  onTimeout?: () => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      onTimeout?.();
+      reject(new Error(message));
+    }, timeoutMs);
+    task.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function executePluginScript(plugin: PluginInfo): Promise<void> {
+  const entryUrl = resolveUrl(plugin.id, plugin.frontend_entry!);
   const token = getApiToken();
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  const response = await fetch(entryUrl, { headers });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} for ${entryUrl}`);
-  }
-
-  const jsText = await response.text();
-  const blobUrl = URL.createObjectURL(
-    new Blob([jsText], { type: "application/javascript" }),
-  );
-  try {
+  const controller = new AbortController();
+  let blobUrl: string | null = null;
+  let cancelled = false;
+  const cleanup = () => {
+    if (blobUrl) {
+      URL.revokeObjectURL(blobUrl);
+      blobUrl = null;
+    }
+  };
+  const loadTask = (async () => {
+    await preloadPluginHostModules(plugin);
+    if (cancelled) return;
+    const response = await fetch(entryUrl, {
+      headers,
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} for ${entryUrl}`);
+    }
+    const jsText = await response.text();
+    if (cancelled) return;
+    blobUrl = URL.createObjectURL(
+      new Blob([jsText], { type: "application/javascript" }),
+    );
     const pluginModule = await import(/* @vite-ignore */ blobUrl);
     await waitForPluginReady(pluginModule);
-  } finally {
-    URL.revokeObjectURL(blobUrl);
-  }
+  })().finally(cleanup);
+
+  await withTimeout(
+    loadTask,
+    PLUGIN_LOAD_TIMEOUT_MS,
+    `Plugin ${plugin.id} timed out after ${PLUGIN_LOAD_TIMEOUT_MS}ms`,
+    () => {
+      cancelled = true;
+      controller.abort();
+      cleanup();
+    },
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -113,7 +171,7 @@ export async function loadAllPlugins(): Promise<{
 
   const results = await Promise.allSettled(
     frontendPlugins.map(async (p) => {
-      await executePluginScript(resolveUrl(p.id, p.frontend_entry!));
+      await executePluginScript(p);
       console.info(`[PluginLoader] ✓ ${p.id}`);
     }),
   );

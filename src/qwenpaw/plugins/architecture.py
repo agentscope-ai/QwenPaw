@@ -50,6 +50,7 @@ class PluginEntryPoints(BaseModel):
 
     frontend: Optional[str] = None
     backend: Optional[str] = None
+    host_modules: List[str] = Field(default_factory=list)
 
 
 def _coerce_manifest_str(value: Any) -> str:

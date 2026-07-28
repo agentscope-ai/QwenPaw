@@ -21,17 +21,19 @@ const ChatWithAgentCard: React.FC<ChatWithAgentCardProps> = ({
     ? t("tool.chatWithAgent", { agent })
     : t("tool.chatWithAgentDefault");
 
-  const resultText = stringifyResult(content.result);
-
   return (
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
       icon={<MessageOutlined />}
       title={title}
-    >
-      {resultText && <DefaultBlock title="Output" content={resultText} />}
-    </ToolCardShell>
+      renderBody={() => {
+        const resultText = stringifyResult(content.result);
+        return resultText ? (
+          <DefaultBlock title="Output" content={resultText} />
+        ) : null;
+      }}
+    />
   );
 };
 

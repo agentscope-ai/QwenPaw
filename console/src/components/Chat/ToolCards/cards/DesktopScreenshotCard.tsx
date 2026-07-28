@@ -16,7 +16,6 @@ const DesktopScreenshotCard: React.FC<DesktopScreenshotCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const title = t("tool.desktopScreenshot");
-  const media = getMediaInfo(content);
 
   return (
     <ToolCardShell
@@ -24,9 +23,11 @@ const DesktopScreenshotCard: React.FC<DesktopScreenshotCardProps> = ({
       isStreaming={isStreaming}
       icon={<DesktopOutlined />}
       title={title}
-    >
-      {media && <MediaPreview media={media} />}
-    </ToolCardShell>
+      renderBody={() => {
+        const media = getMediaInfo(content);
+        return media ? <MediaPreview media={media} /> : null;
+      }}
+    />
   );
 };
 

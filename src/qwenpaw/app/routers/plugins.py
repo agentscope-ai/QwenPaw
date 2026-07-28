@@ -78,6 +78,7 @@ def _list_plugins_from_disk() -> list[dict]:
                 "loaded": False,
                 "plugin_type": disk_manifest.plugin_type,
                 "frontend_entry": frontend_entry,
+                "host_modules": disk_manifest.entry.host_modules,
             },
         )
     return result
@@ -618,6 +619,7 @@ async def list_plugins(request: Request):
                 "loaded": True,
                 "plugin_type": manifest.plugin_type,
                 "frontend_entry": manifest.entry.frontend,
+                "host_modules": manifest.entry.host_modules,
             },
         )
 

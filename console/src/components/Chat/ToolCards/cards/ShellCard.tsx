@@ -35,17 +35,19 @@ const ShellCard: React.FC<ShellCardProps> = ({ content, isStreaming }) => {
     );
   }
 
-  const resultText = stringifyResult(content.result);
-
   return (
     <ToolCardShell
       icon={<CodeOutlined />}
       title={title}
       content={content}
       isStreaming={isStreaming}
-    >
-      {resultText && <DefaultBlock title="Output" content={resultText} />}
-    </ToolCardShell>
+      renderBody={() => {
+        const resultText = stringifyResult(content.result);
+        return resultText ? (
+          <DefaultBlock title="Output" content={resultText} />
+        ) : null;
+      }}
+    />
   );
 };
 

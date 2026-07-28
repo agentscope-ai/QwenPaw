@@ -16,7 +16,6 @@ const TokenUsageCard: React.FC<TokenUsageCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const title = t("tool.getTokenUsage");
-  const resultText = stringifyResult(content.result);
 
   return (
     <ToolCardShell
@@ -24,9 +23,13 @@ const TokenUsageCard: React.FC<TokenUsageCardProps> = ({
       isStreaming={isStreaming}
       icon={<DashboardOutlined />}
       title={title}
-    >
-      {resultText && <DefaultBlock title="Output" content={resultText} />}
-    </ToolCardShell>
+      renderBody={() => {
+        const resultText = stringifyResult(content.result);
+        return resultText ? (
+          <DefaultBlock title="Output" content={resultText} />
+        ) : null;
+      }}
+    />
   );
 };
 

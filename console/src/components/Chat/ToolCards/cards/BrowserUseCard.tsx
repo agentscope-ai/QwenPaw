@@ -270,17 +270,19 @@ const BrowserUseCard: React.FC<BrowserUseCardProps> = ({
     );
   }
 
-  const resultText = formatBrowserResult(content.result);
-
   return (
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
       icon={<ChromeOutlined />}
       title={title}
-    >
-      {resultText && <DefaultBlock title="Output" content={resultText} />}
-    </ToolCardShell>
+      renderBody={() => {
+        const resultText = formatBrowserResult(content.result);
+        return resultText ? (
+          <DefaultBlock title="Output" content={resultText} />
+        ) : null;
+      }}
+    />
   );
 };
 

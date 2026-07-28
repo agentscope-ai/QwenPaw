@@ -11,7 +11,10 @@
   "author": "CloudPaw Team",
   "entry": {
     "frontend": "ui/dist/index.js",
-    "backend": "plugin.py"
+    "backend": "plugin.py",
+    "host_modules": [
+      "Chat/OptionsPanel/defaultConfig"
+    ]
   },
   "dependencies": [],
   "qwenpaw_version": {

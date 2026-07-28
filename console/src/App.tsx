@@ -24,7 +24,7 @@ import "dayjs/locale/id";
 dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
-import { PluginProvider, usePlugins } from "./plugins/PluginContext";
+import { PluginProvider } from "./plugins/PluginContext";
 import { ApprovalProvider } from "./contexts/ApprovalContext";
 import { DesktopUpdateProvider } from "./contexts/DesktopUpdateContext";
 import { UpdateTakeoverGate } from "./components/UpdateTakeoverPage";
@@ -131,7 +131,6 @@ function AppInner() {
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
   const { isDark } = useTheme();
-  const { loading: pluginsLoading } = usePlugins();
   const selectedTheme = isDark ? bailianDarkTheme : bailianTheme;
   const lang = i18n.resolvedLanguage || i18n.language || "en";
   const [antdLocale, setAntdLocale] = useState<Locale>(
@@ -188,11 +187,6 @@ function AppInner() {
     if (!isDesktopTauriRuntime()) return;
     return interceptBlankLinkClicks();
   }, []);
-
-  // Wait for plugins to load before rendering routes that might be patched
-  if (pluginsLoading) {
-    return null;
-  }
 
   return (
     <BrowserRouter basename={basename}>

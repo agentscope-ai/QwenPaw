@@ -23,6 +23,9 @@ export interface ModuleRegistry {
   /** Load and register one module, deduplicating concurrent requests. */
   load(key: string): Promise<Record<string, unknown>>;
 
+  /** Whether a lazy factory exists for a host module key. */
+  hasFactory(key: string): boolean;
+
   /**
    * Get a module export value (for const/let/var types)
    */
@@ -91,6 +94,10 @@ export class ModuleRegistryImpl implements ModuleRegistry {
     this.factories.set(key, factory);
   }
 
+  hasFactory(key: string): boolean {
+    return this.factories.has(key);
+  }
+
   load(key: string): Promise<Record<string, unknown>> {
     const loaded = this.modules.get(key);
     if (loaded) return Promise.resolve(loaded);
@@ -157,6 +164,27 @@ export class ModuleRegistryImpl implements ModuleRegistry {
   }
 }
 
+export function createModuleSnapshot(
+  registry: ModuleRegistryImpl,
+): Record<string, Record<string, unknown>> {
+  const loadedModules = registry.getAllModules();
+  return new Proxy(loadedModules, {
+    get(target, property: string | symbol) {
+      if (
+        typeof property === "string" &&
+        !(property in target) &&
+        registry.hasFactory(property)
+      ) {
+        console.warn(
+          `[moduleRegistry] ${property} is lazy. Declare it in ` +
+            `entry.host_modules or await QwenPaw.loadModule().`,
+        );
+      }
+      return Reflect.get(target, property);
+    },
+  });
+}
+
 export const moduleRegistry = new ModuleRegistryImpl();
 
 // Expose to window.QwenPaw.modules (for plugin use)
@@ -169,7 +197,7 @@ if (typeof window !== "undefined") {
   // Use Proxy for dynamic access, ensuring plugins always get latest module state
   Object.defineProperty(window.QwenPaw, "modules", {
     get() {
-      return moduleRegistry.getAllModules();
+      return createModuleSnapshot(moduleRegistry);
     },
     configurable: true,
     enumerable: true,

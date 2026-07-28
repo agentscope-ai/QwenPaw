@@ -21,17 +21,19 @@ const MaterializeSkillCard: React.FC<MaterializeSkillCardProps> = ({
     ? t("tool.materializeSkill", { skill })
     : t("tool.materializeSkillDefault");
 
-  const resultText = stringifyResult(content.result);
-
   return (
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
       icon={<ThunderboltOutlined />}
       title={title}
-    >
-      {resultText && <DefaultBlock title="Output" content={resultText} />}
-    </ToolCardShell>
+      renderBody={() => {
+        const resultText = stringifyResult(content.result);
+        return resultText ? (
+          <DefaultBlock title="Output" content={resultText} />
+        ) : null;
+      }}
+    />
   );
 };
 

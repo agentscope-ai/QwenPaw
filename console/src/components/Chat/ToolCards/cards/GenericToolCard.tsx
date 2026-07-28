@@ -26,17 +26,19 @@ const GenericToolCard: React.FC<GenericToolCardProps> = ({
   const toolLabel = content.serverLabel
     ? `${content.serverLabel} / ${content.name}`
     : content.name;
-  const resultText = stringifyResult(content.result);
-
   return (
     <ToolCardShell
       icon={<ToolOutlined />}
       title={t("tool.execute", { tool: toolLabel })}
       content={content}
       isStreaming={isStreaming}
-    >
-      {resultText && <DefaultBlock title="Output" content={resultText} />}
-    </ToolCardShell>
+      renderBody={() => {
+        const resultText = stringifyResult(content.result);
+        return resultText ? (
+          <DefaultBlock title="Output" content={resultText} />
+        ) : null;
+      }}
+    />
   );
 };
 

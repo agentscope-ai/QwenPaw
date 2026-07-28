@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ModuleRegistryImpl } from "./moduleRegistry";
+import { createModuleSnapshot, ModuleRegistryImpl } from "./moduleRegistry";
 
 describe("ModuleRegistryImpl", () => {
   it("does not execute factories during registration", () => {
@@ -35,5 +35,27 @@ describe("ModuleRegistryImpl", () => {
     module.value = 2;
 
     expect(registry.get("page", "value")).toBe(2);
+  });
+
+  it("reports whether a lazy factory is registered", () => {
+    const registry = new ModuleRegistryImpl();
+
+    expect(registry.hasFactory("page")).toBe(false);
+    registry.registerFactory("page", async () => ({ value: 1 }));
+    expect(registry.hasFactory("page")).toBe(true);
+  });
+
+  it("warns when legacy sync access targets a lazy module", () => {
+    const registry = new ModuleRegistryImpl();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    registry.registerFactory("page", async () => ({ value: 1 }));
+
+    const modules = createModuleSnapshot(registry);
+
+    expect(modules.page).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("entry.host_modules"),
+    );
+    warn.mockRestore();
   });
 });

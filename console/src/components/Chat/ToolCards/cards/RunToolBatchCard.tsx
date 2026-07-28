@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { NodeIndexOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
@@ -340,19 +340,13 @@ export interface RunToolBatchCardProps {
 interface RunToolBatchBodyProps {
   content: ToolCallContent;
   actionCount: number;
+  mediaItems: MediaInfo[];
+  outputText: string;
 }
 
 const RunToolBatchBody: React.FC<RunToolBatchBodyProps> = React.memo(
-  ({ content, actionCount }) => {
+  ({ content, actionCount, mediaItems, outputText }) => {
     const { t } = useTranslation();
-    const mediaItems = useMemo(
-      () => extractMediaFromBlocks(content.result),
-      [content.result],
-    );
-    const outputText = useMemo(
-      () => getOutputText(content.result, mediaItems),
-      [content.result, mediaItems],
-    );
     const outputBlockProps: Partial<DefaultBlockProps> =
       outputText.length > LARGE_OUTPUT_THRESHOLD
         ? { copyTitle: outputText }
@@ -392,6 +386,14 @@ RunToolBatchBody.displayName = "RunToolBatchBody";
 const RunToolBatchCard: React.FC<RunToolBatchCardProps> = React.memo(
   ({ content, isStreaming }) => {
     const { t } = useTranslation();
+    const derivedRef = useRef<{
+      result: unknown;
+      mediaItems: MediaInfo[];
+      outputText: string;
+    } | null>(null);
+    if (derivedRef.current?.result !== content.result) {
+      derivedRef.current = null;
+    }
     const params = content.params || {};
     const workflowLabel = getWorkflowLabel(params);
     const actionCount = getActionCount(params);
@@ -402,6 +404,26 @@ const RunToolBatchCard: React.FC<RunToolBatchCardProps> = React.memo(
           ? t("tool.runToolBatchProgress", { count: actionCount })
           : t("tool.runToolBatchRunning")
         : null;
+    const renderBody = useCallback(() => {
+      let derived = derivedRef.current;
+      if (!derived || derived.result !== content.result) {
+        const mediaItems = extractMediaFromBlocks(content.result);
+        derived = {
+          result: content.result,
+          mediaItems,
+          outputText: getOutputText(content.result, mediaItems),
+        };
+        derivedRef.current = derived;
+      }
+      return (
+        <RunToolBatchBody
+          content={content}
+          actionCount={actionCount}
+          mediaItems={derived.mediaItems}
+          outputText={derived.outputText}
+        />
+      );
+    }, [actionCount, content]);
 
     return (
       <ToolCardShell
@@ -410,9 +432,7 @@ const RunToolBatchCard: React.FC<RunToolBatchCardProps> = React.memo(
         icon={<NodeIndexOutlined />}
         title={title}
         inlineResult={inlineResult}
-        renderBody={() => (
-          <RunToolBatchBody content={content} actionCount={actionCount} />
-        )}
+        renderBody={renderBody}
       />
     );
   },

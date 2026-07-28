@@ -57,22 +57,23 @@ const EditFileCard: React.FC<EditFileCardProps> = ({
       icon={<EditOutlined />}
       title={title}
       badges={badges}
-    >
-      {params && (
-        <div className={styles.toolCallDiff}>
-          {oldText.split("\n").map((line, index) => (
-            <div key={`d${index}`} className={styles.diffLineDel}>
-              - {line}
-            </div>
-          ))}
-          {newText.split("\n").map((line, index) => (
-            <div key={`a${index}`} className={styles.diffLineAdd}>
-              + {line}
-            </div>
-          ))}
-        </div>
-      )}
-    </ToolCardShell>
+      renderBody={() =>
+        params ? (
+          <div className={styles.toolCallDiff}>
+            {oldText.split("\n").map((line, index) => (
+              <div key={`d${index}`} className={styles.diffLineDel}>
+                - {line}
+              </div>
+            ))}
+            {newText.split("\n").map((line, index) => (
+              <div key={`a${index}`} className={styles.diffLineAdd}>
+                + {line}
+              </div>
+            ))}
+          </div>
+        ) : null
+      }
+    />
   );
 };
 

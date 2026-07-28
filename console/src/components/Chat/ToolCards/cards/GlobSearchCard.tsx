@@ -33,8 +33,8 @@ const GlobSearchCard: React.FC<GlobSearchCardProps> = ({
     );
   }
 
-  const resultText = stringifyResult(content.result);
-  const lineCount = countLines(resultText);
+  const lineCount =
+    typeof content.result === "string" ? countLines(content.result) : 0;
 
   const badge =
     content.status === "done" && lineCount > 0 ? (
@@ -50,9 +50,13 @@ const GlobSearchCard: React.FC<GlobSearchCardProps> = ({
       icon={<FolderOpenOutlined />}
       title={title}
       badges={badge}
-    >
-      {resultText && <DefaultBlock title="Output" content={resultText} />}
-    </ToolCardShell>
+      renderBody={() => {
+        const resultText = stringifyResult(content.result);
+        return resultText ? (
+          <DefaultBlock title="Output" content={resultText} />
+        ) : null;
+      }}
+    />
   );
 };
 

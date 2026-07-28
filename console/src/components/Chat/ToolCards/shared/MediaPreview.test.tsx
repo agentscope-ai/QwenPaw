@@ -7,7 +7,7 @@
  */
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@agentscope-ai/chat", () => ({
   Attachments: {
@@ -37,7 +37,7 @@ vi.mock("../../../../utils/openExternalLink", () => ({
   openExternalLink: vi.fn(),
 }));
 
-import MediaPreview from "./MediaPreview";
+import MediaPreview, { PreviewProbeCache } from "./MediaPreview";
 
 const fetchMock = vi.fn();
 
@@ -135,6 +135,23 @@ describe("MediaPreview file probe", () => {
 });
 
 describe("MediaPreview error state", () => {
+  it("uses a HEAD probe after a media decode error", async () => {
+    mockFetchByUrl({});
+
+    render(
+      <MediaPreview
+        media={{ url: "/video.mp4", name: "video.mp4", type: "video" }}
+      />,
+    );
+    fireEvent.error(screen.getByTestId("video"));
+
+    await waitFor(() => {
+      expect(screen.getByText("preview.error.LOAD_FAILED")).toBeInTheDocument();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith("/video.mp4", { method: "HEAD" });
+  });
+
   it("shows a warning when the file preview URL 404s", async () => {
     mockFetchByUrl({ "/api/files/preview/file1.txt": 404 });
 
@@ -208,5 +225,30 @@ describe("MediaPreview loading", () => {
 
     expect(screen.getByTestId("video")).toHaveAttribute("preload", "none");
     expect(screen.getByTestId("audio")).toHaveAttribute("preload", "none");
+  });
+});
+
+describe("PreviewProbeCache", () => {
+  it("expires entries after the configured TTL", () => {
+    vi.useFakeTimers();
+    const cache = new PreviewProbeCache<string>(2, 100);
+    cache.set("a", "value-a");
+
+    expect(cache.get("a")).toBe("value-a");
+    vi.advanceTimersByTime(100);
+    expect(cache.get("a")).toBeUndefined();
+    vi.useRealTimers();
+  });
+
+  it("evicts the least recently used entry at capacity", () => {
+    const cache = new PreviewProbeCache<string>(2, 1000);
+    cache.set("a", "value-a");
+    cache.set("b", "value-b");
+    expect(cache.get("a")).toBe("value-a");
+    cache.set("c", "value-c");
+
+    expect(cache.get("b")).toBeUndefined();
+    expect(cache.get("a")).toBe("value-a");
+    expect(cache.get("c")).toBe("value-c");
   });
 });

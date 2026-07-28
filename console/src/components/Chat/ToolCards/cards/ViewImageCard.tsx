@@ -22,17 +22,17 @@ const ViewImageCard: React.FC<ViewImageCardProps> = ({
     ? t("tool.viewImage", { file })
     : t("tool.viewImageDefault");
 
-  const media = getMediaInfo(content);
-
   return (
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
       icon={<PictureOutlined />}
       title={title}
-    >
-      {media && <MediaPreview media={media} />}
-    </ToolCardShell>
+      renderBody={() => {
+        const media = getMediaInfo(content);
+        return media ? <MediaPreview media={media} /> : null;
+      }}
+    />
   );
 };
 

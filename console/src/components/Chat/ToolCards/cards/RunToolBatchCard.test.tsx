@@ -7,6 +7,7 @@
  */
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
+import { isValidElement } from "react";
 import { render, screen } from "@testing-library/react";
 
 const shellRenderSpy = vi.hoisted(() => vi.fn());
@@ -87,5 +88,22 @@ describe("RunToolBatchCard", () => {
       />,
     );
     expect(shellRenderSpy.mock.calls.length).toBeGreaterThan(rendersAfterMount);
+  });
+
+  it("reuses derived output when a collapsed body is requested again", () => {
+    const result = [{ type: "text", text: "done" }];
+    const content = makeContent(result);
+
+    render(<RunToolBatchCard content={content} />);
+    const firstBody = shellState.renderBody?.();
+    const secondBody = shellState.renderBody?.();
+
+    expect(firstBody).toBeTruthy();
+    expect(secondBody).toBeTruthy();
+    expect(isValidElement(firstBody)).toBe(true);
+    expect(isValidElement(secondBody)).toBe(true);
+    if (!isValidElement(firstBody) || !isValidElement(secondBody)) return;
+    expect(firstBody.props.mediaItems).toBe(secondBody.props.mediaItems);
+    expect(firstBody.props.outputText).toBe(secondBody.props.outputText);
   });
 });

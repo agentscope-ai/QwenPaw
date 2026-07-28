@@ -28,6 +28,8 @@ export interface PluginInfo {
   plugin_type: PluginType;
   /** Frontend JS entry-point path (if any). */
   frontend_entry?: string;
+  /** Host modules that must be loaded before the frontend bundle executes. */
+  host_modules?: string[];
 }
 
 export interface InstallPluginResult {

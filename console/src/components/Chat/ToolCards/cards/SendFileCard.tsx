@@ -36,17 +36,17 @@ const SendFileCard: React.FC<SendFileCardProps> = ({
     );
   }
 
-  const media = getMediaInfo(content);
-
   return (
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
       icon={<SendOutlined />}
       title={title}
-    >
-      {media && <MediaPreview media={media} />}
-    </ToolCardShell>
+      renderBody={() => {
+        const media = getMediaInfo(content);
+        return media ? <MediaPreview media={media} /> : null;
+      }}
+    />
   );
 };
 
