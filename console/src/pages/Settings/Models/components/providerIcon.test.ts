@@ -5,12 +5,12 @@ const FALLBACK =
   "https://gw.alicdn.com/imgextra/i4/O1CN01IWnlOw1lebfpiFrIL_!!6000000004844-0-tps-100-100.jpg";
 
 describe("providerIcon", () => {
-  it("returns the openai CDN url for the openai provider", () => {
+  it("returns the correct icon url for specific providers like openai and nvidia-nim", () => {
     expect(providerIcon("openai")).toBe(
       "https://gw.alicdn.com/imgextra/i3/O1CN01rQSexq1D7S4AYstKh_!!6000000000169-2-tps-400-400.png",
     );
     expect(providerIcon("nvidia-nim")).toBe(
-      "https://upload.wikimedia.org/wikipedia/commons/2/21/Nvidia_logo.svg",
+      "/nvidia_logo.svg",
     );
   });
 

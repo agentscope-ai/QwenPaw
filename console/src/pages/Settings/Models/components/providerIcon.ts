@@ -11,7 +11,7 @@ export const providerIcon = (provider: string) => {
     case "gemini":
       return "https://gw.alicdn.com/imgextra/i2/O1CN01pDWy7z25caEvmJ3u1_!!6000000007547-2-tps-400-400.png";
     case "nvidia-nim":
-      return "https://upload.wikimedia.org/wikipedia/commons/2/21/Nvidia_logo.svg";
+      return "/nvidia_logo.svg";
     case "azure-openai":
       return "https://gw.alicdn.com/imgextra/i2/O1CN01R42n1y1hQAjCEiVlB_!!6000000004271-2-tps-400-400.png";
     case "kimi-cn":
