@@ -2319,6 +2319,9 @@
     "fullMode": "Modo completo"
   },
   "chat": {
+    "fileReference": {
+      "codeSnippet": "Trecho de código · {{count}} linhas"
+    },
     "modelSelectTooltip": "Selecionar Modelo",
     "newChatTooltip": "Novo Chat",
     "searchTooltip": "Pesquisar Todos chats",

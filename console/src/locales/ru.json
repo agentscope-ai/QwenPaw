@@ -2091,6 +2091,9 @@
     "fullMode": "Полный режим"
   },
   "chat": {
+    "fileReference": {
+      "codeSnippet": "Фрагмент кода · {{count}} строк"
+    },
     "modelSelectTooltip": "Выбор модели",
     "newChatTooltip": "Новый чат",
     "searchTooltip": "Поиск во всех чатах",

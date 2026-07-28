@@ -10,10 +10,22 @@ export interface ParsedFileReference {
   endLine?: number;
 }
 
-export interface FileReferenceRange {
-  start: number;
-  end: number;
-}
+export type RichComposerSegment =
+  | {
+      kind: "text";
+      raw: string;
+    }
+  | {
+      kind: "file";
+      raw: string;
+      reference: ParsedFileReference;
+    }
+  | {
+      kind: "code";
+      raw: string;
+      language: string;
+      code: string;
+    };
 
 export function compactFileReferenceLabel(
   reference: ParsedFileReference,
@@ -30,7 +42,9 @@ export function compactFileReferenceLabel(
   return `${filename} · ${lineRange}`;
 }
 
-interface ParsedFileReferenceRange extends FileReferenceRange {
+interface ParsedFileReferenceRange {
+  start: number;
+  end: number;
   reference: ParsedFileReference;
 }
 
@@ -84,33 +98,6 @@ function fileReferenceRanges(value: string): ParsedFileReferenceRange[] {
   return ranges.sort((left, right) => left.start - right.start);
 }
 
-export function atomicDeletionRange(
-  value: string,
-  selectionStart: number,
-  selectionEnd: number,
-  key: "Backspace" | "Delete",
-): FileReferenceRange | null {
-  const ranges = fileReferenceRanges(value);
-  if (selectionStart === selectionEnd) {
-    const range =
-      ranges.find((range) =>
-        key === "Backspace"
-          ? selectionStart > range.start && selectionStart <= range.end
-          : selectionStart >= range.start && selectionStart < range.end,
-      ) ?? null;
-    return range ? { start: range.start, end: range.end } : null;
-  }
-
-  const touched = ranges.filter(
-    (range) => selectionStart < range.end && selectionEnd > range.start,
-  );
-  if (touched.length === 0) return null;
-  return {
-    start: Math.min(selectionStart, touched[0].start),
-    end: Math.max(selectionEnd, touched[touched.length - 1].end),
-  };
-}
-
 export function splitFileReferences(value: string): FileReferenceSegment[] {
   const segments: FileReferenceSegment[] = [];
   let offset = 0;
@@ -134,4 +121,48 @@ export function splitFileReferences(value: string): FileReferenceSegment[] {
     });
   }
   return segments;
+}
+
+const LEADING_CODE_FENCE_PATTERN =
+  /^(\r?\n```([^\r\n`]*)\r?\n([\s\S]*?)\r?\n```)(?=\r?\n|$)/;
+
+/**
+ * Split the raw sender value into the atomic items shown by the rich composer.
+ * A fenced block becomes a code chip only when it immediately follows an
+ * editor line reference, matching the format produced by Coding mode.
+ */
+export function splitRichComposerValue(value: string): RichComposerSegment[] {
+  const result: RichComposerSegment[] = [];
+
+  for (const segment of splitFileReferences(value)) {
+    if (segment.reference) {
+      result.push({
+        kind: "file",
+        raw: segment.text,
+        reference: segment.reference,
+      });
+      continue;
+    }
+
+    let raw = segment.text;
+    const previous = result[result.length - 1];
+    if (previous?.kind === "file" && previous.reference.kind === "editor") {
+      const match = raw.match(LEADING_CODE_FENCE_PATTERN);
+      if (match) {
+        result.push({
+          kind: "code",
+          raw: match[1],
+          language: match[2] || "plaintext",
+          code: match[3],
+        });
+        raw = raw.slice(match[1].length);
+      }
+    }
+
+    if (raw) {
+      result.push({ kind: "text", raw });
+    }
+  }
+
+  return result;
 }

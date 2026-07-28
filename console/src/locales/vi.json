@@ -162,6 +162,9 @@
     "wrongCurrentPassword": "Mật khẩu hiện tại không đúng"
   },
   "chat": {
+    "fileReference": {
+      "codeSnippet": "Đoạn mã · {{count}} dòng"
+    },
     "modelSelectTooltip": "Chọn mô hình",
     "newChatTooltip": "Cuộc trò chuyện mới",
     "searchTooltip": "Tìm kiếm tất cả cuộc trò chuyện",

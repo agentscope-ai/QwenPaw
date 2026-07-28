@@ -2474,6 +2474,10 @@
     "system": "System"
   },
   "chat": {
+    "fileReference": {
+      "codeSnippet_one": "Code snippet · {{count}} line",
+      "codeSnippet_other": "Code snippet · {{count}} lines"
+    },
     "modelSelectTooltip": "Select model",
     "newChatTooltip": "New chat",
     "searchTooltip": "Search all chats",

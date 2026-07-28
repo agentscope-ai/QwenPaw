@@ -156,6 +156,9 @@
     "unauthorized": "Tidak berwenang, silakan masuk"
   },
   "chat": {
+    "fileReference": {
+      "codeSnippet": "Cuplikan kode · {{count}} baris"
+    },
     "modelSelectTooltip": "Pilih model",
     "newChatTooltip": "Chat baru",
     "searchTooltip": "Cari semua chat",

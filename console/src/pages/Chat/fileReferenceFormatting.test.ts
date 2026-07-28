@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  atomicDeletionRange,
   splitFileReferences,
+  splitRichComposerValue,
 } from "./fileReferenceFormatting";
 
 describe("splitFileReferences", () => {
@@ -97,34 +97,44 @@ describe("splitFileReferences", () => {
       { text: "chapter:12 plain text", reference: null },
     ]);
   });
+});
 
-  it("deletes a complete reference when backspace is pressed at its end", () => {
-    const value = "查看 @ /Users/ray/work/hello.txt";
+describe("splitRichComposerValue", () => {
+  it("creates separate line-reference and code-snippet chips", () => {
+    const value = "src/app.ts:12-18\n```typescript\nconst app = true;\n```";
+    expect(splitRichComposerValue(value)).toEqual([
+      {
+        kind: "file",
+        raw: "src/app.ts:12-18",
+        reference: {
+          kind: "editor",
+          path: "src/app.ts",
+          startLine: 12,
+          endLine: 18,
+        },
+      },
+      {
+        kind: "code",
+        raw: "\n```typescript\nconst app = true;\n```",
+        language: "typescript",
+        code: "const app = true;",
+      },
+    ]);
+  });
+
+  it("preserves the exact raw value used for submission", () => {
+    const value = "请检查 src/app.ts:12\n```typescript\napp();\n```\n然后继续";
     expect(
-      atomicDeletionRange(value, value.length, value.length, "Backspace"),
-    ).toEqual({ start: 3, end: value.length });
+      splitRichComposerValue(value)
+        .map((part) => part.raw)
+        .join(""),
+    ).toBe(value);
   });
 
-  it("deletes a complete reference when delete is pressed inside it", () => {
-    const value = "@ C:\\work\\app.ts 后续";
-    expect(atomicDeletionRange(value, 5, 5, "Delete")).toEqual({
-      start: 0,
-      end: 16,
-    });
-  });
-
-  it("expands a partial selection to include the complete reference", () => {
-    const value = "前 @ /work/app.ts 后";
-    expect(atomicDeletionRange(value, 0, 8, "Backspace")).toEqual({
-      start: 0,
-      end: 16,
-    });
-  });
-
-  it("deletes an editor line reference atomically", () => {
-    const value = "请看 src/app.ts:12-18";
-    expect(
-      atomicDeletionRange(value, value.length, value.length, "Backspace"),
-    ).toEqual({ start: 3, end: value.length });
+  it("keeps unrelated fenced code as ordinary editable text", () => {
+    const value = "示例\n```text\nhello\n```";
+    expect(splitRichComposerValue(value)).toEqual([
+      { kind: "text", raw: value },
+    ]);
   });
 });

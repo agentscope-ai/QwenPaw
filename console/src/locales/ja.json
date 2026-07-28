@@ -2076,6 +2076,9 @@
     "fullMode": "フルモード"
   },
   "chat": {
+    "fileReference": {
+      "codeSnippet": "コードスニペット · {{count}} 行"
+    },
     "modelSelectTooltip": "モデルを選択",
     "newChatTooltip": "新しいチャット",
     "searchTooltip": "すべてのチャットを検索",
