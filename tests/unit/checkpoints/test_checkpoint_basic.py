@@ -319,6 +319,18 @@ async def test_snapshot_and_timeline_cover_named_checkpoint(
 
 
 @pytest.mark.asyncio
+async def test_snapshot_accepts_windows_reserved_device_name(
+    workspace: _Workspace,
+) -> None:
+    _write_session(workspace.workspace_dir, "reserved snapshot name")
+
+    created = await _run(workspace, "snapshot CON.txt")
+
+    assert "**Snapshot created**" in created
+    assert "ref-CON.txt" in created
+
+
+@pytest.mark.asyncio
 async def test_restore_command_validates_and_preserves_file_selection(
     workspace: _Workspace,
 ) -> None:

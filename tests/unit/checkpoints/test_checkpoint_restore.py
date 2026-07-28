@@ -105,6 +105,27 @@ def test_snapshot_name_preserves_unicode_and_removes_ref_separators() -> None:
     assert sanitize_ref_component("涓枃 蹇収/name") == "涓枃-蹇収-name"
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "CON",
+        "con.txt",
+        "PRN",
+        "AUX.log",
+        "NUL",
+        *(f"COM{index}" for index in range(1, 10)),
+        *(f"lpt{index}.txt" for index in range(1, 10)),
+    ],
+)
+def test_snapshot_name_avoids_windows_reserved_device_names(name: str) -> None:
+    assert sanitize_ref_component(name) == f"ref-{name}"
+
+
+@pytest.mark.parametrize("name", ["COM10", "LPT10", "CONSOLE"])
+def test_snapshot_name_preserves_non_reserved_windows_names(name: str) -> None:
+    assert sanitize_ref_component(name) == name
+
+
 def test_file_restore_dry_run_renders_every_candidate() -> None:
     restored = tuple(f"src/changed_{index:02d}.py" for index in range(30))
     deleted = tuple(f"docs/deleted_{index:02d}.md" for index in range(30))
@@ -440,6 +461,42 @@ def test_tree_restore_rejects_invalid_tree_entries(
 
     with pytest.raises(CheckpointError, match=message):
         repository.plan_tree_restore("deadbeef", {"vendor"})
+
+
+def test_tree_entry_discovery_does_not_load_blob_content(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = CheckpointRepository(tmp_path)
+    monkeypatch.setattr(
+        repository,
+        "run_git",
+        lambda *_args, **_kwargs: (
+            "100644 blob aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            "\tmodels/one.bin\0"
+            "100755 blob bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            "\tscripts/run.sh\0"
+        ),
+    )
+    monkeypatch.setattr(
+        repository,
+        "read_blob",
+        lambda *_args, **_kwargs: pytest.fail(
+            "tree entry discovery must not load blob content",
+        ),
+    )
+
+    entries = repository._tree_entries(
+        "deadbeef",
+        {"models/one.bin", "scripts/run.sh"},
+    )
+
+    assert {
+        path: (entry.mode, entry.object_id) for path, entry in entries.items()
+    } == {
+        "models/one.bin": ("100644", "a" * 40),
+        "scripts/run.sh": ("100755", "b" * 40),
+    }
 
 
 def test_restore_rejects_symlink_parent_outside_workspace(

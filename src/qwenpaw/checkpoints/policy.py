@@ -369,6 +369,16 @@ class CheckpointPolicy:
 _UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|]')
 _REF_UNSAFE_RE = re.compile(r"[\x00-\x20\x7f~^:?*\[\]\\]+")
 _REF_DOTLOCK_RE = re.compile(r"\.lock(?:/|$)")
+_WINDOWS_RESERVED_REF_BASENAMES = frozenset(
+    {
+        "aux",
+        "con",
+        "nul",
+        "prn",
+        *(f"com{index}" for index in range(1, 10)),
+        *(f"lpt{index}" for index in range(1, 10)),
+    },
+)
 
 METADATA_PREFIX = "Checkpoint-Metadata: "
 
@@ -458,6 +468,9 @@ def sanitize_ref_component(value: str, *, fallback: str = "snapshot") -> str:
     value = value.replace("..", ".")
     value = value.replace("@{", "-")
     value = _REF_DOTLOCK_RE.sub("-", value)
+    basename = value.partition(".")[0].casefold()
+    if basename in _WINDOWS_RESERVED_REF_BASENAMES:
+        value = f"ref-{value}"
     if len(value) > 80:
         digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
         value = f"{value[:67].rstrip('.-')}-{digest}"

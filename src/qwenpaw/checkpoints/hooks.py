@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 
 from ..hooks.base import LifecycleHook
+from ..hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
 from ..runtime.hooks import HookContext, HookResult
 from ..runtime.phases import Phase
 
@@ -57,10 +58,13 @@ class CheckpointAutoSnapshotHook(LifecycleHook):
     phase = Phase.POST_RESPONSE
     name = "checkpoint_auto_snapshot"
     priority = 95
+    after = ("session_save",)
 
     async def run(self, ctx: HookContext) -> HookResult:
         try:
             if ctx.workspace is None:
+                return HookResult()
+            if ctx.extras.get(SESSION_SAVE_SUCCEEDED_KEY) is not True:
                 return HookResult()
             text = _last_user_text(ctx)
             if is_slash_like_input(text):
