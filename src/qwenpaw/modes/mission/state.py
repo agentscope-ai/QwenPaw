@@ -15,13 +15,13 @@ from other loops and the shared agent workspace.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import shutil
 import time
 from pathlib import Path
 from typing import Any
 
+from ...utils.io_utils import write_json_atomic, write_text_atomic
 from ...utils.command_runner import (
     CommandExecutionError,
     run_command_async,
@@ -29,6 +29,8 @@ from ...utils.command_runner import (
 from ...utils.json_utils import safe_json_loads
 
 logger = logging.getLogger(__name__)
+
+_USER_FILE_MODE = 0o644
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
@@ -148,9 +150,10 @@ def create_loop_dir(workspace_dir: Path) -> Path:
 def write_loop_config(loop_dir: Path, config: dict[str, Any]) -> Path:
     """Persist environment metadata for this loop."""
     p = loop_dir / "loop_config.json"
-    p.write_text(
-        json.dumps(config, indent=2, ensure_ascii=False),
-        encoding="utf-8",
+    write_json_atomic(
+        p,
+        config,
+        new_file_mode=_USER_FILE_MODE,
     )
     return p
 
@@ -169,16 +172,21 @@ def read_loop_config(loop_dir: Path) -> dict[str, Any]:
 def write_task_md(loop_dir: Path, task_text: str) -> Path:
     """Persist the original task description."""
     p = loop_dir / "task.md"
-    p.write_text(task_text, encoding="utf-8")
+    write_text_atomic(
+        p,
+        task_text,
+        new_file_mode=_USER_FILE_MODE,
+    )
     return p
 
 
 def write_prd_json(loop_dir: Path, prd: dict[str, Any]) -> Path:
     """Write the structured task list."""
     p = loop_dir / "prd.json"
-    p.write_text(
-        json.dumps(prd, indent=2, ensure_ascii=False),
-        encoding="utf-8",
+    write_json_atomic(
+        p,
+        prd,
+        new_file_mode=_USER_FILE_MODE,
     )
     return p
 
@@ -186,11 +194,12 @@ def write_prd_json(loop_dir: Path, prd: dict[str, Any]) -> Path:
 def init_progress_txt(loop_dir: Path) -> Path:
     """Create initial progress log with empty Codebase Patterns."""
     p = loop_dir / "progress.txt"
-    p.write_text(
+    write_text_atomic(
+        p,
         "## Codebase Patterns\n"
         "(none yet — add reusable patterns here as you discover them)\n"
         "---\n",
-        encoding="utf-8",
+        new_file_mode=_USER_FILE_MODE,
     )
     return p
 

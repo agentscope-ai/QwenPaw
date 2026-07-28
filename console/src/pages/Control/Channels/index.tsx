@@ -94,8 +94,11 @@ function ChannelsPage() {
         ...channelConfig,
         access_control_dm: accessControlDm,
         access_control_group: accessControlGroup,
-        filter_tool_messages: !channelConfig.filter_tool_messages,
-        filter_thinking: !channelConfig.filter_thinking,
+        show_tool_calls: channelConfig.show_tool_calls ?? true,
+        show_tool_results: channelConfig.show_tool_results ?? true,
+        tool_call_max_length: channelConfig.tool_call_max_length ?? 200,
+        tool_result_max_length: channelConfig.tool_result_max_length ?? 500,
+        show_thinking: channelConfig.show_thinking ?? true,
       });
     },
     [channels, form],
@@ -114,8 +117,6 @@ function ChannelsPage() {
     const updatedChannel: Record<string, unknown> = {
       ...savedConfig,
       ...values,
-      filter_tool_messages: !values.filter_tool_messages,
-      filter_thinking: !values.filter_thinking,
     };
 
     setSaving(true);

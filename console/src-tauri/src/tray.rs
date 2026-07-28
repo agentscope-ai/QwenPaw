@@ -24,6 +24,8 @@ const CLOSE_ACK_TIMEOUT: Duration = Duration::from_millis(1500);
 /// Emitted to the frontend when the user closes the window, asking it to honor
 /// the remembered preference or show the close prompt.
 pub(crate) const CLOSE_REQUESTED_EVENT: &str = "qwenpaw-close-requested";
+/// Emitted once a confirmed quit starts waiting for backend shutdown.
+pub(crate) const SHUTDOWN_STARTED_EVENT: &str = "qwenpaw-shutdown-started";
 
 #[derive(Clone)]
 struct TrayMenuItems {
@@ -191,6 +193,16 @@ pub(crate) fn hide_main_window(app: &tauri::AppHandle) {
 }
 
 fn exit_app(app: &tauri::AppHandle) {
-    backend::stop(app);
-    app.exit(0);
+    // Keep a visible, non-interactive status while the sidecar finishes its
+    // bounded shutdown. This also gives tray-only exits an explicit status.
+    show_main_window(app);
+    let _ = app.emit(SHUTDOWN_STARTED_EVENT, ());
+
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(err) = backend::stop_and_wait(&app).await {
+            log::warn!("[backend] graceful shutdown did not complete: {err}");
+        }
+        app.exit(0);
+    });
 }

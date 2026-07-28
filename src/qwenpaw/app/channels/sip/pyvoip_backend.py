@@ -15,6 +15,22 @@ from .backend import CallEndedCallback, IncomingCallCallback
 
 logger = logging.getLogger(__name__)
 
+# At roughly 18 ms per input frame this retains less than three seconds.
+_AUDIO_QUEUE_MAX_FRAMES = 150
+
+
+def _put_latest_audio(
+    queue: asyncio.Queue,
+    frame: bytes | None,
+) -> None:
+    """Queue *frame*, discarding stale audio when STT falls behind."""
+    if queue.full():
+        try:
+            queue.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+    queue.put_nowait(frame)
+
 
 class PyVoIPBackend:
     """SipBackend backed by pyVoIP 1.6.x."""
@@ -133,7 +149,9 @@ class PyVoIPBackend:
 
         self._active_calls[call_id] = call
 
-        audio_queue: asyncio.Queue = asyncio.Queue()
+        audio_queue: asyncio.Queue = asyncio.Queue(
+            maxsize=_AUDIO_QUEUE_MAX_FRAMES,
+        )
 
         async def _write_audio(data: bytes) -> None:
             c = self._active_calls.get(call_id)
@@ -167,7 +185,8 @@ class PyVoIPBackend:
                     break
                 if pcm and self._loop:
                     self._loop.call_soon_threadsafe(
-                        audio_queue.put_nowait,
+                        _put_latest_audio,
+                        audio_queue,
                         pcm,
                     )
                 time.sleep(0.018)
@@ -180,7 +199,8 @@ class PyVoIPBackend:
         finally:
             if self._loop:
                 self._loop.call_soon_threadsafe(
-                    audio_queue.put_nowait,
+                    _put_latest_audio,
+                    audio_queue,
                     None,
                 )
             self._active_calls.pop(call_id, None)

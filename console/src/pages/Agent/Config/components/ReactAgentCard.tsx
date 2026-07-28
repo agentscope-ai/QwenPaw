@@ -9,10 +9,7 @@ import {
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
-import {
-  CONTEXT_MANAGER_BACKEND_OPTIONS,
-  MEMORY_MANAGER_BACKEND_OPTIONS,
-} from "../../../../constants/backendMappings";
+import { MEMORY_MANAGER_BACKEND_OPTIONS } from "../../../../constants/backendMappings";
 import styles from "../index.module.less";
 
 const LANGUAGE_OPTIONS = [
@@ -131,39 +128,6 @@ export function ReactAgentCard({
 
       <div className={styles.reactAgentRow}>
         <Form.Item
-          label={t("agentConfig.contextManagerBackend")}
-          name="context_manager_backend"
-          tooltip={t("agentConfig.contextManagerBackendTooltip")}
-          className={styles.reactAgentField}
-        >
-          <Select
-            options={CONTEXT_MANAGER_BACKEND_OPTIONS}
-            style={{ width: "100%" }}
-          />
-        </Form.Item>
-
-        <Form.Item
-          label={t("agentConfig.contextStrategy")}
-          name={["light_context_config", "strategy"]}
-          tooltip={t("agentConfig.contextStrategyTooltip")}
-          className={styles.reactAgentField}
-        >
-          <Select
-            options={[
-              {
-                value: "scroll",
-                label: t("agentConfig.contextStrategyScroll"),
-              },
-              {
-                value: "native",
-                label: t("agentConfig.contextStrategyNative"),
-              },
-            ]}
-            style={{ width: "100%" }}
-          />
-        </Form.Item>
-
-        <Form.Item
           label={t("agentConfig.memoryManagerBackend")}
           name="memory_manager_backend"
           tooltip={t("agentConfig.memoryManagerBackendTooltip")}
@@ -178,7 +142,7 @@ export function ReactAgentCard({
       <Alert
         type="warning"
         showIcon
-        message={t("agentConfig.backendRestartWarning")}
+        message={t("agentConfig.memoryManagerBackendRestartWarning")}
         style={{ marginBottom: 16 }}
       />
     </Card>

@@ -103,6 +103,7 @@ class Runtime:
                     app_services=self.app_services,
                 )
                 ctx.agent = await builder.build(ctx)
+                await self._start_modes(ctx)
 
                 # --- [phase 4] POST_AGENT_BUILD ---
                 await hooks.run(Phase.POST_AGENT_BUILD, ctx)
@@ -205,6 +206,18 @@ class Runtime:
             await hooks.run(Phase.FINALLY, ctx)
 
     # ----------------------------------------------------------------- helpers
+
+    async def _start_modes(self, ctx: HookContext) -> None:
+        """Prepare every registered mode for the current user turn."""
+        for mode in self.workspace.plugins.modes:
+            try:
+                await mode.on_turn_start(ctx)
+            except Exception:
+                logger.warning(
+                    "mode '%s' turn start raised",
+                    getattr(mode, "name", "?"),
+                    exc_info=True,
+                )
 
     async def _try_save_on_cancel(self, ctx: HookContext) -> None:
         """Best-effort session save on cancellation.

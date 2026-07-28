@@ -1,193 +1,202 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/api/request", () => ({
-  request: vi.fn(),
-}));
+vi.mock("@/api/request", () => ({ request: vi.fn() }));
 
-import { useLoopStore, fetchAvailableLoopSkills } from "./loopStore";
 import { request } from "@/api/request";
+import {
+  DEFAULT_LOOP_MODE,
+  applyLoopModeCommand,
+  beginLoopModeSubmission,
+  fetchActiveLoopMode,
+  fetchAvailableLoopModes,
+  markLoopModeRunning,
+  prepareLoopModeMessage,
+  type LoopModeInfo,
+  useLoopStore,
+} from "./loopStore";
 
 const mockRequest = request as ReturnType<typeof vi.fn>;
+const goal: LoopModeInfo = {
+  id: "goal",
+  name: "goal",
+  slash_command: "goal",
+  description: "Goal",
+  source: "builtin",
+};
+const custom: LoopModeInfo = {
+  id: "custom:quality",
+  name: "Quality",
+  slash_command: "quality",
+  description: "Check quality",
+  source: "custom",
+};
 
 describe("loopStore", () => {
   beforeEach(() => {
     useLoopStore.setState({
-      selectedSkill: null,
-      chipHighlighted: false,
-      availableSkills: [],
+      selectedModeId: DEFAULT_LOOP_MODE.id,
+      availableModes: [DEFAULT_LOOP_MODE],
+      sessionState: "idle",
+      activeMode: null,
+      catalogLoading: false,
+      catalogError: false,
     });
     vi.clearAllMocks();
   });
 
-  // ---------------------------------------------------------------------------
-  // Initial state
-  // ---------------------------------------------------------------------------
+  it("loads the complete loop catalog", async () => {
+    mockRequest.mockResolvedValueOnce([DEFAULT_LOOP_MODE, goal, custom]);
 
-  it("starts with null selectedSkill, false chipHighlighted, empty availableSkills", () => {
-    const state = useLoopStore.getState();
-    expect(state.selectedSkill).toBeNull();
-    expect(state.chipHighlighted).toBe(false);
-    expect(state.availableSkills).toEqual([]);
-  });
+    await fetchAvailableLoopModes();
 
-  // ---------------------------------------------------------------------------
-  // setSelectedSkill
-  // ---------------------------------------------------------------------------
-
-  it("setSelectedSkill sets the selected skill", () => {
-    const skill = { name: "summarize", description: "Summarize text" };
-    useLoopStore.getState().setSelectedSkill(skill);
-    expect(useLoopStore.getState().selectedSkill).toEqual(skill);
-  });
-
-  it("setSelectedSkill clears the chip highlight", () => {
-    useLoopStore.getState().setChipHighlighted(true);
-    useLoopStore.getState().setSelectedSkill({ name: "x", description: "x" });
-    expect(useLoopStore.getState().chipHighlighted).toBe(false);
-  });
-
-  it("setSelectedSkill(null) clears the skill and chip highlight", () => {
-    useLoopStore.getState().setSelectedSkill({ name: "x", description: "x" });
-    useLoopStore.getState().setChipHighlighted(true);
-
-    useLoopStore.getState().setSelectedSkill(null);
-
-    expect(useLoopStore.getState().selectedSkill).toBeNull();
-    expect(useLoopStore.getState().chipHighlighted).toBe(false);
-  });
-
-  // ---------------------------------------------------------------------------
-  // setChipHighlighted
-  // ---------------------------------------------------------------------------
-
-  it("setChipHighlighted(true) sets the highlight flag", () => {
-    useLoopStore.getState().setChipHighlighted(true);
-    expect(useLoopStore.getState().chipHighlighted).toBe(true);
-  });
-
-  it("setChipHighlighted(false) clears the highlight flag", () => {
-    useLoopStore.getState().setChipHighlighted(true);
-    useLoopStore.getState().setChipHighlighted(false);
-    expect(useLoopStore.getState().chipHighlighted).toBe(false);
-  });
-
-  // ---------------------------------------------------------------------------
-  // setAvailableSkills
-  // ---------------------------------------------------------------------------
-
-  it("setAvailableSkills stores the provided skills", () => {
-    const skills = [
-      { name: "a", description: "A" },
-      { name: "b", description: "B" },
-    ];
-    useLoopStore.getState().setAvailableSkills(skills);
-    expect(useLoopStore.getState().availableSkills).toEqual(skills);
-  });
-
-  it("setAvailableSkills([]) empties the list", () => {
-    useLoopStore
-      .getState()
-      .setAvailableSkills([{ name: "a", description: "A" }]);
-    useLoopStore.getState().setAvailableSkills([]);
-    expect(useLoopStore.getState().availableSkills).toEqual([]);
-  });
-
-  // ---------------------------------------------------------------------------
-  // fetchAvailableLoopSkills — tri-state coverage
-  // ---------------------------------------------------------------------------
-
-  it("fetchAvailableLoopSkills populates skills from plugin-category commands", async () => {
-    mockRequest.mockResolvedValueOnce({
-      commands: [
-        { name: "summarize", description: "Summarize", category: "plugin" },
-        { name: "translate", description: "Translate", category: "plugin" },
-        { name: "builtin-cmd", description: "Builtin", category: "builtin" },
-      ],
+    expect(mockRequest).toHaveBeenCalledWith("/loops", {
+      signal: undefined,
     });
-
-    await fetchAvailableLoopSkills();
-
-    const skills = useLoopStore.getState().availableSkills;
-    expect(skills).toHaveLength(2);
-    expect(skills[0]).toEqual({
-      name: "summarize",
-      description: "Summarize",
-    });
-    expect(skills[1]).toEqual({
-      name: "translate",
-      description: "Translate",
-    });
-  });
-
-  it("fetchAvailableLoopSkills does NOT overwrite skills when no plugin commands exist (empty result)", async () => {
-    useLoopStore
-      .getState()
-      .setAvailableSkills([{ name: "existing", description: "Existing" }]);
-    mockRequest.mockResolvedValueOnce({
-      commands: [
-        { name: "builtin", description: "Builtin", category: "builtin" },
-      ],
-    });
-
-    await fetchAvailableLoopSkills();
-
-    // Per implementation: only writes when loopSkills.length > 0.
-    expect(useLoopStore.getState().availableSkills).toEqual([
-      { name: "existing", description: "Existing" },
+    expect(useLoopStore.getState().availableModes).toEqual([
+      DEFAULT_LOOP_MODE,
+      goal,
+      custom,
     ]);
   });
 
-  it("fetchAvailableLoopSkills falls back to name when description is missing", async () => {
+  it("marks catalog errors without removing Default", async () => {
+    mockRequest.mockRejectedValueOnce(new Error("offline"));
+
+    await fetchAvailableLoopModes();
+
+    expect(useLoopStore.getState().catalogError).toBe(true);
+    expect(useLoopStore.getState().availableModes).toEqual([DEFAULT_LOOP_MODE]);
+  });
+
+  it("prepares a queued mode without entering starting state", () => {
+    useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
+    useLoopStore.getState().setSelectedMode("goal");
+
+    expect(prepareLoopModeMessage("fix the tests")).toBe("/goal fix the tests");
+    expect(useLoopStore.getState().sessionState).toBe("idle");
+    expect(useLoopStore.getState().activeMode).toBeNull();
+  });
+
+  it("keeps an awaiting mode unchanged while a reply is only queued", () => {
+    useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
+    useLoopStore.getState().setSessionMode(goal, "awaiting_user");
+
+    expect(prepareLoopModeMessage("continue")).toBe("continue");
+    expect(useLoopStore.getState().sessionState).toBe("awaiting_user");
+    expect(useLoopStore.getState().activeMode).toEqual(goal);
+  });
+
+  it("enters starting only when a selected mode is submitted", () => {
+    useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
+    useLoopStore.getState().setSelectedMode("goal");
+
+    expect(beginLoopModeSubmission("fix the tests")).toBe(
+      "/goal fix the tests",
+    );
+    expect(useLoopStore.getState().sessionState).toBe("starting");
+    expect(useLoopStore.getState().activeMode).toEqual(goal);
+  });
+
+  it("recognizes a manually submitted mode command without duplicating it", () => {
+    useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
+
+    expect(beginLoopModeSubmission("/goal fix the tests")).toBe(
+      "/goal fix the tests",
+    );
+    expect(useLoopStore.getState().activeMode).toEqual(goal);
+  });
+
+  it("does not wrap another slash command in the selected mode", () => {
+    useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
+    useLoopStore.getState().setSelectedMode("goal");
+
+    expect(beginLoopModeSubmission("/clear")).toBe("/clear");
+    expect(useLoopStore.getState().sessionState).toBe("idle");
+  });
+
+  it("does not prefix Default or messages in an active session", () => {
+    expect(beginLoopModeSubmission("hello")).toBe("hello");
+    useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
+    useLoopStore.getState().setSessionMode(goal, "awaiting_user");
+    useLoopStore.getState().setSelectedMode("goal");
+    expect(beginLoopModeSubmission("continue")).toBe("continue");
+    expect(useLoopStore.getState().sessionState).toBe("starting");
+  });
+
+  it("moves from starting to running on the first event", () => {
+    useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
+    useLoopStore.getState().setSelectedMode("goal");
+    beginLoopModeSubmission("fix the tests");
+
+    markLoopModeRunning();
+
+    expect(useLoopStore.getState().sessionState).toBe("running");
+    expect(useLoopStore.getState().activeMode).toEqual(goal);
+  });
+
+  it("uses an exact command boundary when avoiding duplicate prefixes", () => {
+    expect(applyLoopModeCommand("/goalkeeper notes", goal)).toBe(
+      "/goal /goalkeeper notes",
+    );
+    expect(applyLoopModeCommand("/GOAL notes", goal)).toBe("/GOAL notes");
+  });
+
+  it("restores an awaiting mode from backend status", async () => {
     mockRequest.mockResolvedValueOnce({
-      commands: [
-        { name: "no-desc", description: "", category: "plugin" },
-        { name: "also-no-desc", category: "plugin" },
-      ],
+      state: "awaiting_user",
+      mode: custom,
     });
 
-    await fetchAvailableLoopSkills();
+    await fetchActiveLoopMode({
+      chatId: "chat-1",
+      sessionId: "session-1",
+    });
 
-    const skills = useLoopStore.getState().availableSkills;
-    expect(skills).toEqual([
-      { name: "no-desc", description: "no-desc" },
-      { name: "also-no-desc", description: "also-no-desc" },
-    ]);
+    expect(mockRequest).toHaveBeenCalledWith(
+      "/loops/status?chat_id=chat-1&session_id=session-1",
+      { signal: undefined },
+    );
+    expect(useLoopStore.getState().sessionState).toBe("awaiting_user");
+    expect(useLoopStore.getState().activeMode).toEqual(custom);
+    expect(useLoopStore.getState().selectedModeId).toBe("default");
   });
 
-  it("fetchAvailableLoopSkills handles null commands field (empty)", async () => {
-    mockRequest.mockResolvedValueOnce({ commands: null });
+  it("restores a running mode from backend status", async () => {
+    mockRequest.mockResolvedValueOnce({ state: "running", mode: goal });
 
-    await fetchAvailableLoopSkills();
+    await fetchActiveLoopMode({ sessionId: "session-1" });
 
-    expect(useLoopStore.getState().availableSkills).toEqual([]);
+    expect(useLoopStore.getState().sessionState).toBe("running");
+    expect(useLoopStore.getState().activeMode).toEqual(goal);
   });
 
-  it("fetchAvailableLoopSkills handles undefined response (empty)", async () => {
-    mockRequest.mockResolvedValueOnce(undefined);
+  it("ignores stale status after a new submission starts", async () => {
+    let resolveStatus: (value: unknown) => void = () => undefined;
+    mockRequest.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveStatus = resolve;
+      }),
+    );
+    useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, goal]);
+    useLoopStore.getState().setSelectedMode("goal");
+    const statusPromise = fetchActiveLoopMode({ sessionId: "session-1" });
 
-    await fetchAvailableLoopSkills();
+    beginLoopModeSubmission("fix the tests");
+    resolveStatus({ state: "awaiting_user", mode: custom });
+    await statusPromise;
 
-    expect(useLoopStore.getState().availableSkills).toEqual([]);
+    expect(useLoopStore.getState().sessionState).toBe("starting");
+    expect(useLoopStore.getState().activeMode).toEqual(goal);
   });
 
-  it("fetchAvailableLoopSkills swallows request errors and leaves state unchanged", async () => {
-    useLoopStore
-      .getState()
-      .setAvailableSkills([{ name: "existing", description: "Existing" }]);
-    mockRequest.mockRejectedValueOnce(new Error("network down"));
+  it("returns to Default when backend reports idle", async () => {
+    useLoopStore.getState().setStartingMode(goal);
+    mockRequest.mockResolvedValueOnce({ state: "idle", mode: null });
 
-    await expect(fetchAvailableLoopSkills()).resolves.toBeUndefined();
+    await fetchActiveLoopMode({ sessionId: "session-1" });
 
-    expect(useLoopStore.getState().availableSkills).toEqual([
-      { name: "existing", description: "Existing" },
-    ]);
-  });
-
-  it("fetchAvailableLoopSkills requests /workspace/commands/available", async () => {
-    mockRequest.mockResolvedValueOnce({ commands: [] });
-
-    await fetchAvailableLoopSkills();
-
-    expect(mockRequest).toHaveBeenCalledWith("/workspace/commands/available");
+    expect(useLoopStore.getState().sessionState).toBe("idle");
+    expect(useLoopStore.getState().activeMode).toBeNull();
+    expect(useLoopStore.getState().selectedModeId).toBe("default");
   });
 });

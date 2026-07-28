@@ -60,6 +60,11 @@ class SessionLoadHook(LifecycleHook):
             )
             if proxy.data:
                 ctx.session_state = proxy.data
+                mode_state = proxy.data.get("mode_state")
+                if isinstance(mode_state, dict):
+                    loaded_mode_state = dict(mode_state)
+                    loaded_mode_state.update(ctx.mode_state)
+                    ctx.mode_state = loaded_mode_state
         except KeyError as e:
             logger.debug(
                 "session_load: skipped (schema mismatch): %s",
@@ -92,6 +97,7 @@ class SessionSaveHook(LifecycleHook):
 
             proxy = StateProxy()
             proxy.data = ctx.agent.state_dict()
+            proxy.data["mode_state"] = ctx.mode_state
             await session.save_session_state(
                 session_id=ctx.session_id,
                 user_id=user_id,

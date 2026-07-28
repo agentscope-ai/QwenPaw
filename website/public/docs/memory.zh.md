@@ -195,19 +195,36 @@ graph LR
 
 记忆配置位于 `agent.json` 的 `running.reme_light_memory_config` 中：
 
-| 配置项                          | 说明                                                                     | 默认值           |
-| ------------------------------- | ------------------------------------------------------------------------ | ---------------- |
-| `metadata_dir`                  | ReMe 持久状态目录，用于保存索引、catalog、graph 和缓存                   | `"mem_metadata"` |
-| `session_dir`                   | 来源对话保存目录                                                         | `"mem_session"`  |
-| `mem_session_dir`               | ReMe 内部 memory-agent 会话目录                                          | `"mem_agent"`    |
-| `resource_dir`                  | `auto_resource` 监听的资源目录                                           | `"resource"`     |
-| `daily_dir`                     | 每日记忆目录                                                             | `"memory"`       |
-| `digest_dir`                    | dream/digest 记忆目录                                                    | `"digest"`       |
-| `summarize_when_compact`        | 是否在上下文压缩前将待保存回合提交给 Auto-Memory                         | `true`           |
-| `auto_memory_interval`          | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆 | `5`              |
-| `dream_cron_enabled`            | 是否启用按 Cron 定时执行的 Auto-Dream 任务                               | `true`           |
-| `dream_cron`                    | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）                     | `"0 23 * * *"`   |
-| `rebuild_memory_index_on_start` | Agent 启动时是否清空并重建 ReMe 搜索索引                                 | `false`          |
+| 配置项                   | 说明                                                                             | 默认值           |
+| ------------------------ | -------------------------------------------------------------------------------- | ---------------- |
+| `metadata_dir`           | ReMe 持久状态目录，用于保存索引、catalog、graph 和缓存                           | `"mem_metadata"` |
+| `session_dir`            | 来源对话保存目录                                                                 | `"mem_session"`  |
+| `mem_session_dir`        | ReMe 内部 memory-agent 会话目录                                                  | `"mem_agent"`    |
+| `resource_dir`           | `auto_resource` 监听的资源目录                                                   | `"resource"`     |
+| `daily_dir`              | 每日记忆目录                                                                     | `"memory"`       |
+| `digest_dir`             | dream/digest 记忆目录                                                            | `"digest"`       |
+| `summarize_when_compact` | 是否在上下文压缩前将待保存回合提交给 Auto-Memory                                 | `true`           |
+| `auto_memory_interval`   | 每隔 N 个用户回合触发 Auto-Memory。`None` 或 `<= 0` 表示禁用周期自动记忆         | `5`              |
+| `dream_cron_enabled`     | 是否启用按 Cron 定时执行的 Auto-Dream 任务                                       | `true`           |
+| `dream_cron`             | Auto-Dream 任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动 | `"0 23 * * *"`   |
+
+### 重建记忆搜索索引
+
+重建索引是一项显式维护操作，仅建议用于修复索引损坏或搜索结果异常。该操作会清空并重新创建 ReMe 搜索索引，
+执行期间 CPU 和内存占用可能明显升高。只有使用 ReMeLight 记忆后端且记忆管理器正在运行的智能体支持此操作。
+
+在控制台中，打开智能体配置，在**长期记忆**区域选择**重建记忆索引**，阅读警告后确认执行。也可以调用以下
+同步维护 API：
+
+```http
+POST /api/agents/{agentId}/memory/reindex
+```
+
+重建成功时返回 `{"status":"completed"}`。同一智能体同时只能执行一个重建任务；重复请求会返回 HTTP `409`。
+非 ReMeLight 后端会返回 `400`，智能体不存在时返回 `404`，ReMe 不可用时返回 `503`，重建任务失败时返回 `500`。
+
+> `rebuild_memory_index_on_start` 已不再支持，请从 `agent.json` 中删除该字段；确实需要重建索引时，请改用
+> 控制台操作或上述 API。
 
 ### 自动记忆搜索配置
 
@@ -284,7 +301,7 @@ QwenPaw 的记忆系统采用可插拔的 Backend 架构。除了默认的 ReMeL
 
 **配置方式：**
 
-进入 Agent 配置页面的「运行配置」标签，找到「记忆管理后端」下拉框，选择 `adbpg`，并在「ADBPG 长期记忆」Tab 中填写 `REST Base URL` 与 `REST API Key`。
+进入 Agent 配置页面的「运行配置」标签，找到「长期记忆管理后端」下拉框，选择 `adbpg`，并在「ADBPG 长期记忆」Tab 中填写 `REST Base URL` 与 `REST API Key`。
 
 ![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
 

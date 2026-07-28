@@ -14,7 +14,17 @@ from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path, _path_to_file_url
 
 
-@tool_descriptor(requires_sandbox=("file_read",), async_execution=True)
+@tool_descriptor(
+    requires_sandbox=("file_read",),
+    async_execution=True,
+    tool_type="file",
+    target_param="file_path",
+    policy_name="SendFileToUser",
+    default_policy="allow",
+    policy_reason="File send to user (global)",
+    ui_description="Send files to user",
+    ui_icon="📤",
+)
 async def send_file_to_user(
     file_path: str,
 ) -> ToolChunk:

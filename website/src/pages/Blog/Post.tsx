@@ -289,13 +289,28 @@ export default function BlogPost() {
                   </code>
                 );
               },
-              img: ({ src, alt, className }) => (
-                <ImageZoom
-                  src={src ?? ""}
-                  alt={alt ?? ""}
-                  className={className}
-                />
-              ),
+              img: ({ src, alt, className }) => {
+                const isVideo = /\.(mp4|webm|ogg|mov)(\?|$)/i.test(src ?? "");
+                if (isVideo) {
+                  return (
+                    <video
+                      src={src ?? undefined}
+                      controls
+                      playsInline
+                      className="my-4 w-full rounded-lg"
+                    >
+                      {alt || t("docs.videoNotSupported")}
+                    </video>
+                  );
+                }
+                return (
+                  <ImageZoom
+                    src={src ?? ""}
+                    alt={alt ?? ""}
+                    className={className}
+                  />
+                );
+              },
             }}
           >
             {isSessionList ? linkifySessionUrls(body) : body}

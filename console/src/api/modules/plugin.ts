@@ -9,6 +9,7 @@ export type PluginType =
   | "command"
   | "frontend"
   | "channel"
+  | "app"
   | "general";
 
 /**

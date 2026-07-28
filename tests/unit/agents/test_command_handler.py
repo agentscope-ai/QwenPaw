@@ -4,9 +4,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from agentscope.message import Msg, TextBlock
+from agentscope.message import HintBlock, Msg, TextBlock
 
 from qwenpaw.agents.command_handler import CommandHandler
+from qwenpaw.agents.memory.dummy import NoopMemoryManager
 
 
 def _make_agent():
@@ -42,10 +43,12 @@ async def test_process_clear_returns_clear_history_metadata() -> None:
 async def test_clear_resets_stop_gates_and_pending_gate_state() -> None:
     agent = _make_agent()
     agent._gate_pending_stop = object()
-    agent._gate_pending_continue = "continue"
-    stop_handler = MagicMock()
+    mode = MagicMock()
+    mode.on_conversation_reset = AsyncMock()
     ctx = SimpleNamespace(
-        workspace=SimpleNamespace(_stop_handler=stop_handler),
+        workspace=SimpleNamespace(
+            plugins=SimpleNamespace(modes=[mode]),
+        ),
         agent=agent,
     )
     handler = CommandHandler(
@@ -56,20 +59,30 @@ async def test_clear_resets_stop_gates_and_pending_gate_state() -> None:
 
     await handler.handle_command("/clear")
 
-    stop_handler.reset.assert_called_once_with()
+    mode.on_conversation_reset.assert_awaited_once_with(ctx)
     assert agent._gate_pending_stop is None
-    assert agent._gate_pending_continue is None
+
+
+@pytest.mark.asyncio
+async def test_clear_resets_pending_gate_state_without_context() -> None:
+    """Conversation reset owns deferred state even without mode context."""
+    agent = _make_agent()
+    agent._gate_pending_stop = object()
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+
+    await handler.handle_command("/clear")
+
+    assert agent._gate_pending_stop is None
 
 
 @pytest.mark.asyncio
 async def test_new_empty_resets_stop_gates() -> None:
     agent = _make_agent()
-    agent._gate_pending_stop = object()
-    agent._gate_pending_continue = "stale"
-    stop_handler = MagicMock()
+    mode = MagicMock()
+    mode.on_conversation_reset = AsyncMock()
     ctx = SimpleNamespace(
         workspace=SimpleNamespace(
-            _stop_handler=stop_handler,
+            plugins=SimpleNamespace(modes=[mode]),
         ),
         agent=agent,
     )
@@ -81,9 +94,7 @@ async def test_new_empty_resets_stop_gates() -> None:
 
     await handler.handle_command("/new")
 
-    stop_handler.reset.assert_called_once_with()
-    assert agent._gate_pending_stop is None
-    assert agent._gate_pending_continue is None
+    mode.on_conversation_reset.assert_awaited_once_with(ctx)
 
 
 @pytest.mark.asyncio
@@ -92,12 +103,11 @@ async def test_new_no_mem_mgr_resets_stop_gates() -> None:
     agent.state.context = [
         _msg("user", "hi"),
     ]
-    agent._gate_pending_stop = object()
-    agent._gate_pending_continue = "stale"
-    stop_handler = MagicMock()
+    mode = MagicMock()
+    mode.on_conversation_reset = AsyncMock()
     ctx = SimpleNamespace(
         workspace=SimpleNamespace(
-            _stop_handler=stop_handler,
+            plugins=SimpleNamespace(modes=[mode]),
         ),
         agent=agent,
     )
@@ -109,9 +119,7 @@ async def test_new_no_mem_mgr_resets_stop_gates() -> None:
 
     msg = await handler.handle_command("/new")
 
-    stop_handler.reset.assert_called_once_with()
-    assert agent._gate_pending_stop is None
-    assert agent._gate_pending_continue is None
+    mode.on_conversation_reset.assert_awaited_once_with(ctx)
     assert "Memory Manager Disabled" in msg.get_text_content()
 
 
@@ -205,6 +213,30 @@ async def test_reme_status_requires_memory_manager() -> None:
     msg = await handler.handle_command("/reme_status")
 
     assert "Memory Manager Disabled" in msg.get_text_content()
+
+
+@pytest.mark.asyncio
+async def test_reme_status_reports_disabled_for_noop_manager(tmp_path) -> None:
+    agent = _make_agent()
+    memory_manager = NoopMemoryManager(
+        working_dir=str(tmp_path),
+        agent_id="default",
+    )
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        agent=agent,
+        memory_manager=memory_manager,
+    )
+
+    msg = await handler.handle_command("/reme_status")
+    text = msg.get_text_content()
+
+    assert handler.is_command("/reme_status")
+    assert "Memory Manager Disabled" in text
+    assert "memory_manager_backend" in text
+    assert "remelight" in text
+    assert "ReMe Status Unavailable" not in text
+    assert "Traceback" not in text
 
 
 @pytest.mark.asyncio
@@ -408,7 +440,8 @@ async def test_compact_uses_manual_force_context_config() -> None:
 
     captured = {}
 
-    async def _compress_context(context_config=None):
+    async def _compress_context(context_config=None, instructions=None):
+        del instructions
         captured["context_config"] = context_config
         agent.state.summary = "summary"
 
@@ -437,20 +470,71 @@ async def test_compact_uses_manual_force_context_config() -> None:
     assert "Compact Complete" in msg.get_text_content()
 
 
-def test_scroll_compact_detail_hides_internal_index_terms() -> None:
-    index_text = (
-        "===== Tier 0 (recently compressed) =====\n"
-        "  [seq 2850–2852]\n"
-        "    · seq 2851  ⟦ 执行 yes | head -n 3000 成功，输出 3000 行重复字符串 ⟧"
+@pytest.mark.asyncio
+async def test_scroll_compact_reply_hides_internal_state() -> None:
+    async def _compress_context(context_config=None, instructions=None):
+        del context_config, instructions
+        agent.state.context.pop(0)
+
+    context_manager = SimpleNamespace(
+        last_compress={"evicted": 1, "folded": 0},
+        describe_index=lambda: (
+            "===== Tier 0 =====\n"
+            "  [seq 1–2]\n"
+            "    · seq 2 ⟦ internal headline ⟧"
+        ),
+        describe_summary=lambda: "## Active Task\ninternal task state",
     )
+    agent = _make_agent()
+    agent.state = SimpleNamespace(
+        context=[object(), object()],
+        summary="",
+    )
+    agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
+    agent.compress_context = _compress_context
+    agent._context_manager = context_manager
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+    handler._get_agent_config = lambda: _make_config(strategy="scroll")
 
-    # pylint: disable=protected-access
-    detail = CommandHandler._format_scroll_compact_detail(index_text)
+    msg = await handler.handle_command("/compact")
+    text = msg.get_text_content()
 
-    assert "执行 yes | head -n 3000 成功" in detail
-    assert "Tier 0" not in detail
-    assert "seq 2851" not in detail
-    assert "live context" in detail
+    assert "Messages archived: 1" in text
+    assert "available via `/compact_str`" in text
+    assert "remain recoverable through Scroll history" in text
+    assert "internal headline" not in text
+    assert "internal task state" not in text
+    assert "seq 1" not in text
+
+
+@pytest.mark.asyncio
+async def test_compact_str_reads_persisted_scroll_summary() -> None:
+    state = SimpleNamespace(context=[], summary="")
+    scroll_state = {
+        "continuation_summary": {
+            "version": 1,
+            "covered_seq": [1, 8],
+            "active_task": "Fix provider discovery.",
+            "status": "in_progress",
+            "current_state": [],
+            "constraints": [],
+            "decisions": [],
+            "open_work": [],
+        },
+    }
+    handler = CommandHandler(
+        agent_name="QwenPaw",
+        state=state,
+        scroll_state=scroll_state,
+    )
+    handler._get_agent_config = lambda: _make_config(strategy="scroll")
+
+    msg = await handler.handle_command("/compact_str")
+    text = msg.get_text_content()
+
+    assert "**Continuation Summary**" in text
+    assert "Fix provider discovery." in text
+    assert "**No Compressed Summary**" not in text
 
 
 @pytest.mark.asyncio
@@ -463,7 +547,8 @@ async def test_compact_under_native_keeps_configured_reserve() -> None:
 
     captured = {}
 
-    async def _compress_context(context_config=None):
+    async def _compress_context(context_config=None, instructions=None):
+        del instructions
         captured["context_config"] = context_config
         agent.state.summary = "summary"
 
@@ -489,3 +574,37 @@ async def test_compact_under_native_keeps_configured_reserve() -> None:
     # ...but the reserve is left at the agent's configured value (the base),
     # NOT shrunk to the scroll-only _FORCE_RESERVE_RATIO.
     assert context_config.reserve_ratio == 0.2
+
+
+@pytest.mark.asyncio
+async def test_compact_forwards_one_shot_redacted_instruction() -> None:
+    captured = {}
+
+    async def _compress_context(context_config=None, instructions=None):
+        captured["context_config"] = context_config
+        captured["instructions"] = instructions
+        agent.state.summary = "summary"
+
+    agent = _make_agent()
+    agent.state = SimpleNamespace(
+        context=[object()],
+        summary="",
+    )
+    agent.context_config = _FakeCtxConfig(trigger_ratio=0.8, reserve_ratio=0.2)
+    agent.compress_context = _compress_context
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+    handler._get_agent_config = lambda: _make_config(
+        reserve_ratio=0.2,
+        strategy="native",
+    )
+
+    await handler.handle_command(
+        "/compact prioritize failures token=hint-secret-123",
+    )
+
+    instructions = captured["instructions"]
+    assert isinstance(instructions, HintBlock)
+    assert instructions.source == "user"
+    assert "prioritize failures" in instructions.hint
+    assert "hint-secret-123" not in instructions.hint
+    assert "[secret redacted]" in instructions.hint

@@ -1,0 +1,574 @@
+.loopCard,
+.createForm {
+  --loop-accent: #ff7f16;
+  --loop-accent-strong: #c65300;
+  --loop-accent-soft: rgba(255, 127, 22, 0.08);
+  --loop-accent-border: rgba(255, 127, 22, 0.32);
+  --loop-surface: #fff;
+  --loop-surface-subtle: #f9f8f4;
+  --loop-border: #eae8e7;
+  --loop-border-hover: #f0b07b;
+  --loop-text: rgba(26, 23, 22, 0.88);
+  --loop-text-secondary: rgba(26, 23, 22, 0.58);
+  --loop-text-tertiary: rgba(26, 23, 22, 0.42);
+  --loop-shadow: 0 5px 16px rgba(43, 18, 0, 0.06);
+}
+
+.loopCard {
+  overflow: hidden;
+
+  :global(.ant-card-body) {
+    padding: 14px 18px 20px;
+  }
+
+  :global(.ant-tabs-nav) {
+    margin: 0 -2px;
+  }
+
+  :global(.ant-tabs-nav::before) {
+    border-bottom-color: var(--loop-border);
+  }
+
+  :global(.ant-tabs-nav-wrap) {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  :global(.ant-tabs-nav-list) {
+    align-items: flex-end;
+    gap: 3px;
+  }
+
+  :global(.ant-tabs-tab) {
+    margin: 0;
+    padding: 10px 20px 11px;
+    border: 1px solid transparent;
+    border-bottom: 0;
+    border-radius: 9px 9px 0 0;
+    transition:
+      border-color 160ms ease,
+      background-color 160ms ease;
+  }
+
+  :global(.ant-tabs-tab:hover) {
+    background: var(--loop-accent-soft);
+  }
+
+  :global(.ant-tabs-tab-active) {
+    border-color: var(--loop-border);
+    background: var(--loop-surface);
+  }
+
+  :global(.ant-tabs-tab-active::after) {
+    position: absolute;
+    right: 0;
+    bottom: -1px;
+    left: 0;
+    height: 2px;
+    background: var(--loop-surface);
+    content: "";
+  }
+
+  :global(.ant-tabs-ink-bar) {
+    display: none;
+  }
+}
+
+.templateIntro {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 0 2px 8px;
+}
+
+.templateIntro strong {
+  color: var(--loop-text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.templateIntro span {
+  color: var(--loop-text-secondary);
+  font-size: 11px;
+}
+
+.builtInTab,
+.customTab,
+.builtInTag,
+.customTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.builtInTab,
+.customTab {
+  min-height: 22px;
+  justify-content: center;
+}
+
+.builtInTab {
+  color: var(--loop-text-secondary);
+}
+
+.customTab {
+  position: relative;
+  padding-left: 12px;
+  color: var(--loop-accent-strong);
+
+  &::before {
+    position: absolute;
+    left: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--loop-accent);
+    content: "";
+  }
+}
+
+:global(.ant-tabs-tab-active) .customTab {
+  color: var(--loop-accent-strong);
+  font-weight: 650;
+}
+
+.addModeTab {
+  display: grid;
+  width: 24px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid var(--loop-accent-border);
+  border-radius: 7px;
+  background: var(--loop-accent-soft);
+  color: var(--loop-accent-strong);
+}
+
+.modeEditor {
+  width: min(100%, 1080px);
+  margin: 0;
+  padding: 16px 2px 12px;
+  color: var(--loop-text);
+}
+
+.customHeader p {
+  margin: 0 0 14px;
+  color: var(--loop-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.builtInIntro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 11px 13px;
+  border: 1px solid var(--loop-border);
+  border-radius: 11px;
+  background: var(--loop-surface-subtle);
+}
+
+.builtInIntroMain {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.builtInIntroMain p {
+  overflow: hidden;
+  margin: 0;
+  color: var(--loop-text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.builtInNote {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--loop-text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.builtInTag,
+.customTag {
+  margin: 0;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.customTag {
+  border-color: var(--loop-accent-border);
+  background: var(--loop-accent-soft);
+  color: var(--loop-accent-strong);
+}
+
+.customHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.customHeader p {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
+.pipelineHeader {
+  margin-bottom: 10px;
+  color: var(--loop-text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.gateList {
+  display: grid;
+  gap: 8px;
+}
+
+.gateCard {
+  overflow: hidden;
+  margin-bottom: 0;
+  border: 1px solid var(--loop-border);
+  border-radius: 12px;
+  background: var(--loop-surface);
+  color: var(--loop-text);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.gateCard:hover {
+  border-color: var(--loop-border-hover);
+  box-shadow: var(--loop-shadow);
+}
+
+.gateSummary {
+  display: grid;
+  width: 100%;
+  min-height: 62px;
+  grid-template-columns: 28px 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 13px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.lockSlot,
+.dragHandle {
+  display: grid;
+  width: 28px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--loop-text-tertiary);
+}
+
+.dragHandle {
+  cursor: grab;
+}
+
+.gateIcon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--loop-accent-soft);
+  color: var(--loop-accent-strong);
+}
+
+.gateCopy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.gateCopy strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.gateCopy small {
+  overflow: hidden;
+  color: var(--loop-text-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gateActions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.moveUp {
+  transform: rotate(180deg);
+}
+
+.gateDetails {
+  padding: 18px 22px 5px 76px;
+  border-top: 1px solid var(--loop-border);
+  background: var(--loop-surface-subtle);
+}
+
+.gateForm {
+  max-width: 760px;
+}
+
+.subsectionTitle {
+  margin: 2px 0 10px;
+  color: var(--loop-text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ruleList {
+  display: grid;
+  gap: 9px;
+  margin-bottom: 14px;
+}
+
+.ruleRow {
+  display: grid;
+  grid-template-columns: 90px 170px minmax(220px, 1fr) 32px;
+  align-items: start;
+  gap: 8px;
+}
+
+.ruleRow > :global(.ant-btn) {
+  margin-top: 30px;
+}
+
+.gateDetails :global(.ant-form-item:last-child) {
+  margin-bottom: 14px;
+}
+
+.readOnlyCopy {
+  margin: 0 0 16px;
+  color: var(--loop-text-secondary);
+  font-size: 12px;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.pipelineToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 4px 0 10px;
+}
+
+.pipelineToolbar > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pipelineToolbar small {
+  color: var(--loop-text-tertiary);
+}
+
+.addGateButton {
+  width: 34px;
+  height: 34px;
+  border-style: dashed;
+  color: var(--loop-accent-strong);
+}
+
+.emptyPipeline {
+  padding: 34px 18px;
+  border: 1px dashed var(--loop-border);
+  border-radius: 13px;
+  color: var(--loop-text-secondary);
+  text-align: center;
+}
+
+.editorHint {
+  margin: -2px 0 14px;
+  color: var(--loop-text-tertiary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.toolLimitList {
+  display: grid;
+  gap: 8px;
+}
+
+.toolLimitRow {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 100px 32px;
+  gap: 8px;
+}
+
+.createForm {
+  display: grid;
+  gap: 8px;
+  padding: 6px 2px 2px;
+}
+
+.createForm label {
+  margin-top: 6px;
+  color: var(--loop-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fieldError {
+  margin-top: -3px;
+  color: var(--error-color, #b54842);
+  font-size: 11px;
+}
+
+.templatePreview {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 12px 13px;
+  border: 1px solid var(--loop-border);
+  border-radius: 10px;
+  background: var(--loop-surface-subtle);
+}
+
+.templatePreview > span {
+  color: var(--loop-text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.templatePreview > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.templatePreview small {
+  padding: 4px 8px;
+  border: 1px solid var(--loop-accent-border);
+  border-radius: 999px;
+  background: var(--loop-surface);
+  color: var(--loop-accent-strong);
+  font-size: 10px;
+}
+
+:global(.dark-mode) {
+  .loopCard,
+  .createForm {
+    --loop-accent: #ff7f16;
+    --loop-accent-strong: #ff9d4d;
+    --loop-accent-soft: rgba(255, 127, 22, 0.14);
+    --loop-accent-border: rgba(255, 127, 22, 0.42);
+    --loop-surface: #1f1f1f;
+    --loop-surface-subtle: #262626;
+    --loop-border: rgba(255, 255, 255, 0.1);
+    --loop-border-hover: rgba(255, 127, 22, 0.5);
+    --loop-text: rgba(255, 255, 255, 0.85);
+    --loop-text-secondary: rgba(255, 255, 255, 0.58);
+    --loop-text-tertiary: rgba(255, 255, 255, 0.38);
+    --loop-shadow: 0 5px 18px rgba(0, 0, 0, 0.28);
+  }
+}
+
+@media (max-width: 720px) {
+  .templateIntro {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .modeEditor {
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  .fieldGrid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .builtInIntro,
+  .builtInIntroMain {
+    align-items: flex-start;
+  }
+
+  .builtInIntro {
+    flex-direction: column;
+  }
+
+  .builtInIntroMain p {
+    overflow: visible;
+    white-space: normal;
+  }
+
+  .customHeader,
+  .pipelineToolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .addGateButton {
+    align-self: flex-start;
+  }
+
+  .gateSummary {
+    grid-template-columns: 22px 32px minmax(0, 1fr) auto;
+    gap: 7px;
+    padding-right: 7px;
+    padding-left: 7px;
+  }
+
+  .gateDetails {
+    padding-right: 13px;
+    padding-left: 13px;
+  }
+
+  .ruleRow {
+    grid-template-columns: 1fr;
+  }
+
+  .ruleRow > :global(.ant-btn) {
+    justify-self: end;
+    margin-top: 0;
+  }
+
+  .gateActions > :nth-child(-n + 2) {
+    display: none;
+  }
+
+  .toolLimitRow {
+    grid-template-columns: minmax(0, 1fr) 88px 32px;
+  }
+}

@@ -24,7 +24,10 @@ from typing import Any
 from ...constant import EnvVarLoader
 from .guardians import BaseToolGuardian
 from .guardians.file_guardian import FilePathToolGuardian
-from .guardians.rule_guardian import RuleBasedToolGuardian
+from .guardians.rule_guardian import (
+    RuleBasedToolGuardian,
+    SharedSafetyToolGuardian,
+)
 from .guardians.shell_evasion_guardian import ShellEvasionGuardian
 from .models import ToolGuardResult
 
@@ -86,6 +89,14 @@ class ToolGuardEngine:
     def _default_guardians() -> list[BaseToolGuardian]:
         """Return the default set of guardians."""
         guardians: list[BaseToolGuardian] = []
+        try:
+            # Always-on shared catastrophic / system-power checks first.
+            guardians.append(SharedSafetyToolGuardian())
+        except Exception as exc:  # pragma: no cover
+            logger.warning(
+                "Failed to initialise SharedSafetyToolGuardian: %s",
+                exc,
+            )
         try:
             guardians.append(FilePathToolGuardian())
         except Exception as exc:  # pragma: no cover

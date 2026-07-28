@@ -476,6 +476,31 @@
   }
 
   .approveOnceButton {
+    background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+    border: none;
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(249, 115, 22, 0.2);
+
+    &:hover:not(:disabled) {
+      background: linear-gradient(135deg, #ea6c0e 0%, #dc2626 100%);
+      box-shadow: 0 4px 14px rgba(249, 115, 22, 0.35);
+      transform: translateY(-1px);
+      border: none;
+    }
+
+    &:focus:not(:disabled) {
+      background: linear-gradient(135deg, #ea6c0e 0%, #dc2626 100%);
+      box-shadow: 0 4px 14px rgba(249, 115, 22, 0.35);
+      border: none;
+    }
+
+    &:active:not(:disabled) {
+      transform: translateY(0);
+      box-shadow: 0 2px 8px rgba(249, 115, 22, 0.25);
+    }
+  }
+
+  .approveAlwaysButton {
     background: #f8fafc;
     border: 1.5px solid #e2e8f0;
     color: #475569;
@@ -499,31 +524,6 @@
     &:active:not(:disabled) {
       transform: translateY(0);
       box-shadow: 0 1px 3px rgba(71, 85, 105, 0.08);
-    }
-  }
-
-  .approveAlwaysButton {
-    background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
-    border: none;
-    color: #ffffff;
-    box-shadow: 0 2px 8px rgba(249, 115, 22, 0.2);
-
-    &:hover:not(:disabled) {
-      background: linear-gradient(135deg, #ea6c0e 0%, #dc2626 100%);
-      box-shadow: 0 4px 14px rgba(249, 115, 22, 0.35);
-      transform: translateY(-1px);
-      border: none;
-    }
-
-    &:focus:not(:disabled) {
-      background: linear-gradient(135deg, #ea6c0e 0%, #dc2626 100%);
-      box-shadow: 0 4px 14px rgba(249, 115, 22, 0.35);
-      border: none;
-    }
-
-    &:active:not(:disabled) {
-      transform: translateY(0);
-      box-shadow: 0 2px 8px rgba(249, 115, 22, 0.25);
     }
   }
 }
@@ -735,6 +735,28 @@
     }
 
     .approveOnceButton {
+      background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+      color: #ffffff;
+      box-shadow: 0 2px 8px rgba(249, 115, 22, 0.3);
+
+      &:hover:not(:disabled) {
+        background: linear-gradient(135deg, #ea6c0e 0%, #dc2626 100%);
+        box-shadow: 0 4px 16px rgba(249, 115, 22, 0.45);
+        transform: translateY(-1px);
+      }
+
+      &:focus:not(:disabled) {
+        background: linear-gradient(135deg, #ea6c0e 0%, #dc2626 100%);
+        box-shadow: 0 4px 16px rgba(249, 115, 22, 0.45);
+      }
+
+      &:active:not(:disabled) {
+        transform: translateY(0);
+        box-shadow: 0 2px 10px rgba(249, 115, 22, 0.35);
+      }
+    }
+
+    .approveAlwaysButton {
       background: #2a2a2a;
       border-color: #3a3a3a;
       color: #94a3b8;
@@ -757,28 +779,6 @@
       &:active:not(:disabled) {
         transform: translateY(0);
         box-shadow: 0 1px 4px rgba(148, 163, 184, 0.1);
-      }
-    }
-
-    .approveAlwaysButton {
-      background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
-      color: #ffffff;
-      box-shadow: 0 2px 8px rgba(249, 115, 22, 0.3);
-
-      &:hover:not(:disabled) {
-        background: linear-gradient(135deg, #ea6c0e 0%, #dc2626 100%);
-        box-shadow: 0 4px 16px rgba(249, 115, 22, 0.45);
-        transform: translateY(-1px);
-      }
-
-      &:focus:not(:disabled) {
-        background: linear-gradient(135deg, #ea6c0e 0%, #dc2626 100%);
-        box-shadow: 0 4px 16px rgba(249, 115, 22, 0.45);
-      }
-
-      &:active:not(:disabled) {
-        transform: translateY(0);
-        box-shadow: 0 2px 10px rgba(249, 115, 22, 0.35);
       }
     }
   }
@@ -832,11 +832,11 @@
     }
 
     .approveOnceButton {
-      order: 2;
+      order: 1;
     }
 
     .approveAlwaysButton {
-      order: 1;
+      order: 2;
     }
   }
 }

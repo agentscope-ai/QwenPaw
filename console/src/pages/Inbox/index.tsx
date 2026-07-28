@@ -14,6 +14,7 @@ import {
   Tag,
   Spin,
   Select,
+  Tooltip,
 } from "antd";
 import {
   BulbOutlined,
@@ -21,13 +22,15 @@ import {
   DownOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
-import { PackageOpen, Bell } from "lucide-react";
+import { PackageOpen, Bell, BellRing } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
+import { externalLinkMarkdownComponents } from "@/components/Markdown/externalLinkComponents";
 import { ApprovalCard as GlobalApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
+import { useInboxWobble } from "../../hooks/useInboxWobble";
 import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
@@ -69,7 +72,12 @@ const resolveInitialTab = (): TabKey => {
 
 const renderMarkdownText = (text: string, className: string) => (
   <div className={className}>
-    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={externalLinkMarkdownComponents}
+    >
+      {text}
+    </ReactMarkdown>
   </div>
 );
 
@@ -87,6 +95,7 @@ export default function InboxPage() {
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [batchMode, setBatchMode] = useState(false);
   const agents = useAgentStore((state) => state.agents);
+  const [wobbleEnabled, toggleWobble] = useInboxWobble();
   const { approvals: pendingApprovals, setApprovals } = useApprovalContext();
   const {
     summary,
@@ -151,13 +160,7 @@ export default function InboxPage() {
         label: t(SOURCE_TYPE_LABEL_KEYS[type] || type),
       }));
   }, [pushMessages, t]);
-  const urgentApprovalCount = useMemo(
-    () =>
-      pendingApprovals.filter((item) =>
-        ["high", "critical"].includes(item.severity?.toLowerCase?.() || ""),
-      ).length,
-    [pendingApprovals],
-  );
+  const approvalCount = pendingApprovals.length;
   const pagedPushMessages = useMemo(() => {
     const start = (messagesPage - 1) * PUSH_MESSAGES_PAGE_SIZE;
     return filteredPushMessages.slice(start, start + PUSH_MESSAGES_PAGE_SIZE);
@@ -435,9 +438,7 @@ export default function InboxPage() {
         <span className={styles.tabLabel}>
           <PackageOpen size={16} />
           {t("inbox.tabApprovals")}
-          {urgentApprovalCount > 0 && (
-            <Badge count={urgentApprovalCount} color="#ff7f16" />
-          )}
+          {approvalCount > 0 && <Badge count={approvalCount} color="#ff7f16" />}
         </span>
       ),
       children: (
@@ -515,6 +516,23 @@ export default function InboxPage() {
           onChange={(key) => setActiveTab(key as TabKey)}
           items={tabItems}
           className={styles.inboxTabs}
+          tabBarExtraContent={
+            <Tooltip
+              title={t(
+                wobbleEnabled ? "inbox.wobbleDisable" : "inbox.wobbleEnable",
+              )}
+            >
+              <Button
+                type="text"
+                size="small"
+                icon={<BellRing size={16} />}
+                onClick={toggleWobble}
+                className={
+                  wobbleEnabled ? styles.wobbleToggleActive : undefined
+                }
+              />
+            </Tooltip>
+          }
         />
       </div>
       <Modal

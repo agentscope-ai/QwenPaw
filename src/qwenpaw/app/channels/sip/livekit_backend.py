@@ -40,6 +40,22 @@ from .backend import CallEndedCallback, IncomingCallCallback
 
 logger = logging.getLogger(__name__)
 
+# Audio older than a few seconds is no longer useful to real-time STT.
+_AUDIO_QUEUE_MAX_FRAMES = 150
+
+
+def _put_latest_audio(
+    queue: asyncio.Queue,
+    frame: bytes | None,
+) -> None:
+    """Queue *frame*, discarding stale audio when the consumer falls behind."""
+    if queue.full():
+        try:
+            queue.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+    queue.put_nowait(frame)
+
 
 class LiveKitBackend:
     """SipBackend backed by LiveKit SIP Server (event-driven).
@@ -397,7 +413,7 @@ class LiveKitBackend:
                         getattr(frame, "num_channels", "?"),
                         len(bytes(frame.data)),
                     )
-                self._audio_queue.put_nowait(bytes(frame.data))
+                _put_latest_audio(self._audio_queue, bytes(frame.data))
         except Exception:
             logger.debug(
                 "Audio read ended: %s",
@@ -406,7 +422,7 @@ class LiveKitBackend:
             )
         finally:
             if self._audio_queue:
-                self._audio_queue.put_nowait(None)
+                _put_latest_audio(self._audio_queue, None)
 
     async def _notify_incoming(
         self,
@@ -414,7 +430,9 @@ class LiveKitBackend:
         from_uri: str,
     ) -> None:
         """Notify SIPChannel of a new incoming call."""
-        audio_queue: asyncio.Queue = asyncio.Queue()
+        audio_queue: asyncio.Queue = asyncio.Queue(
+            maxsize=_AUDIO_QUEUE_MAX_FRAMES,
+        )
         self._audio_queue = audio_queue
 
         async def write_audio(data: bytes) -> None:

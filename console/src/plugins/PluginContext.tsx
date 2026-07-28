@@ -84,7 +84,10 @@ export function PluginProvider({ children }: { children: React.ReactNode }) {
       setPluginRoutes(derivePluginRoutes());
     });
 
-    // Load all installed plugins (non-fatal: one bad plugin won’t block others)
+    // Load all installed plugins and PawApps (non-fatal: one bad module
+    // won’t block others). PawApps are 'app'-type plugins: the loader
+    // executes their ui bundle, which self-registers the /apps/{id} route
+    // so the App Center can render them inline.
     loadAllPlugins().then(({ failed }) => {
       if (failed.length > 0) setError(failed.join("; "));
       setLoading(false);

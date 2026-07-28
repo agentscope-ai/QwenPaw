@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .base import BaseChatRepository
 from ..models import ChatsFile
+from ....utils.io_utils import read_json, run_sync_io, write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -41,38 +42,35 @@ class JsonChatRepository(BaseChatRepository):
         """Get the repository file path."""
         return self._path
 
+    def _load_sync(self) -> ChatsFile:
+        """Load and validate chat specs as one worker-thread operation."""
+        if not self._path.exists():
+            return ChatsFile(version=1, chats=[])
+        return ChatsFile.model_validate(read_json(self._path))
+
     async def load(self) -> ChatsFile:
-        """Load chat specs from JSON file.
+        """Load and validate chat specs without blocking the event loop.
 
         Returns:
             ChatsFile with all chat specs
         """
-        if not self._path.exists():
-            return ChatsFile(version=1, chats=[])
+        return await run_sync_io(self._load_sync)
 
-        data = json.loads(self._path.read_text(encoding="utf-8"))
-        return ChatsFile.model_validate(data)
+    def _save_sync(self, chats_file: ChatsFile) -> None:
+        """Serialize and atomically save chat specs in one worker thread."""
+        write_json_atomic(
+            self._path,
+            chats_file.model_dump(mode="json"),
+            sort_keys=True,
+        )
 
     async def save(self, chats_file: ChatsFile) -> None:
-        """Save chat specs to JSON file atomically.
+        """Atomically save chat specs without blocking the event loop.
 
         Args:
             chats_file: ChatsFile to persist
         """
-        # Create parent directory if needed
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Write to temp file first (atomic write)
-        tmp_path = self._path.with_suffix(self._path.suffix + ".tmp")
-        payload = chats_file.model_dump(mode="json")
-
-        tmp_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
-            encoding="utf-8",
-        )
-
-        # Atomic replace (shutil.move handles cross-disk on Windows)
-        shutil.move(str(tmp_path), str(self._path))
+        await run_sync_io(self._save_sync, chats_file)
 
 
 def migrate_legacy_weixin_chats_file(chats_path: Path | str) -> None:

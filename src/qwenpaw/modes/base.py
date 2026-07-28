@@ -65,9 +65,15 @@ class AgentMode:
     def prompt_contributors(self) -> list["PromptContributor"]:
         return []
 
-    def on_conversation_reset(
+    async def on_turn_start(
         self,
-        workspace: object,
+        ctx: HookContext,  # noqa: ARG002
+    ) -> None:
+        """Prepare mode-owned state for a new user turn."""
+
+    async def on_conversation_reset(
+        self,
+        ctx: HookContext,  # noqa: ARG002
     ) -> None:
         """Called on /new and /clear to reset mode state.
 
@@ -86,6 +92,21 @@ class AgentMode:
         unconfigured mode never silently leaks into requests.
         """
         return False
+
+
+def find_active_explicit_mode(ctx: HookContext) -> str | None:
+    """Return the active non-default mode for one request context."""
+    plugins = getattr(getattr(ctx, "workspace", None), "plugins", None)
+    for mode in getattr(plugins, "modes", []):
+        name = getattr(mode, "name", "")
+        if not name or name in {"default", "custom-loop-control"}:
+            continue
+        try:
+            if mode.is_active(ctx):
+                return str(name)
+        except Exception:
+            continue
+    return None
 
 
 class ModeGatedHook(HookBase):
@@ -108,4 +129,4 @@ class ModeGatedHook(HookBase):
         raise NotImplementedError
 
 
-__all__ = ["AgentMode", "ModeGatedHook"]
+__all__ = ["AgentMode", "ModeGatedHook", "find_active_explicit_mode"]

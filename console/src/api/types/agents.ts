@@ -56,6 +56,14 @@ export interface CreateAgentRequest {
   active_model?: ModelSlotConfig | null;
 }
 
+export interface CopyAgentRequest {
+  name?: string;
+  copy_agent_json?: true;
+  copy_md_files?: boolean;
+  copy_skills?: boolean;
+  copy_jobs?: boolean;
+}
+
 export interface AgentProfileRef {
   id: string;
   workspace_dir: string;

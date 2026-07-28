@@ -17,6 +17,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { isDesktopTauriRuntime } from "../../utils/openExternalLink";
+import { ExternalMarkdownLink } from "../../components/Markdown/externalLinkComponents";
 import { useAgentStore } from "../../stores/agentStore";
 import styles from "./FilePreview.module.less";
 
@@ -197,6 +198,7 @@ function PdfPreview({ filePath }: { filePath: string }) {
 }
 
 const markdownComponents = {
+  a: ExternalMarkdownLink,
   pre({ children }: { children?: React.ReactNode }) {
     return <>{children}</>;
   },

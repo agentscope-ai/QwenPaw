@@ -11,8 +11,9 @@ model controls beyond scalar parameters, so there is nothing to isolate.
 
 ``recall_history_python`` remains the escape hatch for everything else
 (sessions listing, custom SQL aggregation, scratch tables) — but it executes
-model-authored Python and therefore requires the sandbox, which on platforms
-without one (e.g. Windows sans WSL2) means per-call approval or refusal.
+model-authored Python and therefore requires the sandbox. When no sandbox
+backend is available, it fails closed unless the explicit unsafe fallback is
+enabled.
 Fold stubs and the eviction index point at THIS tool first so the common
 re-read path works everywhere.
 """

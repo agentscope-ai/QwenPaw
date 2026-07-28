@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..agents.acp.meta import ACP_CODING_PROJECT_META_KEY
+from ..utils.io_utils import run_sync_io
 
 _logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class AgentBuilder:
         agent_config: Any,
         *,
         agent_id: str | None = None,
-        request_context: dict[str, str] | None = None,
+        request_context: dict[str, Any] | None = None,
         active_modes: Iterable[str] | None = None,
         effective_skills: Iterable[str] | None = None,
         enabled_features: Iterable[str] | None = None,
@@ -72,7 +73,12 @@ class AgentBuilder:
             tools = []
 
         if extra_tools:
-            tools.extend(extra_tools)
+            tools.extend(
+                self._filter_extra_tools_for_subagent(
+                    extra_tools,
+                    request_context,
+                ),
+            )
 
         if memory_tools:
             from ..governance import PolicyGuardedTool
@@ -86,12 +92,59 @@ class AgentBuilder:
                     ),
                 )
 
+        # Final pass: cover workspace + extras + memory in one filter.
+        tools = self.apply_subagent_tool_whitelist(tools, request_context)
+
         skill_dirs = self._resolve_skill_loader_dirs(
             effective_skills,
             workspace_dir,
         )
 
         return Toolkit(tools=tools, skills_or_loaders=skill_dirs)
+
+    @staticmethod
+    def _tool_name(tool: Any) -> str:
+        """Best-effort tool name for whitelist filtering."""
+        name = getattr(tool, "name", None)
+        if isinstance(name, str) and name:
+            return name
+        fn = getattr(tool, "func", None) or getattr(tool, "_func", None)
+        if callable(fn):
+            return getattr(fn, "__name__", "") or ""
+        return getattr(tool, "__name__", "") or ""
+
+    @classmethod
+    def apply_subagent_tool_whitelist(
+        cls,
+        tools: Iterable[Any],
+        request_context: dict[str, Any] | None,
+    ) -> list[Any]:
+        """Filter *tools* by ``subagent_allowed_tools`` (final-pass API).
+
+        - ``None`` / non-list → inherit (no filter)
+        - ``[]`` → deny all tools
+        - non-empty list → keep only matching python tool names
+        """
+        items = list(tools)
+        whitelist = (request_context or {}).get("subagent_allowed_tools")
+        if not isinstance(whitelist, list):
+            return items
+        if not whitelist:
+            return []
+        allow = set(whitelist)
+        return [t for t in items if cls._tool_name(t) in allow]
+
+    @classmethod
+    def _filter_extra_tools_for_subagent(
+        cls,
+        extra_tools: Iterable[Any],
+        request_context: dict[str, Any] | None,
+    ) -> list[Any]:
+        """Apply ``subagent_allowed_tools`` to post-list_tools extras."""
+        return cls.apply_subagent_tool_whitelist(
+            extra_tools,
+            request_context,
+        )
 
     @staticmethod
     def _resolve_skill_loader_dirs(
@@ -122,7 +175,7 @@ class AgentBuilder:
 
     # ----------------------------------------------------------------- build
 
-    async def build(  # pylint: disable=too-many-statements
+    async def build(  # pylint: disable=too-many-statements,too-many-branches
         self,
         ctx: Any,
     ) -> Any:
@@ -175,6 +228,11 @@ class AgentBuilder:
         except Exception:
             effective_skills = []
 
+        subagent_skills = request_context.get("subagent_skills")
+        if isinstance(subagent_skills, list):
+            parent_set = set(effective_skills)
+            effective_skills = [s for s in subagent_skills if s in parent_set]
+
         # Compute active modes.
         active_modes: set[str] = set()
         workspace = getattr(ctx, "workspace", None)
@@ -190,7 +248,11 @@ class AgentBuilder:
             if _cm and getattr(_cm, "project_dir", None)
             else None
         )
-        governor = self._init_governor(workspace_dir, _project_dir)
+        governor = await run_sync_io(
+            self._init_governor,
+            workspace_dir,
+            _project_dir,
+        )
 
         # Inject governor into local_workspace so list_tools() can
         # wrap tools with PolicyGuardedTool.
@@ -282,7 +344,7 @@ class AgentBuilder:
 
         running_config = agent_config.running
 
-        from ..loop.react_gates import (
+        from ..modes.default import (
             resolve_max_iterations,
         )
 
@@ -307,14 +369,6 @@ class AgentBuilder:
             effective_skills=effective_skills,
             governor=governor,
         )
-
-        # Register default ReAct gates (StopHandler).
-        if workspace is not None:
-            from ..loop.react_gates import (
-                register_react_gates,
-            )
-
-            register_react_gates(workspace, running_config)
 
         # Load session state if SessionLoadHook populated it.
         if ctx.session_state:
@@ -453,6 +507,9 @@ class AgentBuilder:
             "root_session_id": getattr(ctx, "root_session_id", "") or "",
             "root_agent_id": getattr(ctx, "root_agent_id", "") or "",
         }
+        _ws = getattr(ctx, "workspace_dir", None)
+        if _ws is not None:
+            rc.setdefault("workspace_dir", str(_ws))
         app_services = getattr(ctx, "app_services", None)
         if app_services is not None:
             rc["approval_coordinator"] = getattr(
@@ -490,10 +547,44 @@ class AgentBuilder:
         agent_config: Any,
         request_context: dict[str, Any],
     ) -> Any:
-        """Enable Coding Mode for this request when ACP supplies a project."""
+        """Enable Coding Mode when ACP or fork worktree supplies a project."""
+        from ..agents.fork_project import resolve_allowed_fork_project_dir
+
         raw_project_dir = request_context.get(ACP_CODING_PROJECT_META_KEY)
+        fork_raw = request_context.get("fork_project_dir")
+        if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
+            # spawn_subagent(fork=True) places the worktree here.
+            raw_project_dir = fork_raw
         if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
             return agent_config
+
+        # When fork_project_dir is present, the final coding project MUST be
+        # the validated worktree — never fall through to an unchecked ACP path.
+        if isinstance(fork_raw, str) and fork_raw.strip():
+            existing_cm = getattr(agent_config, "coding_mode", None)
+            existing_pd = (
+                getattr(existing_cm, "project_dir", None)
+                if existing_cm and getattr(existing_cm, "enabled", False)
+                else None
+            )
+            workspace_hint = request_context.get("workspace_dir") or getattr(
+                agent_config,
+                "workspace_dir",
+                None,
+            )
+            validated = resolve_allowed_fork_project_dir(
+                fork_raw,
+                workspace_dir=workspace_hint,
+                coding_project_dir=existing_pd,
+            )
+            if validated is None:
+                _logger.warning(
+                    "Rejecting fork_project_dir outside allowed worktree "
+                    "subtree: %s",
+                    fork_raw,
+                )
+                return agent_config
+            raw_project_dir = str(validated)
 
         project_dir = Path(raw_project_dir).expanduser().resolve()
         if not project_dir.is_dir():
@@ -540,6 +631,22 @@ class AgentBuilder:
             and getattr(_cm, "project_dir", None)
             else None
         )
+        # Prefer validated fork worktree as the shell/file working_dir.
+        request = getattr(ctx, "request", None)
+        _payload = (
+            getattr(request, "request_context", None) if request else None
+        )
+        if isinstance(_payload, dict):
+            from ..agents.fork_project import resolve_allowed_fork_project_dir
+
+            _fork = resolve_allowed_fork_project_dir(
+                _payload.get("fork_project_dir"),
+                workspace_dir=workspace_dir,
+                coding_project_dir=_project_dir,
+            )
+            if _fork is not None:
+                ws = str(_fork)
+                _project_dir = str(_fork)
         _configured_shell = getattr(
             getattr(agent_config, "running", None),
             "shell_command_executable",
@@ -550,7 +657,6 @@ class AgentBuilder:
             or os.environ.get("SHELL")
             or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
         )
-        request = getattr(ctx, "request", None)
         _active = getattr(agent_config, "active_model", None)
         _model_name = (
             _active.model
@@ -736,11 +842,11 @@ class AgentBuilder:
         ``scroll_config.allow_unsandboxed``, via
         ``scroll_unsandboxed_allowed``).
 
-        When neither holds (e.g. Windows without WSL2), every call would fail
-        closed, and the guard layer misreads that ``DENIED`` as a sandbox
-        violation and escalates to a recurring approval prompt. So we omit the
-        REPL and let the model recall through the structured ``recall_history``
-        tool, which needs no sandbox. This is narrower than
+        When neither holds, every call would fail closed, and the guard layer
+        misreads that ``DENIED`` as a sandbox violation and escalates to a
+        recurring approval prompt. So we omit the REPL and let the model recall
+        through the structured ``recall_history`` tool, which needs no sandbox.
+        This is narrower than
         :meth:`_scroll_recall_runnable`, which gates whether scroll is wired at
         all; here scroll is already wired and structured recall is present.
 
@@ -789,11 +895,11 @@ class AgentBuilder:
 
         The sandboxed ``recall_history_python`` REPL is registered ONLY when
         it can actually run in a sandbox (or unsandboxed recall is explicitly
-        opted in). Where no sandbox exists — e.g. Windows without WSL2, or an
-        OFF-mode path that skips sandbox compilation — every call would fail
-        closed, and the guard layer misreads that ``DENIED`` as a sandbox
-        violation and turns it into a recurring approval prompt. Omitting it
-        removes that dead-end: the model recalls through the structured tool.
+        opted in). Where no sandbox exists, or an OFF-mode path skips sandbox
+        compilation, every call would fail closed, and the guard layer misreads
+        that ``DENIED`` as a sandbox violation and turns it into a recurring
+        approval prompt. Omitting it removes that dead-end: the model recalls
+        through the structured tool.
         """
         extra_tools.append(
             self._wrap_tool(

@@ -9,7 +9,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 
 class StopAction(str, Enum):
@@ -39,6 +39,8 @@ class StopHandlerResult:
     continuation_message: str = ""
     reason: str = ""
     reset_peers: bool = False
+    continuation_metadata: dict[str, Any] | None = None
+    final_message: Any = None
 
 
 @dataclass
@@ -48,7 +50,8 @@ class StopHandlerRegistration:
     ``scope`` isolates handlers by mode. When a handler
     with a non-"default" scope is active, handlers with
     ``scope="default"`` are skipped so that mode-specific
-    gates take precedence.
+    gates take precedence. ``is_active`` lets the owning
+    mode declare scope activity without exposing gate state.
     """
 
     plugin_id: str
@@ -56,6 +59,7 @@ class StopHandlerRegistration:
     priority: int = 100
     name: str = ""
     scope: str = ""
+    is_active: Callable[[], bool] | None = None
 
 
 class StopGate(ABC):
@@ -112,13 +116,16 @@ class StopGate(ABC):
         """
         return ""
 
-    def reset(self) -> None:
-        """Reset gate state for a new user turn.
+    def reset_turn(self) -> None:
+        """Reset state for the current turn.
 
         Stateful gates override this to clear internal
         counters/history. Default implementation is a no-op
         for stateless gates.
         """
+
+    def reset_session(self) -> None:
+        """Remove state for the current conversation session."""
 
 
 __all__ = [
