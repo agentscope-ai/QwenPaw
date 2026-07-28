@@ -209,47 +209,6 @@ def get_builtin_tool_funcs() -> list[Callable[..., Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Annotation materialisation
-# ---------------------------------------------------------------------------
-
-
-def _materialize_annotations(fn: Callable[..., Any]) -> None:
-    """Replace a tool function's annotations with concrete type objects.
-
-    Tool modules commonly use ``from __future__ import annotations``, which
-    turns every annotation into a string. The downstream JSON-schema builder
-    rebuilds a model straight from ``inspect.signature(...).annotation`` in a
-    module namespace that does not expose typing names such as ``Optional`` or
-    ``List``, so stringized annotations like ``"Optional[List[int]]"`` cannot
-    be resolved and schema generation raises ``class-not-fully-defined``,
-    aborting the whole toolkit build.
-
-    Resolving the hints here against the function's own module globals — where
-    those typing names *are* imported — hands the schema builder real type
-    objects that need no further resolution. This is best-effort: if a hint
-    references a name that only exists under ``TYPE_CHECKING`` (or is otherwise
-    unresolvable), the annotations are left untouched so we never regress a
-    tool that was already working.
-    """
-    import typing
-
-    try:
-        resolved = typing.get_type_hints(fn, include_extras=True)
-    except Exception:  # noqa: BLE001 - keep stringized annotations on failure
-        return
-
-    if not resolved:
-        return
-
-    try:
-        existing = dict(getattr(fn, "__annotations__", {}) or {})
-        existing.update(resolved)
-        fn.__annotations__ = existing
-    except (AttributeError, TypeError):  # builtins / immutable callables
-        return
-
-
-# ---------------------------------------------------------------------------
 # Decorator
 # ---------------------------------------------------------------------------
 
@@ -300,8 +259,6 @@ def tool_descriptor(
             validate_default_policy,
             validate_tool_type,
         )
-
-        _materialize_annotations(fn)
 
         resolved_name = name or fn.__name__
         is_async = (

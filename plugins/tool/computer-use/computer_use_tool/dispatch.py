@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 """Thin tool adapter for the host-managed Computer Use runtime."""
 
-from __future__ import annotations
+# NOTE: no `from __future__ import annotations` here, deliberately. The tool
+# entry point below is handed to the runtime's JSON-schema builder, which
+# resolves annotations in a namespace without our typing imports; stringized
+# annotations would abort the toolkit build. Under Python 3.11 every
+# annotation in this module evaluates fine at definition time.
 
 import asyncio
 import json
