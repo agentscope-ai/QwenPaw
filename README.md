@@ -65,7 +65,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 
 ## 🚀 NVIDIA NIM Support
 
-This specialized fork of QwenPaw introduces first-class support for **NVIDIA NIM (NVIDIA Inference Microservices)**. 
+This specialized fork of QwenPaw introduces first-class support for **NVIDIA NIM (NVIDIA Inference Microservices)**.
 
 ### Why NVIDIA NIM?
 - **Optimized Performance:** Access highly optimized inference models hosted by NVIDIA.
