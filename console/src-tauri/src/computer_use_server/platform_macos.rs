@@ -1042,13 +1042,15 @@ fn window_bounds(window_id: i64) -> Option<(f64, f64, f64, f64)> {
 }
 
 /// Read a window's on-screen bounds out of an already-obtained window dict.
-fn bounds_from_dict(
-    dict: &CFDictionary<CFString, CFType>,
-) -> Option<(f64, f64, f64, f64)> {
+fn bounds_from_dict(dict: &CFDictionary<CFString, CFType>) -> Option<(f64, f64, f64, f64)> {
     let key = unsafe { CFString::wrap_under_get_rule(kCGWindowBounds) };
-    let bounds = dict
-        .find(&key)?
-        .downcast::<CFDictionary<CFString, CFType>>()?;
+    // Only the untyped dictionary implements ConcreteCFType, so downcast to
+    // that and then re-describe the same reference with the key and value
+    // types this window dictionary actually holds.
+    let untyped = dict.find(&key)?.downcast::<CFDictionary>()?;
+    let bounds = unsafe {
+        CFDictionary::<CFString, CFType>::wrap_under_get_rule(untyped.as_concrete_TypeRef())
+    };
     Some((
         dict_f64(&bounds, "X")?,
         dict_f64(&bounds, "Y")?,

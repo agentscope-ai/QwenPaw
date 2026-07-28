@@ -55,9 +55,9 @@ use window::{close_window, is_forbidden, list_apps, list_windows, resolve_window
 mod platform_macos;
 #[cfg(target_os = "macos")]
 use platform_macos::{
-    click, close_window, desktop_locked, drag, invoke_element, is_forbidden, list_apps,
-    list_windows, observe_window, press_key, resolve_window, scroll, set_focus,
-    set_intervention_bypass_once, set_value, type_text,
+    app_id_from_bundle_path, click, close_window, desktop_locked, drag, invoke_element,
+    is_forbidden, list_apps, list_windows, observe_window, press_key, resolve_window, scroll,
+    set_focus, set_intervention_bypass_once, set_value, type_text,
 };
 
 /// Native accessibility element handle stored in an accessibility snapshot.
