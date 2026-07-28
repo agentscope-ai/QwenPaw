@@ -9,9 +9,7 @@ describe("providerIcon", () => {
     expect(providerIcon("openai")).toBe(
       "https://gw.alicdn.com/imgextra/i3/O1CN01rQSexq1D7S4AYstKh_!!6000000000169-2-tps-400-400.png",
     );
-    expect(providerIcon("nvidia-nim")).toBe(
-      "/nvidia_logo.svg",
-    );
+    expect(providerIcon("nvidia-nim")).toBe("/nvidia_logo.svg");
   });
 
   it("returns the same url for kimi-cn and kimi-intl (alias grouping)", () => {
