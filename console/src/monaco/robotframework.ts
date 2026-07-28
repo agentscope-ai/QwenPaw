@@ -36,8 +36,8 @@ export const conf: Monaco.languages.LanguageConfiguration = {
 /**
  * Monarch grammar.
  *
- * RobotFramework separates cells with 2+ spaces (or tabs), so most
- * keyword rules assert a cell boundary via `(?=[ \t]{2,}|[ \t]*$)`.
+ * RobotFramework separates cells with 2+ spaces or 1+ tabs, so keyword
+ * rules assert a cell boundary via `(?= {2,}|\t+|[ \t]*$)`.
  * Token names reuse Monaco's built-in theme colors (keyword, comment,
  * variable, tag, type, number) so both `vs` and `vs-dark` work.
  */
@@ -55,14 +55,14 @@ export const language: Monaco.languages.IMonarchLanguage = {
       [/^[ \t]*\.\.\.(?=[ \t]|$)/, "delimiter"],
       // Control-flow structures at cell start (FOR / IF / TRY …)
       [
-        /^[ \t]*(FOR|END|IF|ELSE IF|ELSE|WHILE|TRY|EXCEPT|FINALLY|RETURN|BREAK|CONTINUE|VAR|GROUP)(?=[ \t]{2,}|[ \t]*$)/,
+        /^[ \t]*(FOR|END|IF|ELSE IF|ELSE|WHILE|TRY|EXCEPT|FINALLY|RETURN|BREAK|CONTINUE|VAR|GROUP)(?= {2,}|\t+|[ \t]*$)/,
         "keyword.control",
       ],
       // Gherkin-style prefixes in keyword calls
       [/^[ \t]+(given|when|then|and|but)(?=[ \t])/, "keyword.control"],
       // Settings-section directives at column 0
       [
-        /^(library|resource|variables|documentation|metadata|name|suite setup|suite teardown|test setup|test teardown|test template|test timeout|test tags|task setup|task teardown|task template|task timeout|task tags|force tags|default tags|keyword tags)(?=[ \t]{2,}|[ \t]*$)/,
+        /^(library|resource|variables|documentation|metadata|name|suite setup|suite teardown|test setup|test teardown|test template|test timeout|test tags|task setup|task teardown|task template|task timeout|task tags|force tags|default tags|keyword tags)(?= {2,}|\t+|[ \t]*$)/,
         "keyword",
       ],
       // Test case / task / keyword definition name at column 0
@@ -74,13 +74,14 @@ export const language: Monaco.languages.IMonarchLanguage = {
       ],
       // Escaped characters (\# is not a comment, \${ not a variable)
       [/\\./, "string.escape"],
-      // Comments
-      [/#.*$/, "comment"],
+      // Comments in the first cell or after a cell separator
+      [/^[ \t]*#.*$/, "comment"],
+      [/(?: {2,}|\t+)[ \t]*#.*$/, "comment"],
       // Variables: ${scalar} @{list} &{dict} %{env}
       [/[$@&%]\{/, { token: "variable", next: "@variable" }],
       // FOR loop separators as standalone cells
       [
-        /\b(IN RANGE|IN ENUMERATE|IN ZIP|IN)(?=[ \t]{2,}|[ \t]*$)/,
+        /\b(IN RANGE|IN ENUMERATE|IN ZIP|IN)(?= {2,}|\t+|[ \t]*$)/,
         "keyword.control",
       ],
       // Numbers
