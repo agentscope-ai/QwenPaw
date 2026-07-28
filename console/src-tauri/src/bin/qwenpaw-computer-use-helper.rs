@@ -609,6 +609,9 @@ mod windows_app {
         write_u32(&mut writer, 54)?;
         write_u32(&mut writer, 40)?;
         write_i32(&mut writer, width as i32)?;
+        // A negative height declares a top-down DIB, which is the row order
+        // Windows Graphics Capture hands us; a positive one would mean the
+        // bottom-up order BMP defaults to and flip the image.
         write_i32(&mut writer, -(height as i32))?;
         write_u16(&mut writer, 1)?;
         write_u16(&mut writer, 32)?;

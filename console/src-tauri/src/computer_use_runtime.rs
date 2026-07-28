@@ -345,12 +345,25 @@ fn endpoint_address() -> String {
 
 #[cfg(not(windows))]
 fn endpoint_address() -> String {
-    let dir = std::env::temp_dir().join(format!("qwenpaw-cu-{}", std::process::id()));
-    let _ = std::fs::create_dir_all(&dir);
+    // The directory name is random rather than derived from the pid: a
+    // predictable name in a world-writable /tmp can be pre-created by another
+    // user, and everything placed inside it afterwards would then live in
+    // space they control. Creating it with the mode already set closes the
+    // window where it exists world-readable, and refusing to create it
+    // recursively means an existing path is an error rather than something we
+    // silently adopt.
+    let dir = std::env::temp_dir().join(format!("qwenpaw-cu-{}", random_hex(16)));
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+        use std::os::unix::fs::DirBuilderExt;
+        let _ = std::fs::DirBuilder::new()
+            .recursive(false)
+            .mode(0o700)
+            .create(&dir);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = std::fs::create_dir(&dir);
     }
     dir.join(format!("{}.sock", random_hex(8)))
         .to_string_lossy()

@@ -9,6 +9,7 @@
 
 import asyncio
 import json
+import threading
 import time
 from typing import Any, Mapping
 
@@ -23,6 +24,7 @@ from .protocol import ComputerUseProtocolError
 
 _MAX_ACTIONS_PER_MINUTE = 60
 _action_times: list[float] = []
+_rate_limit_lock = threading.Lock()
 _SCREENSHOT_URL_PLACEHOLDER = "<image delivered as a separate attachment>"
 
 # Control actions that can open a dialog, prompt, or error window. After one
@@ -46,14 +48,24 @@ _WINDOW_PROBE_DEADLINE_MS = 3000
 
 
 def _check_rate_limit() -> None:
-    now = time.monotonic()
-    _action_times[:] = [value for value in _action_times if now - value < 60]
-    if len(_action_times) >= _MAX_ACTIONS_PER_MINUTE:
-        raise ComputerUseProtocolError(
-            "rate_limited",
-            "Computer Use rate limit exceeded; wait before continuing.",
-        )
-    _action_times.append(now)
+    # The tool can be entered from more than one event loop -- the host runs
+    # per-workspace loops on their own threads -- so the guard is a threading
+    # lock rather than an asyncio one, which serialises only within a single
+    # loop. Under the GIL the unguarded check-then-append is narrow enough that
+    # overshooting the cap could not be provoked, but that is a property of the
+    # interpreter rather than of this code, and a free-threaded build removes
+    # it. The body has no await, so the lock is held briefly.
+    with _rate_limit_lock:
+        now = time.monotonic()
+        _action_times[:] = [
+            value for value in _action_times if now - value < 60
+        ]
+        if len(_action_times) >= _MAX_ACTIONS_PER_MINUTE:
+            raise ComputerUseProtocolError(
+                "rate_limited",
+                "Computer Use rate limit exceeded; wait before continuing.",
+            )
+        _action_times.append(now)
 
 
 def _without_screenshot_urls(payload: Mapping[str, Any]) -> Mapping[str, Any]:

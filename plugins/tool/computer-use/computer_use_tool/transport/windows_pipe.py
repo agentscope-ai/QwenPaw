@@ -552,6 +552,13 @@ def _close_handle(handle: int, reader: threading.Thread | None = None) -> None:
         and reader is not threading.current_thread()
     ):
         reader.join(timeout=_CLOSE_JOIN_TIMEOUT_SECONDS)
+        if reader.is_alive():
+            # The reader did not unwind, so it may still be inside a call on
+            # this handle. Closing now would let the kernel reuse the handle
+            # value while that call is in flight, pointing it at whatever
+            # object lands on the number next. Leaking one handle for the
+            # life of the process is the safer trade.
+            return
     _kernel32().CloseHandle(handle)
 
 

@@ -253,6 +253,25 @@ class ComputerUseClient:
 
 _clients: dict[str, ComputerUseClient] = {}
 
+# A client caches per-session state that has to outlive a single tool call --
+# the active turn and the window baseline used to notice newly opened windows.
+# Nothing tells the plugin when a session is gone, so the cache is bounded
+# instead: on insert, idle sessions are dropped oldest-first. The backend is a
+# long-lived desktop process, so an unbounded dict would keep every session
+# ever seen.
+_MAX_CACHED_CLIENTS = 64
+
+
+def _evict_idle_clients() -> None:
+    """Drop cached clients for sessions with no turn in flight."""
+    if len(_clients) < _MAX_CACHED_CLIENTS:
+        return
+    for session_id, client in list(_clients.items()):
+        if len(_clients) < _MAX_CACHED_CLIENTS:
+            return
+        if not client.has_active_turn:
+            del _clients[session_id]
+
 
 def get_computer_use_client() -> ComputerUseClient:
     """Return the controlled client for the active QwenPaw session."""
@@ -264,6 +283,7 @@ def get_computer_use_client() -> ComputerUseClient:
         )
     client = _clients.get(session_id)
     if client is None:
+        _evict_idle_clients()
         client = ComputerUseClient(session_id)
         _clients[session_id] = client
     return client
