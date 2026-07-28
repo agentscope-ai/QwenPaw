@@ -673,6 +673,7 @@ class RuntimeTransaction:
             if not source.exists():
                 continue
             destination = self.site_dir / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
             if destination.exists():
                 raise RuntimeError(
                     f"Runtime directory conflict for {relative}",

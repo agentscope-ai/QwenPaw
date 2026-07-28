@@ -667,6 +667,24 @@ def test_transaction_moves_exclusive_directory_without_copying_files(
     assert (site_dir / "demo/generated/item.py").read_text() == ("new item\n")
 
 
+def test_transaction_moves_directory_into_missing_site(tmp_path):
+    site_dir = tmp_path / "site"
+    transaction = RuntimeTransaction(site_dir)
+    staging = transaction.create()
+    _write_distribution(
+        staging,
+        name="demo-package",
+        version="1.0",
+        files={"demo/__init__.py": "new\n"},
+    )
+
+    transaction.commit()
+
+    assert (site_dir / "demo/__init__.py").read_text() == "new\n"
+    entries = build_runtime_snapshot(site_dir).entries("demo-package")
+    assert [entry.version for entry in entries] == ["1.0"]
+
+
 def test_transaction_restores_exclusive_directory_after_verify_failure(
     tmp_path,
 ):
