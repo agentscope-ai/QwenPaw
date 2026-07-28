@@ -49,13 +49,8 @@ class Runtime:
     async def run(  # pylint: disable=too-many-branches,too-many-statements
         self,
         request: Any,
-        raw: bool = False,
     ) -> AsyncGenerator[Any, None]:
-        """Orchestrate request lifecycle and yield SSE envelope objects.
-
-        When *raw* is True the pipeline yields raw AgentScope ``AgentEvent``
-        objects instead of the frontend envelope format.
-        """
+        """Orchestrate request lifecycle and yield SSE envelope objects."""
         request = self._normalize(request)
         ctx = self._build_context(request)
         hooks = self.workspace.plugins.hook_registry
@@ -125,9 +120,8 @@ class Runtime:
             if not skip_agent:
                 self._apply_context_injections(ctx)
                 # --- [fixed 3] execute agent ---
-                if not raw:
-                    async for ev in envelope.emit_response_created():
-                        yield ev
+                async for ev in envelope.emit_response_created():
+                    yield ev
                 executor = AgentExecutor(ctx.agent, envelope)
                 logger.debug(
                     "Agent input: %s",
@@ -136,16 +130,15 @@ class Runtime:
                     )
                     or "(empty)",
                 )
-                async for ev in executor.run(ctx.input_msgs, raw=raw):
+                async for ev in executor.run(ctx.input_msgs):
                     yield ev
 
             # --- [phase 6] POST_RESPONSE ---
             await hooks.run(Phase.POST_RESPONSE, ctx)
 
             # Finalize envelope (complete message + response).
-            if not raw:
-                async for ev in envelope.finalize():
-                    yield ev
+            async for ev in envelope.finalize():
+                yield ev
 
         except (asyncio.CancelledError, KeyboardInterrupt) as e:
             ctx.error = e
@@ -168,9 +161,8 @@ class Runtime:
             # asyncio.shield protects the save from task re-cancellation.
             await self._try_save_on_cancel(ctx)
 
-            if not raw:
-                async for ev in envelope.cancel_envelope():
-                    yield ev
+            async for ev in envelope.cancel_envelope():
+                yield ev
             raise
         except BaseException as e:
             await self._try_save_on_cancel(ctx)
@@ -191,17 +183,120 @@ class Runtime:
                 "_error_code",
                 e.__class__.__name__,
             )
-            if not raw:
-                async for ev in envelope.error_envelope(
-                    err_text,
-                    err_code,
-                ):
-                    yield ev
+            async for ev in envelope.error_envelope(
+                err_text,
+                err_code,
+            ):
+                yield ev
             raise
         finally:
             # Close agent first so governor can flush audit log and persist
             # policy before downstream FINALLY hooks observe the context.
             # See ``QwenPawAgent.close`` (agents/react_agent.py).
+            agent = getattr(ctx, "agent", None)
+            if agent is not None and hasattr(agent, "close"):
+                try:
+                    await agent.close()
+                except Exception:  # pylint: disable=broad-except
+                    logger.warning(
+                        "runtime: agent.close() failed session=%s",
+                        getattr(ctx, "session_id", ""),
+                        exc_info=True,
+                    )
+            await hooks.run(Phase.FINALLY, ctx)
+
+    async def run_agent_events(  # pylint: disable=too-many-branches
+        self,
+        request: Any,
+    ) -> AsyncGenerator[Any, None]:
+        """Yield raw AgentScope ``AgentEvent`` objects — no envelope wrapping.
+
+        Designed for protocol adapters (e.g. AG-UI SSE) that consume
+        native agent events directly.  Runs the full hook lifecycle but
+        skips envelope-dependent short-circuits and slash commands so the
+        stream stays type-consistent.
+        """
+        request = self._normalize(request)
+        ctx = self._build_context(request)
+        hooks = self.workspace.plugins.hook_registry
+
+        # Create a minimal envelope solely so _try_save_on_cancel can
+        # close dangling tool calls on interruption.  No envelope events
+        # are emitted through this path.
+        ctx._envelope = Envelope(
+            session_id=ctx.session_id
+        )  # pylint: disable=protected-access
+
+        try:
+            # --- [phase 1] PRE_DISPATCH ---
+            r = await hooks.run(Phase.PRE_DISPATCH, ctx)
+            if r.action in (HookAction.SHORT_CIRCUIT, HookAction.SKIP_AGENT):
+                return
+
+            # Slash commands are not supported in the agent-events path
+            # (they require envelope wrapping).
+
+            # --- [phase 2] POST_DISPATCH ---
+            r = await hooks.run(Phase.POST_DISPATCH, ctx)
+            if r.action in (HookAction.SHORT_CIRCUIT, HookAction.SKIP_AGENT):
+                return
+
+            # --- [phase 3] PRE_AGENT_BUILD ---
+            r = await hooks.run(Phase.PRE_AGENT_BUILD, ctx)
+            if r.action in (HookAction.SHORT_CIRCUIT, HookAction.SKIP_AGENT):
+                return
+
+            # --- [fixed 2] build agent ---
+            builder = AgentBuilder(
+                app_services=self.app_services,
+            )
+            ctx.agent = await builder.build(ctx)
+            await self._start_modes(ctx)
+
+            # --- [phase 4] POST_AGENT_BUILD ---
+            await hooks.run(Phase.POST_AGENT_BUILD, ctx)
+
+            # --- [phase 5] PRE_EXECUTE ---
+            r = await hooks.run(Phase.PRE_EXECUTE, ctx)
+            if r.action in (HookAction.SHORT_CIRCUIT, HookAction.SKIP_AGENT):
+                return
+
+            self._apply_context_injections(ctx)
+            executor = AgentExecutor(ctx.agent, None)  # no envelope needed
+            logger.debug(
+                "Agent input: %s",
+                _get_last_user_text(ctx.input_msgs) or "(empty)",
+            )
+            async for event in executor.run_agent_events(ctx.input_msgs):
+                yield event
+
+            # --- [phase 6] POST_RESPONSE ---
+            await hooks.run(Phase.POST_RESPONSE, ctx)
+
+        except (asyncio.CancelledError, KeyboardInterrupt) as e:
+            ctx.error = e
+            try:
+                await hooks.run(Phase.ON_ERROR, ctx)
+            except asyncio.CancelledError:
+                logger.debug(
+                    "ON_ERROR hooks skipped due to asyncio "
+                    "re-cancellation (session=%s)",
+                    getattr(ctx, "session_id", ""),
+                )
+            await self._try_save_on_cancel(ctx)
+            raise
+        except BaseException as e:
+            await self._try_save_on_cancel(ctx)
+            ctx.error = e
+            logger.error(
+                "runtime: unhandled error session=%s: %s",
+                getattr(ctx, "session_id", ""),
+                e,
+                exc_info=True,
+            )
+            await hooks.run(Phase.ON_ERROR, ctx)
+            raise
+        finally:
             agent = getattr(ctx, "agent", None)
             if agent is not None and hasattr(agent, "close"):
                 try:
@@ -336,9 +431,7 @@ class Runtime:
             if partial:
                 agent_state = getattr(agent, "state", None)
                 ctx_list = (
-                    getattr(agent_state, "context", None)
-                    if agent_state
-                    else None
+                    getattr(agent_state, "context", None) if agent_state else None
                 )
                 existing_texts: set[str] = set()
                 if ctx_list and len(ctx_list) > 0:

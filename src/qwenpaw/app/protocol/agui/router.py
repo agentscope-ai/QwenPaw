@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""AG-UI protocol endpoint — raw AgentEvent → AGUI → SSE."""
+"""AG-UI protocol endpoint — AgentEvent → AG-UI → SSE."""
 
+import asyncio
 import json
 import logging
 from typing import AsyncGenerator, Union
@@ -16,6 +17,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/protocol/agui", tags=["agui-protocol"])
 
+# SSE heartbeat interval — keeps the connection alive during long tool
+# waits (e.g. tool-guard approval) without producing data frames.
+_SSE_HEARTBEAT_SECONDS = 15
+
 
 class AGUIErrorResponse(BaseModel):
     detail: str
@@ -23,12 +28,14 @@ class AGUIErrorResponse(BaseModel):
 
 
 def _get_agui_converter():
-    """Return an AG-UI conversion function (AgentEvent → dict)."""
+    """Return an AG-UI conversion function (AgentEvent → dict).
+
+    Validates that ``ag-ui-protocol`` is installed before proceeding.
+    """
 
     try:
-        from agentscope.app.middleware._protocol._agui import (
-            AGUIProtocolMiddleware,
-        )
+        import ag_ui_protocol  # noqa: F401  — validate availability
+        from agentscope.app.middleware import AGUIProtocolMiddleware
     except ImportError as exc:
         raise HTTPException(
             status_code=500,
@@ -50,7 +57,10 @@ def _get_agui_converter():
 def _normalize_request(
     request_data: Union[AgentRequest, dict],
 ) -> AgentRequest:
-    """Validate the body, failing fast (422) when input is empty."""
+    """Validate the body, failing fast (422) when input is empty.
+
+    Accepts a QwenPaw ``AgentRequest`` (not AG-UI ``RunAgentInput``).
+    """
     if isinstance(request_data, AgentRequest):
         req = request_data
     else:
@@ -74,23 +84,83 @@ def _sse_frame(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _sse_heartbeat() -> str:
+    """SSE comment line used as keep-alive (not a data frame)."""
+    return ": heartbeat\n\n"
+
+
 async def _stream_agui(
     workspace,
     agent_request: AgentRequest,
     convert,
 ) -> AsyncGenerator[str, None]:
-    """Stream raw AgentScope AgentEvents, converted to AG-UI over SSE."""
+    """Stream AgentEvents, convert to AG-UI, and frame as SSE.
+
+    Conversion failures are fatal — a ``RUN_ERROR`` frame is emitted and
+    the stream terminates immediately so lifecycle-critical events are
+    never silently dropped.
+    """
     try:
-        async for event in workspace.stream_query(agent_request, raw=True):
+        async for event in workspace.stream_agent_events(agent_request):
             try:
                 agui_dict = convert(event)
             except Exception:
-                logger.exception("Failed to convert AgentEvent; skipping")
-                continue
+                logger.exception(
+                    "Failed to convert AgentEvent to AG-UI; " "terminating stream"
+                )
+                yield _sse_frame(
+                    {
+                        "type": "RUN_ERROR",
+                        "message": (
+                            "AG-UI conversion failed for an agent event. "
+                            "The stream has been terminated."
+                        ),
+                    }
+                )
+                return
             yield _sse_frame(agui_dict)
-    except Exception as e:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         logger.exception("AG-UI stream error")
-        yield _sse_frame({"type": "RUN_ERROR", "message": str(e)})
+        yield _sse_frame({"type": "RUN_ERROR", "message": "Agent stream error"})
+
+
+async def _heartbeat_wrapper(
+    event_stream: AsyncGenerator[str, None],
+    interval: float,
+) -> AsyncGenerator[str, None]:
+    """Interleave SSE heartbeat comments into *event_stream*.
+
+    Emits ``: heartbeat\\n\\n`` comments every *interval* seconds when no
+    data frame has been produced, keeping the SSE connection alive through
+    long idle periods (tool-guard waits, slow model responses, etc.).
+
+    Uses ``asyncio.ensure_future`` + ``asyncio.shield`` so the timeout
+    never cancels the underlying ``__anext__()`` coroutine — the same
+    pattern as ``_iter_with_heartbeat`` in ``runtime/heartbeat.py``.
+    Without shielding, the first heartbeat would kill the async generator
+    and terminate the SSE stream.
+    """
+    pending = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(event_stream.__anext__())
+            try:
+                frame = await asyncio.wait_for(
+                    asyncio.shield(pending),
+                    timeout=interval,
+                )
+            except asyncio.TimeoutError:
+                yield _sse_heartbeat()
+                continue
+            except StopAsyncIteration:
+                pending = None
+                return
+            pending = None
+            yield frame
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
 
 
 @router.post(
@@ -98,8 +168,9 @@ async def _stream_agui(
     summary="Chat (AG-UI protocol, SSE)",
     description=(
         "Stream the agent response as standard AG-UI protocol events "
-        "over SSE.  Raw AgentScope AgentEvents are converted through "
-        "AgentScope 2.0's built-in AGUIProtocolMiddleware."
+        "over SSE.  Accepts a QwenPaw ``AgentRequest`` (not AG-UI "
+        "``RunAgentInput``).  AgentScope ``AgentEvent`` objects are "
+        "converted through the built-in ``AGUIProtocolMiddleware``."
     ),
     responses={
         422: {"description": "Invalid or empty agent request"},
@@ -115,8 +186,13 @@ async def post_agui_chat(
     agent_request = _normalize_request(request_data)
     workspace = await get_agent_for_request(request)
 
+    event_stream = _stream_agui(workspace, agent_request, convert)
+
     return StreamingResponse(
-        content=_stream_agui(workspace, agent_request, convert),
+        content=_heartbeat_wrapper(
+            event_stream,
+            _SSE_HEARTBEAT_SECONDS,
+        ),
         media_type="text/event-stream",
         headers={
             "X-Protocol": "ag-ui",

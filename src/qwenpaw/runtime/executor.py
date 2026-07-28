@@ -8,7 +8,7 @@ and delegates each ``EventType`` event to ``Envelope.translate_event()``.
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Optional
 
 from .envelope import Envelope
 from .heartbeat import (
@@ -27,25 +27,23 @@ class AgentExecutor:
     One instance per ``Runtime.run()`` invocation.  The executor owns the
     heartbeat wrapper but not the agent itself (that belongs to the
     ``HookContext``).
+
+    When *envelope* is ``None`` only ``run_agent_events()`` may be used.
     """
 
-    def __init__(self, agent: Any, envelope: Envelope) -> None:
+    def __init__(self, agent: Any, envelope: Optional[Envelope]) -> None:
         self._agent = agent
         self._envelope = envelope
 
     async def run(
         self,
         msgs: list[Any],
-        raw: bool = False,
     ) -> AsyncGenerator[Any, None]:
         """Drive ``agent.reply_stream`` and yield SSE envelope objects.
 
         Wraps the raw event stream with ``_iter_with_heartbeat`` so long
         idle periods (e.g. tool-guard approval waits) emit keep-alive
         envelopes instead of letting the connection drop.
-
-        When *raw* is True, the executor skips envelope translation and
-        yields the raw AgentScope ``AgentEvent`` objects directly.
         """
         agent_iter = self._agent.reply_stream(inputs=msgs).__aiter__()
         async for event in _iter_with_heartbeat(
@@ -53,18 +51,24 @@ class AgentExecutor:
             HEARTBEAT_INTERVAL_SECONDS,
         ):
             if event is _HEARTBEAT_TICK:
-                if raw:
-                    continue  # no heartbeat frames in raw mode
                 async for obj in self._envelope.heartbeat():
                     yield obj
                 continue
 
-            if raw:
-                yield event  # raw AgentScope AgentEvent
-                continue
-
             async for obj in self._envelope.translate_event(event):
                 yield obj
+
+    async def run_agent_events(
+        self,
+        msgs: list[Any],
+    ) -> AsyncGenerator[Any, None]:
+        """Yield raw AgentScope ``AgentEvent`` objects directly.
+
+        No heartbeat wrapping and no envelope translation — the caller
+        (e.g. an SSE endpoint) is responsible for keep-alive frames.
+        """
+        async for event in self._agent.reply_stream(inputs=msgs):
+            yield event
 
 
 __all__ = ["AgentExecutor"]

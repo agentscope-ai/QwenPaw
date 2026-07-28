@@ -10,6 +10,7 @@ Each Workspace represents a standalone agent workspace with its own:
 
 Request processing is handled by ``Runtime`` (see ``stream_query``).
 """
+
 import logging
 from pathlib import Path
 from typing import Any, AsyncGenerator, Iterable, Optional
@@ -289,14 +290,10 @@ class Workspace:
     async def stream_query(
         self,
         request: Any,
-        raw: bool = False,
     ) -> AsyncGenerator[Any, None]:
         """Process a request through the Runtime pipeline.
 
         Drop-in replacement for the old ``Runner.stream_query()``.
-
-        When *raw* is True, raw AgentScope AgentEvent objects are yielded
-        instead of frontend SSE envelope objects.
         """
         config = load_agent_config(self.agent_id)
         backend = config.backend
@@ -330,8 +327,23 @@ class Workspace:
         from ...runtime import Runtime
 
         rt = Runtime(workspace=self, app_services=self._app_services)
-        async for item in rt.run(request, raw=raw):
+        async for item in rt.run(request):
             yield item
+
+    async def stream_agent_events(
+        self,
+        request: Any,
+    ) -> AsyncGenerator[Any, None]:
+        """Yield raw AgentScope ``AgentEvent`` objects.
+
+        Dedicated entry point for protocol adapters (e.g. AG-UI SSE) that
+        consume native agent events directly, without envelope wrapping.
+        """
+        from ...runtime import Runtime
+
+        rt = Runtime(workspace=self, app_services=self._app_services)
+        async for event in rt.run_agent_events(request):
+            yield event
 
     def _register_services(  # pylint: disable=too-many-statements
         self,
@@ -584,8 +596,7 @@ class Workspace:
             )
         except Exception as exc:
             logger.warning(
-                "weixin->wechat chats.json migration failed for "
-                "agent %s: %s",
+                "weixin->wechat chats.json migration failed for " "agent %s: %s",
                 self.agent_id,
                 exc,
             )
@@ -596,8 +607,7 @@ class Workspace:
             )
         except Exception as exc:
             logger.warning(
-                "weixin->wechat jobs.json migration failed for "
-                "agent %s: %s",
+                "weixin->wechat jobs.json migration failed for " "agent %s: %s",
                 self.agent_id,
                 exc,
             )
