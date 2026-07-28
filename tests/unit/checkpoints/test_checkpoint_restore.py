@@ -366,13 +366,19 @@ async def test_restore_with_files_dry_run_then_confirm_skips_qwenpaw_state(
     assert added.exists()
     assert state_file.read_text(encoding="utf-8") == "state after"
 
-    restored = await engine.restore_with_files(
-        target=first_commit[:12],
-        session_id=SESSION_ID,
-        user_id=USER_ID,
-        channel=CHANNEL,
-        selected_files=("src/app.py", "scratch.txt"),
-    )
+    with patch.object(
+        engine.repository,
+        "write_workspace_tree",
+        wraps=engine.repository.write_workspace_tree,
+    ) as write_tree:
+        restored = await engine.restore_with_files(
+            target=first_commit[:12],
+            session_id=SESSION_ID,
+            user_id=USER_ID,
+            channel=CHANNEL,
+            selected_files=("src/app.py", "scratch.txt"),
+        )
+    assert write_tree.call_count == 1
     assert restored.include_files is True
     assert restored.pre_restore_ref is not None
     assert _session_text(session_path) == "with files"

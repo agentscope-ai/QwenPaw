@@ -494,6 +494,50 @@ async def test_workspace_gc_applies_keep_count_per_session(
 
 
 @pytest.mark.asyncio
+async def test_session_gc_only_computes_current_session_head(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = CheckpointService(tmp_path)
+    for session_id in ("session-a", "session-b"):
+        _write_session(tmp_path, session_id, session_id=session_id)
+        await engine.make_auto_checkpoint(
+            session_id=session_id,
+            user_id=USER_ID,
+            channel=CHANNEL,
+            query=session_id,
+        )
+
+    current_key = session_key(
+        channel=CHANNEL,
+        user_id=USER_ID,
+        session_id="session-a",
+    )
+    computed_keys: list[str] = []
+    original_head_for_records = getattr(engine, "_head_for_records")
+
+    def recording_head_for_records(key, records):
+        computed_keys.append(key)
+        return original_head_for_records(key, records)
+
+    monkeypatch.setattr(
+        engine,
+        "_head_for_records",
+        recording_head_for_records,
+    )
+    await engine.gc(
+        session_id="session-a",
+        user_id=USER_ID,
+        channel=CHANNEL,
+        dry_run=True,
+        keep_count=0,
+        keep_days=0,
+    )
+
+    assert computed_keys == [current_key]
+
+
+@pytest.mark.asyncio
 async def test_reset_requires_confirm_and_reinitializes_checkpoint_store(
     workspace: _Workspace,
 ) -> None:

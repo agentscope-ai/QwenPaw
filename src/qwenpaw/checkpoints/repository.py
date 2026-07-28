@@ -399,17 +399,6 @@ class CheckpointRepository:
         """Return whether a workspace file exactly matches *expected*."""
         return self._workspace_fs.same_workspace_content(rel, expected)
 
-    @staticmethod
-    def _read_tree_entry(
-        blobs: GitBlobBatch,
-        rel: str,
-        entry: TreeEntry,
-    ) -> bytes:
-        return blobs.read_blob(
-            entry.object_id,
-            error_message=f"Failed to read checkpoint file {rel}",
-        )
-
     def plan_tree_restore(
         self,
         commit: str,
@@ -430,13 +419,19 @@ class CheckpointRepository:
         if entries:
             with self._blob_batch() as blobs:
                 for rel, entry in sorted(entries.items()):
-                    content = self._read_tree_entry(blobs, rel, entry)
-                    if not self._workspace_fs.same_tree_entry(
-                        rel,
-                        entry.mode,
-                        content,
-                    ):
-                        restored.append(rel)
+                    with blobs.stream_blob(
+                        entry.object_id,
+                        error_message=(
+                            f"Failed to read checkpoint file {rel}"
+                        ),
+                    ) as stream:
+                        if not self._workspace_fs.same_tree_entry_stream(
+                            rel,
+                            entry.mode,
+                            stream,
+                            stream.size,
+                        ):
+                            restored.append(rel)
         return restored, deleted
 
     def restore_tree_paths(
@@ -454,13 +449,29 @@ class CheckpointRepository:
         if entries:
             with self._blob_batch() as blobs:
                 for rel, entry in sorted(entries.items()):
-                    content = self._read_tree_entry(blobs, rel, entry)
-                    if self._workspace_fs.restore_tree_entry(
-                        rel,
-                        entry.mode,
-                        content,
-                    ):
-                        restored.append(rel)
+                    error_message = f"Failed to read checkpoint file {rel}"
+                    with blobs.stream_blob(
+                        entry.object_id,
+                        error_message=error_message,
+                    ) as stream:
+                        matches = self._workspace_fs.same_tree_entry_stream(
+                            rel,
+                            entry.mode,
+                            stream,
+                            stream.size,
+                        )
+                    if matches:
+                        continue
+                    with blobs.stream_blob(
+                        entry.object_id,
+                        error_message=error_message,
+                    ) as stream:
+                        self._workspace_fs.restore_tree_entry_stream(
+                            rel,
+                            entry.mode,
+                            stream,
+                        )
+                    restored.append(rel)
         return restored, sorted(deleted)
 
     def restore_internal_paths(self, blobs: dict[str, bytes]) -> None:

@@ -36,6 +36,7 @@ class _PreparedRestore:
     plan: RestorePlan
     conversation_blob: bytes
     touched: frozenset[str]
+    current_tree: str | None = None
 
 
 def _changed_paths(
@@ -190,6 +191,8 @@ class RestoreService:
                 service.query_gate.clear()
             try:
                 async with service.lock:
+                    if memory is not None and not dry_run:
+                        resume_callbacks = await memory.quiesce_workspace()
                     prepared = await run_sync_io(
                         self._prepare_restore,
                         target=target,
@@ -216,9 +219,6 @@ class RestoreService:
                         description = f"Before memory restore to {target}"
                     else:
                         description = f"Before restore to {target}"
-
-                    if memory is not None:
-                        resume_callbacks = await memory.quiesce_workspace()
 
                     pre_ref = await run_sync_io(
                         self._apply_restore_transaction_sync,
@@ -269,6 +269,9 @@ class RestoreService:
                 None,
                 description,
                 None,
+                tree_override=(
+                    prepared.current_tree if include_files else None
+                ),
             )
             self.repository.restore_internal_paths(
                 {conversation_path: prepared.conversation_blob},
@@ -365,6 +368,7 @@ class RestoreService:
         )
         previous_head = self.service.session_head(session_key_str)
         touched: set[str] = set()
+        current_tree: str | None = None
         if include_files:
             current_tree = self.repository.write_workspace_tree()
             touched = self._file_restore_candidates(
@@ -392,6 +396,7 @@ class RestoreService:
             plan=plan,
             conversation_blob=conversation,
             touched=frozenset(touched),
+            current_tree=current_tree,
         )
 
     def _build_plan(

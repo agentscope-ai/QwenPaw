@@ -349,6 +349,8 @@ class CheckpointService:
         name: str | None,
         message: str,
         query_override: str | None,
+        *,
+        tree_override: str | None = None,
     ) -> SnapshotResult:
         key = session_key(
             channel=channel,
@@ -379,7 +381,7 @@ class CheckpointService:
                 ref = f"refs/pre-restore/{now_ms}-{key}"
             subject = f"pre-restore {key} {now_ms}"
 
-        tree = self.repository.write_workspace_tree()
+        tree = tree_override or self.repository.write_workspace_tree()
         body = message.strip() if message else subject
         query = query_override
         if query is None:
@@ -918,31 +920,33 @@ class CheckpointService:
             session_id=session_id,
         )
         records = self._list_ref_records()
+        scoped_records = (
+            records
+            if all_sessions
+            else [
+                record
+                for record in records
+                if ref_session_key(record.ref) == key
+            ]
+        )
         now_ms = int(time.time() * 1000)
         keep_cutoff_ms = now_ms - resolved_days * 86_400_000
         pre_cutoff_ms = now_ms - resolved_pre_restore_days * 86_400_000
 
+        records_by_session: dict[str, list[_RefRecord]] = {}
+        for record in scoped_records:
+            record_key = ref_session_key(record.ref)
+            if record_key:
+                records_by_session.setdefault(record_key, []).append(record)
         head_commits = {
-            ref_key: self._head_for_records(
-                ref_key,
-                [
-                    record
-                    for record in records
-                    if ref_session_key(record.ref) == ref_key
-                ],
-            )
-            for ref_key in {
-                ref_session_key(record.ref)
-                for record in records
-                if ref_session_key(record.ref)
-            }
+            record_key: self._head_for_records(record_key, key_records)
+            for record_key, key_records in records_by_session.items()
         }
 
         auto_records = [
             record
-            for record in records
+            for record in scoped_records
             if record.ref.startswith("refs/auto/")
-            and (all_sessions or ref_session_key(record.ref) == key)
         ]
         kept_auto = (
             set()
@@ -968,9 +972,8 @@ class CheckpointService:
 
         pre_records = [
             record
-            for record in records
+            for record in scoped_records
             if record.ref.startswith("refs/pre-restore/")
-            and (all_sessions or ref_session_key(record.ref) == key)
         ]
         for record in pre_records:
             ref = record.ref
@@ -982,7 +985,9 @@ class CheckpointService:
                 keep_refs.append(ref)
 
         if not dry_run and delete_refs:
-            commits_by_ref = {record.ref: record.commit for record in records}
+            commits_by_ref = {
+                record.ref: record.commit for record in scoped_records
+            }
             commands = "".join(
                 f"delete {ref} {commits_by_ref[ref]}\n" for ref in delete_refs
             )

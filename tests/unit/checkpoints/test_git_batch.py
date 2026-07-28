@@ -40,10 +40,30 @@ def test_batch_reader_streams_binary_blobs(tmp_path: Path) -> None:
     )
 
     with _batch(tmp_path, script) as blobs:
-        assert blobs.read_blob("one", error_message="missing") == (
-            b"first\n\x00last"
-        )
+        with blobs.stream_blob("one", error_message="missing") as stream:
+            assert stream.size == len(b"first\n\x00last")
+            assert stream.read(2) == b"fi"
+            assert stream.read(3) == b"rst"
+            assert stream.read() == b"\n\x00last"
         assert blobs.read_blob("two", error_message="missing") == b""
+
+
+def test_batch_reader_drains_partially_read_blob(tmp_path: Path) -> None:
+    script = (
+        "import sys\n"
+        "for request in sys.stdin.buffer:\n"
+        "    key = request[:-1]\n"
+        "    data = b'first' if key == b'one' else b'second'\n"
+        "    size = str(len(data)).encode()\n"
+        "    sys.stdout.buffer.write(key + b' blob ' + size + b'\\n')\n"
+        "    sys.stdout.buffer.write(data + b'\\n')\n"
+        "    sys.stdout.buffer.flush()\n"
+    )
+
+    with _batch(tmp_path, script) as blobs:
+        with blobs.stream_blob("one", error_message="missing") as stream:
+            assert stream.read(1) == b"f"
+        assert blobs.read_blob("two", error_message="missing") == b"second"
 
 
 def test_batch_reader_reports_early_process_failure(tmp_path: Path) -> None:

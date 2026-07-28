@@ -5,16 +5,64 @@ from __future__ import annotations
 
 import subprocess
 import threading
-from collections.abc import Mapping, Sequence
+from contextlib import contextmanager
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from types import TracebackType
-from typing import IO, Self
+from typing import IO
 
 from .models import CheckpointError
 
 _HEADER_LIMIT = 4096
 _READ_CHUNK_SIZE = 1024 * 1024
 _SHUTDOWN_TIMEOUT_SECONDS = 5
+
+
+class _GitBlobStream:  # pylint: disable=protected-access
+    """Bounded reader for one response in Git's batch protocol."""
+
+    def __init__(self, batch: "GitBlobBatch", size: int) -> None:
+        self._batch = batch
+        self.size = size
+        self._remaining = size
+        self._closed = False
+
+    def read(self, size: int = -1) -> bytes:
+        """Read at most *size* bytes without crossing the blob boundary."""
+        if self._closed or self._remaining == 0 or size == 0:
+            return b""
+        requested = self._remaining if size < 0 else min(size, self._remaining)
+        chunk = self._batch._read_stdout(
+            requested,
+        )  # pylint: disable=protected-access
+        if not chunk:
+            self._batch._raise_early_exit()  # pylint: disable=protected-access
+        self._remaining -= len(chunk)
+        if self._remaining == 0:
+            self._finish_response()
+        return chunk
+
+    def close(self) -> None:
+        """Drain unread bytes so the next request remains protocol-aligned."""
+        if self._closed:
+            return
+        while self._remaining:
+            self.read(min(_READ_CHUNK_SIZE, self._remaining))
+        if not self._closed:
+            self._finish_response()
+
+    def _finish_response(self) -> None:
+        if self._closed:
+            return
+        separator = self._batch._read_stdout(
+            1,
+        )  # pylint: disable=protected-access
+        self._closed = True
+        self._batch._release_stream(self)  # pylint: disable=protected-access
+        if separator != b"\n":
+            raise CheckpointError(
+                "Truncated git cat-file --batch response",
+            )
 
 
 class GitBlobBatch:
@@ -35,8 +83,9 @@ class GitBlobBatch:
         self._process: subprocess.Popen[bytes] | None = None
         self._watchdog: threading.Timer | None = None
         self._timed_out = threading.Event()
+        self._active_stream: _GitBlobStream | None = None
 
-    def __enter__(self) -> Self:
+    def __enter__(self) -> GitBlobBatch:
         try:
             self._process = subprocess.Popen(
                 self._command,
@@ -74,6 +123,25 @@ class GitBlobBatch:
 
     def read_blob(self, object_id: str, *, error_message: str) -> bytes:
         """Read one blob from the batch process."""
+        with self.stream_blob(
+            object_id,
+            error_message=error_message,
+        ) as stream:
+            chunks: list[bytes] = []
+            while chunk := stream.read(_READ_CHUNK_SIZE):
+                chunks.append(chunk)
+            return b"".join(chunks)
+
+    @contextmanager
+    def stream_blob(
+        self,
+        object_id: str,
+        *,
+        error_message: str,
+    ) -> Iterator[_GitBlobStream]:
+        """Yield a bounded stream for one blob and drain it on exit."""
+        if self._active_stream is not None:
+            raise RuntimeError("Previous git blob stream is still active")
         try:
             self._stdin.write(object_id.encode("ascii") + b"\n")
             self._stdin.flush()
@@ -94,12 +162,12 @@ class GitBlobBatch:
             size = int(fields[2])
             if size < 0:
                 raise ValueError("negative blob size")
-            content = self._read_exact(size)
-            if self._stdout.read(1) != b"\n":
-                raise CheckpointError(
-                    "Truncated git cat-file --batch response",
-                )
-            return content
+            stream = _GitBlobStream(self, size)
+            self._active_stream = stream
+            try:
+                yield stream
+            finally:
+                stream.close()
         except (BrokenPipeError, OSError, UnicodeError, ValueError) as exc:
             if self._timed_out.is_set():
                 raise self._timeout_error() from exc
@@ -128,16 +196,12 @@ class GitBlobBatch:
             )
         return self._process
 
-    def _read_exact(self, size: int) -> bytes:
-        content = bytearray()
-        while len(content) < size:
-            chunk = self._stdout.read(
-                min(_READ_CHUNK_SIZE, size - len(content)),
-            )
-            if not chunk:
-                self._raise_early_exit()
-            content.extend(chunk)
-        return bytes(content)
+    def _read_stdout(self, size: int) -> bytes:
+        return self._stdout.read(size)
+
+    def _release_stream(self, stream: _GitBlobStream) -> None:
+        if self._active_stream is stream:
+            self._active_stream = None
 
     def _raise_early_exit(self) -> None:
         if self._timed_out.is_set():

@@ -6,7 +6,9 @@ from __future__ import annotations
 import os
 import stat
 import tempfile
+from io import BytesIO
 from pathlib import Path
+from typing import Protocol
 
 from .models import CheckpointError
 from .tree_entries import REGULAR_TREE_MODES, SYMLINK_TREE_MODE
@@ -16,6 +18,12 @@ _REPARSE_POINT_ATTRIBUTE = getattr(
     "FILE_ATTRIBUTE_REPARSE_POINT",
     0x400,
 )
+_STREAM_CHUNK_SIZE = 1024 * 1024
+
+
+class _ReadableStream(Protocol):
+    def read(self, size: int = -1) -> bytes:
+        """Read up to *size* bytes from the stream."""
 
 
 class SafeWorkspaceFS:
@@ -244,6 +252,48 @@ class SafeWorkspaceFS:
         except OSError:
             return False
 
+    def same_tree_entry_stream(
+        self,
+        rel: str,
+        mode: str,
+        stream: _ReadableStream,
+        size: int,
+    ) -> bool:
+        """Compare one Git entry without materializing regular-file bytes."""
+        target = self.workspace_path(rel)
+        try:
+            target_stat = os.lstat(target)
+            if mode == SYMLINK_TREE_MODE:
+                content = self._read_stream(stream)
+                return stat.S_ISLNK(target_stat.st_mode) and (
+                    os.fsencode(os.readlink(target)) == content
+                )
+            if self._is_reparse_stat(target_stat) or not stat.S_ISREG(
+                target_stat.st_mode,
+            ):
+                return False
+            if os.name != "nt":
+                expected_executable = mode == "100755"
+                actual_executable = bool(target_stat.st_mode & 0o111)
+                if actual_executable != expected_executable:
+                    return False
+            if target_stat.st_size != size:
+                return False
+            return self._same_regular_stream(target, stream)
+        except OSError:
+            return False
+
+    @staticmethod
+    def _same_regular_stream(
+        target: Path,
+        stream: _ReadableStream,
+    ) -> bool:
+        with target.open("rb") as current:
+            while expected := stream.read(_STREAM_CHUNK_SIZE):
+                if current.read(len(expected)) != expected:
+                    return False
+            return current.read(1) == b""
+
     def restore_tree_entry(self, rel: str, mode: str, content: bytes) -> bool:
         """Restore one Git tree entry, returning whether it changed."""
         if self.same_tree_entry(rel, mode, content):
@@ -265,6 +315,29 @@ class SafeWorkspaceFS:
             )
         return True
 
+    def restore_tree_entry_stream(
+        self,
+        rel: str,
+        mode: str,
+        stream: _ReadableStream,
+    ) -> None:
+        """Restore one known-different Git entry from a bounded stream."""
+        target = self.workspace_path(rel)
+        try:
+            target_stat = os.lstat(target)
+        except FileNotFoundError:
+            target_stat = None
+        if target_stat is not None and stat.S_ISDIR(target_stat.st_mode):
+            self.delete_workspace_path(rel)
+        if mode == SYMLINK_TREE_MODE:
+            self._restore_symlink(rel, self._read_stream(stream))
+        else:
+            self._restore_regular_file_stream(
+                rel,
+                stream,
+                mode=REGULAR_TREE_MODES[mode],
+            )
+
     def restore_internal_paths(self, blobs: dict[str, bytes]) -> None:
         """Restore checkpoint-internal regular files with private mode."""
         for rel, content in blobs.items():
@@ -274,6 +347,16 @@ class SafeWorkspaceFS:
         self,
         rel: str,
         content: bytes,
+        *,
+        mode: int,
+    ) -> None:
+        with BytesIO(content) as stream:
+            self._restore_regular_file_stream(rel, stream, mode=mode)
+
+    def _restore_regular_file_stream(
+        self,
+        rel: str,
+        stream: _ReadableStream,
         *,
         mode: int,
     ) -> None:
@@ -287,7 +370,8 @@ class SafeWorkspaceFS:
                 delete=False,
             ) as temp_file:
                 temp_path = Path(temp_file.name)
-                temp_file.write(content)
+                while chunk := stream.read(_STREAM_CHUNK_SIZE):
+                    temp_file.write(chunk)
                 temp_file.flush()
                 if os.name != "nt":
                     os.fchmod(temp_file.fileno(), mode)
@@ -306,6 +390,13 @@ class SafeWorkspaceFS:
             raise CheckpointError(
                 f"Failed to restore file {rel}: {exc}",
             ) from exc
+
+    @staticmethod
+    def _read_stream(stream: _ReadableStream) -> bytes:
+        chunks: list[bytes] = []
+        while chunk := stream.read(_STREAM_CHUNK_SIZE):
+            chunks.append(chunk)
+        return b"".join(chunks)
 
     def _restore_symlink(self, rel: str, content: bytes) -> None:
         temp_path: Path | None = None
