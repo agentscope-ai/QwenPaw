@@ -5,7 +5,7 @@
   min-height: 48px;
   max-height: 128px;
   overflow: auto;
-  color: var(--ant-color-text);
+  color: inherit;
 }
 
 .richEditor {
@@ -30,9 +30,10 @@
 
 .placeholder {
   position: absolute;
-  inset: 5px 0 auto;
+  inset: 0 8px;
+  padding: 5px 0;
   overflow: hidden;
-  color: var(--ant-color-text-placeholder);
+  line-height: 1.65;
   white-space: nowrap;
   text-overflow: ellipsis;
   pointer-events: none;

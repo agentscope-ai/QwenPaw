@@ -7,6 +7,7 @@ import {
   normalizeContentUrls,
   toDisplayUrl,
   getActiveSenderTextarea,
+  getSenderTextareaFromTarget,
   clearSubmittedSenderInput,
 } from "./utils";
 import type { CopyableResponse } from "./utils";
@@ -121,6 +122,31 @@ describe("getActiveSenderTextarea", () => {
     second.focus();
 
     expect(getActiveSenderTextarea()).toBe(second);
+    document.body.innerHTML = "";
+  });
+});
+
+describe("getSenderTextareaFromTarget", () => {
+  it("resolves the hidden textarea from the rich sender editor", () => {
+    document.body.innerHTML = `
+      <div class="qwenpaw-sender">
+        <div id="editor" contenteditable="true"></div>
+        <textarea id="bridge"></textarea>
+      </div>
+    `;
+    const editor = document.querySelector("#editor");
+    const textarea = document.querySelector("#bridge");
+
+    expect(getSenderTextareaFromTarget(editor)).toBe(textarea);
+    document.body.innerHTML = "";
+  });
+
+  it("rejects contenteditable elements outside a sender", () => {
+    document.body.innerHTML = `<div id="editor" contenteditable="true"></div>`;
+
+    expect(
+      getSenderTextareaFromTarget(document.querySelector("#editor")),
+    ).toBeNull();
     document.body.innerHTML = "";
   });
 });

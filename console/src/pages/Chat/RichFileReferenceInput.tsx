@@ -11,6 +11,7 @@ import {
   COMMAND_PRIORITY_HIGH,
   DecoratorNode,
   KEY_ENTER_COMMAND,
+  PASTE_COMMAND,
   type EditorConfig,
   type LexicalEditor,
   type LexicalNode,
@@ -24,7 +25,7 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
-import { Popover } from "antd";
+import { Input, Popover, theme } from "antd";
 import { Code2, FileText, type LucideIcon } from "lucide-react";
 import {
   createContext,
@@ -35,7 +36,6 @@ import {
   useImperativeHandle,
   useLayoutEffect,
   useRef,
-  type ClipboardEvent,
   type CompositionEvent,
   type ComponentProps,
   type FocusEvent,
@@ -43,7 +43,6 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Input } from "antd";
 import { getLastEditorCopy } from "../Coding/lastEditorCopy";
 import {
   compactFileReferenceLabel,
@@ -497,74 +496,96 @@ function KeyCommandPlugin({
   return null;
 }
 
-function PasteBridgePlugin({
+function insertRichValueAtSelection(value: string) {
+  const selection = $getSelection();
+  if (!$isRangeSelection(selection)) return;
+
+  const nodes: LexicalNode[] = [];
+  for (const segment of splitRichComposerValue(value)) {
+    if (segment.kind === "file") {
+      nodes.push($createFileReferenceNode(segment.raw, segment.reference));
+    } else if (segment.kind === "code") {
+      nodes.push(
+        $createCodeSnippetNode(segment.raw, segment.language, segment.code),
+      );
+    } else {
+      const lines = segment.raw.split(/\r?\n/);
+      lines.forEach((line, index) => {
+        if (index > 0) nodes.push($createLineBreakNode());
+        if (line) nodes.push($createTextNode(line));
+      });
+    }
+  }
+  selection.insertNodes(nodes);
+}
+
+function EditorPastePlugin({
   onPaste,
+}: {
+  onPaste?: TextAreaProps["onPaste"];
+}) {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(
+    () =>
+      editor.registerCommand(
+        PASTE_COMMAND,
+        (event) => {
+          onPaste?.(
+            event as unknown as Parameters<
+              NonNullable<TextAreaProps["onPaste"]>
+            >[0],
+          );
+          if (event.defaultPrevented) return true;
+
+          const lastCopy = getLastEditorCopy();
+          const pasted =
+            "clipboardData" in event
+              ? event.clipboardData?.getData("text/plain")
+              : undefined;
+          if (
+            !lastCopy ||
+            Date.now() - lastCopy.ts > 60_000 ||
+            pasted !== lastCopy.text
+          ) {
+            return false;
+          }
+
+          event.preventDefault();
+          editor.update(() => insertRichValueAtSelection(lastCopy.formatted));
+          return true;
+        },
+        COMMAND_PRIORITY_HIGH,
+      ),
+    [editor, onPaste],
+  );
+
+  return null;
+}
+
+function EditableSurface({
+  onKeyDown,
   onFocus,
   onBlur,
   onCompositionStart,
   onCompositionEnd,
 }: {
-  onPaste?: TextAreaProps["onPaste"];
+  onKeyDown?: TextAreaProps["onKeyDown"];
   onFocus?: TextAreaProps["onFocus"];
   onBlur?: TextAreaProps["onBlur"];
   onCompositionStart?: TextAreaProps["onCompositionStart"];
   onCompositionEnd?: TextAreaProps["onCompositionEnd"];
 }) {
-  const [editor] = useLexicalComposerContext();
-
-  const handlePaste = useCallback(
-    (event: ClipboardEvent<HTMLDivElement>) => {
-      onPaste?.(event as unknown as ClipboardEvent<HTMLTextAreaElement>);
-      if (event.defaultPrevented) return;
-
-      const lastCopy = getLastEditorCopy();
-      const pasted = event.clipboardData?.getData("text/plain");
-      if (
-        !lastCopy ||
-        Date.now() - lastCopy.ts > 60_000 ||
-        pasted !== lastCopy.text
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      editor.update(() => {
-        const selection = $getSelection();
-        if (!$isRangeSelection(selection)) return;
-        const nodes: LexicalNode[] = [];
-        for (const segment of splitRichComposerValue(lastCopy.formatted)) {
-          if (segment.kind === "file") {
-            nodes.push(
-              $createFileReferenceNode(segment.raw, segment.reference),
-            );
-          } else if (segment.kind === "code") {
-            nodes.push(
-              $createCodeSnippetNode(
-                segment.raw,
-                segment.language,
-                segment.code,
-              ),
-            );
-          } else {
-            const lines = segment.raw.split(/\r?\n/);
-            lines.forEach((line, index) => {
-              if (index > 0) nodes.push($createLineBreakNode());
-              if (line) nodes.push($createTextNode(line));
-            });
-          }
-        }
-        selection.insertNodes(nodes);
-      });
-    },
-    [editor, onPaste],
-  );
-
   return (
     <ContentEditable
       className={styles.richEditor}
       aria-multiline="true"
       spellCheck={false}
-      onPaste={handlePaste}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") {
+          onKeyDown?.(event as unknown as KeyboardEvent<HTMLTextAreaElement>);
+        }
+      }}
       onFocus={(event) =>
         onFocus?.(event as unknown as FocusEvent<HTMLTextAreaElement>)
       }
@@ -608,6 +629,7 @@ const RichFileReferenceInput = forwardRef<unknown, TextAreaProps>(
     },
     ref,
   ) {
+    const { token } = theme.useToken();
     const rawValue = String(value ?? "");
     const hiddenTextarea = useRef<HTMLTextAreaElement>(null);
     const editorRef = useRef<LexicalEditor | null>(null);
@@ -657,8 +679,8 @@ const RichFileReferenceInput = forwardRef<unknown, TextAreaProps>(
         >
           <PlainTextPlugin
             contentEditable={
-              <PasteBridgePlugin
-                onPaste={onPaste}
+              <EditableSurface
+                onKeyDown={onKeyDown}
                 onFocus={onFocus}
                 onBlur={onBlur}
                 onCompositionStart={onCompositionStart}
@@ -666,7 +688,12 @@ const RichFileReferenceInput = forwardRef<unknown, TextAreaProps>(
               />
             }
             placeholder={
-              <div className={styles.placeholder}>{placeholder}</div>
+              <div
+                className={styles.placeholder}
+                style={{ color: token.colorTextPlaceholder }}
+              >
+                {placeholder}
+              </div>
             }
             ErrorBoundary={LexicalErrorBoundary}
           />
@@ -678,6 +705,7 @@ const RichFileReferenceInput = forwardRef<unknown, TextAreaProps>(
             editorRef={editorRef}
             onRawChange={handleRawChange}
           />
+          <EditorPastePlugin onPaste={onPaste} />
           <KeyCommandPlugin onKeyDown={onKeyDown} onPressEnter={onPressEnter} />
         </LexicalComposer>
         <textarea

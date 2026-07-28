@@ -16,6 +16,16 @@
         display: none;
       }
     }
+
+    [class$="-sender-content-bottom"] {
+      align-items: center;
+      column-gap: 8px;
+    }
+
+    [class$="-sender-actions-list"] {
+      align-items: center;
+      column-gap: 8px;
+    }
   }
 }
 
@@ -39,7 +49,7 @@
       [class$="-sender-content-bottom"] {
         min-width: 0;
         align-items: center;
-        gap: 4px;
+        column-gap: 4px;
       }
 
       [class$="-sender-prefix"] {
@@ -50,6 +60,7 @@
       [class$="-sender-actions-list"] {
         min-width: 0;
         align-items: center;
+        column-gap: 4px;
       }
 
       [class$="-sender-actions-list-length"] {
@@ -66,7 +77,13 @@
 .compactSenderAffix {
   min-width: 0;
   flex: 0 1 auto;
-  gap: 3px !important;
+  gap: 4px;
+}
+
+.senderActionAffix {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .filesDirectOpen {

@@ -215,6 +215,27 @@ export function getActiveSenderTextarea(): HTMLTextAreaElement | null {
   );
 }
 
+/** Resolve the sender's state textarea from its textarea or rich editor. */
+export function getSenderTextareaFromTarget(
+  target: EventTarget | null,
+): HTMLTextAreaElement | null {
+  if (!(target instanceof HTMLElement)) return null;
+
+  const sender = target.closest('[class*="sender"]');
+  if (!sender) return null;
+
+  if (target instanceof HTMLTextAreaElement) {
+    return target;
+  }
+
+  const isRichEditor =
+    target.isContentEditable ||
+    target.getAttribute("contenteditable") === "true";
+  if (!isRichEditor) return null;
+  const textarea = sender.querySelector("textarea");
+  return textarea instanceof HTMLTextAreaElement ? textarea : null;
+}
+
 /** Set textarea value and trigger input event for React state sync.
  * Uses native value setter to bypass React's internal value tracker.
  */
