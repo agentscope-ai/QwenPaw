@@ -5,7 +5,14 @@ import {
   type IAgentScopeRuntimeWebUIQueueSessionContext,
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { useIsMobile } from "../../hooks/useIsMobile";
@@ -1660,7 +1667,12 @@ export default function ChatPage() {
 
   // Refresh chat when selectedAgent changes, preserving last active chat per agent
   const prevSelectedAgentRef = useRef(selectedAgent);
-  useEffect(() => {
+  // Switch the runtime scope before the browser paints the newly selected
+  // Agent. With a passive effect, a long conversation can leave the previous
+  // Agent's sender briefly interactive after the selector already shows the
+  // destination Agent; inputs queued in that window are then hidden when the
+  // SDK remounts under the correct scope.
+  useLayoutEffect(() => {
     const prevAgent = prevSelectedAgentRef.current;
     if (prevAgent !== selectedAgent && prevAgent !== undefined) {
       // Keep loop-status tracking busy until the remounted SDK reports its
