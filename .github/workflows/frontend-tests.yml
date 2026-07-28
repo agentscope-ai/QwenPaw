@@ -8,9 +8,6 @@ on:
       - '.github/workflows/frontend-tests.yml'
   pull_request:
     branches: [main, master, dev, develop]
-    paths:
-      - 'console/**'
-      - '.github/workflows/frontend-tests.yml'
 
 jobs:
   spam-gate:
@@ -20,11 +17,32 @@ jobs:
     with:
       author: ${{ github.event.pull_request.user.login }}
 
+  # Replaces the former `on.pull_request.paths` filter: the workflow now runs
+  # (and reports a status) on every PR so `Vitest Unit Tests` can be a
+  # required check; PRs not touching the console skip the actual test run.
+  changes:
+    name: Detect console changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ github.event_name != 'pull_request' && 'true' || steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+      - uses: dorny/paths-filter@v3
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'console/**'
+              - '.github/workflows/frontend-tests.yml'
+
   vitest:
     name: Vitest Unit Tests
-    needs: [spam-gate]
+    needs: [spam-gate, changes]
     if: |
       always() &&
+      needs.changes.outputs.code == 'true' &&
       (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
     runs-on: ubuntu-latest
     defaults:
