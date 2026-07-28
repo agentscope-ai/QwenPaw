@@ -285,6 +285,8 @@ def write_text_atomic(
     :func:`write_text_atomic_async`.
     """
     target = _resolve_write_target(Path(path))
+    if backup_count < 0:
+        raise ValueError("backup_count must be >= 0")
     target.parent.mkdir(parents=True, exist_ok=True)
     original_mode = (
         stat.S_IMODE(target.stat().st_mode) if target.exists() else None

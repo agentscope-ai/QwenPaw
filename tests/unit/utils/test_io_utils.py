@@ -17,6 +17,7 @@ import yaml
 from qwenpaw.utils.io_utils import (
     append_text_async,
     read_bytes_async,
+    read_json,
     read_json_async,
     read_text_async,
     run_sync_io,
@@ -370,6 +371,13 @@ def test_write_text_atomic_rotates_backups(tmp_path: Path) -> None:
     assert path.with_suffix(".bak.2").read_text(encoding="utf-8") == "v3"
     assert path.with_suffix(".bak.3").read_text(encoding="utf-8") == "v2"
     assert not path.with_suffix(".bak.4").exists()
+
+
+def test_write_text_atomic_negative_backup_count(tmp_path: Path) -> None:
+    """Atomic write raises ValueError if backup_count is negative."""
+    path = tmp_path / "state.txt"
+    with pytest.raises(ValueError, match="backup_count must be >= 0"):
+        write_text_atomic(path, "v2", backup_count=-1)
 
 
 def test_write_json_atomic_validator(tmp_path: Path) -> None:
