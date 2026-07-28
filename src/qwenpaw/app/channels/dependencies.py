@@ -31,6 +31,17 @@ import psutil
 
 from ...constant import WORKING_DIR
 from ...config.config import load_agent_config
+from ...package_runtime import (
+    RuntimeTransaction,
+    RuntimeSnapshot,
+    build_runtime_snapshot,
+    recover_runtime_if_needed,
+    recover_runtime_transactions,
+    runtime_pythonpath,
+    runtime_write_lock,
+    runtime_requirement_state,
+    verify_runtime_requirements,
+)
 from ...plugins.loader import (
     PluginLoader,
     _desktop_python,
@@ -222,15 +233,47 @@ def requirements_for_extra(extra: str | None) -> list[str]:
     )
 
 
+def _channel_runtime_constraints() -> list[str]:
+    snapshot = build_runtime_snapshot(_channel_site_dir())
+    result: list[str] = []
+    for spec in BUILTIN_CHANNEL_CATALOG.values():
+        for raw in requirements_for_extra(spec.extra):
+            if snapshot.entries(Requirement(raw).name):
+                result.append(raw)
+    return result
+
+
+def channel_runtime_snapshot() -> RuntimeSnapshot | None:
+    if not _is_frozen():
+        return None
+    site_dir = _channel_site_dir()
+    recover_runtime_if_needed(site_dir)
+    return build_runtime_snapshot(site_dir)
+
+
 def _requirement_applies(raw: str) -> bool:
     req = Requirement(raw)
     return req.marker is None or req.marker.evaluate()
 
 
-RequirementState = Literal["satisfied", "missing", "version_mismatch"]
+RequirementState = Literal[
+    "satisfied",
+    "missing",
+    "version_mismatch",
+    "runtime_conflict",
+]
 
 
-def _requirement_state(req: Requirement) -> RequirementState:
+def _requirement_state(
+    req: Requirement,
+    snapshot: RuntimeSnapshot | None = None,
+) -> RequirementState:
+    if snapshot is not None:
+        return runtime_requirement_state(
+            req,
+            snapshot,
+            fallback=PluginLoader.is_requirement_satisfied,
+        )
     try:
         installed = version(req.name)
     except PackageNotFoundError:
@@ -244,40 +287,76 @@ def _requirement_state(req: Requirement) -> RequirementState:
     return "version_mismatch"
 
 
-def _is_requirement_satisfied(req: Requirement) -> bool:
-    return _requirement_state(req) == "satisfied"
+def _is_requirement_satisfied(
+    req: Requirement,
+    snapshot: RuntimeSnapshot | None = None,
+) -> bool:
+    return _requirement_state(req, snapshot) == "satisfied"
 
 
 def _requirements_with_state(
     spec: ChannelSpec,
     state: RequirementState,
+    snapshot: RuntimeSnapshot | None = None,
 ) -> list[str]:
     _ensure_channel_site_on_path()
     result: list[str] = []
     for raw in requirements_for_extra(spec.extra):
         if not _requirement_applies(raw):
             continue
-        if _requirement_state(Requirement(raw)) == state:
+        if _requirement_state(Requirement(raw), snapshot) == state:
             result.append(raw)
     return result
 
 
-def missing_requirements(spec: ChannelSpec) -> list[str]:
+def missing_requirements(
+    spec: ChannelSpec,
+    snapshot: RuntimeSnapshot | None = None,
+) -> list[str]:
     """Return only requirements missing or outside the supported version."""
     _ensure_channel_site_on_path()
     missing: list[str] = []
     for raw in requirements_for_extra(spec.extra):
         req = Requirement(raw)
-        if _requirement_applies(
-            raw,
-        ) and not _is_requirement_satisfied(req):
+        if not _requirement_applies(raw):
+            continue
+        satisfied = (
+            _is_requirement_satisfied(req, snapshot)
+            if snapshot is not None
+            else _is_requirement_satisfied(req)
+        )
+        if not satisfied:
             missing.append(raw)
     return missing
 
 
-def version_mismatch_requirements(spec: ChannelSpec) -> list[str]:
+def version_mismatch_requirements(
+    spec: ChannelSpec,
+    snapshot: RuntimeSnapshot | None = None,
+) -> list[str]:
     """Return installed requirements outside the supported version."""
-    return _requirements_with_state(spec, "version_mismatch")
+
+    def state_for(raw: str) -> RequirementState:
+        requirement = Requirement(raw)
+        if snapshot is None:
+            return _requirement_state(requirement)
+        return _requirement_state(requirement, snapshot)
+
+    return [
+        raw
+        for raw in requirements_for_extra(spec.extra)
+        if _requirement_applies(raw)
+        and state_for(raw) in {"version_mismatch", "runtime_conflict"}
+    ]
+
+
+def _version_mismatches_for_snapshot(
+    spec: ChannelSpec,
+    snapshot: RuntimeSnapshot | None,
+) -> list[str]:
+    if snapshot is None:
+        return version_mismatch_requirements(spec)
+    return version_mismatch_requirements(spec, snapshot)
 
 
 def runtime_dependency_install_enabled() -> bool:
@@ -396,9 +475,12 @@ class ChannelDependencyService:
         key: str,
         *,
         refresh: bool = True,
+        snapshot: RuntimeSnapshot | None = None,
     ) -> dict[str, Any]:
         if refresh:
             self._refresh_jobs_from_disk()
+        if snapshot is None:
+            snapshot = channel_runtime_snapshot()
         spec = BUILTIN_CHANNEL_CATALOG[key]
         if not spec.platform_supported:
             return {
@@ -423,7 +505,7 @@ class ChannelDependencyService:
                 "requirements": requirements_for_extra(spec.extra),
                 "missing_requirements": list(job.requirements),
             }
-        missing = missing_requirements(spec)
+        missing = missing_requirements(spec, snapshot)
         status = (
             "failed"
             if missing and job and job.status == "failed"
@@ -457,10 +539,15 @@ class ChannelDependencyService:
 
     def all_statuses(self) -> dict[str, dict[str, Any]]:
         self._refresh_jobs_from_disk()
+        snapshot = channel_runtime_snapshot()
         result: dict[str, dict[str, Any]] = {}
         for key, spec in BUILTIN_CHANNEL_CATALOG.items():
             try:
-                result[key] = self.channel_status(key, refresh=False)
+                result[key] = self.channel_status(
+                    key,
+                    refresh=False,
+                    snapshot=snapshot,
+                )
             except Exception as exc:
                 logger.exception(
                     "Failed to inspect channel dependencies: %s",
@@ -500,7 +587,15 @@ class ChannelDependencyService:
         spec = BUILTIN_CHANNEL_CATALOG[channel]
         if not spec.platform_supported:
             raise ValueError("Channel is not supported on this platform")
-        missing = await asyncio.to_thread(missing_requirements, spec)
+        snapshot = await asyncio.to_thread(channel_runtime_snapshot)
+        if snapshot is None:
+            missing = await asyncio.to_thread(missing_requirements, spec)
+        else:
+            missing = await asyncio.to_thread(
+                missing_requirements,
+                spec,
+                snapshot,
+            )
         if missing and reinstall:
             raise ValueError(
                 "Reinstall is only available when Channel loading fails",
@@ -614,6 +709,7 @@ class ChannelDependencyService:
             return []
 
         repaired: list[InstallJob] = []
+        snapshot = await asyncio.to_thread(channel_runtime_snapshot)
         for channel, spec in BUILTIN_CHANNEL_CATALOG.items():
             if channel not in enabled_channels:
                 continue
@@ -623,8 +719,9 @@ class ChannelDependencyService:
                 continue
             try:
                 requirements = await asyncio.to_thread(
-                    version_mismatch_requirements,
+                    _version_mismatches_for_snapshot,
                     spec,
+                    snapshot,
                 )
                 if not requirements:
                     continue
@@ -718,6 +815,16 @@ class ChannelDependencyService:
             )
 
     def _install_locked(self, job: InstallJob) -> None:
+        if _is_frozen():
+            site_dir = _channel_site_dir()
+            with runtime_write_lock(
+                site_dir,
+                timeout=660,
+                cancel_checker=lambda: self._is_cancel_requested(job),
+            ):
+                recover_runtime_transactions(site_dir)
+                self._install_job_after_lock(job)
+            return
         self._state_dir.mkdir(parents=True, exist_ok=True)
         lock_path = self._state_dir / "install.lock"
         with plugin_install_lock(
@@ -730,25 +837,40 @@ class ChannelDependencyService:
                 raise RuntimeError(
                     "Timed out waiting for another channel dependency install",
                 )
-            if job.version_repair:
-                current = [
-                    raw
-                    for raw in job.requirements
-                    if _requirement_state(Requirement(raw))
-                    == "version_mismatch"
-                ]
-            else:
-                current = missing_requirements(
-                    BUILTIN_CHANNEL_CATALOG[job.channel],
-                )
-            if not current and not job.reinstall:
-                return
-            requirements = job.requirements if job.reinstall else current
-            self._install_with_sources(
-                job,
-                requirements,
-                reinstall=job.reinstall,
+            self._install_job_after_lock(job)
+
+    def _install_job_after_lock(self, job: InstallJob) -> None:
+        snapshot = (
+            build_runtime_snapshot(_channel_site_dir())
+            if _is_frozen()
+            else None
+        )
+        if job.version_repair:
+
+            def state_for(raw: str) -> RequirementState:
+                requirement = Requirement(raw)
+                if snapshot is None:
+                    return _requirement_state(requirement)
+                return _requirement_state(requirement, snapshot)
+
+            current = [
+                raw
+                for raw in job.requirements
+                if state_for(raw) in {"version_mismatch", "runtime_conflict"}
+            ]
+        else:
+            current = missing_requirements(
+                BUILTIN_CHANNEL_CATALOG[job.channel],
+                snapshot,
             )
+        if not current and not job.reinstall:
+            return
+        requirements = job.requirements if job.reinstall else current
+        self._install_with_sources(
+            job,
+            requirements,
+            reinstall=job.reinstall,
+        )
 
     @staticmethod
     def _channel_load_error(spec: ChannelSpec) -> str | None:
@@ -805,30 +927,85 @@ class ChannelDependencyService:
         reinstall: bool = False,
     ) -> None:
         last_output = ""
-        for index_url, label in self._source_candidates(job):
-            self._raise_if_cancelled(job)
-            self._append_attempted_source(job, label)
-            try:
-                result = self._run_install(
-                    requirements,
-                    index_url,
-                    job.channel,
-                    cancel_checker=lambda: self._is_cancel_requested(job),
-                    reinstall=reinstall,
+        transaction = (
+            RuntimeTransaction(_channel_site_dir()) if _is_frozen() else None
+        )
+        if transaction is not None:
+            transaction.create()
+        try:
+            for index_url, label in self._source_candidates(job):
+                self._raise_if_cancelled(job)
+                self._append_attempted_source(job, label)
+                target = (
+                    transaction.reset_staging()
+                    if transaction is not None
+                    else None
                 )
-            except subprocess.TimeoutExpired:
-                last_output = f"Package source {label} timed out"
-                continue
-            if result.returncode == 0:
-                return
-            last_output = (
-                result.stdout
-                or result.stderr
-                or "dependency installation failed"
+                try:
+                    result = self._run_install(
+                        requirements,
+                        index_url,
+                        job.channel,
+                        cancel_checker=(
+                            lambda: self._is_cancel_requested(job)
+                        ),
+                        reinstall=reinstall,
+                        target=target,
+                    )
+                except subprocess.TimeoutExpired:
+                    last_output = f"Package source {label} timed out"
+                    continue
+                if result.returncode == 0:
+                    if transaction is not None:
+                        self._commit_channel_transaction(
+                            transaction,
+                            requirements,
+                        )
+                    return
+                last_output = (
+                    result.stdout
+                    or result.stderr
+                    or "dependency installation failed"
+                )
+                if not self._should_fallback(last_output, label):
+                    break
+            raise RuntimeError(last_output[-4000:])
+        finally:
+            if transaction is not None:
+                transaction.cleanup()
+
+    @staticmethod
+    def _commit_channel_transaction(
+        transaction: RuntimeTransaction,
+        requirements: list[str],
+    ) -> None:
+        python = _desktop_python()
+        if python is None:
+            raise RuntimeError("Bundled desktop Python runtime is unavailable")
+        import_names = {
+            Requirement(raw)
+            .name.lower()
+            .replace(
+                "_",
+                "-",
+            ): PluginLoader.import_name_for_distribution(
+                Requirement(raw).name,
             )
-            if not self._should_fallback(last_output, label):
-                break
-        raise RuntimeError(last_output[-4000:])
+            for raw in requirements
+        }
+
+        def verify() -> None:
+            verify_runtime_requirements(
+                python,
+                _channel_site_dir(),
+                requirements,
+                import_names,
+            )
+
+        transaction.commit(
+            verify=verify,
+            constraints=_channel_runtime_constraints(),
+        )
 
     @staticmethod
     def _should_fallback(output: str, source: str) -> bool:
@@ -843,6 +1020,31 @@ class ChannelDependencyService:
             marker in lowered for marker in _MISSING_DISTRIBUTION_MARKERS
         )
 
+    @staticmethod
+    def _install_environment(
+        index_url: str | None,
+    ) -> tuple[list[str] | None, dict[str, str] | None]:
+        if not index_url:
+            return None, None
+        parsed = urlsplit(index_url)
+        credential = ""
+        if parsed.username is not None:
+            credential = parsed.username
+            if parsed.password is not None:
+                credential += f":{parsed.password}"
+            credential += "@"
+        redact_values = [value for value in (index_url, credential) if value]
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "PIP_INDEX_URL": index_url,
+                "UV_INDEX_URL": index_url,
+                "PIP_EXTRA_INDEX_URL": "",
+                "UV_EXTRA_INDEX_URL": "",
+            },
+        )
+        return redact_values, environment
+
     def _run_install(
         self,
         requirements: list[str],
@@ -851,32 +1053,13 @@ class ChannelDependencyService:
         *,
         cancel_checker: Callable[[], bool] | None = None,
         reinstall: bool = False,
+        target: Path | None = None,
     ) -> subprocess.CompletedProcess:
-        redact_values: list[str] | None = None
-        install_env: dict[str, str] | None = None
-        if index_url:
-            parsed = urlsplit(index_url)
-            credential = ""
-            if parsed.username is not None:
-                credential = parsed.username
-                if parsed.password is not None:
-                    credential += f":{parsed.password}"
-                credential += "@"
-            redact_values = [
-                value for value in (index_url, credential) if value
-            ]
-            # Keep credentials out of the process command line. Both pip and uv
-            # honour these variables, and blank extra indexes prevent an
-            # explicitly selected source from silently consulting another one.
-            install_env = os.environ.copy()
-            install_env.update(
-                {
-                    "PIP_INDEX_URL": index_url,
-                    "UV_INDEX_URL": index_url,
-                    "PIP_EXTRA_INDEX_URL": "",
-                    "UV_EXTRA_INDEX_URL": "",
-                },
-            )
+        redact_values, install_env = self._install_environment(index_url)
+        if _is_frozen():
+            if install_env is None:
+                install_env = os.environ.copy()
+            runtime_pythonpath(_channel_site_dir(), install_env)
         with tempfile.NamedTemporaryFile(
             "w",
             suffix=".txt",
@@ -903,7 +1086,7 @@ class ChannelDependencyService:
                     "only-if-needed",
                     "--upgrade",
                     "--target",
-                    str(_channel_site_dir()),
+                    str(target or _channel_site_dir()),
                     "-r",
                     req_path,
                 ]

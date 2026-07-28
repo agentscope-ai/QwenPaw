@@ -23,6 +23,17 @@ from importlib.metadata import version as _dist_version
 from packaging.requirements import Requirement
 import psutil
 
+from ..package_runtime import (
+    RuntimeTransaction,
+    RuntimeSnapshot,
+    build_runtime_snapshot,
+    recover_runtime_if_needed,
+    recover_runtime_transactions,
+    runtime_pythonpath,
+    runtime_write_lock,
+    runtime_requirement_state,
+    verify_runtime_requirements,
+)
 from .architecture import PluginManifest, PluginRecord
 from .api import PluginApi
 from .registry import PluginRegistry
@@ -130,7 +141,7 @@ def _plugin_site_dir() -> Path:
 
 
 def _install_lock_path(plugin_id: str) -> Path:
-    """Path to the inter-process lock guarding *plugin_id* installs.
+    """Path guarding non-frozen installs for one Plugin.
 
     Keyed per plugin so unrelated plugins can install concurrently, but
     every process installing the *same* plugin serialises through one lock.
@@ -384,7 +395,10 @@ class PluginLoader:
         return check_plugin_version_compat(manifest)
 
     @staticmethod
-    def is_requirement_satisfied(req: Requirement) -> bool:
+    def is_requirement_satisfied(
+        req: Requirement,
+        snapshot: RuntimeSnapshot | None = None,
+    ) -> bool:
         """Return True if *req* is already available.
 
         Two complementary probes are combined so neither environment causes a
@@ -399,6 +413,14 @@ class PluginLoader:
           frozen desktop build, whose ``.dist-info`` is often stripped, so they
           are not misreported as missing (issue #5209).
         """
+        if snapshot is not None:
+            state = runtime_requirement_state(
+                req,
+                snapshot,
+                fallback=PluginLoader.is_requirement_satisfied,
+            )
+            return state == "satisfied"
+
         # 1) Metadata probe: reliable for --target installs and version checks.
         try:
             installed = _dist_version(req.name)
@@ -426,6 +448,15 @@ class PluginLoader:
     _is_requirement_satisfied = is_requirement_satisfied
 
     @staticmethod
+    def import_name_for_distribution(name: str) -> str:
+        """Return the import name used to probe one distribution."""
+        distribution = name.lower().replace("_", "-")
+        return _IMPORT_NAME_OVERRIDES.get(
+            distribution,
+            name.replace("-", "_"),
+        )
+
+    @staticmethod
     def _find_unsatisfied_dependencies(
         requirements_file: Path,
     ) -> List[str]:
@@ -433,6 +464,9 @@ class PluginLoader:
         if not requirements_file.exists():
             return []
 
+        snapshot = None
+        if _is_frozen():
+            snapshot = build_runtime_snapshot(_plugin_site_dir())
         missing: List[str] = []
         for line in requirements_file.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -442,10 +476,49 @@ class PluginLoader:
                 req = Requirement(line)
             except Exception:
                 continue
-            if not PluginLoader.is_requirement_satisfied(req):
+            if not PluginLoader.is_requirement_satisfied(req, snapshot):
                 missing.append(line)
 
         return missing
+
+    @staticmethod
+    def _requirement_lines(requirements_file: Path) -> List[str]:
+        if not requirements_file.exists():
+            return []
+        result: List[str] = []
+        for line in requirements_file.read_text(
+            encoding="utf-8",
+        ).splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or line.startswith("-"):
+                continue
+            try:
+                Requirement(line)
+            except Exception:
+                continue
+            result.append(line)
+        return result
+
+    def _runtime_constraints(self) -> List[str]:
+        """Return requirements declared by installed Plugin directories."""
+        result: List[str] = []
+        for plugin_dir in self.plugin_dirs:
+            if not plugin_dir.is_dir():
+                continue
+            for item in plugin_dir.iterdir():
+                if not item.is_dir() or _is_disabled_plugin_dir(item):
+                    continue
+                result.extend(
+                    self._requirement_lines(item / "requirements.txt"),
+                )
+        return result
+
+    @staticmethod
+    def _inspect_dependencies(requirements_file: Path) -> List[str]:
+        """Recover frozen Runtime state and inspect one requirements file."""
+        if _is_frozen():
+            recover_runtime_if_needed(_plugin_site_dir())
+        return PluginLoader._find_unsatisfied_dependencies(requirements_file)
 
     async def _ensure_dependencies_installed(
         self,
@@ -464,10 +537,12 @@ class PluginLoader:
         """
         # Previously installed plugin deps live in a user-writable site dir;
         # ensure it is importable before checking and before plugin import.
-        _ensure_plugin_site_on_path()
-
         requirements_file = source_path / "requirements.txt"
-        missing_deps = self._find_unsatisfied_dependencies(requirements_file)
+        missing_deps = await asyncio.to_thread(
+            self._inspect_dependencies,
+            requirements_file,
+        )
+        _ensure_plugin_site_on_path()
         if not missing_deps:
             return
         logger.info(
@@ -488,15 +563,30 @@ class PluginLoader:
         requirements_file: Path,
         plugin_id: str,
     ) -> None:
-        """Install deps under a per-plugin inter-process lock (blocking).
+        """Install dependencies under the appropriate process lock.
 
-        Multiple backend processes (e.g. an orphaned one plus a new launch,
-        issue #5550) must not run ``pip install`` for the same plugin into
-        the same target dir concurrently. The lock serialises them, and the
-        double-check after acquiring it means only the first installer does
-        the work — the rest see the dependencies already satisfied and skip,
-        avoiding the reinstall storm that exhausted memory.
+        Frozen installs serialize the complete target Runtime. Non-frozen
+        installs retain the existing per-Plugin environment lock. Both paths
+        recheck requirements after locking to avoid duplicate pip processes.
         """
+        if _is_frozen():
+            site_dir = _plugin_site_dir()
+            with runtime_write_lock(site_dir):
+                recover_runtime_transactions(site_dir)
+                _ensure_plugin_site_on_path()
+                importlib.invalidate_caches()
+                if not self._find_unsatisfied_dependencies(
+                    requirements_file,
+                ):
+                    logger.info(
+                        "Plugin '%s' dependencies already satisfied by a "
+                        "concurrent installer; skipping pip install",
+                        plugin_id,
+                    )
+                    return
+                self._install_requirements(requirements_file, plugin_id)
+            return
+
         from .install_lock import plugin_install_lock
 
         with plugin_install_lock(_install_lock_path(plugin_id)):
@@ -1095,7 +1185,11 @@ class PluginLoader:
                 "(QWENPAW_DESKTOP_PY_RUNTIME not set). Reinstall QwenPaw "
                 "Desktop, or install the plugin's dependencies manually.",
             )
-        target = str(_plugin_site_dir())
+        site_dir = _plugin_site_dir()
+        transaction = RuntimeTransaction(site_dir)
+        target = str(transaction.create())
+        environment = os.environ.copy()
+        runtime_pythonpath(site_dir, environment)
         try:
             result = self.run_subprocess_with_streaming_log(
                 [
@@ -1105,6 +1199,9 @@ class PluginLoader:
                     "install",
                     "--disable-pip-version-check",
                     "--no-input",
+                    "--upgrade-strategy",
+                    "only-if-needed",
+                    "--upgrade",
                     "--target",
                     target,
                     "-r",
@@ -1112,14 +1209,20 @@ class PluginLoader:
                 ],
                 timeout=timeout,
                 plugin_id=plugin_id,
+                environment=environment,
             )
         except subprocess.TimeoutExpired as exc:
+            transaction.cleanup()
             raise RuntimeError(
                 f"Dependency installation timed out for '{plugin_id}' "
                 f"(300 s limit exceeded)",
             ) from exc
+        except Exception:
+            transaction.cleanup()
+            raise
 
         if result.returncode != 0:
+            transaction.cleanup()
             output = (
                 result.stdout
                 or result.stderr
@@ -1129,11 +1232,29 @@ class PluginLoader:
                 f"Dependency installation failed for '{plugin_id}': "
                 f"{output[-4000:]}",
             )
+        requirements = self._requirement_lines(Path(req))
+        import_names = {
+            key: self.import_name_for_distribution(Requirement(raw).name)
+            for raw in requirements
+            for key in [Requirement(raw).name.lower().replace("_", "-")]
+        }
+        try:
+            transaction.commit(
+                verify=lambda: verify_runtime_requirements(
+                    python,
+                    site_dir,
+                    requirements,
+                    import_names,
+                ),
+                constraints=self._runtime_constraints(),
+            )
+        finally:
+            transaction.cleanup()
         importlib.invalidate_caches()
         logger.info(
             "Dependencies installed for plugin '%s' into %s",
             plugin_id,
-            target,
+            site_dir,
         )
 
     def _read_source_manifest(

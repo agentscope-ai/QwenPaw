@@ -6,8 +6,9 @@ and initialize service components. Extracted from local functions to
 improve testability and code organization.
 """
 
-from typing import TYPE_CHECKING
+import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .workspace import Workspace
@@ -122,6 +123,7 @@ async def create_channel_service(ws: "Workspace", _):
     from ...config import Config, load_config, update_last_dispatch
     from ..channels.manager import ChannelManager
     from ..channels.access_control import init_access_control_store
+    from ..channels.registry import get_channel_registry
 
     init_access_control_store(ws.workspace_dir)
 
@@ -130,6 +132,8 @@ async def create_channel_service(ws: "Workspace", _):
         channels=ws._config.channels,
         show_tool_details=root_config.show_tool_details,
     )
+
+    await asyncio.to_thread(get_channel_registry)
 
     def on_last_dispatch(channel, user_id, session_id):
         update_last_dispatch(

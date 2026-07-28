@@ -33,6 +33,7 @@ from qwenpaw.app.channels.dependencies import (
     version_mismatch_requirements,
 )
 from qwenpaw.config.utils import get_available_channels
+from qwenpaw.package_runtime import build_runtime_snapshot
 
 
 def test_lazy_runtime_imports_are_declared_in_channel_extras():
@@ -202,6 +203,43 @@ def test_dingtalk_and_telegram_do_not_use_optional_extras():
     assert BUILTIN_CHANNEL_CATALOG["telegram"].extra is None
 
 
+def test_registry_isolates_optional_dependency_inspection_failure():
+    from qwenpaw.app.channels import registry
+
+    class TestChannel(registry.BaseChannel):
+        pass
+
+    catalog = {
+        "broken": ChannelSpec(
+            "broken",
+            ".broken",
+            "BrokenChannel",
+            "channel-broken",
+        ),
+        "console": ChannelSpec(
+            "console",
+            ".console",
+            "ConsoleChannel",
+        ),
+    }
+    module = SimpleNamespace(ConsoleChannel=TestChannel)
+
+    def inspect(spec, _snapshot):
+        if spec.key == "broken":
+            raise ValueError("invalid metadata")
+        return []
+
+    with (
+        patch.object(registry, "BUILTIN_CHANNEL_CATALOG", catalog),
+        patch.object(registry, "channel_runtime_snapshot", return_value=None),
+        patch.object(registry, "missing_requirements", side_effect=inspect),
+        patch.object(registry.importlib, "import_module", return_value=module),
+    ):
+        loaded = registry._load_builtin_channels()
+
+    assert loaded == {"console": TestChannel}
+
+
 def test_legacy_sip_extras_keep_their_original_scope():
     pyproject = Path(__file__).resolve().parents[3] / "pyproject.toml"
     data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
@@ -286,6 +324,25 @@ def test_requirement_state_distinguishes_missing_and_version_mismatch():
         return_value="1.7.1",
     ):
         assert _requirement_state(requirement) == "satisfied"
+
+
+def test_frozen_requirement_state_detects_duplicate_runtime_metadata(
+    tmp_path,
+):
+    for version_value in ("2.3.2", "2.7.1"):
+        metadata_dir = tmp_path / (f"discord_py-{version_value}.dist-info")
+        metadata_dir.mkdir()
+        (metadata_dir / "METADATA").write_text(
+            f"Name: discord-py\nVersion: {version_value}\n",
+            encoding="utf-8",
+        )
+
+    state = _requirement_state(
+        Requirement("discord-py==2.7.1"),
+        build_runtime_snapshot(tmp_path),
+    )
+
+    assert state == "runtime_conflict"
 
 
 def test_version_mismatch_requirements_ignores_missing_packages():
@@ -457,6 +514,31 @@ def test_channel_job_state_is_isolated_by_runtime_environment(tmp_path):
             second = _channel_state_dir()
 
     assert len({desktop, first, second}) == 3
+
+
+def test_all_statuses_reuses_one_runtime_snapshot(tmp_path):
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    snapshot = MagicMock()
+    with (
+        patch(
+            "qwenpaw.app.channels.dependencies.channel_runtime_snapshot",
+            return_value=snapshot,
+        ) as runtime_snapshot,
+        patch.object(
+            service,
+            "channel_status",
+            return_value={"status": "ready"},
+        ) as channel_status,
+    ):
+        service.all_statuses()
+
+    runtime_snapshot.assert_called_once_with()
+    assert channel_status.call_count == len(BUILTIN_CHANNEL_CATALOG)
+    assert all(
+        call.kwargs["snapshot"] is snapshot
+        for call in channel_status.call_args_list
+    )
 
 
 def test_platform_unsupported_status(tmp_path):
@@ -940,6 +1022,80 @@ def test_frozen_install_targets_channel_runtime(tmp_path):
     target_index = args.index("--target")
     assert args[0] == desktop_python
     assert args[target_index + 1] == expected_target
+
+
+def test_frozen_source_fallback_reuses_clean_staging(tmp_path):
+    site_dir = tmp_path / "channel_runtime" / "bucket" / "site"
+    with patch("qwenpaw.app.channels.dependencies.WORKING_DIR", tmp_path):
+        service = ChannelDependencyService()
+    job = InstallJob(
+        id="fallback-staging",
+        channel="feishu",
+        requirements=["demo-package==1.0"],
+    )
+    targets = []
+
+    def run_install(*_args, target=None, **_kwargs):
+        assert target is not None
+        targets.append(target)
+        if len(targets) == 1:
+            (target / "partial.txt").write_text("partial", encoding="utf-8")
+            return subprocess.CompletedProcess(
+                [],
+                1,
+                "connection reset",
+                "",
+            )
+        assert not (target / "partial.txt").exists()
+        metadata_dir = target / "demo_package-1.0.dist-info"
+        metadata_dir.mkdir(parents=True)
+        (target / "demo_package.py").write_text(
+            "value = 1\n",
+            encoding="utf-8",
+        )
+        (metadata_dir / "METADATA").write_text(
+            "Name: demo-package\nVersion: 1.0\n",
+            encoding="utf-8",
+        )
+        (metadata_dir / "RECORD").write_text(
+            "demo_package.py,,\n"
+            "demo_package-1.0.dist-info/METADATA,,\n"
+            "demo_package-1.0.dist-info/RECORD,,\n",
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    with (
+        patch(
+            "qwenpaw.app.channels.dependencies._is_frozen",
+            return_value=True,
+        ),
+        patch(
+            "qwenpaw.app.channels.dependencies._channel_site_dir",
+            return_value=site_dir,
+        ),
+        patch.object(service, "_run_install", side_effect=run_install),
+        patch.object(service, "_append_attempted_source"),
+        patch(
+            "qwenpaw.app.channels.dependencies._channel_runtime_constraints",
+            return_value=[],
+        ),
+        patch(
+            "qwenpaw.app.channels.dependencies.verify_runtime_requirements",
+        ),
+        patch(
+            "qwenpaw.app.channels.dependencies._desktop_python",
+            return_value="python",
+        ),
+    ):
+        service._install_with_sources(  # pylint: disable=protected-access
+            job,
+            ["demo-package==1.0"],
+        )
+
+    assert len(targets) == 2
+    assert targets[0] == targets[1]
+    assert (site_dir / "demo_package.py").is_file()
 
 
 def test_non_network_install_error_does_not_change_source(tmp_path):

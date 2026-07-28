@@ -1,15 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Cross-process advisory lock for plugin dependency installation.
+"""Cross-process advisory lock for environment dependency installation.
 
-The plugin loader installs third-party Python dependencies with
-``pip install`` / ``pip install --target``. In the frozen desktop build
-several backend processes can run at once (e.g. an orphaned backend left
-over from a crash plus a freshly launched one — see issue #5550). Without
-a lock they each spawn ``pip install`` for the *same* requirements into the
-*same* target directory at the same time. That both wastes hundreds of MB
-per ``pip`` process (OOM risk) and corrupts the shared ``.dist-info``,
-which makes the next "is this dependency satisfied?" probe fail and trigger
-yet another reinstall — a self-amplifying loop.
+Plugin and Channel installers can run in multiple backend processes. This
+module retains the small advisory lock used by non-frozen installation and
+Channel job-state coordination. Frozen shared target Runtime writes use the
+strict Runtime-wide lock in ``qwenpaw.package_runtime``.
 
 This module provides a small, dependency-free advisory file lock that is
 automatically released when the holding process exits (even on crash),
@@ -145,7 +140,7 @@ def plugin_install_lock(
                 break
             time.sleep(_RETRY_INTERVAL_SECONDS)
 
-        if not acquired and not cancelled:
+        if not acquired and not cancelled and timeout > 0:
             logger.warning(
                 "Timed out after %.0fs waiting for plugin install lock %s; "
                 "proceeding without it",

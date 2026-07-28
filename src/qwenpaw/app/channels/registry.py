@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from .base import BaseChannel
 from .catalog import BUILTIN_CHANNEL_CATALOG
-from .dependencies import missing_requirements
+from .dependencies import channel_runtime_snapshot, missing_requirements
 
 if TYPE_CHECKING:
     pass
@@ -30,8 +30,22 @@ def _load_builtin_channels() -> dict[str, type[BaseChannel]]:
     A single optional dependency failure should not break CLI startup.
     """
     out: dict[str, type[BaseChannel]] = {}
+    snapshot = channel_runtime_snapshot()
     for key, spec in BUILTIN_CHANNEL_CATALOG.items():
-        if not spec.platform_supported or missing_requirements(spec):
+        if not spec.platform_supported:
+            continue
+        try:
+            unavailable = missing_requirements(spec, snapshot)
+        except Exception:
+            if key in _REQUIRED_CHANNEL_KEYS:
+                raise
+            logger.warning(
+                "built-in channel dependency inspection failed: %s",
+                key,
+                exc_info=True,
+            )
+            continue
+        if unavailable:
             continue
         module_name = spec.module
         class_name = spec.class_name

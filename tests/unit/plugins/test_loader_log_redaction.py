@@ -5,12 +5,44 @@ from importlib.metadata import PackageNotFoundError
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from packaging.requirements import Requirement
 
 from qwenpaw.plugins.loader import PluginLoader
+
+
+def _write_runtime_metadata(
+    site_dir: Path,
+    directory: str,
+    version: str,
+) -> None:
+    metadata_dir = site_dir / directory
+    metadata_dir.mkdir(parents=True)
+    (metadata_dir / "METADATA").write_text(
+        f"Name: discord-py\nVersion: {version}\n",
+        encoding="utf-8",
+    )
+
+
+def _write_staged_distribution(site_dir: Path) -> None:
+    metadata_dir = site_dir / "demo_package-1.0.dist-info"
+    metadata_dir.mkdir(parents=True)
+    (site_dir / "demo_package.py").write_text(
+        "value = 1\n",
+        encoding="utf-8",
+    )
+    (metadata_dir / "METADATA").write_text(
+        "Name: demo-package\nVersion: 1.0\n",
+        encoding="utf-8",
+    )
+    (metadata_dir / "RECORD").write_text(
+        "demo_package.py,,\n"
+        "demo_package-1.0.dist-info/METADATA,,\n"
+        "demo_package-1.0.dist-info/RECORD,,\n",
+        encoding="utf-8",
+    )
 
 
 def test_install_subprocess_redacts_credentials(caplog):
@@ -67,6 +99,63 @@ def test_requirement_import_name_overrides(distribution, import_name):
         )
 
     find_spec.assert_called_once_with(import_name)
+
+
+def test_frozen_plugin_detects_duplicate_runtime_metadata(tmp_path):
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("discord-py==2.7.1\n", encoding="utf-8")
+    site_dir = tmp_path / "site"
+    _write_runtime_metadata(
+        site_dir,
+        "discord_py-2.3.2.dist-info",
+        "2.3.2",
+    )
+    _write_runtime_metadata(
+        site_dir,
+        "discord_py-2.7.1.dist-info",
+        "2.7.1",
+    )
+
+    with (
+        patch("qwenpaw.plugins.loader._is_frozen", return_value=True),
+        patch(
+            "qwenpaw.plugins.loader._plugin_site_dir",
+            return_value=site_dir,
+        ),
+    ):
+        missing = PluginLoader._find_unsatisfied_dependencies(requirements)
+
+    assert missing == ["discord-py==2.7.1"]
+
+
+@pytest.mark.asyncio
+async def test_plugin_dependency_inspection_is_offloaded(tmp_path):
+    loader = PluginLoader(plugin_dirs=[tmp_path])
+    requirements = tmp_path / "plugin" / "requirements.txt"
+    inspect = patch.object(
+        loader,
+        "_inspect_dependencies",
+        return_value=[],
+    )
+    offload = AsyncMock(return_value=[])
+
+    with (
+        inspect as inspect_dependencies,
+        patch(
+            "qwenpaw.plugins.loader.asyncio.to_thread",
+            offload,
+        ),
+        patch("qwenpaw.plugins.loader._ensure_plugin_site_on_path"),
+    ):
+        await loader._ensure_dependencies_installed(
+            requirements.parent,
+            "demo-plugin",
+        )
+
+    offload.assert_awaited_once_with(
+        inspect_dependencies,
+        requirements,
+    )
 
 
 def test_install_subprocess_uses_utf8_with_replacement():
@@ -188,3 +277,46 @@ def test_frozen_plugin_failure_includes_merged_output(tmp_path):
                 "broken-plugin",
                 300,
             )
+
+
+def test_frozen_plugin_installs_to_staging_before_runtime(tmp_path):
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("demo-package==1.0\n", encoding="utf-8")
+    site_dir = tmp_path / "bucket" / "site"
+    loader = PluginLoader(plugin_dirs=[tmp_path])
+    targets = []
+
+    def run_install(command, **_kwargs):
+        target = Path(command[command.index("--target") + 1])
+        targets.append(target)
+        assert "--upgrade" in command
+        strategy = command.index("--upgrade-strategy")
+        assert command[strategy + 1] == "only-if-needed"
+        assert target != site_dir
+        assert ".transactions" in target.parts
+        _write_staged_distribution(target)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    with (
+        patch("qwenpaw.plugins.loader._desktop_python", return_value="python"),
+        patch(
+            "qwenpaw.plugins.loader._plugin_site_dir",
+            return_value=site_dir,
+        ),
+        patch.object(
+            loader,
+            "run_subprocess_with_streaming_log",
+            side_effect=run_install,
+        ),
+        patch.object(loader, "_runtime_constraints", return_value=[]),
+        patch("qwenpaw.plugins.loader.verify_runtime_requirements"),
+    ):
+        loader._install_requirements_frozen(
+            str(requirements),
+            "demo-plugin",
+            300,
+        )
+
+    assert len(targets) == 1
+    assert (site_dir / "demo_package.py").is_file()
+    assert (site_dir / "demo_package-1.0.dist-info").is_dir()
