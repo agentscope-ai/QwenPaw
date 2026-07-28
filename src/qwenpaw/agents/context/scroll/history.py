@@ -66,12 +66,7 @@ class HistoryStore:
     # per process when it's missing, so a long-lived server doesn't log-spam.
     _fts_unavailable_warned = False
 
-    def __init__(
-        self,
-        db_path: str | Path,
-        *,
-        quarantine_on_corruption: bool = True,
-    ) -> None:
+    def __init__(self, db_path: str | Path) -> None:
         self._path = Path(db_path).expanduser()
         self._path.parent.mkdir(parents=True, exist_ok=True)
         # Serializes the single connection across threads: ``compress`` writes
@@ -91,12 +86,6 @@ class HistoryStore:
         try:
             self._open_and_init()
         except sqlite3.DatabaseError as exc:
-            if not quarantine_on_corruption:
-                try:
-                    self._conn.close()
-                except (AttributeError, sqlite3.Error):
-                    pass
-                raise
             # A corrupt / unreadable DB (truncated file, stale WAL trio, bad
             # page) would crash every task at startup. Quarantine the bad file
             # and recreate fresh, degrading "broken memory" to "lost history".
@@ -433,14 +422,7 @@ class HistoryStore:
             return int(cur.fetchone()["n"])
 
     def claim_session(self, session_id: str, agent_id: str | None) -> int:
-        """Assign legacy unowned rows in one canonical session to an agent.
-
-        Older startup-sync callers used the public ``agent_id=None`` default,
-        leaving rows invisible to agent-scoped recall after an agent identity
-        was introduced. A chat-registry mapping establishes the ownership
-        needed to backfill those NULL values without weakening every recall
-        query to include all unowned workspace data.
-        """
+        """Assign legacy unowned rows in a canonical session to an agent."""
         if not session_id or not agent_id:
             return 0
         with self._lock, self._conn:
@@ -451,7 +433,7 @@ class HistoryStore:
             )
             return int(cur.rowcount)
 
-    def rekey_session_rows(
+    def reconcile_session_rows(
         self,
         source_ids: set[str],
         target_id: str,
@@ -459,18 +441,16 @@ class HistoryStore:
         *,
         agent_id: str | None = None,
     ) -> tuple[int, int, int]:
-        """Move exact imported rows from legacy session IDs to ``target_id``.
+        """Move rows proven to come from one file into its canonical session.
 
-        The source session alone is not sufficient provenance: older sync
-        versions derived ``sync:<stem>`` IDs, and equal stems can occur in
-        different channel directories. Restricting the move to dedup keys
-        recomputed from one source file prevents unrelated rows from being
-        swept into the canonical chat when the manifest is missing.
+        ``source_ids`` alone is not sufficient provenance because synthetic
+        IDs can collide across channel directories. Restricting the operation
+        to dedup keys recomputed from the source file prevents unrelated rows
+        from being swept into ``target_id``.
 
-        Returns ``(moved, deduplicated, claimed)``. A source row that already
-        has the same dedup key under the target is removed in favor of the
-        canonical row, so that the unique ``(session_id, dedup_key)`` contract
-        remains intact. Non-conflicting rows keep their original ``seq``.
+        Returns ``(moved, deduplicated, claimed)``. Non-conflicting rows retain
+        their original ``seq``; source duplicates are removed in favor of the
+        existing canonical row so the unique dedup contract remains valid.
         """
         sources = sorted(
             source_id
@@ -563,88 +543,6 @@ class HistoryStore:
                 claimed = int(cur.rowcount)
         return (moved, deduplicated, claimed)
 
-    def rekey_session(self, source_id: str, target_id: str) -> tuple[int, int]:
-        """Move rows from one session id to another.
-
-        Startup migration originally placed legacy 1.x rows under synthetic
-        ``sync:<filename>`` ids. Once the chat registry can recover the real
-        id, non-conflicting rows are updated in place and preserve ``seq``.
-        Rows whose dedup key already exists under the target are coalesced
-        into the canonical target row; their source ``seq`` is necessarily
-        retired to retain the unique dedup contract. The return value is
-        ``(moved, deduplicated)``.
-        """
-        if not source_id or not target_id or source_id == target_id:
-            return (0, 0)
-
-        with self._lock, self._conn:
-            duplicates = self._conn.execute(
-                "SELECT src.seq, src.content "
-                "FROM conversation_history AS src "
-                "WHERE src.session_id = ? AND src.dedup_key IS NOT NULL "
-                "AND EXISTS ("
-                "SELECT 1 FROM conversation_history AS dst "
-                "WHERE dst.session_id = ? "
-                "AND dst.dedup_key = src.dedup_key)",
-                (source_id, target_id),
-            ).fetchall()
-            if self._fts:
-                for row in duplicates:
-                    self._conn.execute(
-                        "INSERT INTO conversation_history_fts"
-                        "(conversation_history_fts, rowid, content) "
-                        "VALUES('delete', ?, ?)",
-                        (row["seq"], row["content"] or ""),
-                    )
-            if duplicates:
-                self._conn.executemany(
-                    "DELETE FROM conversation_history WHERE seq = ?",
-                    [(row["seq"],) for row in duplicates],
-                )
-
-            cur = self._conn.execute(
-                "UPDATE conversation_history SET session_id = ? "
-                "WHERE session_id = ?",
-                (target_id, source_id),
-            )
-            return (int(cur.rowcount), len(duplicates))
-
-    def delete_session(self, session_id: str) -> int:
-        """Delete every durable row owned by one conversation.
-
-        Chat deletion is a user-visible data deletion operation, so retention
-        alone is not sufficient: rows for the deleted ``session_id`` must stop
-        appearing in cross-session recall immediately. Keep the external-
-        content FTS table in sync before removing the source rows.
-
-        Returns the number of deleted conversation rows. As with
-        :meth:`purge`, freed SQLite pages are reusable but the file is not
-        vacuumed inline.
-        """
-        if not session_id:
-            return 0
-        with self._lock, self._conn:
-            doomed = self._conn.execute(
-                "SELECT seq, content FROM conversation_history "
-                "WHERE session_id = ?",
-                (session_id,),
-            ).fetchall()
-            if not doomed:
-                return 0
-            if self._fts:
-                for row in doomed:
-                    self._conn.execute(
-                        "INSERT INTO conversation_history_fts"
-                        "(conversation_history_fts, rowid, content) "
-                        "VALUES('delete', ?, ?)",
-                        (row["seq"], row["content"] or ""),
-                    )
-            self._conn.execute(
-                "DELETE FROM conversation_history WHERE session_id = ?",
-                (session_id,),
-            )
-            return len(doomed)
-
     def existing_seqs(self, seqs: set[int]) -> set[int]:
         """Return the subset of globally addressed history rows that exist."""
         if not seqs:
@@ -675,7 +573,7 @@ class HistoryStore:
         found: dict[int, str | None] = {}
         with self._lock:
             for start in range(0, len(ordered), 500):
-                chunk = ordered[slice(start, start + 500)]
+                chunk = ordered[start : start + 500]
                 placeholders = ", ".join("?" for _ in chunk)
                 rows = self._conn.execute(
                     "SELECT seq, content FROM conversation_history "

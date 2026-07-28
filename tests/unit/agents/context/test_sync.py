@@ -10,6 +10,7 @@ and robust (empty dir / corrupt file never raise).
 
 import json
 import logging
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +25,7 @@ from qwenpaw.agents.context.scroll.sync import (
     sync_all_scroll_agents,
     sync_sessions_to_history,
 )
+from qwenpaw.agents.context.types import LogEntry
 
 
 def _sample_msgs() -> list[Msg]:
@@ -226,7 +228,7 @@ def test_chat_registry_overrides_internal_2x_agent_state_id(
     assert store.count("internal-agent-state-id") == 0
 
 
-def test_existing_synthetic_manifest_is_rekeyed_without_changing_seq(
+def test_existing_synthetic_manifest_is_rekeyed_to_canonical_session(
     store,
     tmp_path: Path,
 ):
@@ -261,11 +263,11 @@ def test_existing_synthetic_manifest_is_rekeyed_without_changing_seq(
             },
         },
     )
-    before = store._conn.execute(
+    source_before = store._conn.execute(
         "SELECT seq FROM conversation_history "
         "WHERE session_id='sync:default_legacy-session' ORDER BY seq",
     ).fetchall()
-    before_seqs = [row["seq"] for row in before]
+    source_seqs = [row["seq"] for row in source_before]
 
     chats = _write_chats(
         tmp_path / "chats.json",
@@ -284,15 +286,16 @@ def test_existing_synthetic_manifest_is_rekeyed_without_changing_seq(
     )
 
     assert second.rows_inserted == 0
-    # A v1 manifest is deliberately re-read once under manifest v2 so legacy
-    # source IDs can be reconciled without trusting stale provenance.
+    # A v1 manifest is deliberately re-read once under manifest v2 so the
+    # source can be imported under the canonical registry ID.
     assert not any(result.skipped for result in second.files)
     assert store.count("sync:default_legacy-session") == 0
     after = store._conn.execute(
         "SELECT seq FROM conversation_history "
         "WHERE session_id='legacy-session' ORDER BY seq",
     ).fetchall()
-    assert [row["seq"] for row in after] == before_seqs
+    canonical_seqs = [row["seq"] for row in after]
+    assert canonical_seqs == source_seqs
     manifest = json.loads(
         (sessions / MANIFEST_NAME).read_text(encoding="utf-8"),
     )
@@ -303,7 +306,7 @@ def test_existing_synthetic_manifest_is_rekeyed_without_changing_seq(
     assert manifest["version"] == 2
 
 
-def test_changed_synthetic_manifest_is_rekeyed_before_resync(
+def test_changed_synthetic_manifest_rekeys_then_adds_new_history(
     store,
     tmp_path: Path,
 ):
@@ -385,7 +388,8 @@ def test_changed_synthetic_manifest_is_rekeyed_before_resync(
             "WHERE session_id='changed-session'",
         )
     }
-    assert original_seqs < canonical_seqs
+    assert len(canonical_seqs) == first.rows_inserted + 1
+    assert original_seqs.issubset(canonical_seqs)
 
 
 def test_ambiguous_chat_filename_is_reported_as_orphan(
@@ -661,7 +665,10 @@ def test_v1_manifest_rekeys_arbitrary_legacy_id(store, tmp_path: Path):
     assert manifest["version"] == 2
 
 
-def test_manifest_skip_claims_legacy_null_agent_rows(store, tmp_path: Path):
+def test_manifest_skip_claims_legacy_null_agent_rows(
+    store,
+    tmp_path: Path,
+):
     sessions = tmp_path / "sessions"
     _write_session_2x(sessions, "sid.json", "sid", _sample_msgs())
     first = _sync_registered(store, sessions, [_chat("sid")], agent_id=None)
@@ -679,6 +686,13 @@ def test_manifest_skip_claims_legacy_null_agent_rows(store, tmp_path: Path):
             "WHERE session_id = 'sid' AND agent_id = 'ag1'",
         ).fetchone()[0]
         == first.rows_inserted
+    )
+    assert (
+        store._conn.execute(
+            "SELECT COUNT(*) FROM conversation_history "
+            "WHERE session_id = 'sid' AND agent_id IS NULL",
+        ).fetchone()[0]
+        == 0
     )
 
 
@@ -882,7 +896,12 @@ def test_fully_aged_session_imports_nothing_and_skips_on_rerun(
     assert r2.rows_inserted == 0
 
 
-def _stub_config_loaders(monkeypatch, workspace: Path) -> None:
+def _stub_config_loaders(
+    monkeypatch,
+    workspace: Path,
+    *,
+    retention_days: int = 0,
+) -> None:
     """Point the startup sync at one scroll agent under *workspace*.
 
     ``agent_config.workspace_dir`` is deliberately a bogus path: the sync must
@@ -898,7 +917,7 @@ def _stub_config_loaders(monkeypatch, workspace: Path) -> None:
                 strategy="scroll",
                 scroll_config=SimpleNamespace(
                     db_filename="history.db",
-                    history_retention_days=0,
+                    history_retention_days=retention_days,
                 ),
             ),
         ),
@@ -977,8 +996,66 @@ def test_startup_blocks_auto_created_empty_chat_registry(
         "has no registered chats" in record.getMessage()
         for record in caplog.records
     )
+    assert not (workspace / "history.db").exists()
+
+
+@pytest.mark.usefixtures("capture_qwenpaw_logs")
+def test_blocked_registry_does_not_purge_existing_history(
+    monkeypatch,
+    tmp_path: Path,
+):
+    workspace = tmp_path / "ws"
+    _write_session_1x(
+        workspace / "sessions",
+        "legacy.json",
+        _sample_msgs(),
+    )
+    _write_chats(workspace / "chats.json", [])
     history = HistoryStore(workspace / "history.db")
+    history.append(
+        session_id="existing",
+        dedup_key="old",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="must survive blocked migration",
+            created_at="2000-01-01T00:00:00+00:00",
+        ),
+    )
+    history.close()
+    _stub_config_loaders(monkeypatch, workspace, retention_days=30)
+
+    sync_all_scroll_agents()
+
+    conn = sqlite3.connect(workspace / "history.db")
     try:
-        assert history.count("sync:legacy") == 0
+        count = conn.execute(
+            "SELECT COUNT(*) FROM conversation_history "
+            "WHERE session_id = 'existing'",
+        ).fetchone()[0]
     finally:
-        history.close()
+        conn.close()
+    assert count == 1
+
+
+@pytest.mark.usefixtures("capture_qwenpaw_logs")
+def test_blocked_registry_does_not_quarantine_corrupt_history(
+    monkeypatch,
+    tmp_path: Path,
+):
+    workspace = tmp_path / "ws"
+    _write_session_1x(
+        workspace / "sessions",
+        "legacy.json",
+        _sample_msgs(),
+    )
+    _write_chats(workspace / "chats.json", [])
+    db_path = workspace / "history.db"
+    original = b"not a sqlite database" * 50
+    db_path.write_bytes(original)
+    _stub_config_loaders(monkeypatch, workspace)
+
+    sync_all_scroll_agents()
+
+    assert db_path.read_bytes() == original
+    assert not list(workspace.glob("history.db.corrupt-*"))

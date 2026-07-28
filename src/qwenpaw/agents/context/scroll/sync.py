@@ -179,6 +179,15 @@ class ChatRegistry:
         return self.error is None
 
 
+@dataclass(frozen=True)
+class SyncPreflight:
+    """Read-only migration inputs resolved before opening ``history.db``."""
+
+    session_files: tuple[tuple[Path, str], ...] = ()
+    registry: ChatRegistry = field(default_factory=ChatRegistry)
+    registry_error: str | None = None
+
+
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -227,10 +236,8 @@ def _extract_session(
 
     Handles both on-disk shapes ``QwenPawAgent.load_state_dict`` accepts: the
     2.0 ``{"state": {...}}`` and the 1.x legacy ``{"memory": {...}}``. The
-    caller supplies the canonical registry ID. An embedded state ID is returned
-    only as migration provenance so rows written by older sync versions can be
-    rekeyed; it never overrides the chat registry. Both shapes reduce to a flat
-    list of payloads, then a tolerant decode loop.
+    caller supplies the canonical registry ID. An embedded ID is returned only
+    as migration provenance and never overrides the registry.
     """
     agent = data.get("agent")
     if not isinstance(agent, dict):
@@ -263,9 +270,9 @@ def _extract_session(
     for item in raw_msgs:
         try:
             messages.append(
-                item
-                if isinstance(item, Msg)
-                else Msg.from_dict(item),  # type: ignore[attr-defined]
+                (
+                    item if isinstance(item, Msg) else Msg.from_dict(item)
+                ),  # type: ignore[attr-defined]
             )
         except Exception as exc:  # noqa: BLE001 - tolerate any bad message
             unparseable += 1
@@ -277,6 +284,8 @@ def _extract_session(
     return session_id, messages, unparseable, embedded_session_id
 
 
+# The error-isolation and retention paths are intentionally kept together so
+# one source file has one auditable migration boundary.
 # pylint: disable=too-many-branches
 def _sync_file(
     history: "HistoryStore",
@@ -368,9 +377,6 @@ def _sync_file(
         source_ids.add(embedded_session_id)
     res.legacy_session_ids = sorted(source_ids)
 
-    # Reconcile rows written by older sync versions before appending canonical
-    # rows. Exact dedup keys provide file-level provenance even if the manifest
-    # was deleted; this avoids sweeping every row under a colliding stem.
     if not dry_run:
         dedup_keys = {
             str(dedup_key)
@@ -381,7 +387,7 @@ def _sync_file(
             res.rows_rekeyed,
             res.rows_deduplicated,
             res.agent_rows_claimed,
-        ) = history.rekey_session_rows(
+        ) = history.reconcile_session_rows(
             source_ids,
             session_id,
             dedup_keys,
@@ -406,9 +412,6 @@ def _sync_file(
             entries=pending_entries,
         )
     return res
-
-
-# pylint: enable=too-many-branches
 
 
 def _skip_is_safe(history: "HistoryStore", prior: dict) -> bool:
@@ -475,41 +478,42 @@ def _load_chat_session_id_map(
             error,
         )
         return ChatRegistry(error=error)
-    chats = data.get("chats") if isinstance(data, dict) else None
-    if not isinstance(chats, list):
+    try:
+        from ....app.chats.models import ChatsFile
+
+        registry_file = ChatsFile.model_validate(data)
+    except (TypeError, ValueError) as exc:
         error = f"invalid chat registry {path}"
         logger.error(
-            "session-sync: %s; no history was imported",
+            "session-sync: %s (%s); no history was imported",
             error,
+            exc,
         )
         return ChatRegistry(error=error)
 
-    # Lazy import avoids pulling the app/session stack into module import for
-    # callers that use the low-level sync without a chat registry.
-    from ....app.chats.session import sanitize_filename
+    from ....app.chats.session import session_relative_paths
 
     mapping: dict[str, str] = {}
     ambiguous: set[str] = set()
-    for chat in chats:
-        if not isinstance(chat, dict):
+    registered = 0
+    for chat in registry_file.chats:
+        session_id = chat.session_id
+        if not session_id:
             continue
-        session_id = chat.get("session_id")
-        if not isinstance(session_id, str) or not session_id:
-            continue
-        user_id = chat.get("user_id")
-        channel = chat.get("channel")
-        safe_sid = sanitize_filename(session_id)
-        safe_uid = (
-            sanitize_filename(user_id) if isinstance(user_id, str) else ""
-        )
-        if safe_uid == safe_sid:
-            safe_uid = ""
-        filename = (
-            f"{safe_uid}_{safe_sid}.json" if safe_uid else f"{safe_sid}.json"
-        )
-        rel_names = {filename}
-        if isinstance(channel, str) and channel:
-            rel_names.add(f"{sanitize_filename(channel)}/{filename}")
+        registered += 1
+        try:
+            rel_names = session_relative_paths(
+                session_id,
+                chat.user_id,
+                chat.channel,
+            )
+        except ValueError as exc:
+            error = f"invalid chat registry {path}: {exc}"
+            logger.error(
+                "session-sync: %s; no history was imported",
+                error,
+            )
+            return ChatRegistry(error=error)
         for rel_name in rel_names:
             previous = mapping.get(rel_name)
             if previous is not None and previous != session_id:
@@ -527,12 +531,40 @@ def _load_chat_session_id_map(
         )
     return ChatRegistry(
         mapping=mapping,
-        has_registered_chats=any(
-            isinstance(chat, dict)
-            and isinstance(chat.get("session_id"), str)
-            and bool(chat["session_id"])
-            for chat in chats
-        ),
+        has_registered_chats=registered > 0,
+    )
+
+
+def preflight_sessions(
+    sessions_dir: str | Path,
+    chats_path: str | Path | None,
+) -> SyncPreflight:
+    """Resolve files and registry health without opening ``history.db``."""
+    sessions_path = Path(sessions_dir).expanduser()
+    if not sessions_path.is_dir():
+        return SyncPreflight()
+
+    session_files = tuple(_iter_session_files(sessions_path))
+    if not session_files:
+        return SyncPreflight(session_files=session_files)
+    registry = _load_chat_session_id_map(chats_path)
+    registry_error = registry.error
+    if (
+        registry.available
+        and session_files
+        and not registry.has_registered_chats
+    ):
+        registry_error = f"chat registry {chats_path} has no registered chats"
+        logger.error(
+            "session-sync: found %d legacy session file(s), but %s; "
+            "migration was not performed and source files were left untouched",
+            len(session_files),
+            registry_error,
+        )
+    return SyncPreflight(
+        session_files=session_files,
+        registry=registry,
+        registry_error=registry_error,
     )
 
 
@@ -554,6 +586,7 @@ def sync_sessions_to_history(
     dry_run: bool = False,
     use_manifest: bool = True,
     retention_days: int = 0,
+    preflight: SyncPreflight | None = None,
 ) -> SyncReport:
     """Import every ``sessions/*.json`` under *sessions_dir* into *history*.
 
@@ -586,30 +619,17 @@ def sync_sessions_to_history(
     manifest_path = sessions_path / MANIFEST_NAME
     manifest = _load_manifest(manifest_path) if use_manifest else {"files": {}}
     files_meta: dict = manifest["files"]
-    session_files = list(_iter_session_files(sessions_path))
-    registry = _load_chat_session_id_map(chats_path)
-    registry_error = registry.error
-    if (
-        registry.available
-        and session_files
-        and not registry.has_registered_chats
-    ):
-        registry_error = f"chat registry {chats_path} has no registered chats"
-        logger.error(
-            "session-sync: found %d legacy session file(s), but %s; "
-            "migration was not performed and source files were left untouched",
-            len(session_files),
-            registry_error,
-        )
-    if registry_error:
-        report.registry_error = registry_error
+    resolved = preflight or preflight_sessions(sessions_path, chats_path)
+    session_files = list(resolved.session_files)
+    if resolved.registry_error:
+        report.registry_error = resolved.registry_error
         report.files.extend(
             FileResult(filename=rel_name, blocked=True)
             for _path, rel_name in session_files
         )
         return report
 
-    canonical_ids = registry.mapping
+    canonical_ids = resolved.registry.mapping
     stem_counts = Counter(path.stem for path, _rel_name in session_files)
     dirty = False
 
@@ -657,6 +677,12 @@ def sync_sessions_to_history(
         prior_session_id = str(prior.get("session_id") or "") if prior else ""
         if prior_session_id and prior_session_id != canonical_id:
             legacy_session_ids.add(prior_session_id)
+        if prior:
+            legacy_session_ids.update(
+                str(source_id)
+                for source_id in prior.get("legacy_session_ids_checked", ())
+                if source_id
+            )
         if stem_counts[path.stem] == 1:
             legacy_session_ids.add(f"{_SESSION_PREFIX}{path.stem}")
 
@@ -759,6 +785,10 @@ def sync_all_scroll_agents() -> None:
         logger.warning("session-sync: aborted unexpectedly", exc_info=True)
 
 
+# Keep the preflight-before-DB-open ordering visible in one startup flow.  In
+# particular, moving DB construction into a generic helper would make it much
+# easier to accidentally mutate/quarantine history before registry validation.
+# pylint: disable=too-many-statements
 def _sync_all_scroll_agents() -> None:
     # Imported lazily to keep this module importable without the app config.
     from ....config import load_config
@@ -799,16 +829,28 @@ def _sync_all_scroll_agents() -> None:
         if not sessions_dir.is_dir():
             logger.info("session-sync[%s]: no sessions to sync", agent_id)
             continue
+        resolved = preflight_sessions(sessions_dir, chats_path)
+        if resolved.registry_error:
+            blocked = SyncReport(registry_error=resolved.registry_error)
+            blocked.files.extend(
+                FileResult(filename=rel_name, blocked=True)
+                for _path, rel_name in resolved.session_files
+            )
+            logger.error(
+                "session-sync[%s]: %s",
+                agent_id,
+                blocked.summary(),
+            )
+            continue
 
         # First-run notice (no manifest yet): warn BEFORE the import so the
         # one-time migration isn't a silent stall. Later startups have a
         # manifest and skip straight through.
         if not (sessions_dir / MANIFEST_NAME).exists():
-            registry = _load_chat_session_id_map(chats_path)
             pending = sum(
                 1
-                for _path, rel_name in _iter_session_files(sessions_dir)
-                if rel_name in registry.mapping
+                for _path, rel_name in resolved.session_files
+                if rel_name in resolved.registry.mapping
             )
             if pending:
                 logger.warning(
@@ -830,6 +872,7 @@ def _sync_all_scroll_agents() -> None:
                 agent_id=agent_id,
                 retention_days=retention_days,
                 chats_path=chats_path,
+                preflight=resolved,
             )
             _purge_old_history(history, retention_days, agent_id)
         except Exception as exc:  # noqa: BLE001 - isolate one agent's failure

@@ -9,6 +9,7 @@ Covers:
 - ``migrate_legacy_weixin_session_files`` weixin -> wechat rename
 - ``AgentStateError`` raised for missing-file ``allow_not_exist=False``
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -24,6 +25,8 @@ from qwenpaw.app.chats.session import (
     _safe_json_loads,
     migrate_legacy_weixin_session_files,
     sanitize_filename,
+    session_filename,
+    session_relative_paths,
 )
 from qwenpaw.exceptions import AgentStateError
 
@@ -319,64 +322,6 @@ async def test_get_session_state_dict_recovers_from_corruption(
 
 
 # ---------------------------------------------------------------------------
-# delete_session_state
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_delete_session_state_removes_channel_and_legacy_files(
-    session,
-    tmp_path: Path,
-):
-    channel_dir = tmp_path / "console"
-    channel_dir.mkdir()
-    channel_path = channel_dir / "u_console--sid.json"
-    legacy_path = tmp_path / "u_console--sid.json"
-    channel_path.write_text("{}", encoding="utf-8")
-    legacy_path.write_text("{}", encoding="utf-8")
-
-    deleted = await session.delete_session_state(
-        "console:sid",
-        "u",
-        "console",
-    )
-
-    assert deleted is True
-    assert not channel_path.exists()
-    assert not legacy_path.exists()
-
-
-@pytest.mark.asyncio
-async def test_delete_session_state_missing_is_idempotent(session):
-    assert (
-        await session.delete_session_state("missing", "u", "console") is False
-    )
-
-
-@pytest.mark.asyncio
-async def test_delete_session_state_can_preserve_legacy_file(
-    session,
-    tmp_path: Path,
-):
-    channel_dir = tmp_path / "console"
-    channel_dir.mkdir()
-    channel_path = channel_dir / "u_console--sid.json"
-    legacy_path = tmp_path / "u_console--sid.json"
-    channel_path.write_text("{}", encoding="utf-8")
-    legacy_path.write_text("{}", encoding="utf-8")
-
-    await session.delete_session_state(
-        "console:sid",
-        "u",
-        "console",
-        delete_legacy=False,
-    )
-
-    assert not channel_path.exists()
-    assert legacy_path.exists()
-
-
-# ---------------------------------------------------------------------------
 # Channel sub-directory + cross-channel migration
 # ---------------------------------------------------------------------------
 
@@ -390,6 +335,25 @@ def test_get_save_path_uses_channel_subdir(session, tmp_path: Path):
 
     assert Path(path) == tmp_path / "console" / "u_sess.json"
     assert (tmp_path / "console").is_dir()
+
+
+def test_session_path_helpers_match_save_layout():
+    assert session_filename("console:sid", "user") == "user_console--sid.json"
+    assert session_relative_paths(
+        "console:sid",
+        "user",
+        "console",
+    ) == {
+        "user_console--sid.json",
+        "console/user_console--sid.json",
+    }
+
+
+def test_session_path_helpers_reject_parent_channel(session):
+    with pytest.raises(ValueError, match="invalid session channel"):
+        session_relative_paths("sid", "user", "..")
+    with pytest.raises(ValueError, match="invalid session channel"):
+        session._get_save_path("sid", "user", "..")
 
 
 def test_get_save_path_migrates_legacy_session_into_channel(

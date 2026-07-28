@@ -97,40 +97,7 @@ def test_same_dedup_key_different_session_does_not_collide(
     assert store.count("s1") == 1 and store.count("s2") == 1
 
 
-def test_rekey_session_preserves_seq_and_deduplicates(store: HistoryStore):
-    kept = store.append(
-        session_id="real",
-        dedup_key="shared",
-        entry=_entry("live copy"),
-    )
-    duplicate = store.append(
-        session_id="sync:file",
-        dedup_key="shared",
-        entry=_entry("migration copy"),
-    )
-    moved = store.append(
-        session_id="sync:file",
-        dedup_key="unique",
-        entry=_entry("legacy only"),
-    )
-
-    moved_count, deduplicated = store.rekey_session("sync:file", "real")
-
-    assert (moved_count, deduplicated) == (1, 1)
-    assert store.count("sync:file") == 0
-    assert store.count("real") == 2
-    rows = store._conn.execute(
-        "SELECT seq, content FROM conversation_history "
-        "WHERE session_id='real' ORDER BY seq",
-    ).fetchall()
-    assert [(row["seq"], row["content"]) for row in rows] == [
-        (kept, "live copy"),
-        (moved, "legacy only"),
-    ]
-    assert duplicate not in {row["seq"] for row in rows}
-
-
-def test_rekey_session_rows_uses_exact_file_keys_and_claims_agent(
+def test_reconcile_rows_uses_exact_file_keys_and_claims_agent(
     store: HistoryStore,
 ):
     selected_seq = store.append(
@@ -146,7 +113,7 @@ def test_rekey_session_rows_uses_exact_file_keys_and_claims_agent(
         entry=_entry("unrelated row"),
     )
 
-    moved, deduplicated, claimed = store.rekey_session_rows(
+    moved, deduplicated, claimed = store.reconcile_session_rows(
         {"sync:shared-stem"},
         "canonical",
         {"selected"},
@@ -166,35 +133,35 @@ def test_rekey_session_rows_uses_exact_file_keys_and_claims_agent(
     assert tuple(unrelated) == ("sync:shared-stem", None)
 
 
-def test_delete_session_removes_only_target_and_keeps_fts_in_sync(
-    store: HistoryStore,
-):
-    store.append(
-        session_id="deleted",
-        dedup_key="gone",
-        entry=_entry("uniquedeletedtoken"),
+def test_reconcile_rows_deduplicates_source_and_fts(store: HistoryStore):
+    if not store._fts:
+        pytest.skip("SQLite build lacks FTS5")
+    kept = store.append(
+        session_id="canonical",
+        dedup_key="shared",
+        entry=_entry("canonical copy"),
     )
-    store.append(
-        session_id="retained",
-        dedup_key="kept",
-        entry=_entry("uniqueretainedtoken"),
+    duplicate = store.append(
+        session_id="sync:file",
+        dedup_key="shared",
+        entry=_entry("legacy duplicate token"),
     )
 
-    assert store.delete_session("deleted") == 1
-    assert store.count("deleted") == 0
-    assert store.count("retained") == 1
-    assert store.delete_session("deleted") == 0
-    if store._fts:
-        gone = store._conn.execute(
-            "SELECT rowid FROM conversation_history_fts WHERE "
-            "conversation_history_fts MATCH 'uniquedeletedtoken'",
-        ).fetchall()
-        kept = store._conn.execute(
-            "SELECT rowid FROM conversation_history_fts WHERE "
-            "conversation_history_fts MATCH 'uniqueretainedtoken'",
-        ).fetchall()
-        assert gone == []
-        assert len(kept) == 1
+    moved, deduplicated, claimed = store.reconcile_session_rows(
+        {"sync:file"},
+        "canonical",
+        {"shared"},
+    )
+
+    assert (moved, deduplicated, claimed) == (0, 1, 0)
+    assert store.count("sync:file") == 0
+    assert store.count("canonical") == 1
+    assert duplicate != kept
+    hits = store._conn.execute(
+        "SELECT rowid FROM conversation_history_fts "
+        "WHERE conversation_history_fts MATCH 'legacy'",
+    ).fetchall()
+    assert hits == []
 
 
 def test_null_dedup_key_is_never_deduped(store: HistoryStore):
@@ -487,15 +454,3 @@ def test_corrupt_db_is_quarantined_and_recreated(tmp_path: Path):
         assert store.count("s") == 1
     finally:
         store.close()
-
-
-def test_corrupt_db_can_fail_without_quarantine(tmp_path: Path):
-    db = tmp_path / "history.db"
-    original = b"this is not a sqlite database" * 50
-    db.write_bytes(original)
-
-    with pytest.raises(sqlite3.DatabaseError):
-        HistoryStore(db, quarantine_on_corruption=False)
-
-    assert db.read_bytes() == original
-    assert not list(tmp_path.glob("history.db.corrupt-*"))

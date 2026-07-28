@@ -285,11 +285,9 @@ class MemorySpace:
     def expand(self, lo: int, hi: int) -> list[dict]:
         """Full durable turns in the seq span ``[lo, hi]``, oldest first.
 
-        ``seq`` is a globally-unique address, but rows from concurrently active
-        conversations can be interleaved inside a multi-row span.  The
-        eviction index belongs to this MemorySpace's conversation, so expand
-        must retain that session/agent lineage instead of returning every row
-        numerically between its endpoints.
+        ``seq`` is globally unique, but rows from concurrent conversations can
+        interleave inside a range. The eviction index belongs to this
+        MemorySpace's conversation, so retain its session and agent lineage.
         """
         where = ["seq BETWEEN ? AND ?"]
         params: list = [int(lo), int(hi)]
@@ -297,10 +295,9 @@ class MemorySpace:
             where.append("session_id = ?")
             params.append(self._session_id)
         if self._agent_id:
-            # Rows imported by early sync versions used agent_id=NULL. The
-            # session + durable seq span already pins expand to this eviction
-            # lineage, so include those legacy rows until startup sync can
-            # claim them for the canonical agent.
+            # Early migration versions wrote agent_id=NULL. Session + seq range
+            # already pins these rows to this eviction lineage, so retain them
+            # until startup reconciliation can claim the canonical session.
             where.append("(agent_id = ? OR agent_id IS NULL)")
             params.append(self._agent_id)
         return self._select(
@@ -970,7 +967,7 @@ class MemorySpace:
                 deadline=time.monotonic() + _SAVED_TOOL_SCAN_MAX_SECONDS,
             )
         matches: list[dict] = []
-        previous: deque[tuple[int, str]] = deque(maxlen=max(0, context))
+        previous = deque(maxlen=max(0, context))
         pending: list[dict] = []
         try:
             file_obj = path.open("rb")
@@ -980,7 +977,7 @@ class MemorySpace:
             line_no = 0
             while len(matches) < limit:
                 raw = budget.read_line(file_obj)
-                if raw is None or raw == b"":
+                if raw in (None, b""):
                     break
                 line_no += 1
                 line = raw.decode("utf-8", errors="replace").rstrip("\r\n")

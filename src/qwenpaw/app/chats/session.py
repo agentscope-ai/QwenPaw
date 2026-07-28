@@ -4,12 +4,13 @@ compatibility.
 
 Windows filenames cannot contain: \\ / : * ? " < > |
 """
+
 import os
 import re
 import logging
 import shutil
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Union, Sequence
 
 from qwenpaw.exceptions import ConfigurationException
@@ -36,6 +37,43 @@ def sanitize_filename(name: str) -> str:
     'normal-name'
     """
     return _UNSAFE_FILENAME_RE.sub("--", name)
+
+
+def session_filename(session_id: str, user_id: str = "") -> str:
+    """Return the filename used by ``SafeJSONSession`` for one conversation."""
+    if not session_id:
+        raise ValueError("session_id must not be None or empty")
+
+    safe_sid = sanitize_filename(session_id)
+    safe_uid = sanitize_filename(user_id) if user_id else ""
+    if safe_uid and safe_uid == safe_sid:
+        safe_uid = ""
+    return f"{safe_uid}_{safe_sid}.json" if safe_uid else f"{safe_sid}.json"
+
+
+def session_relative_paths(
+    session_id: str,
+    user_id: str = "",
+    channel: str = "",
+) -> set[str]:
+    """Return current and legacy paths relative to a sessions directory.
+
+    The returned paths are pure relative POSIX paths so startup migration can
+    compare them directly with ``Path.relative_to(...).as_posix``.
+    """
+    filename = session_filename(session_id, user_id)
+    paths = {filename}
+    if channel:
+        safe_channel = sanitize_filename(channel)
+        if safe_channel in {".", ".."}:
+            raise ValueError(f"invalid session channel: {channel!r}")
+        relative = PurePosixPath(safe_channel, filename)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(
+                f"session path escapes save directory: {channel!r}",
+            )
+        paths.add(relative.as_posix())
+    return paths
 
 
 # Marker used by ``sanitize_filename`` for the historical ``weixin:`` and
@@ -205,22 +243,12 @@ class SafeJSONSession:
             )
             raise ValueError("session_id must not be None or empty")
 
-        safe_sid = sanitize_filename(session_id)
-        safe_uid = sanitize_filename(user_id) if user_id else ""
-
-        # Guard against user_id == session_id (e.g. when upstream falls back
-        # to session_id as user_id).  Duplicating the same token doubles the
-        # filename length and can exceed Windows MAX_PATH (260 chars).
-        if safe_uid and safe_uid == safe_sid:
-            safe_uid = ""
-
-        if safe_uid:
-            filename = f"{safe_uid}_{safe_sid}.json"
-        else:
-            filename = f"{safe_sid}.json"
+        filename = session_filename(session_id, user_id)
 
         if channel:
             safe_channel = sanitize_filename(channel)
+            if safe_channel in {".", ".."}:
+                raise ValueError(f"invalid session channel: {channel!r}")
             target_dir = os.path.join(self.save_dir, safe_channel)
             os.makedirs(target_dir, exist_ok=True)
             target_path = os.path.join(target_dir, filename)
@@ -443,61 +471,3 @@ class SafeJSONSession:
                 f"because it does not exist"
             ),
         )
-
-    async def delete_session_state(
-        self,
-        session_id: str,
-        user_id: str = "",
-        channel: str = "",
-        *,
-        delete_legacy: bool = True,
-    ) -> bool:
-        """Delete the live JSON state for one conversation.
-
-        Channel-scoped state used to live directly under ``save_dir``. The
-        read path migrates that legacy file into the channel directory, so a
-        deletion normally removes both locations or the legacy copy could
-        resurrect the session on the next read.
-
-        Returns ``True`` when at least one file was removed.
-        """
-        if not session_id:
-            raise ValueError("session_id must not be None or empty")
-
-        safe_sid = sanitize_filename(session_id)
-        safe_uid = sanitize_filename(user_id) if user_id else ""
-        if safe_uid and safe_uid == safe_sid:
-            safe_uid = ""
-        filename = (
-            f"{safe_uid}_{safe_sid}.json" if safe_uid else f"{safe_sid}.json"
-        )
-
-        legacy_path = os.path.join(self.save_dir, filename)
-        paths = [legacy_path] if delete_legacy else []
-        if channel:
-            paths.insert(
-                0,
-                os.path.join(
-                    self.save_dir,
-                    sanitize_filename(channel),
-                    filename,
-                ),
-            )
-
-        removed = False
-        for path in dict.fromkeys(paths):
-            async with self._get_write_lock(path):
-                try:
-                    await asyncio.to_thread(os.remove, path)
-                    removed = True
-                except FileNotFoundError:
-                    pass
-        if removed:
-            logger.info(
-                "Deleted session state for session_id=%s, user_id=%s, "
-                "channel=%s",
-                session_id,
-                user_id,
-                channel,
-            )
-        return removed
