@@ -28,6 +28,10 @@ use tauri::Manager;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+// The helper reads the capability secret from this variable. Kept in step with
+// the same name in computer_use_server::parse_arguments, which is a separate
+// binary and cannot share the constant.
+const CAPABILITY_ENV: &str = "QWENPAW_CU_CAPABILITY";
 const CONTROL_PROTOCOL_VERSION: u8 = 1;
 const CONTROL_MAX_MESSAGE_BYTES: usize = 4096;
 
@@ -169,13 +173,12 @@ pub(crate) fn ensure(app: &tauri::AppHandle) -> Result<(), String> {
         secret: random_hex(32),
     };
     let mut command = Command::new(&helper);
-    command.args([
-        "serve",
-        "--pipe",
-        &capability.pipe_name,
-        "--capability",
-        &capability.secret,
-    ]);
+    command.args(["serve", "--pipe", &capability.pipe_name]);
+    // The secret travels in the environment, not on the command line: argv is
+    // readable by any same-user process through `ps` / GetCommandLine, whereas
+    // the environment is not exposed there. This matches how the backend
+    // sidecar passes its shutdown token.
+    command.env(CAPABILITY_ENV, &capability.secret);
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
 

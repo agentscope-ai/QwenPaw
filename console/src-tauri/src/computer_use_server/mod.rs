@@ -191,14 +191,12 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
 
 fn parse_arguments(args: &[String]) -> Result<(String, String), String> {
     let mut pipe_name = None;
-    let mut capability = None;
     let mut index = 0;
     while index < args.len() {
         let value = &args[index];
         index += 1;
         let target = match value.as_str() {
             "--pipe" => &mut pipe_name,
-            "--capability" => &mut capability,
             _ => return Err(format!("unknown argument: {value}")),
         };
         let next = args
@@ -208,7 +206,11 @@ fn parse_arguments(args: &[String]) -> Result<(String, String), String> {
         index += 1;
     }
     let pipe_name = pipe_name.ok_or_else(|| "--pipe is required".to_string())?;
-    let capability = capability.ok_or_else(|| "--capability is required".to_string())?;
+    // The capability secret arrives in the environment rather than on the
+    // command line, so it is not exposed to other processes through argv. The
+    // spawning side sets the matching variable in computer_use_runtime.
+    let capability = std::env::var("QWENPAW_CU_CAPABILITY")
+        .map_err(|_| "QWENPAW_CU_CAPABILITY is required".to_string())?;
     if pipe_name.is_empty() || capability.is_empty() {
         return Err("Computer Use pipe configuration is empty".to_string());
     }

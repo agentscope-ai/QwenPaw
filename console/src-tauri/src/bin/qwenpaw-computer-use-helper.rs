@@ -21,7 +21,10 @@ mod computer_use_server;
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if !args.first().is_some_and(|value| value == "serve") {
-        eprintln!("usage: qwenpaw-computer-use-helper serve <endpoint> <capability>");
+        eprintln!(
+            "usage: qwenpaw-computer-use-helper serve --pipe <endpoint> \
+             (capability via QWENPAW_CU_CAPABILITY)",
+        );
         std::process::exit(2);
     }
     if let Err(error) = computer_use_server::run(&args[1..]) {
